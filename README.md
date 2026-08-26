@@ -9,20 +9,16 @@ One local engine broker for the whole workstation.
 ---
 
 **Nothing is built yet.** This repository holds a design only. `TODO.md` is the
-decision ledger.
+decision ledger and is authoritative; this file says only what the service is.
 
-`engined` owns LLM engine configuration, selection, OpenAI-compatible
-invocation, llama.cpp occupancy, and container lifecycle for every product on
-this machine. Consumers send an OpenAI-compatible chat request; `engined`
-selects the engine, runs it, and returns the answer plus a provenance record.
-Consumers own no engine config, no container lifecycle, and no keyring code.
-They keep their own adapters and product prompts.
+`engined` owns LLM engine configuration, engine selection and invocation for
+every product on this machine. Consumers send an OpenAI-shaped request naming a
+model or a chain; `engined` decides which engine serves it, runs it, and returns
+the answer with a provenance record. Consumers own no engine list, no container
+lifecycle and no keyring code.
 
-Agentic spawn (`claude -p`, `cursor-agent`) and the git write-guard live in
-`project-register`, not here.
+Agentic CLIs are an engine *kind*, not a separate API: they are launched with
+writing structurally disabled, so they read a repository and return text like
+any other completion. `engined` never writes to a caller's worktree.
 
-The CLI client is `engine`.
-
-Local-only: loopback TCP (and a unix socket for systemd activation), no
-authentication, no tenancy. `engined` knows nothing about the task — changing
-a feature's prompt must not require an `engined` change.
+Local-only: loopback TCP, no authentication, no tenancy.
