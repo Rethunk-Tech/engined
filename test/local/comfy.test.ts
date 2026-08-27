@@ -12,6 +12,7 @@ import {
   isContainerSpec,
   type ModelEntry,
 } from "../../src/types.ts";
+import { requireDaemonStopped } from "./exclusive.ts";
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -110,7 +111,13 @@ const HAVE_IMAGES =
   FIXTURE.comfyImage !== undefined &&
   imageBuilt(FIXTURE.llamaImage) &&
   imageBuilt(FIXTURE.comfyImage);
+
 const READY = LOCAL && HAVE_IMAGES && FIXTURE !== undefined;
+
+// See llama.test.ts: loud when this file would really drive containers.
+if (READY) {
+  requireDaemonStopped();
+}
 
 function skipReason(): string {
   if (FIXTURE === undefined) {

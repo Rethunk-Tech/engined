@@ -17,9 +17,21 @@ Three tiers, and the split is load-bearing rather than tidy.
 provenance against a fake upstream `Bun.serve`, needing nothing installed.
 
 `test/local/*.test.ts` needs images, a GPU or `claude` auth, and is guarded by
-`ENGINED_LOCAL=1`. It never runs in CI. **Only the llama router runs it against
-a real container, and serially** — this workstation shares one GPU with other
-work, so a second engine instance is never started to satisfy a test.
+`ENGINED_LOCAL=1`. It never runs in CI. It runs **serially against real
+containers** — llama, comfy and chatterbox each start one — so this
+workstation's single GPU never carries a second engine instance to satisfy a
+test.
+
+**Stop the unit first: `systemctl --user stop engined.service`.** The local
+tier drives the same container names the installed unit owns, and its
+`afterAll` stops them, which leaves a running daemon serving a `private_url`
+that refuses connections. `test/local/exclusive.ts` refuses to run rather than
+letting that happen quietly. Start the unit again afterwards.
+
+Run it as `bun run test:local`, never by pointing `bun` at the directory
+yourself: the script supplies `ENGINED_BUNX` and
+`ENGINED_TEST_CLAUDE_VERSION`, without which the agentic tests skip while the
+suite still exits 0.
 
 There are no mocks and no stub adapter, for the same reason the design refuses
 one at runtime: every trap here was tool behaviour rather than logic, and a fake

@@ -6,6 +6,7 @@ import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
+import { requireDaemonStopped } from "./exclusive.ts";
 
 /**
  * Drives the real `LlamaRouter` against local-llama's real container and
@@ -107,6 +108,12 @@ const CONTAINER_NAME = `engined-${FIXTURE.engine.id}`;
 const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
 const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
+
+// Module scope, guarded by READY: it must fire only when these tests would
+// really drive containers, and it must be loud rather than another clean skip.
+if (READY) {
+  requireDaemonStopped();
+}
 
 function skipReason(): string {
   if (FIXTURE.image === undefined) {

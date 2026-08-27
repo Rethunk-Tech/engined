@@ -8,6 +8,7 @@ import { DockerLifecycle } from "../../src/docker.ts";
 import { loadSpec } from "../../src/spec.ts";
 import type { EngineEntry } from "../../src/types.ts";
 import { isContainerSpec } from "../../src/types.ts";
+import { requireDaemonStopped } from "./exclusive.ts";
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox container
@@ -54,6 +55,11 @@ const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox") : undefined;
 const WHISPER_IMAGE = LOCAL ? specImage("whisper") : undefined;
 const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
 const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
+
+// See llama.test.ts: chatterbox's test starts the very container the unit owns.
+if (HAVE_CHATTERBOX || HAVE_WHISPER) {
+  requireDaemonStopped();
+}
 
 function describeTitle(base: string, ready: boolean, reason: string): string {
   return ready ? base : `${base}: SKIPPED -- ${reason}`;
