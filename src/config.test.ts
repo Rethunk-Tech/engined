@@ -48,7 +48,7 @@ models_dir = "~/llm-models"
 `;
 
 const EXPECTED_ENGINE_COUNT = 7;
-const EXPECTED_MODEL_COUNT = 4;
+const EXPECTED_MODEL_COUNT = 3;
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
@@ -80,9 +80,7 @@ const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 // files are pre-created -- the acceptance-level integration case.
 function workedConfig(): string {
   const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
-  const qwenFile =
-    "llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF/Qwen3.6-35B-A3B-uncensored-heretic-Q8_0.gguf";
-  const dir = tempModelsDir(ornithFile, qwenFile);
+  const dir = tempModelsDir(ornithFile);
   return `
 listen_port           = 29200
 chat_timeout_seconds  = 600
@@ -99,16 +97,6 @@ role     = "chat"
   spec-draft-p-min = 0.1
   spec-n-max       = 1
   ctx-size         = 32768
-
-[[model]]
-engine   = "local-llama"
-id       = "qwen36-q8"
-filename = "${qwenFile}"
-aliases  = ["qwen3.6"]
-role     = "chat"
-
-  [model.args]
-  ctx-size = 32768
 
 [[model]]
 engine = "claude"
