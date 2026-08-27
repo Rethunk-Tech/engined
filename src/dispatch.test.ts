@@ -438,21 +438,32 @@ function llamaExec(): Exec {
 
 const READY_200: Probe = () => Promise.resolve({ status: 200 });
 
-/** `/models/load` and `/models/unload` answer immediately; every other call is recorded. */
+/** `/models/load` and `/models/unload` answer immediately; every other call is recorded.
+ * Real b10354 contract, probed live: `/models/load` accepts with `{success:true}` and
+ * readiness is confirmed via `GET /v1/models`'s per-model `status.value` reaching
+ * "loaded" -- an already-resident model's 400 "already running" fires before the
+ * child is actually able to serve, so it is not the signal `loadAndWait` trusts. */
 function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
+  let lastLoadedModel: string | undefined;
   return (url: string, init?: RequestInit) => {
     if (url.endsWith("/models/load")) {
-      // Real b10354 contract: an already-resident model 400s "already
-      // running" -- that is the ready signal loadAndWait polls for.
-      return Promise.resolve(
-        Response.json(
-          { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
-          { status: 400 },
-        ),
-      );
+      if (typeof init?.body === "string") {
+        lastLoadedModel = (JSON.parse(init.body) as { model?: string }).model;
+      }
+      return Promise.resolve(Response.json({ success: true }));
     }
     if (url.endsWith("/models/unload")) {
       return Promise.resolve(Response.json({ status: "ok" }));
+    }
+    if (url.endsWith("/v1/models")) {
+      return Promise.resolve(
+        Response.json({
+          data:
+            lastLoadedModel === undefined
+              ? []
+              : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+        }),
+      );
     }
     if (typeof init?.body === "string") {
       recorded.push({ body: init.body });
@@ -651,21 +662,31 @@ function twoEngineExec(): Exec {
   };
 }
 
-/** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each records its own calls. */
+/** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each
+ * records its own calls. `/models/load` and `/v1/models` mirror the real b10354
+ * contract, probed live: accept, then report "loaded" -- the ready signal
+ * `loadAndWait` actually polls for. */
 function makeSplitHttpClient(
   deadStatus: number,
   deadCalls: string[],
   liveCalls: string[],
 ): HttpClient {
-  return (url: string) => {
+  let lastLoadedModel: string | undefined;
+  return (url: string, init?: RequestInit) => {
     if (url.endsWith("/models/load")) {
-      // Real b10354 contract: an already-resident model 400s "already
-      // running" -- that is the ready signal loadAndWait polls for.
+      if (typeof init?.body === "string") {
+        lastLoadedModel = (JSON.parse(init.body) as { model?: string }).model;
+      }
+      return Promise.resolve(Response.json({ success: true }));
+    }
+    if (url.endsWith("/v1/models")) {
       return Promise.resolve(
-        Response.json(
-          { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
-          { status: 400 },
-        ),
+        Response.json({
+          data:
+            lastLoadedModel === undefined
+              ? []
+              : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+        }),
       );
     }
     if (url.endsWith("/models/unload")) {

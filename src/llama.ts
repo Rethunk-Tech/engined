@@ -24,6 +24,8 @@ const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const MS_PER_SECOND = 1000;
+/** `/models/load`'s status for a model the router already considers resident. */
+const HTTP_ALREADY_RUNNING = 400;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 
 function sleep(ms: number): Promise<void> {
@@ -302,36 +304,43 @@ export class LlamaRouter {
   }
 
   /**
-   * `/models/load` is asynchronous, but not the way it looks from the docs:
-   * probed live against b10354, it never returns `{"status":"loaded"}` --
-   * a not-yet-resident model answers `{"success":true}` (accepted, still
-   * loading) and a call for an already-resident one 400s
-   * `{"error":{"message":"model is already running"}}`. That 400 *is* the
-   * ready signal; polling for a `status` field that is never sent timed out
-   * on every load, cold or warm, regardless of how fast the child actually
-   * came up. Bounded by `readyTimeoutS` -- the same per-engine budget the
-   * container readiness poll uses, since both are "wait for the engine to
-   * become able to serve." A load that never reaches either shape within it
-   * throws, so the caller's lease request rejects instead of wedging the
-   * role's pump forever.
+   * `/models/load` is asynchronous, but not the way it looks from the docs,
+   * and its own response is not the ready signal either -- both probed live
+   * against b10354. It never returns `{"status":"loaded"}`: a not-yet-
+   * resident model answers `{"success":true}` (accepted) and a call for an
+   * already-resident one 400s `{"error":{"message":"model is already
+   * running"}}`. That 400 looked like readiness and is not: on a 23 GB GGUF
+   * it fired ~0.25s after the trigger call, while the child was still on
+   * `text_model` stage 0 of its load, and a request proxied at that point
+   * 503'd. The real signal is `GET /v1/models`'s per-model
+   * `data[].status.value`, which transitions `unloaded -> loading -> loaded`
+   * and only reaches `loaded` once the child is actually able to serve --
+   * confirmed against the same GGUF, ~8s cold. Bounded by `readyTimeoutS` --
+   * the same per-engine budget the container readiness poll uses, since both
+   * are "wait for the engine to become able to serve." A load that never
+   * reaches `loaded` within it throws, so the caller's lease request rejects
+   * instead of wedging the role's pump forever.
    */
   private async loadAndWait(baseUrl: string, modelId: string): Promise<void> {
     const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
-    for (;;) {
-      const res = await this.httpClient(`${baseUrl}/models/load`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model: modelId }),
-      });
-      if (res.status === 400) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        if (body.error?.message === "model is already running") {
-          return;
-        }
+    const triggerRes = await this.httpClient(`${baseUrl}/models/load`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: modelId }),
+    });
+    if (triggerRes.status === HTTP_ALREADY_RUNNING) {
+      const body = (await triggerRes.json()) as { error?: { message?: string } };
+      if (body.error?.message !== "model is already running") {
         throw new Error(`${modelId}: load failed: ${body.error?.message ?? "400"}`);
       }
-      if (!res.ok) {
-        throw new Error(`${modelId}: load failed: ${res.status} ${await res.text()}`);
+      // Already running by another caller's race -- fall through to confirm
+      // real readiness via /v1/models rather than trusting this 400 alone.
+    } else if (!triggerRes.ok) {
+      throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`);
+    }
+    for (;;) {
+      if ((await this.modelStatus(baseUrl, modelId)) === "loaded") {
+        return;
       }
       if (Date.now() >= deadline) {
         throw new Error(
@@ -340,6 +349,15 @@ export class LlamaRouter {
       }
       await sleep(this.pollIntervalMs);
     }
+  }
+
+  /** The router's own per-model readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
+  private async modelStatus(baseUrl: string, modelId: string): Promise<string | undefined> {
+    const res = await this.httpClient(`${baseUrl}/v1/models`, { method: "GET" });
+    const body = (await res.json()) as {
+      data?: Array<{ id: string; status?: { value?: string } }>;
+    };
+    return body.data?.find((m) => m.id === modelId)?.status?.value;
   }
 
   /**

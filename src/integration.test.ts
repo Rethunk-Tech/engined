@@ -291,28 +291,41 @@ function buildExec(opts: BuildExecOptions): Exec {
   };
 }
 
-test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
-  const good = startFakeUpstream((request) => {
+/**
+ * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
+ * triggers via `/models/load` (real b10354 contract, probed live: answers
+ * `{success:true}`, never a "loaded" status) and confirms readiness via
+ * `GET /v1/models`'s per-model `status.value` -- any other shape here loops
+ * `loadAndWait` forever. `content` is the chat body returned once resident.
+ */
+function fakeLlamaUpstream(content: string): (request: Request) => Response | Promise<Response> {
+  let lastLoadedModel: string | undefined;
+  return async (request) => {
     const { pathname } = new URL(request.url);
     if (pathname === "/health") {
       return new Response("", { status: 200 });
     }
-    // LlamaRouter.loadAndWait polls /models/load until the real b10354
-    // contract's ready signal: a 400 "model is already running" -- it never
-    // sends a "loaded" status, and any other shape here loops forever.
     if (pathname === "/models/load") {
-      return Response.json(
-        {
-          error: { code: 400, message: "model is already running", type: "invalid_request_error" },
-        },
-        { status: 400 },
-      );
+      lastLoadedModel = ((await request.json()) as { model?: string }).model;
+      return Response.json({ success: true });
+    }
+    if (pathname === "/v1/models") {
+      return Response.json({
+        data:
+          lastLoadedModel === undefined
+            ? []
+            : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+      });
     }
     if (pathname === "/models/unload") {
       return Response.json({ ok: true });
     }
-    return Response.json({ choices: [{ message: { content: "answered by good" } }] });
-  });
+    return Response.json({ choices: [{ message: { content } }] });
+  };
+}
+
+test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
+  const good = startFakeUpstream(fakeLlamaUpstream("answered by good"));
   const [, goodPort] = good.base.split(":");
   const dead = deadPort();
 

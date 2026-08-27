@@ -16,6 +16,7 @@ const LOAD_PATH = "/models/load";
 const UNLOAD_PATH = "/models/unload";
 const CHAT_PATH = "/v1/chat/completions";
 const EMBED_PATH = "/v1/embeddings";
+const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
@@ -90,25 +91,25 @@ interface RecordedCall {
   body: { model?: string; stream?: boolean } | undefined;
 }
 
-/** Matches the real b10354 contract, probed live: never `{status:"loaded"}` --
- * the first `/models/load` for a model answers `{success:true}` (accepted,
- * still loading) and every call once it is resident 400s "model is already
- * running". Second call onward reports resident, same as the real child did
- * for the tiny nomic embedding model in the live probe. */
-function alreadyRunning(): Response {
-  return Response.json(
-    { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
-    { status: 400 },
-  );
+/** Matches the real b10354 contract, probed live: `/models/load` never returns
+ * `{status:"loaded"}` -- a not-yet-resident model answers `{success:true}`
+ * (accepted) and an already-resident one 400s "model is already running".
+ * That 400 is not readiness either -- probed live, it fired while a 23 GB
+ * GGUF was still on load stage 0. The real signal is `GET /v1/models`'s
+ * per-model `status.value`, which transitions unloaded -> loading -> loaded. */
+function modelsList(entries: Array<{ id: string; status: string }>): Response {
+  return Response.json({ data: entries.map((e) => ({ id: e.id, status: { value: e.status } })) });
 }
 
-/** A minimal llama-server router double: load/unload always succeed, everything else echoes its request model. */
+/** A minimal llama-server router double: load/unload always succeed and the model
+ * requested becomes immediately "loaded" on the next /v1/models poll; everything
+ * else echoes its request model. */
 function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
   client: HttpClient;
   calls: RecordedCall[];
 } {
   const calls: RecordedCall[] = [];
-  const loadCounts = new Map<string, number>();
+  let lastLoadRequested: string | undefined;
   const client: HttpClient = (input, init) => {
     const url = new URL(String(input));
     const bodyStr = typeof init?.body === "string" ? init.body : undefined;
@@ -120,10 +121,15 @@ function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
       return Promise.resolve(hooked);
     }
     if (url.pathname === LOAD_PATH) {
-      const key = body?.model ?? "";
-      const n = (loadCounts.get(key) ?? 0) + 1;
-      loadCounts.set(key, n);
-      return Promise.resolve(n === 1 ? Response.json({ success: true }) : alreadyRunning());
+      lastLoadRequested = body?.model;
+      return Promise.resolve(Response.json({ success: true }));
+    }
+    if (url.pathname === MODELS_LIST_PATH) {
+      return Promise.resolve(
+        modelsList(
+          lastLoadRequested === undefined ? [] : [{ id: lastLoadRequested, status: "loaded" }],
+        ),
+      );
     }
     if (url.pathname === UNLOAD_PATH) {
       return Promise.resolve(Response.json({ ok: true }));
@@ -204,17 +210,17 @@ test("chat for model B while same-role model A is resident and idle: unload A, l
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
   await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
-  // Default fakeLlama mirrors the real b10354 handshake: a fresh load takes
-  // two /models/load calls (accepted, then already-running) before the swap
-  // proceeds.
+  // Default fakeLlama mirrors the real b10354 handshake: a POST /models/load
+  // trigger, then a GET /v1/models poll for the "loaded" status -- the real
+  // ready signal, per the live probe -- before the swap proceeds.
   const paths = calls.map((c) => c.path);
   expect(paths).toEqual([
     LOAD_PATH,
-    LOAD_PATH,
+    MODELS_LIST_PATH,
     CHAT_PATH,
     UNLOAD_PATH,
     LOAD_PATH,
-    LOAD_PATH,
+    MODELS_LIST_PATH,
     CHAT_PATH,
   ]);
   expect(calls[3]?.body?.model).toBe("a");
@@ -234,14 +240,11 @@ test("a different-role model resident is untouched by a chat swap", async () => 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
   await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
-  // Two /models/load calls (the default fake's accepted-then-already-running
-  // handshake) and never an unload: vision is loaded once, up front, and the
-  // later chat swaps between "a" and "b" never touch its role.
   const visionLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "v",
   );
-  expect(visionLoadOrUnload).toHaveLength(2);
-  expect(visionLoadOrUnload.every((c) => c.path === LOAD_PATH)).toBe(true);
+  expect(visionLoadOrUnload).toHaveLength(1);
+  expect(visionLoadOrUnload[0]?.path).toBe(LOAD_PATH);
 });
 
 test("an embedding request co-resides with a resident chat model: neither evicts the other", async () => {
@@ -268,18 +271,10 @@ test("an embedding request co-resides with a resident chat model: neither evicts
   const embedLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "embed",
   );
-  // Each loaded exactly once (the default fake's two-call accepted-then-
-  // already-running handshake) and never unloaded: the embedding request did
-  // not evict the chat resident, and the second chat request -- already the
-  // resident -- took the synchronous fast path with no further load call.
-  expect(chatLoadOrUnload).toEqual([
-    { path: LOAD_PATH, body: { model: "chat-a" } },
-    { path: LOAD_PATH, body: { model: "chat-a" } },
-  ]);
-  expect(embedLoadOrUnload).toEqual([
-    { path: LOAD_PATH, body: { model: "embed" } },
-    { path: LOAD_PATH, body: { model: "embed" } },
-  ]);
+  // Each loaded exactly once and never unloaded: the embedding request did not
+  // evict the chat resident, and the second chat request did not re-swap.
+  expect(chatLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "chat-a" } }]);
+  expect(embedLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "embed" } }]);
 });
 
 test("two overlapping chats for the same GGUF both complete without a second load", async () => {
@@ -327,12 +322,8 @@ test("two overlapping chats for the same GGUF both complete without a second loa
   releaseFirst();
   await text(res1);
 
-  // Two /models/load calls total (the default fake's accepted-then-already-
-  // running handshake for the one load) -- the overlapping second request
-  // found the resident already active and took the synchronous fast path,
-  // issuing no load call of its own.
   const loadCalls = calls.filter((c) => c.path === LOAD_PATH);
-  expect(loadCalls).toHaveLength(2);
+  expect(loadCalls).toHaveLength(1);
   expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
 });
 
@@ -392,34 +383,36 @@ test("a different-GGUF same-role chat arriving mid-lease waits, without eviction
   expect(unloadA).toBeDefined();
 });
 
-test("/models/load answering success:true is polled until the already-running 400 before any proxy call", async () => {
+test('/models/load only triggers; readiness is polled via /v1/models until "loaded"', async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  let loadAttempts = 0;
+  let pollAttempts = 0;
   const { client, calls } = fakeLlama((call) => {
-    if (call.path !== LOAD_PATH) {
+    if (call.path !== MODELS_LIST_PATH) {
       return;
     }
-    loadAttempts++;
-    return loadAttempts < 3 ? Response.json({ success: true }) : alreadyRunning();
+    pollAttempts++;
+    return modelsList([{ id: "a", status: pollAttempts < 3 ? "loading" : "loaded" }]);
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
 
-  expect(loadAttempts).toBe(3);
-  const loadIdxs = calls.map((c, i) => (c.path === LOAD_PATH ? i : -1)).filter((i) => i >= 0);
+  expect(pollAttempts).toBe(3);
+  const pollIdxs = calls
+    .map((c, i) => (c.path === MODELS_LIST_PATH ? i : -1))
+    .filter((i) => i >= 0);
   const chatIdx = calls.findIndex((c) => c.path === CHAT_PATH);
-  expect(chatIdx).toBeGreaterThan(Math.max(...loadIdxs));
+  expect(chatIdx).toBeGreaterThan(Math.max(...pollIdxs));
 });
 
-test("a /models/load that never reaches the already-running 400 fails within the timeout instead of hanging", async () => {
+test('a model that never reports "loaded" via /v1/models fails within the timeout instead of hanging', async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
   const { client } = fakeLlama((call) =>
-    call.path === LOAD_PATH ? Response.json({ success: true }) : undefined,
+    call.path === MODELS_LIST_PATH ? modelsList([{ id: "a", status: "loading" }]) : undefined,
   );
   const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), readyTimeoutS: 0.05 });
 
@@ -433,11 +426,18 @@ test("the role's lease is free after a failed load: a later request for the role
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client } = fakeLlama((call) =>
-    call.path === LOAD_PATH && call.body?.model === "a"
-      ? Response.json({ success: true })
-      : undefined,
-  );
+  let lastLoad: string | undefined;
+  const { client } = fakeLlama((call) => {
+    if (call.path === LOAD_PATH) {
+      lastLoad = call.body?.model;
+      return; // default {success:true} answers the trigger
+    }
+    // "a" never reports loaded; "b" falls through to the default fake's
+    // immediate "loaded" so the later request can prove the role recovered.
+    return call.path === MODELS_LIST_PATH && lastLoad === "a"
+      ? modelsList([{ id: "a", status: "loading" }])
+      : undefined;
+  });
   const router = new LlamaRouter(e, [a, b], lifecycle, {
     ...baseOpts(client),
     readyTimeoutS: 0.05,
