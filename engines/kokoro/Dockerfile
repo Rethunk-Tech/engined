@@ -71,6 +71,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/hf_cache
 ENV PATH="/opt/venv/bin:${PATH}"
+# Without this, MIOpen re-searches kernels on every new process -- 5-60s
+# added latency per request on this exact ROCm/gfx1151 stack (Kokoro-FastAPI
+# on Ryzen AI MAX+ 395 / Radeon 8060S, ROCm 7.2.0).
+# https://github.com/remsky/Kokoro-FastAPI/issues/454
+ENV MIOPEN_FIND_MODE=2
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app/hf_cache /app/hf_cache
