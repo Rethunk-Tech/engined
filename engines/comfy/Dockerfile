@@ -1,35 +1,49 @@
-# Adapted from sagaforge-ts's docker/comfyui/Dockerfile from a read-only
-# fleet-image survey (this worker's fence does not include that repo, so
-# this is a reconstruction from recorded facts, not a copy). Same base,
-# ComfyUI ref and rationale; confirm exact package pins against the source
-# file before shipping.
+# Verified against sagaforge-ts's docker/comfyui/Dockerfile (read-only fleet
+# access, not a summary). Two-stage, restored from the prior single-stage
+# reconstruction now that the runtime copy can be confirmed correct: the
+# runtime stage needs exactly /opt/venv (the ROCm PyTorch install) and
+# /opt/comfyui (the cloned checkout plus its installed deps, since pip
+# installs into the venv the checkout is built alongside) -- both self
+# contained, no other build-only state leaks into ComfyUI's own imports.
 #
-# rocm/dev-ubuntu-24.04:7.2.4 over rocm/pytorch: ~19GB vs ~40GB. Native
-# gfx1151 detection on ROCm 7.2.4 -- no HSA_OVERRIDE_GFX_VERSION anywhere in
-# the fleet's ROCm images, here included.
-#
-# The source build is two-stage; this is single-stage until someone with
-# access to the source Dockerfile confirms what the runtime stage actually
-# needs copied across. Guessing that wrong ships a container that fails at
-# startup instead of at build, which is worse than the extra image size.
-FROM rocm/dev-ubuntu-24.04:7.2.4
-
-ARG COMFYUI_REF=v0.9.2
+# rocm/dev-ubuntu-24.04:7.2.4, not rocm/pytorch or the "-complete" tag: the
+# official PyTorch ROCm wheel is self-contained (bundles its own
+# MIOpen/rocBLAS/rocRAND/etc.), so a base that also ships those duplicates
+# them for no benefit. Measured on the source box: rocm/pytorch is 40GB;
+# this base plus the wheel is 19GB, both correctly detect gfx1151. Native
+# gfx1151 detection -- no HSA_OVERRIDE_GFX_VERSION anywhere in the fleet's
+# ROCm images, here included.
+FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git python3 python3-pip \
+      python3-venv python3-dev build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch ${COMFYUI_REF} \
-      https://github.com/comfyanonymous/ComfyUI.git /opt/comfyui
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+RUN pip install --no-cache-dir torch torchvision torchaudio \
+      --index-url https://download.pytorch.org/whl/rocm7.2
 
+ARG COMFYUI_REF=v0.9.2
 WORKDIR /opt/comfyui
+RUN git clone --branch ${COMFYUI_REF} --depth 1 \
+      https://github.com/comfyanonymous/ComfyUI.git . \
+    # torch/torchvision/torchaudio already installed above from the ROCm
+    # index -- ComfyUI's own requirements.txt pins CUDA wheels for those, and
+    # letting pip see both would fight the ROCm install just made. requests:
+    # imported by app/frontend_management.py but missing from ComfyUI's own
+    # requirements.txt as of v0.9.2 -- confirmed by inspecting the file, not
+    # a guess.
+    && grep -viE '^(torch|torchvision|torchaudio)([<>=~! ].*)?$' requirements.txt \
+      > requirements.rocm.txt \
+    && pip install --no-cache-dir -r requirements.rocm.txt requests
 
-# PyTorch from the ROCm 7.2 wheel index, per the fleet survey.
-RUN pip install --no-cache-dir --break-system-packages \
-      --index-url https://download.pytorch.org/whl/rocm7.2 \
-      torch torchvision torchaudio \
-    && pip install --no-cache-dir --break-system-packages -r requirements.txt
+FROM rocm/dev-ubuntu-24.04:7.2.4
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/comfyui /opt/comfyui
+ENV PATH="/opt/venv/bin:${PATH}"
+WORKDIR /opt/comfyui
 
 EXPOSE 8188
 
