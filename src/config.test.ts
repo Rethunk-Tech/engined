@@ -359,6 +359,29 @@ filename = "should-not-be-here.gguf"
     expect(message).toMatch(RX_MUST_NOT_FILENAME);
     expect(message).not.toContain("agentic");
   });
+
+  // `[model.args]` reaches argv only via llama.ts's own preset-INI renderer
+  // (`resolveArgs(engine.args, m.args)`), gated on the same
+  // `requiresFilenameAndRole` boundary as filename/role. An agentic model's
+  // args were parsed and forbidden-flag-checked but then simply never read
+  // again anywhere -- the same accept-and-drop failure the closed key sets
+  // exist to prevent.
+  test("an agentic model's [model.args] is rejected -- nothing ever reads a non-llama model's own args", () => {
+    const message = chainHopMessage(`
+[[engine]]
+id = "claude"
+egress = "remote"
+
+[[model]]
+id = "x"
+engine = "claude"
+
+  [model.args]
+  max-turns = 5
+`);
+    expect(message).toContain('model "x" on engine "claude"');
+    expect(message).toContain("args");
+  });
 });
 
 describe("engine required/forbidden fields", () => {
@@ -382,6 +405,27 @@ models_dir = "~/models"
 secret = { service = "s", username = "u", header = "h" }
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_MODELS_DIR);
+  });
+
+  // A remote, non-agentic engine has no spec directory at all (`entry.spec`
+  // is null for any `base_url` engine) and reaches `execAgentic`'s own
+  // `engineEntry.args` read only when its kind is agentic-cli -- so declaring
+  // args here is provably inert: nothing in the door will ever read them.
+  test("a remote, non-agentic engine's [engine.args] is rejected -- nothing reachable ever reads it", () => {
+    const toml = `
+[[engine]]
+id = "hosted-thing"
+egress = "remote"
+kind = "openai-http"
+base_url = "https://x"
+secret = { service = "s", username = "u", header = "h" }
+
+  [engine.args]
+  some-flag = "value"
+`;
+    const message = chainHopMessage(toml);
+    expect(message).toContain('engine "hosted-thing"');
+    expect(message).toContain("args");
   });
 
   test("an unrecognised top-level engine key is fatal", () => {

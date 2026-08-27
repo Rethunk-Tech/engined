@@ -154,8 +154,20 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
 
   checkRemoteAddress(raw, site, file);
   const rawModelsDir = optional(raw.models_dir, "string", `${site} "models_dir"`, file);
+  const claudeVersion = optional(raw.claude_version, "string", `${site} "claude_version"`, file);
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argsToArgv(args), file);
+  // A remote address with no claude_version launches nothing agentic-cli
+  // reaches (execAgentic only reads engine.args for that kind) and has no
+  // spec directory to render argv into either (base_url skips loadEngineSpec
+  // entirely) -- so its own [engine.args] is provably inert, not merely
+  // unused. Rejected here rather than silently accepted and dropped.
+  if (raw.base_url !== undefined && claudeVersion === undefined && Object.keys(args).length > 0) {
+    throw new ParseError(
+      `${site} is a remote, non-agentic engine and declares "args" that nothing will ever read`,
+      file,
+    );
+  }
 
   return {
     id,
@@ -170,7 +182,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
       file,
     ),
     ready_timeout_s: optional(raw.ready_timeout_s, "number", `${site} "ready_timeout_s"`, file),
-    claude_version: optional(raw.claude_version, "string", `${site} "claude_version"`, file),
+    claude_version: claudeVersion,
     kind: parseKind(raw, site, file),
     base_url: optional(raw.base_url, "string", `${site} "base_url"`, file),
     secret: raw.secret === undefined ? undefined : parseSecret(raw.secret, site, file),
@@ -230,6 +242,18 @@ function validateModelAgainstEngine(
     if (m.role !== undefined) {
       throw new ParseError(
         `${site} must not declare "role": engine "${engine.id}" has no local model store to host it`,
+        file,
+      );
+    }
+    // A model's own [model.args] reaches argv only through llama's preset-INI
+    // renderer (resolveArgs(engine.args, m.args)), which runs exclusively for
+    // a model on the same models_dir-hosting engine filename/role require.
+    // Anywhere else it is parsed, forbidden-flag-checked, and never read
+    // again -- the same accept-and-drop failure the closed key sets exist to
+    // prevent, so it is rejected here rather than silently ignored.
+    if (Object.keys(m.args).length > 0) {
+      throw new ParseError(
+        `${site} declares "args" that nothing reads: engine "${engine.id}" has no local model store to render them into`,
         file,
       );
     }
