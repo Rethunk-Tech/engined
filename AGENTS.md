@@ -2,61 +2,12 @@
 
 `TODO.md` is the authoritative artifact and
 is organised **per feature** — each entry carrying its own description, `Traps`
-and `Acceptance`. `PHASES.md` holds only the order to build them in and
-references those entries without restating them. `docs/migrations/` holds one
+and `Acceptance`. `docs/migrations/` holds one
 cutover guide per consumer. `README.md` says only what the service is.
 
 The implementation lives in `src/`, Bun and TypeScript, and is built against
 those entries rather than against itself: an acceptance criterion is the test,
 and a `Traps` bullet is a behaviour some engine actually has.
-
-## How the work is ordered
-
-`PHASES.md` orders **phase completion**, not the moment each file is written. A
-module whose dependencies are already met may be built ahead of its phase — the
-phases still close in order, and a phase is done only when every acceptance
-criterion of every entry it names passes. The alternative idles most of the
-build, because the tail of a phase is usually serial.
-
-Each phase carries a why-this-slice-here argument, not just a delivery list:
-
-1. **Config, routes, status.** The slice that serves no completion. Everything
-   after it is an engine plugged into machinery that already exists, which is
-   why the generic lifecycle lands here rather than being rebuilt per engine in
-   phases 2, 6 and 7. `GET /v1/engines` ships here for the same reason: it is
-   the only operator surface, so a phase that could not report its own state
-   would have to be debugged blind.
-2. **The llama.cpp router.** The founding problem is two llama.cpp processes,
-   so the engine that ends it comes first among engines. It is also the
-   hardest one — router mode, per-role occupancy, the presets INI, swap cost —
-   and everything learned here shapes how the rest are specified. The extras
-   proxy rides along because it is the same upstream and the same injection
-   rule, and splitting it would mean touching this engine twice.
-3. **Chains, fallback, egress.** Needs two engines to be meaningful, and phase
-   2 only supplies one — so this phase's fault injection uses a deliberately
-   broken hop rather than waiting for phase 4. Provenance lands with it
-   because a chain that cannot say which engine answered is not auditable,
-   and auditability is the reason chains are allowed to egress at all.
-4. **Remote engines and secrets.** The first phase where a prompt can leave
-   the machine, which is why it comes after the rules that govern leaving are
-   already built and tested.
-5. **The agentic kind.** Last of the text engines because it is the one whose
-   safety is a property of how it is launched rather than of what it is. It
-   needs the config shape, the spec dialect, provenance and the sandbox all
-   finished before its guarantee means anything — and it is the phase
-   `project-register` waits on.
-6. **Audio.** After the text path is settled, because nothing in the audio
-   doors is novel once the lifecycle and the spec dialect exist. TTS before
-   STT within the phase: chatterbox has a runnable image and whisper needs
-   both an image and a model artifact that are not on this box.
-7. **Comfy lifecycle.** Deliberately near the end. Comfy is explicitly *not*
-   the collision this project exists to end — it already loads on demand and
-   unloads after jobs — so it moves last among managed engines, and only for
-   the lifecycle, never a proxy.
-8. **Embeddings.** Last because it is the only engine whose model choice has
-   a consumer-visible consequence beyond this repository, and because it
-   co-resides on the phase-2 llama-server rather than adding an engine of its
-   own.
 
 ## Testing
 
@@ -179,7 +130,7 @@ enforcement has not been *shown* is not shipped.
 
 ## Before committing
 
-`python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md
+`python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md
 docs/migrations/*.md`, or `gate run docs`. It catches edit damage a reader misses: a sentence that lost its
 tail to a partial revision, an unclosed fence, a term declared absent in one
 section and still required by an acceptance criterion in another.

@@ -9,8 +9,8 @@ One local engine broker for the whole workstation.
 ---
 
 `TODO.md` is the scope, one entry per feature, and is authoritative;
-`PHASES.md` is the order to build them in; `docs/migrations/` holds one cutover
-guide per consumer. This file says only what the service is.
+`docs/migrations/` holds one cutover guide per consumer. This file says only
+what the service is.
 
 `config.example.toml` is a worked, committed configuration covering every
 engine this repo ships a spec for. Copy it to
@@ -55,6 +55,10 @@ the obvious spelling collides with reality: a Hugging Face id is already
 bare `engine/model` cannot be told apart from a repo name. `@/` is not
 decoration — it is what makes the namespace unambiguous without banning
 slashes from either side.
+
+A `chain-<name>` hop may leave the machine, and provenance is why that is
+allowed at all: a hop that cannot say which engine answered is not
+auditable, and an unauditable egress is not one this design accepts.
 
 ## Transport
 
@@ -112,5 +116,10 @@ the per-engine **start lock**, and the per-role **lease**. Occupancy is
 per-role residency plus explicit same-role unload, not a GPU-wide semaphore.
 No multi-machine, auth, tenancy or web UI — the operator surface is
 `GET /v1/engines`. No stub adapter.
+
+**No proxy for Comfy, on purpose.** It is explicitly not the collision this
+project exists to end — it already loads on demand and unloads after its
+own jobs. engined manages only its container lifecycle; a consumer reaches
+a started job at its `private_url` directly.
 
 Add any of these when a second consumer, modality or person makes the case.
