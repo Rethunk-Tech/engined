@@ -4,12 +4,6 @@
  * real `Bun.serve` fake upstreams standing in for engine containers. Each
  * fake upstream's own request log is what proves an engine was never
  * reached; a status code alone never is.
- *
- * `handleContent` in `src/main.ts` is still a 501 stub, so every criterion
- * that needs `POST /v1/chat/completions` to actually proxy is written as a
- * real, ready test body and marked `test.skip` rather than deleted or left
- * to pass vacuously against the stub. See the block below the reachable
- * tests.
  */
 
 import { expect, test } from "bun:test";
@@ -62,6 +56,11 @@ function specDirFor(toml: string): string {
   return dir;
 }
 
+/** LlamaRouter's default preset path is the real state dir; every test that reaches ensureStarted() redirects it here instead. */
+function tempPresetPath(): string {
+  return join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini");
+}
+
 const OPENAI_SPEC = `
 kind = "openai-http"
 image = "test-openai:local"
@@ -97,7 +96,20 @@ function containerEngine(
   toml: string,
   overrides: Partial<EngineEntry> = {},
 ): EngineEntry {
-  return { id, egress: "none", args: {}, spec_dir: specDirFor(toml), ...overrides };
+  // models_dir: LlamaRouter.ensureStarted() calls buildLlamaSpec
+  // unconditionally for any openai-http-kind engine (there is no remote,
+  // non-router-mode openai-http variant wired anywhere yet), and
+  // buildLlamaSpec throws without one. Harmless for the agentic/comfy specs
+  // this helper also builds, since isLocalLlama gates engines.ts's own use
+  // of it on kind === "openai-http" too.
+  return {
+    id,
+    egress: "none",
+    args: {},
+    spec_dir: specDirFor(toml),
+    models_dir: "/models-host",
+    ...overrides,
+  };
 }
 
 test("GET /v1/models is a menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
@@ -189,10 +201,8 @@ test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
   }
 });
 
-// --- Not yet reachable: handleContent in src/main.ts still returns 501 for
-// every POST content endpoint. The harness below is real; each test is
-// `test.skip` until that wiring lands, not deleted and not left to pass
-// against the 501 it would get today.
+// --- POST /v1/chat/completions, actually proxied: chain failover,
+// local_only truncation, chain exhaustion, and the agentic workdir rule.
 
 const SINGLE_PORT_INSPECT = JSON.stringify([{ Config: { ExposedPorts: { "80/tcp": {} } } }]);
 
@@ -281,10 +291,16 @@ function buildExec(opts: BuildExecOptions): Exec {
   };
 }
 
-test.skip("a chain whose first hop is dead completes on the second, and provenance names the second engine -- BLOCKED: handleContent in main.ts is still a 501 stub", async () => {
+test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
   const good = startFakeUpstream((request) => {
-    if (new URL(request.url).pathname === "/health") {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
       return new Response("", { status: 200 });
+    }
+    // LlamaRouter.loadAndWait polls /models/load until it sees "loaded" --
+    // with no deadline of its own, any other shape here loops forever.
+    if (pathname === "/models/load" || pathname === "/models/unload") {
+      return Response.json({ status: "loaded" });
     }
     return Response.json({ choices: [{ message: { content: "answered by good" } }] });
   });
@@ -296,17 +312,23 @@ test.skip("a chain whose first hop is dead completes on the second, and provenan
   });
   const config = baseConfig({
     models: [
-      { id: "m", engine: "dead", aliases: [], args: {} },
-      { id: "m", engine: "good", aliases: [], args: {} },
+      { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
+      { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
     ],
-    engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
+    engines: [
+      // Short readiness timeout: nothing listens on `dead`, so the poll
+      // must give up fast rather than spend the 60s default finding out.
+      containerEngine("dead", openaiSpec(), { ready_timeout_s: 0.1 }),
+      containerEngine("good", openaiSpec()),
+    ],
     chains: { "chain-x": ["@/dead/m", "@/good/m"] },
   });
-  const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
-    exec,
-  });
+  const lines: string[] = [];
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { write: (line) => lines.push(line), llamaPresetHostPath: tempPresetPath() },
+  );
 
   try {
     const res = await door.fetch(
@@ -318,25 +340,25 @@ test.skip("a chain whose first hop is dead completes on the second, and provenan
 
     expect(res.status).toBe(200);
     expect(body).toContain("answered by good");
-    // Provenance's engine_used should also be asserted here as "good", but
-    // createDoor has no provenance-writer injection point yet -- a second
-    // gap beyond the 501 stub. Add it once RegistryOptions/createDoor
-    // exposes one; never assert against real stdout.
+
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+    expect(record.engine_used).toBe("good");
   } finally {
     good.stop();
     await door.registry.shutdown();
   }
 });
 
-test.skip("local_only: true against a public chain never reaches a remote hop, even when the local hop cannot serve -- BLOCKED: handleContent in main.ts is still a 501 stub", async () => {
+test("local_only: true against a public chain never reaches a remote hop, even when the local hop cannot serve", async () => {
   const remote = startFakeUpstream(() => Response.json({ ok: true }));
   const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
 
   const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
   const config = baseConfig({
     models: [
-      { id: "m", engine: "local", aliases: [], args: {} },
-      { id: "m", engine: "remote", aliases: [], args: {} },
+      { id: "m", engine: "local", role: "chat", aliases: [], args: {} },
+      { id: "m", engine: "remote", role: "chat", aliases: [], args: {} },
     ],
     engines: [
       containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
@@ -344,11 +366,11 @@ test.skip("local_only: true against a public chain never reaches a remote hop, e
     ],
     chains: { "chain-public": ["@/local/m", "@/remote/m"] },
   });
-  const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
-    exec,
-  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath() },
+  );
 
   try {
     const res = await door.fetch(
@@ -376,12 +398,12 @@ test.skip("local_only: true against a public chain never reaches a remote hop, e
   }
 });
 
-test.skip("every engine in a chain unavailable returns 503 listing each attempt -- BLOCKED: handleContent in main.ts is still a 501 stub", async () => {
+test("every engine in a chain unavailable returns 503 listing each attempt", async () => {
   const exec = buildExec({ missingImages: new Set(["missing-e1:local", "missing-e2:local"]) });
   const config = baseConfig({
     models: [
-      { id: "m", engine: "e1", aliases: [], args: {} },
-      { id: "m", engine: "e2", aliases: [], args: {} },
+      { id: "m", engine: "e1", role: "chat", aliases: [], args: {} },
+      { id: "m", engine: "e2", role: "chat", aliases: [], args: {} },
     ],
     engines: [
       containerEngine("e1", openaiSpec("missing-e1:local")),
@@ -389,11 +411,11 @@ test.skip("every engine in a chain unavailable returns 503 listing each attempt 
     ],
     chains: { "chain-z": ["@/e1/m", "@/e2/m"] },
   });
-  const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
-    exec,
-  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath() },
+  );
 
   try {
     const res = await door.fetch(
@@ -410,9 +432,14 @@ test.skip("every engine in a chain unavailable returns 503 listing each attempt 
   }
 });
 
-test.skip("an agentic attempt with no workdir returns 400 -- BLOCKED: handleContent in main.ts is still a 501 stub", async () => {
+test("an agentic attempt with no workdir returns 400", async () => {
   const config = baseConfig({
-    engines: [containerEngine("claude", AGENTIC_SPEC, { egress: "remote" })],
+    // claude_version drives buildArgv directly (not the loaded spec's own
+    // command array, which agentic.ts never reads) -- required for
+    // execAgentic to reach the workdir check at all.
+    engines: [
+      containerEngine("claude", AGENTIC_SPEC, { egress: "remote", claude_version: "1.0.0" }),
+    ],
   });
   const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
 

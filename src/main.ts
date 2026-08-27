@@ -311,8 +311,13 @@ const SHIPPED_CLAUDE_ID = "claude";
 
 function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
   const id = engineEntry.base_url === undefined ? engineEntry.id : SHIPPED_CLAUDE_ID;
+  // spec_dir is not touched: config.ts's checkRemoteAddress already forbids
+  // it wherever base_url is set, so it is undefined there by construction —
+  // forcing it would only ever discard a *local* agentic engine's own
+  // legitimate spec_dir override, which is a real per-engine feature and
+  // not specific to the redirect case at all.
   return loadSpec(
-    { ...engineEntry, id, spec_dir: undefined },
+    { ...engineEntry, id },
     { enginesRoot: ctx.registryOpts.enginesRoot, bunx: ctx.registryOpts.bunx },
   );
 }
