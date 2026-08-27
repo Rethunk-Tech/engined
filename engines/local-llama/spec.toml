@@ -59,6 +59,15 @@ security_opt = ["label=disable"]
 # through the door returning a 1024-length vector. See config.example.toml's
 # `embed` model's [model.args].
 #
+# `spec-draft-p-min` has its own trap the other way: the router rewrites it
+# to llama-server's short alias `--draft-p-min` on the child's real argv --
+# `--spec-draft-n-max` and `--spec-type` on the same child come through
+# unrewritten, so this is per-flag, not a blanket `spec-`-prefix drop.
+# Checking argv for the INI key's own spelling reads as "the value never
+# reached the child" when it did; confirmed via /proc/<pid>/cmdline on a
+# swapped-in test resident (test/local/llama.test.ts's same-role swap test),
+# not just the rendered preset.
+#
 # POST /models/load is asynchronous: it returned in 7 ms with status
 # "loading"; poll until "loaded" before proxying, and that poll IS the
 # `warming` state a caller sees.

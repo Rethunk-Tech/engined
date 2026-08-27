@@ -291,9 +291,19 @@ describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
  * distinct resident ids to swap between, not two distinct multi-gigabyte
  * downloads. What is under test is the swap machinery and the args
  * substitution, not this particular GGUF's content.
+ *
+ * The varying flag is `spec-draft-p-min`, not `ctx-size`: TODO.md's own
+ * "LIVE, UNRESOLVED" trap proves `ctx-size` in `[model.args]` is silently
+ * ignored in favour of the engine-level one, so asserting on it here would
+ * pin a test to the one flag documented not to work. `spec-type` +
+ * `spec-draft-p-min` are the two proven-reaching-argv per-model keys (see
+ * `engines/local-llama/spec.toml`), and this exact GGUF is already MTP-
+ * capable and already runs with `spec-type = "draft-mtp"` in production
+ * (`config.example.toml`'s real `ornith` model), so reusing it here proves
+ * the swap machinery against a flag that can actually land.
  */
-const SWAP_CTX_A = 4096;
-const SWAP_CTX_B = 8192;
+const SWAP_PMIN_A = 0.15;
+const SWAP_PMIN_B = 0.35;
 
 function swapModels(): [ModelEntry, ModelEntry] | undefined {
   if (!CHAT || CHAT.filename === undefined) {
@@ -305,14 +315,27 @@ function swapModels(): [ModelEntry, ModelEntry] | undefined {
     role: "chat" as const,
     aliases: [],
   };
+  const specArgs = (pMin: number) => ({
+    "spec-type": "draft-mtp",
+    "spec-draft-p-min": pMin,
+    "spec-draft-n-max": 1,
+  });
   return [
-    { ...base, id: "engined-local-test-swap-a", args: { "ctx-size": SWAP_CTX_A } },
-    { ...base, id: "engined-local-test-swap-b", args: { "ctx-size": SWAP_CTX_B } },
+    { ...base, id: "engined-local-test-swap-a", args: specArgs(SWAP_PMIN_A) },
+    { ...base, id: "engined-local-test-swap-b", args: specArgs(SWAP_PMIN_B) },
   ];
 }
 
-function argvHasCtxSize(lines: string[], value: number): boolean {
-  return lines.some((line) => line.includes("--ctx-size") && line.includes(String(value)));
+/**
+ * `--draft-p-min`, not `--spec-draft-p-min`: the router rewrites the INI
+ * key to llama-server's short alias on the child's real argv (confirmed via
+ * `/proc/<pid>/cmdline` -- `--spec-draft-n-max` and `--spec-type` come
+ * through unrewritten on the same child, so this is per-flag, not a
+ * blanket `spec-`-prefix drop). Checking the INI spelling here would repeat
+ * the exact mistake the rendered-preset-is-not-proof rule exists to catch.
+ */
+function argvHasSpecPMin(lines: string[], value: number): boolean {
+  return lines.some((line) => line.includes("--draft-p-min") && line.includes(String(value)));
 }
 
 describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local)"), () => {
@@ -336,7 +359,7 @@ describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local
         await proxyStatus(router, modelA, "/v1/chat/completions", chatCompletionBody(modelA.id)),
       ).toBe(200);
       expect(router.residentModel("chat")).toBe(modelA.id);
-      expect(argvHasCtxSize(await containerCmdlines(), SWAP_CTX_A)).toBe(true);
+      expect(argvHasSpecPMin(await containerCmdlines(), SWAP_PMIN_A)).toBe(true);
 
       expect(
         await proxyStatus(router, modelB, "/v1/chat/completions", chatCompletionBody(modelB.id)),
@@ -353,8 +376,8 @@ describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local
       // child's argv is. Re-read after the swap -- a relabelled bookkeeping
       // entry over the same unchanged process would still show the OLD value.
       const argvAfterB = await containerCmdlines();
-      expect(argvHasCtxSize(argvAfterB, SWAP_CTX_B)).toBe(true);
-      expect(argvHasCtxSize(argvAfterB, SWAP_CTX_A)).toBe(false);
+      expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_B)).toBe(true);
+      expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_A)).toBe(false);
     },
     TEST_TIMEOUT_MS,
   );
