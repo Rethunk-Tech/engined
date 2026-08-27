@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Moves ~/llm-models and ~/comfy-models under the models root engined owns,
-# leaving a symlink at each old path so every running consumer -- sagaforge's
-# env.ts, whatever starts Comfy today -- keeps resolving them unchanged.
-# Nothing here deletes: it moves and it links. Re-running after a full or
-# partial migration is safe and reports what is already done.
+# Moves ~/llm-models and ~/comfy-models under the models root engined owns.
+# The old paths are left gone, not symlinked: a compatibility link would let a
+# consumer still pointed at the old path keep working silently, and the point
+# of the move is that engined owns the tree. Anything still reading the old
+# path -- sagaforge's env.ts, whatever starts Comfy -- must be repointed as
+# part of the cutover. Nothing here deletes data: it renames, then verifies
+# the file count and byte total survived. Re-running is safe.
 set -euo pipefail
 
 : "${HOME:?HOME must be set}"
@@ -51,16 +53,14 @@ migrate_one() {
   local old="$1" subdir="$2"
   local new="$MODELS_ROOT/$subdir"
 
+  # A leftover link from an older run of this script, when it still made one.
   if [[ -L "$old" ]]; then
-    local resolved_old resolved_new
-    resolved_old="$(readlink -f "$old")"
-    resolved_new="$(readlink -f "$new" 2>/dev/null || true)"
-    if [[ -n "$resolved_new" && "$resolved_old" == "$resolved_new" && -d "$new" ]]; then
-      echo "migrate-models.sh: $old already migrated to $new -- nothing to do"
-      return 0
-    fi
-    echo "migrate-models.sh: $old is a symlink but does not point at $new, refusing" >&2
-    exit 1
+    rm "$old"
+  fi
+
+  if [[ ! -e "$old" && -d "$new" ]]; then
+    echo "migrate-models.sh: $old already migrated to $new -- nothing to do"
+    return 0
   fi
 
   if [[ -e "$new" ]]; then
@@ -97,12 +97,6 @@ migrate_one() {
   before="$(count_and_size "$old")"
 
   mv "$old" "$new"
-  ln -s "$new" "$old"
-
-  if [[ ! -L "$old" || "$(readlink -f "$old")" != "$(readlink -f "$new")" ]]; then
-    echo "migrate-models.sh: symlink at $old does not resolve to $new, refusing to call this done" >&2
-    exit 1
-  fi
 
   local after
   after="$(count_and_size "$new")"
