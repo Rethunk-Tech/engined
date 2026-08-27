@@ -288,13 +288,15 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
 });
 
 describe("GET /v1/models", () => {
-  test("includes chain names, registered GGUF ids and aliases, and agentic engine ids; excludes comfy", () => {
+  test("includes chain names, GGUF ids and aliases, agentic and audio engine ids; excludes comfy", () => {
     const root = newEnginesRoot();
     writeSpec(root, "claude", AGENTIC);
+    writeSpec(root, "kokoro", BUILT_CONTAINER);
     writeSpec(root, "comfy", COMFY_CONTAINER);
     const cfg = config({
       engines: [
         engine({ id: "claude", egress: "remote", claude_version: "1.2.3" }),
+        engine({ id: "kokoro" }),
         engine({ id: "comfy" }),
       ],
       models: [model({ id: "ornith", engine: "claude", aliases: ["bird"] })],
@@ -305,6 +307,7 @@ describe("GET /v1/models", () => {
     expect(names).toContain("ornith");
     expect(names).toContain("bird");
     expect(names).toContain("claude");
+    expect(names).toContain("kokoro");
     expect(names).toContain("chain-private");
     expect(names).not.toContain("comfy");
   });

@@ -466,10 +466,12 @@ export class EngineRegistry {
 
   /**
    * Every selectable `model` string: GGUF ids and their aliases, engine ids
-   * of engines that answer without being told which model (agentic-cli), and
-   * chain names (already `chain-*` in `config.chains`'s keys). `comfy` is
-   * excluded structurally, never by name: its kind is never `agentic-cli`
-   * and it owns no `[[model]]` entry, so it never enters the set.
+   * of engines that answer without being told which model (`agentic-cli`,
+   * `tts`, `stt` — each serves a fixed job with no GGUF to name), and chain
+   * names (already `chain-*` in `config.chains`'s keys). `openai-http`
+   * engines are excluded here because a router needs the GGUF id, not the
+   * engine id. `comfy` is excluded structurally, never by name: it has no
+   * OpenAI shape and owns no `[[model]]` entry, so it never enters the set.
    */
   models(): string[] {
     const out = new Set<string>();
@@ -480,7 +482,8 @@ export class EngineRegistry {
       }
     }
     for (const entry of this.entries) {
-      if (this.kindOf(entry) === "agentic-cli") {
+      const kind = this.kindOf(entry);
+      if (kind === "agentic-cli" || kind === "tts" || kind === "stt") {
         out.add(entry.engine.id);
       }
     }
