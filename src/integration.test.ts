@@ -315,10 +315,14 @@ function buildExec(opts: BuildExecOptions): Exec {
  * while still answering the actual chat call with a failure, which is what
  * distinguishes "upstream never reachable" from "upstream reachable but bad"
  * for a regression that must exercise `classifyResult`'s real status check.
+ * `chatBodies`, when given, collects the parsed JSON body of every actual
+ * `/v1/chat/completions`-style call -- the only way to prove what `model`
+ * field engined forwarded upstream, as opposed to merely what it responded.
  */
 function fakeLlamaUpstream(
   content: string,
   chatStatus = 200,
+  chatBodies?: Record<string, unknown>[],
 ): (request: Request) => Response | Promise<Response> {
   let lastLoadedModel: string | undefined;
   return async (request) => {
@@ -341,6 +345,7 @@ function fakeLlamaUpstream(
     if (pathname === "/models/unload") {
       return Response.json({ ok: true });
     }
+    chatBodies?.push((await request.json()) as Record<string, unknown>);
     return chatStatus >= 400
       ? Response.json({ error: content }, { status: chatStatus })
       : Response.json({ choices: [{ message: { content } }] });
@@ -443,6 +448,109 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
     expect(record.engine_used).toBe("good");
   } finally {
     dead.stop();
+    good.stop();
+    await door.registry.shutdown();
+  }
+});
+
+// --- The forwarded `model` field: a chain dispatch must rewrite it to the
+// resolved per-hop model id before it reaches llama-server. Forwarding the
+// caller's own `model` (the chain name) verbatim 400s upstream, since a
+// chain name and a model id can never collide (checkNamespaceCollisions).
+
+test("a chain dispatch to a llama hop rewrites the forwarded body's model to the resolved model id, not the chain name", async () => {
+  const chatBodies: Record<string, unknown>[] = [];
+  const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
+  const [, goodPort] = good.base.split(":");
+
+  const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
+  const config = baseConfig({
+    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+    engines: [containerEngine("good", openaiSpec())],
+    chains: { "chain-private": ["@/good/ornith"] },
+  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath() },
+  );
+
+  try {
+    const res = await door.fetch(
+      req("POST", "/v1/chat/completions", {
+        body: { model: "chain-private", messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(chatBodies).toHaveLength(1);
+    expect(chatBodies[0]?.model).toBe("ornith");
+  } finally {
+    good.stop();
+    await door.registry.shutdown();
+  }
+});
+
+test("a streaming chain dispatch to a llama hop also rewrites the forwarded body's model to the resolved model id", async () => {
+  const chatBodies: Record<string, unknown>[] = [];
+  const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
+  const [, goodPort] = good.base.split(":");
+
+  const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
+  const config = baseConfig({
+    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+    engines: [containerEngine("good", openaiSpec())],
+    chains: { "chain-private": ["@/good/ornith"] },
+  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath() },
+  );
+
+  try {
+    const res = await door.fetch(
+      req("POST", "/v1/chat/completions", {
+        body: { model: "chain-private", stream: true, messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(chatBodies).toHaveLength(1);
+    expect(chatBodies[0]?.model).toBe("ornith");
+  } finally {
+    good.stop();
+    await door.registry.shutdown();
+  }
+});
+
+test("a direct (non-chain) model request still forwards its own model id unchanged", async () => {
+  const chatBodies: Record<string, unknown>[] = [];
+  const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
+  const [, goodPort] = good.base.split(":");
+
+  const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
+  const config = baseConfig({
+    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+    engines: [containerEngine("good", openaiSpec())],
+  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath() },
+  );
+
+  try {
+    const res = await door.fetch(
+      req("POST", "/v1/chat/completions", {
+        body: { model: "ornith", messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(chatBodies).toHaveLength(1);
+    expect(chatBodies[0]?.model).toBe("ornith");
+  } finally {
     good.stop();
     await door.registry.shutdown();
   }

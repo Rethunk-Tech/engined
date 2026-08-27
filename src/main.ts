@@ -185,6 +185,25 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
   return rest;
 }
 
+/**
+ * `rawBody.model` is whatever the caller's own request named -- a chain
+ * name, an alias, anything -- never necessarily this hop's resolved model
+ * id, so it is overwritten rather than forwarded verbatim. `workdir` is
+ * stripped as before; every other caller-supplied field passes through.
+ */
+function llamaRequestInit(
+  rawBody: Record<string, unknown>,
+  resolvedModelId: string,
+  signal: AbortSignal,
+): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...stripField(rawBody, "workdir"), model: resolvedModelId }),
+    signal,
+  };
+}
+
 /** `claude -p` takes one prompt on stdin; OpenAI's `messages` array has no such shape upstream to borrow. */
 function promptFromMessages(body: Record<string, unknown>): string {
   const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -309,12 +328,9 @@ async function execLlama(
     };
   }
   const router = getLlamaRouter(ctx, engineEntry);
-  const init: RequestInit = {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(stripField(req.rawBody, "workdir")),
-    signal: req.signal,
-  };
+  // Both fetchBuffered and fetchStreamed take this same `init`, so
+  // rewriting `model` once here fixes both proxy paths.
+  const init = llamaRequestInit(req.rawBody, model.id, req.signal);
   const response = await router.proxy(model, req.pathname, init);
   const contentType = response.headers.get("content-type") ?? "application/json";
   req.setContentType(contentType);
