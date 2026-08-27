@@ -1,0 +1,22 @@
+kind         = "stt"
+image        = "ghcr.io/ggml-org/whisper.cpp@sha256:793c6caae47b63c4f76d7a533e368c31cc32c2fe341feee103e76f5f7d12e889"
+obtain       = "pull"            # pull | build; build reads ./Dockerfile here
+serves       = ["/v1/audio/transcriptions"]
+devices      = ["/dev/dri"]
+group_add    = ["video"]
+security_opt = ["label=disable"]
+entrypoint   = ["/bin/bash", "{spec_dir}/quiet.sh"]
+command      = ["--host", "0.0.0.0",
+                "-m", "/models/ggml-large-v3-turbo-q5_0.bin",
+                "--request-path", "", "--inference-path", "/v1/audio/transcriptions",
+                "-fa", "-t", "8", "--no-timestamps"]
+# No -l: language is a per-request field, so pinning one here would make
+# changing it a wholesale spec override.
+
+  [[volume]]
+  name = "engined-whisper-models"
+  path = "/models"
+
+  [[artifact]]
+  path   = "/models/ggml-large-v3-turbo-q5_0.bin"
+  obtain = "docker run --rm -v engined-whisper-models:/models curlimages/curl -fL -o /models/ggml-large-v3-turbo-q5_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"

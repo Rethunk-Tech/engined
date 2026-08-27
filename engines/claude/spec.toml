@@ -1,0 +1,8 @@
+kind    = "agentic-cli"
+serves  = ["/v1/chat/completions"]
+# Delivered by bunx, pinned to a version the operator chose. {bunx} is an
+# absolute path the install script resolves and records -- a --user unit's PATH
+# is not an interactive shell's, and nothing that ships names a user.
+# {claude_version} comes from config, because which version runs is a tunable.
+command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
+env     = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"]   # allowlist, not inheritance
