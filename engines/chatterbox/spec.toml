@@ -1,0 +1,16 @@
+kind   = "tts"
+image  = "sagaforge-chatterbox:local"
+obtain = "build"
+serves = ["/v1/audio/speech"]
+# Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: chatterbox is a
+# ROCm/PyTorch engine. See engines/local-llama/spec.toml for why that one
+# omits /dev/kfd.
+devices      = ["/dev/kfd", "/dev/dri"]
+group_add    = ["video"]
+security_opt = ["label=disable"]
+# Weights are baked into the image at build time (HF_HOME) -- no [[artifact]]
+# and no model volume, unlike whisper.
+
+[ready]
+path   = "/health"
+status = 200
