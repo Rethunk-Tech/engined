@@ -45,9 +45,21 @@ export function parsePortHolder(ssOutput: string): { name: string; pid: number }
 }
 
 /**
- * Best-effort: `ss` absent, unparsable, or run under a sandbox that hides
- * other users' sockets all fall through to `undefined` rather than throwing —
- * a failed diagnosis must not replace the bind-error diagnosis itself.
+ * Best-effort: `ss` absent or unparsable falls through to `undefined` rather
+ * than throwing — a failed diagnosis must not replace the bind-error
+ * diagnosis itself.
+ *
+ * Confirmed empirically under this unit's own sandbox (ProtectSystem=strict,
+ * ProtectHome=read-only and PrivateTmp=yes each independently reproduce it):
+ * `ss -p` resolves a listener's process only by reading `/proc/<pid>/fd/*`
+ * in the holder process, and the kernel denies that readlink across mount
+ * namespaces even for the same uid — `ls -la /proc/<pid>/fd` lists the
+ * entries but every one is "Permission denied" to read. Any of these three
+ * directives puts engined in its own mount namespace, so in the real unit
+ * the holder is almost never nameable; this only reliably resolves a holder
+ * when engined itself runs unsandboxed (a plain dev invocation). There is no
+ * unprivileged workaround that does not mean weakening the sandbox, so this
+ * stays best-effort by design rather than something to keep chasing.
  */
 function describePortHolder(port: number): string | undefined {
   const res = spawnSync("ss", ["-ltnp", `sport = :${port}`], { encoding: "utf8" });
