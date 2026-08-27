@@ -90,12 +90,25 @@ interface RecordedCall {
   body: { model?: string; stream?: boolean } | undefined;
 }
 
+/** Matches the real b10354 contract, probed live: never `{status:"loaded"}` --
+ * the first `/models/load` for a model answers `{success:true}` (accepted,
+ * still loading) and every call once it is resident 400s "model is already
+ * running". Second call onward reports resident, same as the real child did
+ * for the tiny nomic embedding model in the live probe. */
+function alreadyRunning(): Response {
+  return Response.json(
+    { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
+    { status: 400 },
+  );
+}
+
 /** A minimal llama-server router double: load/unload always succeed, everything else echoes its request model. */
 function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
   client: HttpClient;
   calls: RecordedCall[];
 } {
   const calls: RecordedCall[] = [];
+  const loadCounts = new Map<string, number>();
   const client: HttpClient = (input, init) => {
     const url = new URL(String(input));
     const bodyStr = typeof init?.body === "string" ? init.body : undefined;
@@ -107,7 +120,10 @@ function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
       return Promise.resolve(hooked);
     }
     if (url.pathname === LOAD_PATH) {
-      return Promise.resolve(Response.json({ status: "loaded" }));
+      const key = body?.model ?? "";
+      const n = (loadCounts.get(key) ?? 0) + 1;
+      loadCounts.set(key, n);
+      return Promise.resolve(n === 1 ? Response.json({ success: true }) : alreadyRunning());
     }
     if (url.pathname === UNLOAD_PATH) {
       return Promise.resolve(Response.json({ ok: true }));
@@ -188,10 +204,21 @@ test("chat for model B while same-role model A is resident and idle: unload A, l
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
   await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
+  // Default fakeLlama mirrors the real b10354 handshake: a fresh load takes
+  // two /models/load calls (accepted, then already-running) before the swap
+  // proceeds.
   const paths = calls.map((c) => c.path);
-  expect(paths).toEqual([LOAD_PATH, CHAT_PATH, UNLOAD_PATH, LOAD_PATH, CHAT_PATH]);
-  expect(calls[2]?.body?.model).toBe("a");
-  expect(calls[3]?.body?.model).toBe("b");
+  expect(paths).toEqual([
+    LOAD_PATH,
+    LOAD_PATH,
+    CHAT_PATH,
+    UNLOAD_PATH,
+    LOAD_PATH,
+    LOAD_PATH,
+    CHAT_PATH,
+  ]);
+  expect(calls[3]?.body?.model).toBe("a");
+  expect(calls[4]?.body?.model).toBe("b");
 });
 
 test("a different-role model resident is untouched by a chat swap", async () => {
@@ -207,11 +234,14 @@ test("a different-role model resident is untouched by a chat swap", async () => 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
   await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
+  // Two /models/load calls (the default fake's accepted-then-already-running
+  // handshake) and never an unload: vision is loaded once, up front, and the
+  // later chat swaps between "a" and "b" never touch its role.
   const visionLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "v",
   );
-  expect(visionLoadOrUnload).toHaveLength(1);
-  expect(visionLoadOrUnload[0]?.path).toBe(LOAD_PATH);
+  expect(visionLoadOrUnload).toHaveLength(2);
+  expect(visionLoadOrUnload.every((c) => c.path === LOAD_PATH)).toBe(true);
 });
 
 test("an embedding request co-resides with a resident chat model: neither evicts the other", async () => {
@@ -238,10 +268,18 @@ test("an embedding request co-resides with a resident chat model: neither evicts
   const embedLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "embed",
   );
-  // Each loaded exactly once and never unloaded: the embedding request did not
-  // evict the chat resident, and the second chat request did not re-swap.
-  expect(chatLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "chat-a" } }]);
-  expect(embedLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "embed" } }]);
+  // Each loaded exactly once (the default fake's two-call accepted-then-
+  // already-running handshake) and never unloaded: the embedding request did
+  // not evict the chat resident, and the second chat request -- already the
+  // resident -- took the synchronous fast path with no further load call.
+  expect(chatLoadOrUnload).toEqual([
+    { path: LOAD_PATH, body: { model: "chat-a" } },
+    { path: LOAD_PATH, body: { model: "chat-a" } },
+  ]);
+  expect(embedLoadOrUnload).toEqual([
+    { path: LOAD_PATH, body: { model: "embed" } },
+    { path: LOAD_PATH, body: { model: "embed" } },
+  ]);
 });
 
 test("two overlapping chats for the same GGUF both complete without a second load", async () => {
@@ -289,8 +327,12 @@ test("two overlapping chats for the same GGUF both complete without a second loa
   releaseFirst();
   await text(res1);
 
+  // Two /models/load calls total (the default fake's accepted-then-already-
+  // running handshake for the one load) -- the overlapping second request
+  // found the resident already active and took the synchronous fast path,
+  // issuing no load call of its own.
   const loadCalls = calls.filter((c) => c.path === LOAD_PATH);
-  expect(loadCalls).toHaveLength(1);
+  expect(loadCalls).toHaveLength(2);
   expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
 });
 
@@ -350,7 +392,7 @@ test("a different-GGUF same-role chat arriving mid-lease waits, without eviction
   expect(unloadA).toBeDefined();
 });
 
-test("/models/load returning loading is polled until loaded before any proxy call", async () => {
+test("/models/load answering success:true is polled until the already-running 400 before any proxy call", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
@@ -360,8 +402,7 @@ test("/models/load returning loading is polled until loaded before any proxy cal
       return;
     }
     loadAttempts++;
-    const status = loadAttempts < 3 ? "loading" : "loaded";
-    return Response.json({ status });
+    return loadAttempts < 3 ? Response.json({ success: true }) : alreadyRunning();
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
@@ -373,12 +414,12 @@ test("/models/load returning loading is polled until loaded before any proxy cal
   expect(chatIdx).toBeGreaterThan(Math.max(...loadIdxs));
 });
 
-test("a /models/load that never reports loaded fails within the timeout instead of hanging", async () => {
+test("a /models/load that never reaches the already-running 400 fails within the timeout instead of hanging", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
   const { client } = fakeLlama((call) =>
-    call.path === LOAD_PATH ? Response.json({ status: "loading" }) : undefined,
+    call.path === LOAD_PATH ? Response.json({ success: true }) : undefined,
   );
   const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), readyTimeoutS: 0.05 });
 
@@ -394,7 +435,7 @@ test("the role's lease is free after a failed load: a later request for the role
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
   const { client } = fakeLlama((call) =>
     call.path === LOAD_PATH && call.body?.model === "a"
-      ? Response.json({ status: "loading" })
+      ? Response.json({ success: true })
       : undefined,
   );
   const router = new LlamaRouter(e, [a, b], lifecycle, {

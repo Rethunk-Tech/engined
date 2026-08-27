@@ -297,10 +297,19 @@ test("a chain whose first hop is dead completes on the second, and provenance na
     if (pathname === "/health") {
       return new Response("", { status: 200 });
     }
-    // LlamaRouter.loadAndWait polls /models/load until it sees "loaded" --
-    // with no deadline of its own, any other shape here loops forever.
-    if (pathname === "/models/load" || pathname === "/models/unload") {
-      return Response.json({ status: "loaded" });
+    // LlamaRouter.loadAndWait polls /models/load until the real b10354
+    // contract's ready signal: a 400 "model is already running" -- it never
+    // sends a "loaded" status, and any other shape here loops forever.
+    if (pathname === "/models/load") {
+      return Response.json(
+        {
+          error: { code: 400, message: "model is already running", type: "invalid_request_error" },
+        },
+        { status: 400 },
+      );
+    }
+    if (pathname === "/models/unload") {
+      return Response.json({ ok: true });
     }
     return Response.json({ choices: [{ message: { content: "answered by good" } }] });
   });

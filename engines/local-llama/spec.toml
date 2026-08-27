@@ -21,7 +21,17 @@ security_opt = ["label=disable"]
 # --models-max is the first-class models_max, substituted from config so an
 # operator who forgets to pin it gets a fatal "unresolved placeholder" at
 # spec load rather than a default that lets two 25 GB chat files stay resident.
+# --host 0.0.0.0 is structural, not a tunable: llama-server's own default is
+# 127.0.0.1, which binds fine inside the container and passes nothing --
+# docker's -p forwards to the container's interface, not its loopback, so a
+# 127.0.0.1-bound child is a container that starts, is adopted, and never
+# answers /health or a proxied request. Measured: with this flag absent, the
+# container ran and the process listened, but every host-side connection --
+# readiness poll included -- got a bare connection failure indistinguishable
+# from a crashed child.
 command = [
+  "--host",
+  "0.0.0.0",
   "--models-preset",
   "{preset_ini}",
   "--models-max",

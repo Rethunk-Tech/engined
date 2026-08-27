@@ -302,12 +302,18 @@ export class LlamaRouter {
   }
 
   /**
-   * `/models/load` is asynchronous: it returns `loading` immediately, so this
-   * poll is the `warming` signal. Bounded by `readyTimeoutS` -- the same
-   * per-engine budget the container readiness poll uses, since both are
-   * "wait for the engine to become able to serve." A load that never reports
-   * `loaded` within it throws, so the caller's lease request rejects instead
-   * of wedging the role's pump forever.
+   * `/models/load` is asynchronous, but not the way it looks from the docs:
+   * probed live against b10354, it never returns `{"status":"loaded"}` --
+   * a not-yet-resident model answers `{"success":true}` (accepted, still
+   * loading) and a call for an already-resident one 400s
+   * `{"error":{"message":"model is already running"}}`. That 400 *is* the
+   * ready signal; polling for a `status` field that is never sent timed out
+   * on every load, cold or warm, regardless of how fast the child actually
+   * came up. Bounded by `readyTimeoutS` -- the same per-engine budget the
+   * container readiness poll uses, since both are "wait for the engine to
+   * become able to serve." A load that never reaches either shape within it
+   * throws, so the caller's lease request rejects instead of wedging the
+   * role's pump forever.
    */
   private async loadAndWait(baseUrl: string, modelId: string): Promise<void> {
     const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
@@ -317,13 +323,19 @@ export class LlamaRouter {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: modelId }),
       });
-      const body = (await res.json()) as { status?: string };
-      if (body.status === "loaded") {
-        return;
+      if (res.status === 400) {
+        const body = (await res.json()) as { error?: { message?: string } };
+        if (body.error?.message === "model is already running") {
+          return;
+        }
+        throw new Error(`${modelId}: load failed: ${body.error?.message ?? "400"}`);
+      }
+      if (!res.ok) {
+        throw new Error(`${modelId}: load failed: ${res.status} ${await res.text()}`);
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          `${modelId}: load did not report "loaded" within readyTimeoutS=${this.opts.readyTimeoutS}s`,
+          `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
         );
       }
       await sleep(this.pollIntervalMs);

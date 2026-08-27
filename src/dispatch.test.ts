@@ -442,7 +442,14 @@ const READY_200: Probe = () => Promise.resolve({ status: 200 });
 function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
   return (url: string, init?: RequestInit) => {
     if (url.endsWith("/models/load")) {
-      return Promise.resolve(Response.json({ status: "loaded" }));
+      // Real b10354 contract: an already-resident model 400s "already
+      // running" -- that is the ready signal loadAndWait polls for.
+      return Promise.resolve(
+        Response.json(
+          { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
+          { status: 400 },
+        ),
+      );
     }
     if (url.endsWith("/models/unload")) {
       return Promise.resolve(Response.json({ status: "ok" }));
@@ -652,7 +659,14 @@ function makeSplitHttpClient(
 ): HttpClient {
   return (url: string) => {
     if (url.endsWith("/models/load")) {
-      return Promise.resolve(Response.json({ status: "loaded" }));
+      // Real b10354 contract: an already-resident model 400s "already
+      // running" -- that is the ready signal loadAndWait polls for.
+      return Promise.resolve(
+        Response.json(
+          { error: { code: 400, message: "model is already running", type: "invalid_request_error" } },
+          { status: 400 },
+        ),
+      );
     }
     if (url.endsWith("/models/unload")) {
       return Promise.resolve(Response.json({ status: "ok" }));
