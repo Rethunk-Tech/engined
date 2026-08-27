@@ -1,5 +1,12 @@
 kind = "openai-http"
-image = "sagaforge-llama-cpp:local"
+# Renamed from sagaforge-llama-cpp:local (kokoro and whisper already made
+# this same move to an engined-* tag). That tag is still live on this box --
+# a sagaforge-launched container references it -- and this engine's build
+# now has its own Dockerfile here, so building under the old name would
+# overwrite an image sagaforge still uses before the cutover. A fresh tag
+# costs one line of coordination (this file); reusing the old one costs a
+# silent swap under a workload this project doesn't own yet.
+image = "engined-llama-cpp:local"
 obtain = "build"
 serves = ["/v1/chat/completions", "/v1/embeddings"]
 # Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
