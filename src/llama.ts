@@ -23,6 +23,7 @@ import { isContainerSpec } from "./types.ts";
 const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
+const MS_PER_SECOND = 1000;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 
 function sleep(ms: number): Promise<void> {
@@ -300,8 +301,16 @@ export class LlamaRouter {
     });
   }
 
-  /** `/models/load` is asynchronous: it returns `loading` immediately, so this poll is the `warming` signal. */
+  /**
+   * `/models/load` is asynchronous: it returns `loading` immediately, so this
+   * poll is the `warming` signal. Bounded by `readyTimeoutS` -- the same
+   * per-engine budget the container readiness poll uses, since both are
+   * "wait for the engine to become able to serve." A load that never reports
+   * `loaded` within it throws, so the caller's lease request rejects instead
+   * of wedging the role's pump forever.
+   */
   private async loadAndWait(baseUrl: string, modelId: string): Promise<void> {
+    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
     for (;;) {
       const res = await this.httpClient(`${baseUrl}/models/load`, {
         method: "POST",
@@ -311,6 +320,11 @@ export class LlamaRouter {
       const body = (await res.json()) as { status?: string };
       if (body.status === "loaded") {
         return;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `${modelId}: load did not report "loaded" within readyTimeoutS=${this.opts.readyTimeoutS}s`,
+        );
       }
       await sleep(this.pollIntervalMs);
     }

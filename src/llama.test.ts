@@ -16,6 +16,7 @@ const LOAD_PATH = "/models/load";
 const UNLOAD_PATH = "/models/unload";
 const CHAT_PATH = "/v1/chat/completions";
 const EMBED_PATH = "/v1/embeddings";
+const READY_TIMEOUT_ERROR = /readyTimeoutS/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return {
@@ -370,6 +371,49 @@ test("/models/load returning loading is polled until loaded before any proxy cal
   const loadIdxs = calls.map((c, i) => (c.path === LOAD_PATH ? i : -1)).filter((i) => i >= 0);
   const chatIdx = calls.findIndex((c) => c.path === CHAT_PATH);
   expect(chatIdx).toBeGreaterThan(Math.max(...loadIdxs));
+});
+
+test("a /models/load that never reports loaded fails within the timeout instead of hanging", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const { client } = fakeLlama((call) =>
+    call.path === LOAD_PATH ? Response.json({ status: "loading" }) : undefined,
+  );
+  const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), readyTimeoutS: 0.05 });
+
+  await expect(
+    text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) })),
+  ).rejects.toThrow(READY_TIMEOUT_ERROR);
+});
+
+test("the role's lease is free after a failed load: a later request for the role proceeds", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const { client } = fakeLlama((call) =>
+    call.path === LOAD_PATH && call.body?.model === "a"
+      ? Response.json({ status: "loading" })
+      : undefined,
+  );
+  const router = new LlamaRouter(e, [a, b], lifecycle, {
+    ...baseOpts(client),
+    readyTimeoutS: 0.05,
+  });
+
+  await expect(
+    text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) })),
+  ).rejects.toThrow();
+
+  const result = await Promise.race([
+    text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) })).then(
+      (t) => ({ done: true as const, t }),
+    ),
+    new Promise<{ done: false }>((resolve) => setTimeout(() => resolve({ done: false }), 500)),
+  ]);
+  expect(result.done).toBe(true);
+  expect(result.done && (JSON.parse(result.t) as { model?: string }).model).toBe("b");
 });
 
 // Concurrent chat + vision decode needs a registered vision [[model]] against
