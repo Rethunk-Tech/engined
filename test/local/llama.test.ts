@@ -1,0 +1,331 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import process from "node:process";
+import { loadConfig } from "../../src/config.ts";
+import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
+import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
+import type { EngineEntry, ModelEntry } from "../../src/types.ts";
+
+/**
+ * Drives the real `LlamaRouter` against the real `sagaforge-llama-cpp:local`
+ * container and the real GGUFs under `local-llama`'s `models_dir` --
+ * `config.example.toml` is loaded as-is (no path swap) precisely because it
+ * is this operator's own real config, so a clean parse here is also a live
+ * proof the example still matches the real model tree.
+ *
+ * Closes local-tier gaps the Opus audit found unverifiable: concurrent
+ * cross-role decode, single-owner-under-load, embedding co-residency and
+ * vector shape (first describe block), and a same-role swap proven from the
+ * real child's own `/proc/<pid>/cmdline` rather than the rendered preset
+ * file (second describe block).
+ */
+const LOCAL = process.env.ENGINED_LOCAL === "1";
+const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
+const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
+// {bunx} never appears in local-llama's own command; only agentic specs
+// substitute it, so any non-empty string satisfies LlamaBuildOptions here.
+const BUNX = process.env.ENGINED_BUNX ?? "bunx";
+const IMAGE = "sagaforge-llama-cpp:local";
+const CONTAINER_NAME = "engined-local-llama";
+const READY_TIMEOUT_S = 240;
+const IDLE_STOP_SECONDS = 900;
+const POLL_INTERVAL_MS = 500;
+const TEST_TIMEOUT_MS = 240_000;
+const EMBEDDING_DIMENSIONS = 1024;
+
+function imageBuilt(image: string): boolean {
+  return Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
+}
+
+interface Fixture {
+  engine: EngineEntry;
+  models: ModelEntry[];
+  error?: string;
+}
+
+const EMPTY_ENGINE: EngineEntry = { id: "local-llama", egress: "none", args: {} };
+
+/**
+ * Loaded once at module scope, guarded by `LOCAL` so an ordinary `bun test`
+ * (which never imports this directory) and a `bun test test/local` run with
+ * `ENGINED_LOCAL` unset both skip the real filesystem/docker probing below
+ * entirely, not just the tests themselves.
+ */
+function loadFixture(): Fixture {
+  if (!LOCAL) {
+    return { engine: EMPTY_ENGINE, models: [] };
+  }
+  try {
+    const config = loadConfig(CONFIG_EXAMPLE);
+    const engine = config.engines.find((e) => e.id === "local-llama");
+    const models = config.models.filter((m) => m.engine === "local-llama");
+    if (!engine) {
+      return {
+        engine: EMPTY_ENGINE,
+        models: [],
+        error: "config.example.toml has no local-llama engine",
+      };
+    }
+    return { engine, models };
+  } catch (err) {
+    return {
+      engine: EMPTY_ENGINE,
+      models: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+const FIXTURE = loadFixture();
+const HAVE_IMAGE = LOCAL && imageBuilt(IMAGE);
+const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
+const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
+
+function skipReason(): string {
+  if (!HAVE_IMAGE) {
+    return `${IMAGE} is not built -- see engines/local-llama for the build command`;
+  }
+  if (FIXTURE.error !== undefined) {
+    return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
+  }
+  return `expected exactly 3 local-llama models (chat, vision, embedding) in config.example.toml, found ${FIXTURE.models.length}`;
+}
+
+function describeTitle(base: string): string {
+  return READY ? base : `${base}: SKIPPED -- ${skipReason()}`;
+}
+
+const CHAT = FIXTURE.models.find((m) => m.role === "chat");
+const VISION = FIXTURE.models.find((m) => m.role === "vision");
+const EMBED = FIXTURE.models.find((m) => m.role === "embedding");
+
+function buildRouter(
+  engine: EngineEntry,
+  models: ModelEntry[],
+  presetFile: string,
+  lifecycle: DockerLifecycle,
+): LlamaRouter {
+  const opts: LlamaRouterOptions = {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    idleStopSeconds: IDLE_STOP_SECONDS,
+    readyTimeoutS: READY_TIMEOUT_S,
+    presetHostPath: join(import.meta.dir, presetFile),
+    pollIntervalMs: POLL_INTERVAL_MS,
+  };
+  return new LlamaRouter(engine, models, lifecycle, opts);
+}
+
+async function containerCmdlines(): Promise<string[]> {
+  const res = await dockerExec([
+    "exec",
+    CONTAINER_NAME,
+    "sh",
+    "-c",
+    "for f in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < \"$f\"; echo; done",
+  ]);
+  return res.stdout.split("\n").filter((line) => line.trim().length > 0);
+}
+
+async function runningContainerCount(): Promise<number> {
+  const res = await dockerExec([
+    "ps",
+    "--filter",
+    `name=^${CONTAINER_NAME}$`,
+    "--format",
+    "{{.ID}}",
+  ]);
+  return res.stdout.split("\n").filter((line) => line.trim().length > 0).length;
+}
+
+/** Samples `runningContainerCount()` every `POLL_INTERVAL_MS` until `work` settles; returns every sample seen. */
+async function sampleContainerCountDuring<T>(
+  work: Promise<T>,
+): Promise<{ result: T; samples: number[] }> {
+  const samples: number[] = [];
+  const timer = setInterval(() => {
+    runningContainerCount().then((n) => samples.push(n));
+  }, POLL_INTERVAL_MS);
+  try {
+    const result = await work;
+    return { result, samples };
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+interface Timed<T> {
+  start: number;
+  end: number;
+  value: T;
+}
+
+async function timed<T>(fn: () => Promise<T>): Promise<Timed<T>> {
+  const start = Date.now();
+  const value = await fn();
+  return { start, end: Date.now(), value };
+}
+
+/** Genuine wall-clock overlap: impossible if a shared lock forced one request to fully finish before the other's HTTP call began. */
+function overlaps(a: Timed<unknown>, b: Timed<unknown>): boolean {
+  return a.start < b.end && b.start < a.end;
+}
+
+function chatCompletionBody(modelId: string): string {
+  return JSON.stringify({
+    model: modelId,
+    messages: [{ role: "user", content: "Reply with the single word: hi" }],
+    max_tokens: 8,
+  });
+}
+
+async function proxyStatus(
+  router: LlamaRouter,
+  model: ModelEntry,
+  path: string,
+  body: string,
+): Promise<number> {
+  const res = await router.proxy(model, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  return res.status;
+}
+
+interface EmbeddingResponse {
+  status: number;
+  body: { data?: { embedding?: number[] }[] };
+}
+
+async function proxyEmbedding(router: LlamaRouter, model: ModelEntry): Promise<EmbeddingResponse> {
+  const res = await router.proxy(model, "/v1/embeddings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: model.id, input: "hello world" }),
+  });
+  return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
+}
+
+describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
+  const lifecycle = new DockerLifecycle();
+  const router = buildRouter(FIXTURE.engine, FIXTURE.models, ".scratch-preset.ini", lifecycle);
+
+  afterAll(async () => {
+    await lifecycle.shutdown();
+  });
+
+  test(
+    "chat, vision and embedding are resident and answering concurrently, under exactly one container, and the embedding vector is 1024-wide",
+    async () => {
+      if (!(CHAT && VISION && EMBED)) {
+        throw new Error(
+          "fixture is missing one of chat/vision/embedding -- READY should have been false",
+        );
+      }
+
+      const { result, samples } = await sampleContainerCountDuring(
+        Promise.all([
+          timed(() =>
+            proxyStatus(router, CHAT, "/v1/chat/completions", chatCompletionBody(CHAT.id)),
+          ),
+          timed(() =>
+            proxyStatus(router, VISION, "/v1/chat/completions", chatCompletionBody(VISION.id)),
+          ),
+          timed(() => proxyEmbedding(router, EMBED)),
+        ]),
+      );
+      const [chatResult, visionResult, embedResult] = result;
+
+      expect(chatResult.value).toBe(200);
+      expect(visionResult.value).toBe(200);
+      expect(embedResult.value.status).toBe(200);
+      // Two role-independent leases genuinely overlapped in wall-clock time.
+      expect(overlaps(chatResult, visionResult)).toBe(true);
+      // No second `engined-local-llama` container ever existed transiently
+      // under concurrent cross-role load, not just that none exists after.
+      expect(Math.max(...samples)).toBe(1);
+
+      const vector = embedResult.value.body.data?.[0]?.embedding;
+      expect(vector).toBeDefined();
+      expect(vector?.length).toBe(EMBEDDING_DIMENSIONS);
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+/**
+ * Two synthetic `[[model]]` entries pointed at the SAME real chat GGUF
+ * (`CHAT.filename`) under different ids and different `[model.args]` --
+ * proving the swap mechanism and the args-reach-argv claim needs two
+ * distinct resident ids to swap between, not two distinct multi-gigabyte
+ * downloads. What is under test is the swap machinery and the args
+ * substitution, not this particular GGUF's content.
+ */
+const SWAP_CTX_A = 4096;
+const SWAP_CTX_B = 8192;
+
+function swapModels(): [ModelEntry, ModelEntry] | undefined {
+  if (!CHAT || CHAT.filename === undefined) {
+    return;
+  }
+  const base = {
+    engine: "local-llama",
+    filename: CHAT.filename,
+    role: "chat" as const,
+    aliases: [],
+  };
+  return [
+    { ...base, id: "engined-local-test-swap-a", args: { "ctx-size": SWAP_CTX_A } },
+    { ...base, id: "engined-local-test-swap-b", args: { "ctx-size": SWAP_CTX_B } },
+  ];
+}
+
+function argvHasCtxSize(lines: string[], value: number): boolean {
+  return lines.some((line) => line.includes("--ctx-size") && line.includes(String(value)));
+}
+
+describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local)"), () => {
+  const lifecycle = new DockerLifecycle();
+  const models = swapModels() ?? [];
+  const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);
+
+  afterAll(async () => {
+    await lifecycle.shutdown();
+  });
+
+  test(
+    "swapping the chat-role resident unloads the prior one, the listing shows at most one loaded, and the real child argv changes",
+    async () => {
+      const [modelA, modelB] = models;
+      if (!(modelA && modelB)) {
+        throw new Error("swap fixture is missing -- READY should have been false");
+      }
+
+      expect(
+        await proxyStatus(router, modelA, "/v1/chat/completions", chatCompletionBody(modelA.id)),
+      ).toBe(200);
+      expect(router.residentModel("chat")).toBe(modelA.id);
+      expect(argvHasCtxSize(await containerCmdlines(), SWAP_CTX_A)).toBe(true);
+
+      expect(
+        await proxyStatus(router, modelB, "/v1/chat/completions", chatCompletionBody(modelB.id)),
+      ).toBe(200);
+      expect(router.residentModel("chat")).toBe(modelB.id);
+
+      // Independent of the router's own bookkeeping: the engine's own
+      // /v1/models listing, read fresh, shows the new one loaded and the old
+      // one NOT loaded -- "at most one GGUF per role", not "the router
+      // thinks it swapped".
+      expect(await router.residentModelId("chat")).toBe(modelB.id);
+
+      // TODO.md's own rule: the rendered preset file is not proof, the real
+      // child's argv is. Re-read after the swap -- a relabelled bookkeeping
+      // entry over the same unchanged process would still show the OLD value.
+      const argvAfterB = await containerCmdlines();
+      expect(argvHasCtxSize(argvAfterB, SWAP_CTX_B)).toBe(true);
+      expect(argvHasCtxSize(argvAfterB, SWAP_CTX_A)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
