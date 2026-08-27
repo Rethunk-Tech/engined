@@ -20,7 +20,7 @@ Each guide describes a real repository that is on disk. Anchors are
 drift. A claim about a consumer's behaviour is checkable against that consumer's
 source, so check it rather than reasoning from the guide.
 
-## Two rules that keep being rediscovered
+## Two rules that are easy to get wrong
 
 **No port is written down for anything engined starts.** The container side comes
 from the image's `EXPOSE`, the host side from Docker. The door is the sole
