@@ -129,6 +129,11 @@ main() {
   # --delete because a spec directory removed from the repo has to disappear
   # from the install too, or the engine it backed stays configured against a
   # stale copy instead of reporting unavailable.
+  #
+  # This --delete is why the model tree is a SIBLING of the install directory
+  # ($DATA_HOME/engined-models, not $INSTALL_DIR/models) and must stay one.
+  # Nothing under here survives a sync it is not part of, and the model tree
+  # is ~90 GB that no download step would replace.
   cp "$BUILD_DIR/main.js" "$INSTALL_DIR/main.js"
   rsync -a --delete "$REPO_ROOT/engines/" "$INSTALL_DIR/engines/"
 
