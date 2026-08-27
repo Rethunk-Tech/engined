@@ -13,6 +13,21 @@ command      = ["--host", "0.0.0.0",
 # No -l: language is a per-request field, so pinning one here would make
 # changing it a wholesale spec override.
 
+# majordomo's own probe: /health is not confirmed to exist on this image (a
+# bootstrap script tries it and falls back), so readiness POSTs the real
+# inference path instead. Any 2xx or 4xx proves the dialect endpoint exists --
+# a missing file or invalid multipart body still answers from the route.
+# 404 never counts regardless of this range: probeSaysReady excludes it
+# unconditionally, since 404 is the one status that proves the route absent.
+[ready]
+path   = "/v1/audio/transcriptions"
+method = "POST"
+status = 200
+
+  [ready.accept]
+  min = 200
+  max = 499
+
   [[volume]]
   name = "engined-whisper-models"
   path = "/models"
