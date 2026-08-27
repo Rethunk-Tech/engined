@@ -61,7 +61,7 @@ models_dir = "~/llm-models"
 `;
 
 const EXPECTED_ENGINE_COUNT = 7;
-const EXPECTED_MODEL_COUNT = 4;
+const EXPECTED_MODEL_COUNT = 5;
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
@@ -94,7 +94,8 @@ const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 function workedConfig(): string {
   const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
   const embedFile = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf";
-  const dir = tempModelsDir(ornithFile, embedFile);
+  const visionFile = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf";
+  const dir = tempModelsDir(ornithFile, embedFile, visionFile);
   return `
 listen_port           = 29200
 chat_timeout_seconds  = 600
@@ -117,6 +118,12 @@ engine   = "local-llama"
 id       = "embed"
 filename = "${embedFile}"
 role     = "embedding"
+
+[[model]]
+engine   = "local-llama"
+id       = "vision"
+filename = "${visionFile}"
+role     = "vision"
 
 [[model]]
 engine = "claude"
