@@ -6,9 +6,12 @@
  * starts, not a boundary on what it can read — nothing here should read
  * otherwise, in a comment, a type name or an error string.
  *
- * Failure lives in the JSON envelope on stdout, never in the exit code: a
- * `claude -p` run has exited 0 with `is_error: true` and a body reading
- * "Not logged in". Only `parseEnvelope` decides success.
+ * Failure lives in the JSON envelope on stdout, never in the exit code.
+ * Verified: `claude -p --output-format json` exited 0 with `"subtype":
+ * "success"` and a non-empty result while simultaneously carrying
+ * `is_error: true`, `terminal_reason: "api_error"` and a body reading
+ * "Not logged in" -- exit status and even `subtype` can both read as
+ * healthy on a call that failed. Only `parseEnvelope` decides success.
  */
 
 import { spawn } from "node:child_process";
