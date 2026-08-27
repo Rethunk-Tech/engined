@@ -60,6 +60,7 @@ const RX_NOT_QUALIFIED = /not a fully-qualified/;
 const RX_UNKNOWN_ENGINE = /engine "nope" does not exist/;
 const RX_UNKNOWN_MODEL = /model "nope" does not exist/;
 const RX_NO_LOCAL_CANDIDATE = /candidates: none/;
+const RX_TWO_LOCAL_CANDIDATES = /candidates: local-llama, other-local/;
 const RX_MISSING_FILENAME = /is missing required "filename"/;
 const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
@@ -246,6 +247,23 @@ engine = "claude"
 [chain]
 c = ["@/local/sonnet-5"]
 `;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
+  });
+
+  test('an engine with egress "none" and a models_dir but no models does not shadow the real "local" candidate', () => {
+    const toml = `${llamaEngineAndModel()}\n[[engine]]\nid = "comfy"\negress = "none"\nmodels_dir = "/no/model/names/this"\n\n[chain]\nc = ["@/local/ornith"]\n`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.chains.c).toEqual(["@/local/ornith"]);
+  });
+
+  test('two engines that both serve models and are both "local" candidates is fatal, listing both', () => {
+    const otherDir = tempModelsDir("other.gguf");
+    const toml = `${llamaEngineAndModel()}\n[[engine]]\nid = "other-local"\negress = "none"\nmodels_dir = "${otherDir}"\n\n[[model]]\nid = "y"\nengine = "other-local"\nfilename = "other.gguf"\nrole = "chat"\n\n[chain]\nc = ["@/local/ornith"]\n`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_TWO_LOCAL_CANDIDATES);
+  });
+
+  test('an engine with egress "none" and a models_dir but no models is not a "local" candidate on its own', () => {
+    const toml = `\n[[engine]]\nid = "comfy"\negress = "none"\nmodels_dir = "/no/model/names/this"\n\n[chain]\nc = ["@/local/ornith"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
   });
 });

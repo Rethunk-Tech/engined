@@ -40,8 +40,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
-/** A llama engine is the one first-class shape that carries a models_dir. */
-function isLlamaEngine(e: EngineEntry): boolean {
+/** A model on an engine with a models_dir has a file on disk to account for. */
+function requiresFilenameAndRole(e: EngineEntry): boolean {
   return e.models_dir !== undefined;
 }
 
@@ -213,7 +213,7 @@ function validateModelAgainstEngine(
   }
   const site = `model "${m.id}" on engine "${engine.id}"`;
 
-  if (!isLlamaEngine(engine)) {
+  if (!requiresFilenameAndRole(engine)) {
     if (m.filename !== undefined) {
       throw new ParseError(`${site} must not declare "filename" on an agentic engine`, file);
     }
@@ -280,19 +280,31 @@ function checkNamespaceCollisions(
   }
 }
 
-/** `local` resolves to the one engine with no egress and a models_dir -- llama. */
-function resolveEngineHalf(seg: string, engines: EngineEntry[], hop: string, file: string): void {
+/**
+ * `local` resolves to the one no-egress engine that at least one `[[model]]`
+ * names. A `models_dir` is not that signal: Comfy carries one too, for its
+ * own bind mount, and serves no model -- it is reached by starting the
+ * engine directly, never by a chain hop.
+ */
+function resolveEngineHalf(
+  seg: string,
+  ctx: { engines: EngineEntry[]; models: ModelEntry[]; file: string },
+  hop: string,
+): void {
+  const { engines, models, file } = ctx;
   if (seg !== "local") {
     if (!engines.some((e) => e.id === seg)) {
       throw new ParseError(`chain hop "${hop}": engine "${seg}" does not exist`, file);
     }
     return;
   }
-  const candidates = engines.filter((e) => e.egress === "none" && e.models_dir !== undefined);
+  const candidates = engines.filter(
+    (e) => e.egress === "none" && models.some((m) => m.engine === e.id),
+  );
   if (candidates.length !== 1) {
     const names = candidates.map((e) => e.id).join(", ") || "none";
     throw new ParseError(
-      `chain hop "${hop}": "local" must resolve to exactly one engine with egress "none" and a models_dir; candidates: ${names}`,
+      `chain hop "${hop}": "local" must resolve to exactly one engine with egress "none" that serves a model; candidates: ${names}`,
       file,
     );
   }
@@ -330,7 +342,7 @@ function parseChains(
           file,
         );
       }
-      resolveEngineHalf(engineSeg, engines, hopRaw, file);
+      resolveEngineHalf(engineSeg, { engines, models, file }, hopRaw);
       if (!modelNames.has(modelSeg)) {
         throw new ParseError(
           `chain "${name}"[${i}] "${hopRaw}": model "${modelSeg}" does not exist`,
