@@ -8,10 +8,9 @@ One local engine broker for the whole workstation.
 
 ---
 
-**Nothing is built yet.** This repository holds a design only. `TODO.md` is the
-scope, one entry per feature, and is authoritative; `PHASES.md` is the order to
-build them in; `docs/migrations/` holds one cutover guide per consumer. This file says
-only what the service is.
+`TODO.md` is the scope, one entry per feature, and is authoritative;
+`PHASES.md` is the order to build them in; `docs/migrations/` holds one cutover
+guide per consumer. This file says only what the service is.
 
 `engined` owns LLM engine configuration, engine selection and invocation for
 every product on this machine. Consumers send an OpenAI-shaped request naming a

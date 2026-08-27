@@ -1,10 +1,44 @@
 # engined
 
-Design only. Nothing here is built. `TODO.md` is the authoritative artifact and
+`TODO.md` is the authoritative artifact and
 is organised **per feature** — each entry carrying its own description, `Traps`
 and `Acceptance`. `PHASES.md` holds only the order to build them in and
 references those entries without restating them. `docs/migrations/` holds one
 cutover guide per consumer. `README.md` says only what the service is.
+
+The implementation lives in `src/`, Bun and TypeScript, and is built against
+those entries rather than against itself: an acceptance criterion is the test,
+and a `Traps` bullet is a behaviour some engine actually has.
+
+## How the work is ordered
+
+`PHASES.md` orders **phase completion**, not the moment each file is written. A
+module whose dependencies are already met may be built ahead of its phase — the
+phases still close in order, and a phase is done only when every acceptance
+criterion of every entry it names passes. The alternative idles most of the
+build, because the tail of a phase is usually serial.
+
+## Testing
+
+Three tiers, and the split is load-bearing rather than tidy.
+
+`src/*.test.ts` is the tier that runs in CI: parse, dispatch, chain-advance and
+provenance against a fake upstream `Bun.serve`, needing nothing installed.
+
+`test/local/*.test.ts` needs images, a GPU or `claude` auth, and is guarded by
+`ENGINED_LOCAL=1`. It never runs in CI. **Only the llama router runs it against
+a real container, and serially** — this workstation shares one GPU with other
+work, so a second engine instance is never started to satisfy a test.
+
+There are no mocks and no stub adapter, for the same reason the design refuses
+one at runtime: every trap here was tool behaviour rather than logic, and a fake
+reproduces the logic and none of the behaviour. Where a dependency must be
+substituted it is injected as a function with a real default, and the fixtures
+are recorded output from the real tool.
+
+**Shipped images are migrated, never invented.** The fleet already carries
+Dockerfiles and run specs for comfy, chatterbox, kokoro and whisper; they are
+adapted here for this GPU — gfx1151, ROCm or Vulkan, never CUDA.
 
 ## Before committing
 
