@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
+import { createDoor, type Door } from "./main.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
@@ -205,5 +208,172 @@ status = 200
       engine: "local-llama",
       model: "ornith",
     });
+  });
+});
+
+/** Never 29200: a real workstation daemon may hold it. */
+function ephemeralPort(): number {
+  return 40_000 + Math.floor(Math.random() * 10_000);
+}
+
+/**
+ * Binds the door on both loopback families on `port`. The check needs
+ * `config.listen_port` to equal it, so the caller picks the port first via
+ * `ephemeralPort()` and builds both the config and this bind from it.
+ */
+function startDualBind(fetch: Door["fetch"], port: number): { stop: () => void } {
+  const v4 = Bun.serve({ hostname: "127.0.0.1", port, fetch });
+  const v6 = Bun.serve({ hostname: "::1", port, fetch });
+  return {
+    stop: () => {
+      v4.stop();
+      v6.stop();
+    },
+  };
+}
+
+/** `Host` is a forbidden header for the Fetch API; `node:http` allows the override the test needs. */
+function rawRequest(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { hostname: "127.0.0.1", port, path, method: "GET", headers },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => {
+          body += chunk;
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("the door: Origin/Host check", () => {
+  test("no Origin header is served normally, on a GET", async () => {
+    const port = ephemeralPort();
+    const cfg = config({ listen_port: port, engines: [remoteAgentic("claude")] });
+    const door = createDoor(cfg, { enginesRoot: "/nonexistent", bunx: BUNX });
+    const bound = startDualBind(door.fetch, port);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/models`);
+      expect(res.status).toBe(200);
+    } finally {
+      bound.stop();
+    }
+  });
+
+  test("a foreign Origin is refused on a GET", async () => {
+    const port = ephemeralPort();
+    const door = createDoor(config({ listen_port: port }), {
+      enginesRoot: "/nonexistent",
+      bunx: BUNX,
+    });
+    const bound = startDualBind(door.fetch, port);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+        headers: { Origin: "https://evil.example" },
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      bound.stop();
+    }
+  });
+
+  test("Origin: null is refused rather than treated as absent, on a POST", async () => {
+    const port = ephemeralPort();
+    const door = createDoor(config({ listen_port: port }), {
+      enginesRoot: "/nonexistent",
+      bunx: BUNX,
+    });
+    const bound = startDualBind(door.fetch, port);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { Origin: "null", "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude" }),
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      bound.stop();
+    }
+  });
+
+  test("a Host outside the loopback set is refused, on a GET", async () => {
+    const port = ephemeralPort();
+    const door = createDoor(config({ listen_port: port }), {
+      enginesRoot: "/nonexistent",
+      bunx: BUNX,
+    });
+    const bound = startDualBind(door.fetch, port);
+    try {
+      const res = await rawRequest(port, "/v1/models", { Host: `evil.example:${port}` });
+      expect(res.status).toBe(403);
+    } finally {
+      bound.stop();
+    }
+  });
+});
+
+describe("the door: dual-family bind", () => {
+  test("both 127.0.0.1 and [::1] answer on the same configured port", async () => {
+    const port = ephemeralPort();
+    const door = createDoor(config({ listen_port: port }), {
+      enginesRoot: "/nonexistent",
+      bunx: BUNX,
+    });
+    const bound = startDualBind(door.fetch, port);
+    try {
+      const v4 = await fetch(`http://127.0.0.1:${port}/v1/models`);
+      const v6 = await fetch(`http://[::1]:${port}/v1/models`);
+      expect(v4.status).toBe(200);
+      expect(v6.status).toBe(200);
+    } finally {
+      bound.stop();
+    }
+  });
+});
+
+describe("the door: SIGHUP reload", () => {
+  const GOOD_CONFIG = `
+[[engine]]
+id = "claude"
+egress = "remote"
+kind = "agentic-cli"
+base_url = "https://api.anthropic.com"
+  [engine.secret]
+  service = "s"
+  username = "u"
+  header = "x-api-key"
+`;
+
+  test("broken TOML on reload keeps the previous config serving and names the parse error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "engined-reload-"));
+    const path = join(dir, "config.toml");
+    writeFileSync(path, GOOD_CONFIG);
+
+    const door = createDoor(loadConfig(path), { enginesRoot: "/nonexistent", bunx: BUNX });
+    const before = (await (await door.fetch(new Request("http://engined/v1/engines"))).json()) as {
+      engines: { id: string }[];
+    };
+    expect(before.engines.map((e) => e.id)).toEqual(["claude"]);
+
+    writeFileSync(path, "not valid toml {{{");
+    door.reload(path);
+
+    expect(door.configError()).toBeDefined();
+    const after = (await (await door.fetch(new Request("http://engined/v1/engines"))).json()) as {
+      engines: { id: string }[];
+      config_error: string;
+    };
+    // Previous config still serving: the same engine, not an empty list.
+    expect(after.engines.map((e) => e.id)).toEqual(["claude"]);
+    expect(after.config_error).toBeDefined();
+    expect(after.config_error).toContain(path);
   });
 });
