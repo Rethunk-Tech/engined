@@ -14,6 +14,7 @@ import {
   createDoor,
   type Door,
   parsePortHolder,
+  resolveBunx,
   resolveRedirect,
   timeoutSecondsForKind,
 } from "./main.ts";
@@ -722,6 +723,46 @@ describe("timeoutSecondsForKind: the budget follows the hop's own engine kind", 
   });
 });
 
+const RX_ENGINED_BUNX_UNSET = /ENGINED_BUNX is not set/;
+
+describe("resolveBunx: the ENGINED_BUNX invariant", () => {
+  const noBunxOnPath = () => null;
+
+  test("ENGINED_BUNX set is used verbatim, PATH never consulted", () => {
+    const which = (cmd: string) => {
+      throw new Error(`which() must not be called when ENGINED_BUNX is set, got: ${cmd}`);
+    };
+    expect(resolveBunx({ ENGINED_BUNX: "/opt/engined/state/bunx" }, which)).toBe(
+      "/opt/engined/state/bunx",
+    );
+  });
+
+  test("ENGINED_BUNX unset falls back to PATH -- the legitimate working-tree dev-run path", () => {
+    const which = (cmd: string) => (cmd === "bunx" ? "/home/dev/.bun/bin/bunx" : null);
+    expect(resolveBunx({}, which)).toBe("/home/dev/.bun/bin/bunx");
+  });
+
+  test("ENGINED_BUNX empty string is treated the same as unset, not used verbatim", () => {
+    const which = () => "/home/dev/.bun/bin/bunx";
+    expect(resolveBunx({ ENGINED_BUNX: "" }, which)).toBe("/home/dev/.bun/bin/bunx");
+  });
+
+  /**
+   * The actual regression: the old call site was `process.env.ENGINED_BUNX
+   * ?? "bunx"`, a fallback that is always a truthy string no matter what --
+   * it never threw, so agentic.ts:117's own "bunx is unresolved" guard was
+   * unreachable in production. Confirm that literally: the old expression
+   * evaluated against the exact env/PATH state that should be fatal.
+   */
+  test("neither ENGINED_BUNX nor a PATH bunx is fatal -- the old bare fallback would have silently produced a truthy string here", () => {
+    const env: Record<string, string | undefined> = {};
+    const oldFallback = env.ENGINED_BUNX ?? "bunx";
+    expect(oldFallback).toBe("bunx"); // truthy: the old code never threw for this exact case.
+
+    expect(() => resolveBunx({}, noBunxOnPath)).toThrow(RX_ENGINED_BUNX_UNSET);
+  });
+});
+
 describe("the door: chain timeout follows the hop, not the chain", () => {
   /**
    * TODO.md:244-246 scopes `chat_timeout_seconds` to "one engine," per
@@ -1262,6 +1303,62 @@ describe("the door: chain skips an engine that fails its version proof", () => {
     expect(record.engine_used).toBe("claude-b");
     clearVerifiedVersion("claude-unproved");
     clearVerifiedVersion("claude-b");
+  });
+});
+
+describe("the door: an agentic hop's own timeout actually aborts it", () => {
+  /**
+   * agent_timeout_seconds is computed, threaded through runOneHop's per-hop
+   * timeout, and then reached a spawn that never listened for it -- so a
+   * hung `claude -p` held its chain slot forever regardless of the budget.
+   * This spawn double never resolves on its own, only on `opts.signal`
+   * firing -- exactly what the real `defaultAgenticSpawn` now does, and
+   * exactly what exposes whether the signal actually reaches it: with the
+   * old, unwired `execAgentic`/`buildHopExec`, `opts.signal` is undefined
+   * here and this promise never settles, so the request hangs until bun's
+   * own test timeout fails it rather than the door's short budget.
+   */
+  test("a hung agentic spawn is aborted by agent_timeout_seconds instead of holding its slot forever", async () => {
+    const id = "claude-hangs";
+    clearVerifiedVersion(id);
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, id), { recursive: true });
+    writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    const workdir = mkdtempSync(join(tmpdir(), "engined-workdir-"));
+    const cfg = config({
+      // Well under bun's own per-test timeout, so a correct fix resolves
+      // fast and a regression fails this test rather than hanging the suite.
+      agent_timeout_seconds: 0.05,
+      engines: [engine({ id, egress: "remote", claude_version: "1.2.3" })],
+    });
+    const spawn: AgenticSpawn = (_argv, opts) =>
+      new Promise((_resolve, reject) => {
+        opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+    );
+
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: id,
+          messages: [{ role: "user", content: "hi" }],
+          workdir,
+        }),
+      }),
+    );
+    await res.text();
+
+    expect(res.status).toBe(503);
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as { attempts: { failure?: string }[] };
+    expect(record.attempts[0]?.failure).toBe("timeout");
+    clearVerifiedVersion(id);
   });
 });
 

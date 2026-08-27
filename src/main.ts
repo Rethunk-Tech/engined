@@ -562,8 +562,9 @@ async function execAgentic(
   ctx: DoorContext,
   engineId: string,
   modelSeg: string,
-  rawBody: Record<string, unknown>,
+  req: { rawBody: Record<string, unknown>; signal: AbortSignal },
 ): Promise<HopResult> {
+  const { rawBody, signal } = req;
   const config = ctx.getConfig();
   const engineEntry = config.engines.find((e) => e.id === engineId);
   if (!engineEntry) {
@@ -612,6 +613,7 @@ async function execAgentic(
     bunx: ctx.registryOpts.bunx,
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,
     extraEnv,
+    signal,
   });
   return hopResultFromAgenticOutcome(outcome);
 }
@@ -622,7 +624,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
     if (kind === "agentic-cli") {
-      return await execAgentic(ctx, engineId, modelSeg, req.rawBody);
+      return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
     const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
     if (kind === "openai-http" && engineEntry) {
@@ -1002,16 +1004,48 @@ export function bindDualFamily(
   return { v4, v6 };
 }
 
+/**
+ * `ENGINED_BUNX` is what the `--user` unit always sets (`scripts/engined.service.in`)
+ * so `{bunx}` in a spec.toml command, and every agentic launch, resolve to an
+ * absolute path rather than a bare `bunx` a sandboxed unit's PATH may not
+ * carry at all. A bare-string fallback here used to be silently truthy no
+ * matter what, which made `agentic.ts:117`'s own "bunx is unresolved" guard
+ * dead code in production -- a unit that lost the env var failed late, at
+ * exec inside a spawned child, instead of loudly at startup.
+ *
+ * The legitimate case this must not break is a plain working-tree dev run
+ * with no unit and no `ENGINED_BUNX` at all: resolving off PATH (real,
+ * right now, at startup) rather than assuming a bare `"bunx"` will resolve
+ * later is what covers it, since a developer's shell always has one. Only a
+ * box with genuinely neither the env var nor `bunx` on PATH is fatal.
+ */
+export function resolveBunx(
+  env: NodeJS.ProcessEnv = process.env,
+  which: (cmd: string) => string | null = Bun.which,
+): string {
+  const configured = env.ENGINED_BUNX;
+  if (configured !== undefined && configured !== "") {
+    return configured;
+  }
+  const onPath = which("bunx");
+  if (onPath !== null) {
+    return onPath;
+  }
+  throw new FatalError(
+    'ENGINED_BUNX is not set and no "bunx" was found on PATH -- the --user unit always sets ENGINED_BUNX (scripts/engined.service.in); a working-tree dev run needs bunx on PATH instead',
+  );
+}
+
 if (import.meta.main) {
-  // Set by the --user unit; a bare `bunx` is only reached in a working-tree dev run.
-  const bunx = process.env.ENGINED_BUNX ?? "bunx";
   let startupConfig: Config;
   let door: Door;
   // `createDoor` loads every engine spec eagerly, so a `ParseError` from an
   // unresolved placeholder lands here and not at the first request. It shares
   // the config path's exit code because a restart fixes neither, and escaping
   // this block uncaught would exit 1 and put the unit in a restart loop.
+  // `resolveBunx` throwing lands here too, for the same reason.
   try {
+    const bunx = resolveBunx();
     startupConfig = loadConfig();
     door = createDoor(startupConfig, {
       enginesRoot: `${installDir()}/engines`,
