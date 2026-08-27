@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DockerLifecycle,
   type Exec,
   type ExecResult,
+  hostPathFor,
   type Probe,
   parseExposedPort,
   parseHostPort,
 } from "./docker.ts";
-import type { ContainerSpec } from "./types.ts";
+import type { ContainerSpec, Volume } from "./types.ts";
 
 /** `docker image inspect redis:alpine`, captured on this box — the one-port case. */
 const REDIS_INSPECT = `[
@@ -286,6 +290,65 @@ test("start: a failed artifact check is not cached — a repaired condition re-r
   const repaired = await lifecycle.start("needs-artifact", specWithArtifact, START_OPTS);
   expect(repaired.state).toBe("running");
   expect(artifactState.checkCount).toBe(STARTS_AFTER_REPAIR);
+});
+
+describe("hostPathFor", () => {
+  const bindMount: Volume = { name: "/data/whisper", path: "/models" };
+  const namedVolume: Volume = { name: "whisper-models", path: "/models" };
+
+  test("bind-mounted volume resolves to a host path", () => {
+    expect(hostPathFor({ path: "/models/x.bin", obtain: "" }, [bindMount])).toBe(
+      "/data/whisper/x.bin",
+    );
+  });
+
+  test("named (non-path) volume is not host-visible", () => {
+    expect(hostPathFor({ path: "/models/x.bin", obtain: "" }, [namedVolume])).toBeNull();
+  });
+
+  test("no volume covers the artifact's path", () => {
+    expect(hostPathFor({ path: "/models/x.bin", obtain: "" }, [])).toBeNull();
+  });
+});
+
+test("start: a bind-mounted artifact is checked with a host stat, never a container", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "engined-artifact-"));
+  try {
+    const specWithBindMount: ContainerSpec = {
+      ...SPEC,
+      volumes: [{ name: dir, path: "/models" }],
+      artifacts: [
+        { path: "/models/x.gguf", obtain: `curl -o ${dir}/x.gguf https://example/x.gguf` },
+      ],
+    };
+    const calls: string[][] = [];
+    function exec(args: readonly string[]): Promise<ExecResult> {
+      const argv = [...args];
+      calls.push(argv);
+      if (argv[0] === "image" && argv[1] === "inspect") {
+        return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+      }
+      if (argv[0] === "port") {
+        return Promise.resolve({ stdout: "127.0.0.1:40030", stderr: "", exitCode: 0 });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+    // Missing: unavailable, carrying the artifact's own obtain command, never a container run.
+    const missing = await lifecycle.start("bind-artifact", specWithBindMount, START_OPTS);
+    expect(missing.state).toBe("unavailable");
+    expect(missing.fix).toBe(specWithBindMount.artifacts[0]?.obtain);
+
+    // Present: a startable engine, still without a container run to check it.
+    writeFileSync(join(dir, "x.gguf"), "weights");
+    const present = await lifecycle.start("bind-artifact", specWithBindMount, START_OPTS);
+    expect(present.state).toBe("running");
+
+    expect(calls.some((c) => c[0] === "run" && c[1] === "--rm")).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("probe: reports unavailable and the matching fix without ever starting a container", async () => {

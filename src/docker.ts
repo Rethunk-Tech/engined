@@ -10,6 +10,8 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { posix } from "node:path";
 import process from "node:process";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
 import { probeSaysReady } from "./types.ts";
@@ -63,6 +65,28 @@ export type PortResult = { port: number } | { error: string };
 function mountSpec(volume: Volume): string {
   const base = `${volume.name}:${volume.path}`;
   return volume.read_only === true ? `${base}:ro` : base;
+}
+
+/**
+ * The host path an artifact lives at, when it sits under a bind-mounted
+ * volume (`volume.name` is an absolute host path, not a docker volume name).
+ * Null when no volume covers it — a named volume, whose contents only a
+ * container can see, or an artifact baked into the image with no mount at all.
+ */
+export function hostPathFor(artifact: Artifact, volumes: readonly Volume[]): string | null {
+  for (const volume of volumes) {
+    if (!volume.name.startsWith("/")) {
+      continue;
+    }
+    if (artifact.path === volume.path) {
+      return volume.name;
+    }
+    const prefix = volume.path.endsWith("/") ? volume.path : `${volume.path}/`;
+    if (artifact.path.startsWith(prefix)) {
+      return posix.join(volume.name, artifact.path.slice(volume.path.length));
+    }
+  }
+  return null;
 }
 
 export function parseExposedPort(inspectJson: string, image: string): PortResult {
@@ -344,11 +368,28 @@ export class DockerLifecycle {
     return result;
   }
 
-  /** One short-lived container per artifact, mounting the volume it should live in. */
+  /**
+   * A bind-mounted artifact is a plain host `stat` — no container needed.
+   * What's left after that (a named volume, or nothing declared to mount it
+   * at all) is checked the only way it can be: a short-lived container per
+   * artifact, mounting every volume the spec declares.
+   */
   private async checkArtifacts(spec: ContainerSpec): Promise<Result> {
+    const needsContainer: Artifact[] = [];
+    for (const artifact of spec.artifacts) {
+      const hostPath = hostPathFor(artifact, spec.volumes);
+      if (hostPath === null) {
+        needsContainer.push(artifact);
+      } else if (!existsSync(hostPath)) {
+        return this.missingArtifact(spec.image, artifact);
+      }
+    }
+    if (needsContainer.length === 0) {
+      return { ok: true };
+    }
     const volumeArgs = spec.volumes.flatMap((v) => ["-v", mountSpec(v)]);
     const checks = await Promise.all(
-      spec.artifacts.map(async (artifact) => ({
+      needsContainer.map(async (artifact) => ({
         artifact,
         res: await this.exec([
           "run",
