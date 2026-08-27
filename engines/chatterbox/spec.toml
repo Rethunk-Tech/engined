@@ -2,6 +2,8 @@ kind   = "tts"
 image  = "sagaforge-chatterbox:local"
 obtain = "build"
 serves = ["/v1/audio/speech"]
+# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+command = []
 # Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: chatterbox is a
 # ROCm/PyTorch engine. See engines/local-llama/spec.toml for why that one
 # omits /dev/kfd.
