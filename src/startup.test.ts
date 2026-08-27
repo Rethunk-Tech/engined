@@ -71,3 +71,46 @@ test("an unresolved spec placeholder exits 78 rather than crashing", async () =>
   expect(code).toBe(FatalError.EXIT_CODE);
   expect(stderr).toContain("unresolved placeholder {models_dir}");
 });
+
+// A port already bound (by anything, not necessarily another engined) is
+// fatal rather than a restart-loop candidate -- proven live earlier this
+// session by holding the real 29200 and starting the unit (status=78/CONFIG,
+// NRestarts=0). 39219 here is a second, distinct scratch port from
+// startup.test.ts's other test (39218) -- never 29200, which the real
+// engined.service is bound to and serving on right now.
+test("a port already bound at startup exits 78 naming the port, not a restart loop", async () => {
+  const port = 39_219;
+  const holder = Bun.listen({
+    hostname: "127.0.0.1",
+    port,
+    // Bun's runtime requires at least one of data/drain, despite both being
+    // typed optional -- this listener only needs to occupy the port.
+    socket: {
+      data() {
+        // never receives real traffic; the listener exists only to hold the port
+      },
+    },
+  });
+  try {
+    const env = scratchHome(
+      [
+        'kind = "tts"',
+        'image = "probe:local"',
+        'obtain = "build"',
+        'serves = ["/v1/audio/speech"]',
+        "command = []",
+        "",
+        "[ready]",
+        'path   = "/health"',
+        "status = 200",
+      ].join("\n"),
+      [`listen_port = ${port}`, "", "[[engine]]", 'id     = "probe"', 'egress = "none"'].join("\n"),
+    );
+    const { code, stderr } = await runDaemon(env);
+    expect(code).toBe(FatalError.EXIT_CODE);
+    expect(stderr).toContain(String(port));
+    expect(stderr).toContain("already in use");
+  } finally {
+    holder.stop(true);
+  }
+});
