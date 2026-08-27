@@ -12,10 +12,22 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 import { stateDir } from "./paths.ts";
-import { AGENTIC_FLOOR } from "./types.ts";
+import { AGENTIC_FLOOR, type EngineEntry } from "./types.ts";
 
 /** Not part of the safety floor — needed only so stdout is the JSON `parseEnvelope` expects. */
 const OUTPUT_FORMAT_FLAGS = ["--output-format", "json"] as const;
@@ -197,6 +209,8 @@ export interface RunAgenticResult {
    * upstream 5xx does.
    */
   envelopeFailure: boolean;
+  /** The pin actually embedded in the launched argv. Absent when no process was spawned (the workdir-required 400). */
+  version?: string;
 }
 
 function logToStderr(text: string): void {
@@ -240,5 +254,144 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     result: outcome.result,
     failure: outcome.failure,
     envelopeFailure: !outcome.ok,
+    version: input.claudeVersion,
+  };
+}
+
+/**
+ * The two probes the design names in TODO.md's "Bumping the pin re-proves
+ * the guarantee, automatically": a completion instructed to create a file,
+ * worktree-hashed before and after, and a planted `UserPromptSubmit` hook
+ * checked for silence. Each run costs a real billed call to Anthropic, so
+ * this is only ever wired into the version-proof gate (`engines.ts`'s
+ * `agenticStatus`), which fires solely when the configured pin differs from
+ * the one last recorded — never per request, never per status poll.
+ */
+const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
+const WITNESS_ID_RADIX = 36;
+
+function hashTree(root: string): string {
+  const hash = createHash("sha256");
+  hashWalk(root, root, hash);
+  return hash.digest("hex");
+}
+
+function hashWalk(root: string, dir: string, hash: ReturnType<typeof createHash>): void {
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    const stat = statSync(full);
+    hash.update(full.slice(root.length));
+    if (stat.isDirectory()) {
+      hashWalk(root, full, hash);
+    } else {
+      hash.update(readFileSync(full));
+    }
+  }
+}
+
+/** Always a fresh directory under the OS temp directory — never a real repository this box happens to have checked out. */
+function scratchWorktree(): string {
+  const dir = mkdtempSync(join(tmpdir(), "engined-agentic-probe-"));
+  writeFileSync(join(dir, "seed.txt"), "unrelated pre-existing content\n");
+  return dir;
+}
+
+function plantUserPromptSubmitHook(workdir: string, witness: string): void {
+  const claudeDir = join(workdir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    join(claudeDir, "settings.json"),
+    JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [
+          { matcher: "", hooks: [{ type: "command", command: `echo fired >> ${witness}` }] },
+        ],
+      },
+    }),
+  );
+}
+
+export interface AgenticProbeRunnerDeps {
+  /** Defaults to the real child-process spawn; a test injects a fake so no billed call ever runs. */
+  spawn?: AgenticSpawn;
+  ambientEnv?: NodeJS.ProcessEnv;
+}
+
+async function runByteIdenticalProbe(
+  claudeVersion: string,
+  bunx: string,
+  deps: AgenticProbeRunnerDeps,
+): Promise<{ ok: boolean }> {
+  const workdir = scratchWorktree();
+  try {
+    const before = hashTree(workdir);
+    const outcome = await runAgentic({
+      claudeVersion,
+      args: {},
+      envAllowlist: PROBE_ENV_ALLOWLIST,
+      workdir,
+      prompt:
+        "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
+      spawn: deps.spawn ?? defaultAgenticSpawn,
+      bunx,
+      ambientEnv: deps.ambientEnv,
+    });
+    return { ok: outcome.ok && hashTree(workdir) === before };
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+}
+
+async function runHookSilenceProbe(
+  claudeVersion: string,
+  bunx: string,
+  deps: AgenticProbeRunnerDeps,
+): Promise<{ ok: boolean }> {
+  const workdir = scratchWorktree();
+  const witness = join(
+    tmpdir(),
+    `engined-agentic-probe-witness-${Date.now()}-${Math.random().toString(WITNESS_ID_RADIX).slice(2)}`,
+  );
+  rmSync(witness, { force: true });
+  plantUserPromptSubmitHook(workdir, witness);
+  try {
+    const outcome = await runAgentic({
+      claudeVersion,
+      args: {},
+      envAllowlist: PROBE_ENV_ALLOWLIST,
+      workdir,
+      prompt: "Say hello in one short sentence.",
+      spawn: deps.spawn ?? defaultAgenticSpawn,
+      bunx,
+      ambientEnv: deps.ambientEnv,
+    });
+    return { ok: outcome.ok && !existsSync(witness) };
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+    rmSync(witness, { force: true });
+  }
+}
+
+/**
+ * Runs the byte-identical probe, then — only if it passed — the hook-silence
+ * probe: a probe run is a real billed call, so a proven-broken pin skips the
+ * second one rather than paying for it. Return type matches `engines.ts`'s
+ * `AgenticProbeRunner` exactly; `EngineEntry` is accepted and unused because
+ * every agentic launch is identical regardless of which engine asked for it.
+ */
+export function buildAgenticProbeRunner(
+  bunx: string,
+  deps: AgenticProbeRunnerDeps = {},
+): (engine: EngineEntry, claudeVersion: string) => Promise<{ ok: boolean; failedProbe?: string }> {
+  return async (_engine, claudeVersion) => {
+    const byteIdentical = await runByteIdenticalProbe(claudeVersion, bunx, deps);
+    if (!byteIdentical.ok) {
+      return { ok: false, failedProbe: "byte-identical" };
+    }
+    const hookSilence = await runHookSilenceProbe(claudeVersion, bunx, deps);
+    if (!hookSilence.ok) {
+      return { ok: false, failedProbe: "no-hook-fires" };
+    }
+    return { ok: true };
   };
 }

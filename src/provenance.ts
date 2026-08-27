@@ -17,6 +17,8 @@ export interface Attempt {
   model_reported?: string;
   /** Read per attempt from that engine's `GET /v1/models`. The value that names the GGUF that actually answered. */
   model_resident?: string;
+  /** The pin that actually launched, for an agentic attempt only. Absent, never an empty string, for every other kind. */
+  version?: string;
 }
 
 export interface CallRecord {
@@ -37,6 +39,7 @@ function serializeAttempt(attempt: Attempt): Attempt {
     duration_ms: attempt.duration_ms,
     model_reported: attempt.model_reported,
     model_resident: attempt.model_resident,
+    version: attempt.version,
   };
 }
 

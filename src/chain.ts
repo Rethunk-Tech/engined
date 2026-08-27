@@ -23,6 +23,8 @@ export interface HopResult {
   modelReported?: string;
   /** Read per attempt from the answering engine's own `GET /v1/models`, when it can supply one. Passed straight to the attempt's `model_resident`. */
   modelResident?: string;
+  /** Set only by an agentic hop, from the version that actually launched. Passed straight to the attempt's `version`; absent for every other hop kind. */
+  version?: string;
 }
 
 export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
@@ -156,6 +158,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         duration_ms: Date.now() - start,
         model_reported: result.modelReported,
         model_resident: result.modelResident,
+        version: result.version,
       },
       result,
       advance: outcome.advance,

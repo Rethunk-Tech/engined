@@ -8,7 +8,12 @@
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import { type AgenticSpawn, defaultAgenticSpawn, runAgentic } from "./agentic.ts";
+import {
+  type AgenticSpawn,
+  buildAgenticProbeRunner,
+  defaultAgenticSpawn,
+  runAgentic,
+} from "./agentic.ts";
 import {
   type DoorResponse,
   handleSpeech,
@@ -451,6 +456,25 @@ export async function resolveRedirect(
   return { ok: true, env: redirectEnv(engineEntry.base_url as string, outcome.value, model) };
 }
 
+/** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
+function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgentic>>): HopResult {
+  if (!outcome.ok) {
+    return {
+      status: outcome.status,
+      body: { error: outcome.failure ?? "agentic call failed" },
+      startedBytes: false,
+      envelopeFailure: outcome.envelopeFailure,
+      version: outcome.version,
+    };
+  }
+  return {
+    status: outcome.status,
+    body: agenticEnvelope(outcome.result),
+    startedBytes: false,
+    version: outcome.version,
+  };
+}
+
 /** The `agentic-cli` case. `runAgentic` itself enforces the workdir-required-400 rule. */
 async function execAgentic(
   ctx: DoorContext,
@@ -506,15 +530,7 @@ async function execAgentic(
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,
     extraEnv,
   });
-  if (!outcome.ok) {
-    return {
-      status: outcome.status,
-      body: { error: outcome.failure ?? "agentic call failed" },
-      startedBytes: false,
-      envelopeFailure: outcome.envelopeFailure,
-    };
-  }
-  return { status: outcome.status, body: agenticEnvelope(outcome.result), startedBytes: false };
+  return hopResultFromAgenticOutcome(outcome);
 }
 
 function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
@@ -891,6 +907,11 @@ if (import.meta.main) {
   const door = createDoor(startupConfig, {
     enginesRoot: `${installDir()}/engines`,
     bunx,
+    // Only production wiring: a real probe run is a real billed call to
+    // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
+    // from firing per request or per status poll -- it only ever invokes
+    // the runner when the configured pin differs from the one last proved.
+    agenticProbeRunner: buildAgenticProbeRunner(bunx),
   });
 
   let bound: { v4: ReturnType<typeof Bun.serve>; v6: ReturnType<typeof Bun.serve> };
