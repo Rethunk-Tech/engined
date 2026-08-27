@@ -1,8 +1,9 @@
 /**
  * Generic managed-engine lifecycle: start-on-demand behind a per-engine start
- * lock, adoption of a still-running `engined-*` container, port read-back,
- * readiness and idle-stop. Every engine kind plays a `ContainerSpec` through
- * this same machinery; nothing here is llama, Comfy or audio specific.
+ * lock, force-remove-and-recreate on every start (never a bare resume of
+ * whatever container already holds the name), port read-back, readiness and
+ * idle-stop. Every engine kind plays a `ContainerSpec` through this same
+ * machinery; nothing here is llama, Comfy or audio specific.
  *
  * Parsing is pure and takes strings. Only `dockerExec` and `defaultProbe`
  * touch a process or a socket, so everything else runs with no docker and no
@@ -22,6 +23,7 @@ const READY_POLL_INTERVAL_MS = 250;
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
 const DOCKER_START_FAILURE_EXIT_CODE = 125;
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/;
+const NO_SUCH_CONTAINER = /no such container/i;
 
 export interface ExecResult {
   stdout: string;
@@ -123,13 +125,6 @@ export function parseHostPort(portOutput: string): number | null {
     }
   }
   return null;
-}
-
-export function parseContainerNames(psOutput: string): string[] {
-  return psOutput
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
 }
 
 /** The flags docker never receives from config: the container name and both ports are read back, not written. */
@@ -428,16 +423,23 @@ export class DockerLifecycle {
 
   /**
    * A container by this name is never resumed as-is: its creation-time args
-   * can predate the spec now in force. Remove whatever is there (a no-op
-   * error if nothing is) and create fresh, so what runs always matches the
-   * current spec.
+   * can predate the spec now in force. `-f` is required, not cosmetic: a
+   * still-running container (the exact case a daemon restart leaves behind)
+   * refuses a plain `rm`, and the `docker run` that follows then fails 125
+   * "name already in use" -- indistinguishable from a genuine startup
+   * failure unless something recovers it. "No such container" is the normal
+   * case (nothing to remove) and is not an error; anything else means `run`
+   * would hit the same conflict, so it is surfaced now instead.
    */
   private async runContainer(
     containerName: string,
     spec: ContainerSpec,
     containerPort: number,
   ): Promise<Result> {
-    await this.exec(["rm", containerName]);
+    const rm = await this.exec(["rm", "-f", containerName]);
+    if (rm.exitCode !== 0 && !NO_SUCH_CONTAINER.test(rm.stderr)) {
+      return { ok: false, error: rm.stderr.trim() || `docker rm -f failed for ${containerName}` };
+    }
     const run = await this.exec(buildRunArgs(containerName, spec, containerPort));
     if (run.exitCode !== 0) {
       return { ok: false, error: run.stderr.trim() || `docker run failed for ${containerName}` };
@@ -495,61 +497,7 @@ export class DockerLifecycle {
     this.runtimes.delete(id);
   }
 
-  /**
-   * On startup: find every `engined-*` container, re-read its port, restart
-   * its idle timer, and keep serving from it. One still running for an id no
-   * longer in `specs` is stopped rather than left orphaned.
-   */
-  async adopt(
-    specs: ReadonlyMap<string, { spec: ContainerSpec; idleStopSeconds: number }>,
-  ): Promise<void> {
-    const res = await this.exec([
-      "ps",
-      "--filter",
-      `name=^${NAME_PREFIX}`,
-      "--format",
-      "{{.Names}}",
-    ]);
-    if (res.exitCode !== 0) {
-      return;
-    }
-    await Promise.all(
-      parseContainerNames(res.stdout).map((containerName) => {
-        const id = containerName.slice(NAME_PREFIX.length);
-        const entry = specs.get(id);
-        return entry
-          ? this.adoptOne(id, containerName, entry.spec, entry.idleStopSeconds)
-          : this.exec(["stop", containerName]).then(() => undefined);
-      }),
-    );
-  }
-
-  /** A container found by `docker ps` is running whether or not it can be fully adopted, so a failed adopt reports `running` with `last_error` set rather than the silent, healthy-looking `installed` default. */
-  private async adoptOne(
-    id: string,
-    containerName: string,
-    spec: ContainerSpec,
-    idleStopSeconds: number,
-  ): Promise<void> {
-    const rt = this.runtime(id);
-    const image = await this.checkImage(spec);
-    if (!image.ok) {
-      rt.state = "running";
-      rt.lastError = `${containerName}: adopted but ${image.error}`;
-      return;
-    }
-    const hostPort = await this.readHostPort(containerName, image.containerPort);
-    if (hostPort === null) {
-      rt.state = "running";
-      rt.lastError = `${containerName}: adopted but docker port returned no host binding`;
-      return;
-    }
-    rt.state = "running";
-    rt.hostPort = hostPort;
-    this.endLease(id, idleStopSeconds);
-  }
-
-  /** Stops every container this process started or adopted. Called at SIGTERM by the door, not from here. */
+  /** Stops every container this process started. Called at SIGTERM by the door, not from here. */
   async shutdown(): Promise<void> {
     await Promise.all(
       [...this.runtimes.values()]
