@@ -18,10 +18,17 @@ FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
 # shell out to it during KPipeline init, and the weight-baking step below
 # needs that to succeed at build time.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3-venv python3-dev build-essential git ca-certificates espeak-ng \
+      build-essential git ca-certificates espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv /opt/venv
+# uv owns the interpreter, not the distro: see engines/chatterbox/Dockerfile
+# for why the base image's system python3 (Ubuntu 24.04's 3.12) is not a
+# deliberate floor. Fleet floor is >=3.12, fleet standard is 3.14. Minor-only
+# so uv resolves the newest 3.14.x patch rather than freezing one that goes
+# stale.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+RUN uv python install 3.14
+RUN uv venv --seed --python 3.14 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # torch only -- no torchvision/torchaudio, kokoro doesn't need them.

@@ -10,37 +10,51 @@
 FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3-venv python3-dev build-essential git ca-certificates \
+      build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv /opt/venv
+# uv owns the interpreter, not the distro: this base's system python3 is
+# whatever Ubuntu 24.04 ships (3.12), an accident of the ROCm base image
+# rather than a deliberate floor. Fleet floor is >=3.12; fleet standard is
+# developing and running on 3.14. Minor-only so uv resolves the newest 3.14.x
+# patch rather than freezing one that goes stale.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+RUN uv python install 3.14
+RUN uv venv --seed --python 3.14 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN pip install --no-cache-dir torch torchvision torchaudio \
       --index-url https://download.pytorch.org/whl/rocm7.2
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
-# --no-deps: chatterbox-v2's own pyproject.toml pins numpy<1.26 (no Python
-# 3.12 wheel exists, unbuildable there) and torch==2.5.1 (we run newer on
-# purpose) -- requirements.txt above installs its real deps at versions that
-# actually work here instead.
+# --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
+# and torch==2.5.1 -- version pins, not a wheel-availability quirk of any one
+# interpreter, so 3.14 doesn't relax them. If anything it's worse under 3.14:
+# numpy first shipped Python-3.12 wheels at 1.26.0, so anything below that
+# floor has no cp312 wheel and certainly no cp314 one either (numpy never
+# backported wheel builds for such an old point release), and torch==2.5.1
+# predates cp314 wheels entirely (confirmed against the ROCm 7.2 wheel index:
+# cp314 support starts at torch 2.11). requirements.txt installs the real
+# runtime deps at versions that actually work here instead.
 RUN pip install --no-cache-dir --no-deps \
       'chatterbox-tts @ git+https://github.com/devnen/chatterbox-v2.git@master'
 
 # gfx1151 dtype fixes for torch 2.9+ (numpy float64 leaking into float32-only
 # ops) -- same two patches devnen/Chatterbox-TTS-Server carries for this
-# hardware/torch pairing. Paths are the venv's real install tree, not a
-# find-by-filename guess: getting these wrong builds clean and then fails at
-# inference on gfx1151, the silent-failure class this project exists to catch.
+# hardware/torch pairing. Path is a glob on the venv's real install tree, not
+# a literal python3.12 -- that hardcodes the interpreter minor version the
+# venv happens to carry today, and a future bump silently stops matching:
+# the sed exits 0, patches nothing, the image builds clean, and inference
+# fails on gfx1151, the silent-failure class this project exists to catch.
 RUN sed -i \
     's/wav = torch\.from_numpy(wav)$/wav = torch.from_numpy(wav).float()/' \
-    /opt/venv/lib/python3.12/site-packages/chatterbox/models/s3tokenizer/s3tokenizer.py && \
+    /opt/venv/lib/python3.*/site-packages/chatterbox/models/s3tokenizer/s3tokenizer.py && \
     sed -i \
     's/mel_spec = self\._mel_filters\.to(self\.device) @ magnitudes/mel_spec = self._mel_filters.to(self.device).to(magnitudes.dtype) @ magnitudes/' \
-    /opt/venv/lib/python3.12/site-packages/chatterbox/models/s3tokenizer/s3tokenizer.py
+    /opt/venv/lib/python3.*/site-packages/chatterbox/models/s3tokenizer/s3tokenizer.py
 RUN sed -i \
     's/utt_embeds = self\.inference(mels\.to(self\.device),/utt_embeds = self.inference(mels.to(self.device).float(),/' \
-    /opt/venv/lib/python3.12/site-packages/chatterbox/models/voice_encoder/voice_encoder.py
+    /opt/venv/lib/python3.*/site-packages/chatterbox/models/voice_encoder/voice_encoder.py
 
 # Bakes the model weights into this layer under HF_HOME so the running
 # container needs no download, no volume and no [[artifact]] -- same
