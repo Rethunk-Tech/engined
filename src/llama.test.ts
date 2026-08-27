@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Exec, Probe } from "./docker.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { HttpClient } from "./llama.ts";
-import { buildLlamaSpec, LlamaRouter, renderPresetIni } from "./llama.ts";
+import { buildLlamaSpec, LlamaRouter, renderPresetIni, reportedModelFrom } from "./llama.ts";
 import type { EngineEntry, ModelEntry } from "./types.ts";
 
 const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
@@ -91,6 +91,27 @@ interface RecordedCall {
   body: { model?: string; stream?: boolean } | undefined;
 }
 
+/** Structured parse of `renderPresetIni`'s output: `id -> {key: value}`, section-name brackets stripped. */
+function parseIniSections(ini: string): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
+  for (const block of ini.split("\n\n")) {
+    const [header, ...lines] = block.split("\n");
+    const id = header?.replace(/^\[|\]$/g, "");
+    if (id === undefined) {
+      continue;
+    }
+    const kv: Record<string, string> = {};
+    for (const line of lines) {
+      const [k, v] = line.split(" = ");
+      if (k !== undefined && v !== undefined) {
+        kv[k] = v;
+      }
+    }
+    out.set(id, kv);
+  }
+  return out;
+}
+
 /** Matches the real b10354 contract, probed live: `/models/load` never returns
  * `{status:"loaded"}` -- a not-yet-resident model answers `{success:true}`
  * (accepted) and an already-resident one 400s "model is already running".
@@ -140,7 +161,7 @@ function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
 }
 
 describe("renderPresetIni", () => {
-  test("two models with different args produce two different INI sections", () => {
+  test("two models with different [model.args] produce two different INI sections, and the run argv points the child at that file", () => {
     const e = engine();
     const a = model({
       id: "a",
@@ -149,11 +170,26 @@ describe("renderPresetIni", () => {
     });
     const b = model({ id: "b", filename: "b.gguf", args: {} });
     const ini = renderPresetIni(e, [a, b]);
-    const sections = new Map(ini.split("\n\n").map((s) => [s.split("\n", 1)[0], s]));
-    expect(sections.get("[a]")).toContain("spec-type = draft-mtp");
-    expect(sections.get("[a]")).toContain("spec-draft-p-min = 0.1");
-    expect(sections.get("[b]")).not.toContain("spec-type");
-    expect(sections.get("[a]")).not.toBe(sections.get("[b]"));
+    const sections = parseIniSections(ini);
+    // Structured, not substring: proves the exact key set each section
+    // carries, not merely that a wanted phrase appears somewhere in it.
+    expect(sections.get("a")).toEqual({
+      model: "/models/a.gguf",
+      "spec-type": "draft-mtp",
+      "spec-draft-p-min": "0.1",
+    });
+    expect(sections.get("b")).toEqual({ model: "/models/b.gguf" });
+
+    // Proves different *file content* only -- not that llama-server honours
+    // a per-model key rather than ignoring it. The run argv below is what
+    // connects that file to the child: `--models-preset` names the mounted
+    // path. Reading the child's real argv/`/slots` per flag needs a live
+    // container and belongs to a smoke test under test/local/.
+    const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
+    const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
+    const presetIdx = argv.indexOf("--models-preset");
+    expect(presetIdx).toBeGreaterThan(-1);
+    expect(argv[presetIdx + 1]).toBe("/preset.ini");
   });
 
   test("a model arg beats an engine arg naming the same key", () => {
@@ -455,6 +491,65 @@ test("the role's lease is free after a failed load: a later request for the role
   ]);
   expect(result.done).toBe(true);
   expect(result.done && (JSON.parse(result.t) as { model?: string }).model).toBe("b");
+});
+
+test("a cold streaming request emits `: warming` before its first real byte", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const { client } = fakeLlama();
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a", stream: true }),
+  });
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error("expected a body reader");
+  }
+  const { value } = await reader.read();
+  expect(new TextDecoder().decode(value)).toBe(": warming\n\n");
+});
+
+test("a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const { client } = fakeLlama();
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  // No prior proxy() call: this is the container's first request, the
+  // coldest possible load.
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+  const raw = await res.text();
+  expect(() => JSON.parse(raw)).not.toThrow();
+  expect(raw.startsWith(": warming")).toBe(false);
+});
+
+test("model_reported (the echoed body) and model_resident (read from /v1/models) differ on a stale echo", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf", role: "chat" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  // The chat response echoes a router id that is not the resident file --
+  // exactly the staleness model_resident exists to catch independently.
+  const { client } = fakeLlama((call) =>
+    call.path === CHAT_PATH ? Response.json({ ok: true, model: "stale-id" }) : undefined,
+  );
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  const body = (await (
+    await router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) })
+  ).json()) as { model?: string };
+
+  const modelReported = reportedModelFrom(body);
+  const modelResident = await router.residentModelId("chat");
+  expect(modelReported).toBe("stale-id");
+  expect(modelResident).toBe("a");
+  expect(modelReported).not.toBe(modelResident);
 });
 
 // Concurrent chat + vision decode needs a registered vision [[model]] against

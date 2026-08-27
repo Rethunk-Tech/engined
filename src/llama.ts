@@ -49,6 +49,19 @@ function iniLines(args: Record<string, unknown>): string[] {
 }
 
 /**
+ * The `model` field a chat/embeddings response body echoes back: the INI
+ * section name engined itself wrote, which proves the request reached the
+ * engine and not which GGUF answered. Provenance's `model_reported`.
+ */
+export function reportedModelFrom(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) {
+    return;
+  }
+  const { model } = body as { model?: unknown };
+  return typeof model === "string" ? model : undefined;
+}
+
+/**
  * One `[id]` section per model on this engine. A model's section starts from
  * the engine's process-flag defaults and layers the model's own on top — the
  * precedence `resolveArgs` already encodes — then passes the merged table
@@ -358,6 +371,22 @@ export class LlamaRouter {
       data?: Array<{ id: string; status?: { value?: string } }>;
     };
     return body.data?.find((m) => m.id === modelId)?.status?.value;
+  }
+
+  /**
+   * Independent proof of which GGUF actually answered for `role`: read fresh
+   * from `GET /v1/models` on this engine rather than trusted from
+   * `residentModel`'s own bookkeeping, which records what this router last
+   * commanded and not what the engine itself reports holding. Provenance's
+   * `model_resident`, read per attempt.
+   */
+  async residentModelId(role: Role): Promise<string | undefined> {
+    const res = await this.httpClient(`${this.baseUrl()}/v1/models`, { method: "GET" });
+    const body = (await res.json()) as {
+      data?: Array<{ id: string; status?: { value?: string } }>;
+    };
+    const roleIds = new Set(this.models.filter((m) => m.role === role).map((m) => m.id));
+    return body.data?.find((m) => roleIds.has(m.id) && m.status?.value === "loaded")?.id;
   }
 
   /**
