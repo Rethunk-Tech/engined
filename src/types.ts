@@ -166,8 +166,9 @@ export class ParseError extends FatalError {
   constructor(
     message: string,
     readonly file: string,
+    options?: ErrorOptions,
   ) {
-    super(`${file}: ${message}`);
+    super(`${file}: ${message}`, options);
   }
 }
 
