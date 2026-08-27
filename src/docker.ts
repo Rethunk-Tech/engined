@@ -12,6 +12,7 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
+import { probeSaysReady } from "./types.ts";
 
 const NAME_PREFIX = "engined-";
 const MS_PER_SECOND = 1000;
@@ -45,10 +46,10 @@ export function dockerExec(args: readonly string[]): Promise<ExecResult> {
   });
 }
 
-export type Probe = (url: string) => Promise<{ status: number }>;
+export type Probe = (url: string, method: "GET" | "POST") => Promise<{ status: number }>;
 
-async function defaultProbe(url: string): Promise<{ status: number }> {
-  const res = await fetch(url);
+async function defaultProbe(url: string, method: "GET" | "POST"): Promise<{ status: number }> {
+  const res = await fetch(url, { method });
   return { status: res.status };
 }
 
@@ -408,8 +409,11 @@ export class DockerLifecycle {
   /** Recursive rather than looping so a poll-retry never trips an await-in-loop shape. */
   private async pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
     try {
-      const res = await this.httpProbe(`http://127.0.0.1:${hostPort}${ready.path}`);
-      if (res.status === ready.status) {
+      const res = await this.httpProbe(
+        `http://127.0.0.1:${hostPort}${ready.path}`,
+        ready.method ?? "GET",
+      );
+      if (probeSaysReady(ready, res.status)) {
         return true;
       }
     } catch {

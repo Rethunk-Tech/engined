@@ -87,7 +87,29 @@ export interface Artifact {
 /** A TCP connect is not readiness, so each spec names its own probe. */
 export interface ReadyProbe {
   path: string;
+  /** The exact status meaning ready, when `accept` is absent. */
   status: number;
+  /** Defaults to GET. Some engines answer their dialect path only to POST. */
+  method?: "GET" | "POST";
+  /**
+   * When set, any status in this inclusive range means ready — except 404,
+   * which never does. An engine whose only route is an inference path answers
+   * an empty probe payload with a 4xx, and that still proves the route exists,
+   * whereas a 404 proves it does not.
+   */
+  accept?: { min: number; max: number };
+}
+
+/** Whether a probe response means the engine is ready to serve. */
+export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
+  const NOT_FOUND = 404;
+  if (status === NOT_FOUND) {
+    return false;
+  }
+  if (probe.accept === undefined) {
+    return status === probe.status;
+  }
+  return status >= probe.accept.min && status <= probe.accept.max;
 }
 
 interface SpecCommon {

@@ -384,3 +384,58 @@ test("idle-stop failure is recorded as last_error, not thrown, and the container
   expect(status.state).toBe("running");
   expect(status.last_error).toBe("container is not running");
 });
+
+test("readiness honours a POST probe and an accept range, not just an exact GET status", async () => {
+  // whisper answers only its inference path, only to POST, and a 4xx there still
+  // proves the route exists. A probe that degraded to `GET` and `=== status`
+  // would never report ready, and the engine would stall until its timeout.
+  const BAD_REQUEST = 400;
+  const ACCEPT_MIN = 200;
+  const ACCEPT_MAX = 499;
+  const methods: string[] = [];
+  const postSpec = {
+    ...SPEC,
+    ready: {
+      path: "/v1/audio/transcriptions",
+      status: READY_STATUS,
+      method: "POST" as const,
+      accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },
+    },
+  };
+  function recordingProbe(_url: string, method: "GET" | "POST"): ReturnType<Probe> {
+    methods.push(method);
+    return Promise.resolve({ status: BAD_REQUEST });
+  }
+
+  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), recordingProbe);
+  const status = await lifecycle.start("whisper", postSpec, START_OPTS);
+
+  expect(status.state).toBe("running");
+  expect(methods).toEqual(["POST"]);
+});
+
+test("a 404 never counts as ready, even inside the accept range", async () => {
+  const NOT_FOUND = 404;
+  const ACCEPT_MIN = 200;
+  const ACCEPT_MAX = 499;
+  const notFoundSpec = {
+    ...SPEC,
+    ready: {
+      path: "/v1/audio/transcriptions",
+      status: READY_STATUS,
+      method: "POST" as const,
+      accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },
+    },
+  };
+  function notFoundProbe(): ReturnType<Probe> {
+    return Promise.resolve({ status: NOT_FOUND });
+  }
+
+  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), notFoundProbe);
+  const status = await lifecycle.start("whisper", notFoundSpec, {
+    idleStopSeconds: 60,
+    readyTimeoutS: 0.05,
+  });
+
+  expect(status.state).not.toBe("running");
+});
