@@ -44,11 +44,22 @@ reads those files directly; what `engined` adds is convenience and an egress
 path. Adding a second, less-trusted caller is the moment this stops being
 acceptable.
 
-Local-only: loopback TCP, no authentication, no tenancy.
+## Model selection
+
+OpenAI `model` accepts a bare GGUF id or alias (only when exactly one engine
+serves it — two or more is a 400 listing the qualified forms), an engine id,
+a `chain-<name>`, or `@/<engine>/<model>` — the canonical, fully-qualified
+form, and the only one a chain hop may use. The `@/` prefix exists because
+the obvious spelling collides with reality: a Hugging Face id is already
+`org/model`, and a GGUF filename this config carries is the same shape, so a
+bare `engine/model` cannot be told apart from a repo name. `@/` is not
+decoration — it is what makes the namespace unambiguous without banning
+slashes from either side.
 
 ## Transport
 
-Loopback TCP on **`29200`**, bound on both loopback families.
+Loopback TCP on **`29200`**, bound on both loopback families — local-only,
+no authentication, no tenancy.
 
 `29200` because it is **unassigned and stays that way**. IANA's registry
 lists 29170–29998 with no service in it; it is below the ephemeral floor
@@ -72,18 +83,6 @@ port turns that silent misdirect into `ECONNREFUSED`.
 
 `listen_port` still overrides it. **The door is the only port engined writes
 down for anything it runs.**
-
-## Model selection
-
-OpenAI `model` accepts a bare GGUF id or alias (only when exactly one engine
-serves it — two or more is a 400 listing the qualified forms), an engine id,
-a `chain-<name>`, or `@/<engine>/<model>` — the canonical, fully-qualified
-form, and the only one a chain hop may use. The `@/` prefix exists because
-the obvious spelling collides with reality: a Hugging Face id is already
-`org/model`, and a GGUF filename this config carries is the same shape, so a
-bare `engine/model` cannot be told apart from a repo name. `@/` is not
-decoration — it is what makes the namespace unambiguous without banning
-slashes from either side.
 
 ## Reload
 
