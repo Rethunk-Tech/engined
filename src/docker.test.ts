@@ -352,8 +352,15 @@ test("probe: a missing build-obtain image whose spec dir HAS a Dockerfile report
 });
 
 test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does not invent a path that doesn't exist", async () => {
-  // local-llama's real shape: obtain = "build", image built from a different
-  // repository entirely, no Dockerfile shipped here. A `-f <dir>/Dockerfile`
+  // A synthetic stand-in, not a real shipped engine -- every engine this
+  // repo actually ships now has a Dockerfile beside its spec (local-llama
+  // got its own this session, the scenario this test was originally
+  // modelled on). The shape under test still exists in principle -- obtain
+  // = "build" naming an image built from a different repository entirely,
+  // with nothing shipped here to build it from -- so it stays covered
+  // against a fixture invented for the purpose rather than a real engine's
+  // name, which would otherwise drift out from under this test again the
+  // next time a real engine gains its own Dockerfile. A `-f <dir>/Dockerfile`
   // hint would name a file that does not exist -- the same defect in a new
   // costume -- so this must not contain the literal string "docker build".
   const dir = mkdtempSync(join(tmpdir(), "engined-no-dockerfile-"));
@@ -361,7 +368,7 @@ test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does 
     const buildSpec: ContainerSpec = {
       ...SPEC,
       obtain: "build",
-      image: "sagaforge-llama-cpp:local",
+      image: "no-dockerfile-example:local",
     };
 
     function exec(args: readonly string[]): Promise<ExecResult> {
@@ -373,11 +380,11 @@ test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does 
     }
 
     const lifecycle = new DockerLifecycle(exec, readyProbe);
-    const status = await lifecycle.probe("local-llama", buildSpec, dir);
+    const status = await lifecycle.probe("no-dockerfile-example", buildSpec, dir);
 
     expect(status.state).toBe("unavailable");
     expect(status.fix).not.toContain("docker build");
-    expect(status.fix).toContain("sagaforge-llama-cpp:local");
+    expect(status.fix).toContain("no-dockerfile-example:local");
     expect(status.fix).toContain(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });

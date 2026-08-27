@@ -5,7 +5,13 @@ import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle } from "../../src/docker.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { LlamaRouter } from "../../src/llama.ts";
-import type { Config, EngineEntry, ModelEntry } from "../../src/types.ts";
+import { loadSpec } from "../../src/spec.ts";
+import {
+  type Config,
+  type EngineEntry,
+  isContainerSpec,
+  type ModelEntry,
+} from "../../src/types.ts";
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -14,6 +20,13 @@ import type { Config, EngineEntry, ModelEntry } from "../../src/types.ts";
  * engine's request traffic, which is the reason `EngineRegistry` polls
  * comfy at all rather than arming its lease from proxied requests the way
  * every other engine does.
+ *
+ * Image tags are read from the real engines/local-llama and engines/comfy
+ * spec.toml via `loadSpec`, not hardcoded -- local-llama's tag already
+ * drifted once within this session (sagaforge-llama-cpp:local ->
+ * engined-llama-cpp:local), and the old tag is still a real image on this
+ * box, so a hardcoded copy would run green against the wrong artifact
+ * instead of failing loudly.
  */
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
@@ -38,19 +51,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const LLAMA_IMAGE = "sagaforge-llama-cpp:local";
-const COMFY_IMAGE = "sagaforge-comfyui:local";
-const HAVE_IMAGES = imageBuilt(LLAMA_IMAGE) && imageBuilt(COMFY_IMAGE);
+/** See llama.test.ts's identical helper: /unused + the real models_max satisfy the placeholders enough to read `.image` back. */
+function specImage(engine: EngineEntry): string | undefined {
+  try {
+    const loaded = loadSpec(engine, {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+      presetIni: "/unused",
+    });
+    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
+  } catch {
+    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
+  }
+}
 
 interface Fixture {
   config: Config;
   llamaEngine: EngineEntry;
   chatModel: ModelEntry;
+  llamaImage?: string;
+  comfyImage?: string;
 }
 
 /** Never throws: a stale or unreachable config.example.toml is a clean skip, not a crash before any test registers. */
 function loadFixture(): Fixture | undefined {
-  if (!(LOCAL && HAVE_IMAGES)) {
+  if (!LOCAL) {
     return;
   }
   try {
@@ -67,20 +92,34 @@ function loadFixture(): Fixture | undefined {
       models: [chatModel],
       chains: {},
     };
-    return { config, llamaEngine, chatModel };
+    return {
+      config,
+      llamaEngine,
+      chatModel,
+      llamaImage: specImage(llamaEngine),
+      comfyImage: specImage(comfyEngine),
+    };
   } catch {
     // No GGUF at the declared path, or any other parse failure: undefined falls through to a clean skip.
   }
 }
 
 const FIXTURE = loadFixture();
+const HAVE_IMAGES =
+  FIXTURE?.llamaImage !== undefined &&
+  FIXTURE.comfyImage !== undefined &&
+  imageBuilt(FIXTURE.llamaImage) &&
+  imageBuilt(FIXTURE.comfyImage);
 const READY = LOCAL && HAVE_IMAGES && FIXTURE !== undefined;
 
 function skipReason(): string {
-  if (!HAVE_IMAGES) {
-    return `${LLAMA_IMAGE} and/or ${COMFY_IMAGE} are not built`;
+  if (FIXTURE === undefined) {
+    return "config.example.toml is missing local-llama, comfy, or a local-llama chat model";
   }
-  return "config.example.toml is missing local-llama, comfy, or a local-llama chat model";
+  if (FIXTURE.llamaImage === undefined || FIXTURE.comfyImage === undefined) {
+    return "a spec did not resolve an image -- check engines/local-llama and engines/comfy spec.toml";
+  }
+  return `${FIXTURE.llamaImage} and/or ${FIXTURE.comfyImage} are not built`;
 }
 
 async function comfyQueueReachable(privateUrl: string | null): Promise<boolean> {

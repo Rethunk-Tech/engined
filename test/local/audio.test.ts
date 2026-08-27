@@ -30,10 +30,30 @@ function imageBuilt(image: string): boolean {
   return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
 }
 
-const CHATTERBOX_IMAGE = "sagaforge-chatterbox:local";
-const WHISPER_IMAGE = "engined-whisper:local";
-const HAVE_CHATTERBOX = imageBuilt(CHATTERBOX_IMAGE);
-const HAVE_WHISPER = imageBuilt(WHISPER_IMAGE);
+/**
+ * Read from the real spec.toml rather than hardcoded -- local-llama's own
+ * image tag drifted mid-session (see llama.test.ts), and a hardcoded copy
+ * here would be exactly the same risk for chatterbox/whisper the next time
+ * either gets its own vendored Dockerfile and a fresh tag. `models_dir:
+ * "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to
+ * substitute cleanly; chatterbox's spec has no such placeholder.
+ */
+function specImage(id: string): string | undefined {
+  try {
+    const loaded = loadSpec(
+      { id, egress: "none", args: {}, models_dir: "/unused" },
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+    );
+    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
+  } catch {
+    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
+  }
+}
+
+const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox") : undefined;
+const WHISPER_IMAGE = LOCAL ? specImage("whisper") : undefined;
+const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
+const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
 
 function describeTitle(base: string, ready: boolean, reason: string): string {
   return ready ? base : `${base}: SKIPPED -- ${reason}`;
@@ -43,7 +63,9 @@ describe.skipIf(!HAVE_CHATTERBOX)(
   describeTitle(
     "chatterbox speech door (local)",
     HAVE_CHATTERBOX,
-    `${CHATTERBOX_IMAGE} is not built`,
+    CHATTERBOX_IMAGE === undefined
+      ? "chatterbox's spec.toml did not resolve an image"
+      : `${CHATTERBOX_IMAGE} is not built`,
   ),
   () => {
     const lifecycle = new DockerLifecycle();
@@ -95,7 +117,9 @@ describe.skipIf(!HAVE_WHISPER)(
   describeTitle(
     "whisper unavailable status against real docker (local)",
     HAVE_WHISPER,
-    `${WHISPER_IMAGE} is not built`,
+    WHISPER_IMAGE === undefined
+      ? "whisper's spec.toml did not resolve an image"
+      : `${WHISPER_IMAGE} is not built`,
   ),
   () => {
     const scratchModelsDir = HAVE_WHISPER

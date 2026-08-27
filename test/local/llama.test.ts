@@ -4,14 +4,22 @@ import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
-import type { EngineEntry, ModelEntry } from "../../src/types.ts";
+import { loadSpec } from "../../src/spec.ts";
+import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
 
 /**
- * Drives the real `LlamaRouter` against the real `sagaforge-llama-cpp:local`
- * container and the real GGUFs under `local-llama`'s `models_dir` --
- * `config.example.toml` is loaded as-is (no path swap) precisely because it
- * is this operator's own real config, so a clean parse here is also a live
- * proof the example still matches the real model tree.
+ * Drives the real `LlamaRouter` against local-llama's real container and
+ * the real GGUFs under its `models_dir` -- `config.example.toml` is loaded
+ * as-is (no path swap) precisely because it is this operator's own real
+ * config, so a clean parse here is also a live proof the example still
+ * matches the real model tree.
+ *
+ * The image tag is read from the real `engines/local-llama/spec.toml` via
+ * `loadSpec`, not hardcoded: that tag already drifted once within this
+ * session (sagaforge-llama-cpp:local -> engined-llama-cpp:local, when
+ * local-llama got its own vendored Dockerfile), and the old tag is STILL a
+ * real image on this box -- a hardcoded copy here would not fail loudly on
+ * a rename, it would quietly run green against the wrong artifact.
  *
  * Closes local-tier gaps the Opus audit found unverifiable: concurrent
  * cross-role decode, single-owner-under-load, embedding co-residency and
@@ -25,8 +33,6 @@ const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
 // {bunx} never appears in local-llama's own command; only agentic specs
 // substitute it, so any non-empty string satisfies LlamaBuildOptions here.
 const BUNX = process.env.ENGINED_BUNX ?? "bunx";
-const IMAGE = "sagaforge-llama-cpp:local";
-const CONTAINER_NAME = "engined-local-llama";
 const READY_TIMEOUT_S = 240;
 const IDLE_STOP_SECONDS = 900;
 const POLL_INTERVAL_MS = 500;
@@ -40,10 +46,30 @@ function imageBuilt(image: string): boolean {
 interface Fixture {
   engine: EngineEntry;
   models: ModelEntry[];
+  image?: string;
   error?: string;
 }
 
 const EMPTY_ENGINE: EngineEntry = { id: "local-llama", egress: "none", args: {} };
+
+/**
+ * `loadSpec` needs `{models_max}` and `{preset_ini}` resolved to substitute
+ * cleanly -- "/unused" and the real configured models_max (borrowed from
+ * `engine`) satisfy the placeholders without needing a real router build;
+ * only `.image` is read back.
+ */
+function specImage(engine: EngineEntry): string | undefined {
+  try {
+    const loaded = loadSpec(engine, {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+      presetIni: "/unused",
+    });
+    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
+  } catch {
+    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
+  }
+}
 
 /**
  * Loaded once at module scope, guarded by `LOCAL` so an ordinary `bun test`
@@ -66,7 +92,7 @@ function loadFixture(): Fixture {
         error: "config.example.toml has no local-llama engine",
       };
     }
-    return { engine, models };
+    return { engine, models, image: specImage(engine) };
   } catch (err) {
     return {
       engine: EMPTY_ENGINE,
@@ -77,13 +103,17 @@ function loadFixture(): Fixture {
 }
 
 const FIXTURE = loadFixture();
-const HAVE_IMAGE = LOCAL && imageBuilt(IMAGE);
+const CONTAINER_NAME = `engined-${FIXTURE.engine.id}`;
+const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
 const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 
 function skipReason(): string {
+  if (FIXTURE.image === undefined) {
+    return `local-llama's spec.toml did not resolve an image -- ${FIXTURE.error ?? "check engines/local-llama/spec.toml"}`;
+  }
   if (!HAVE_IMAGE) {
-    return `${IMAGE} is not built -- see engines/local-llama for the build command`;
+    return `${FIXTURE.image} is not built -- see engines/local-llama for the build command`;
   }
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
