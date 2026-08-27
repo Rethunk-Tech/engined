@@ -15,6 +15,7 @@ const HOST_PORT = 55_123;
 const LOAD_PATH = "/models/load";
 const UNLOAD_PATH = "/models/unload";
 const CHAT_PATH = "/v1/chat/completions";
+const EMBED_PATH = "/v1/embeddings";
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return {
@@ -134,6 +135,23 @@ describe("renderPresetIni", () => {
     expect(ini).toContain("ctx-size = 8192");
     expect(ini).not.toContain("ctx-size = 4096");
   });
+
+  test("an embedding model's pooling/RoPE keys render in its section only, never a chat model's", () => {
+    const e = engine();
+    const chat = model({ id: "chat-a", filename: "a.gguf", role: "chat", args: {} });
+    const embed = model({
+      id: "embed",
+      filename: "embed.gguf",
+      role: "embedding",
+      args: { pooling: "mean", "rope-freq-base": 0, "rope-freq-scale": 0 },
+    });
+    const ini = renderPresetIni(e, [chat, embed]);
+    const sections = new Map(ini.split("\n\n").map((s) => [s.split("\n", 1)[0], s]));
+    expect(sections.get("[embed]")).toContain("pooling = mean");
+    expect(sections.get("[embed]")).toContain("rope-freq-base = 0");
+    expect(sections.get("[chat-a]")).not.toContain("pooling");
+    expect(sections.get("[chat-a]")).not.toContain("rope-freq");
+  });
 });
 
 describe("buildLlamaSpec / buildRunArgs", () => {
@@ -188,6 +206,36 @@ test("a different-role model resident is untouched by a chat swap", async () => 
   );
   expect(visionLoadOrUnload).toHaveLength(1);
   expect(visionLoadOrUnload[0]?.path).toBe(LOAD_PATH);
+});
+
+test("an embedding request co-resides with a resident chat model: neither evicts the other", async () => {
+  const e = engine();
+  const chat = model({ id: "chat-a", filename: "a.gguf", role: "chat" });
+  const embed = model({ id: "embed", filename: "embed.gguf", role: "embedding" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const { client, calls } = fakeLlama();
+  const router = new LlamaRouter(e, [chat, embed], lifecycle, baseOpts(client));
+
+  await router
+    .proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) })
+    .text();
+  await router
+    .proxy(embed, EMBED_PATH, { method: "POST", body: JSON.stringify({ model: "embed" }) })
+    .text();
+  await router
+    .proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) })
+    .text();
+
+  const chatLoadOrUnload = calls.filter(
+    (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "chat-a",
+  );
+  const embedLoadOrUnload = calls.filter(
+    (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "embed",
+  );
+  // Each loaded exactly once and never unloaded: the embedding request did not
+  // evict the chat resident, and the second chat request did not re-swap.
+  expect(chatLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "chat-a" } }]);
+  expect(embedLoadOrUnload).toEqual([{ path: LOAD_PATH, body: { model: "embed" } }]);
 });
 
 test("two overlapping chats for the same GGUF both complete without a second load", async () => {
