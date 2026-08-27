@@ -110,7 +110,7 @@ role     = "chat"
   [model.args]
   spec-type        = "draft-mtp"
   spec-draft-p-min = 0.1
-  spec-n-max       = 1
+  spec-draft-n-max = 1
   ctx-size         = 32768
 
 [[model]]
