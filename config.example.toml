@@ -90,6 +90,16 @@ engine   = "local-llama"
 filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 role     = "embedding"
 
+  # Without this the child launches without `--embeddings` and every
+  # request 501s ("This server does not support embeddings. Start it with
+  # --embeddings"). The preset INI key is `embedding`, not `embeddings` --
+  # the CLI flag and the INI key are spelled differently. Confirmed live via
+  # /proc/<pid>/cmdline on the embed child: this key renders as `--embeddings`
+  # in its real argv, and a request through the door then returns a
+  # 1024-length vector instead of 501.
+  [model.args]
+  embedding = true
+
 # Vision: the GGUF and its mmproj both sit under models_dir, so the role is
 # registered like any other. mmproj is an ordinary [model.args] key, not
 # first-class -- check output fidelity against a known image before treating

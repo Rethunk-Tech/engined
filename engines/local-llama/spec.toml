@@ -44,12 +44,20 @@ security_opt = ["label=disable"]
 # a loss here; a published gfx1151 ladder claiming the opposite does not
 # reproduce against this model.
 #
-# A per-model arg is honoured per flag, not as a class: only `spec-type` and
-# `spec-draft-p-min` are proven to reach argv this way. Probe each flag the
-# way those two were probed -- set it for one model, read the child's argv
-# and /slots back -- before a consumer is told it works. A flag that is
-# ignored and a flag that is honoured and did nothing look identical from
-# the outside.
+# A per-model arg is honoured per flag, not as a class: only `spec-type`,
+# `spec-draft-p-min`, and `embedding` are proven to reach argv this way.
+# Probe each flag the way those were probed -- set it for one model, read
+# the child's argv and /slots back -- before a consumer is told it works. A
+# flag that is ignored and a flag that is honoured and did nothing look
+# identical from the outside.
+#
+# `embedding` is one of those probed flags, and its own trap: the INI key
+# is `embedding`, singular, but the CLI flag it produces on the child's real
+# argv is `--embeddings`, plural. Without it the embed child launches without
+# the flag and every request 501s ("Start it with --embeddings"). Confirmed
+# via /proc/<pid>/cmdline on the embed sub-process, then a real request
+# through the door returning a 1024-length vector. See config.example.toml's
+# `embed` model's [model.args].
 #
 # POST /models/load is asynchronous: it returned in 7 ms with status
 # "loading"; poll until "loaded" before proxying, and that poll IS the
