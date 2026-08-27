@@ -1,0 +1,72 @@
+import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { loadConfig } from "./config.ts";
+
+/**
+ * config.example.toml is the only committed, always-parsing reference for
+ * how to configure this daemon -- TODO.md's copy is prose scheduled for
+ * pruning, not a promise it still parses. The real GGUFs it names are tens
+ * of gigabytes each and live only on the box that downloaded them, so this
+ * swaps local-llama's models_dir for a temp dir carrying empty placeholders
+ * at the same relative paths (same pattern as config.test.ts's
+ * `tempModelsDir`), rather than requiring a fresh clone to have real
+ * weights on disk just to run the suite.
+ */
+const LOCAL_LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
+
+// Already alphabetised, so the assertion below can sort actual output the
+// same way without needing a matching compare function here too.
+const EXPECTED_ENGINE_IDS = [
+  "chatterbox",
+  "claude",
+  "claude-kimi",
+  "comfy",
+  "kokoro",
+  "local-llama",
+  "whisper",
+];
+
+const EXPECTED_MODEL_IDS = ["embed", "k3", "ornith", "sonnet-5", "vision"];
+
+test("config.example.toml parses through the real loadConfig()", () => {
+  const repoRoot = join(import.meta.dir, "..");
+  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
+
+  const modelsDir = mkdtempSync(join(tmpdir(), "engined-example-models-"));
+  for (const rel of [
+    "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf",
+    "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf",
+  ]) {
+    const full = join(modelsDir, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, "");
+  }
+
+  expect(raw).toMatch(LOCAL_LLAMA_MODELS_DIR_RE);
+  const patched = raw.replace(LOCAL_LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
+
+  const configDir = mkdtempSync(join(tmpdir(), "engined-example-config-"));
+  const configPath = join(configDir, "config.toml");
+  writeFileSync(configPath, patched);
+
+  const config = loadConfig(configPath);
+
+  const byName = (a: string, b: string) => a.localeCompare(b);
+  expect(config.engines.map((e) => e.id).sort(byName)).toEqual(EXPECTED_ENGINE_IDS);
+  expect(config.models.map((m) => m.id).sort(byName)).toEqual(EXPECTED_MODEL_IDS);
+  expect(config.chains["chain-private"]).toEqual(["@/local/ornith"]);
+  expect(config.chains["chain-public"]).toEqual([
+    "@/local/ornith",
+    "@/claude-kimi/k3",
+    "@/claude/sonnet-5",
+  ]);
+
+  // whisper's spec needs models_dir on the wire (its bind mount and
+  // artifact-fetch commands both use it) -- the exact gap the operator's
+  // real installed config was found missing before this file existed.
+  const whisper = config.engines.find((e) => e.id === "whisper");
+  expect(whisper?.models_dir).toBeDefined();
+});

@@ -1,0 +1,204 @@
+# engined worked example.
+#
+# Copy this to $XDG_CONFIG_HOME/engined/config.toml (~/.config/engined/config.toml
+# on a box with no XDG_CONFIG_HOME set) and edit it for your machine: which
+# engines you actually have images for, which GGUFs you actually downloaded,
+# and which claude_version you've actually proved. A config naming a file
+# that isn't on disk, or an engine whose spec directory isn't installed,
+# fails loudly at parse rather than starting broken -- see src/config.ts for
+# the exact rules this file is validated against, and src/config-example.test.ts
+# for the test that keeps this file itself honest.
+#
+# Every first-class key below is one of a closed set (src/config.ts's
+# ENGINE_KEYS / MODEL_KEYS) -- a typo'd key fails parse by design rather than
+# doing nothing silently. Whatever isn't first-class for a given engine
+# belongs in that engine's [engine.args] table and reaches its process argv
+# verbatim.
+
+listen_port           = 29200 # IANA-unassigned.
+chat_timeout_seconds  = 600   # covers a cold load of a 25 GB-class GGUF plus prefill.
+agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, not seconds.
+
+# ---------------------------------------------------------------------------
+# local-llama: the one local openai-http engine, router mode over llama.cpp.
+# ---------------------------------------------------------------------------
+
+# Each engine id below resolves to engines/<id>/spec.toml, shipped with this
+# repo. What's in THIS file is only what one install differs from another by
+# -- image, devices and the container command live in the spec, not here.
+[[engine]]
+id                = "local-llama"
+egress            = "none"
+# engined expands the tilde; a bind mount needs the absolute path. This tree
+# is a sibling of engined's own install directory, never inside it --
+# install.sh syncs the install directory from the repo, and a sync must
+# never be able to reach real model weights.
+models_dir        = "~/.local/share/engined-models/llm"
+# One per occupied role (chat, vision, embedding below) -- first-class
+# because occupancy is engined's job, not llama.cpp's, and this is fatal at
+# parse if it drops below the number of distinct roles actually configured.
+# Below that floor, eviction silently reverts to llama's own cross-role LRU.
+models_max        = 3
+ready_timeout_s   = 180
+idle_stop_seconds = 900
+
+  # llama-server's own process flags. Whatever isn't first-class above lands
+  # here untouched; a [[model]]'s own [model.args] wins over the same key.
+  [engine.args]
+  parallel     = -1      # llama.cpp's auto (4 unified slots here). -np 1 measured
+                          # ~8% faster decode, but -np 2+ halves ctx-size per slot
+                          # by disabling --kv-unified -- not worth that footgun.
+  ctx-size     = 32768    # floor for any model whose own [model.args] omits it.
+  cache-type-k = "q8_0"
+  cache-type-v = "q8_0"
+  # --no-models-autoload is NOT a config knob: router mode + per-role
+  # occupancy is what this engine kind IS, and it's structural in the spec.
+
+# `engine` binds a model to the engine that serves it -- required, because
+# once a second openai-http engine exists which llama-server holds a given
+# id is no longer inferable. `filename` must sit under that engine's
+# models_dir and must actually exist on disk; both are checked at parse, not
+# deferred to a 400 on first request.
+[[model]]
+id       = "ornith"
+engine   = "local-llama"
+filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
+role     = "chat"  # chat | vision | embedding. Required: occupancy is one
+                    # resident GGUF per role, so without a role models_max is
+                    # just an arbitrary number with nothing to enforce.
+
+  # A model's [model.args] section is the rendered llama-server preset INI
+  # for that model, passed through verbatim -- the channel proven to reach
+  # argv (POST /models/load's own args array is not). Omit spec-* entirely
+  # on a headless (non-draft) GGUF: naming them there is llama-server exiting
+  # 1 at load, and that failure isn't checkable at config parse time.
+  [model.args]
+  spec-type        = "draft-mtp"
+  spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
+  spec-draft-n-max = 1    # measured fastest decode on this box for this model --
+                           # higher n traded acceptance rate for no speed gain here.
+  ctx-size         = 32768
+
+# Embeddings live under the same per-role occupancy as chat/vision. Picked
+# for native 32768 context -- a header that declares a shorter window needs
+# RoPE scaling to stretch, which is one more thing to get wrong.
+[[model]]
+id       = "embed"
+engine   = "local-llama"
+filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+role     = "embedding"
+
+# Vision: the GGUF and its mmproj both sit under models_dir, so the role is
+# registered like any other. mmproj is an ordinary [model.args] key, not
+# first-class -- check output fidelity against a known image before treating
+# vision as working; a broken mmproj build can return the wrong content
+# silently rather than erroring.
+[[model]]
+id       = "vision"
+engine   = "local-llama"
+filename = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf"
+role     = "vision"
+
+  [model.args]
+  # Passed through verbatim, so this is the path as the CONTAINER sees it --
+  # models_dir is bind-mounted at /models, and llama does not resolve
+  # mmproj relative to the model file.
+  mmproj            = "/models/Qwen/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+  no-mmproj-offload = true  # this GPU crashes llama-server on vision load without it.
+
+# ---------------------------------------------------------------------------
+# Agentic engines: a CLI launched with writing structurally disabled, read
+# through the same openai-shaped door as everything else.
+# ---------------------------------------------------------------------------
+
+# The read-only floor (no --add-dir, no permission-bypass flags) is
+# prepended by engined in code, never written here -- a file is a place it
+# could be removed from. Everything else about the invocation is yours.
+[[engine]]
+id             = "claude"
+egress         = "remote"   # required: local process, remote bytes.
+# bunx fetches exactly this pin. Whatever you put here must be a version
+# YOU have proved -- engined re-runs the read-only-floor probe against a new
+# pin before it will serve requests through it. Do not copy this value
+# assuming it's still current; it's whatever was proved on this box when
+# this example was written.
+claude_version = "2.1.247"
+
+  [engine.args]
+  output-format = "json"
+
+# A remote address launches nothing, so it has no spec directory and its
+# whole shape lives here. This is also the only place a port literal is
+# legitimate, because it's someone else's port, not one Docker assigns.
+# Moonshot serves an Anthropic-shaped endpoint, so this is the same agentic
+# kind as `claude` with a different upstream and key, not a second protocol.
+[[engine]]
+id             = "claude-kimi"
+egress         = "remote"
+claude_version = "2.1.247"
+base_url       = "https://api.kimi.com/coding/"
+secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+
+# Agentic models carry no filename and no role: nothing is resident: llama's
+# occupancy rule doesn't apply here. A model's id is passed to the CLI
+# verbatim as the upstream model to run -- it has to be the name the
+# upstream actually serves ("k3"), not a prettier local alias.
+[[model]]
+id     = "sonnet-5"
+engine = "claude"
+
+[[model]]
+id     = "k3"
+engine = "claude-kimi"
+
+# ---------------------------------------------------------------------------
+# Media engines: no [[model]] entries -- each serves a fixed job, selected by
+# engine id rather than a GGUF choice. They idle longer than llama.cpp: a
+# media model reload is cheap next to a 25 GB GGUF swap, and jobs arrive in
+# bursts rather than back-to-back.
+# ---------------------------------------------------------------------------
+
+[[engine]]
+id                = "chatterbox"
+egress            = "none"
+idle_stop_seconds = 1800
+# No models_dir: chatterbox's weights are baked into its image at build time.
+
+[[engine]]
+id                = "kokoro"
+egress            = "none"
+idle_stop_seconds = 1800
+# Same posture as chatterbox: weights are image-baked, nothing to mount.
+
+[[engine]]
+id                = "whisper"
+egress            = "none"
+# Required here, unlike chatterbox/kokoro: whisper's spec.toml bind-mounts
+# this path read-only and its own artifact-fetch commands write into it. An
+# engine that omits models_dir while its spec needs one fails loudly at spec
+# load naming the unresolved placeholder -- it does not start half-broken.
+models_dir        = "~/.local/share/engined-models/whisper"
+idle_stop_seconds = 1800
+ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
+
+[[engine]]
+id                = "comfy"
+egress            = "none"
+# Comfy's model tree is a host directory like local-llama's, not baked into
+# the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
+# it's reached via POST /v1/engines/comfy/start and the private_url that
+# returns, never dispatched to by model id.
+models_dir        = "~/.local/share/engined-models/comfy"
+idle_stop_seconds = 1800
+
+# ---------------------------------------------------------------------------
+# Chains: an ordered fallback list a consumer names instead of one model.
+# ---------------------------------------------------------------------------
+
+# Private is one hop on purpose -- not a degenerate chain, but the name a
+# consumer points at to say "this prompt does not leave the box". Keeping it
+# a chain (rather than a bare model alias) means adding a second local
+# engine later is a config edit, not a consumer change.
+[chain]
+chain-private = ["@/local/ornith"]
+chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5"]

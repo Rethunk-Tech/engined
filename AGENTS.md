@@ -40,6 +40,16 @@ are recorded output from the real tool.
 Dockerfiles and run specs for comfy, chatterbox, kokoro and whisper; they are
 adapted here for this GPU — gfx1151, ROCm or Vulkan, never CUDA.
 
+## The config example
+
+`config.example.toml` is the only committed, always-parsing reference for how
+to configure this daemon — one entry per shipped engine, kept honest by
+`src/config-example.test.ts` calling the real `loadConfig()` against it.
+Changing `src/config.ts`'s key set, an engine's `spec.toml` (a new required
+placeholder, a renamed one), or where models live on disk means updating
+`config.example.toml` in the same change, not after — the test fails the
+whole suite the moment the two drift, which is the point.
+
 ## Before committing
 
 `python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md
