@@ -151,7 +151,6 @@ export interface LoadedSpec {
   spec: Spec;
   /** The directory it was built from — shipped, or a `spec_dir` override. */
   source: string;
-  overridden: boolean;
 }
 
 export interface EngineStatus {

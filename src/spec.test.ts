@@ -45,7 +45,6 @@ describe("shipped specs", () => {
       bunx: BUNX,
     });
     expect(loaded.spec.kind).toBe("agentic-cli");
-    expect(loaded.overridden).toBe(false);
     expect(loaded.spec.command).toEqual([BUNX, "@anthropic-ai/claude-code@1.2.3", "-p"]);
   });
 

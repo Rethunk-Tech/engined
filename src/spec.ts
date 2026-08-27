@@ -76,7 +76,7 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
     assertNoForbiddenFlags(spec.entrypoint, file);
   }
 
-  return { spec, source: specDir, overridden };
+  return { spec, source: specDir };
 }
 
 function buildSubs(

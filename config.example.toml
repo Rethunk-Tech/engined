@@ -123,9 +123,12 @@ egress         = "remote"   # required: local process, remote bytes.
 # assuming it's still current; it's whatever was proved on this box when
 # this example was written.
 claude_version = "2.1.247"
-
-  [engine.args]
-  output-format = "json"
+# No [engine.args] output-format here: agentic.ts's OUTPUT_FORMAT_FLAGS sets
+# --output-format json unconditionally in code on every launch, so this key
+# is never a real tunable -- and a config value that disagreed with it would
+# silently break every parseEnvelope call, which is the same last-wins
+# duplication class as the read-only floor. [engine.args] still applies to
+# whatever claude flags actually ARE yours to set (max-turns, model, ...).
 
 # A remote address launches nothing, so it has no spec directory and its
 # whole shape lives here. This is also the only place a port literal is
