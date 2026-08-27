@@ -147,6 +147,9 @@ describe("buildLlamaSpec / buildRunArgs", () => {
     expect(argv[maxIdx + 1]).toBe("3");
     expect(argv).not.toContain("--models-dir");
     expect(argv).not.toContain("/dev/kfd");
+    const mountArgs = argv.filter((_, i) => argv[i - 1] === "-v");
+    expect(mountArgs.some((m) => m.endsWith(":/models:ro"))).toBe(true);
+    expect(mountArgs.some((m) => m.endsWith(":/preset.ini:ro"))).toBe(true);
   });
 });
 

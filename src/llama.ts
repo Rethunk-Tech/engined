@@ -96,8 +96,8 @@ export function buildLlamaSpec(
   const { spec } = loaded;
   spec.volumes = [
     ...spec.volumes,
-    { name: engine.models_dir, path: MODELS_CONTAINER_PATH },
-    { name: presetHostPath, path: PRESET_CONTAINER_PATH },
+    { name: engine.models_dir, path: MODELS_CONTAINER_PATH, read_only: true },
+    { name: presetHostPath, path: PRESET_CONTAINER_PATH, read_only: true },
   ];
   spec.command = [...spec.command, ...argvFromArgs(engine.args)];
   return spec;
