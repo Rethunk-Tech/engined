@@ -21,18 +21,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential git ca-certificates espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
-# uv owns the interpreter, not the distro: see engines/chatterbox/Dockerfile
-# for why the base image's system python3 (Ubuntu 24.04's 3.12) is not a
-# deliberate floor. 3.12 rather than the fleet's 3.14 because kokoro caps
-# itself below it: every release from 0.8.1 through 0.9.4 declares
-# Requires-Python >=3.10,<3.13, and upstream HEAD is still <3.14, so no
-# published release installs on a newer interpreter at all. 3.12 is the only
-# version satisfying both that ceiling and the fleet's >=3.12 floor.
-# Minor-only so uv resolves the newest 3.12.x patch rather than freezing one
-# that goes stale.
+# kokoro caps itself below 3.13: every release from 0.8.1 through 0.9.4
+# declares Requires-Python >=3.10,<3.13, and upstream HEAD is still <3.14, so
+# no published release installs on the fleet's 3.14 at all. 3.12 is the only
+# version satisfying both that ceiling and the fleet's >=3.12 floor -- and it
+# is exactly what this base image already ships, in both stages.
+#
+# That is why the venv is built on the system interpreter rather than a
+# uv-managed one. `uv python install` puts the interpreter under
+# /root/.local/share/uv/, outside /opt/venv, so a runtime stage that copies
+# only /opt/venv inherits a venv whose python symlink dangles. Nothing fails
+# at build time: the image exports clean and every container dies instantly
+# on `exec /opt/venv/bin/uvicorn: no such file or directory`, an error that
+# names the script rather than the interpreter its shebang cannot reach.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-RUN uv python install 3.12
-RUN uv venv --seed --python 3.12 /opt/venv
+RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # torch only -- no torchvision/torchaudio, kokoro doesn't need them.
