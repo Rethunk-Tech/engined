@@ -150,6 +150,15 @@ export interface RunAgenticInput {
   ambientEnv?: NodeJS.ProcessEnv;
   /** stderr is logged, never folded into the result. Defaults to the real stderr, which a `systemd --user` unit ships to journald the same as stdout. */
   logStderr?: (text: string) => void;
+  /**
+   * Set on the child unconditionally, after the allowlist — a different
+   * thing from ambient inheritance. `envAllowlist` governs what leaks in
+   * from this process's own environment (which on a `--user` unit includes
+   * secrets an agentic child must never see); these are values the caller
+   * deliberately chooses for this one launch, such as redirecting a remote
+   * upstream's base URL and key. Wins on a name collision with the allowlist.
+   */
+  extraEnv?: Record<string, string>;
 }
 
 export interface RunAgenticResult {
@@ -175,7 +184,10 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   }
 
   const argv = buildArgv({ bunx, claudeVersion: input.claudeVersion, args: input.args });
-  const env = buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env);
+  const env = {
+    ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
+    ...input.extraEnv,
+  };
   const spawned = await input.spawn(argv, { cwd: input.workdir, env, input: input.prompt });
 
   (input.logStderr ?? logToStderr)(spawned.stderr);

@@ -213,3 +213,27 @@ test("runAgentic: command[0] resolves from the given bunx and the pin appears in
   expect(argv.some((token) => token.includes(PIN))).toBe(true);
   expect(argv.some((token) => token.includes("latest"))).toBe(false);
 });
+
+test("runAgentic: extraEnv is set on the child alongside the allowlist and wins on a name collision", async () => {
+  const { spawn, calls } = fakeSpawn({
+    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
+    stderr: "",
+    exitCode: 0,
+  });
+
+  await runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: "/tmp/scratch-workdir",
+    prompt: "hello",
+    spawn,
+    bunx: BUNX,
+    ambientEnv: { HOME: "/home/engined" },
+    extraEnv: { HOME: "/redirected", ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
+  });
+
+  const [, opts] = calls[0] as [string[], { env: Record<string, string> }];
+  expect(opts.env.HOME).toBe("/redirected");
+  expect(opts.env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+});

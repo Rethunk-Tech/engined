@@ -25,6 +25,7 @@ import { proxyExtras } from "./extras.ts";
 import { type HttpClient, LlamaRouter } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
+import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import { type Config, type EngineEntry, FatalError } from "./types.ts";
 
@@ -211,6 +212,10 @@ export interface DoorOptions {
   llamaPollIntervalMs?: number;
   /** Defaults to `LlamaRouter`'s own default; a test overrides it so it never touches the real state dir. */
   llamaPresetHostPath?: string;
+  /** Defaults to the real `secret-tool`; a test overrides it so a remote-agentic engine's keyring lookup never runs for real. */
+  secretExec?: SecretExec;
+  /** Defaults to the real `process.env`; a test overrides it so a planted ambient secret has somewhere deterministic to not leak from. */
+  agenticAmbientEnv?: NodeJS.ProcessEnv;
 }
 
 export interface Door {
@@ -295,25 +300,138 @@ async function execLlama(
   return { status: response.status, stream: response.body ?? undefined, startedBytes: false };
 }
 
+/**
+ * A remote-address agentic engine has no spec directory of its own by
+ * design (wave-1 rule: "a remote address launches nothing"). It launches
+ * the identical shipped claude spec — same floor, same env allowlist —
+ * per the operator ruling: Moonshot is "the same agentic kind as claude
+ * with a different upstream and key, not a second protocol."
+ */
+const SHIPPED_CLAUDE_ID = "claude";
+
+function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
+  const id = engineEntry.base_url === undefined ? engineEntry.id : SHIPPED_CLAUDE_ID;
+  return loadSpec(
+    { ...engineEntry, id, spec_dir: undefined },
+    { enginesRoot: ctx.registryOpts.enginesRoot, bunx: ctx.registryOpts.bunx },
+  );
+}
+
+/**
+ * `x-api-key` (`ANTHROPIC_API_KEY`) is Kimi's own coding endpoint's required
+ * auth header; `ANTHROPIC_AUTH_TOKEN` 401s against it, so this is the
+ * mechanism `secret.header` names, not a free choice. Keys minted for this
+ * endpoint are further scoped to api.kimi.com/coding/ and are rejected
+ * against the general api.moonshot.ai platform — a different service.
+ *
+ * Every model tier is pointed at the same `model`, so nothing silently
+ * falls back to an Anthropic-named tier this endpoint does not serve. The
+ * telemetry/agent-feature vars are cheap to carry and keep a read-only
+ * completion from spawning machinery nobody asked for against a billing
+ * account this call was never going to use.
+ */
+function redirectEnv(
+  baseUrl: string,
+  apiKey: string,
+  model: string | undefined,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_API_KEY: apiKey,
+    DISABLE_AUTOUPDATER: "1",
+    DISABLE_TELEMETRY: "1",
+    DISABLE_ERROR_REPORTING: "1",
+    CLAUDE_CODE_DISABLE_AGENT_VIEW: "1",
+    CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS: "1",
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+    ENABLE_TOOL_SEARCH: "false",
+  };
+  if (model === undefined) {
+    return env;
+  }
+  return {
+    ...env,
+    ANTHROPIC_MODEL: model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: model,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
+    CLAUDE_CODE_SUBAGENT_MODEL: model,
+  };
+}
+
+/** The configured id verbatim — never invented, never stripped — resolved through aliases the same way a chat model is. */
+function resolveAgenticModelId(
+  config: Config,
+  engineId: string,
+  modelSeg: string,
+): string | undefined {
+  if (modelSeg === "") {
+    return;
+  }
+  const found = config.models.find(
+    (m) => m.engine === engineId && (m.id === modelSeg || m.aliases.includes(modelSeg)),
+  );
+  return found?.id ?? modelSeg;
+}
+
+export type RedirectResolution =
+  | { ok: true; env: Record<string, string> }
+  | { ok: false; result: HopResult };
+
+/**
+ * Resolved per request, never cached — a `--user` unit boots before the
+ * login keyring unlocks, and this engine must recover at the operator's
+ * next sign-in without a reload. A failure is a 5xx: `runChain` advances
+ * past a dead engine rather than failing every consumer of the chain for
+ * one unconfigured remote key, and a lone request to just this engine
+ * surfaces the fix command directly. The resolved value only ever reaches
+ * the child's environment below — never a log line, an error body, or
+ * anything this function returns.
+ */
+/**
+ * `engineEntry.id` doubles as the engine id everywhere here (`config.engines`
+ * is keyed on it), so this needs no separate `ctx` — a `DoorContext` would
+ * only ever contribute `secretExec`, and taking it directly makes this
+ * testable without constructing one.
+ */
+export async function resolveRedirect(
+  engineEntry: EngineEntry,
+  modelSeg: string,
+  config: Config,
+  secretExec?: SecretExec,
+): Promise<RedirectResolution> {
+  if (!engineEntry.secret) {
+    return {
+      ok: false,
+      result: {
+        status: 502,
+        body: { error: `engine "${engineEntry.id}" is a remote address with no configured secret` },
+        startedBytes: false,
+      },
+    };
+  }
+  const outcome = await resolveSecret(engineEntry.secret, secretExec);
+  if (!outcome.ok) {
+    return {
+      ok: false,
+      result: { status: 503, body: { error: outcome.fix }, startedBytes: false },
+    };
+  }
+  const model = resolveAgenticModelId(config, engineEntry.id, modelSeg);
+  return { ok: true, env: redirectEnv(engineEntry.base_url as string, outcome.value, model) };
+}
+
 /** The `agentic-cli` case. `runAgentic` itself enforces the workdir-required-400 rule. */
 async function execAgentic(
   ctx: DoorContext,
   engineId: string,
+  modelSeg: string,
   rawBody: Record<string, unknown>,
 ): Promise<HopResult> {
-  const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
+  const config = ctx.getConfig();
+  const engineEntry = config.engines.find((e) => e.id === engineId);
   if (!engineEntry) {
     return { status: 502, body: { error: `unknown engine "${engineId}"` }, startedBytes: false };
-  }
-  if (engineEntry.base_url !== undefined) {
-    // No local spec directory, so no argv/env allowlist to launch a
-    // subprocess with; direct HTTP proxying via SecretRef.header isn't
-    // built anywhere yet. See the report's seam note.
-    return {
-      status: 501,
-      body: { error: `engine "${engineId}" is a remote-address agentic engine; not wired yet` },
-      startedBytes: false,
-    };
   }
   if (engineEntry.claude_version === undefined) {
     return {
@@ -322,10 +440,17 @@ async function execAgentic(
       startedBytes: false,
     };
   }
-  const loaded = loadSpec(engineEntry, {
-    enginesRoot: ctx.registryOpts.enginesRoot,
-    bunx: ctx.registryOpts.bunx,
-  });
+
+  let extraEnv: Record<string, string> | undefined;
+  if (engineEntry.base_url !== undefined) {
+    const redirect = await resolveRedirect(engineEntry, modelSeg, config, ctx.doorOpts.secretExec);
+    if (!redirect.ok) {
+      return redirect.result;
+    }
+    extraEnv = redirect.env;
+  }
+
+  const loaded = loadAgenticSpec(ctx, engineEntry);
   const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
   const outcome = await runAgentic({
     claudeVersion: engineEntry.claude_version,
@@ -335,6 +460,8 @@ async function execAgentic(
     prompt: promptFromMessages(rawBody),
     spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
     bunx: ctx.registryOpts.bunx,
+    ambientEnv: ctx.doorOpts.agenticAmbientEnv,
+    extraEnv,
   });
   if (!outcome.ok) {
     return {
@@ -352,7 +479,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
     if (kind === "agentic-cli") {
-      return await execAgentic(ctx, engineId, req.rawBody);
+      return await execAgentic(ctx, engineId, modelSeg, req.rawBody);
     }
     const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
     if (kind === "openai-http" && engineEntry) {

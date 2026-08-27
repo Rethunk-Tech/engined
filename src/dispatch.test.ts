@@ -9,7 +9,8 @@ import { resolveModel } from "./dispatch.ts";
 import type { Exec, ExecResult, Probe } from "./docker.ts";
 import { EngineRegistry } from "./engines.ts";
 import type { HttpClient } from "./llama.ts";
-import { createDoor, type Door, parsePortHolder } from "./main.ts";
+import { createDoor, type Door, parsePortHolder, resolveRedirect } from "./main.ts";
+import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
@@ -805,5 +806,168 @@ describe("the door: extras injects the resident model for the right role", () =>
     expect(extrasCalls).toHaveLength(1);
     const forwarded = JSON.parse(extrasCalls[0] ?? "{}") as { model?: string };
     expect(forwarded.model).toBe("ornith");
+  });
+});
+
+function fakeSecretExec(value: string | undefined): SecretExec {
+  return (args) => {
+    if (args[0] === "lookup" && value !== undefined) {
+      return Promise.resolve({ stdout: value, stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+  };
+}
+
+function kimiEngine(): EngineEntry {
+  return engine({
+    id: "claude-kimi",
+    egress: "remote",
+    kind: "agentic-cli",
+    base_url: "https://api.kimi.com/coding/",
+    secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
+    claude_version: "1.2.3",
+  });
+}
+
+/** The redirected engine has no spec of its own; it reuses the shipped claude directory. */
+function redirectDoorRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  mkdirSync(join(root, "claude"), { recursive: true });
+  writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
+  return root;
+}
+
+describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => {
+  test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [kimiEngine()],
+      models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
+    });
+    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+    const spawn: AgenticSpawn = (spawnArgv, opts) => {
+      spawnCalls.push({ argv: spawnArgv, env: opts.env });
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"answered via kimi"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX },
+      {
+        agenticSpawn: spawn,
+        secretExec: fakeSecretExec("kimi-secret-value"),
+        agenticAmbientEnv: { HOME: "/home/test", GITHUB_TOKEN: "ghp_leaked_repo_scope" },
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "kimi-k3",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp/scratch",
+        }),
+      }),
+    );
+    const body = (await res.json()) as { choices: { message: { content: string } }[] };
+    expect(res.status).toBe(200);
+    expect(body.choices[0]?.message.content).toBe("answered via kimi");
+
+    expect(spawnCalls).toHaveLength(1);
+    const { env, argv } = spawnCalls[0] ?? { env: {}, argv: [] };
+
+    // Redirect variables and the resolved key reach the child; ambient GITHUB_TOKEN does not.
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+    expect(env.ANTHROPIC_API_KEY).toBe("kimi-secret-value");
+    expect(env.ANTHROPIC_MODEL).toBe("kimi-k3");
+    expect("GITHUB_TOKEN" in env).toBe(false);
+    expect(Object.values(env)).not.toContain("ghp_leaked_repo_scope");
+
+    // The full floor is still present in argv, all three flags individually.
+    expect(argv).toContain("--safe-mode");
+    expect(argv).toContain("--strict-mcp-config");
+    const toolsIdx = argv.indexOf("--tools");
+    expect(toolsIdx).toBeGreaterThan(-1);
+    expect(argv[toolsIdx + 1]).toBe("Read,Grep,Glob");
+
+    // The resolved secret appears nowhere in argv.
+    expect(argv.some((a) => a.includes("kimi-secret-value"))).toBe(false);
+  });
+});
+
+describe("the door: remote-agentic redirect, missing secret", () => {
+  test("a missing secret's HopResult carries the secret-tool store command", async () => {
+    // Direct: runChain's own exhaustion wrapper replaces a lone hop's body
+    // with a generic "every engine in this chain failed" once it classifies
+    // a 5xx as advance-and-nothing-left-to-advance-to (chain.ts is not this
+    // worker's file to change), so the fix text is only observable on the
+    // HopResult resolveRedirect itself produces, before runChain ever sees it.
+    const redirect = await resolveRedirect(
+      kimiEngine(),
+      "kimi-k3",
+      config(),
+      fakeSecretExec(undefined),
+    );
+    expect(redirect.ok).toBe(false);
+    if (redirect.ok) {
+      throw new Error("expected resolveRedirect to fail for a missing secret");
+    }
+    expect(redirect.result.status).toBe(503);
+    const failBody = redirect.result.body as { error: string };
+    expect(failBody.error).toContain("secret-tool store");
+    expect(failBody.error).toContain("moonshot-api");
+  });
+});
+
+describe("the door: remote-agentic redirect, missing secret does not take down other engines", () => {
+  test("the local engine still serves, and the kimi attempt is reported as a clean 503", async () => {
+    const root = redirectDoorRoot();
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    const cfg = config({
+      engines: [
+        kimiEngine(),
+        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+      ],
+      models: [
+        model({ id: "kimi-k3", engine: "claude-kimi" }),
+        model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" }),
+      ],
+    });
+    const recorded: { body: string }[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        secretExec: fakeSecretExec(undefined),
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+
+    const kimiRes = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "kimi-k3",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp/scratch",
+        }),
+      }),
+    );
+    expect(kimiRes.status).toBe(503);
+
+    const llamaRes = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    expect(llamaRes.status).toBe(200);
   });
 });
