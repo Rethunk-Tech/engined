@@ -234,13 +234,6 @@ interface DoorContext {
   registryOpts: RegistryOptions;
   doorOpts: DoorOptions;
   llamaRouters: Map<string, LlamaRouter>;
-  /**
-   * Best-effort approximation of "the resident model" for the extras
-   * endpoints: `LlamaRouter` exposes no public getter for it, so this tracks
-   * the last model this door itself proxied a chat/embeddings call to on
-   * each llama engine. See the report's seam note.
-   */
-  lastLlamaModel: Map<string, string>;
 }
 
 function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
@@ -275,12 +268,12 @@ interface HopRequest {
 }
 
 /** The `openai-http` case: proxy through this engine's `LlamaRouter`, `workdir` stripped. */
-function execLlama(
+async function execLlama(
   ctx: DoorContext,
   engineEntry: EngineEntry,
   modelSeg: string,
   req: HopRequest,
-): HopResult {
+): Promise<HopResult> {
   const model = ctx
     .getConfig()
     .models.find((m) => m.engine === engineEntry.id && m.id === modelSeg);
@@ -297,11 +290,8 @@ function execLlama(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(stripField(req.rawBody, "workdir")),
   };
-  const response = router.proxy(model, req.pathname, init);
+  const response = await router.proxy(model, req.pathname, init);
   req.setContentType(response.headers.get("content-type") ?? "application/json");
-  if (req.pathname === "/v1/chat/completions") {
-    ctx.lastLlamaModel.set(engineEntry.id, model.id);
-  }
   return { status: response.status, stream: response.body ?? undefined, startedBytes: false };
 }
 
@@ -366,7 +356,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     }
     const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
     if (kind === "openai-http" && engineEntry) {
-      return execLlama(ctx, engineEntry, modelSeg, req);
+      return await execLlama(ctx, engineEntry, modelSeg, req);
     }
     return {
       status: 502,
@@ -565,16 +555,22 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
 }
 
 /** `/tokenize`, `/detokenize`, `/apply-template`, `/slots(/:id)`, `/models/load`, `/models/unload` — always the one local llama engine. */
+/** Tokenize/apply-template/slots are chat tools; asking the router for any other role would inject the wrong model. */
+const EXTRAS_ROLE = "chat";
+
 async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
-  const engineId = resolveEngineSegment("local", ctx.getConfig());
-  if (engineId === undefined) {
+  const config = ctx.getConfig();
+  const engineId = resolveEngineSegment("local", config);
+  const engineEntry =
+    engineId === undefined ? undefined : config.engines.find((e) => e.id === engineId);
+  if (engineId === undefined || !engineEntry) {
     return Response.json({ error: "no local llama engine configured" }, { status: 400 });
   }
   const status = await ctx.registry.start(engineId);
   if (status.private_url === null) {
     return Response.json({ error: `${engineId} is not available` }, { status: 503 });
   }
-  const residentModel = ctx.lastLlamaModel.get(engineId) ?? null;
+  const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
   return proxyExtras(
     req,
     `http://${status.private_url}`,
@@ -674,7 +670,6 @@ export function createDoor(
     registryOpts,
     doorOpts,
     llamaRouters: new Map(),
-    lastLlamaModel: new Map(),
   };
 
   function reload(path: string): void {

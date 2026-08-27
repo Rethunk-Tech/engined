@@ -620,3 +620,190 @@ describe("the door: chain routing", () => {
     expect(record.attempts[1]).toMatchObject({ engine: "claude-b", ok: true });
   });
 });
+
+const FAILOVER_DEAD_PORT = 46_001;
+const FAILOVER_LIVE_PORT = 46_002;
+
+/** One shared docker fake for two engines, distinguished by the container name docker.ts always passes. */
+function twoEngineExec(): Exec {
+  return (args) => {
+    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    if (args[0] === "image" && args[1] === "inspect") {
+      result = {
+        stdout: '[{"Config":{"ExposedPorts":{"8080/tcp":{}}}}]',
+        stderr: "",
+        exitCode: 0,
+      };
+    } else if (args[0] === "port") {
+      const name = args[1] ?? "";
+      const hostPort = name.includes("dead") ? FAILOVER_DEAD_PORT : FAILOVER_LIVE_PORT;
+      result = { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
+    }
+    return Promise.resolve(result);
+  };
+}
+
+/** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each records its own calls. */
+function makeSplitHttpClient(
+  deadStatus: number,
+  deadCalls: string[],
+  liveCalls: string[],
+): HttpClient {
+  return (url: string) => {
+    if (url.endsWith("/models/load")) {
+      return Promise.resolve(Response.json({ status: "loaded" }));
+    }
+    if (url.endsWith("/models/unload")) {
+      return Promise.resolve(Response.json({ status: "ok" }));
+    }
+    const { port } = new URL(url);
+    if (port === String(FAILOVER_DEAD_PORT)) {
+      deadCalls.push(url);
+      return Promise.resolve(Response.json({ error: "dead" }, { status: deadStatus }));
+    }
+    liveCalls.push(url);
+    return Promise.resolve(
+      Response.json({ id: "resp-live", choices: [{ message: { content: "live" } }] }),
+    );
+  };
+}
+
+function twoEngineDoorConfig(): { cfg: Config; root: string } {
+  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  for (const id of ["llama-dead", "llama-live"]) {
+    mkdirSync(join(root, id), { recursive: true });
+    writeFileSync(join(root, id, "spec.toml"), LOCAL_LLAMA_SPEC);
+  }
+  const cfg = config({
+    engines: [
+      engine({ id: "llama-dead", egress: "none", models_dir: "/data/dead", models_max: 1 }),
+      engine({ id: "llama-live", egress: "none", models_dir: "/data/live", models_max: 1 }),
+    ],
+    models: [
+      model({ id: "dead-model", engine: "llama-dead", filename: "d.gguf", role: "chat" }),
+      model({ id: "live-model", engine: "llama-live", filename: "l.gguf", role: "chat" }),
+    ],
+    chains: { "chain-failover": ["@/llama-dead/dead-model", "@/llama-live/live-model"] },
+  });
+  return { cfg, root };
+}
+
+describe("the door: a llama hop's real status decides chain advance", () => {
+  test("a 500 from the first hop advances: the second hop's upstream received a request", async () => {
+    const { cfg, root } = twoEngineDoorConfig();
+    const deadCalls: string[] = [];
+    const liveCalls: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeSplitHttpClient(500, deadCalls, liveCalls),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "chain-failover",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      }),
+    );
+    const body = (await res.json()) as { choices: { message: { content: string } }[] };
+    expect(res.status).toBe(200);
+    expect(body.choices[0]?.message.content).toBe("live");
+    expect(deadCalls.length).toBeGreaterThan(0);
+    expect(liveCalls.length).toBeGreaterThan(0);
+  });
+
+  test("a 400 from the first hop does not advance: the second hop's upstream is never touched", async () => {
+    const { cfg, root } = twoEngineDoorConfig();
+    const deadCalls: string[] = [];
+    const liveCalls: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeSplitHttpClient(400, deadCalls, liveCalls),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "chain-failover",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      }),
+    );
+    await res.text();
+    expect(res.status).toBe(400);
+    expect(deadCalls.length).toBeGreaterThan(0);
+    expect(liveCalls).toHaveLength(0);
+  });
+});
+
+describe("the door: extras injects the resident model for the right role", () => {
+  test("with a vision model and a chat model both resident, an extras call injects the chat model", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const cfgWithVision: Config = {
+      ...cfg,
+      models: [
+        ...cfg.models,
+        model({ id: "vision-a", engine: "local-llama", filename: "v.gguf", role: "vision" }),
+      ],
+    };
+    const recorded: { body: string }[] = [];
+    const extrasCalls: string[] = [];
+    const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
+      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
+      return Promise.resolve(Response.json({ ok: true }));
+    };
+    const door = createDoor(
+      cfgWithVision,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        extrasHttpClient: extrasClient,
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+
+    // Warm both roles: chat first, then vision *last* — a door-side "last
+    // model proxied to this engine, any role" approximation would report
+    // vision here, since it was the most recent call. Asking the router for
+    // the chat role specifically must still report the chat model.
+    await (
+      await door.fetch(
+        new Request("http://engined/v1/chat/completions", {
+          method: "POST",
+          body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      )
+    ).text();
+    await (
+      await door.fetch(
+        new Request("http://engined/v1/chat/completions", {
+          method: "POST",
+          body: JSON.stringify({ model: "vision-a", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      )
+    ).text();
+
+    await door.fetch(
+      new Request("http://engined/tokenize", {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+      }),
+    );
+
+    expect(extrasCalls).toHaveLength(1);
+    const forwarded = JSON.parse(extrasCalls[0] ?? "{}") as { model?: string };
+    expect(forwarded.model).toBe("ornith");
+  });
+});

@@ -166,6 +166,16 @@ export class LlamaRouter {
     this.presetHostPath = opts.presetHostPath ?? `${stateDir()}/local-llama/preset.ini`;
   }
 
+  /**
+   * The model id currently resident for `role`, or `null` if none is —
+   * occupancy is per role, so a caller asking "the" resident model without
+   * naming one is asking the wrong question. Read-only: unlike `roleState`,
+   * this never creates an entry for a role nothing has touched yet.
+   */
+  residentModel(role: Role): string | null {
+    return this.roleStates.get(role)?.activeModelId ?? null;
+  }
+
   private roleState(role: Role): RoleState {
     let state = this.roleStates.get(role);
     if (!state) {
@@ -312,15 +322,27 @@ export class LlamaRouter {
    * gets an SSE `: warming` comment ahead of the first real byte, only for a
    * request that is itself streaming -- see `wantsStream`.
    */
-  proxy(model: ModelEntry, path: string, init: RequestInit): Response {
+  /**
+   * Non-streaming requests are buffered so the returned `Response` can carry
+   * the upstream's real status: `runChain` advances on a 5xx and must not
+   * advance on a 4xx, and neither rule is reachable if every llama hop looks
+   * like 200 regardless of what llama-server actually said. Streaming (SSE)
+   * requests keep the eager, always-200 `Response` below — a streamed
+   * response cannot retroactively change its status line once bytes are
+   * already committed to the wire, and that is also the SSE convention: a
+   * mid-stream failure is signalled in-band, not via HTTP status.
+   */
+  proxy(model: ModelEntry, path: string, init: RequestInit): Promise<Response> {
     const { role } = model;
     if (role === undefined) {
       throw new Error(`model "${model.id}" has no role`);
     }
-    const state = this.roleState(role);
-    const emitWarming =
-      !(state.queue.length === 0 && state.activeModelId === model.id) && wantsStream(init);
+    if (!wantsStream(init)) {
+      return this.fetchBuffered(role, model.id, path, init);
+    }
 
+    const state = this.roleState(role);
+    const emitWarming = !(state.queue.length === 0 && state.activeModelId === model.id);
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         try {
@@ -334,9 +356,30 @@ export class LlamaRouter {
         }
       },
     });
-    return new Response(stream, {
-      headers: { "content-type": wantsStream(init) ? "text/event-stream" : "application/json" },
-    });
+    return Promise.resolve(
+      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+    );
+  }
+
+  /**
+   * Ensures the container, takes this role's lease, runs `fn` against the
+   * live upstream, then releases — the one place a lease's whole lifetime
+   * (start, acquire, release, idle-arm) is written, so the streaming and
+   * buffered proxy paths cannot drift out of sync with each other.
+   */
+  private async withLease<T>(role: Role, modelId: string, fn: () => Promise<T>): Promise<T> {
+    await this.ensureStarted();
+    await this.acquireLease(role, modelId);
+    this.totalActive++;
+    try {
+      return await fn();
+    } finally {
+      this.totalActive--;
+      this.releaseLease(role);
+      if (this.totalActive === 0) {
+        this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds);
+      }
+    }
   }
 
   /** Holds this role's lease for exactly one response: taken before the first byte, released when it ends or fails. */
@@ -345,27 +388,33 @@ export class LlamaRouter {
     controller: ReadableStreamDefaultController<Uint8Array>,
   ): Promise<void> {
     const { role, modelId, path, init } = req;
-    await this.ensureStarted();
-    await this.acquireLease(role, modelId);
-    this.totalActive++;
-    try {
+    await this.withLease(role, modelId, async () => {
       const upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
       const reader = upstream.body?.getReader();
-      if (reader) {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) {
-            return;
-          }
-          controller.enqueue(value);
+      if (!reader) {
+        return;
+      }
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
         }
+        controller.enqueue(value);
       }
-    } finally {
-      this.totalActive--;
-      this.releaseLease(role);
-      if (this.totalActive === 0) {
-        this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds);
-      }
-    }
+    });
+  }
+
+  /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
+  private fetchBuffered(
+    role: Role,
+    modelId: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    return this.withLease(role, modelId, async () => {
+      const upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
+      const body = await upstream.arrayBuffer();
+      return new Response(body, { status: upstream.status, headers: upstream.headers });
+    });
   }
 }

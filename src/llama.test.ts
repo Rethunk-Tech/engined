@@ -44,6 +44,11 @@ function tmpIniPath(): string {
   return join(mkdtempSync(join(tmpdir(), "engined-llama-test-")), "preset.ini");
 }
 
+/** `proxy()` now returns `Promise<Response>` — real status requires buffering, see llama.ts. */
+async function text(res: Promise<Response>): Promise<string> {
+  return (await res).text();
+}
+
 /** Answers `docker image inspect`/`run`/`start`/`port` the way a fresh, never-started container would. */
 function fakeExec(): Exec {
   return (args) => {
@@ -179,8 +184,8 @@ test("chat for model B while same-role model A is resident and idle: unload A, l
   const { client, calls } = fakeLlama();
   const router = new LlamaRouter(e, [a, b], lifecycle, baseOpts(client));
 
-  await router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }).text();
-  await router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }).text();
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
   const paths = calls.map((c) => c.path);
   expect(paths).toEqual([LOAD_PATH, CHAT_PATH, UNLOAD_PATH, LOAD_PATH, CHAT_PATH]);
@@ -197,9 +202,9 @@ test("a different-role model resident is untouched by a chat swap", async () => 
   const { client, calls } = fakeLlama();
   const router = new LlamaRouter(e, [a, b, v], lifecycle, baseOpts(client));
 
-  await router.proxy(v, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "v" }) }).text();
-  await router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }).text();
-  await router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }).text();
+  await text(router.proxy(v, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "v" }) }));
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
 
   const visionLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "v",
@@ -216,15 +221,15 @@ test("an embedding request co-resides with a resident chat model: neither evicts
   const { client, calls } = fakeLlama();
   const router = new LlamaRouter(e, [chat, embed], lifecycle, baseOpts(client));
 
-  await router
-    .proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) })
-    .text();
-  await router
-    .proxy(embed, EMBED_PATH, { method: "POST", body: JSON.stringify({ model: "embed" }) })
-    .text();
-  await router
-    .proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) })
-    .text();
+  await text(
+    router.proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) }),
+  );
+  await text(
+    router.proxy(embed, EMBED_PATH, { method: "POST", body: JSON.stringify({ model: "embed" }) }),
+  );
+  await text(
+    router.proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) }),
+  );
 
   const chatLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "chat-a",
@@ -275,13 +280,13 @@ test("two overlapping chats for the same GGUF both complete without a second loa
   });
 
   const secondText = await Promise.race([
-    res2.text().then((t) => ({ done: true, t })),
+    text(res2).then((t) => ({ done: true, t })),
     new Promise<{ done: false }>((resolve) => setTimeout(() => resolve({ done: false }), 100)),
   ]);
   expect(secondText.done).toBe(true);
 
   releaseFirst();
-  await res1.text();
+  await text(res1);
 
   const loadCalls = calls.filter((c) => c.path === LOAD_PATH);
   expect(loadCalls).toHaveLength(1);
@@ -334,10 +339,10 @@ test("a different-GGUF same-role chat arriving mid-lease waits, without eviction
   expect(bTouchedWhileWaiting).toBe(false);
 
   releaseFirst();
-  const text1 = await res1.text();
+  const text1 = await text(res1);
   expect((JSON.parse(text1) as { model?: string }).model).toBe("a");
 
-  const text2 = await res2.text();
+  const text2 = await text(res2);
   expect((JSON.parse(text2) as { model?: string }).model).toBe("b");
 
   const unloadA = calls.find((c) => c.path === UNLOAD_PATH && c.body?.model === "a");
@@ -359,7 +364,7 @@ test("/models/load returning loading is polled until loaded before any proxy cal
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
-  await router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }).text();
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
 
   expect(loadAttempts).toBe(3);
   const loadIdxs = calls.map((c, i) => (c.path === LOAD_PATH ? i : -1)).filter((i) => i >= 0);
