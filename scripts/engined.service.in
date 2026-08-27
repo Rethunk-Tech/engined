@@ -1,0 +1,34 @@
+[Unit]
+Description=engined — local model door
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@BUN_PATH@ %h/.local/share/engined/main.js
+
+# A held port or bad config must stop, not loop: Restart=on-failure alone
+# turns both into a restart loop whose reason lives only in journald.
+# engined exits 78 for anything a restart cannot fix.
+Restart=on-failure
+RestartPreventExitStatus=78
+
+# {bunx} in a spec.toml command resolves to this at render time.
+Environment=ENGINED_BUNX=@BUNX_PATH@
+
+# ProtectHome=read-only makes bunx fail "Unexpected accessing temporary
+# directory" without naming the sandbox as the cause. Point its cache and
+# tmpdir at the one writable path so a cold start doesn't re-fetch every time.
+Environment=BUN_INSTALL=%h/.local/state/engined/bun-install
+Environment=BUN_TMPDIR=%h/.local/state/engined/tmp
+
+ProtectSystem=strict
+ReadWritePaths=%h/.local/state/engined
+ProtectHome=read-only
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# MemoryDenyWriteExecute is deliberately absent: Bun's JIT and the
+# subprocesses engined spawns both need W^X.
+
+[Install]
+WantedBy=default.target
