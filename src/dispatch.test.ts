@@ -610,6 +610,165 @@ function makeStaleReportedHttpClient(): HttpClient {
   };
 }
 
+/**
+ * Mirrors `makeStaleReportedHttpClient`, but the chat call answers as a
+ * chunked SSE stream instead of one JSON body -- each element of `chunks` is
+ * enqueued as its own `ReadableStream` write, so a frame split across chunk
+ * boundaries is exercised the same way a real upstream would split it.
+ */
+function makeStreamingReportedHttpClient(chunks: string[]): HttpClient {
+  let chatAnswered = false;
+  return (url: string) => {
+    if (url.endsWith("/models/load")) {
+      return Promise.resolve(Response.json({ success: true }));
+    }
+    if (url.endsWith("/models/unload")) {
+      return Promise.resolve(Response.json({ status: "ok" }));
+    }
+    if (url.endsWith("/v1/models")) {
+      const id = chatAnswered ? "ornith-real" : "ornith";
+      return Promise.resolve(Response.json({ data: [{ id, status: { value: "loaded" } }] }));
+    }
+    chatAnswered = true;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    });
+    return Promise.resolve(
+      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+    );
+  };
+}
+
+/** Two models on one role, same shape as the provenance fixture above, so `model_reported` and `model_resident` are guaranteed to differ. */
+function streamingDoorConfig(): { cfg: Config; root: string } {
+  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  mkdirSync(join(root, "local-llama"), { recursive: true });
+  writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+  const cfg = config({
+    engines: [
+      engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+    ],
+    models: [
+      model({ id: "ornith", engine: "local-llama", filename: "ornith.gguf", role: "chat" }),
+      model({
+        id: "ornith-real",
+        engine: "local-llama",
+        filename: "ornith-real.gguf",
+        role: "chat",
+      }),
+    ],
+  });
+  return { cfg, root };
+}
+
+const STREAM_REQUEST_BODY = JSON.stringify({
+  model: "ornith",
+  messages: [{ role: "user", content: "hi" }],
+  stream: true,
+});
+
+/** A fresh `LlamaRouter`'s first streaming call always emits this ahead of the real bytes -- see `emitWarming` in llama.ts. Asserted here, not worked around, so the byte-identity check covers it too. */
+const WARMING_COMMENT = ": warming\n\n";
+
+describe("the door: streaming provenance", () => {
+  test("a streaming llama hop records model_reported from the first SSE frame, and it differs from model_resident", async () => {
+    const { cfg, root } = streamingDoorConfig();
+    const lines: string[] = [];
+    const chunks = [
+      'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"Hel"}}]}\n\n',
+      'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+        write: (l) => lines.push(l),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: STREAM_REQUEST_BODY,
+      }),
+    );
+    await res.text();
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as {
+      attempts: { model_reported?: string; model_resident?: string }[];
+    };
+    expect(record.attempts).toHaveLength(1);
+    expect(record.attempts[0]?.model_reported).toBe("ornith");
+    expect(record.attempts[0]?.model_resident).toBe("ornith-real");
+    expect(record.attempts[0]?.model_reported).not.toBe(record.attempts[0]?.model_resident);
+  });
+
+  test("the caller's stream is byte-identical to what the upstream sent, tee in place", async () => {
+    const { cfg, root } = streamingDoorConfig();
+    const chunks = [
+      'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"Hel"}}]}\n\n',
+      'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+        write: () => undefined,
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: STREAM_REQUEST_BODY,
+      }),
+    );
+    const body = await res.text();
+    expect(body).toBe(WARMING_COMMENT + chunks.join(""));
+  });
+
+  test("a stream whose frames carry no model id leaves model_reported absent, and the response still completes", async () => {
+    const { cfg, root } = streamingDoorConfig();
+    const lines: string[] = [];
+    const chunks = [
+      'data: {"id":"1","choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+        write: (l) => lines.push(l),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: STREAM_REQUEST_BODY,
+      }),
+    );
+    const body = await res.text();
+    expect(body).toBe(WARMING_COMMENT + chunks.join(""));
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as {
+      attempts: { model_reported?: string }[];
+    };
+    expect(record.attempts[0]?.model_reported).toBeUndefined();
+  });
+});
+
 describe("the door: provenance model fields", () => {
   test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
     const root = mkdtempSync(join(tmpdir(), "engined-door-"));

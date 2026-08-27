@@ -303,19 +303,30 @@ async function execLlama(
   const response = await router.proxy(model, req.pathname, init);
   const contentType = response.headers.get("content-type") ?? "application/json";
   req.setContentType(contentType);
-  // A live SSE body is bytes already committed to the caller; reading it here
-  // for `model` would consume what the caller is owed. Only a buffered JSON
-  // response is parsed — cloned so the caller's own read is untouched.
-  // ponytail: SSE hops report no model_reported; add per-chunk parsing if a
-  // streaming chat consumer needs it.
-  const modelReported = contentType.includes("application/json")
-    ? reportedModelFrom(
-        await response
-          .clone()
-          .json()
-          .catch(() => undefined),
-      )
-    : undefined;
+  // A buffered JSON response is parsed from a clone, so the caller's own read
+  // stays untouched. An SSE body cannot be buffered the same way — those
+  // bytes are already owed to the caller as they arrive — so it is teed
+  // instead: one branch goes back to the caller unread, the other is sniffed
+  // only far enough to find the first `data:` frame's model id.
+  let callerStream: ReadableStream<Uint8Array> | undefined;
+  let modelReported: string | undefined;
+  if (contentType.includes("application/json")) {
+    // `.clone()` before `.body` is ever touched: reading the getter first
+    // disturbs the body Bun's clone() then tees from.
+    modelReported = reportedModelFrom(
+      await response
+        .clone()
+        .json()
+        .catch(() => undefined),
+    );
+    callerStream = response.body ?? undefined;
+  } else if (contentType.includes("text/event-stream") && response.body) {
+    const [forCaller, forSniff] = response.body.tee();
+    callerStream = forCaller;
+    modelReported = await firstReportedModel(forSniff);
+  } else {
+    callerStream = response.body ?? undefined;
+  }
   // Per attempt, from the engine's own /v1/models — never the router's cached
   // command bookkeeping, and never model_reported: the two answer different
   // questions and one silently standing in for the other defeats provenance.
@@ -323,11 +334,71 @@ async function execLlama(
     model.role === undefined ? undefined : await router.residentModelId(model.role);
   return {
     status: response.status,
-    stream: response.body ?? undefined,
+    stream: callerStream,
     startedBytes: false,
     modelReported,
     modelResident,
   };
+}
+
+const SSE_FRAME_BOUNDARY = "\n\n";
+
+/** The first `data:` line in one SSE frame that parses to an object carrying `model`, if any. */
+function reportedModelFromFrame(frame: string): string | undefined {
+  for (const line of frame.split("\n")) {
+    if (!line.startsWith("data:")) {
+      continue;
+    }
+    const data = line.slice("data:".length).trim();
+    if (data === "" || data === "[DONE]") {
+      continue;
+    }
+    try {
+      const model = reportedModelFrom(JSON.parse(data));
+      if (model !== undefined) {
+        return model;
+      }
+    } catch {
+      // Not JSON -- the next frame might still carry it.
+    }
+  }
+}
+
+/**
+ * Reads only as far as the first `data:` frame that parses to an object with
+ * a `model` field, then cancels its reader — the tee's other branch keeps
+ * flowing to the caller regardless of how much of this one was drained. A
+ * stream that never carries one, ends first, or errors mid-read resolves
+ * `undefined`: an absent field is honest, a guessed one is not.
+ */
+async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<string | undefined> {
+  const reader = sniff.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) {
+        buffered += decoder.decode(value, { stream: true });
+      }
+      const frames = buffered.split(SSE_FRAME_BOUNDARY);
+      buffered = frames.pop() ?? "";
+      for (const frame of frames) {
+        const model = reportedModelFromFrame(frame);
+        if (model !== undefined) {
+          return model;
+        }
+      }
+      if (done) {
+        return;
+      }
+    }
+  } catch {
+    // A sniff-read failure is not the caller's failure: the tee's other
+    // branch shares the same underlying source and reports it independently.
+  } finally {
+    reader.cancel().catch(() => undefined);
+  }
 }
 
 /**
