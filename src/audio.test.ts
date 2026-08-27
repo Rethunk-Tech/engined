@@ -96,6 +96,20 @@ test("response_format: wav returns bytes with a binary content type, not a JSON 
   expect(result.body).toBeUndefined();
 });
 
+test("response_format: mp3 on speech is rejected with 400 naming wav, not silently returned as wav bytes", async () => {
+  const result = await handleSpeech(
+    { model: "chatterbox", input: "hello there", response_format: "mp3" },
+    () => {
+      throw new Error("must not start an engine for a rejected response_format");
+    },
+    unreachableFetch("must not fetch an engine for a rejected response_format"),
+  );
+
+  expect(result.status).toBe(400);
+  expect(result.bytes).toBeUndefined();
+  expect(JSON.stringify(result.body)).toContain("wav");
+});
+
 test("chatterbox spec.toml produces run argv carrying the GPU flags and no all-interfaces publish", () => {
   const spec = loadChatterboxSpec();
   const argv = buildRunArgs("engined-chatterbox", spec, CHATTERBOX_CONTAINER_PORT);

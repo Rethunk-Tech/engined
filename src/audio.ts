@@ -1,8 +1,12 @@
 /**
  * `POST /v1/audio/speech`: translates a TTS engine's native NDJSON
  * `{audio: base64 WAV, alignment}` at `POST /v1/tts` into OpenAI audio bytes.
- * Alignment is not on this door — chatterbox's own value is null until a
- * later sagaforge phase, so nothing here surfaces or invents a field for it.
+ * `response_format` is honoured by rejection, not translation: the only
+ * format either engine emits is WAV, so a request for anything else is a 400
+ * naming what is supported, rather than bytes silently mislabelled with the
+ * wrong content type. Alignment is not on this door — chatterbox's own value
+ * is null until a later sagaforge phase, so nothing here surfaces or invents
+ * a field for it.
  * sagaforge itself bypasses this file entirely and reads the native NDJSON
  * straight from the engine's `private_url`; that path is accepted, not
  * something this module needs to guard against.
@@ -23,6 +27,13 @@ const STATUS_UNAVAILABLE = 503;
 const STATUS_BAD_UPSTREAM = 502;
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
 const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
+/**
+ * Chatterbox and kokoro emit WAV, and only WAV, over `/v1/tts`. Transcoding to
+ * mp3/opus/flac would mean shelling out to ffmpeg (or a new dependency) for a
+ * format no consumer has asked for yet — reject instead of silently mislabelling
+ * bytes, and add real transcoding the day a caller actually needs it.
+ */
+const SPEECH_RESPONSE_FORMATS = new Set(["wav"]);
 
 export interface SpeechRequestBody {
   /** The engine id: a TTS engine has no separate model concept to dispatch through. */
@@ -85,6 +96,12 @@ export async function handleSpeech(
   }
   if (!req.input) {
     return errorResponse(STATUS_BAD_REQUEST, "input is required");
+  }
+  if (req.response_format !== undefined && !SPEECH_RESPONSE_FORMATS.has(req.response_format)) {
+    return errorResponse(
+      STATUS_BAD_REQUEST,
+      `response_format must be one of: ${[...SPEECH_RESPONSE_FORMATS].join(", ")}`,
+    );
   }
 
   const engine = await start(req.model);
