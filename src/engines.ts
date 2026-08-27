@@ -10,6 +10,7 @@ import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
+import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   CONTRACT,
@@ -81,16 +82,19 @@ function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
   return kind === "openai-http" && engine.models_dir !== undefined;
 }
 
-/** Real keyring access is a later phase. Named seam so it is one call to swap. */
-export function defaultSecretResolves(_secret: SecretRef): boolean {
-  return true;
+/**
+ * Resolved per request, never cached — a `--user` unit boots before the
+ * login keyring unlocks (lingering is enabled here specifically so engined
+ * starts before any graphical login), and a cached failure would need a
+ * reload to clear once the operator signs in rather than just recovering
+ * on the next `GET /v1/engines`.
+ */
+export function defaultSecretResolves(secret: SecretRef): Promise<SecretOutcome> {
+  return resolveSecret(secret);
 }
 
-function remoteFix(engineId: string, secret: SecretRef | undefined): string {
-  if (secret === undefined) {
-    return `engine "${engineId}" is a remote address with no configured secret`;
-  }
-  return `secret-tool store ${secret.service} ${secret.username}`;
+function noSecretConfiguredFix(engineId: string): string {
+  return `engine "${engineId}" is a remote address with no configured secret`;
 }
 
 export interface RegistryOptions {
@@ -102,7 +106,8 @@ export interface RegistryOptions {
   exec?: Exec;
   probe?: Probe;
   lifecycle?: DockerLifecycle;
-  secretResolves?: (secret: SecretRef) => boolean;
+  /** Defaults to real `secret-tool` access via secrets.ts; a test injects a fake outcome directly, without simulating a subprocess. */
+  secretResolves?: (secret: SecretRef) => Promise<SecretOutcome>;
   /** Overridable for tests: a fast interval against a fake `/queue` response. */
   queueFetch?: QueueFetch;
   comfyPollIntervalMs?: number;
@@ -153,7 +158,7 @@ function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
 export class EngineRegistry {
   private readonly exec: Exec;
   private readonly lifecycle: DockerLifecycle;
-  private readonly secretResolves: (secret: SecretRef) => boolean;
+  private readonly secretResolves: (secret: SecretRef) => Promise<SecretOutcome>;
   private readonly specOptions: SpecLoadOptions;
   private readonly queueFetch: QueueFetch;
   private readonly comfyPollIntervalMs: number;
@@ -237,21 +242,23 @@ export class EngineRegistry {
     return entry.spec.spec.kind;
   }
 
-  /** Everything `getStatus`/spec loading already know, with no docker round trip. */
+  /**
+   * Everything `getStatus`/spec loading already know, with no docker round
+   * trip and — for a remote-address engine — no keyring round trip either:
+   * optimistic `installed`, the same resting assumption a container gets
+   * before its first probe. `statusFor` is the authoritative, async check.
+   */
   private syncStatus(entry: Entry): EngineStatus {
     const { engine } = entry;
 
     if (entry.spec === null) {
       const kind = this.kindOf(entry);
-      const { secret } = engine;
-      const resolved = secret !== undefined && this.secretResolves(secret);
       return {
         id: engine.id,
         kind,
         egress: engine.egress,
         serves: KIND_SERVES[kind],
-        state: resolved ? "installed" : "unavailable",
-        fix: resolved ? undefined : remoteFix(engine.id, secret),
+        state: "installed",
         private_url: null,
         spec_source: REMOTE_SPEC_SOURCE,
       };
@@ -285,6 +292,37 @@ export class EngineRegistry {
   }
 
   /**
+   * The keyring round trip a remote-address engine's status needs: resolved
+   * fresh on every call (never cached — see `defaultSecretResolves`), so an
+   * operator who signs in and unlocks their keyring sees it recover on the
+   * next `GET /v1/engines`, no reload required. Distinguishes `missing` from
+   * `locked` rather than collapsing both into one `fix`, because a `locked`
+   * engine already has a correctly-stored secret — telling the operator to
+   * `secret-tool store` it again is the wrong diagnosis.
+   */
+  private async remoteStatus(entry: Entry): Promise<EngineStatus> {
+    const { engine } = entry;
+    const kind = this.kindOf(entry);
+    const base = {
+      id: engine.id,
+      kind,
+      egress: engine.egress,
+      serves: KIND_SERVES[kind],
+      private_url: null,
+      spec_source: REMOTE_SPEC_SOURCE,
+    } as const;
+    const { secret } = engine;
+    if (secret === undefined) {
+      return { ...base, state: "unavailable", fix: noSecretConfiguredFix(engine.id) };
+    }
+    const outcome = await this.secretResolves(secret);
+    if (outcome.ok) {
+      return { ...base, state: "installed" };
+    }
+    return { ...base, state: "unavailable", fix: outcome.fix };
+  }
+
+  /**
    * `syncStatus` for a container engine's non-running case is superseded by
    * `lifecycle.probe`, which checks image *and* artifact presence read-only
    * (never starts a container) so a never-started engine with either missing
@@ -292,7 +330,10 @@ export class EngineRegistry {
    * waiting for a start attempt to notice.
    */
   private async statusFor(entry: Entry): Promise<EngineStatus> {
-    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+    if (entry.spec === null) {
+      return this.remoteStatus(entry);
+    }
+    if (!isContainerSpec(entry.spec.spec)) {
       return this.syncStatus(entry);
     }
     const { engine } = entry;
@@ -358,7 +399,7 @@ export class EngineRegistry {
     return entry.spec.spec.serves;
   }
 
-  /** Sync accessor: reports the lifecycle's cached state, no image probe. */
+  /** Sync accessor: reports the lifecycle's cached state — no image probe, no keyring lookup. */
   get(id: string): EngineStatus | undefined {
     const entry = this.byId.get(id);
     return entry ? this.syncStatus(entry) : undefined;

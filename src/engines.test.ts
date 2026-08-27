@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult, type Probe } from "./docker.ts";
 import { EngineRegistry, type QueueSnapshot, type RegistryOptions } from "./engines.ts";
+import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import { type Config, type EngineEntry, isContainerSpec, type ModelEntry } from "./types.ts";
 
@@ -196,29 +197,80 @@ describe("installed engines", () => {
   });
 });
 
-describe("remote-address engines", () => {
-  const remoteEngine = engine({
-    id: "claude-kimi",
-    egress: "remote",
-    base_url: "https://api.kimi.com/coding/",
-    secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-  });
+const REMOTE_ENGINE = engine({
+  id: "claude-kimi",
+  egress: "remote",
+  base_url: "https://api.kimi.com/coding/",
+  secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
+});
 
-  test("installed when the secret resolves", () => {
-    const reg = registry(config({ engines: [remoteEngine] }), newEnginesRoot(), {
-      secretResolves: () => true,
+/** A second, ordinary engine in the same config, so "does the rest of the inventory still work" is provable in the same response. */
+function withAnotherEngine(root: string): Config {
+  writeSpec(root, "other", PULLED_CONTAINER);
+  return config({ engines: [REMOTE_ENGINE, engine({ id: "other" })] });
+}
+
+describe("remote-address engines: get() stays optimistic", () => {
+  test("get() does not itself resolve the keyring", () => {
+    const reg = registry(config({ engines: [REMOTE_ENGINE] }), newEnginesRoot(), {
+      secretResolves: () => Promise.resolve({ ok: false, reason: "missing", fix: "unused" }),
     });
+    // No image/keyring round trip happens synchronously; get() reports the
+    // same resting "installed" a never-probed container would.
     expect(reg.get("claude-kimi")?.state).toBe("installed");
     expect(reg.get("claude-kimi")?.private_url).toBeNull();
   });
+});
 
-  test("unavailable naming the secret-tool store command when it does not", () => {
-    const reg = registry(config({ engines: [remoteEngine] }), newEnginesRoot(), {
-      secretResolves: () => false,
+describe("remote-address engines: GET /v1/engines resolves the keyring per request", () => {
+  test("GET /v1/engines: installed when the secret resolves", async () => {
+    const root = newEnginesRoot();
+    const reg = registry(withAnotherEngine(root), root, {
+      secretResolves: () => Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
     });
-    const status = reg.get("claude-kimi");
-    expect(status?.state).toBe("unavailable");
-    expect(status?.fix).toBe("secret-tool store moonshot-api kimi-k2.7-code");
+    const listed = await reg.list();
+    const status = listed.engines.find((e) => e.id === "claude-kimi");
+    expect(status?.state).toBe("installed");
+    expect(status?.private_url).toBeNull();
+  });
+
+  test("GET /v1/engines: a missing outcome is unavailable, fix names secret-tool store", async () => {
+    const root = newEnginesRoot();
+    const reg = registry(withAnotherEngine(root), root, {
+      secretResolves: () =>
+        Promise.resolve({
+          ok: false,
+          reason: "missing",
+          fix: "secret-tool store --label='moonshot-api' service moonshot-api username kimi-k2.7-code",
+        } satisfies SecretOutcome),
+    });
+    const listed = await reg.list();
+    const kimi = listed.engines.find((e) => e.id === "claude-kimi");
+    expect(kimi?.state).toBe("unavailable");
+    expect(kimi?.fix).toContain("secret-tool store");
+
+    const other = listed.engines.find((e) => e.id === "other");
+    expect(other?.state).toBe("installed");
+  });
+
+  test("GET /v1/engines: a locked outcome is unavailable but offers no store command", async () => {
+    const root = newEnginesRoot();
+    const reg = registry(withAnotherEngine(root), root, {
+      secretResolves: () =>
+        Promise.resolve({
+          ok: false,
+          reason: "locked",
+          fix: "keyring is locked; resolves automatically once the operator signs in",
+        } satisfies SecretOutcome),
+    });
+    const listed = await reg.list();
+    const kimi = listed.engines.find((e) => e.id === "claude-kimi");
+    expect(kimi?.state).toBe("unavailable");
+    expect(kimi?.fix).not.toContain("secret-tool store");
+    expect(kimi?.fix).toContain("locked");
+
+    const other = listed.engines.find((e) => e.id === "other");
+    expect(other?.state).toBe("installed");
   });
 });
 
