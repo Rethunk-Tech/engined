@@ -80,7 +80,7 @@ const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 // files are pre-created -- the acceptance-level integration case.
 function workedConfig(): string {
   const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
-  const embedFile = "nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q8_0.gguf";
+  const embedFile = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf";
   const dir = tempModelsDir(ornithFile, embedFile);
   return `
 listen_port           = 29200
