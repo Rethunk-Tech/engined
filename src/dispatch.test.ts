@@ -1065,6 +1065,51 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
   });
 });
 
+describe("the door: remote-agentic redirect, unproved pin never reaches a spawn", () => {
+  test("no agenticProbeRunner configured: the request is refused 503 and the spawn count stays zero", async () => {
+    clearVerifiedVersion("claude-kimi");
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [kimiEngine()],
+      models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
+    });
+    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+    const spawn: AgenticSpawn = (spawnArgv, opts) => {
+      spawnCalls.push({ argv: spawnArgv, env: opts.env });
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"should never run"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    // No `agenticProbeRunner` in registryOpts: the pin has never been proved
+    // and nothing can prove it, so the gate must refuse rather than serve.
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX },
+      {
+        agenticSpawn: spawn,
+        secretExec: fakeSecretExec("kimi-secret-value"),
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "kimi-k3",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp/scratch",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(503);
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude-kimi");
+  });
+});
+
 describe("the door: remote-agentic redirect, missing secret", () => {
   test("a missing secret's HopResult carries the secret-tool store command", async () => {
     // Direct: runChain's own exhaustion wrapper replaces a lone hop's body

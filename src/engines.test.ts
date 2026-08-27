@@ -210,9 +210,11 @@ describe("installed engines", () => {
   });
 });
 
+/** A remote address that is merely a proxy: it launches nothing, so it carries no `claude_version` and is never routed through the agentic gate. */
 const REMOTE_ENGINE = engine({
-  id: "claude-kimi",
+  id: "remote-proxy",
   egress: "remote",
+  kind: "openai-http",
   base_url: "https://api.kimi.com/coding/",
   secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
 });
@@ -230,8 +232,8 @@ describe("remote-address engines: get() stays optimistic", () => {
     });
     // No image/keyring round trip happens synchronously; get() reports the
     // same resting "installed" a never-probed container would.
-    expect(reg.get("claude-kimi")?.state).toBe("installed");
-    expect(reg.get("claude-kimi")?.private_url).toBeNull();
+    expect(reg.get("remote-proxy")?.state).toBe("installed");
+    expect(reg.get("remote-proxy")?.private_url).toBeNull();
   });
 });
 
@@ -242,7 +244,7 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
       secretResolves: () => Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
     });
     const listed = await reg.list();
-    const status = listed.engines.find((e) => e.id === "claude-kimi");
+    const status = listed.engines.find((e) => e.id === "remote-proxy");
     expect(status?.state).toBe("installed");
     expect(status?.private_url).toBeNull();
   });
@@ -258,7 +260,7 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
         } satisfies SecretOutcome),
     });
     const listed = await reg.list();
-    const kimi = listed.engines.find((e) => e.id === "claude-kimi");
+    const kimi = listed.engines.find((e) => e.id === "remote-proxy");
     expect(kimi?.state).toBe("unavailable");
     expect(kimi?.fix).toContain("secret-tool store");
 
@@ -277,13 +279,121 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
         } satisfies SecretOutcome),
     });
     const listed = await reg.list();
-    const kimi = listed.engines.find((e) => e.id === "claude-kimi");
+    const kimi = listed.engines.find((e) => e.id === "remote-proxy");
     expect(kimi?.state).toBe("unavailable");
     expect(kimi?.fix).not.toContain("secret-tool store");
     expect(kimi?.fix).toContain("locked");
 
     const other = listed.engines.find((e) => e.id === "other");
     expect(other?.state).toBe("installed");
+  });
+});
+
+function remoteAgenticEngine(id: string, claudeVersion?: string): EngineEntry {
+  return engine({
+    id,
+    egress: "remote",
+    kind: "agentic-cli",
+    base_url: `https://example.com/${id}`,
+    secret: { service: id, username: "u", header: "x-api-key" },
+    claude_version: claudeVersion,
+  });
+}
+
+function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
+  runner: AgenticProbeRunner;
+  calls: Array<{ engineId: string; version: string }>;
+} {
+  const calls: Array<{ engineId: string; version: string }> = [];
+  const runner: AgenticProbeRunner = (eng, version) => {
+    calls.push({ engineId: eng.id, version });
+    return Promise.resolve(outcome);
+  };
+  return { runner, calls };
+}
+
+function secretResolvesOk(): Promise<SecretOutcome> {
+  return Promise.resolve({ ok: true, value: "secret" } as SecretOutcome);
+}
+
+function secretResolvesMissing(): Promise<SecretOutcome> {
+  return Promise.resolve({
+    ok: false,
+    reason: "missing",
+    fix: "secret-tool store ...",
+  } as SecretOutcome);
+}
+
+describe("remote-address agentic engines: unavailable paths never reach a real spawn", () => {
+  test("an unproved pin is unavailable even once the secret resolves, and the probe runner is never called", async () => {
+    const id = "remote-agentic-unproved";
+    clearVerifiedVersion(id);
+    const { runner, calls } = trackingRunner({ ok: true });
+    const reg = registry(config({ engines: [remoteAgenticEngine(id)] }), newEnginesRoot(), {
+      secretResolves: secretResolvesOk,
+      agenticProbeRunner: runner,
+    });
+    const listed = (await reg.list()).engines.find((e) => e.id === id);
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("claude_version");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a secret that fails to resolve is unavailable before the agentic gate is ever consulted", async () => {
+    const id = "remote-agentic-nosecret";
+    clearVerifiedVersion(id);
+    const { runner, calls } = trackingRunner({ ok: true });
+    const reg = registry(
+      config({ engines: [remoteAgenticEngine(id, "2.0.0")] }),
+      newEnginesRoot(),
+      { secretResolves: secretResolvesMissing, agenticProbeRunner: runner },
+    );
+    const listed = (await reg.list()).engines.find((e) => e.id === id);
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("secret-tool store");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a resolved secret and an unproved version pin is unavailable -- no real spawn occurs", async () => {
+    const id = "remote-agentic-pin-unproved";
+    clearVerifiedVersion(id);
+    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
+    const reg = registry(
+      config({ engines: [remoteAgenticEngine(id, "1.0.0")] }),
+      newEnginesRoot(),
+      { secretResolves: secretResolvesOk, agenticProbeRunner: runner },
+    );
+    const listed = (await reg.list()).engines.find((e) => e.id === id);
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("byte-identical");
+    expect(calls).toEqual([{ engineId: id, version: "1.0.0" }]);
+    clearVerifiedVersion(id);
+  });
+});
+
+describe("remote-address agentic engines: gated the same as a local one once proved", () => {
+  test("the secret resolving and the probes passing together yield installed; a later list skips the runner", async () => {
+    const id = "remote-agentic-proved";
+    clearVerifiedVersion(id);
+    const { runner, calls } = trackingRunner({ ok: true });
+    const opts: Partial<RegistryOptions> = {
+      secretResolves: secretResolvesOk,
+      agenticProbeRunner: runner,
+    };
+    const cfg = config({ engines: [remoteAgenticEngine(id, "3.0.0")] });
+    const first = (await registry(cfg, newEnginesRoot(), opts).list()).engines.find(
+      (e) => e.id === id,
+    );
+    expect(first?.state).toBe("installed");
+    expect(calls).toHaveLength(1);
+
+    const second = (await registry(cfg, newEnginesRoot(), opts).list()).engines.find(
+      (e) => e.id === id,
+    );
+    expect(second?.state).toBe("installed");
+    expect(calls).toHaveLength(1);
+
+    clearVerifiedVersion(id);
   });
 });
 
