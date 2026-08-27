@@ -3,9 +3,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
+import type { Exec, ExecResult, Probe } from "./docker.ts";
 import { EngineRegistry } from "./engines.ts";
+import type { HttpClient } from "./llama.ts";
 import { createDoor, type Door, parsePortHolder } from "./main.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
@@ -391,5 +394,229 @@ describe("port-holder diagnosis", () => {
   test("no listener line, no match", () => {
     const empty = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\n";
     expect(parsePortHolder(empty)).toBeUndefined();
+  });
+});
+
+const LOCAL_LLAMA_SPEC = `
+kind = "openai-http"
+image = "ghcr.io/example/llama@sha256:aaaa"
+obtain = "pull"
+serves = ["/v1/chat/completions", "/v1/embeddings"]
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`;
+
+const CLAUDE_SPEC = `
+kind = "agentic-cli"
+serves = ["/v1/chat/completions"]
+command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
+env = ["HOME"]
+`;
+
+/** Image present with one exposed port, a fresh host port per "port" lookup. */
+function llamaExec(): Exec {
+  let port = 41_000;
+  return (args) => {
+    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    if (args[0] === "image" && args[1] === "inspect") {
+      result = {
+        stdout: '[{"Config":{"ExposedPorts":{"8080/tcp":{}}}}]',
+        stderr: "",
+        exitCode: 0,
+      };
+    } else if (args[0] === "port") {
+      port += 1;
+      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+    }
+    return Promise.resolve(result);
+  };
+}
+
+const READY_200: Probe = () => Promise.resolve({ status: 200 });
+
+/** `/models/load` and `/models/unload` answer immediately; every other call is recorded. */
+function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
+  return (url: string, init?: RequestInit) => {
+    if (url.endsWith("/models/load")) {
+      return Promise.resolve(Response.json({ status: "loaded" }));
+    }
+    if (url.endsWith("/models/unload")) {
+      return Promise.resolve(Response.json({ status: "ok" }));
+    }
+    if (typeof init?.body === "string") {
+      recorded.push({ body: init.body });
+    }
+    return Promise.resolve(
+      Response.json({ id: "resp-1", choices: [{ message: { content: "hi" } }] }),
+    );
+  };
+}
+
+function llamaDoorConfig(): { cfg: Config; root: string } {
+  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  mkdirSync(join(root, "local-llama"), { recursive: true });
+  writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+  const cfg = config({
+    engines: [
+      engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+    ],
+    models: [model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" })],
+  });
+  return { cfg, root };
+}
+
+describe("the door: content routing", () => {
+  test("a chat against a resolvable llama model reaches the router and returns its body", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const recorded: { body: string }[] = [];
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        write: (l) => lines.push(l),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    const body = (await res.json()) as { choices: { message: { content: string } }[] };
+    expect(body.choices[0]?.message.content).toBe("hi");
+    expect(lines).toHaveLength(1);
+    expect((JSON.parse(lines[0] ?? "{}") as { engine_used: string }).engine_used).toBe(
+      "local-llama",
+    );
+  });
+
+  test("workdir is stripped and reasoning_effort passes through to an openai-http hop", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const recorded: { body: string }[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "ornith",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/should/not/reach/llama",
+          reasoning_effort: "high",
+        }),
+      }),
+    );
+    // The response is a lazily-produced stream: reading it to completion is
+    // what actually drives `runLease`'s upstream call, the same as a real
+    // consumer would.
+    await res.text();
+    expect(recorded).toHaveLength(1);
+    const forwarded = JSON.parse(recorded[0]?.body ?? "{}") as Record<string, unknown>;
+    expect(forwarded.workdir).toBeUndefined();
+    expect(forwarded.reasoning_effort).toBe("high");
+  });
+});
+
+describe("the door: agentic and chain routing", () => {
+  test("an agentic attempt without workdir is 400 and the spawn is never invoked", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, "claude"), { recursive: true });
+    writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
+    const cfg = config({
+      engines: [engine({ id: "claude", egress: "remote", claude_version: "1.2.3" })],
+    });
+    const spawnCalls: unknown[] = [];
+    const fakeSpawn: AgenticSpawn = (argv, opts) => {
+      spawnCalls.push({ argv, opts });
+      return Promise.resolve({ stdout: '{"result":"hi"}', stderr: "", exitCode: 0 });
+    };
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX },
+      { agenticSpawn: fakeSpawn, write: (l) => lines.push(l) },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "claude", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(spawnCalls).toHaveLength(0);
+    expect(lines).toHaveLength(1);
+  });
+});
+
+describe("the door: chain routing", () => {
+  test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    for (const id of ["claude-a", "claude-b"]) {
+      mkdirSync(join(root, id), { recursive: true });
+      writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    }
+    const cfg = config({
+      engines: [
+        engine({ id: "claude-a", egress: "remote", claude_version: "1.2.3" }),
+        engine({ id: "claude-b", egress: "remote", claude_version: "1.2.3" }),
+      ],
+      chains: { "chain-x": ["@/claude-a/x", "@/claude-b/y"] },
+    });
+    // First call is claude-a: unparseable stdout, a dead hop that advances the
+    // chain. Second is claude-b: a real envelope, the answer that wins.
+    let calls = 0;
+    const spawn: AgenticSpawn = () => {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
+      }
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"second engine answered"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX },
+      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "chain-x",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp",
+        }),
+      }),
+    );
+    const body = (await res.json()) as { choices: { message: { content: string } }[] };
+    expect(res.status).toBe(200);
+    expect(body.choices[0]?.message.content).toBe("second engine answered");
+    expect(calls).toBe(2);
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as {
+      engine_used: string;
+      attempts: { engine: string; ok: boolean }[];
+    };
+    expect(record.engine_used).toBe("claude-b");
+    expect(record.attempts).toHaveLength(2);
+    expect(record.attempts[0]).toMatchObject({ engine: "claude-a", ok: false });
+    expect(record.attempts[1]).toMatchObject({ engine: "claude-b", ok: true });
   });
 });

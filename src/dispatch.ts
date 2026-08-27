@@ -29,7 +29,8 @@ function resolveLocalEngine(config: Config): string | undefined {
   return candidates.length === 1 ? candidates[0]?.id : undefined;
 }
 
-function resolveEngineSegment(seg: string, config: Config): string | undefined {
+/** Exported so the door can resolve the same `local` alias for chain hops, extras and `egressOf`. */
+export function resolveEngineSegment(seg: string, config: Config): string | undefined {
   if (seg === "local") {
     return resolveLocalEngine(config);
   }
