@@ -233,6 +233,20 @@ describe("buildLlamaSpec / buildRunArgs", () => {
     expect(mountArgs.some((m) => m.endsWith(":/models:ro"))).toBe(true);
     expect(mountArgs.some((m) => m.endsWith(":/preset.ini:ro"))).toBe(true);
   });
+
+  test("engine args reach the preset, never the command line that would override it", () => {
+    const e = engine({ models_max: 3, args: { "ctx-size": 32768, parallel: -1 } });
+    const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
+    const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
+
+    // llama-server lets a CLI flag beat the preset for every model it loads,
+    // so an engine default here is a per-model `ctx-size` that can never win.
+    expect(argv).not.toContain("--ctx-size");
+    expect(argv).not.toContain("--parallel");
+
+    const ini = renderPresetIni(e, [model({ id: "a", filename: "a.gguf", args: {} })]);
+    expect(ini).toContain("ctx-size = 32768");
+  });
 });
 
 test("chat for model B while same-role model A is resident and idle: unload A, load B, then complete", async () => {

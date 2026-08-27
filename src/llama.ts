@@ -94,9 +94,15 @@ export interface LlamaBuildOptions {
 
 /**
  * Composes `loadSpec` (structural: `--models-preset`/`--models-max`/
- * `--no-models-autoload`, never edited here) with the two bind mounts and
- * the engine's own process flags, which are runtime values `loadSpec`'s
- * placeholder substitution has no way to reach. See the report's seam note.
+ * `--no-models-autoload`, never edited here) with the two bind mounts.
+ *
+ * `engine.args` deliberately does NOT go on the command line. A CLI flag
+ * overrides the preset for every model llama-server loads, so passing the
+ * engine's defaults here would flatten each `[model.args]` back to the
+ * engine value -- which is exactly how a model's own `ctx-size` came to be
+ * silently ignored. `renderPresetIni` already layers the engine's defaults
+ * under each model's section, so the child gets them either way, and only
+ * this path lets a model override one.
  */
 export function buildLlamaSpec(
   engine: EngineEntry,
@@ -120,7 +126,6 @@ export function buildLlamaSpec(
     { name: engine.models_dir, path: MODELS_CONTAINER_PATH, read_only: true },
     { name: presetHostPath, path: PRESET_CONTAINER_PATH, read_only: true },
   ];
-  spec.command = [...spec.command, ...argvFromArgs(engine.args)];
   return spec;
 }
 
