@@ -27,6 +27,32 @@ const DEFAULT_IDLE_STOP_SECONDS = 900;
 const DEFAULT_READY_TIMEOUT_S = 60;
 
 /**
+ * Comfy is the one engine whose idleness engined cannot observe, because it
+ * proxies nothing for it: this polls Comfy's own `/queue` and drives the
+ * lifecycle's existing lease timer from what it sees, rather than from
+ * request traffic engined never gets. Short relative to `idle_stop_seconds`
+ * (minutes), so a job that starts is noticed well before a stale deadline
+ * inherited from the last empty poll could fire mid-job.
+ */
+const COMFY_POLL_INTERVAL_MS = 15_000;
+
+export interface QueueSnapshot {
+  queue_running: unknown[];
+  queue_pending: unknown[];
+}
+
+export type QueueFetch = (url: string) => Promise<QueueSnapshot>;
+
+async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
+  const res = await fetch(url);
+  return (await res.json()) as QueueSnapshot;
+}
+
+function isQueueEmpty(q: QueueSnapshot): boolean {
+  return q.queue_running.length === 0 && q.queue_pending.length === 0;
+}
+
+/**
  * A remote-address-only engine (`base_url` set) has no spec directory, so its
  * `serves` list cannot come from a spec file. Mirrors the door table in
  * TODO.md `## The OpenAI door` — comfy is never reached this way, so it is
@@ -65,6 +91,9 @@ export interface RegistryOptions {
   probe?: Probe;
   lifecycle?: DockerLifecycle;
   secretResolves?: (secret: SecretRef) => boolean;
+  /** Overridable for tests: a fast interval against a fake `/queue` response. */
+  queueFetch?: QueueFetch;
+  comfyPollIntervalMs?: number;
 }
 
 interface Entry {
@@ -85,9 +114,19 @@ export class EngineRegistry {
   private readonly lifecycle: DockerLifecycle;
   private readonly secretResolves: (secret: SecretRef) => boolean;
   private readonly specOptions: SpecLoadOptions;
+  private readonly queueFetch: QueueFetch;
+  private readonly comfyPollIntervalMs: number;
   private config: Config;
   private entries: Entry[];
   private byId: Map<string, Entry>;
+  private comfyTimers: ReturnType<typeof setInterval>[] = [];
+  /**
+   * Last observed `/queue` emptiness per comfy-kind engine id. The lease is
+   * armed once per transition into empty, never re-armed on every poll while
+   * it stays empty — re-arming on every tick would reset the countdown
+   * before it ever elapsed.
+   */
+  private readonly comfyQueueEmpty = new Map<string, boolean>();
 
   constructor(config: Config, opts: RegistryOptions) {
     this.exec = opts.exec ?? dockerExec;
@@ -98,9 +137,56 @@ export class EngineRegistry {
       bunx: opts.bunx,
       presetIni: opts.presetIni,
     };
+    this.queueFetch = opts.queueFetch ?? defaultQueueFetch;
+    this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.config = config;
     this.entries = buildEntries(config, this.specOptions);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));
+    this.comfyTimers = this.startComfyWatches(this.entries);
+  }
+
+  /** One poll timer per `comfy`-kind engine; idleness for it comes from nowhere else. */
+  private startComfyWatches(entries: Entry[]): ReturnType<typeof setInterval>[] {
+    return entries
+      .filter((e) => this.kindOf(e) === "comfy")
+      .map((entry) =>
+        setInterval(() => {
+          this.pollComfyQueue(entry).catch(() => undefined);
+        }, this.comfyPollIntervalMs),
+      );
+  }
+
+  /**
+   * A transition into empty arms the same idle-stop lease every other
+   * engine's request traffic arms, once; a transition into non-empty cancels
+   * a pending stop the same way a fresh `start()` on an already-running
+   * container does — cheap, since `start()` returns immediately once `state`
+   * is already `running`. Not stopped or started on every tick: docker.ts's
+   * `endLease` resets its own countdown on every call, so re-arming it every
+   * poll while the queue stays empty would defer the stop forever.
+   */
+  private async pollComfyQueue(entry: Entry): Promise<void> {
+    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+      return;
+    }
+    const { engine } = entry;
+    const status = this.lifecycle.getStatus(engine.id);
+    if (status.state !== "running" || status.private_url === null) {
+      this.comfyQueueEmpty.delete(engine.id);
+      return;
+    }
+    const queue = await this.queueFetch(`http://${status.private_url}/queue`);
+    const empty = isQueueEmpty(queue);
+    const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? false;
+    this.comfyQueueEmpty.set(engine.id, empty);
+    if (empty && !wasEmpty) {
+      this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
+    } else if (!empty && wasEmpty) {
+      await this.lifecycle.start(engine.id, entry.spec.spec, {
+        idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
+        readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+      });
+    }
   }
 
   private kindOf(entry: Entry): EngineKind {
@@ -247,6 +333,9 @@ export class EngineRegistry {
       // has no standing container.
       return this.statusFor(entry);
     }
+    // A fresh start's first queue observation must be a real transition, not
+    // one suppressed by emptiness left over from the container's last run.
+    this.comfyQueueEmpty.delete(id);
     await this.lifecycle.start(id, entry.spec.spec, {
       idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
@@ -271,9 +360,17 @@ export class EngineRegistry {
     this.config = config;
     this.entries = newEntries;
     this.byId = new Map(newEntries.map((e) => [e.engine.id, e]));
+    for (const timer of this.comfyTimers) {
+      clearInterval(timer);
+    }
+    this.comfyTimers = this.startComfyWatches(newEntries);
   }
 
   async shutdown(): Promise<void> {
+    for (const timer of this.comfyTimers) {
+      clearInterval(timer);
+    }
+    this.comfyTimers = [];
     await this.lifecycle.shutdown();
   }
 }

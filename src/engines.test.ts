@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DockerLifecycle, type Exec, type ExecResult } from "./docker.ts";
-import { EngineRegistry, type RegistryOptions } from "./engines.ts";
-import type { Config, EngineEntry, ModelEntry } from "./types.ts";
+import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult, type Probe } from "./docker.ts";
+import { EngineRegistry, type QueueSnapshot, type RegistryOptions } from "./engines.ts";
+import { loadSpec } from "./spec.ts";
+import { type Config, type EngineEntry, isContainerSpec, type ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
 
@@ -289,5 +290,127 @@ describe("spec_source", () => {
     );
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.spec_source).toBe(overrideRoot);
+  });
+});
+
+const REPO_ENGINES_ROOT = join(import.meta.dir, "..", "engines");
+
+describe("comfy: shipped spec", () => {
+  test("the run argv takes GPU_FLAGS, label=disable and latent2rgb, and publishes to no wildcard interface", () => {
+    const loaded = loadSpec(engine({ id: "comfy" }), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+    });
+    const { spec } = loaded;
+    if (!isContainerSpec(spec)) {
+      throw new Error("engines/comfy/spec.toml must be a container spec");
+    }
+    const argv = buildRunArgs("engined-comfy", spec, 8188);
+    expect(argv).toContain("--preview-method");
+    expect(argv).toContain("latent2rgb");
+    expect(argv).toContain("/dev/kfd");
+    expect(argv).toContain("/dev/dri");
+    expect(argv).toContain("label=disable");
+    expect(argv).not.toContain("-P");
+    expect(argv.some((a) => a.startsWith("0.0.0.0::"))).toBe(false);
+  });
+});
+
+/** Image present at container port 8188 (comfy's EXPOSE), a fresh host port on every "port" lookup. */
+function comfyExec(): Exec {
+  let port = 40_000;
+  return (args) => {
+    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    if (args[0] === "image" && args[1] === "inspect") {
+      result = { stdout: '[{"Config":{"ExposedPorts":{"8188/tcp":{}}}}]', stderr: "", exitCode: 0 };
+    } else if (args[0] === "port") {
+      port += 1;
+      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+    }
+    return Promise.resolve(result);
+  };
+}
+
+const READY_PROBE: Probe = () => Promise.resolve({ status: 200 });
+
+const EMPTY_QUEUE: QueueSnapshot = { queue_running: [], queue_pending: [] };
+const BUSY_QUEUE: QueueSnapshot = { queue_running: [{ id: "job-1" }], queue_pending: [] };
+
+function comfyConfig(): Config {
+  return config({
+    engines: [engine({ id: "comfy", egress: "none", idle_stop_seconds: 0.05, ready_timeout_s: 5 })],
+  });
+}
+
+describe("comfy: idle timer driven by /queue polling", () => {
+  test("an empty queue advances the idle timer to a real stop", async () => {
+    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
+    const reg = new EngineRegistry(comfyConfig(), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      queueFetch: () => Promise.resolve(EMPTY_QUEUE),
+      comfyPollIntervalMs: 15,
+    });
+    try {
+      const started = await reg.start("comfy");
+      expect(started.state).toBe("running");
+      expect(started.private_url).not.toBeNull();
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const after = reg.get("comfy");
+      expect(after?.state).toBe("installed");
+      expect(after?.private_url).toBeNull();
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("a non-empty queue never lets the idle timer fire", async () => {
+    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
+    const reg = new EngineRegistry(comfyConfig(), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      queueFetch: () => Promise.resolve(BUSY_QUEUE),
+      comfyPollIntervalMs: 15,
+    });
+    try {
+      const started = await reg.start("comfy");
+      expect(started.state).toBe("running");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const after = reg.get("comfy");
+      expect(after?.state).toBe("running");
+      expect(after?.private_url).not.toBeNull();
+    } finally {
+      await reg.shutdown();
+    }
+  });
+});
+
+describe("comfy: resolved URL outlives its container by exactly nothing", () => {
+  test("two successive starts yield two different private_url values", async () => {
+    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
+    const reg = new EngineRegistry(comfyConfig(), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      queueFetch: () => Promise.resolve(EMPTY_QUEUE),
+      comfyPollIntervalMs: 60_000,
+    });
+    try {
+      const first = await reg.start("comfy");
+      await lifecycle.removeEngine("comfy");
+      const second = await reg.start("comfy");
+
+      expect(first.private_url).not.toBeNull();
+      expect(second.private_url).not.toBeNull();
+      expect(second.private_url).not.toBe(first.private_url);
+    } finally {
+      await reg.shutdown();
+    }
   });
 });
