@@ -3,7 +3,7 @@
  * rule here is fatal at parse: a daemon serving a config it cannot fully
  * trust is worse than one that refuses to start.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { sep as pathSep, resolve as resolvePath } from "node:path";
 import { configPath, expandTilde } from "./paths.ts";
 import type { Config, EngineEntry, EngineKind, ModelEntry, Role, SecretRef } from "./types.ts";
@@ -78,6 +78,18 @@ function asArgs(v: unknown, site: string, file: string): Record<string, unknown>
   return v;
 }
 
+/** Close enough to how an args table renders to argv to catch a forbidden flag by key. */
+function argsToArgv(args: Record<string, unknown>): string[] {
+  const argv: string[] = [];
+  for (const [k, v] of Object.entries(args)) {
+    argv.push(`--${k}`);
+    if (v !== true) {
+      argv.push(String(v));
+    }
+  }
+  return argv;
+}
+
 function parseSecret(v: unknown, site: string, file: string): SecretRef {
   if (!isRecord(v)) {
     throw new ParseError(`${site} "secret" must be a table`, file);
@@ -136,14 +148,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
   checkRemoteAddress(raw, site, file);
   const rawModelsDir = optional(raw.models_dir, "string", `${site} "models_dir"`, file);
   const args = asArgs(raw.args, site, file);
-  const argv: string[] = [];
-  for (const [k, v] of Object.entries(args)) {
-    argv.push(`--${k}`);
-    if (v !== true) {
-      argv.push(String(v));
-    }
-  }
-  assertNoForbiddenFlags(argv, file);
+  assertNoForbiddenFlags(argsToArgv(args), file);
 
   return {
     id,
@@ -191,14 +196,10 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
     throw new ParseError(`${site} has invalid "role" "${roleStr}"`, file);
   }
 
-  return {
-    id,
-    engine,
-    filename,
-    role: roleStr as Role | undefined,
-    aliases,
-    args: asArgs(raw.args, site, file),
-  };
+  const args = asArgs(raw.args, site, file);
+  assertNoForbiddenFlags(argsToArgv(args), file);
+
+  return { id, engine, filename, role: roleStr as Role | undefined, aliases, args };
 }
 
 function validateModelAgainstEngine(
@@ -231,6 +232,9 @@ function validateModelAgainstEngine(
   const target = resolvePath(dir, m.filename);
   if (target !== dir && !target.startsWith(dir + pathSep)) {
     throw new ParseError(`${site} "filename" is not under engine's "models_dir"`, file);
+  }
+  if (!existsSync(target)) {
+    throw new ParseError(`${site} "filename" does not exist at "${target}"`, file);
   }
 }
 
@@ -341,8 +345,20 @@ function parseChains(
 
 export function loadConfig(path?: string): Config {
   const file = path ?? configPath();
-  const text = readFileSync(file, "utf8");
-  const raw = Bun.TOML.parse(text);
+
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (err) {
+    throw new ParseError("cannot read config", file, { cause: err });
+  }
+
+  let raw: unknown;
+  try {
+    raw = Bun.TOML.parse(text);
+  } catch (err) {
+    throw new ParseError("invalid TOML", file, { cause: err });
+  }
   if (!isRecord(raw)) {
     throw new ParseError("config must be a table", file);
   }

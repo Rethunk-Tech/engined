@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { loadConfig, resolveArgs } from "./config.ts";
 import { ParseError } from "./types.ts";
 
@@ -12,19 +12,39 @@ function writeConfig(toml: string): string {
   return path;
 }
 
-const LLAMA_ENGINE = `
+/** A real models_dir with the given files pre-created, for tests that must parse clean. */
+function tempModelsDir(...files: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), "engined-models-"));
+  for (const rel of files) {
+    const full = join(dir, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, "");
+  }
+  return dir;
+}
+
+/** A minimal llama engine + one chat model whose GGUF actually exists. */
+function llamaEngineAndModel(): string {
+  const dir = tempModelsDir("ornith.gguf");
+  return `
 [[engine]]
 id = "local-llama"
 egress = "none"
-models_dir = "~/llm-models"
-`;
+models_dir = "${dir}"
 
-const CHAT_MODEL = `
 [[model]]
 id = "ornith"
 engine = "local-llama"
 filename = "ornith.gguf"
 role = "chat"
+`;
+}
+
+const LLAMA_ENGINE = `
+[[engine]]
+id = "local-llama"
+egress = "none"
+models_dir = "~/llm-models"
 `;
 
 const EXPECTED_ENGINE_COUNT = 7;
@@ -49,11 +69,20 @@ const RX_MUST_NOT_MODELS_DIR = /must not declare "models_dir"/;
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/;
 const RX_UNRECOGNISED_MODEL_KEY = /unrecognised key "rolee"/;
 const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/;
+const RX_FILENAME_MISSING = /does not exist at/;
 const RX_MODELS_MAX_ROLES = /below its 2 distinct configured roles/;
 const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/;
+const RX_INVALID_TOML = /invalid TOML/;
+const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 
-// The worked config from TODO.md, verbatim -- the acceptance-level integration case.
-const WORKED_CONFIG = `
+// The worked config from TODO.md, with models_dir swapped for a temp dir whose
+// files are pre-created -- the acceptance-level integration case.
+function workedConfig(): string {
+  const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
+  const qwenFile =
+    "llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF/Qwen3.6-35B-A3B-uncensored-heretic-Q8_0.gguf";
+  const dir = tempModelsDir(ornithFile, qwenFile);
+  return `
 listen_port           = 29200
 chat_timeout_seconds  = 600
 agent_timeout_seconds = 3600
@@ -61,7 +90,7 @@ agent_timeout_seconds = 3600
 [[model]]
 id       = "ornith"
 engine   = "local-llama"
-filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
+filename = "${ornithFile}"
 role     = "chat"
 
   [model.args]
@@ -73,7 +102,7 @@ role     = "chat"
 [[model]]
 engine   = "local-llama"
 id       = "qwen36-q8"
-filename = "llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF/Qwen3.6-35B-A3B-uncensored-heretic-Q8_0.gguf"
+filename = "${qwenFile}"
 aliases  = ["qwen3.6"]
 role     = "chat"
 
@@ -91,7 +120,7 @@ id     = "kimi-k3"
 [[engine]]
 id                = "local-llama"
 egress            = "none"
-models_dir        = "~/llm-models"
+models_dir        = "${dir}"
 models_max        = 3
 ready_timeout_s   = 180
 idle_stop_seconds = 900
@@ -141,9 +170,10 @@ idle_stop_seconds = 1800
 chain-private = ["@/local/ornith"]
 chain-public  = ["@/local/ornith", "@/claude-kimi/kimi-k3", "@/claude/sonnet-5"]
 `;
+}
 
 test("the worked config from TODO.md parses clean", () => {
-  const cfg = loadConfig(writeConfig(WORKED_CONFIG));
+  const cfg = loadConfig(writeConfig(workedConfig()));
   expect(cfg.engines).toHaveLength(EXPECTED_ENGINE_COUNT);
   expect(cfg.models).toHaveLength(EXPECTED_MODEL_COUNT);
   expect(cfg.chains["chain-public"]).toEqual([
@@ -151,13 +181,18 @@ test("the worked config from TODO.md parses clean", () => {
     "@/claude-kimi/kimi-k3",
     "@/claude/sonnet-5",
   ]);
-  // Tilde expanded: a bind-mount needs the absolute path, not the literal tilde.
-  const llama = cfg.engines.find((e) => e.id === "local-llama");
-  expect(llama?.models_dir).toBe(join(homedir(), "llm-models"));
+});
+
+test("tilde in models_dir is expanded to an absolute path", () => {
+  const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "y.gguf"\nrole = "chat"\n`;
+  // No file on disk -- the escape check passes (tilde expanded, still under
+  // the dir) and the existence check is what should fire, naming an absolute
+  // path rather than the literal "~".
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_ABSOLUTE_MODELS_DIR);
 });
 
 test("defaults apply when listen_port/chat_timeout/agent_timeout are absent", () => {
-  const cfg = loadConfig(writeConfig(LLAMA_ENGINE + CHAT_MODEL));
+  const cfg = loadConfig(writeConfig(llamaEngineAndModel()));
   expect(cfg.listen_port).toBe(DEFAULT_LISTEN_PORT);
   expect(cfg.chat_timeout_seconds).toBe(DEFAULT_CHAT_TIMEOUT_SECONDS);
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS);
@@ -184,17 +219,17 @@ aliases = ["ornith"]
 
 describe("chain hops", () => {
   test("a bare model id is not a fully-qualified hop", () => {
-    const toml = `${LLAMA_ENGINE}${CHAT_MODEL}\n[chain]\nc = ["ornith"]\n`;
+    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NOT_QUALIFIED);
   });
 
   test("a qualified hop naming an unknown engine fails, naming the engine half", () => {
-    const toml = `${LLAMA_ENGINE}${CHAT_MODEL}\n[chain]\nc = ["@/nope/ornith"]\n`;
+    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["@/nope/ornith"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_ENGINE);
   });
 
   test("a qualified hop naming an unknown model fails, naming the model half", () => {
-    const toml = `${LLAMA_ENGINE}${CHAT_MODEL}\n[chain]\nc = ["@/local-llama/nope"]\n`;
+    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["@/local-llama/nope"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_MODEL);
   });
 
@@ -289,12 +324,19 @@ test("a filename escaping the engine's models_dir is fatal", () => {
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_ESCAPE);
 });
 
+test("a filename not present on disk under models_dir is fatal", () => {
+  const dir = tempModelsDir();
+  const toml = `[[engine]]\nid = "local-llama"\negress = "none"\nmodels_dir = "${dir}"\n\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "missing.gguf"\nrole = "chat"\n`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_MISSING);
+});
+
 test("models_max below the distinct configured roles is fatal", () => {
+  const dir = tempModelsDir("ornith.gguf", "vis.gguf");
   const toml = `
 [[engine]]
 id = "local-llama"
 egress = "none"
-models_dir = "~/llm-models"
+models_dir = "${dir}"
 models_max = 1
 
 [[model]]
@@ -324,6 +366,22 @@ egress = "remote"
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
 });
 
+test("a forbidden agentic flag in [model.args] is fatal, on an agentic model", () => {
+  const toml = `
+[[engine]]
+id = "claude"
+egress = "remote"
+
+[[model]]
+id = "sonnet-5"
+engine = "claude"
+
+  [model.args]
+  add-dir = "/etc"
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
+});
+
 test("resolveArgs: a model arg beats an engine arg naming the same key", () => {
   const merged = resolveArgs({ "ctx-size": 4096 }, { "ctx-size": MODEL_CTX_SIZE });
   expect(merged["ctx-size"]).toBe(MODEL_CTX_SIZE);
@@ -332,4 +390,18 @@ test("resolveArgs: a model arg beats an engine arg naming the same key", () => {
 test("loadConfig throws ParseError, not a bare Error, on a fatal rule", () => {
   const toml = `[[engine]]\nid = "x"\n`;
   expect(() => loadConfig(writeConfig(toml))).toThrow(ParseError);
+});
+
+test("malformed TOML is a ParseError naming the file, with the syntax error as cause", () => {
+  const path = writeConfig("listen_port = ");
+  try {
+    loadConfig(path);
+    throw new Error("expected loadConfig to throw");
+  } catch (err) {
+    expect(err).toBeInstanceOf(ParseError);
+    const parseErr = err as ParseError;
+    expect(parseErr.message).toContain(path);
+    expect(parseErr.message).toMatch(RX_INVALID_TOML);
+    expect(parseErr.cause).toBeDefined();
+  }
 });
