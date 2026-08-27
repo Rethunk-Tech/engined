@@ -198,16 +198,6 @@ describe("installed engines", () => {
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.private_url).toBeNull();
   });
-
-  test("vram is absent, not zero, when it cannot be read", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root);
-    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
-    expect(listed?.vram).toBeUndefined();
-    expect(Object.hasOwn(listed ?? {}, "vram")).toBe(false);
-    expect(listed?.disk).toBeUndefined();
-  });
 });
 
 /** A remote address that is merely a proxy: it launches nothing, so it carries no `claude_version` and is never routed through the agentic gate. */

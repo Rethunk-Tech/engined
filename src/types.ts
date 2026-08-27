@@ -166,9 +166,6 @@ export interface EngineStatus {
   private_url: string | null;
   spec_source: string;
   last_error?: string;
-  /** Best-effort from docker when cheap; absent rather than zero. */
-  disk?: number;
-  vram?: number;
 }
 
 export interface EnginesResponse {
