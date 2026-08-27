@@ -5,7 +5,11 @@
  * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
+import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
+import { stateDir } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   CONTRACT,
@@ -69,6 +73,14 @@ const KIND_SERVES: Record<EngineKind, string[]> = {
 /** No spec directory exists for a remote-address engine; named as such rather than left blank. */
 const REMOTE_SPEC_SOURCE = "(none: remote address)";
 
+/** Must match `LlamaRouterOptions.presetHostPath`'s own default: both write and mount the same file. */
+const LOCAL_LLAMA_PRESET_DIR = (): string => `${stateDir()}/local-llama`;
+const LOCAL_LLAMA_PRESET_PATH = (): string => `${LOCAL_LLAMA_PRESET_DIR()}/preset.ini`;
+
+function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
+  return kind === "openai-http" && engine.models_dir !== undefined;
+}
+
 /** Real keyring access is a later phase. Named seam so it is one call to swap. */
 export function defaultSecretResolves(_secret: SecretRef): boolean {
   return true;
@@ -102,10 +114,39 @@ interface Entry {
   spec: LoadedSpec | null;
 }
 
+/**
+ * Picks the per-engine builder from the loaded spec's own `kind` and the
+ * engine's own configuration, never from a hardcoded id — an operator naming
+ * the local llama engine something other than "local-llama" must still get
+ * its models mount. `buildLlamaSpec`/`buildComfySpec` each call `loadSpec`
+ * themselves; the first call here only exists to learn `kind` cheaply,
+ * before ever running or proxying anything.
+ */
+function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): LoadedSpec {
+  // The peek's own resolved spec is discarded whenever a builder below takes
+  // over (each calls loadSpec again with the substitution `{preset_ini}`
+  // actually needs) — this placeholder only has to satisfy substitution, not
+  // name a real path.
+  const loaded = loadSpec(engine, {
+    ...specOptions,
+    presetIni: specOptions.presetIni ?? "/unused",
+  });
+  if (!isContainerSpec(loaded.spec)) {
+    return loaded;
+  }
+  if (loaded.spec.kind === "comfy" && engine.models_dir !== undefined) {
+    return { ...loaded, spec: buildComfySpec(engine, specOptions) };
+  }
+  if (isLocalLlama(engine, loaded.spec.kind)) {
+    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, LOCAL_LLAMA_PRESET_PATH()) };
+  }
+  return loaded;
+}
+
 function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
   return config.engines.map((engine) => ({
     engine,
-    spec: engine.base_url === undefined ? loadSpec(engine, specOptions) : null,
+    spec: engine.base_url === undefined ? loadEngineSpec(engine, specOptions) : null,
   }));
 }
 
@@ -336,11 +377,25 @@ export class EngineRegistry {
     // A fresh start's first queue observation must be a real transition, not
     // one suppressed by emptiness left over from the container's last run.
     this.comfyQueueEmpty.delete(id);
+    if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
+      this.renderLocalLlamaPreset(entry.engine);
+    }
     await this.lifecycle.start(id, entry.spec.spec, {
       idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
     });
     return this.statusFor(entry);
+  }
+
+  /**
+   * The bind-mounted INI llama-server reads once at startup, re-rendered on
+   * every start so a config edit to `[[model]]`/`[engine.args]` reaches the
+   * container the next time it actually starts, per the reload rule.
+   */
+  private renderLocalLlamaPreset(engine: EngineEntry): void {
+    const models = this.config.models.filter((m) => m.engine === engine.id);
+    mkdirSync(LOCAL_LLAMA_PRESET_DIR(), { recursive: true });
+    writeFileSync(LOCAL_LLAMA_PRESET_PATH(), renderPresetIni(engine, models), "utf8");
   }
 
   /**

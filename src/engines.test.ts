@@ -414,3 +414,94 @@ describe("comfy: resolved URL outlives its container by exactly nothing", () => 
     }
   });
 });
+
+/** Image present at `containerPort`, a fresh host port per "port" lookup, capturing every "run" argv. */
+function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
+  let port = 50_000;
+  return (args) => {
+    const argv = [...args];
+    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
+    if (args[0] === "image" && args[1] === "inspect") {
+      result = {
+        stdout: `[{"Config":{"ExposedPorts":{"${containerPort}/tcp":{}}}}]`,
+        stderr: "",
+        exitCode: 0,
+      };
+    } else if (args[0] === "start") {
+      result = { stdout: "", stderr: "", exitCode: 1 }; // never already created: fall through to "run"
+    } else if (args[0] === "run") {
+      runArgvCalls.push(argv);
+      result = { stdout: "", stderr: "", exitCode: 0 };
+    } else if (args[0] === "port") {
+      port += 1;
+      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+    }
+    return Promise.resolve(result);
+  };
+}
+
+const READY_200: Probe = () => Promise.resolve({ status: 200 });
+
+describe("spec construction is routed through the per-engine builder", () => {
+  test("comfy started through the registry carries its models bind mount in the run argv", async () => {
+    const runArgvCalls: string[][] = [];
+    const reg = new EngineRegistry(
+      config({
+        engines: [
+          engine({
+            id: "comfy",
+            egress: "none",
+            models_dir: "/data/comfy-models",
+            ready_timeout_s: 5,
+          }),
+        ],
+      }),
+      {
+        enginesRoot: REPO_ENGINES_ROOT,
+        bunx: BUNX,
+        lifecycle: new DockerLifecycle(capturingExec(8188, runArgvCalls), READY_200),
+      },
+    );
+    try {
+      await reg.start("comfy");
+      expect(runArgvCalls).toHaveLength(1);
+      const [argv] = runArgvCalls;
+      expect(argv).toContain("-v");
+      expect(argv?.some((a) => a === "/data/comfy-models:/opt/comfyui/models")).toBe(true);
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("local-llama started through the registry carries --models-preset and its :ro mounts", async () => {
+    const runArgvCalls: string[][] = [];
+    const reg = new EngineRegistry(
+      config({
+        engines: [
+          engine({
+            id: "local-llama",
+            egress: "none",
+            models_dir: "/data/gguf",
+            models_max: 3,
+            ready_timeout_s: 5,
+          }),
+        ],
+      }),
+      {
+        enginesRoot: REPO_ENGINES_ROOT,
+        bunx: BUNX,
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+      },
+    );
+    try {
+      await reg.start("local-llama");
+      expect(runArgvCalls).toHaveLength(1);
+      const [argv] = runArgvCalls;
+      expect(argv).toContain("--models-preset");
+      expect(argv?.some((a) => a === "/data/gguf:/models:ro")).toBe(true);
+      expect(argv?.some((a) => a.includes("local-llama/preset.ini:/preset.ini:ro"))).toBe(true);
+    } finally {
+      await reg.shutdown();
+    }
+  });
+});
