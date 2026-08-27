@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -25,6 +25,13 @@ import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 const BUNX = "/home/x/.bun/bin/bunx";
 const CHAT = "/v1/chat/completions";
 const SPEECH = "/v1/audio/speech";
+
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-dispatch-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
 
 /** Mirrors `engines.test.ts`'s helper: the registry's proof gate persists to
  * the real state directory, so a test that proves an engine must clean up
@@ -236,7 +243,7 @@ status = 200
 `;
 
   test("resolves to the sole no-egress, models_dir engine", () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-dispatch-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-dispatch-"));
     mkdirSync(join(root, "local-llama"), { recursive: true });
     writeFileSync(join(root, "local-llama", "spec.toml"), CONTAINER_SPEC);
     const cfg = config({
@@ -272,7 +279,7 @@ status = 200
    * one engine actually hosts a model.
    */
   test("a comfy-shaped engine that also carries models_dir does not shadow the real local candidate", () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-dispatch-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-dispatch-"));
     mkdirSync(join(root, "local-llama"), { recursive: true });
     mkdirSync(join(root, "comfy"), { recursive: true });
     writeFileSync(join(root, "local-llama", "spec.toml"), CONTAINER_SPEC);
@@ -437,7 +444,7 @@ base_url = "https://api.anthropic.com"
 `;
 
   test("broken TOML on reload keeps the previous config serving and names the parse error", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "engined-reload-"));
+    const dir = mkdtempSync(join(TEST_ROOT, "engined-reload-"));
     const path = join(dir, "config.toml");
     writeFileSync(path, GOOD_CONFIG);
 
@@ -603,13 +610,13 @@ describe("the door: reload mid in-flight request", () => {
    * behind the one in flight instead of racing it on a second tracker.
    */
   test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, "local-llama"), { recursive: true });
     writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
-    const modelsDir = mkdtempSync(join(tmpdir(), "engined-models-"));
+    const modelsDir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
     writeFileSync(join(modelsDir, "x.gguf"), "");
     writeFileSync(join(modelsDir, "y.gguf"), "");
-    const configDir = mkdtempSync(join(tmpdir(), "engined-config-"));
+    const configDir = mkdtempSync(join(TEST_ROOT, "engined-config-"));
     const configFilePath = join(configDir, "config.toml");
     const toml = llamaTomlConfig(modelsDir);
     writeFileSync(configFilePath, toml);
@@ -659,7 +666,7 @@ describe("the door: reload mid in-flight request", () => {
       { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
       {
         llamaHttpClient: client,
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -774,7 +781,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
    * the outcome (timeout vs success) proves which budget actually applied.
    */
   test("a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, "local-llama"), { recursive: true });
     writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
     const UPSTREAM_DELAY_MS = 150;
@@ -819,7 +826,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
       { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
       {
         llamaHttpClient: client,
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: (l) => lines.push(l),
       },
     );
@@ -839,7 +846,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
 });
 
 function llamaDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   mkdirSync(join(root, "local-llama"), { recursive: true });
   writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
   const cfg = config({
@@ -876,7 +883,7 @@ describe("the door: content routing", () => {
       {
         llamaHttpClient: makeLlamaHttpClient(recorded),
         write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
       },
     );
     const res = await door.fetch(
@@ -901,7 +908,7 @@ describe("the door: content routing", () => {
       { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
       {
         llamaHttpClient: makeLlamaHttpClient(recorded),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -994,7 +1001,7 @@ function makeStreamingReportedHttpClient(chunks: string[]): HttpClient {
 
 /** Two models on one role, same shape as the provenance fixture above, so `model_reported` and `model_resident` are guaranteed to differ. */
 function streamingDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   mkdirSync(join(root, "local-llama"), { recursive: true });
   writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
   const cfg = config({
@@ -1038,7 +1045,7 @@ describe("the door: streaming provenance", () => {
       {
         llamaHttpClient: makeStreamingReportedHttpClient(chunks),
         write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
       },
     );
     const res = await door.fetch(
@@ -1071,7 +1078,7 @@ describe("the door: streaming provenance", () => {
       {
         llamaHttpClient: makeStreamingReportedHttpClient(chunks),
         write: () => undefined,
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
       },
     );
     const res = await door.fetch(
@@ -1097,7 +1104,7 @@ describe("the door: streaming provenance", () => {
       {
         llamaHttpClient: makeStreamingReportedHttpClient(chunks),
         write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
       },
     );
     const res = await door.fetch(
@@ -1118,7 +1125,7 @@ describe("the door: streaming provenance", () => {
 
 describe("the door: provenance model fields", () => {
   test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, "local-llama"), { recursive: true });
     writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
     const cfg = config({
@@ -1142,7 +1149,7 @@ describe("the door: provenance model fields", () => {
       {
         llamaHttpClient: makeStaleReportedHttpClient(),
         write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
       },
     );
     const res = await door.fetch(
@@ -1167,7 +1174,7 @@ describe("the door: provenance model fields", () => {
 
 describe("the door: agentic and chain routing", () => {
   test("an agentic attempt without workdir is 400 and the spawn is never invoked", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, "claude"), { recursive: true });
     writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
     const cfg = config({
@@ -1198,7 +1205,7 @@ describe("the door: agentic and chain routing", () => {
   test("an unproved agentic engine does not spawn", async () => {
     const id = "claude-unproved";
     clearVerifiedVersion(id);
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, id), { recursive: true });
     writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
     const cfg = config({
@@ -1251,7 +1258,7 @@ describe("the door: chain skips an engine that fails its version proof", () => {
    * terminal at the first hop instead of skipped.
    */
   test("a chain whose first hop fails its version proof advances to the second hop", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     for (const id of ["claude-unproved", "claude-b"]) {
       mkdirSync(join(root, id), { recursive: true });
       writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
@@ -1321,10 +1328,10 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
   test("a hung agentic spawn is aborted by agent_timeout_seconds instead of holding its slot forever", async () => {
     const id = "claude-hangs";
     clearVerifiedVersion(id);
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     mkdirSync(join(root, id), { recursive: true });
     writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
-    const workdir = mkdtempSync(join(tmpdir(), "engined-workdir-"));
+    const workdir = mkdtempSync(join(TEST_ROOT, "engined-workdir-"));
     const cfg = config({
       // Well under bun's own per-test timeout, so a correct fix resolves
       // fast and a regression fails this test rather than hanging the suite.
@@ -1364,7 +1371,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
 
 describe("the door: chain routing", () => {
   test("a chain whose first hop's envelope fails is terminal there: the second hop's own spawn log stays empty", async () => {
-    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     for (const id of ["claude-a", "claude-b"]) {
       mkdirSync(join(root, id), { recursive: true });
       writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
@@ -1486,7 +1493,7 @@ function makeSplitHttpClient(
 }
 
 function twoEngineDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   for (const id of ["llama-dead", "llama-live"]) {
     mkdirSync(join(root, id), { recursive: true });
     writeFileSync(join(root, id, "spec.toml"), LOCAL_LLAMA_SPEC);
@@ -1515,7 +1522,7 @@ describe("the door: a llama hop's real status decides chain advance", () => {
       { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
       {
         llamaHttpClient: makeSplitHttpClient(500, deadCalls, liveCalls),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -1544,7 +1551,7 @@ describe("the door: a llama hop's real status decides chain advance", () => {
       { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
       {
         llamaHttpClient: makeSplitHttpClient(400, deadCalls, liveCalls),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -1586,7 +1593,7 @@ describe("the door: extras injects the resident model for the right role", () =>
       {
         llamaHttpClient: makeLlamaHttpClient(recorded),
         extrasHttpClient: extrasClient,
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -1647,7 +1654,7 @@ describe("the door: extras resolution is not confused by a comfy-shaped models_d
       {
         llamaHttpClient: makeLlamaHttpClient(recorded),
         extrasHttpClient: extrasClient,
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );
@@ -1689,7 +1696,7 @@ function kimiEngine(): EngineEntry {
 
 /** The redirected engine has no spec of its own; it reuses the shipped claude directory. */
 function redirectDoorRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   mkdirSync(join(root, "claude"), { recursive: true });
   writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
   return root;
@@ -1850,7 +1857,7 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
       {
         secretExec: fakeSecretExec(undefined),
         llamaHttpClient: makeLlamaHttpClient(recorded),
-        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
     );

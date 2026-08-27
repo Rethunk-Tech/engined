@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSpec } from "./spec.ts";
@@ -9,13 +9,20 @@ const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
 const BUNX = "/home/x/.bun/bin/bunx";
 const RX_HOME_PATH = /\/home\/[^/"]+/;
 
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-spec-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
+
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return { id: "claude", egress: "none", args: {}, ...overrides };
 }
 
 /** A fresh `<root>/<id>/spec.toml` written with `content`, root usable as `enginesRoot`. */
 function specDir(id: string, content: string): string {
-  const root = mkdtempSync(join(tmpdir(), "engined-spec-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
   const dir = join(root, id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "spec.toml"), content);
@@ -175,7 +182,7 @@ test("a container spec with a full round trip resolves clean", () => {
 });
 
 test("missing spec directory is fatal, naming the file", () => {
-  const root = mkdtempSync(join(tmpdir(), "engined-spec-"));
+  const root = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
   expect(() => loadSpec(engine({ id: "ghost" }), { enginesRoot: root, bunx: BUNX })).toThrow(
     "ghost/spec.toml",
   );

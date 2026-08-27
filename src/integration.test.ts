@@ -6,8 +6,8 @@
  * reached; a status code alone never is.
  */
 
-import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./docker.ts";
@@ -16,6 +16,13 @@ import type { Config, EngineEntry } from "./types.ts";
 
 /** Never 29200 — a real daemon may be installed on this box. This is only ever compared against a header, never bound. */
 const TEST_LISTEN_PORT = 39_217;
+
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-integration-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -51,14 +58,14 @@ function req(
 
 /** Writes a fresh `<dir>/spec.toml`; the returned path is a ready `spec_dir` override. */
 function specDirFor(toml: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "engined-integration-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "engined-integration-"));
   writeFileSync(join(dir, "spec.toml"), toml);
   return dir;
 }
 
 /** LlamaRouter's default preset path is the real state dir; every test that reaches ensureStarted() redirects it here instead. */
 function tempPresetPath(): string {
-  return join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini");
+  return join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini");
 }
 
 const OPENAI_SPEC = `

@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -28,6 +28,13 @@ const PIN = "1.2.3";
 const BUNX = "/opt/engined/state/bunx";
 const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
 const RX_TOOLS_FLAG = /--tools/;
+
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-agentic-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
 
 /** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one of the three floor flags or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
@@ -91,7 +98,7 @@ test("assertNoForbiddenFlags: a long list of ordinary args that name none of the
 });
 
 test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected at real config parse", () => {
-  const dir = mkdtempSync(join(tmpdir(), "engined-agentic-floor-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "engined-agentic-floor-"));
   const configPath = join(dir, "config.toml");
   writeFileSync(
     configPath,
@@ -506,7 +513,7 @@ test("buildAgenticProbeRunner: an envelope failure fails byte-identical even wit
  * file the worker would keep appending to if it survived.
  */
 test("defaultAgenticSpawn: aborting kills the real worker process, not just the wrapper -- verified by a heartbeat file, not by the rejection alone", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "engined-agentic-kill-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "engined-agentic-kill-"));
   const heartbeat = join(dir, "heartbeat");
   writeFileSync(heartbeat, "");
   const argv = [

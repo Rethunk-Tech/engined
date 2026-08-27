@@ -1,12 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadConfig, resolveArgs } from "./config.ts";
 import { ParseError } from "./types.ts";
 
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-config-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
+
 function writeConfig(toml: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "engined-config-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "engined-config-"));
   const path = join(dir, "config.toml");
   Bun.write(path, toml);
   return path;
@@ -27,7 +34,7 @@ function chainHopMessage(toml: string): string {
 
 /** A real models_dir with the given files pre-created, for tests that must parse clean. */
 function tempModelsDir(...files: string[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "engined-models-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
   for (const rel of files) {
     const full = join(dir, rel);
     mkdirSync(dirname(full), { recursive: true });

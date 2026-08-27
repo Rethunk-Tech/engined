@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,13 @@ import { type Config, type EngineEntry, isContainerSpec, type ModelEntry } from 
 
 const BUNX = "/home/x/.bun/bin/bunx";
 
+// One temp root for every mkdtempSync fixture below, removed once at the end
+// of the file instead of leaking a fresh top-level dir per call.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-engines-test-"));
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
+
 /** A fresh `<root>/<id>/spec.toml`, root usable as `enginesRoot`. Reuses one root across ids. */
 function writeSpec(root: string, id: string, content: string): void {
   const dir = join(root, id);
@@ -24,7 +31,7 @@ function writeSpec(root: string, id: string, content: string): void {
 }
 
 function newEnginesRoot(): string {
-  return mkdtempSync(join(tmpdir(), "engined-engines-"));
+  return mkdtempSync(join(TEST_ROOT, "engined-engines-"));
 }
 
 const PULLED_CONTAINER = `
@@ -578,7 +585,7 @@ describe("spec_source", () => {
 
   test("names the override directory when spec_dir wins", async () => {
     const root = newEnginesRoot();
-    const overrideRoot = mkdtempSync(join(tmpdir(), "engined-override-"));
+    const overrideRoot = mkdtempSync(join(TEST_ROOT, "engined-override-"));
     writeFileSync(join(overrideRoot, "spec.toml"), PULLED_CONTAINER);
     const reg = registry(
       config({ engines: [engine({ id: "llama", spec_dir: overrideRoot })] }),
