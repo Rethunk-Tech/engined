@@ -170,3 +170,51 @@ export class ParseError extends FatalError {
     super(`${file}: ${message}`);
   }
 }
+
+/**
+ * Prepended by engined in code on every agentic launch and removable by no
+ * config entry or `spec_dir` override. Asserting `--safe-mode` alone is not
+ * enough: neither the tool allowlist nor the MCP closure is sufficient by
+ * itself, so all three are the floor.
+ */
+export const AGENTIC_FLOOR = [
+  "--safe-mode",
+  "--tools",
+  "Read,Grep,Glob",
+  "--strict-mcp-config",
+] as const;
+
+/** Each dissolves the guarantee. Fatal at parse wherever they appear. */
+export const FORBIDDEN_AGENTIC_FLAGS = [
+  "--add-dir",
+  "--dangerously-skip-permissions",
+  "--allow-dangerously-skip-permissions",
+  "--permission-mode",
+] as const;
+
+/**
+ * `--permission-mode` is forbidden only with `bypassPermissions`; the rest are
+ * forbidden outright. Throws `ParseError` naming the flag and the file.
+ */
+export function assertNoForbiddenFlags(argv: readonly string[], file: string): void {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === undefined) {
+      continue;
+    }
+    const bare = arg.split("=", 1)[0] ?? arg;
+    if (bare === "--permission-mode") {
+      const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : argv[i + 1];
+      if (value === "bypassPermissions") {
+        throw new ParseError(
+          "--permission-mode bypassPermissions dissolves the read-only floor",
+          file,
+        );
+      }
+      continue;
+    }
+    if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
+      throw new ParseError(`${bare} dissolves the read-only floor`, file);
+    }
+  }
+}

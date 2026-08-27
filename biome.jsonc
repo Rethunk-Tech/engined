@@ -1,0 +1,40 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "includes": ["src/**", "*.json", "*.jsonc"] },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "all",
+      "correctness": {
+        // engined is a daemon: node:os, node:path and node:child_process are
+        // the intended surface, not a browser-bundle mistake.
+        "noNodejsModules": "off",
+        // Bun's globals come from @types/bun rather than a package import.
+        "noUndeclaredDependencies": "off"
+      },
+      "style": {
+        // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
+        "noProcessEnv": "off",
+        // TOML keys are snake_case and pass through untouched, so the config
+        // and spec shapes cannot be renamed to satisfy a casing rule.
+        "useNamingConvention": "off",
+        "noTernary": "off",
+        "noContinue": "off",
+        "noIncrementDecrement": "off",
+        "noParameterProperties": "off",
+        "noExcessiveClassesPerFile": "off",
+        "useExportsLast": "off",
+        "useConsistentArrayType": "off"
+      },
+      "nursery": { "recommended": true }
+    }
+  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } }
+}
