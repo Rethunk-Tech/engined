@@ -25,6 +25,21 @@ Environment=ENGINED_BUNX=@BUNX_PATH@
 Environment=BUN_INSTALL=@STATE_DIR@/bun-install
 Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 
+# The read-only guarantee lives here, not in engined's own launch flags.
+# Measured under exactly these directives (ProtectSystem=strict,
+# ReadWritePaths=@STATE_DIR@, ProtectHome=read-only, PrivateTmp=yes,
+# BindPaths=/tmp below): a write to a fleet repository under $HOME and to
+# one outside it both fail EROFS, the state directory stays writable, and
+# `docker` still reaches /var/run/docker.sock -- connecting to a socket is
+# not a filesystem write, so a read-only /var costs nothing. ProtectHome
+# alone would not do it: all but two of this fleet's working trees are
+# outside $HOME, and only ProtectSystem=strict reaches them.
+#
+# This cannot become a test. A `bun test` process never runs inside this
+# unit's sandbox, and hand-rolling an equivalent means a second maintained
+# copy of these directives -- the exact two-definitions drift this repo
+# keeps getting bitten by. This comment, re-verified against a live systemd
+# run, is the only durable record of a check that has to stay manual.
 ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
 ProtectHome=read-only
