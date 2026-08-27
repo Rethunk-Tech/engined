@@ -51,6 +51,16 @@ function remoteOpenaiHttp(id: string): EngineEntry {
   });
 }
 
+function remoteTts(id: string): EngineEntry {
+  return engine({
+    id,
+    egress: "remote",
+    kind: "tts",
+    base_url: `https://example.com/${id}`,
+    secret: { service: id, username: "u", header: "x-api-key" },
+  });
+}
+
 function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
   return { id: "m", engine: "e", aliases: [], args: {}, ...overrides };
 }
@@ -156,6 +166,16 @@ describe("engine-id bare selector", () => {
     const cfg = config({ engines: [remoteOpenaiHttp("gguf-host")] });
     const reg = registry(cfg);
     expect(resolveModel("gguf-host", CHAT, cfg, reg).ok).toBe(false);
+  });
+
+  test("a tts engine id bare resolves with no model: the audio door has no model concept", () => {
+    const cfg = config({ engines: [remoteTts("chatterbox")] });
+    const reg = registry(cfg);
+    expect(resolveModel("chatterbox", SPEECH, cfg, reg)).toEqual({
+      ok: true,
+      kind: "engine",
+      engine: "chatterbox",
+    });
   });
 });
 

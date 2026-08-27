@@ -99,6 +99,9 @@ function resolveBareModel(
   return withEndpointCheck(only.engine, only.id, endpoint, registry);
 }
 
+/** Kinds whose door takes no separate model id: agentic-cli picks its own model, tts/stt have none. */
+const MODEL_LESS_KINDS = new Set(["agentic-cli", "tts", "stt"]);
+
 /** An engine id bare, but only for a kind that answers without being told which model. */
 function resolveBareEngine(
   model: string,
@@ -109,7 +112,8 @@ function resolveBareEngine(
   if (!config.engines.some((e) => e.id === model)) {
     return;
   }
-  if (registry.get(model)?.kind !== "agentic-cli") {
+  const kind = registry.get(model)?.kind;
+  if (kind === undefined || !MODEL_LESS_KINDS.has(kind)) {
     return fail(`"${model}" is an engine that requires a model, not a bare selector`);
   }
   return withEndpointCheck(model, undefined, endpoint, registry);

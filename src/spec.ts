@@ -257,7 +257,10 @@ function parseVolumes(raw: unknown, file: string): Volume[] {
     if (typeof o.name !== "string" || typeof o.path !== "string") {
       throw new ParseError('[[volume]] needs a string "name" and "path"', file);
     }
-    return { name: o.name, path: o.path };
+    if (o.read_only !== undefined && typeof o.read_only !== "boolean") {
+      throw new ParseError('[[volume]] "read_only" must be a boolean', file);
+    }
+    return { name: o.name, path: o.path, read_only: o.read_only as boolean | undefined };
   });
 }
 

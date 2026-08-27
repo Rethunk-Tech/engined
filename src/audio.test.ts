@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleSpeech, handleTranscription } from "./audio.ts";
 import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult } from "./docker.ts";
@@ -230,18 +232,21 @@ test("with no whisper image pulled, transcriptions returns 503 naming it and GET
 });
 
 test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
-  const spec = loadWhisperSpec();
+  // whisper's real spec.toml volume is a bind mount whose host path is a
+  // literal for the operator's own machine (see spec.toml's own comment on
+  // why), so on a box that already has the real model downloaded, pointing
+  // at the real spec would find the artifact present. Swap in a scratch
+  // volume with nothing in it so "absent" is genuinely absent here, not an
+  // artifact of this box's own state.
+  const base = loadWhisperSpec();
+  const scratchDir = mkdtempSync(join(tmpdir(), "engined-whisper-artifact-"));
+  const spec = { ...base, volumes: [{ name: scratchDir, path: "/models" }] };
   const realContainerRuns: string[][] = [];
 
   const exec: Exec = (args): Promise<ExecResult> => {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
       return Promise.resolve({ stdout: WHISPER_INSPECT, stderr: "", exitCode: 0 });
-    }
-    // The artifact-check container: fails, simulating the named volume with
-    // the image present but the model file still missing from it.
-    if (argv[0] === "run" && argv[1] === "--rm") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
     }
     // The real whisper container: must never be reached from this state.
     if (argv[0] === "run" && argv[1] === "-d") {
@@ -257,6 +262,8 @@ test("image present but the model artifact absent: unavailable naming the artifa
     (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
     unreachableFetch("must not fetch an engine that never started"),
   );
+
+  rmSync(scratchDir, { recursive: true, force: true });
 
   expect(result.status).toBe(503);
   expect(realContainerRuns.length).toBe(0);
