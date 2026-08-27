@@ -19,11 +19,7 @@
         // Bun's globals come from @types/bun rather than a package import.
         "noUndeclaredDependencies": "off",
         // Biome does not resolve Bun's builtin `bun:` module scheme (bun:test).
-        "noUnresolvedImports": "off",
-        // The rule only recognises a cause in the second argument. ParseError
-        // is (message, file, options), so a correctly-threaded cause in the
-        // third position reads as a missing one.
-        "useErrorCause": "off"
+        "noUnresolvedImports": "off"
       },
       "style": {
         // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
@@ -41,7 +37,11 @@
         // A file's length is not a defect. Splitting config parse or the
         // container lifecycle to hit a line count would scatter one concern
         // across several files to satisfy a metric.
-        "noExcessiveLinesPerFile": "off"
+        "noExcessiveLinesPerFile": "off",
+        // The rule only recognises a cause in the second argument. ParseError
+        // is (message, file, options), so a correctly-threaded cause in the
+        // third position reads to it as a missing one.
+        "useErrorCause": "off"
       },
       "performance": {
         // Readiness polls, idle waits and retry loops are sequential by
