@@ -1,0 +1,34 @@
+kind = "openai-http"
+image = "sagaforge-llama-cpp:local"
+obtain = "build"
+serves = ["/v1/chat/completions", "/v1/embeddings"]
+# Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
+# --group-add video) is for the ROCm/PyTorch engines -- comfy, chatterbox,
+# kokoro -- not llama.cpp. Both nodes exist on this box, so the ROCm flags
+# would run and the mistake would not announce itself.
+devices = ["/dev/dri"]
+group_add = ["video"]
+# Load-bearing on Fedora: without it the container cannot open the device.
+security_opt = ["label=disable"]
+# --models-preset is the only channel that reaches argv per model; --models-dir
+# was probed against llama.cpp b10354 and discovers one level deep by
+# directory, so /v1/models returned the uploader dirname as the only id and
+# the GGUF one level under it was never found. Passing both is worse: the
+# same GGUF then lists twice, once with MTP and once without.
+# --no-models-autoload is structural, not a tunable: router mode plus
+# per-role occupancy is what this engine is, and an [engine.args] key able to
+# turn it off is a key able to break eviction.
+# --models-max is the first-class models_max, substituted from config so an
+# operator who forgets to pin it gets a fatal "unresolved placeholder" at
+# spec load rather than a default that lets two 25 GB chat files stay resident.
+command = [
+  "--models-preset",
+  "{preset_ini}",
+  "--models-max",
+  "{models_max}",
+  "--no-models-autoload",
+]
+
+[ready]
+path = "/health"
+status = 200
