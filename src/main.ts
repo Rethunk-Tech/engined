@@ -6,6 +6,7 @@
  * process: binds, signal handlers, and the fatal-at-startup exit.
  */
 
+import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
@@ -25,8 +26,36 @@ const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
 /** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
+/** `ss -ltnp`'s process column: `users:(("name",pid=1234,fd=56))`. */
+const SS_HOLDER_RE = /users:\(\("([^"]+)",pid=(\d+)/;
+
 function refuse(message: string): Response {
   return Response.json({ error: message }, { status: 403 });
+}
+
+/** First listener only — a port already bound has exactly one holder worth naming. */
+export function parsePortHolder(ssOutput: string): { name: string; pid: number } | undefined {
+  const match = SS_HOLDER_RE.exec(ssOutput);
+  const name = match?.[1];
+  const pidStr = match?.[2];
+  if (name === undefined || pidStr === undefined) {
+    return;
+  }
+  return { name, pid: Number(pidStr) };
+}
+
+/**
+ * Best-effort: `ss` absent, unparsable, or run under a sandbox that hides
+ * other users' sockets all fall through to `undefined` rather than throwing —
+ * a failed diagnosis must not replace the bind-error diagnosis itself.
+ */
+function describePortHolder(port: number): string | undefined {
+  const res = spawnSync("ss", ["-ltnp", `sport = :${port}`], { encoding: "utf8" });
+  if (res.error || res.status !== 0) {
+    return;
+  }
+  const holder = parsePortHolder(res.stdout);
+  return holder ? `${holder.name} (pid ${holder.pid})` : undefined;
 }
 
 function isLoopbackHost(hostHeader: string, port: number): boolean {
@@ -62,10 +91,8 @@ async function handleEngines(
   configErr: string | undefined,
 ): Promise<Response> {
   const listed = await registry.list();
-  if (configErr === undefined) {
-    return Response.json(listed);
-  }
-  return Response.json({ ...listed, config_error: configErr });
+  listed.config_error = configErr;
+  return Response.json(listed);
 }
 
 async function handleStart(registry: EngineRegistry, id: string): Promise<Response> {
@@ -184,7 +211,12 @@ if (import.meta.main) {
     v4 = Bun.serve({ hostname: "127.0.0.1", port: startupConfig.listen_port, fetch: door.fetch });
     v6 = Bun.serve({ hostname: "::1", port: v4.port, fetch: door.fetch });
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    const message = err instanceof Error ? err.message : String(err);
+    const holder = describePortHolder(startupConfig.listen_port);
+    const detail = holder
+      ? `port ${startupConfig.listen_port} already in use, held by ${holder}: ${message}`
+      : `port ${startupConfig.listen_port} already in use: ${message}`;
+    process.stderr.write(`${detail}\n`);
     process.exit(FatalError.EXIT_CODE);
   }
 

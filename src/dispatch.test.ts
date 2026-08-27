@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
-import { createDoor, type Door } from "./main.ts";
+import { createDoor, type Door, parsePortHolder } from "./main.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
@@ -375,5 +375,21 @@ base_url = "https://api.anthropic.com"
     expect(after.engines.map((e) => e.id)).toEqual(["claude"]);
     expect(after.config_error).toBeDefined();
     expect(after.config_error).toContain(path);
+  });
+});
+
+describe("port-holder diagnosis", () => {
+  /** `ss -ltnp "sport = :3003"`, captured on this box. */
+  const REAL_SS_OUTPUT =
+    "State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                                       \n" +
+    'LISTEN 0      511                *:3003            *:*    users:(("next-server (v1",pid=3451678,fd=24))\n';
+
+  test("parses the holder's name and pid out of a real ss -ltnp line", () => {
+    expect(parsePortHolder(REAL_SS_OUTPUT)).toEqual({ name: "next-server (v1", pid: 3_451_678 });
+  });
+
+  test("no listener line, no match", () => {
+    const empty = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\n";
+    expect(parsePortHolder(empty)).toBeUndefined();
   });
 });
