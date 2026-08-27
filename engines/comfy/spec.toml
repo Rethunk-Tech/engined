@@ -23,6 +23,7 @@ command = ["--preview-method", "latent2rgb"]
 path = "/queue"
 status = 200
 
-[[volume]]
-name = "engined-comfy-models"
-path = "/opt/comfyui/models"
+# No [[volume]] here: the model tree is a host directory the operator already
+# has, not something a docker-managed named volume should own. src/comfy.ts's
+# buildComfySpec injects the real bind mount from the engine's own
+# models_dir at run time, exactly as buildLlamaSpec does for llama.

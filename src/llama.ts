@@ -30,7 +30,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** Mirrors config.ts's private renderer: an engine's own process flags, not a model's INI content. */
-function argvFromArgs(args: Record<string, unknown>): string[] {
+export function argvFromArgs(args: Record<string, unknown>): string[] {
   const argv: string[] = [];
   for (const [k, v] of Object.entries(args)) {
     argv.push(`--${k}`);
