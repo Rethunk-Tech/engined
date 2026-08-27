@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSpec } from "./spec";
-import type { EngineEntry } from "./types";
+import { loadSpec } from "./spec.ts";
+import type { EngineEntry } from "./types.ts";
 
 const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
 const BUNX = "/home/x/.bun/bin/bunx";

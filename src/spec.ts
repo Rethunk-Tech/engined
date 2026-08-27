@@ -18,7 +18,7 @@ import {
   type ReadyProbe,
   type Spec,
   type Volume,
-} from "./types";
+} from "./types.ts";
 
 export interface SpecLoadOptions {
   /** Root of the shipped `engines/` directory. */
