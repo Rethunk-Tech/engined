@@ -85,9 +85,13 @@ function config(overrides: Partial<Config> = {}): Config {
   };
 }
 
-/** `exitCode: 0` for every call: the tests that only need a registry to exist. */
-function okExec(): Promise<ExecResult> {
-  return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+/** Image present with one exposed port, no artifacts to fail: the tests that only need a registry to exist. */
+function okExec(args: readonly string[]): Promise<ExecResult> {
+  const result: ExecResult =
+    args[0] === "image" && args[1] === "inspect"
+      ? { stdout: '[{"Config":{"ExposedPorts":{"8000/tcp":{}}}}]', stderr: "", exitCode: 0 }
+      : { stdout: "", stderr: "", exitCode: 0 };
+  return Promise.resolve(result);
 }
 
 /** `docker image inspect` fails for everything, as it does with nothing pulled. */

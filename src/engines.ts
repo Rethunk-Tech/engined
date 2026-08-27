@@ -2,8 +2,7 @@
  * The one consumer and operator surface: composes config, spec loading and
  * the container lifecycle into `GET /v1/engines`, `GET /v1/models` and
  * `POST /v1/engines/:id/start`. Nothing here talks to docker or parses TOML
- * directly beyond the one image-presence probe noted below — that is
- * `docker.ts` and `spec.ts`'s job.
+ * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
@@ -11,7 +10,6 @@ import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   CONTRACT,
   type Config,
-  type ContainerSpec,
   type EngineEntry,
   type EngineKind,
   type EngineStatus,
@@ -159,34 +157,31 @@ export class EngineRegistry {
     };
   }
 
-  /** `docker image inspect`, read-only: never runs or stops anything. */
-  private async probeImage(
-    spec: ContainerSpec,
-  ): Promise<{ ok: true } | { ok: false; fix: string; error: string }> {
-    const res = await this.exec(["image", "inspect", spec.image]);
-    if (res.exitCode === 0) {
-      return { ok: true };
-    }
-    const fix = spec.obtain === "pull" ? `docker pull ${spec.image}` : `docker build ${spec.image}`;
-    return { ok: false, fix, error: `${spec.image}: image not present` };
-  }
-
   /**
-   * `syncStatus` plus a cold image probe for a container engine nothing has
-   * started or checked yet, so a never-started engine with a missing image
+   * `syncStatus` for a container engine's non-running case is superseded by
+   * `lifecycle.probe`, which checks image *and* artifact presence read-only
+   * (never starts a container) so a never-started engine with either missing
    * reports `unavailable` on the very first `GET /v1/engines` rather than
    * waiting for a start attempt to notice.
    */
   private async statusFor(entry: Entry): Promise<EngineStatus> {
-    const base = this.syncStatus(entry);
-    if (base.state !== "installed" || entry.spec === null || !isContainerSpec(entry.spec.spec)) {
-      return base;
+    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+      return this.syncStatus(entry);
     }
-    const probe = await this.probeImage(entry.spec.spec);
-    if (probe.ok) {
-      return base;
-    }
-    return { ...base, state: "unavailable", fix: probe.fix, last_error: probe.error };
+    const { engine } = entry;
+    const { spec, source } = entry.spec;
+    const runtime = await this.lifecycle.probe(engine.id, spec);
+    return {
+      id: engine.id,
+      kind: spec.kind,
+      egress: engine.egress,
+      serves: spec.serves,
+      state: runtime.state,
+      fix: runtime.fix,
+      private_url: runtime.private_url,
+      spec_source: source,
+      last_error: runtime.last_error,
+    };
   }
 
   async list(): Promise<EnginesResponse> {
