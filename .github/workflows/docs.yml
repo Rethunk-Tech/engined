@@ -6,4 +6,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - run: python3 scripts/doc-sweep.py --selftest
       - run: python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md docs/migrations/*.md

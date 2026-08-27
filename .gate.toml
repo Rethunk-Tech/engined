@@ -1,7 +1,8 @@
 # One gate, because this repository is a design and the only thing that can be
 # wrong with it mechanically is edit damage: a half-applied revision that leaves
 # a sentence without its tail, a fence unclosed, or a term declared absent in one
-# section and still required in another. `gate` is not used to wrap it -- the
-# script already exits non-zero with the offending file:line.
+# section and still required in another. The command is declared here so
+# `gate run docs` finds it, but it is not wrapped in `gate` -- the script
+# already exits non-zero with the offending file:line.
 [gates.docs]
-run = "python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md docs/migrations/*.md"
+run = "python3 scripts/doc-sweep.py --selftest && python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md docs/migrations/*.md"

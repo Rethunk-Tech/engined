@@ -10,6 +10,7 @@ That check existed while the documents carried a fleet-census table; the
 censuses are gone, because no decision rested on their exact values and they
 drifted every day the fleet was worked in.
 """
+import itertools
 import re
 import sys
 
@@ -21,6 +22,74 @@ ABSENT = re.compile(
     r"|`([^`]+)`\s+(?:is|are)\s+(?:retired|withdrawn|deleted|gone|cut)",
     re.IGNORECASE,
 )
+# Two paragraphs in one section sharing several long phrases: one restates the
+# other. A per-feature reorganisation leaves exactly this behind -- the old
+# paragraph moved under the new heading with a summary line prepended, and both
+# kept. Acceptance blocks are exempt: a criterion restating the body it tests is
+# the criterion doing its job. That exempts a criterion duplicated inside one
+# Acceptance block too, which this does not catch.
+SHINGLE = 8
+SHARED_MIN = 3
+
+
+def _paragraphs(lines):
+    """(line number, text) per prose paragraph; None marks a section boundary."""
+    in_fence, exempt, buf, start = False, False, [], 0
+    for i, line in enumerate(lines, 1):
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("#"):
+            if buf:
+                yield start, " ".join(buf)
+                buf = []
+            exempt = line.startswith("### ") and "acceptance" in line.lower()
+            if not line.startswith("###"):
+                yield i, None
+        elif exempt:
+            continue
+        elif line.strip():
+            if not buf:
+                start = i
+            buf.append(line.strip())
+        elif buf:
+            yield start, " ".join(buf)
+            buf = []
+    if buf:
+        yield start, " ".join(buf)
+
+
+def _restatements(lines):
+    bad, section = [], []
+
+    def flush():
+        owners = {}
+        for idx, (_, text) in enumerate(section):
+            w = re.sub(r"[^a-z ]", " ", text.lower()).split()
+            for j in range(len(w) - SHINGLE + 1):
+                owners.setdefault(" ".join(w[j : j + SHINGLE]), set()).add(idx)
+        shared = {}
+        for who in owners.values():
+            for a, b in itertools.combinations(sorted(who), 2):
+                shared[(a, b)] = shared.get((a, b), 0) + 1
+        for (a, b), n in shared.items():
+            if n >= SHARED_MIN:
+                bad.append(
+                    (section[b][0], f"restates line {section[a][0]} ({n} shared phrases)")
+                )
+
+    for line, para in _paragraphs(lines):
+        if para is None:
+            flush()
+            section = []
+        else:
+            section.append((line, para))
+    flush()
+    return bad
+
+
 DUP_WORD = re.compile(r"\b(\w+)\s+\1\b", re.IGNORECASE)
 # words that legitimately repeat
 DUP_OK = {"had", "that", "the", "who"}
@@ -34,7 +103,8 @@ def _next_code(lines, i):
 
 
 def check(path):
-    text = open(path).read()
+    with open(path) as fh:
+        text = fh.read()
     lines = text.split("\n")
     bad = []
 
@@ -92,10 +162,27 @@ def check(path):
             if f"`{term}`" in line and not ABSENT.search(line):
                 bad.append((i, f"`{term}` declared absent at line {decl}, required here"))
 
+    bad += _restatements(lines)
+
     return bad
 
 
+def _selftest():
+    """The exemption is the part worth guarding: without it every acceptance
+    criterion restating the body it tests reads as damage."""
+    body = "## E\n\nFour edge types: modules, workspace members, submodule links\nand shared external exposure so one advisory resolves to repositories.\n"
+    dup = body + "\nFour edge types: modules, workspace members, submodule links and\nshared external exposure so one advisory resolves to repositories.\n"
+    assert _restatements(dup.split("\n")), "restated paragraph not caught"
+    assert not _restatements(body.split("\n")), "single paragraph flagged"
+    exempt = body + "\n### Acceptance\n\n- Four edge types: modules, workspace members, submodule links\n  and shared external exposure so one advisory resolves to repositories.\n"
+    assert not _restatements(exempt.split("\n")), "acceptance criterion flagged"
+    print("selftest ok")
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--selftest"]:
+        _selftest()
+        sys.exit(0)
     rc = 0
     for path in sys.argv[1:]:
         for line, msg in sorted(check(path)):
