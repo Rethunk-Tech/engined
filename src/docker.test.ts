@@ -107,28 +107,39 @@ const SPEC: ContainerSpec = {
   ready: { path: "/health", status: READY_STATUS },
 };
 
-/** Stubbed docker: `start` always misses (forcing `run`), `port` answers with a fixed mapping. */
-function stubExec(runLog: string[][], stopLog: string[][], hostPort: number): Exec {
-  return (args): Promise<ExecResult> => {
+/**
+ * Stubbed docker: `start` always misses (forcing `run`), `port` answers with
+ * a fixed mapping. `runDelayMs` holds `run` pending for a real tick before
+ * resolving -- the start-lock race test needs this: without a genuine delay,
+ * a broken lock could still coincidentally log one `run` if both calls
+ * happened to interleave microtask-perfectly, which proves nothing about a
+ * future regression that adds a real `await` between the lock's check and
+ * its set. Every other caller passes 0 and sees no behaviour change.
+ */
+function stubExec(runLog: string[][], stopLog: string[][], hostPort: number, runDelayMs = 0): Exec {
+  return async (args): Promise<ExecResult> => {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+      return { stdout: REDIS_INSPECT, stderr: "", exitCode: 0 };
     }
     if (argv[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+      return { stdout: "", stderr: "", exitCode: 1 };
     }
     if (argv[0] === "run") {
       runLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      if (runDelayMs > 0) {
+        await Bun.sleep(runDelayMs);
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+      return { stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 };
     }
     if (argv[0] === "stop") {
       stopLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return { stdout: "", stderr: "", exitCode: 0 };
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    return { stdout: "", stderr: "", exitCode: 0 };
   };
 }
 
@@ -145,13 +156,29 @@ const SHORT_WAIT_MS = 10;
 const PAST_IDLE_WAIT_MS = 60;
 const START_OPTS = { idleStopSeconds: 60, readyTimeoutS: 1 };
 
+const RACE_RUN_DELAY_MS = 40;
+/** Comfortably inside RACE_RUN_DELAY_MS -- the first `run` must still be pending here, proving genuine overlap rather than sequencing. */
+const RACE_MIDFLIGHT_CHECK_MS = 10;
+
 test("start: two concurrent calls against a stopped engine spawn exactly one container", async () => {
   const runLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(stubExec(runLog, [], STUB_HOST_PORT_A), readyProbe);
-  const [a, b] = await Promise.all([
-    lifecycle.start("redis", SPEC, START_OPTS),
-    lifecycle.start("redis", SPEC, START_OPTS),
-  ]);
+  const lifecycle = new DockerLifecycle(
+    stubExec(runLog, [], STUB_HOST_PORT_A, RACE_RUN_DELAY_MS),
+    readyProbe,
+  );
+
+  // Neither call is awaited before the other is issued -- both are in
+  // flight together, not sequenced.
+  const first = lifecycle.start("redis", SPEC, START_OPTS);
+  const second = lifecycle.start("redis", SPEC, START_OPTS);
+
+  // Checked while the first `run` is still pending (RACE_RUN_DELAY_MS has
+  // not elapsed): a broken lock would have already logged a second `run`
+  // for the second call by now, since it never waits on the first.
+  await Bun.sleep(RACE_MIDFLIGHT_CHECK_MS);
+  expect(runLog.length).toBe(1);
+
+  const [a, b] = await Promise.all([first, second]);
   expect(runLog.length).toBe(1);
   expect(a).toEqual(b);
   expect(a).toEqual({
