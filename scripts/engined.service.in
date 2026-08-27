@@ -16,8 +16,12 @@ RestartPreventExitStatus=78
 Environment=ENGINED_BUNX=@BUNX_PATH@
 
 # ProtectHome=read-only makes bunx fail "Unexpected accessing temporary
-# directory" without naming the sandbox as the cause. Point its cache and
-# tmpdir at the one writable path so a cold start doesn't re-fetch every time.
+# directory" without naming the sandbox as the cause. The cache this points
+# at is hundreds of megabytes for this one package, and bunx's own default
+# landing site is under /tmp -- a tmpfs cleared every reboot even without
+# PrivateTmp, which gives the unit its own on top of that. Point both at the
+# one writable path so a cold start doesn't re-download all of it before the
+# first token.
 Environment=BUN_INSTALL=@STATE_DIR@/bun-install
 Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 
