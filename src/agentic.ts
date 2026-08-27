@@ -70,12 +70,28 @@ export interface AgenticSpawnOptions {
   cwd: string;
   env: Record<string, string>;
   input: string;
+  /**
+   * `runOneHop`'s per-hop timeout, or a caller giving up early. Killed on
+   * the whole process GROUP, never just the returned pid -- confirmed live
+   * against this box's real `bunx`: it spawns the actual `claude` binary as
+   * its own child, not an exec-replacement (a different pid), and a SIGKILL
+   * aimed at only the wrapper's pid leaves that child running, orphaned, with
+   * no pid left to reach it through afterward. SIGTERM alone happened to get
+   * forwarded cooperatively in that same test, but nothing guarantees a
+   * future bunx version keeps doing that, so the group is signalled either
+   * way. `detached: true` below is what makes `-child.pid` a valid target: it
+   * gives the child its own process group whose pgid equals its pid.
+   */
+  signal?: AbortSignal;
 }
 
 export type AgenticSpawn = (
   argv: string[],
   opts: AgenticSpawnOptions,
 ) => Promise<AgenticSpawnResult>;
+
+/** Graceful-then-forceful: real work (writes, network calls) gets a chance to unwind before the group is SIGKILLed out from under it. */
+const KILL_GRACE_MS = 3000;
 
 export function defaultAgenticSpawn(
   argv: string[],
@@ -87,17 +103,56 @@ export function defaultAgenticSpawn(
       reject(new Error("agentic launch argv is empty"));
       return;
     }
-    const child = spawn(cmd, rest, { cwd: opts.cwd, env: opts.env });
+    const child = spawn(cmd, rest, { cwd: opts.cwd, env: opts.env, detached: true });
     let stdout = "";
     let stderr = "";
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function killGroup(sig: NodeJS.Signals): void {
+      if (child.pid === undefined) {
+        return;
+      }
+      try {
+        process.kill(-child.pid, sig);
+      } catch {
+        // Already gone -- nothing left to signal.
+      }
+    }
+
+    function onAbort(): void {
+      killGroup("SIGTERM");
+      killTimer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
+    }
+
+    if (opts.signal?.aborted) {
+      onAbort();
+    } else {
+      opts.signal?.addEventListener("abort", onAbort);
+    }
+
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk;
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk;
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      clearTimeout(killTimer);
+      reject(err);
+    });
     child.on("close", (code) => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      clearTimeout(killTimer);
+      // Killed by our own abort: rejecting (rather than resolving with
+      // whatever partial stdout it managed) is what lets runOneHop's own
+      // catch block -- which checks `controller.signal.aborted` -- record
+      // this as "timeout" instead of an ordinary envelope failure, the same
+      // distinction the openai-http path's aborted fetch() already gets.
+      if (opts.signal?.aborted) {
+        reject(new Error("agentic launch aborted"));
+        return;
+      }
       resolve({ stdout, stderr, exitCode: code ?? 1 });
     });
     child.stdin.write(opts.input);
@@ -202,6 +257,8 @@ export interface RunAgenticInput {
    * upstream's base URL and key. Wins on a name collision with the allowlist.
    */
   extraEnv?: Record<string, string>;
+  /** Forwarded to `spawn` verbatim; see `AgenticSpawnOptions.signal`. Absent for a probe run, which has no chain hop or timeout above it. */
+  signal?: AbortSignal;
 }
 
 export interface RunAgenticResult {
@@ -251,7 +308,12 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
     ...input.extraEnv,
   };
-  const spawned = await input.spawn(argv, { cwd: input.workdir, env, input: input.prompt });
+  const spawned = await input.spawn(argv, {
+    cwd: input.workdir,
+    env,
+    input: input.prompt,
+    signal: input.signal,
+  });
 
   (input.logStderr ?? logToStderr)(spawned.stderr);
 

@@ -2,12 +2,14 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import {
   type AgenticSpawn,
   type AgenticSpawnResult,
   buildAgenticProbeRunner,
   buildArgv,
   buildChildEnv,
+  defaultAgenticSpawn,
   parseEnvelope,
   renderEmptyMcpConfig,
   runAgentic,
@@ -491,3 +493,52 @@ test("buildAgenticProbeRunner: an envelope failure fails byte-identical even wit
 
   expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
 });
+
+/**
+ * `defaultAgenticSpawn` against a REAL child process, not a fake -- the one
+ * thing a fake can never prove. `/bin/sh -c "... & wait"` gives the wrapper
+ * pid (`sh`) a distinct worker pid underneath it, the same shape `bunx`
+ * has around `claude` (confirmed live against this box's real `bunx`
+ * before writing the fix: it spawns the real binary as its own child, not
+ * an exec-replacement, and a single-pid SIGKILL left that child running,
+ * orphaned, with no pid left to reach it through). A rejected promise alone
+ * proves nothing about the OS process -- the actual proof is the heartbeat
+ * file the worker would keep appending to if it survived.
+ */
+test("defaultAgenticSpawn: aborting kills the real worker process, not just the wrapper -- verified by a heartbeat file, not by the rejection alone", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "engined-agentic-kill-"));
+  const heartbeat = join(dir, "heartbeat");
+  writeFileSync(heartbeat, "");
+  const argv = [
+    "/bin/sh",
+    "-c",
+    'while true; do date +%s%N >> "$HEARTBEAT_FILE"; sleep 0.05; done & wait',
+  ];
+  const controller = new AbortController();
+  const promise = defaultAgenticSpawn(argv, {
+    cwd: dir,
+    env: { ...process.env, HEARTBEAT_FILE: heartbeat },
+    input: "",
+    signal: controller.signal,
+  });
+
+  const countLines = () => readFileSync(heartbeat, "utf8").split("\n").filter(Boolean).length;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // Let the worker actually start writing before killing it.
+  await sleep(300);
+  expect(countLines()).toBeGreaterThan(0);
+
+  controller.abort();
+  await expect(promise).rejects.toThrow();
+
+  // The rejection above proves the PROMISE settled -- it proves nothing
+  // about the process. Two more samples, a beat apart: if the worker
+  // survived, the count would still be climbing between them.
+  await sleep(400);
+  const justAfterKill = countLines();
+  await sleep(400);
+  const settled = countLines();
+
+  expect(settled).toBe(justAfterKill);
+}, 10_000);
