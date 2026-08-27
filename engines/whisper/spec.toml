@@ -1,11 +1,19 @@
 kind = "stt"
-image = "ghcr.io/ggml-org/whisper.cpp@sha256:793c6caae47b63c4f76d7a533e368c31cc32c2fe341feee103e76f5f7d12e889"
-obtain = "pull" # pull | build; build reads ./Dockerfile here
+# The bare upstream image (pinned digest, still the base layer of ./Dockerfile
+# below) declares no EXPOSE, and engined's port discovery has exactly one
+# source: the image's own ExposedPorts. Confirmed live -- `docker image
+# inspect ghcr.io/ggml-org/whisper.cpp@sha256:793c6ca...` prints
+# `Config.ExposedPorts: null`, and `docker history` carries no EXPOSE layer --
+# so `obtain = "pull"` against that image directly leaves every start
+# refusing before `docker run` with "exposes no ports". `./Dockerfile` adds
+# only that missing metadata on top of the same pinned base.
+image = "engined-whisper:local"
+obtain = "build" # pull | build; build reads ./Dockerfile here
 serves = ["/v1/audio/transcriptions"]
 devices = ["/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]
-entrypoint = ["/bin/bash", "{spec_dir}/quiet.sh"]
+entrypoint = ["/bin/bash", "/spec/quiet.sh"]
 command = [
   "--host",
   "0.0.0.0",
@@ -57,6 +65,19 @@ max = 499
 [[volume]]
 name = "/home/user/.local/share/engined-models/whisper"
 path = "/models"
+read_only = true
+
+# quiet.sh (this repo's whisper-server log filter) has to reach the
+# container the same bind-mount way: `{spec_dir}` in `entrypoint` above only
+# substitutes to the HOST path install.sh synced it to (a plain string
+# substitution, not a mount), and nothing else copies it in -- run without
+# this, the container's real PID 1 is bash reporting the entrypoint path
+# "No such file or directory" and exiting immediately. Same
+# operator-machine-literal caveat as the model volume above: installDir() +
+# "engines/whisper" on this box.
+[[volume]]
+name = "/home/user/.local/share/engined/engines/whisper"
+path = "/spec"
 read_only = true
 
 # q8_0 over q5_0 is not an accuracy claim -- no published WER-vs-quantisation

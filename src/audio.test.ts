@@ -198,7 +198,7 @@ test("a per-request language reaches the engine, asserted against the fake upstr
   expect(fake.requests[0]?.language).toBe("fr");
 });
 
-test("with no whisper image pulled, transcriptions returns 503 naming it and GET /v1/engines' status reports the docker pull command", async () => {
+test("with no whisper image built, transcriptions returns 503 naming it and GET /v1/engines' status reports the docker build command", async () => {
   const spec = loadWhisperSpec();
   const realContainerRuns: string[][] = [];
 
@@ -228,7 +228,7 @@ test("with no whisper image pulled, transcriptions returns 503 naming it and GET
   const status = lifecycle.getStatus("whisper");
   expect(status.state).toBe("unavailable");
   expect(status.state).not.toBe("installed");
-  expect(status.fix).toBe(`docker pull ${spec.image}`);
+  expect(status.fix).toBe(`docker build ${spec.image}`);
 });
 
 test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
