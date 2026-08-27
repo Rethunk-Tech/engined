@@ -226,8 +226,42 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
 ] as const;
 
 /**
+ * Derived from `AGENTIC_FLOOR` itself rather than hand-copied: a config
+ * `[engine.args]` key that renders to `--tools` (or any other floor flag)
+ * appends a SECOND copy after the floor's own, and last-wins argument
+ * parsing means whatever the config supplied is what the child actually
+ * gets — the floor was never really prepended, just overwritten. A
+ * maintained second list is exactly how `--tools` escaped
+ * `FORBIDDEN_AGENTIC_FLAGS` in the first place; deriving from the floor
+ * array means any flag later added to the floor is automatically
+ * unbeatable too, with nothing new to remember to blacklist.
+ */
+const AGENTIC_FLOOR_FLAG_NAMES = new Set<string>(
+  AGENTIC_FLOOR.filter((token) => token.startsWith("--")),
+);
+
+/** `--permission-mode=X` or a separate `--permission-mode X` pair — same lookup either spelling takes on the CLI. */
+function permissionModeValue(arg: string, next: string | undefined): string | undefined {
+  return arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : next;
+}
+
+/** The two ways a bare flag name can dissolve the floor: it's outright forbidden, or it duplicates one the floor already set. */
+function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
+  if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
+    throw new ParseError(`${bare} dissolves the read-only floor`, file);
+  }
+  if (AGENTIC_FLOOR_FLAG_NAMES.has(bare)) {
+    throw new ParseError(
+      `${bare} duplicates a flag the agentic read-only floor already sets; it cannot be overridden, only the floor's own value would apply`,
+      file,
+    );
+  }
+}
+
+/**
  * `--permission-mode` is forbidden only with `bypassPermissions`; the rest are
- * forbidden outright. Throws `ParseError` naming the flag and the file.
+ * forbidden outright, as is any flag that duplicates one the floor itself
+ * sets. Throws `ParseError` naming the flag and the file.
  */
 export function assertNoForbiddenFlags(argv: readonly string[], file: string): void {
   for (let i = 0; i < argv.length; i++) {
@@ -237,8 +271,7 @@ export function assertNoForbiddenFlags(argv: readonly string[], file: string): v
     }
     const bare = arg.split("=", 1)[0] ?? arg;
     if (bare === "--permission-mode") {
-      const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : argv[i + 1];
-      if (value === "bypassPermissions") {
+      if (permissionModeValue(arg, argv[i + 1]) === "bypassPermissions") {
         throw new ParseError(
           "--permission-mode bypassPermissions dissolves the read-only floor",
           file,
@@ -246,8 +279,6 @@ export function assertNoForbiddenFlags(argv: readonly string[], file: string): v
       }
       continue;
     }
-    if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
-      throw new ParseError(`${bare} dissolves the read-only floor`, file);
-    }
+    assertNotForbiddenOrFloorDuplicate(bare, file);
   }
 }

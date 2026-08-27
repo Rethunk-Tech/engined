@@ -1,8 +1,17 @@
-kind    = "agentic-cli"
-serves  = ["/v1/chat/completions"]
+kind = "agentic-cli"
+serves = ["/v1/chat/completions"]
+# NOT the launch line -- src/spec.ts checks this array at parse (command[0]
+# must be the {bunx} placeholder; assertNoForbiddenFlags runs over it too)
+# and then it is discarded. src/agentic.ts's buildArgv constructs the real
+# argv from scratch on every call -- bunx path, package@pin, "-p", then the
+# read-only floor prepended in code -- and never reads this field. It exists
+# so a spec that tried to redirect the binary, or to smuggle a forbidden flag
+# in ahead of the floor, still fails loudly at parse; it is not evidence of
+# what actually runs.
+#
 # Delivered by bunx, pinned to a version the operator chose. {bunx} is an
 # absolute path the install script resolves and records -- a --user unit's PATH
 # is not an interactive shell's, and nothing that ships names a user.
 # {claude_version} comes from config, because which version runs is a tunable.
 command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
-env     = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"]   # allowlist, not inheritance
+env = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"]                              # allowlist, not inheritance

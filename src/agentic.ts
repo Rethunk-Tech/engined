@@ -29,7 +29,15 @@ import process from "node:process";
 import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, type EngineEntry } from "./types.ts";
 
-/** Not part of the safety floor — needed only so stdout is the JSON `parseEnvelope` expects. */
+/**
+ * Not part of the safety floor — needed only so stdout is the JSON
+ * `parseEnvelope` expects. Unconditional in code on every call, the same as
+ * the floor itself: never write `output-format` into a `[engine.args]`
+ * table. It changes nothing when it agrees with this, and silently breaks
+ * every response parse when it doesn't — `parseEnvelope` would see whatever
+ * `claude` actually printed for a non-JSON format and report it as an
+ * unparseable envelope.
+ */
 const OUTPUT_FORMAT_FLAGS = ["--output-format", "json"] as const;
 const STATUS_OK = 200;
 const STATUS_ENVELOPE_FAILURE = 502;

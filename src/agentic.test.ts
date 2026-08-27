@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type AgenticSpawn,
@@ -11,11 +12,20 @@ import {
   renderEmptyMcpConfig,
   runAgentic,
 } from "./agentic.ts";
-import { type EngineEntry, FORBIDDEN_AGENTIC_FLAGS } from "./types.ts";
+// Read-only import: proves the real reachable path (config parse), not just
+// the shared validator in isolation. This file does not edit config.ts.
+import { loadConfig } from "./config.ts";
+import {
+  AGENTIC_FLOOR,
+  assertNoForbiddenFlags,
+  type EngineEntry,
+  FORBIDDEN_AGENTIC_FLAGS,
+} from "./types.ts";
 
 const PIN = "1.2.3";
 const BUNX = "/opt/engined/state/bunx";
 const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
+const RX_TOOLS_FLAG = /--tools/;
 
 /** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one of the three floor flags or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
@@ -45,6 +55,56 @@ test("buildArgv: the floor's three flags all survive a long list of other args, 
   for (const forbidden of FORBIDDEN_AGENTIC_FLAGS) {
     expect(argv).not.toContain(forbidden);
   }
+});
+
+// buildArgv itself stays a dumb assembler: it does not (and should not)
+// reject anything, because rejection has to happen before a bad config ever
+// reaches it. assertNoForbiddenFlags is where config.ts actually enforces
+// this for every engine's `[engine.args]` and every model's `[model.args]`
+// (config.ts:158,207) -- these tests exercise that real choke point, plus
+// loadConfig end to end, rather than only the shape buildArgv would produce.
+
+test("assertNoForbiddenFlags: a config arg that duplicates the floor's --tools is rejected, not silently applied last-wins", () => {
+  // The real call site (config.ts:158) never sees the floor -- it validates
+  // only what argsToArgv rendered from `[engine.args]` itself, exactly this
+  // shape for `tools = "Bash,Write"`.
+  const argv = ["--tools", "Bash,Write"];
+
+  expect(() => assertNoForbiddenFlags(argv, "config.toml")).toThrow(RX_TOOLS_FLAG);
+});
+
+test("assertNoForbiddenFlags: every floor flag is rejected if a config names it, not just --tools", () => {
+  const floorFlagNames = AGENTIC_FLOOR.filter((token) => token.startsWith("--"));
+  expect(floorFlagNames).toEqual(["--safe-mode", "--tools", "--strict-mcp-config"]);
+
+  for (const floorFlag of floorFlagNames) {
+    expect(() => assertNoForbiddenFlags([floorFlag], "config.toml")).toThrow();
+  }
+});
+
+test("assertNoForbiddenFlags: a long list of ordinary args that name none of the floor's flags still passes clean", () => {
+  const argv = ["--max-turns", "8", "--model", "sonnet", "--verbose"];
+
+  expect(() => assertNoForbiddenFlags(argv, "config.toml")).not.toThrow();
+});
+
+test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected at real config parse", () => {
+  const dir = mkdtempSync(join(tmpdir(), "engined-agentic-floor-"));
+  const configPath = join(dir, "config.toml");
+  writeFileSync(
+    configPath,
+    `
+[[engine]]
+id = "claude"
+egress = "remote"
+claude_version = "1.2.3"
+
+  [engine.args]
+  tools = "Bash,Write"
+`,
+  );
+
+  expect(() => loadConfig(configPath)).toThrow(RX_TOOLS_FLAG);
 });
 
 test("buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest", () => {
