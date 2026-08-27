@@ -30,6 +30,10 @@ const SPEC: ContainerSpec = {
 const IDLE_STOP_SECONDS = 2;
 const IDLE_WAIT_MS = 2500;
 const READY_TIMEOUT_S = 20;
+// `docker pull` is a registry round trip, so it is not bounded by bun's 5s
+// default hook timeout: warm it still takes ~4.7s here under concurrent
+// container load, and cold it is a real download.
+const PULL_TIMEOUT_MS = 120_000;
 
 async function removeContainer(): Promise<void> {
   await dockerExec(["rm", "-f", CONTAINER_NAME]);
@@ -39,7 +43,7 @@ describe.skipIf(process.env.ENGINED_LOCAL !== "1")("docker lifecycle (local)", (
   beforeAll(async () => {
     await dockerExec(["pull", SPEC.image]);
     await removeContainer();
-  });
+  }, PULL_TIMEOUT_MS);
 
   afterAll(removeContainer);
 
