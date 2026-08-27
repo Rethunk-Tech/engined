@@ -12,13 +12,33 @@
  */
 
 import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import process from "node:process";
+import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR } from "./types.ts";
 
 /** Not part of the safety floor — needed only so stdout is the JSON `parseEnvelope` expects. */
 const OUTPUT_FORMAT_FLAGS = ["--output-format", "json"] as const;
 const STATUS_OK = 200;
 const STATUS_ENVELOPE_FAILURE = 502;
+
+/**
+ * `--strict-mcp-config` closes the MCP door only against a config that
+ * exists; a bare flag with nothing to point at closes nothing. One shared
+ * file for every agentic launch — the closure is engine-independent, so
+ * there is nothing per-engine to render.
+ */
+function mcpEmptyConfigPath(): string {
+  return `${stateDir()}/agentic-mcp-empty.json`;
+}
+
+/** Rendered fresh before every launch so the flag always names a file that exists. */
+export function renderEmptyMcpConfig(): string {
+  const path = mcpEmptyConfigPath();
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(path, JSON.stringify({ mcpServers: {} }), "utf8");
+  return path;
+}
 
 export interface AgenticSpawnResult {
   stdout: string;
@@ -87,6 +107,8 @@ export interface BuildArgvInput {
   claudeVersion: string;
   /** `[engine.args]`, rendered after the floor so the operator can extend but never precede or replace it. */
   args: Record<string, unknown>;
+  /** The rendered empty MCP config `--strict-mcp-config` must name — a bare flag closes nothing. */
+  mcpConfigPath: string;
 }
 
 /** The floor is prepended in code on every call — no config entry and no `spec_dir` override can reach it, because an agentic spec mounts nothing to override with. */
@@ -97,6 +119,7 @@ export function buildArgv(input: BuildArgvInput): string[] {
     "-p",
     ...OUTPUT_FORMAT_FLAGS,
     ...AGENTIC_FLOOR,
+    input.mcpConfigPath,
     ...flattenArgs(input.args),
   ];
 }
@@ -166,6 +189,14 @@ export interface RunAgenticResult {
   ok: boolean;
   result?: string;
   failure?: string;
+  /**
+   * True only when the envelope itself carried `is_error` or failed to
+   * parse — never for the 400 workdir-required rejection, which is a
+   * request-shape error, not an envelope one. `chain.ts` reads this to
+   * keep an envelope failure from advancing a chain the way a genuine
+   * upstream 5xx does.
+   */
+  envelopeFailure: boolean;
 }
 
 function logToStderr(text: string): void {
@@ -176,14 +207,24 @@ function logToStderr(text: string): void {
 
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
   if (input.workdir === undefined || input.workdir === "") {
-    return { status: 400, ok: false, failure: "workdir is required for an agentic attempt" };
+    return {
+      status: 400,
+      ok: false,
+      failure: "workdir is required for an agentic attempt",
+      envelopeFailure: false,
+    };
   }
   const bunx = input.bunx ?? process.env.ENGINED_BUNX;
   if (bunx === undefined || bunx === "") {
     throw new Error("ENGINED_BUNX is not set; the unit must set it to the resolved bunx path");
   }
 
-  const argv = buildArgv({ bunx, claudeVersion: input.claudeVersion, args: input.args });
+  const argv = buildArgv({
+    bunx,
+    claudeVersion: input.claudeVersion,
+    args: input.args,
+    mcpConfigPath: renderEmptyMcpConfig(),
+  });
   const env = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
     ...input.extraEnv,
@@ -198,5 +239,6 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     ok: outcome.ok,
     result: outcome.result,
     failure: outcome.failure,
+    envelopeFailure: !outcome.ok,
   };
 }

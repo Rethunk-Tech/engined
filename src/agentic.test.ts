@@ -1,16 +1,19 @@
 import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
 import {
   type AgenticSpawn,
   type AgenticSpawnResult,
   buildArgv,
   buildChildEnv,
   parseEnvelope,
+  renderEmptyMcpConfig,
   runAgentic,
 } from "./agentic.ts";
 import { FORBIDDEN_AGENTIC_FLAGS } from "./types.ts";
 
 const PIN = "1.2.3";
 const BUNX = "/opt/engined/state/bunx";
+const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
 
 /** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one of the three floor flags or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
@@ -24,7 +27,12 @@ const MANY_OTHER_ARGS: Record<string, unknown> = {
 };
 
 test("buildArgv: the floor's three flags all survive a long list of other args, and none of the four forbidden flags appear", () => {
-  const argv = buildArgv({ bunx: BUNX, claudeVersion: PIN, args: MANY_OTHER_ARGS });
+  const argv = buildArgv({
+    bunx: BUNX,
+    claudeVersion: PIN,
+    args: MANY_OTHER_ARGS,
+    mcpConfigPath: MCP_CONFIG_PATH,
+  });
 
   expect(argv).toContain("--safe-mode");
   expect(argv).toContain("--strict-mcp-config");
@@ -38,11 +46,36 @@ test("buildArgv: the floor's three flags all survive a long list of other args, 
 });
 
 test("buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest", () => {
-  const argv = buildArgv({ bunx: BUNX, claudeVersion: PIN, args: {} });
+  const argv = buildArgv({
+    bunx: BUNX,
+    claudeVersion: PIN,
+    args: {},
+    mcpConfigPath: MCP_CONFIG_PATH,
+  });
 
   expect(argv[0]).toBe(BUNX);
   expect(argv.some((token) => token.includes(PIN))).toBe(true);
   expect(argv.some((token) => token.includes("latest"))).toBe(false);
+});
+
+test("buildArgv: --strict-mcp-config is followed literally by the rendered config path, not left bare", () => {
+  const argv = buildArgv({
+    bunx: BUNX,
+    claudeVersion: PIN,
+    args: {},
+    mcpConfigPath: MCP_CONFIG_PATH,
+  });
+
+  const flagIndex = argv.indexOf("--strict-mcp-config");
+  expect(flagIndex).toBeGreaterThan(-1);
+  expect(argv[flagIndex + 1]).toBe(MCP_CONFIG_PATH);
+});
+
+test("renderEmptyMcpConfig: the file it names exists and holds an empty MCP configuration", () => {
+  const path = renderEmptyMcpConfig();
+
+  expect(existsSync(path)).toBe(true);
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ mcpServers: {} });
 });
 
 test("parseEnvelope: is_error true is a failure even when the process exited 0", () => {
@@ -212,6 +245,67 @@ test("runAgentic: command[0] resolves from the given bunx and the pin appears in
   expect(argv[0]).toBe(BUNX);
   expect(argv.some((token) => token.includes(PIN))).toBe(true);
   expect(argv.some((token) => token.includes("latest"))).toBe(false);
+});
+
+test("runAgentic: --strict-mcp-config in the spawned argv names a real file holding an empty MCP config", async () => {
+  const { spawn, calls } = fakeSpawn({
+    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
+    stderr: "",
+    exitCode: 0,
+  });
+
+  await runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: "/tmp/scratch-workdir",
+    prompt: "hello",
+    spawn,
+    bunx: BUNX,
+  });
+
+  const [argv] = calls[0] as [string[], unknown];
+  const flagIndex = argv.indexOf("--strict-mcp-config");
+  expect(flagIndex).toBeGreaterThan(-1);
+  const path = argv[flagIndex + 1] as string;
+  expect(existsSync(path)).toBe(true);
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ mcpServers: {} });
+});
+
+test("runAgentic: an envelope failure is flagged distinctly from a request-shape 400", async () => {
+  const { spawn } = fakeSpawn({
+    stdout: JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      terminal_reason: "api_error",
+      result: "Not logged in",
+    }),
+    stderr: "",
+    exitCode: 0,
+  });
+
+  const envelopeFailureResult = await runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: "/tmp/scratch-workdir",
+    prompt: "hello",
+    spawn,
+    bunx: BUNX,
+  });
+  const workdirMissingResult = await runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: undefined,
+    prompt: "hello",
+    spawn,
+    bunx: BUNX,
+  });
+
+  expect(envelopeFailureResult.envelopeFailure).toBe(true);
+  expect(workdirMissingResult.envelopeFailure).toBe(false);
 });
 
 test("runAgentic: extraEnv is set on the child alongside the allowlist and wins on a name collision", async () => {
