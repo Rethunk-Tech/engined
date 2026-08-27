@@ -143,6 +143,26 @@ test("first hop at a dead port completes on the second, and provenance names the
   expect(record.attempts[0].ok).toBe(false);
 });
 
+test("a hop's model_reported and model_resident flow through to the emitted attempt, distinct when they differ", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      body: "answer",
+      startedBytes: false,
+      modelReported: "router-section",
+      modelResident: "qwen3-30b-a3b-q4.gguf",
+    });
+
+  const result = await runChain(["@/llama/router-section"], baseOpts({ exec, write }));
+
+  expect(result.status).toBe(200);
+  const record = JSON.parse(lines[0] ?? "");
+  expect(record.attempts[0].model_reported).toBe("router-section");
+  expect(record.attempts[0].model_resident).toBe("qwen3-30b-a3b-q4.gguf");
+  expect(record.attempts[0].model_reported).not.toBe(record.attempts[0].model_resident);
+});
+
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
   const up = startFakeUpstream({
     badreq: { status: 400, body: "bad request", contentType: "text/plain" },

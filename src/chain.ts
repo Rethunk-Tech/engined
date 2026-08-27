@@ -19,6 +19,10 @@ export interface HopResult {
    * retry against the next hop might route around.
    */
   envelopeFailure?: boolean;
+  /** The router id the answering engine echoed back, when the hop kind can report one. Passed straight to the attempt's `model_reported`. */
+  modelReported?: string;
+  /** Read per attempt from the answering engine's own `GET /v1/models`, when it can supply one. Passed straight to the attempt's `model_resident`. */
+  modelResident?: string;
 }
 
 export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
@@ -150,6 +154,8 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         ok: outcome.ok,
         failure: outcome.failure,
         duration_ms: Date.now() - start,
+        model_reported: result.modelReported,
+        model_resident: result.modelResident,
       },
       result,
       advance: outcome.advance,
