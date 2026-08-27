@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Exec, Probe } from "./docker.ts";
@@ -550,6 +550,100 @@ test("model_reported (the echoed body) and model_resident (read from /v1/models)
   expect(modelReported).toBe("stale-id");
   expect(modelResident).toBe("a");
   expect(modelReported).not.toBe(modelResident);
+});
+
+function requestedModel(init: RequestInit | undefined): string | undefined {
+  const bodyStr = typeof init?.body === "string" ? init.body : undefined;
+  return bodyStr === undefined ? undefined : (JSON.parse(bodyStr) as { model?: string }).model;
+}
+
+/** `File Not Found` is the real b10354 body for an id `docker run` never saw. */
+function routerModeLoadResponse(knownAtRun: Set<string>, requested: string | undefined): Response {
+  if (!knownAtRun.has(requested ?? "")) {
+    return Response.json(
+      { error: { message: "File Not Found", type: "not_found_error", code: 404 } },
+      { status: 404 },
+    );
+  }
+  return Response.json({ success: true });
+}
+
+/**
+ * A router-mode double that only "knows" the model ids present in the
+ * preset file at the moment `docker run` fires -- matching the real b10354
+ * behaviour, proven live against the actual container: rewriting the
+ * mounted preset in place (confirmed visible inside the container
+ * immediately -- a bind mount is the same inode) changed nothing. Even
+ * reloading an ALREADY-resident id after the rewrite still launched with
+ * the pre-rewrite args, and an id added only by the rewrite 404'd "File Not
+ * Found" forever. `--models-preset` is parsed exactly once, at process
+ * start.
+ */
+function fakeReloadableLlama(presetHostPath: string): { exec: Exec; client: HttpClient } {
+  const knownAtRun = new Set<string>();
+  const exec: Exec = (args) => {
+    if (args[0] === "run") {
+      knownAtRun.clear();
+      for (const id of parseIniSections(readFileSync(presetHostPath, "utf8")).keys()) {
+        knownAtRun.add(id);
+      }
+    }
+    return fakeExec()(args);
+  };
+  let lastLoadRequested: string | undefined;
+  const client: HttpClient = (input, init) => {
+    const path = new URL(String(input)).pathname;
+    const requested = requestedModel(init);
+    if (path === LOAD_PATH) {
+      const res = routerModeLoadResponse(knownAtRun, requested);
+      if (res.ok) {
+        lastLoadRequested = requested;
+      }
+      return Promise.resolve(res);
+    }
+    if (path === MODELS_LIST_PATH) {
+      return Promise.resolve(
+        modelsList(
+          lastLoadRequested === undefined ? [] : [{ id: lastLoadRequested, status: "loaded" }],
+        ),
+      );
+    }
+    if (path === UNLOAD_PATH) {
+      return Promise.resolve(Response.json({ ok: true }));
+    }
+    return Promise.resolve(Response.json({ ok: true, model: requested }));
+  };
+  return { exec, client };
+}
+
+test("a model added by config reload becomes genuinely servable, not just listed", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const presetHostPath = tmpIniPath();
+  const { exec, client } = fakeReloadableLlama(presetHostPath);
+  const lifecycle = new DockerLifecycle(exec, fakeProbe);
+
+  // Router 1: only "a" configured -- the pre-reload state. Drives the
+  // container to "running" the way a real first request would.
+  const router1 = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), presetHostPath });
+  expect(
+    await text(
+      router1.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }),
+    ),
+  ).toContain('"model":"a"');
+
+  // Router 2: what `main.ts`'s reload produces -- a NEW router over the SAME
+  // still-running container, with "b" newly added. The stale-router swap
+  // only ever hands off once router1's leases have drained to zero, which
+  // is already true here (its one request finished above), so this mirrors
+  // the real handoff, not a shortcut past it.
+  const router2 = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(client), presetHostPath });
+  const res = await router2.proxy(b, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "b" }),
+  });
+  expect(res.status).toBe(200);
 });
 
 // Concurrent chat + vision decode needs a registered vision [[model]] against

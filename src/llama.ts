@@ -10,7 +10,7 @@
  * that established this design. Every per-model flag therefore goes through
  * the INI, never through the load call's body.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { resolveArgs } from "./config.ts";
 import type { DockerLifecycle } from "./docker.ts";
@@ -46,6 +46,11 @@ export function argvFromArgs(args: Record<string, unknown>): string[] {
 
 function iniLines(args: Record<string, unknown>): string[] {
   return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`);
+}
+
+/** `undefined` on a first start (nothing mounted yet) rather than throwing -- absence is the normal case, not an error. */
+function readIfExists(path: string): string | undefined {
+  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
 /**
@@ -170,6 +175,8 @@ export class LlamaRouter {
   private readonly pollIntervalMs: number;
   private readonly presetHostPath: string;
   private totalActive = 0;
+  /** De-dupes concurrent first-requests the same way `DockerLifecycle.start`'s own `startPromise` does -- `ensureStarted` now has a second mutating step (a recreate) that isn't safe to double-fire. */
+  private ensureStartedPromise: Promise<void> | null = null;
 
   constructor(
     private readonly engine: EngineEntry,
@@ -222,14 +229,47 @@ export class LlamaRouter {
     return `http://${url}`;
   }
 
-  /** A container that was not already running has nothing loaded by construction (`--no-models-autoload`). */
-  private async ensureStarted(): Promise<void> {
+  /** Shared by every caller in-flight at once -- see `ensureStartedPromise`'s own comment. */
+  private ensureStarted(): Promise<void> {
+    if (!this.ensureStartedPromise) {
+      this.ensureStartedPromise = this.doEnsureStarted().finally(() => {
+        this.ensureStartedPromise = null;
+      });
+    }
+    return this.ensureStartedPromise;
+  }
+
+  /**
+   * A container that was not already running has nothing loaded by
+   * construction (`--no-models-autoload`), so a fresh start is the common
+   * case below. The other case a config reload creates: a NEW router (a new
+   * `this.engine`/`this.models`, per `main.ts`'s stale-router swap) whose
+   * container is nonetheless still running the OLD one's preset -- router-
+   * mode llama-server was proven live to parse `--models-preset` exactly
+   * once, at its own process start, and never again. Rewriting the mounted
+   * file in place (confirmed visible inside the container immediately,
+   * bind-mounts are the same inode) changed nothing: reloading even an
+   * ALREADY-resident model id after the rewrite still launched with the
+   * pre-rewrite args, and a model id added only by the rewrite 404'd
+   * "File Not Found" forever, never picked up. So a changed preset -- new
+   * model, removed model, or just different args on an existing id -- has
+   * exactly one lever: recreate the container. `removeEngine` is safe to
+   * reach for here because it is only ever this call path, and by the time
+   * THIS router's `ensureStarted` runs at all, `main.ts` has already held
+   * the outgoing router in service until its leases drained to zero -- no
+   * in-flight lease exists on the container for this engine when this fires.
+   */
+  private async doEnsureStarted(): Promise<void> {
+    const nextPreset = renderPresetIni(this.engine, this.models);
     const wasRunning = this.lifecycle.getStatus(this.engine.id).state === "running";
     if (wasRunning) {
-      return;
+      if (readIfExists(this.presetHostPath) === nextPreset) {
+        return;
+      }
+      await this.lifecycle.removeEngine(this.engine.id);
     }
     mkdirSync(dirname(this.presetHostPath), { recursive: true });
-    writeFileSync(this.presetHostPath, renderPresetIni(this.engine, this.models), "utf8");
+    writeFileSync(this.presetHostPath, nextPreset, "utf8");
     const spec = buildLlamaSpec(this.engine, this.opts, this.presetHostPath);
     await this.lifecycle.start(this.engine.id, spec, {
       idleStopSeconds: this.opts.idleStopSeconds,
