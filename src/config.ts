@@ -40,9 +40,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
-/** A model on an engine with a models_dir has a file on disk to account for. */
+/**
+ * A model on this engine has a resident local file to account for. That is
+ * never true for a remote address: `checkRemoteAddress` already forbids
+ * `models_dir` there structurally, so it has no file to check a `filename`
+ * against regardless of what kind it is (agentic-cli, or an openai-http
+ * endpoint hosted elsewhere) -- conflating "no local file" with "agentic"
+ * is exactly the wrong-message bug this predicate used to carry.
+ */
 function requiresFilenameAndRole(e: EngineEntry): boolean {
-  return e.models_dir !== undefined;
+  return e.base_url === undefined && e.models_dir !== undefined;
 }
 
 function requireString(v: unknown, label: string, file: string): string {
@@ -215,10 +222,16 @@ function validateModelAgainstEngine(
 
   if (!requiresFilenameAndRole(engine)) {
     if (m.filename !== undefined) {
-      throw new ParseError(`${site} must not declare "filename" on an agentic engine`, file);
+      throw new ParseError(
+        `${site} must not declare "filename": engine "${engine.id}" has no local model store to host it`,
+        file,
+      );
     }
     if (m.role !== undefined) {
-      throw new ParseError(`${site} must not declare "role" on an agentic engine`, file);
+      throw new ParseError(
+        `${site} must not declare "role": engine "${engine.id}" has no local model store to host it`,
+        file,
+      );
     }
     return;
   }
@@ -284,8 +297,19 @@ function checkNamespaceCollisions(
  * `local` resolves to the one no-egress engine that at least one `[[model]]`
  * names. A `models_dir` is not that signal: Comfy carries one too, for its
  * own bind mount, and serves no model -- it is reached by starting the
- * engine directly, never by a chain hop.
+ * engine directly, never by a chain hop. The one implementation parse time
+ * (this file, which turns "not exactly one" fatal) and runtime
+ * (`dispatch.ts`'s `resolveEngineSegment`, which returns undefined the same
+ * as any other unresolved id) both call, so the two rules cannot drift back
+ * out of agreement with each other.
  */
+export function resolveLocalCandidates(
+  engines: readonly EngineEntry[],
+  models: readonly ModelEntry[],
+): EngineEntry[] {
+  return engines.filter((e) => e.egress === "none" && models.some((m) => m.engine === e.id));
+}
+
 function resolveEngineHalf(
   seg: string,
   ctx: { engines: EngineEntry[]; models: ModelEntry[]; file: string },
@@ -298,9 +322,7 @@ function resolveEngineHalf(
     }
     return;
   }
-  const candidates = engines.filter(
-    (e) => e.egress === "none" && models.some((m) => m.engine === e.id),
-  );
+  const candidates = resolveLocalCandidates(engines, models);
   if (candidates.length !== 1) {
     const names = candidates.map((e) => e.id).join(", ") || "none";
     throw new ParseError(

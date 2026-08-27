@@ -4,6 +4,7 @@
  * `get`/`serves` so it is testable without `Bun.serve` or docker.
  */
 
+import { resolveLocalCandidates } from "./config.ts";
 import type { EngineRegistry } from "./engines.ts";
 import type { Config } from "./types.ts";
 
@@ -21,11 +22,9 @@ function fail(error: string): Dispatch {
   return { ok: false, error };
 }
 
-/** `local` is the one engine with no egress and a models_dir — llama, by config's own rule. */
+/** `local` is the one no-egress engine at least one `[[model]]` names -- config.ts's own rule, shared rather than re-derived so the two can never disagree. */
 function resolveLocalEngine(config: Config): string | undefined {
-  const candidates = config.engines.filter(
-    (e) => e.egress === "none" && e.models_dir !== undefined,
-  );
+  const candidates = resolveLocalCandidates(config.engines, config.models);
   return candidates.length === 1 ? candidates[0]?.id : undefined;
 }
 

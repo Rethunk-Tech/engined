@@ -335,6 +335,30 @@ role = "chat"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_ROLE);
   });
+
+  // A remote openai-http engine can never carry a models_dir (checkRemoteAddress
+  // forbids it structurally), so it still has no local file to check a
+  // filename against -- but it is not agentic-cli, and the message must not
+  // say it is. requiresFilenameAndRole used to key on models_dir alone, which
+  // conflated "no local file" with "agentic" for every engine kind that
+  // lacks one, comfy included.
+  test("a remote openai-http model must not declare filename, and the message does not call it agentic", () => {
+    const message = chainHopMessage(`
+[[engine]]
+id = "hosted-llama"
+egress = "remote"
+kind = "openai-http"
+base_url = "https://x"
+secret = { service = "s", username = "u", header = "h" }
+
+[[model]]
+id = "x"
+engine = "hosted-llama"
+filename = "should-not-be-here.gguf"
+`);
+    expect(message).toMatch(RX_MUST_NOT_FILENAME);
+    expect(message).not.toContain("agentic");
+  });
 });
 
 describe("engine required/forbidden fields", () => {

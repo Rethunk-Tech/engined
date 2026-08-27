@@ -243,6 +243,47 @@ status = 200
       model: "ornith",
     });
   });
+
+  const COMFY_SPEC = `
+kind = "comfy"
+image = "ghcr.io/example/comfy@sha256:bbbb"
+obtain = "pull"
+serves = []
+command = []
+
+[ready]
+path = "/queue"
+status = 200
+`;
+
+  /**
+   * TODO.md's own worked config shape: comfy carries a `models_dir` for its
+   * own bind mount, egress "none", and zero `[[model]]` rows -- the exact
+   * config `models_dir !== undefined` (dispatch.ts's old rule) treats as a
+   * second "local" candidate, making resolution ambiguous even though only
+   * one engine actually hosts a model.
+   */
+  test("a comfy-shaped engine that also carries models_dir does not shadow the real local candidate", () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-dispatch-"));
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    mkdirSync(join(root, "comfy"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), CONTAINER_SPEC);
+    writeFileSync(join(root, "comfy", "spec.toml"), COMFY_SPEC);
+    const cfg = config({
+      engines: [
+        engine({ id: "local-llama", egress: "none", models_dir: "/models" }),
+        engine({ id: "comfy", egress: "none", models_dir: "/models-comfy" }),
+      ],
+      models: [model({ id: "ornith", engine: "local-llama" })],
+    });
+    const reg = registry(cfg, root);
+    expect(resolveModel("@/local/ornith", CHAT, cfg, reg)).toEqual({
+      ok: true,
+      kind: "model",
+      engine: "local-llama",
+      model: "ornith",
+    });
+  });
 });
 
 /** Never 29200: a real workstation daemon may hold it. */
@@ -448,6 +489,19 @@ command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
 env = ["HOME"]
 `;
 
+/** TODO.md's own shape: models_dir for its own bind mount, zero `[[model]]` rows. */
+const COMFY_SPEC = `
+kind = "comfy"
+image = "ghcr.io/example/comfy@sha256:bbbb"
+obtain = "pull"
+serves = []
+command = []
+
+[ready]
+path = "/queue"
+status = 200
+`;
+
 /** Image present with one exposed port, a fresh host port per "port" lookup. */
 function llamaExec(): Exec {
   let port = 41_000;
@@ -516,6 +570,20 @@ function llamaDoorConfig(): { cfg: Config; root: string } {
     models: [model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" })],
   });
   return { cfg, root };
+}
+
+/** Same shape as `llamaDoorConfig`, plus TODO.md's comfy engine alongside it -- a second no-egress, models_dir engine with no `[[model]]` naming it. */
+function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
+  const { cfg, root } = llamaDoorConfig();
+  mkdirSync(join(root, "comfy"), { recursive: true });
+  writeFileSync(join(root, "comfy", "spec.toml"), COMFY_SPEC);
+  return {
+    cfg: {
+      ...cfg,
+      engines: [...cfg.engines, engine({ id: "comfy", egress: "none", models_dir: "/data/comfy" })],
+    },
+    root,
+  };
 }
 
 describe("the door: content routing", () => {
@@ -1149,6 +1217,48 @@ describe("the door: extras injects the resident model for the right role", () =>
     expect(extrasCalls).toHaveLength(1);
     const forwarded = JSON.parse(extrasCalls[0] ?? "{}") as { model?: string };
     expect(forwarded.model).toBe("ornith");
+  });
+});
+
+describe("the door: extras resolution is not confused by a comfy-shaped models_dir engine", () => {
+  /**
+   * TODO.md:1095's own case: `POST /tokenize` with no `model` in the body.
+   * A comfy-shaped engine alongside local-llama (models_dir, zero
+   * `[[model]]` rows -- TODO.md's own worked shape) must not turn "local"
+   * ambiguous: extras always resolves "local", so an ambiguous resolution
+   * 400s every extras call, not just a chain hop.
+   */
+  test("POST /tokenize reaches the local llama engine even with a comfy-shaped engine also carrying models_dir", async () => {
+    const { cfg, root } = llamaDoorConfigWithComfy();
+    const recorded: { body: string }[] = [];
+    const extrasCalls: string[] = [];
+    const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
+      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
+      return Promise.resolve(Response.json({ tokens: [1, 2, 3] }));
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        extrasHttpClient: extrasClient,
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+
+    const res = await door.fetch(
+      new Request("http://engined/tokenize", {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+      }),
+    );
+
+    // Reachability is the point here (TODO.md:1095): with "local" ambiguous
+    // this 400s before ever calling `extrasClient`. Which resident model (if
+    // any) gets injected with nothing warmed yet is the other test's concern.
+    expect(res.status).toBe(200);
+    expect(extrasCalls).toHaveLength(1);
   });
 });
 
