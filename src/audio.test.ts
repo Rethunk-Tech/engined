@@ -196,15 +196,37 @@ test("a per-request language reaches the engine, asserted against the fake upstr
   expect(fake.requests[0]?.language).toBe("fr");
 });
 
-test("with no whisper image present, transcriptions returns 503 naming it and never calls the upstream", async () => {
+test("with no whisper image pulled, transcriptions returns 503 naming it and GET /v1/engines' status reports the docker pull command", async () => {
+  const spec = loadWhisperSpec();
+  const realContainerRuns: string[][] = [];
+
+  const exec: Exec = (args): Promise<ExecResult> => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+    }
+    // The real whisper container: must never be reached from this state.
+    if (argv[0] === "run" && argv[1] === "-d") {
+      realContainerRuns.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+  const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
+
   const result = await handleTranscription(
     { model: "whisper", file: SAMPLE_AUDIO_BYTES },
-    async () => ({ private_url: null }),
-    unreachableFetch("must not fetch an engine reported unavailable"),
+    (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
+    unreachableFetch("must not fetch an engine that never started"),
   );
 
   expect(result.status).toBe(503);
   expect(JSON.stringify(result.body)).toContain("whisper");
+  expect(realContainerRuns.length).toBe(0);
+  const status = lifecycle.getStatus("whisper");
+  expect(status.state).toBe("unavailable");
+  expect(status.state).not.toBe("installed");
+  expect(status.fix).toBe(`docker pull ${spec.image}`);
 });
 
 test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
