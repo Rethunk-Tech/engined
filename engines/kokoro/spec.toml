@@ -1,0 +1,26 @@
+kind = "tts"
+image = "engined-kokoro:local"
+obtain = "build"
+serves = ["/v1/audio/speech"]
+# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+command = []
+# Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: kokoro-rocm is
+# a ROCm/PyTorch engine like chatterbox and comfy. See
+# engines/local-llama/spec.toml for why that one omits /dev/kfd.
+devices = ["/dev/kfd", "/dev/dri"]
+group_add = ["video"]
+security_opt = ["label=disable"]
+# Weights are baked into the image at build time (HF_HOME) -- no [[artifact]]
+# and no model volume, same posture as chatterbox.
+
+# app.py's /health is a static {"status": "ok"} that never inspects the
+# loaded pipeline -- but KPipeline is instantiated at module import time,
+# before uvicorn binds its listening socket (uvicorn's Server.serve() loads
+# the app string, running the whole module, before it creates the listen
+# socket). A load failure crashes the process before the port ever opens, so
+# a connect here cannot happen before the pipeline is real; app.py exposes
+# no other endpoint that touches it more directly, and none was added to a
+# wrapper vendored verbatim from sagaforge rather than authored here.
+[ready]
+path = "/health"
+status = 200
