@@ -270,6 +270,27 @@ export class DockerLifecycle {
     return status;
   }
 
+  /**
+   * Believed-running state lives only in this map, so a container killed from
+   * outside this process leaves it stale and keeps handing out a dead
+   * `private_url`. Docker decides: a transient HTTP failure against a
+   * container that is genuinely still up leaves the record alone.
+   */
+  async reconcile(id: string): Promise<RuntimeStatus> {
+    const rt = this.runtimes.get(id);
+    if (!rt || (rt.state !== "running" && rt.state !== "warming")) {
+      return this.getStatus(id);
+    }
+    const res = await this.exec(["inspect", "-f", "{{.State.Running}}", rt.containerName]);
+    if (res.exitCode === 0 && res.stdout.trim() === "true") {
+      return this.getStatus(id);
+    }
+    this.cancelIdle(rt);
+    rt.state = "installed";
+    rt.hostPort = null;
+    return this.getStatus(id);
+  }
+
   /** Reports what an engine's artifacts say, without starting it. */
   async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
     const rt = this.runtime(id);

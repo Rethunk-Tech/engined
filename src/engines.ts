@@ -319,7 +319,20 @@ export class EngineRegistry {
       this.comfyQueueEmpty.delete(engine.id);
       return;
     }
-    const queue = await this.queueFetch(`http://${status.private_url}/queue`);
+    let queue: QueueSnapshot;
+    try {
+      queue = await this.queueFetch(`http://${status.private_url}/queue`);
+    } catch {
+      // A refused poll is the only signal engined gets that this container
+      // died underneath it -- nothing else asks docker about a comfy engine
+      // between starts. `reconcile` lets docker decide, so a poll that failed
+      // against a container still genuinely up changes nothing here.
+      const reconciled = await this.lifecycle.reconcile(engine.id);
+      if (reconciled.state !== "running") {
+        this.comfyQueueEmpty.delete(engine.id);
+      }
+      return;
+    }
     const empty = isQueueEmpty(queue);
     const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? false;
     this.comfyQueueEmpty.set(engine.id, empty);

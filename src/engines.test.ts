@@ -917,3 +917,73 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
     }
   });
 });
+
+/**
+ * `comfyExec` answers `inspect` with an empty stdout, which reconcile would
+ * read as "gone" no matter what: liveness has to be stated for the transient
+ * case to mean anything.
+ */
+function comfyExecLiveness(alive: boolean): Exec {
+  const base = comfyExec();
+  return (args) => {
+    if (args[0] === "inspect") {
+      return Promise.resolve({ stdout: `${alive}\n`, stderr: "", exitCode: 0 });
+    }
+    return base(args);
+  };
+}
+
+function comfyLongIdleConfig(): Config {
+  return config({
+    engines: [engine({ id: "comfy", egress: "none", idle_stop_seconds: 60, ready_timeout_s: 5 })],
+  });
+}
+
+describe("comfy: a container that dies underneath engined", () => {
+  test("a refused /queue poll against a gone container clears the stale running state", async () => {
+    const lifecycle = new DockerLifecycle(comfyExecLiveness(false), READY_PROBE);
+    const reg = new EngineRegistry(comfyLongIdleConfig(), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      queueFetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
+      comfyPollIntervalMs: 15,
+    });
+    try {
+      const started = await reg.start("comfy");
+      expect(started.state).toBe("running");
+      expect(started.private_url).not.toBeNull();
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Never a 200 naming a dead address: the door reports what docker says.
+      const after = reg.get("comfy");
+      expect(after?.state).toBe("installed");
+      expect(after?.private_url).toBeNull();
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("a refused poll against a container still up leaves it running", async () => {
+    const lifecycle = new DockerLifecycle(comfyExecLiveness(true), READY_PROBE);
+    const reg = new EngineRegistry(comfyLongIdleConfig(), {
+      enginesRoot: REPO_ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      queueFetch: () => Promise.reject(new Error("socket hang up")),
+      comfyPollIntervalMs: 15,
+    });
+    try {
+      expect((await reg.start("comfy")).state).toBe("running");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const after = reg.get("comfy");
+      expect(after?.state).toBe("running");
+      expect(after?.private_url).not.toBeNull();
+    } finally {
+      await reg.shutdown();
+    }
+  });
+});
