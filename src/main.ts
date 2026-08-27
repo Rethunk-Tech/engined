@@ -32,7 +32,7 @@ import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
-import { type Config, type EngineEntry, FatalError } from "./types.ts";
+import { type Config, type EngineEntry, type EngineKind, FatalError } from "./types.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   "/v1/chat/completions",
@@ -244,15 +244,25 @@ interface DoorContext {
   registryOpts: RegistryOptions;
   doorOpts: DoorOptions;
   llamaRouters: Map<string, LlamaRouter>;
+  /**
+   * Engine ids whose cached router belongs to a config generation `reload`
+   * has since superseded. Swapped for a fresh one lazily, on the first call
+   * after its own outstanding leases drain to zero -- never mid-flight, so
+   * a request that arrives after a reload but while an earlier one is still
+   * reading from the container joins the SAME occupancy tracker instead of
+   * getting a second one that has no idea what the first still has resident.
+   */
+  staleLlamaRouters: Set<string>;
 }
 
 function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
-  let router = ctx.llamaRouters.get(engine.id);
-  if (router) {
-    return router;
+  const cached = ctx.llamaRouters.get(engine.id);
+  if (cached && (!ctx.staleLlamaRouters.has(engine.id) || cached.hasOutstandingLeases())) {
+    return cached;
   }
+  ctx.staleLlamaRouters.delete(engine.id);
   const models = ctx.getConfig().models.filter((m) => m.engine === engine.id);
-  router = new LlamaRouter(engine, models, ctx.lifecycle, {
+  const router = new LlamaRouter(engine, models, ctx.lifecycle, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,
     idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
@@ -277,12 +287,17 @@ interface HopRequest {
   setContentType: (ct: string) => void;
 }
 
-/** The `openai-http` case: proxy through this engine's `LlamaRouter`, `workdir` stripped. */
+/**
+ * The `openai-http` case: proxy through this engine's `LlamaRouter`, `workdir`
+ * stripped. `req.signal` is `runOneHop`'s own per-hop timeout/caller-abort --
+ * forwarded into `RequestInit` so a slow upstream is actually cut off at the
+ * budget `chatTimeoutMs` picked, not just marked aborted after the fact.
+ */
 async function execLlama(
   ctx: DoorContext,
   engineEntry: EngineEntry,
   modelSeg: string,
-  req: HopRequest,
+  req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
   const model = ctx
     .getConfig()
@@ -291,7 +306,6 @@ async function execLlama(
     return {
       status: 502,
       body: { error: `model "${modelSeg}" not found on "${engineEntry.id}"` },
-      startedBytes: false,
     };
   }
   const router = getLlamaRouter(ctx, engineEntry);
@@ -299,6 +313,7 @@ async function execLlama(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(stripField(req.rawBody, "workdir")),
+    signal: req.signal,
   };
   const response = await router.proxy(model, req.pathname, init);
   const contentType = response.headers.get("content-type") ?? "application/json";
@@ -335,7 +350,6 @@ async function execLlama(
   return {
     status: response.status,
     stream: callerStream,
-    startedBytes: false,
     modelReported,
     modelResident,
   };
@@ -512,7 +526,6 @@ export async function resolveRedirect(
       result: {
         status: 502,
         body: { error: `engine "${engineEntry.id}" is a remote address with no configured secret` },
-        startedBytes: false,
       },
     };
   }
@@ -520,7 +533,7 @@ export async function resolveRedirect(
   if (!outcome.ok) {
     return {
       ok: false,
-      result: { status: 503, body: { error: outcome.fix }, startedBytes: false },
+      result: { status: 503, body: { error: outcome.fix } },
     };
   }
   const model = resolveAgenticModelId(config, engineEntry.id, modelSeg);
@@ -533,7 +546,6 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
     return {
       status: outcome.status,
       body: { error: outcome.failure ?? "agentic call failed" },
-      startedBytes: false,
       envelopeFailure: outcome.envelopeFailure,
       version: outcome.version,
     };
@@ -541,7 +553,6 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
   return {
     status: outcome.status,
     body: agenticEnvelope(outcome.result),
-    startedBytes: false,
     version: outcome.version,
   };
 }
@@ -556,13 +567,12 @@ async function execAgentic(
   const config = ctx.getConfig();
   const engineEntry = config.engines.find((e) => e.id === engineId);
   if (!engineEntry) {
-    return { status: 502, body: { error: `unknown engine "${engineId}"` }, startedBytes: false };
+    return { status: 502, body: { error: `unknown engine "${engineId}"` } };
   }
   if (engineEntry.claude_version === undefined) {
     return {
       status: 502,
       body: { error: `engine "${engineId}" has no claude_version configured` },
-      startedBytes: false,
     };
   }
 
@@ -582,11 +592,13 @@ async function execAgentic(
   if (workdir !== undefined && workdir !== "") {
     const proof = await ctx.registry.start(engineId);
     if (proof.state !== "installed") {
+      // A plain 503, matching resolveRedirect's own secret-resolution
+      // failure above: an engine that cannot prove its pin is unavailable,
+      // not a proven envelope failure, so a chain skips it (TODO.md's own
+      // rule) rather than treating it as terminal.
       return {
         status: 503,
         body: { error: proof.fix ?? `engine "${engineId}" is not installed` },
-        startedBytes: false,
-        envelopeFailure: true,
       };
     }
   }
@@ -605,7 +617,7 @@ async function execAgentic(
 }
 
 function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
-  return async (hop) => {
+  return async (hop, signal) => {
     const { engine: seg, model: modelSeg } = parseHopSegments(hop);
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
@@ -614,29 +626,34 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     }
     const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
     if (kind === "openai-http" && engineEntry) {
-      return await execLlama(ctx, engineEntry, modelSeg, req);
+      return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
     }
     return {
       status: 502,
       body: { error: `engine "${engineId}" of kind "${kind}" cannot serve this request` },
-      startedBytes: false,
     };
   };
 }
 
-function chatTimeoutMs(
-  ctx: DoorContext,
-  chainName: string | null,
-  resolved: Extract<Dispatch, { ok: true }>,
-): number {
+/**
+ * The budget for one hop, keyed on THAT hop's own engine kind -- never on
+ * whether the request happens to be a chain, and never on any other hop
+ * sharing it. TODO.md:244-246 scopes `chat_timeout_seconds` to "one engine,"
+ * per attempt; an all-local-llama chain must not inherit the long agentic
+ * budget just because a chain is, in general, allowed to contain agentic
+ * hops.
+ */
+export function timeoutSecondsForKind(kind: EngineKind | undefined, config: Config): number {
+  return kind === "agentic-cli" ? config.agent_timeout_seconds : config.chat_timeout_seconds;
+}
+
+function chatTimeoutMs(ctx: DoorContext): (hop: string) => number {
   const config = ctx.getConfig();
-  const isAgenticSingle =
-    resolved.kind !== "chain" && ctx.registry.get(resolved.engine)?.kind === "agentic-cli";
-  const seconds =
-    chainName !== null || isAgenticSingle
-      ? config.agent_timeout_seconds
-      : config.chat_timeout_seconds;
-  return seconds * MS_PER_SECOND;
+  return (hop) => {
+    const { engine: seg } = parseHopSegments(hop);
+    const engineId = resolveEngineSegment(seg, config) ?? seg;
+    return timeoutSecondsForKind(ctx.registry.get(engineId)?.kind, config) * MS_PER_SECOND;
+  };
 }
 
 interface ContentRequest {
@@ -661,7 +678,7 @@ async function handleChatOrEmbeddings(
     requested: rawModel,
     localOnly: body.local_only === true,
     egressOf: (seg) => egressOf(ctx, seg),
-    timeoutMs: chatTimeoutMs(ctx, chainName, resolved),
+    timeoutMs: chatTimeoutMs(ctx),
     exec: buildHopExec(ctx, {
       pathname,
       rawBody: body,
@@ -941,6 +958,7 @@ export function createDoor(
     registryOpts,
     doorOpts,
     llamaRouters: new Map(),
+    staleLlamaRouters: new Set(),
   };
 
   function reload(path: string): void {
@@ -949,7 +967,14 @@ export function createDoor(
       config = next;
       configErr = undefined;
       registry.reload(next);
-      ctx.llamaRouters.clear();
+      // Mark every cached router stale rather than dropping it: an
+      // in-flight request already holds a direct reference to its old
+      // instance regardless, but a NEW request must not get a second,
+      // ignorant occupancy tracker over the same still-running container
+      // while the old one still has a lease outstanding.
+      for (const id of ctx.llamaRouters.keys()) {
+        ctx.staleLlamaRouters.add(id);
+      }
     } catch (err) {
       configErr = err instanceof Error ? err.message : String(err);
     }

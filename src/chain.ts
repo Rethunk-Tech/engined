@@ -11,7 +11,6 @@ export interface HopResult {
   status: number;
   body?: unknown;
   stream?: ReadableStream;
-  startedBytes: boolean;
   /**
    * Set only by an agentic hop whose envelope itself failed (`RunAgenticResult.envelopeFailure`).
    * Neither a 4xx nor an ordinary 5xx: it never advances a chain regardless of
@@ -37,8 +36,14 @@ export interface RunChainOptions {
   localOnly: boolean;
   /** The only input `local_only` reads. */
   egressOf: (engine: string) => Egress;
-  /** Per attempt, not per request — a two-engine chain bounded per request could run twice as long as intended. */
-  timeoutMs: number;
+  /**
+   * Per hop, not per request or per chain — a two-engine chain bounded per
+   * request could run twice as long as intended, and a chain that merely
+   * contains an agentic hop somewhere must not force every OTHER hop in it
+   * onto the long agentic budget. The caller picks the budget from the hop
+   * it is about to attempt.
+   */
+  timeoutMs: (hop: string) => number;
   exec: HopExec;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
@@ -143,7 +148,7 @@ interface HopOutcome {
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
   const { engine, model } = parseHop(hop);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs(hop));
   const start = Date.now();
   try {
     const result = await opts.exec(hop, controller.signal);

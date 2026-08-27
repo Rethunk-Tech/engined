@@ -97,9 +97,9 @@ function makeExec(bases: Record<string, string>): HopExec {
     }
     const res = await fetch(`${base}/${engine}`, { signal });
     if (res.headers.get("content-type") === "text/event-stream") {
-      return { status: res.status, stream: res.body ?? undefined, startedBytes: true };
+      return { status: res.status, stream: res.body ?? undefined };
     }
-    return { status: res.status, body: await res.text(), startedBytes: false };
+    return { status: res.status, body: await res.text() };
   };
 }
 
@@ -116,7 +116,7 @@ function baseOpts(
     requested: "chain-test-chain",
     localOnly: false,
     egressOf: () => "remote",
-    timeoutMs: DEFAULT_TIMEOUT_MS,
+    timeoutMs: () => DEFAULT_TIMEOUT_MS,
     ...overrides,
   };
 }
@@ -149,7 +149,6 @@ test("a hop's model_reported and model_resident flow through to the emitted atte
     Promise.resolve({
       status: 200,
       body: "answer",
-      startedBytes: false,
       modelReported: "router-section",
       modelResident: "qwen3-30b-a3b-q4.gguf",
     });
@@ -169,7 +168,6 @@ test("an agentic hop's version flows through to the emitted attempt, equal to th
     Promise.resolve({
       status: 200,
       body: "hello",
-      startedBytes: false,
       version: "1.2.3",
     });
 
@@ -182,7 +180,7 @@ test("an agentic hop's version flows through to the emitted attempt, equal to th
 
 test("a non-agentic hop's attempt carries no version field at all", async () => {
   const { lines, write } = collectLines();
-  const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer", startedBytes: false });
+  const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer" });
 
   const result = await runChain(["@/llama/model"], baseOpts({ exec, write }));
 
@@ -215,11 +213,10 @@ test("an envelope failure on hop 1 does not advance, even carrying a 5xx status:
       return Promise.resolve({
         status: 502,
         body: { error: "agentic envelope failure: api_error" },
-        startedBytes: false,
         envelopeFailure: true,
       });
     }
-    return Promise.resolve({ status: 200, body: "should never be seen", startedBytes: false });
+    return Promise.resolve({ status: 200, body: "should never be seen" });
   };
 
   const result = await runChain(["@/agentic/model", "@/unused/model"], baseOpts({ exec }));
@@ -358,7 +355,7 @@ test("the per-attempt timeout is per hop, not per request: two hops each under t
   const result = await runChain(
     ["@/slowFail/model", "@/slowSuccess/model"],
     baseOpts({
-      timeoutMs: PER_HOP_TIMEOUT_MS,
+      timeoutMs: () => PER_HOP_TIMEOUT_MS,
       exec: makeExec({ slowFail: up.base, slowSuccess: up.base }),
     }),
   );

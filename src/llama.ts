@@ -192,6 +192,18 @@ export class LlamaRouter {
     return this.roleStates.get(role)?.activeModelId ?? null;
   }
 
+  /**
+   * True while any request this router has already started is still holding
+   * a lease (buffered or mid-stream). The signal a config reload needs
+   * before it is safe to stop routing new requests through this instance: a
+   * second, freshly-constructed router for the same container has no idea
+   * what this one still has resident, so swapping it in while a lease is
+   * outstanding is two independent occupancy trackers over one llama-server.
+   */
+  hasOutstandingLeases(): boolean {
+    return this.totalActive > 0;
+  }
+
   private roleState(role: Role): RoleState {
     let state = this.roleStates.get(role);
     if (!state) {

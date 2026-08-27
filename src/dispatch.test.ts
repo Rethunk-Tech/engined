@@ -9,7 +9,14 @@ import { resolveModel } from "./dispatch.ts";
 import type { Exec, ExecResult, Probe } from "./docker.ts";
 import { type AgenticProbeRunner, EngineRegistry } from "./engines.ts";
 import type { HttpClient } from "./llama.ts";
-import { bindDualFamily, createDoor, type Door, parsePortHolder, resolveRedirect } from "./main.ts";
+import {
+  bindDualFamily,
+  createDoor,
+  type Door,
+  parsePortHolder,
+  resolveRedirect,
+  timeoutSecondsForKind,
+} from "./main.ts";
 import { stateDir } from "./paths.ts";
 import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
@@ -559,6 +566,237 @@ function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
   };
 }
 
+/** A real `config.toml` on disk, for a test that must go through `door.reload(path)` -- not the in-memory `Config` shortcut `llamaDoorConfig` uses. */
+function llamaTomlConfig(modelsDir: string): string {
+  return `
+[[engine]]
+id = "local-llama"
+egress = "none"
+models_dir = "${modelsDir}"
+
+[[model]]
+id = "ornith"
+engine = "local-llama"
+filename = "x.gguf"
+role = "chat"
+
+[[model]]
+id = "other"
+engine = "local-llama"
+filename = "y.gguf"
+role = "chat"
+`;
+}
+
+describe("the door: reload mid in-flight request", () => {
+  /**
+   * TODO.md:907: in-flight leases finish against the old engine list.
+   * Reloading used to clear every cached `LlamaRouter` unconditionally
+   * (main.ts's old `ctx.llamaRouters.clear()`), so a request that arrived
+   * after the reload but while an earlier one was still mid-lease got a
+   * brand-new router with empty occupancy bookkeeping -- a second, ignorant
+   * tracker over the same container that could unload/load without ever
+   * knowing the first request's model was still being read from. The fix
+   * must keep routing new requests through the old router until its own
+   * leases drain, so a same-role request for a different model still queues
+   * behind the one in flight instead of racing it on a second tracker.
+   */
+  test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    const modelsDir = mkdtempSync(join(tmpdir(), "engined-models-"));
+    writeFileSync(join(modelsDir, "x.gguf"), "");
+    writeFileSync(join(modelsDir, "y.gguf"), "");
+    const configDir = mkdtempSync(join(tmpdir(), "engined-config-"));
+    const configFilePath = join(configDir, "config.toml");
+    const toml = llamaTomlConfig(modelsDir);
+    writeFileSync(configFilePath, toml);
+
+    const calls: string[] = [];
+    let releaseOrnith: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      releaseOrnith = r;
+    });
+    let ornithStarted: () => void = () => undefined;
+    const ornithStartedPromise = new Promise<void>((r) => {
+      ornithStarted = r;
+    });
+    const client: HttpClient = async (url, init) => {
+      const body =
+        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+      if (url.endsWith("/models/load")) {
+        calls.push(`load:${body?.model}`);
+        return Response.json({ success: true });
+      }
+      if (url.endsWith("/models/unload")) {
+        calls.push(`unload:${body?.model}`);
+        return Response.json({ status: "ok" });
+      }
+      if (url.endsWith("/v1/models")) {
+        const lastLoad = [...calls]
+          .reverse()
+          .find((c) => c.startsWith("load:"))
+          ?.slice(5);
+        return Response.json({
+          data: lastLoad === undefined ? [] : [{ id: lastLoad, status: { value: "loaded" } }],
+        });
+      }
+      // The chat completion call itself.
+      if (body?.model === "ornith") {
+        calls.push("chat-start:ornith");
+        ornithStarted();
+        await gate;
+        calls.push("chat-end:ornith");
+        return Response.json({ id: "r1", choices: [{ message: { content: "ornith-answer" } }] });
+      }
+      calls.push("chat:other");
+      return Response.json({ id: "r2", choices: [{ message: { content: "other-answer" } }] });
+    };
+    const door = createDoor(
+      loadConfig(configFilePath),
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: client,
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: () => undefined,
+      },
+    );
+
+    const ornithReq = door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    await ornithStartedPromise;
+
+    // The reload lands while ornith's lease is still held -- same file,
+    // content unchanged, only to exercise the router-cache swap itself.
+    door.reload(configFilePath);
+
+    const otherReq = door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "other", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    // Let the pump run as far as it can while ornith's lease is still held.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const otherTouchedWhileOrnithHeld = calls.some((c) => c.includes("other"));
+    expect(otherTouchedWhileOrnithHeld).toBe(false);
+
+    releaseOrnith();
+    const ornithBody = (await (await ornithReq).json()) as {
+      choices: { message: { content: string } }[];
+    };
+    const otherBody = (await (await otherReq).json()) as {
+      choices: { message: { content: string } }[];
+    };
+    expect(ornithBody.choices[0]?.message.content).toBe("ornith-answer");
+    expect(otherBody.choices[0]?.message.content).toBe("other-answer");
+
+    // Whatever "other" activity happened, it is strictly after ornith's own
+    // chat call ended -- a real, serialized swap, not a race against it.
+    const chatEndIdx = calls.indexOf("chat-end:ornith");
+    const otherActivityIdx = calls.findIndex((c) => c.includes("other"));
+    expect(chatEndIdx).toBeGreaterThan(-1);
+    expect(otherActivityIdx).toBeGreaterThan(chatEndIdx);
+  });
+});
+
+describe("timeoutSecondsForKind: the budget follows the hop's own engine kind", () => {
+  test("an agentic-cli hop gets agent_timeout_seconds", () => {
+    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 });
+    expect(timeoutSecondsForKind("agentic-cli", cfg)).toBe(3600);
+  });
+
+  test("every other kind gets chat_timeout_seconds -- including inside a chain", () => {
+    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 });
+    expect(timeoutSecondsForKind("openai-http", cfg)).toBe(30);
+    expect(timeoutSecondsForKind("tts", cfg)).toBe(30);
+    expect(timeoutSecondsForKind(undefined, cfg)).toBe(30);
+  });
+});
+
+describe("the door: chain timeout follows the hop, not the chain", () => {
+  /**
+   * TODO.md:244-246 scopes `chat_timeout_seconds` to "one engine," per
+   * attempt. `chatTimeoutMs` used to pick `agent_timeout_seconds` for EVERY
+   * hop of ANY chain (`chainName !== null`), even one with no agentic hop
+   * anywhere in it -- an all-local-llama chain inherited the long agentic
+   * budget it never needed. `chat_timeout_seconds` is set well under the
+   * upstream's artificial delay and `agent_timeout_seconds` well over it, so
+   * the outcome (timeout vs success) proves which budget actually applied.
+   */
+  test("a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    const UPSTREAM_DELAY_MS = 150;
+    const cfg = config({
+      chat_timeout_seconds: 0.05,
+      agent_timeout_seconds: 10,
+      engines: [
+        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+      ],
+      models: [model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" })],
+      chains: { "chain-x": ["@/local-llama/ornith"] },
+    });
+    const client: HttpClient = (url, init) => {
+      if (url.endsWith("/models/load")) {
+        return Promise.resolve(Response.json({ success: true }));
+      }
+      if (url.endsWith("/models/unload")) {
+        return Promise.resolve(Response.json({ status: "ok" }));
+      }
+      if (url.endsWith("/v1/models")) {
+        return Promise.resolve(
+          Response.json({ data: [{ id: "ornith", status: { value: "loaded" } }] }),
+        );
+      }
+      // The chat completion call itself: artificially slow, and it actually
+      // honours cancellation -- the real thing the fix has to reach in order
+      // to matter, not just the number chatTimeoutMs computes.
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(Response.json({ id: "r1", choices: [{ message: { content: "hi" } }] })),
+          UPSTREAM_DELAY_MS,
+        );
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+    };
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: client,
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+        write: (l) => lines.push(l),
+      },
+    );
+
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "chain-x", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    await res.text();
+
+    expect(res.status).toBe(503);
+    const record = JSON.parse(lines[0] ?? "{}") as { attempts: { failure?: string }[] };
+    expect(record.attempts[0]?.failure).toBe("timeout");
+  });
+});
+
 function llamaDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(tmpdir(), "engined-door-"));
   mkdirSync(join(root, "local-llama"), { recursive: true });
@@ -916,7 +1154,7 @@ describe("the door: agentic and chain routing", () => {
     expect(lines).toHaveLength(1);
   });
 
-  test("an unproved agentic engine does not spawn: the caller gets a failure naming the engine and pin", async () => {
+  test("an unproved agentic engine does not spawn", async () => {
     const id = "claude-unproved";
     clearVerifiedVersion(id);
     const root = mkdtempSync(join(tmpdir(), "engined-door-"));
@@ -949,11 +1187,81 @@ describe("the door: agentic and chain routing", () => {
         }),
       }),
     );
+    // A lone-hop dispatch that fails now advances like any other unavailable
+    // engine (finding 1), so it lands in runChain's own generic "every
+    // engine in this chain failed" exhaustion body -- the same wrapping the
+    // secret-resolution path's equivalent 503 already goes through. The
+    // per-engine fix text (naming `id` and "9.9.9") still exists, just on
+    // the `HopResult` before runChain gets it; see `execAgentic`'s proof-gate
+    // branch and the "missing secret" test below for that assertion.
     expect(res.status).toBe(503);
     expect(spawnCalls).toHaveLength(0);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain(id);
-    expect(body.error).toContain("9.9.9");
+  });
+});
+
+describe("the door: chain skips an engine that fails its version proof", () => {
+  /**
+   * TODO.md:227-229: a chain skips an unavailable engine. An engine that
+   * cannot prove its claude_version pin is exactly "unavailable" -- the
+   * same 503 the secret-resolution path already produces (main.ts:519-524,
+   * plain 503, no `envelopeFailure`) and the chain advances past that one.
+   * The version-proof 503 used to set `envelopeFailure: true`, which
+   * `classifyResult` treats as never-advancing regardless of status --
+   * terminal at the first hop instead of skipped.
+   */
+  test("a chain whose first hop fails its version proof advances to the second hop", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    for (const id of ["claude-unproved", "claude-b"]) {
+      mkdirSync(join(root, id), { recursive: true });
+      writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    }
+    clearVerifiedVersion("claude-unproved");
+    clearVerifiedVersion("claude-b");
+    const cfg = config({
+      engines: [
+        engine({ id: "claude-unproved", egress: "remote", claude_version: "1.2.3" }),
+        engine({ id: "claude-b", egress: "remote", claude_version: "4.5.6" }),
+      ],
+      chains: { "chain-x": ["@/claude-unproved/x", "@/claude-b/y"] },
+    });
+    // Only claude-b's pin is provable -- claude-unproved's proof always
+    // fails, the same as the standalone "unproved agentic engine" test above.
+    const probeRunner: AgenticProbeRunner = (probedEngine) =>
+      Promise.resolve(
+        probedEngine.id === "claude-b" ? { ok: true } : { ok: false, failedProbe: "boom" },
+      );
+    const hopBCalls: string[][] = [];
+    const spawn: AgenticSpawn = (argv) => {
+      hopBCalls.push(argv);
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"hi"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: probeRunner },
+      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "chain-x",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp",
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(hopBCalls).toHaveLength(1);
+    expect(hopBCalls[0]).toContain("@anthropic-ai/claude-code@4.5.6");
+    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+    expect(record.engine_used).toBe("claude-b");
+    clearVerifiedVersion("claude-unproved");
+    clearVerifiedVersion("claude-b");
   });
 });
 
