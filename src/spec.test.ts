@@ -150,6 +150,17 @@ test("an unresolved placeholder in artifact.obtain is fatal, naming it", () => {
   expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
 });
 
+test("an unresolved placeholder in artifact.path is fatal, naming it", () => {
+  // artifact.path was never scanned for placeholders: hostPathFor() prefix-matches
+  // it against the already-substituted volume.path, so a literal placeholder here
+  // silently downgrades the artifact check rather than failing loudly at parse.
+  const root = specDir(
+    "x",
+    `kind = "stt"\nimage = "img"\nobtain = "pull"\nserves = []\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n\n[[artifact]]\npath = "{nope}/x.bin"\nobtain = "curl -o /models/x.bin https://example.com/x.bin"\n`,
+  );
+  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
+});
+
 test("a container spec with a full round trip resolves clean", () => {
   const root = specDir("stt-engine", VALID_CONTAINER);
   const loaded = loadSpec(engine({ id: "stt-engine", models_dir: "/data/models" }), {

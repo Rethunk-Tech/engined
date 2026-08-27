@@ -64,13 +64,13 @@ path = "/models"
 read_only = true
 
 # quiet.sh (this repo's whisper-server log filter) has to reach the
-# container the same bind-mount way: `{spec_dir}` in `entrypoint` above only
-# substitutes to the HOST path install.sh synced it to (a plain string
-# substitution, not a mount), and nothing else copies it in -- run without
-# this, the container's real PID 1 is bash reporting the entrypoint path
-# "No such file or directory" and exiting immediately. {spec_dir} here is the
-# same installed spec directory, so the mount source and the entrypoint path
-# always agree.
+# container the same bind-mount way: `entrypoint` above is the fixed
+# container path /spec/quiet.sh, which resolves only because this volume's
+# {spec_dir} substitutes to the HOST path install.sh synced it to and mounts
+# it at /spec -- run without this, the container's real PID 1 is bash
+# reporting the entrypoint path "No such file or directory" and exiting
+# immediately. {spec_dir} here is the same installed spec directory, so the
+# mount source and the entrypoint path always agree.
 [[volume]]
 name = "{spec_dir}"
 path = "/spec"

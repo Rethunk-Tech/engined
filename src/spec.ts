@@ -65,25 +65,11 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
   if (typeof raw.kind !== "string") {
     throw new ParseError('spec has no "kind"', file);
   }
-  const spec: Spec =
+  let spec: Spec =
     raw.kind === "agentic-cli" ? parseAgentic(raw, file) : parseContainer(raw, file, raw.kind);
 
   const subs = buildSubs(engine, opts, specDir);
-  spec.command = spec.command.map((s) => substitute(s, subs, file));
-  if (isContainerSpec(spec)) {
-    if (spec.entrypoint) {
-      spec.entrypoint = spec.entrypoint.map((s) => substitute(s, subs, file));
-    }
-    spec.volumes = spec.volumes.map((v) => ({
-      ...v,
-      name: substitute(v.name, subs, file),
-      path: substitute(v.path, subs, file),
-    }));
-    spec.artifacts = spec.artifacts.map((a) => ({
-      ...a,
-      obtain: substitute(a.obtain, subs, file),
-    }));
-  }
+  spec = substituteDeep(spec, subs, file);
 
   assertNoForbiddenFlags(spec.command, file);
   if (isContainerSpec(spec) && spec.entrypoint) {
@@ -108,21 +94,8 @@ function buildSubs(
   if (engine.claude_version !== undefined) {
     subs.claude_version = engine.claude_version;
   }
-  if (engine.base_url !== undefined) {
-    subs.base_url = engine.base_url;
-  }
-  if (engine.kind !== undefined) {
-    subs.kind = engine.kind;
-  }
-  subs.id = engine.id;
   if (engine.models_max !== undefined) {
     subs.models_max = String(engine.models_max);
-  }
-  if (engine.idle_stop_seconds !== undefined) {
-    subs.idle_stop_seconds = String(engine.idle_stop_seconds);
-  }
-  if (engine.ready_timeout_s !== undefined) {
-    subs.ready_timeout_s = String(engine.ready_timeout_s);
   }
   return subs;
 }
@@ -135,6 +108,30 @@ function substitute(s: string, subs: Record<string, string>, file: string): stri
     }
     return v;
   });
+}
+
+/**
+ * Substitutes every string value anywhere in a parsed spec, so no field can
+ * carry an unresolved placeholder past parse. Mirrors `assertNoPortKey`'s
+ * traversal: a hand-list of which fields to substitute is how the fields this
+ * replaces (image, obtain, serves, env, devices, ..., artifact.path) went
+ * unscanned in the first place.
+ */
+function substituteDeep<T>(value: T, subs: Record<string, string>, file: string): T {
+  if (typeof value === "string") {
+    return substitute(value, subs, file) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => substituteDeep(item, subs, file)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = substituteDeep(v, subs, file);
+    }
+    return out as T;
+  }
+  return value;
 }
 
 function assertNoPortKey(obj: unknown, file: string): void {
