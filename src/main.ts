@@ -457,6 +457,19 @@ async function execAgentic(
 
   const loaded = loadAgenticSpec(ctx, engineEntry);
   const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
+  // The workdir-required 400 is a request-shape rejection the caller owns;
+  // it fires before an engine-availability check the server owns.
+  if (workdir !== undefined && workdir !== "") {
+    const proof = await ctx.registry.start(engineId);
+    if (proof.state !== "installed") {
+      return {
+        status: 503,
+        body: { error: proof.fix ?? `engine "${engineId}" is not installed` },
+        startedBytes: false,
+        envelopeFailure: true,
+      };
+    }
+  }
   const outcome = await runAgentic({
     claudeVersion: engineEntry.claude_version,
     args: engineEntry.args,
@@ -473,6 +486,7 @@ async function execAgentic(
       status: outcome.status,
       body: { error: outcome.failure ?? "agentic call failed" },
       startedBytes: false,
+      envelopeFailure: outcome.envelopeFailure,
     };
   }
   return { status: outcome.status, body: agenticEnvelope(outcome.result), startedBytes: false };

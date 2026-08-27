@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,15 +7,25 @@ import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
 import type { Exec, ExecResult, Probe } from "./docker.ts";
-import { EngineRegistry } from "./engines.ts";
+import { type AgenticProbeRunner, EngineRegistry } from "./engines.ts";
 import type { HttpClient } from "./llama.ts";
 import { createDoor, type Door, parsePortHolder, resolveRedirect } from "./main.ts";
+import { stateDir } from "./paths.ts";
 import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
 const CHAT = "/v1/chat/completions";
 const SPEECH = "/v1/audio/speech";
+
+/** Mirrors `engines.test.ts`'s helper: the registry's proof gate persists to
+ * the real state directory, so a test that proves an engine must clean up
+ * after itself the same way. */
+function clearVerifiedVersion(id: string): void {
+  rmSync(join(stateDir(), "agentic", id), { recursive: true, force: true });
+}
+
+const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true });
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return { id: "e", egress: "none", args: {}, ...overrides };
@@ -578,40 +588,79 @@ describe("the door: agentic and chain routing", () => {
     expect(spawnCalls).toHaveLength(0);
     expect(lines).toHaveLength(1);
   });
+
+  test("an unproved agentic engine does not spawn: the caller gets a failure naming the engine and pin", async () => {
+    const id = "claude-unproved";
+    clearVerifiedVersion(id);
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, id), { recursive: true });
+    writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    const cfg = config({
+      engines: [engine({ id, egress: "remote", claude_version: "9.9.9" })],
+    });
+    const spawnCalls: unknown[] = [];
+    const fakeSpawn: AgenticSpawn = (argv, opts) => {
+      spawnCalls.push({ argv, opts });
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"hi"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX },
+      { agenticSpawn: fakeSpawn, write: () => undefined },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: id,
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp",
+        }),
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(spawnCalls).toHaveLength(0);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain(id);
+    expect(body.error).toContain("9.9.9");
+  });
 });
 
 describe("the door: chain routing", () => {
-  test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
+  test("a chain whose first hop's envelope fails is terminal there: the second hop's own spawn log stays empty", async () => {
     const root = mkdtempSync(join(tmpdir(), "engined-door-"));
     for (const id of ["claude-a", "claude-b"]) {
       mkdirSync(join(root, id), { recursive: true });
       writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
     }
+    clearVerifiedVersion("claude-a");
+    clearVerifiedVersion("claude-b");
+    // Distinct pins so one shared spawn can tell the hops apart by argv and
+    // keep a separate call log per hop -- the discriminating assertion is
+    // against the next hop's own log, not the response status.
     const cfg = config({
       engines: [
         engine({ id: "claude-a", egress: "remote", claude_version: "1.2.3" }),
-        engine({ id: "claude-b", egress: "remote", claude_version: "1.2.3" }),
+        engine({ id: "claude-b", egress: "remote", claude_version: "4.5.6" }),
       ],
       chains: { "chain-x": ["@/claude-a/x", "@/claude-b/y"] },
     });
-    // First call is claude-a: unparseable stdout, a dead hop that advances the
-    // chain. Second is claude-b: a real envelope, the answer that wins.
-    let calls = 0;
-    const spawn: AgenticSpawn = () => {
-      calls += 1;
-      if (calls === 1) {
-        return Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
-      }
-      return Promise.resolve({
-        stdout: '{"is_error":false,"result":"second engine answered"}',
-        stderr: "",
-        exitCode: 0,
-      });
+    const hopACalls: string[][] = [];
+    const hopBCalls: string[][] = [];
+    // claude-a's stdout fails to parse -- a proven envelope failure, terminal
+    // regardless of status, never a transport error a retry might route around.
+    const spawn: AgenticSpawn = (argv) => {
+      (argv.includes("@anthropic-ai/claude-code@1.2.3") ? hopACalls : hopBCalls).push(argv);
+      return Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
     };
     const lines: string[] = [];
     const door = createDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX },
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       { agenticSpawn: spawn, write: (l) => lines.push(l) },
     );
     const res = await door.fetch(
@@ -624,19 +673,19 @@ describe("the door: chain routing", () => {
         }),
       }),
     );
-    const body = (await res.json()) as { choices: { message: { content: string } }[] };
-    expect(res.status).toBe(200);
-    expect(body.choices[0]?.message.content).toBe("second engine answered");
-    expect(calls).toBe(2);
+    expect(res.status).toBe(502);
+    expect(hopACalls).toHaveLength(1);
+    expect(hopBCalls).toHaveLength(0);
     expect(lines).toHaveLength(1);
     const record = JSON.parse(lines[0] ?? "{}") as {
       engine_used: string;
       attempts: { engine: string; ok: boolean }[];
     };
-    expect(record.engine_used).toBe("claude-b");
-    expect(record.attempts).toHaveLength(2);
+    expect(record.engine_used).toBe("claude-a");
+    expect(record.attempts).toHaveLength(1);
     expect(record.attempts[0]).toMatchObject({ engine: "claude-a", ok: false });
-    expect(record.attempts[1]).toMatchObject({ engine: "claude-b", ok: true });
+    clearVerifiedVersion("claude-a");
+    clearVerifiedVersion("claude-b");
   });
 });
 
@@ -874,6 +923,7 @@ function redirectDoorRoot(): string {
 
 describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => {
   test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
+    clearVerifiedVersion("claude-kimi");
     const root = redirectDoorRoot();
     const cfg = config({
       engines: [kimiEngine()],
@@ -890,7 +940,7 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
     };
     const door = createDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX },
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       {
         agenticSpawn: spawn,
         secretExec: fakeSecretExec("kimi-secret-value"),
@@ -931,6 +981,7 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
 
     // The resolved secret appears nowhere in argv.
     expect(argv.some((a) => a.includes("kimi-secret-value"))).toBe(false);
+    clearVerifiedVersion("claude-kimi");
   });
 });
 
