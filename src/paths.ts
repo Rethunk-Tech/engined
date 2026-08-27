@@ -38,15 +38,6 @@ export function stateDir(): string {
   return join(stateHome(), "engined");
 }
 
-/**
- * The model tree engined owns. Deliberately a sibling of the install
- * directory, never inside it: install.sh syncs that directory from the
- * repo, and a sync must never be able to reach 67 GB of model files.
- */
-export function modelsRoot(): string {
-  return join(dataHome(), "engined-models");
-}
-
 /** A bind-mount needs the absolute path, not the tilde. */
 export function expandTilde(p: string): string {
   if (p === "~") {
