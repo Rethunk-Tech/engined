@@ -12,6 +12,19 @@ function writeConfig(toml: string): string {
   return path;
 }
 
+/** Every malformed/unresolvable-hop rule is a ParseError; this captures the message for a substring check the regex-only `.toThrow()` calls elsewhere can't do. */
+function chainHopMessage(toml: string): string {
+  try {
+    loadConfig(writeConfig(toml));
+    throw new Error("expected loadConfig to throw");
+  } catch (err) {
+    if (!(err instanceof Error)) {
+      throw err;
+    }
+    return err.message;
+  }
+}
+
 /** A real models_dir with the given files pre-created, for tests that must parse clean. */
 function tempModelsDir(...files: string[]): string {
   const dir = mkdtempSync(join(tmpdir(), "engined-models-"));
@@ -214,19 +227,38 @@ aliases = ["ornith"]
 });
 
 describe("chain hops", () => {
-  test("a bare model id is not a fully-qualified hop", () => {
-    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NOT_QUALIFIED);
+  test("a bare model id is not a fully-qualified hop, naming it", () => {
+    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`);
+    expect(message).toMatch(RX_NOT_QUALIFIED);
+    expect(message).toContain('"ornith"');
   });
 
-  test("a qualified hop naming an unknown engine fails, naming the engine half", () => {
-    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["@/nope/ornith"]\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_ENGINE);
+  test("a bare engine id is not a fully-qualified hop, naming it", () => {
+    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["local-llama"]\n`);
+    expect(message).toMatch(RX_NOT_QUALIFIED);
+    expect(message).toContain('"local-llama"');
   });
 
-  test("a qualified hop naming an unknown model fails, naming the model half", () => {
-    const toml = `${llamaEngineAndModel()}\n[chain]\nc = ["@/local-llama/nope"]\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_MODEL);
+  test("another chain's name is not a fully-qualified hop, naming it", () => {
+    const message = chainHopMessage(
+      `${llamaEngineAndModel()}\n[chain]\nc = ["other"]\nother = ["@/local/ornith"]\n`,
+    );
+    expect(message).toMatch(RX_NOT_QUALIFIED);
+    expect(message).toContain('"other"');
+  });
+
+  test("a qualified hop naming an unknown engine fails, naming the engine half and the hop", () => {
+    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["@/nope/ornith"]\n`);
+    expect(message).toMatch(RX_UNKNOWN_ENGINE);
+    expect(message).toContain('"@/nope/ornith"');
+  });
+
+  test("a qualified hop naming an unknown model fails, naming the model half and the hop", () => {
+    const message = chainHopMessage(
+      `${llamaEngineAndModel()}\n[chain]\nc = ["@/local-llama/nope"]\n`,
+    );
+    expect(message).toMatch(RX_UNKNOWN_MODEL);
+    expect(message).toContain('"@/local-llama/nope"');
   });
 
   test('"local" with zero candidate engines is fatal, listing none', () => {
