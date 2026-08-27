@@ -116,7 +116,7 @@ id     = "sonnet-5"
 
 [[model]]
 engine = "claude-kimi"
-id     = "kimi-k3"
+id     = "k3"
 
 [[engine]]
 id                = "local-llama"
@@ -169,7 +169,7 @@ idle_stop_seconds = 1800
 
 [chain]
 chain-private = ["@/local/ornith"]
-chain-public  = ["@/local/ornith", "@/claude-kimi/kimi-k3", "@/claude/sonnet-5"]
+chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5"]
 `;
 }
 
@@ -179,7 +179,7 @@ test("the worked config from TODO.md parses clean", () => {
   expect(cfg.models).toHaveLength(EXPECTED_MODEL_COUNT);
   expect(cfg.chains["chain-public"]).toEqual([
     "@/local/ornith",
-    "@/claude-kimi/kimi-k3",
+    "@/claude-kimi/k3",
     "@/claude/sonnet-5",
   ]);
 });
