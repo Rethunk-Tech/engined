@@ -10,6 +10,7 @@ That check existed while the documents carried a fleet-census table; the
 censuses are gone, because no decision rested on their exact values and they
 drifted every day the fleet was worked in.
 """
+
 import itertools
 import re
 import sys
@@ -77,7 +78,10 @@ def _restatements(lines):
         for (a, b), n in shared.items():
             if n >= SHARED_MIN:
                 bad.append(
-                    (section[b][0], f"restates line {section[a][0]} ({n} shared phrases)")
+                    (
+                        section[b][0],
+                        f"restates line {section[a][0]} ({n} shared phrases)",
+                    )
                 )
 
     for line, para in _paragraphs(lines):
@@ -103,8 +107,15 @@ def _next_code(lines, i):
 
 
 def check(path):
-    with open(path) as fh:
-        text = fh.read()
+    # A doc named in .gate.toml was asserted to exist by whoever added it
+    # there; report that assertion failing through the same path:line:msg
+    # channel every other finding uses, rather than a raw traceback that
+    # reads like the tool broke instead of the input being wrong.
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError as exc:
+        return [(0, f"cannot read document: {exc.strerror or exc}")]
     lines = text.split("\n")
     bad = []
 
@@ -160,7 +171,9 @@ def check(path):
             if len(term) < 3 or i == decl:
                 continue
             if f"`{term}`" in line and not ABSENT.search(line):
-                bad.append((i, f"`{term}` declared absent at line {decl}, required here"))
+                bad.append(
+                    (i, f"`{term}` declared absent at line {decl}, required here")
+                )
 
     bad += _restatements(lines)
 
@@ -171,10 +184,16 @@ def _selftest():
     """The exemption is the part worth guarding: without it every acceptance
     criterion restating the body it tests reads as damage."""
     body = "## E\n\nFour edge types: modules, workspace members, submodule links\nand shared external exposure so one advisory resolves to repositories.\n"
-    dup = body + "\nFour edge types: modules, workspace members, submodule links and\nshared external exposure so one advisory resolves to repositories.\n"
+    dup = (
+        body
+        + "\nFour edge types: modules, workspace members, submodule links and\nshared external exposure so one advisory resolves to repositories.\n"
+    )
     assert _restatements(dup.split("\n")), "restated paragraph not caught"
     assert not _restatements(body.split("\n")), "single paragraph flagged"
-    exempt = body + "\n### Acceptance\n\n- Four edge types: modules, workspace members, submodule links\n  and shared external exposure so one advisory resolves to repositories.\n"
+    exempt = (
+        body
+        + "\n### Acceptance\n\n- Four edge types: modules, workspace members, submodule links\n  and shared external exposure so one advisory resolves to repositories.\n"
+    )
     assert not _restatements(exempt.split("\n")), "acceptance criterion flagged"
     print("selftest ok")
 
