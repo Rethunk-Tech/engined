@@ -148,6 +148,12 @@ export interface EnginesResponse {
   /** The source revision, written into the bundle by the install script. */
   commit: string;
   engines: EngineStatus[];
+  /**
+   * The parse error from the most recent failed reload, if one is outstanding.
+   * A reload that cannot parse keeps the previous config serving, so this is
+   * the only place an operator learns the edit did not take.
+   */
+  config_error?: string;
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
