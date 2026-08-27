@@ -163,6 +163,34 @@ test("a hop's model_reported and model_resident flow through to the emitted atte
   expect(record.attempts[0].model_reported).not.toBe(record.attempts[0].model_resident);
 });
 
+test("an agentic hop's version flows through to the emitted attempt, equal to the pin that was launched", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      body: "hello",
+      startedBytes: false,
+      version: "1.2.3",
+    });
+
+  const result = await runChain(["@/claude/model"], baseOpts({ exec, write }));
+
+  expect(result.status).toBe(200);
+  const record = JSON.parse(lines[0] ?? "");
+  expect(record.attempts[0].version).toBe("1.2.3");
+});
+
+test("a non-agentic hop's attempt carries no version field at all", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer", startedBytes: false });
+
+  const result = await runChain(["@/llama/model"], baseOpts({ exec, write }));
+
+  expect(result.status).toBe(200);
+  const record = JSON.parse(lines[0] ?? "");
+  expect(Object.hasOwn(record.attempts[0], "version")).toBe(false);
+});
+
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
   const up = startFakeUpstream({
     badreq: { status: 400, body: "bad request", contentType: "text/plain" },

@@ -1,15 +1,17 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   type AgenticSpawn,
   type AgenticSpawnResult,
+  buildAgenticProbeRunner,
   buildArgv,
   buildChildEnv,
   parseEnvelope,
   renderEmptyMcpConfig,
   runAgentic,
 } from "./agentic.ts";
-import { FORBIDDEN_AGENTIC_FLAGS } from "./types.ts";
+import { type EngineEntry, FORBIDDEN_AGENTIC_FLAGS } from "./types.ts";
 
 const PIN = "1.2.3";
 const BUNX = "/opt/engined/state/bunx";
@@ -330,4 +332,102 @@ test("runAgentic: extraEnv is set on the child alongside the allowlist and wins 
   const [, opts] = calls[0] as [string[], { env: Record<string, string> }];
   expect(opts.env.HOME).toBe("/redirected");
   expect(opts.env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+});
+
+test("runAgentic: a successful result's version is the pin that was launched, not read back from anywhere else", async () => {
+  const { spawn } = fakeSpawn({
+    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
+    stderr: "",
+    exitCode: 0,
+  });
+
+  const result = await runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: "/tmp/scratch-workdir",
+    prompt: "hello",
+    spawn,
+    bunx: BUNX,
+  });
+
+  expect(result.version).toBe(PIN);
+});
+
+const PROBE_ENGINE: EngineEntry = { id: "probe-engine", egress: "remote", args: {} };
+
+/** Reads the witness path back out of the hook the hook-silence probe planted, the way a hook that actually fired would target it. */
+function witnessPathFromCwd(cwd: string): string | undefined {
+  const settingsPath = join(cwd, ".claude", "settings.json");
+  if (!existsSync(settingsPath)) {
+    return;
+  }
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+    hooks: { UserPromptSubmit: { hooks: { command: string }[] }[] };
+  };
+  const command = settings.hooks.UserPromptSubmit[0]?.hooks[0]?.command ?? "";
+  return command.split(">>")[1]?.trim();
+}
+
+function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
+  return (_argv, opts) => {
+    onCwd?.(opts.cwd);
+    return Promise.resolve({
+      stdout: JSON.stringify({ is_error: false, result: "hello" }),
+      stderr: "",
+      exitCode: 0,
+    });
+  };
+}
+
+test("buildAgenticProbeRunner: a clean completion under both probes yields ok -- no real spawn, only the injected fake", async () => {
+  const cwds: string[] = [];
+  const runner = buildAgenticProbeRunner(BUNX, {
+    spawn: cleanEnvelopeSpawn((cwd) => cwds.push(cwd)),
+  });
+
+  const outcome = await runner(PROBE_ENGINE, PIN);
+
+  expect(outcome).toEqual({ ok: true });
+  expect(cwds).toHaveLength(2);
+});
+
+test("buildAgenticProbeRunner: a completion that writes into the scratch worktree fails byte-identical, and the hook probe never runs", async () => {
+  const calls: string[] = [];
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    calls.push(opts.cwd);
+    writeFileSync(join(opts.cwd, "proof.txt"), "hello");
+    return cleanEnvelopeSpawn()([], opts);
+  };
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+
+  const outcome = await runner(PROBE_ENGINE, PIN);
+
+  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
+  expect(calls).toHaveLength(1);
+});
+
+test("buildAgenticProbeRunner: a hook that actually fires fails no-hook-fires", async () => {
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    const witness = witnessPathFromCwd(opts.cwd);
+    if (witness !== undefined) {
+      writeFileSync(witness, "fired\n");
+    }
+    return cleanEnvelopeSpawn()([], opts);
+  };
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+
+  const outcome = await runner(PROBE_ENGINE, PIN);
+
+  expect(outcome).toEqual({ ok: false, failedProbe: "no-hook-fires" });
+});
+
+test("buildAgenticProbeRunner: an envelope failure fails byte-identical even with an untouched worktree", async () => {
+  const spawn: AgenticSpawn = () =>
+    Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+
+  const outcome = await runner(PROBE_ENGINE, PIN);
+
+  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
 });

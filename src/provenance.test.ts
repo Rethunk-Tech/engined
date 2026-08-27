@@ -72,6 +72,25 @@ test("recordCall: model_reported and model_resident survive as distinct fields w
   expect(parsed.attempts[0].model_reported).not.toBe(parsed.attempts[0].model_resident);
 });
 
+test("recordCall: an agentic attempt's version equals the pin that was launched; a non-agentic attempt carries no version field", () => {
+  const { lines, write } = collectLines();
+  const record: CallRecord = {
+    chain: null,
+    requested: "claude",
+    attempts: [
+      { engine: "claude", model: "", ok: true, duration_ms: DURATION_A_MS, version: "1.2.3" },
+      { engine: "llama-a", model: "chat", ok: true, duration_ms: DURATION_B_MS },
+    ],
+    engine_used: "claude",
+  };
+
+  recordCall(record, write);
+
+  const parsed = JSON.parse(lines[0] ?? "");
+  expect(parsed.attempts[0].version).toBe("1.2.3");
+  expect(Object.hasOwn(parsed.attempts[1], "version")).toBe(false);
+});
+
 test("recordCall: each attempt carries its own duration_ms", () => {
   const { lines, write } = collectLines();
   const record: CallRecord = {
