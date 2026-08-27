@@ -45,9 +45,10 @@ idle_stop_seconds = 900
   # llama-server's own process flags. Whatever isn't first-class above lands
   # here untouched; a [[model]]'s own [model.args] wins over the same key.
   [engine.args]
-  parallel     = -1      # llama.cpp's auto (4 unified slots here). -np 1 measured
-                          # ~8% faster decode, but -np 2+ halves ctx-size per slot
-                          # by disabling --kv-unified -- not worth that footgun.
+  parallel     = -1      # llama.cpp's auto (4 unified slots here): 62.94 t/s decode,
+                          # versus 68.28 t/s at `-np 1 -kvu`. -np 2+ halves ctx-size
+                          # per slot by disabling --kv-unified -- not worth that
+                          # footgun. Full reasoning: engines/local-llama/spec.toml.
   ctx-size     = 32768    # floor for any model whose own [model.args] omits it.
   cache-type-k = "q8_0"
   cache-type-v = "q8_0"
@@ -75,8 +76,9 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
   [model.args]
   spec-type        = "draft-mtp"
   spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
-  spec-draft-n-max = 1    # measured fastest decode on this box for this model --
-                           # higher n traded acceptance rate for no speed gain here.
+  spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
+                           # acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
+                           # 22.30 at n=16. Full reasoning: engines/local-llama/spec.toml.
   ctx-size         = 32768
 
 # Embeddings live under the same per-role occupancy as chat/vision. Picked
