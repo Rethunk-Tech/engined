@@ -310,9 +310,16 @@ function buildExec(opts: BuildExecOptions): Exec {
  * triggers via `/models/load` (real b10354 contract, probed live: answers
  * `{success:true}`, never a "loaded" status) and confirms readiness via
  * `GET /v1/models`'s per-model `status.value` -- any other shape here loops
- * `loadAndWait` forever. `content` is the chat body returned once resident.
+ * `loadAndWait` forever. `content` is the chat body returned once resident;
+ * `chatStatus` lets a hop stand up cleanly (load/unload/readiness all real)
+ * while still answering the actual chat call with a failure, which is what
+ * distinguishes "upstream never reachable" from "upstream reachable but bad"
+ * for a regression that must exercise `classifyResult`'s real status check.
  */
-function fakeLlamaUpstream(content: string): (request: Request) => Response | Promise<Response> {
+function fakeLlamaUpstream(
+  content: string,
+  chatStatus = 200,
+): (request: Request) => Response | Promise<Response> {
   let lastLoadedModel: string | undefined;
   return async (request) => {
     const { pathname } = new URL(request.url);
@@ -334,7 +341,9 @@ function fakeLlamaUpstream(content: string): (request: Request) => Response | Pr
     if (pathname === "/models/unload") {
       return Response.json({ ok: true });
     }
-    return Response.json({ choices: [{ message: { content } }] });
+    return chatStatus >= 400
+      ? Response.json({ error: content }, { status: chatStatus })
+      : Response.json({ choices: [{ message: { content } }] });
   };
 }
 
@@ -381,6 +390,59 @@ test("a chain whose first hop is dead completes on the second, and provenance na
     const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
     expect(record.engine_used).toBe("good");
   } finally {
+    good.stop();
+    await door.registry.shutdown();
+  }
+});
+
+test("a streaming chain whose first hop 5xxs on the actual chat call advances to the second hop, and provenance names the second engine", async () => {
+  // Both hops stand up cleanly (load/unload/readiness all answer for real --
+  // this is not a connection failure); only the first hop's actual chat call
+  // fails. That isolates the streaming-proxy bug: `LlamaRouter.proxy` used to
+  // hand back an unconditional 200 the instant a streaming request arrived,
+  // before it had even contacted the upstream, so `classifyResult` never saw
+  // this 500 and treated the dead hop as the terminal, successful answer.
+  const dead = startFakeUpstream(fakeLlamaUpstream("boom", 500));
+  const good = startFakeUpstream(fakeLlamaUpstream("answered by good"));
+  const [, deadHostPort] = dead.base.split(":");
+  const [, goodPort] = good.base.split(":");
+
+  const exec = buildExec({
+    portByContainer: { "engined-dead": Number(deadHostPort), "engined-good": Number(goodPort) },
+  });
+  const config = baseConfig({
+    models: [
+      { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
+      { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
+    ],
+    engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
+    chains: { "chain-x": ["@/dead/m", "@/good/m"] },
+  });
+  const lines: string[] = [];
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { write: (line) => lines.push(line), llamaPresetHostPath: tempPresetPath() },
+  );
+
+  try {
+    const res = await door.fetch(
+      req("POST", "/v1/chat/completions", {
+        body: { model: "chain-x", stream: true, messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    const body = await res.text();
+
+    // Streaming stays streaming: the fix defers the 200 until upstream has
+    // actually answered rather than buffering, so status must still be real.
+    expect(res.status).toBe(200);
+    expect(body).toContain("answered by good");
+
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+    expect(record.engine_used).toBe("good");
+  } finally {
+    dead.stop();
     good.stop();
     await door.registry.shutdown();
   }

@@ -396,42 +396,22 @@ export class LlamaRouter {
    * request that is itself streaming -- see `wantsStream`.
    */
   /**
-   * Non-streaming requests are buffered so the returned `Response` can carry
-   * the upstream's real status: `runChain` advances on a 5xx and must not
-   * advance on a 4xx, and neither rule is reachable if every llama hop looks
-   * like 200 regardless of what llama-server actually said. Streaming (SSE)
-   * requests keep the eager, always-200 `Response` below — a streamed
-   * response cannot retroactively change its status line once bytes are
-   * already committed to the wire, and that is also the SSE convention: a
-   * mid-stream failure is signalled in-band, not via HTTP status.
+   * Both paths carry the upstream's real status: `runChain` advances on a
+   * 5xx and must not advance on a 4xx, and neither rule is reachable if a
+   * hop's `Response` is committed before the upstream has actually answered.
+   * Streaming (SSE) still streams -- `fetchStreamed` awaits start/lease/fetch
+   * first (mirroring `fetchBuffered`'s ordering) and only then constructs the
+   * `Response`, piping the already-open upstream body through rather than
+   * buffering it.
    */
   proxy(model: ModelEntry, path: string, init: RequestInit): Promise<Response> {
     const { role } = model;
     if (role === undefined) {
       throw new Error(`model "${model.id}" has no role`);
     }
-    if (!wantsStream(init)) {
-      return this.fetchBuffered(role, model.id, path, init);
-    }
-
-    const state = this.roleState(role);
-    const emitWarming = !(state.queue.length === 0 && state.activeModelId === model.id);
-    const stream = new ReadableStream<Uint8Array>({
-      start: async (controller) => {
-        try {
-          if (emitWarming) {
-            controller.enqueue(WARMING_COMMENT);
-          }
-          await this.runLease({ role, modelId: model.id, path, init }, controller);
-          controller.close();
-        } catch (err) {
-          controller.error(err instanceof Error ? err : new Error(String(err)));
-        }
-      },
-    });
-    return Promise.resolve(
-      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
-    );
+    return wantsStream(init)
+      ? this.fetchStreamed(role, model.id, path, init)
+      : this.fetchBuffered(role, model.id, path, init);
   }
 
   /**
@@ -440,41 +420,28 @@ export class LlamaRouter {
    * (start, acquire, release, idle-arm) is written, so the streaming and
    * buffered proxy paths cannot drift out of sync with each other.
    */
-  private async withLease<T>(role: Role, modelId: string, fn: () => Promise<T>): Promise<T> {
+  /** The acquire half of a lease. Paired with `finishLease`, which every path must call exactly once however it ends. */
+  private async beginLease(role: Role, modelId: string): Promise<void> {
     await this.ensureStarted();
     await this.acquireLease(role, modelId);
     this.totalActive++;
-    try {
-      return await fn();
-    } finally {
-      this.totalActive--;
-      this.releaseLease(role);
-      if (this.totalActive === 0) {
-        this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds);
-      }
+  }
+
+  private finishLease(role: Role): void {
+    this.totalActive--;
+    this.releaseLease(role);
+    if (this.totalActive === 0) {
+      this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds);
     }
   }
 
-  /** Holds this role's lease for exactly one response: taken before the first byte, released when it ends or fails. */
-  private async runLease(
-    req: { role: Role; modelId: string; path: string; init: RequestInit },
-    controller: ReadableStreamDefaultController<Uint8Array>,
-  ): Promise<void> {
-    const { role, modelId, path, init } = req;
-    await this.withLease(role, modelId, async () => {
-      const upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
-      const reader = upstream.body?.getReader();
-      if (!reader) {
-        return;
-      }
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          return;
-        }
-        controller.enqueue(value);
-      }
-    });
+  private async withLease<T>(role: Role, modelId: string, fn: () => Promise<T>): Promise<T> {
+    await this.beginLease(role, modelId);
+    try {
+      return await fn();
+    } finally {
+      this.finishLease(role);
+    }
   }
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
@@ -488,6 +455,81 @@ export class LlamaRouter {
       const upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
       const body = await upstream.arrayBuffer();
       return new Response(body, { status: upstream.status, headers: upstream.headers });
+    });
+  }
+
+  /**
+   * Mirrors `fetchBuffered`'s ordering so a streaming request commits to a
+   * hop only once the upstream has actually answered: start/lease/fetch all
+   * run and are awaited before the `Response` (and its real status) is
+   * built, so `runChain` sees a genuine 5xx/4xx instead of an unconditional
+   * 200. Only the body stays lazy -- piped chunk by chunk from the
+   * already-open upstream reader -- so a streaming request never buffers its
+   * answer. `: warming` is still emitted (the caller's cold-swap wait ended
+   * the moment `beginLease` resolved, before this ever runs), but it can no
+   * longer be what commits the response: that already happened above. The
+   * lease itself is released only once the pipe ends, fails, or is
+   * cancelled -- never at `beginLease` -- matching `withLease`'s contract.
+   */
+  private async fetchStreamed(
+    role: Role,
+    modelId: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    const state = this.roleState(role);
+    const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId);
+    await this.beginLease(role, modelId);
+    let upstream: Response;
+    try {
+      upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
+    } catch (err) {
+      this.finishLease(role);
+      throw err;
+    }
+    const reader = upstream.body?.getReader();
+    let released = false;
+    const release = () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.finishLease(role);
+    };
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        if (emitWarming) {
+          controller.enqueue(WARMING_COMMENT);
+        }
+        if (!reader) {
+          controller.close();
+          release();
+        }
+      },
+      pull: async (controller) => {
+        if (!reader) {
+          return;
+        }
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            release();
+            return;
+          }
+          controller.enqueue(value);
+        } catch (err) {
+          controller.error(err instanceof Error ? err : new Error(String(err)));
+          release();
+        }
+      },
+      cancel: () => {
+        release();
+      },
+    });
+    return new Response(stream, {
+      status: upstream.status,
+      headers: { "content-type": "text/event-stream" },
     });
   }
 }
