@@ -235,7 +235,7 @@ describe("buildLlamaSpec / buildRunArgs", () => {
   });
 
   test("engine args reach the preset, never the command line that would override it", () => {
-    const e = engine({ models_max: 3, args: { "ctx-size": 32768, parallel: -1 } });
+    const e = engine({ models_max: 3, args: { "ctx-size": 32_768, parallel: -1 } });
     const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
     const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
 
