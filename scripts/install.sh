@@ -54,12 +54,11 @@ resolve_paths() {
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
 }
 
-# The %h rewrite in to_unit_path is the whole guarantee that the install and
-# state dirs stay user-independent in the unit; this is what catches a future
-# template edit that bypasses it before the file ever lands on disk. BUN_PATH
-# and BUNX_PATH are deliberately excluded -- they're resolved absolute binary
-# paths and are allowed to live under $HOME, so checking the whole rendered
-# file would false-positive on every install where bun does.
+# The %h rewrite in to_unit_path is the whole guarantee that no path in the
+# generated unit names a user; this is what catches a future template edit that
+# bypasses it before the file ever lands on disk. It covers the resolved bun
+# binaries too: bun installs under $HOME by default, and systemd expands %h in
+# ExecStart's program position exactly as it does in ReadWritePaths.
 assert_unit_names_no_user() {
   local out="$1" user exec_line daemon_path
   user="$(id -un)"
@@ -77,9 +76,8 @@ assert_unit_names_no_user() {
     exit 1
   fi
 
-  if grep -E '^(ReadWritePaths|Environment=BUN_INSTALL|Environment=BUN_TMPDIR)=' "$out" |
-    grep -qE -- "$HOME|$user"; then
-    echo "install.sh: ReadWritePaths/BUN_INSTALL/BUN_TMPDIR name \$HOME or the user, refusing" >&2
+  if grep -qE -- "$HOME|$user" "$out"; then
+    echo "install.sh: the rendered unit names \$HOME or the user, refusing" >&2
     exit 1
   fi
 }
@@ -90,8 +88,8 @@ render_unit_file() {
   : "${BUNX_PATH:?BUNX_PATH must be resolved before rendering}"
 
   sed \
-    -e "s|@BUN_PATH@|$BUN_PATH|g" \
-    -e "s|@BUNX_PATH@|$BUNX_PATH|g" \
+    -e "s|@BUN_PATH@|$(to_unit_path "$BUN_PATH")|g" \
+    -e "s|@BUNX_PATH@|$(to_unit_path "$BUNX_PATH")|g" \
     -e "s|@INSTALL_DIR@|$UNIT_INSTALL_DIR|g" \
     -e "s|@STATE_DIR@|$UNIT_STATE_DIR|g" \
     "$REPO_ROOT/scripts/engined.service.in" >"$out"
