@@ -207,7 +207,7 @@ Each guide describes a real repository that is on disk. Anchors are
 drift. A claim about a consumer's behaviour is checkable against that consumer's
 source, so check it rather than reasoning from the guide.
 
-## Two rules that are easy to get wrong
+## Three rules that are easy to get wrong
 
 **No port is written down for anything engined starts.** The container side comes
 from the image's `EXPOSE`, the host side from Docker. The door is the sole
@@ -216,3 +216,15 @@ exception, plus a remote upstream's `base_url`.
 **The agentic guarantee is integrity, not confidentiality.** An agentic call
 cannot change a caller's worktree. It can read anything this uid can open. Any
 wording implying `workdir` bounds reads is wrong.
+
+**The unit's read-only sandbox does not survive docker, and never write code
+that assumes it does.** `docker run` writes anywhere as root: docker-group
+access is root-equivalent, and the daemon whose core function is `docker run`
+holds that permanently, regardless of `ProtectSystem=strict` on the unit that
+asked it to. The sandbox bounds engined's own bugs and its non-container
+children — real, and much narrower than "the filesystem is read-only".
+Anything that can influence a container definition sits outside it, which is
+why a `spec_dir` override is a privilege decision, not a readability one: a
+spec directory is trusted code, on the same footing as `main.js`. See
+`scripts/engined.service.in`'s own comment for the measurement this rests
+on.
