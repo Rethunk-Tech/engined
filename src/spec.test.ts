@@ -48,16 +48,20 @@ describe("shipped specs", () => {
     expect(loaded.spec.command).toEqual([BUNX, "@anthropic-ai/claude-code@1.2.3", "-p"]);
   });
 
-  test("whisper as shipped has no readiness probe: fatal, not a silent pass", () => {
-    // engines/whisper/spec.toml (committed verbatim from TODO.md) carries no
-    // [ready] table, so it cannot satisfy the readiness-is-fatal rule below.
-    // This is the shipped file as designed; see report for the flagged gap.
-    expect(() =>
-      loadSpec(engine({ id: "whisper", models_dir: "/data/models" }), {
-        enginesRoot: ENGINES_ROOT,
-        bunx: BUNX,
-      }),
-    ).toThrow("readiness probe");
+  test("whisper as shipped resolves clean, and keeps its POST probe and accept range", () => {
+    // A probe declared in a spec and dropped by the loader is the silent
+    // failure this field exists to prevent, so assert the parsed values rather
+    // than that loading succeeded.
+    const loaded = loadSpec(engine({ id: "whisper", models_dir: "/data/models" }), {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+    });
+    expect(loaded.spec.kind).toBe("stt");
+    if (loaded.spec.kind !== "agentic-cli") {
+      expect(loaded.spec.ready.path).toBe("/v1/audio/transcriptions");
+      expect(loaded.spec.ready.method).toBe("POST");
+      expect(loaded.spec.ready.accept).toEqual({ min: 200, max: 499 });
+    }
   });
 });
 

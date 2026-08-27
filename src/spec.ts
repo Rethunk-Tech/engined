@@ -225,7 +225,21 @@ function parseReady(raw: unknown, file: string): ReadyProbe {
   if (typeof r.path !== "string" || typeof r.status !== "number") {
     throw new ParseError('[ready] needs a string "path" and numeric "status"', file);
   }
-  return { path: r.path, status: r.status };
+  const probe: ReadyProbe = { path: r.path, status: r.status };
+  if (r.method !== undefined) {
+    if (r.method !== "GET" && r.method !== "POST") {
+      throw new ParseError('[ready] "method" must be "GET" or "POST"', file);
+    }
+    probe.method = r.method;
+  }
+  if (r.accept !== undefined) {
+    const accept = r.accept as Record<string, unknown>;
+    if (typeof accept.min !== "number" || typeof accept.max !== "number") {
+      throw new ParseError('[ready.accept] needs numeric "min" and "max"', file);
+    }
+    probe.accept = { min: accept.min, max: accept.max };
+  }
+  return probe;
 }
 
 function parseVolumes(raw: unknown, file: string): Volume[] {
