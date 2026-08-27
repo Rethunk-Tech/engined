@@ -292,15 +292,13 @@ describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
  * downloads. What is under test is the swap machinery and the args
  * substitution, not this particular GGUF's content.
  *
- * The varying flag is `spec-draft-p-min`, not `ctx-size`: TODO.md's own
- * "LIVE, UNRESOLVED" trap proves `ctx-size` in `[model.args]` is silently
- * ignored in favour of the engine-level one, so asserting on it here would
- * pin a test to the one flag documented not to work. `spec-type` +
- * `spec-draft-p-min` are the two proven-reaching-argv per-model keys (see
- * `engines/local-llama/spec.toml`), and this exact GGUF is already MTP-
- * capable and already runs with `spec-type = "draft-mtp"` in production
- * (`config.example.toml`'s real `ornith` model), so reusing it here proves
- * the swap machinery against a flag that can actually land.
+ * The varying flag is `spec-draft-p-min` because it is visible in the
+ * child's argv under a name the router rewrites (`--draft-p-min`), so
+ * asserting on it catches a preset that reached the child by luck rather
+ * than through the substitution under test. This exact GGUF is already
+ * MTP-capable and already runs with `spec-type = "draft-mtp"` in production
+ * (`config.example.toml`'s real `ornith` model), so the flag lands here
+ * without a second multi-gigabyte download.
  */
 const SWAP_PMIN_A = 0.15;
 const SWAP_PMIN_B = 0.35;
