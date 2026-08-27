@@ -6,14 +6,23 @@
  * sagaforge itself bypasses this file entirely and reads the native NDJSON
  * straight from the engine's `private_url`; that path is accepted, not
  * something this module needs to guard against.
+ *
+ * `POST /v1/audio/transcriptions`: whisper's own `--inference-path` is the
+ * OpenAI path itself, so the request needs no translation — only
+ * `response_format` decides whether the reply is unwrapped to bare text or
+ * passed through as JSON. `language` is a per-request field that reaches the
+ * engine on the wire; it never touches the shipped spec.
  */
 
 const WAV_CONTENT_TYPE = "audio/wav";
+const TEXT_CONTENT_TYPE = "text/plain";
 const JSON_CONTENT_TYPE = "application/json";
 const STATUS_BAD_REQUEST = 400;
 const STATUS_OK = 200;
 const STATUS_UNAVAILABLE = 503;
 const STATUS_BAD_UPSTREAM = 502;
+/** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
+const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
 
 export interface SpeechRequestBody {
   /** The engine id: a TTS engine has no separate model concept to dispatch through. */
@@ -25,9 +34,19 @@ export interface SpeechRequestBody {
 export interface DoorResponse {
   status: number;
   contentType: string;
-  /** Set on every non-2xx and never on success: the OpenAI audio body is bytes, not JSON. */
+  /** A JSON error body, a transcription's bare-text/srt/vtt body, or its parsed JSON — never set on a speech success, which is `bytes`. */
   body?: unknown;
   bytes?: Uint8Array;
+}
+
+export interface TranscriptionRequestBody {
+  /** The engine id: an STT engine has no separate model concept to dispatch through. */
+  model: string;
+  /** Raw audio bytes already read from the multipart upload. */
+  file: Uint8Array<ArrayBuffer>;
+  /** Reaches the engine on the wire, per request; never written into its spec. */
+  language?: string;
+  response_format?: string;
 }
 
 /** Whatever starts an engine on demand and reports where it landed — `EngineRegistry.start`, in production. */
@@ -88,4 +107,47 @@ export async function handleSpeech(
   }
 
   return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: Buffer.from(audio, "base64") };
+}
+
+export async function handleTranscription(
+  req: TranscriptionRequestBody,
+  start: EngineStart,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DoorResponse> {
+  if (!req.model) {
+    return errorResponse(STATUS_BAD_REQUEST, "model is required");
+  }
+  if (req.file.length === 0) {
+    return errorResponse(STATUS_BAD_REQUEST, "file is required");
+  }
+
+  const engine = await start(req.model);
+  if (engine.private_url === null) {
+    return errorResponse(STATUS_UNAVAILABLE, `${req.model} is not available`);
+  }
+
+  const form = new FormData();
+  form.append("file", new Blob([req.file]), "audio");
+  if (req.language !== undefined) {
+    form.append("language", req.language);
+  }
+  if (req.response_format !== undefined) {
+    form.append("response_format", req.response_format);
+  }
+
+  const res = await fetchImpl(`http://${engine.private_url}/v1/audio/transcriptions`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    return errorResponse(
+      STATUS_BAD_UPSTREAM,
+      `${req.model}: /v1/audio/transcriptions returned ${res.status}`,
+    );
+  }
+
+  if (req.response_format !== undefined && TEXT_RESPONSE_FORMATS.has(req.response_format)) {
+    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: await res.text() };
+  }
+  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: await res.json() };
 }

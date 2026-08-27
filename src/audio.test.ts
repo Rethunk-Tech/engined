@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { handleSpeech } from "./audio.ts";
+import { handleSpeech, handleTranscription } from "./audio.ts";
 import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult } from "./docker.ts";
 import { loadSpec } from "./spec.ts";
 import type { EngineEntry } from "./types.ts";
@@ -26,6 +26,21 @@ function loadChatterboxSpec() {
   }
   return loaded.spec;
 }
+
+function loadWhisperSpec() {
+  const entry: EngineEntry = { id: "whisper", egress: "none", args: {} };
+  const loaded = loadSpec(entry, {
+    enginesRoot: join(import.meta.dir, "..", "engines"),
+    bunx: "/opt/engined/state/bunx",
+  });
+  if (!isContainerSpec(loaded.spec)) {
+    throw new Error("whisper spec.toml did not parse as a container spec");
+  }
+  return loaded.spec;
+}
+
+/** `docker image inspect`, one exposed port -- a synthetic shape for the fake exec, not a real capture. */
+const WHISPER_INSPECT = JSON.stringify([{ Config: { ExposedPorts: { "8080/tcp": {} } } }]);
 
 /** A real `Bun.serve` fake chatterbox, emitting real NDJSON: one frame with `audio`, alignment null. */
 function startFakeChatterbox(): { base: string; stop: () => void } {
@@ -117,4 +132,114 @@ test("a request against a stopped engine starts it on demand through the real do
 
   expect(runLog.length).toBe(1);
   expect(result.status).toBe(200);
+});
+
+/** A real `Bun.serve` fake whisper: echoes back the multipart fields it received. */
+function startFakeWhisper(): {
+  base: string;
+  requests: Array<{ language?: string; response_format?: string }>;
+  stop: () => void;
+} {
+  const requests: Array<{ language?: string; response_format?: string }> = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const form = await req.formData();
+      const language = form.get("language");
+      const responseFormat = form.get("response_format");
+      requests.push({
+        language: typeof language === "string" ? language : undefined,
+        response_format: typeof responseFormat === "string" ? responseFormat : undefined,
+      });
+      if (responseFormat === "text") {
+        return new Response("hello world", { headers: { "content-type": "text/plain" } });
+      }
+      return Response.json({ text: "hello world" });
+    },
+  });
+  return { base: `127.0.0.1:${server.port}`, requests, stop: () => server.stop(true) };
+}
+
+const SAMPLE_AUDIO_BYTES = new Uint8Array([1, 2, 3, 4]);
+
+/** A `fetchImpl` stand-in for "must not have been called" assertions. */
+function unreachableFetch(message: string): typeof fetch {
+  return (() => {
+    throw new Error(message);
+  }) as unknown as typeof fetch;
+}
+
+test("response_format: text on transcriptions returns bare text, not a JSON envelope", async () => {
+  const fake = startFakeWhisper();
+
+  const result = await handleTranscription(
+    { model: "whisper", file: SAMPLE_AUDIO_BYTES, response_format: "text" },
+    async () => ({ private_url: fake.base }),
+  );
+  fake.stop();
+
+  expect(result.contentType).toBe("text/plain");
+  expect(result.body).toBe("hello world");
+  expect(() => JSON.parse(result.body as string)).toThrow();
+});
+
+test("a per-request language reaches the engine, asserted against the fake upstream's recorded request", async () => {
+  const fake = startFakeWhisper();
+
+  await handleTranscription(
+    { model: "whisper", file: SAMPLE_AUDIO_BYTES, language: "fr" },
+    async () => ({ private_url: fake.base }),
+  );
+  fake.stop();
+
+  expect(fake.requests).toHaveLength(1);
+  expect(fake.requests[0]?.language).toBe("fr");
+});
+
+test("with no whisper image present, transcriptions returns 503 naming it and never calls the upstream", async () => {
+  const result = await handleTranscription(
+    { model: "whisper", file: SAMPLE_AUDIO_BYTES },
+    async () => ({ private_url: null }),
+    unreachableFetch("must not fetch an engine reported unavailable"),
+  );
+
+  expect(result.status).toBe(503);
+  expect(JSON.stringify(result.body)).toContain("whisper");
+});
+
+test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
+  const spec = loadWhisperSpec();
+  const realContainerRuns: string[][] = [];
+
+  const exec: Exec = (args): Promise<ExecResult> => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: WHISPER_INSPECT, stderr: "", exitCode: 0 });
+    }
+    // The artifact-check container: fails, simulating the named volume with
+    // the image present but the model file still missing from it.
+    if (argv[0] === "run" && argv[1] === "--rm") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+    }
+    // The real whisper container: must never be reached from this state.
+    if (argv[0] === "run" && argv[1] === "-d") {
+      realContainerRuns.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+  const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
+
+  const result = await handleTranscription(
+    { model: "whisper", file: SAMPLE_AUDIO_BYTES },
+    (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
+    unreachableFetch("must not fetch an engine that never started"),
+  );
+
+  expect(result.status).toBe(503);
+  expect(realContainerRuns.length).toBe(0);
+  const status = lifecycle.getStatus("whisper");
+  expect(status.state).toBe("unavailable");
+  expect(status.state).not.toBe("installed");
+  expect(status.fix).toBe(spec.artifacts[0]?.obtain);
 });
