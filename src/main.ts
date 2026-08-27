@@ -978,25 +978,29 @@ export function bindDualFamily(
 }
 
 if (import.meta.main) {
+  // Set by the --user unit; a bare `bunx` is only reached in a working-tree dev run.
+  const bunx = process.env.ENGINED_BUNX ?? "bunx";
   let startupConfig: Config;
+  let door: Door;
+  // `createDoor` loads every engine spec eagerly, so a `ParseError` from an
+  // unresolved placeholder lands here and not at the first request. It shares
+  // the config path's exit code because a restart fixes neither, and escaping
+  // this block uncaught would exit 1 and put the unit in a restart loop.
   try {
     startupConfig = loadConfig();
+    door = createDoor(startupConfig, {
+      enginesRoot: `${installDir()}/engines`,
+      bunx,
+      // Only production wiring: a real probe run is a real billed call to
+      // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
+      // from firing per request or per status poll -- it only ever invokes
+      // the runner when the configured pin differs from the one last proved.
+      agenticProbeRunner: buildAgenticProbeRunner(bunx),
+    });
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(FatalError.EXIT_CODE);
   }
-
-  // Set by the --user unit; a bare `bunx` is only reached in a working-tree dev run.
-  const bunx = process.env.ENGINED_BUNX ?? "bunx";
-  const door = createDoor(startupConfig, {
-    enginesRoot: `${installDir()}/engines`,
-    bunx,
-    // Only production wiring: a real probe run is a real billed call to
-    // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
-    // from firing per request or per status poll -- it only ever invokes
-    // the runner when the configured pin differs from the one last proved.
-    agenticProbeRunner: buildAgenticProbeRunner(bunx),
-  });
 
   let bound: { v4: ReturnType<typeof Bun.serve>; v6: ReturnType<typeof Bun.serve> };
   try {
