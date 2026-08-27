@@ -47,6 +47,22 @@ docs/migrations/*.md`, or `gate run docs`. It catches edit damage a reader misse
 tail to a partial revision, an unclosed fence, a term declared absent in one
 section and still required by an acceptance criterion in another.
 
+## Cutting a consumer over
+
+Nothing is committed to a consumer's repository until `engined` carries enough
+feature to replace what that consumer runs today, and the operator says to turn
+it on. Reading a sibling project to migrate a definition **into** here is
+ordinary work; landing a cutover **there** is not, because a consumer pointed at
+a daemon that cannot yet serve it is a broken consumer.
+
+`Rethunk-Tech/project-register` is off limits entirely — someone else is working
+in it.
+
+The two consumers that each start their own `llama.cpp` today, `sagaforge-ts`
+and `paper-trail`, are the reason this service exists. Neither may be cut over
+while it still starts one: ending the duplicate ownership is the point, and a
+consumer that keeps its own runner has not been cut over, only pointed twice.
+
 ## Editing the migration guides
 
 Each guide describes a real repository that is on disk. Anchors are
