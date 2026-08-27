@@ -23,12 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # uv owns the interpreter, not the distro: see engines/chatterbox/Dockerfile
 # for why the base image's system python3 (Ubuntu 24.04's 3.12) is not a
-# deliberate floor. Fleet floor is >=3.12, fleet standard is 3.14. Minor-only
-# so uv resolves the newest 3.14.x patch rather than freezing one that goes
-# stale.
+# deliberate floor. 3.12 rather than the fleet's 3.14 because kokoro caps
+# itself below it: every release from 0.8.1 through 0.9.4 declares
+# Requires-Python >=3.10,<3.13, and upstream HEAD is still <3.14, so no
+# published release installs on a newer interpreter at all. 3.12 is the only
+# version satisfying both that ceiling and the fleet's >=3.12 floor.
+# Minor-only so uv resolves the newest 3.12.x patch rather than freezing one
+# that goes stale.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-RUN uv python install 3.14
-RUN uv venv --seed --python 3.14 /opt/venv
+RUN uv python install 3.12
+RUN uv venv --seed --python 3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # torch only -- no torchvision/torchaudio, kokoro doesn't need them.
