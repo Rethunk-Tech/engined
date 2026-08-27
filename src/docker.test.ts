@@ -414,6 +414,81 @@ test("readiness honours a POST probe and an accept range, not just an exact GET 
   expect(methods).toEqual(["POST"]);
 });
 
+test("start: a stale container by this name is removed and recreated from the current spec, never resumed with docker start", async () => {
+  const calls: string[][] = [];
+  const DISTINGUISHING_ARG = "--ctx-size=8192";
+  const currentSpec: ContainerSpec = { ...SPEC, command: [DISTINGUISHING_ARG] };
+  const hostPort = 40_020;
+
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    calls.push(argv);
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "rm") {
+      // A stopped container by this name existed and is removed.
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "run") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  const status = await lifecycle.start("stale", currentSpec, START_OPTS);
+
+  expect(status.state).toBe("running");
+  expect(calls.some((c) => c[0] === "rm" && c[1] === "engined-stale")).toBe(true);
+  expect(calls.some((c) => c[0] === "start")).toBe(false);
+  const runCall = calls.find((c) => c[0] === "run" && c.includes("--name"));
+  expect(runCall).toContain(DISTINGUISHING_ARG);
+});
+
+test("adopt: a running container is adopted in place, never removed or recreated", async () => {
+  const calls: string[][] = [];
+  const hostPort = 40_021;
+
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    calls.push(argv);
+    if (argv[0] === "ps") {
+      return Promise.resolve({ stdout: "engined-live\n", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  await lifecycle.adopt(new Map([["live", { spec: SPEC, idleStopSeconds: IDLE_STOP_SECONDS }]]));
+
+  // Adopted in place: port re-read from the live container, nothing torn down or rebuilt.
+  expect(lifecycle.getStatus("live")).toEqual({
+    state: "running",
+    private_url: `127.0.0.1:${hostPort}`,
+    fix: undefined,
+    last_error: undefined,
+  });
+  expect(calls.some((c) => c[0] === "rm")).toBe(false);
+  expect(calls.some((c) => c[0] === "run")).toBe(false);
+  expect(calls.some((c) => c[0] === "start")).toBe(false);
+
+  // Adoption also restarts the idle timer: with nothing acquiring the lease,
+  // the adopted container is stopped on its own once idleStopSeconds elapses.
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  expect(calls.some((c) => c[0] === "stop" && c[1] === "engined-live")).toBe(true);
+  expect(lifecycle.getStatus("live").state).toBe("installed");
+});
+
 test("a 404 never counts as ready, even inside the accept range", async () => {
   const NOT_FOUND = 404;
   const ACCEPT_MIN = 200;

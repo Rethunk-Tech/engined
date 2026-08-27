@@ -385,15 +385,18 @@ export class DockerLifecycle {
     };
   }
 
+  /**
+   * A container by this name is never resumed as-is: its creation-time args
+   * can predate the spec now in force. Remove whatever is there (a no-op
+   * error if nothing is) and create fresh, so what runs always matches the
+   * current spec.
+   */
   private async runContainer(
     containerName: string,
     spec: ContainerSpec,
     containerPort: number,
   ): Promise<Result> {
-    const started = await this.exec(["start", containerName]);
-    if (started.exitCode === 0) {
-      return { ok: true };
-    }
+    await this.exec(["rm", containerName]);
     const run = await this.exec(buildRunArgs(containerName, spec, containerPort));
     if (run.exitCode !== 0) {
       return { ok: false, error: run.stderr.trim() || `docker run failed for ${containerName}` };
