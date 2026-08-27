@@ -1,0 +1,208 @@
+/**
+ * A chain is an ordered array of already-qualified `@/<engine>/<model>` hops.
+ * Config parse guarantees the form; this file only decides whether to move
+ * to the next hop and reports every attempt through `src/provenance.ts`.
+ */
+
+import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
+import type { Egress } from "./types.ts";
+
+export interface HopResult {
+  status: number;
+  body?: unknown;
+  stream?: ReadableStream;
+  startedBytes: boolean;
+}
+
+export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
+
+export interface RunChainOptions {
+  /** The named chain this hop list came from, or null for a single unqualified hop. */
+  chain: string | null;
+  /** The model id the caller actually asked for — what provenance calls `requested`. */
+  requested: string;
+  localOnly: boolean;
+  /** The only input `local_only` reads. */
+  egressOf: (engine: string) => Egress;
+  /** Per attempt, not per request — a two-engine chain bounded per request could run twice as long as intended. */
+  timeoutMs: number;
+  exec: HopExec;
+  /** Injected so a test can capture the provenance line instead of reading real stdout. */
+  write?: (line: string) => void;
+}
+
+export interface ChainResult {
+  status: number;
+  body?: unknown;
+  stream?: ReadableStream;
+  engineUsed: string | null;
+}
+
+const HOP_PREFIX = /^@\//;
+const HTTP_CLIENT_ERROR_MIN = 400;
+const HTTP_SERVER_ERROR_MIN = 500;
+const HTTP_SERVER_ERROR_MAX = 600;
+
+function parseHop(hop: string): { engine: string; model: string } {
+  const [engine, ...rest] = hop.replace(HOP_PREFIX, "").split("/");
+  return { engine: engine ?? hop, model: rest.join("/") };
+}
+
+function bodyIsEmpty(body: unknown): boolean {
+  return body === undefined || body === "";
+}
+
+/** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body; 5xx and empty body always do. */
+function classifyResult(result: HopResult): { advance: boolean; ok: boolean; failure?: string } {
+  if (result.status >= HTTP_SERVER_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MAX) {
+    return { advance: true, ok: false, failure: `http ${result.status}` };
+  }
+  if (result.status >= HTTP_CLIENT_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MIN) {
+    return { advance: false, ok: false, failure: `http ${result.status}` };
+  }
+  if (!result.stream && bodyIsEmpty(result.body)) {
+    return { advance: true, ok: false, failure: "empty body" };
+  }
+  return { advance: false, ok: true };
+}
+
+/** Forwards chunks unchanged; a read that throws mid-body reports the failure instead of restarting the prompt elsewhere. */
+function wrapStream(
+  source: ReadableStream,
+  onDone: (ok: boolean, failure?: string) => void,
+): ReadableStream {
+  const reader = source.getReader();
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          onDone(true);
+          return;
+        }
+        controller.enqueue(value);
+      } catch (err) {
+        controller.error(err);
+        onDone(false, err instanceof Error ? err.message : String(err));
+      }
+    },
+    cancel(reason) {
+      reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+/** Truncates after the last local hop. A chain holding *a* local hop is not a local chain — everything past that point is never attempted. */
+function effectiveHops(hops: string[], opts: RunChainOptions): string[] | null {
+  if (!opts.localOnly) {
+    return hops;
+  }
+  let lastLocal = -1;
+  for (const [i, hop] of hops.entries()) {
+    if (opts.egressOf(parseHop(hop).engine) === "none") {
+      lastLocal = i;
+    }
+  }
+  return lastLocal === -1 ? null : hops.slice(0, lastLocal + 1);
+}
+
+function emit(opts: RunChainOptions, attempts: Attempt[], engineUsed: string | null): void {
+  const record: CallRecord = {
+    chain: opts.chain,
+    requested: opts.requested,
+    attempts,
+    engine_used: engineUsed,
+  };
+  recordCall(record, opts.write);
+}
+
+interface HopOutcome {
+  attempt: Attempt;
+  result?: HopResult;
+  advance: boolean;
+}
+
+/** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
+async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
+  const { engine, model } = parseHop(hop);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  const start = Date.now();
+  try {
+    const result = await opts.exec(hop, controller.signal);
+    clearTimeout(timer);
+    const outcome = classifyResult(result);
+    return {
+      attempt: {
+        engine,
+        model,
+        ok: outcome.ok,
+        failure: outcome.failure,
+        duration_ms: Date.now() - start,
+      },
+      result,
+      advance: outcome.advance,
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    const failure = controller.signal.aborted
+      ? "timeout"
+      : `connection failed: ${err instanceof Error ? err.message : String(err)}`;
+    return {
+      attempt: { engine, model, ok: false, failure, duration_ms: Date.now() - start },
+      advance: true,
+    };
+  }
+}
+
+/** Commits to a hop as the answer. A streaming result defers its provenance line until the stream ends, so a mid-body death still lands as that attempt's failure. */
+function finalizeTerminal(
+  attempt: Attempt,
+  result: HopResult,
+  attempts: Attempt[],
+  opts: RunChainOptions,
+): ChainResult {
+  const { engine } = attempt;
+  if (!result.stream) {
+    emit(opts, attempts, engine);
+    return { status: result.status, body: result.body, engineUsed: engine };
+  }
+  const stream = wrapStream(result.stream, (ok, streamFailure) => {
+    if (!ok) {
+      attempt.ok = false;
+      attempt.failure = streamFailure ?? "stream ended before completion";
+    }
+    emit(opts, attempts, engine);
+  });
+  return { status: result.status, body: result.body, stream, engineUsed: engine };
+}
+
+export async function runChain(hops: string[], opts: RunChainOptions): Promise<ChainResult> {
+  const truncated = effectiveHops(hops, opts);
+  if (truncated === null) {
+    emit(opts, [], null);
+    return {
+      status: 400,
+      body: { error: "local_only: true but no hop in this chain is local" },
+      engineUsed: null,
+    };
+  }
+
+  const attempts: Attempt[] = [];
+  for (const hop of truncated) {
+    const outcome = await runOneHop(hop, opts);
+    attempts.push(outcome.attempt);
+    if (outcome.advance) {
+      continue;
+    }
+    return finalizeTerminal(outcome.attempt, outcome.result as HopResult, attempts, opts);
+  }
+
+  emit(opts, attempts, null);
+  return {
+    status: 503,
+    body: { error: "every engine in this chain failed", attempts },
+    engineUsed: null,
+  };
+}
