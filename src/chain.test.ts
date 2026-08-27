@@ -159,6 +159,27 @@ test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
   expect(up.requestLog).not.toContain("unused");
 });
 
+test("an envelope failure on hop 1 does not advance, even carrying a 5xx status: hop 2's own call log stays empty", async () => {
+  const hopCalls: string[] = [];
+  const exec: HopExec = (hop) => {
+    hopCalls.push(engineOf(hop));
+    if (engineOf(hop) === "agentic") {
+      return Promise.resolve({
+        status: 502,
+        body: { error: "agentic envelope failure: api_error" },
+        startedBytes: false,
+        envelopeFailure: true,
+      });
+    }
+    return Promise.resolve({ status: 200, body: "should never be seen", startedBytes: false });
+  };
+
+  const result = await runChain(["@/agentic/model", "@/unused/model"], baseOpts({ exec }));
+
+  expect(result.status).toBe(502);
+  expect(hopCalls).toEqual(["agentic"]);
+});
+
 test("a 5xx, a connection failure, and an empty body each advance to the next hop", async () => {
   const up = startFakeUpstream({
     servererr: { status: 500, body: "boom", contentType: "text/plain" },

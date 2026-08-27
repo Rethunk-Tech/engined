@@ -12,6 +12,13 @@ export interface HopResult {
   body?: unknown;
   stream?: ReadableStream;
   startedBytes: boolean;
+  /**
+   * Set only by an agentic hop whose envelope itself failed (`RunAgenticResult.envelopeFailure`).
+   * Neither a 4xx nor an ordinary 5xx: it never advances a chain regardless of
+   * `status`, because the failure is proven, not merely a transport error a
+   * retry against the next hop might route around.
+   */
+  envelopeFailure?: boolean;
 }
 
 export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
@@ -52,8 +59,11 @@ function bodyIsEmpty(body: unknown): boolean {
   return body === undefined || body === "";
 }
 
-/** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body; 5xx and empty body always do. */
+/** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body; 5xx and empty body always do — except an envelope failure, which never advances regardless of status. */
 function classifyResult(result: HopResult): { advance: boolean; ok: boolean; failure?: string } {
+  if (result.envelopeFailure) {
+    return { advance: false, ok: false, failure: `http ${result.status}` };
+  }
   if (result.status >= HTTP_SERVER_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MAX) {
     return { advance: true, ok: false, failure: `http ${result.status}` };
   }
