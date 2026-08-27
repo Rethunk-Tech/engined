@@ -75,6 +75,20 @@ const KIND_SERVES: Record<EngineKind, string[]> = {
 /** No spec directory exists for a remote-address engine; named as such rather than left blank. */
 const REMOTE_SPEC_SOURCE = "(none: remote address)";
 
+/**
+ * A remote-address `agentic-cli` engine (e.g. `claude-kimi`) launches the
+ * identical binary under the identical floor as a local one — only its
+ * upstream differs — so it is gated through the same `agenticStatus` proof.
+ * Only `kind`/`serves` are read by that gate; `env`/`command` are never used
+ * for a remote engine, which has no spec directory to load either from.
+ */
+const REMOTE_AGENTIC_SPEC: AgenticSpec = {
+  kind: "agentic-cli",
+  serves: KIND_SERVES["agentic-cli"],
+  env: [],
+  command: [],
+};
+
 /** Must match `LlamaRouterOptions.presetHostPath`'s own default: both write and mount the same file. */
 const LOCAL_LLAMA_PRESET_DIR = (): string => `${stateDir()}/local-llama`;
 const LOCAL_LLAMA_PRESET_PATH = (): string => `${LOCAL_LLAMA_PRESET_DIR()}/preset.ini`;
@@ -357,6 +371,13 @@ export class EngineRegistry {
    * `locked` rather than collapsing both into one `fix`, because a `locked`
    * engine already has a correctly-stored secret — telling the operator to
    * `secret-tool store` it again is the wrong diagnosis.
+   *
+   * A `kind: "agentic-cli"` remote address launches the same binary as a
+   * local one and so is gated the same way: the secret is checked first
+   * (the existing behaviour every other remote engine gets), and only once
+   * it resolves does the version-proof gate in `agenticStatus` run. An
+   * engine that is merely a remote address and launches nothing carries no
+   * `claude_version` and is never routed there.
    */
   private async remoteStatus(entry: Entry): Promise<EngineStatus> {
     const { engine } = entry;
@@ -374,10 +395,13 @@ export class EngineRegistry {
       return { ...base, state: "unavailable", fix: noSecretConfiguredFix(engine.id) };
     }
     const outcome = await this.secretResolves(secret);
-    if (outcome.ok) {
-      return { ...base, state: "installed" };
+    if (!outcome.ok) {
+      return { ...base, state: "unavailable", fix: outcome.fix };
     }
-    return { ...base, state: "unavailable", fix: outcome.fix };
+    if (kind === "agentic-cli") {
+      return this.agenticStatus(engine, REMOTE_AGENTIC_SPEC, REMOTE_SPEC_SOURCE);
+    }
+    return { ...base, state: "installed" };
   }
 
   /**
