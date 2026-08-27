@@ -656,6 +656,17 @@ function doorResponseToResponse(result: DoorResponse): Response {
   return Response.json(result.body, { status: result.status });
 }
 
+/**
+ * The audio door proxies a single buffered request per call, with no
+ * multi-lease concept like `LlamaRouter`'s roles: unlike Comfy, this is
+ * request traffic engined does see, so idle-stop arms right here rather than
+ * off a queue poll. A no-op if the start attempt never reached "running".
+ */
+function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
+  const engine = ctx.getConfig().engines.find((e) => e.id === engineId);
+  ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
+}
+
 async function handleAudioSpeech(
   ctx: DoorContext,
   body: Record<string, unknown>,
@@ -680,6 +691,7 @@ async function handleAudioSpeech(
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start, ctx.doorOpts.audioFetch);
+  armAudioIdleStop(ctx, engineId);
   recordAudioCall(ctx, { engineId, requested: rawModel ?? "", status: result.status, startedAt });
   return doorResponseToResponse(result);
 }
@@ -732,6 +744,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start, ctx.doorOpts.audioFetch);
+  armAudioIdleStop(ctx, engineId);
   recordAudioCall(ctx, {
     engineId,
     requested: form.rawModel ?? "",

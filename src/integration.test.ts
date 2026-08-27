@@ -220,6 +220,20 @@ status = 200
 `;
 }
 
+function ttsSpec(): string {
+  return `
+kind = "tts"
+image = "test-tts:local"
+obtain = "pull"
+serves = ["/v1/audio/speech"]
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`;
+}
+
 /** A port nothing listens on: bind an ephemeral one and close it immediately. */
 function deadPort(): number {
   const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
@@ -479,6 +493,50 @@ test("an agentic attempt with no workdir returns 400", async () => {
     // needs a [[model]] row for the agentic engine (filename/role absent) to
     // be addressable that way at all.
   } finally {
+    await door.registry.shutdown();
+  }
+});
+
+test("a completed audio request arms idle-stop the same as a chat lease: the container stops on its own", async () => {
+  const fake = startFakeUpstream((request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (pathname === "/v1/tts") {
+      const audio = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
+      return new Response(`${JSON.stringify({ phase: "done", audio, alignment: null })}\n`);
+    }
+    return new Response("", { status: 404 });
+  });
+  const port = Number(fake.base.split(":")[1]);
+  const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
+  const IDLE_STOP_SECONDS = 0.03;
+  const config = baseConfig({
+    engines: [containerEngine("chatterbox", ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS })],
+  });
+  const door = createDoor(config, {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec,
+  });
+
+  try {
+    const speech = await door.fetch(
+      req("POST", "/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+    );
+    expect(speech.status).toBe(200);
+
+    // Nothing calls endLease for the audio door the way LlamaRouter's
+    // withLease does for chat -- prove the request itself arms the timer,
+    // not just that the container started.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const engines = await door.fetch(req("GET", "/v1/engines"));
+    const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> };
+    expect(body.engines.find((e) => e.id === "chatterbox")?.state).toBe("installed");
+  } finally {
+    fake.stop();
     await door.registry.shutdown();
   }
 });
