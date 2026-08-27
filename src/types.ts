@@ -68,6 +68,13 @@ export interface Config {
 export interface Volume {
   name: string;
   path: string;
+  /**
+   * Mount `:ro`. The model store and the rendered presets INI are both inputs
+   * the container reads once and must not be able to rewrite — llama-server
+   * reading its own occupancy configuration from a file it could edit is the
+   * case this exists to prevent.
+   */
+  read_only?: boolean;
 }
 
 /** Declared so `installed` can be honest about what a pulled image still lacks. */

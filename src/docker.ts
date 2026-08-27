@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import process from "node:process";
-import type { Artifact, ContainerSpec, EngineState, ReadyProbe } from "./types.ts";
+import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
 
 const NAME_PREFIX = "engined-";
 const MS_PER_SECOND = 1000;
@@ -59,6 +59,11 @@ function sleep(ms: number): Promise<void> {
 export type PortResult = { port: number } | { error: string };
 
 /** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
+function mountSpec(volume: Volume): string {
+  const base = `${volume.name}:${volume.path}`;
+  return volume.read_only === true ? `${base}:ro` : base;
+}
+
 export function parseExposedPort(inspectJson: string, image: string): PortResult {
   const parsed = JSON.parse(inspectJson) as Array<{
     Config?: { ExposedPorts?: Record<string, unknown> };
@@ -125,7 +130,7 @@ export function buildRunArgs(
     }
   }
   for (const volume of spec.volumes) {
-    args.push("-v", `${volume.name}:${volume.path}`);
+    args.push("-v", mountSpec(volume));
   }
   const [entryBin, ...entryRest] = spec.entrypoint ?? [];
   if (entryBin !== undefined) {
@@ -340,7 +345,7 @@ export class DockerLifecycle {
 
   /** One short-lived container per artifact, mounting the volume it should live in. */
   private async checkArtifacts(spec: ContainerSpec): Promise<Result> {
-    const volumeArgs = spec.volumes.flatMap((v) => ["-v", `${v.name}:${v.path}`]);
+    const volumeArgs = spec.volumes.flatMap((v) => ["-v", mountSpec(v)]);
     const checks = await Promise.all(
       spec.artifacts.map(async (artifact) => ({
         artifact,
