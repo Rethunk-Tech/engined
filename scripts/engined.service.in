@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=@BUN_PATH@ %h/.local/share/engined/main.js
+ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js
 
 # A held port or bad config must stop, not loop: Restart=on-failure alone
 # turns both into a restart loop whose reason lives only in journald.
@@ -18,11 +18,11 @@ Environment=ENGINED_BUNX=@BUNX_PATH@
 # ProtectHome=read-only makes bunx fail "Unexpected accessing temporary
 # directory" without naming the sandbox as the cause. Point its cache and
 # tmpdir at the one writable path so a cold start doesn't re-fetch every time.
-Environment=BUN_INSTALL=%h/.local/state/engined/bun-install
-Environment=BUN_TMPDIR=%h/.local/state/engined/tmp
+Environment=BUN_INSTALL=@STATE_DIR@/bun-install
+Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 
 ProtectSystem=strict
-ReadWritePaths=%h/.local/state/engined
+ReadWritePaths=@STATE_DIR@
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
