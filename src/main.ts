@@ -656,7 +656,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
 /**
  * The budget for one hop, keyed on THAT hop's own engine kind -- never on
  * whether the request happens to be a chain, and never on any other hop
- * sharing it. TODO.md:244-246 scopes `chat_timeout_seconds` to "one engine,"
+ * sharing it. `chat_timeout_seconds` is scoped to one engine,
  * per attempt; an all-local-llama chain must not inherit the long agentic
  * budget just because a chain is, in general, allowed to contain agentic
  * hops.
@@ -1015,8 +1015,17 @@ export function bindDualFamily(
   fetch: Door["fetch"],
   port: number,
 ): { v4: ReturnType<typeof Bun.serve>; v6: ReturnType<typeof Bun.serve> } {
-  const v4 = Bun.serve({ hostname: "127.0.0.1", port, fetch });
-  const v6 = Bun.serve({ hostname: "::1", port: v4.port, fetch });
+  // `idleTimeout: 0` disables Bun's own socket timer, which defaults to 10s
+  // and closes the connection with NO body -- indistinguishable from the
+  // daemon being down, and reached by any cold start (a container plus a
+  // 25 GB GGUF) or any answer slower than ten seconds. It cannot simply be
+  // raised to match: Bun rejects an `idleTimeout` above 255, which is below
+  // the default `chat_timeout_seconds` of 600. The request budget is
+  // engined's own, per hop and per engine kind (`timeoutSecondsForKind`), so
+  // a socket timer here could only ever cut that budget short.
+  const serveOpts = { fetch, idleTimeout: 0 } as const;
+  const v4 = Bun.serve({ hostname: "127.0.0.1", port, ...serveOpts });
+  const v6 = Bun.serve({ hostname: "::1", port: v4.port, ...serveOpts });
   return { v4, v6 };
 }
 

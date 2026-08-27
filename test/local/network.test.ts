@@ -49,3 +49,38 @@ describe.skipIf(process.env.ENGINED_LOCAL !== "1")("dual-family real socket (loc
     expect(await v6.text()).toBe(MARKER);
   });
 });
+
+/**
+ * A cold start -- container plus a multi-gigabyte GGUF -- routinely outruns
+ * Bun's default 10s socket timer, which closes the connection with no body
+ * at all. That is why this needs a real socket: the in-process `fetch` call
+ * every other test makes never opens one, so it cannot observe the timer.
+ */
+describe.skipIf(process.env.ENGINED_LOCAL !== "1")(
+  "slow response over a real socket (local)",
+  () => {
+    const SLOWER_THAN_BUN_DEFAULT_MS = 12_000;
+    let bound: ReturnType<typeof bindDualFamily> | undefined;
+
+    beforeAll(() => {
+      bound = bindDualFamily(async () => {
+        await new Promise((resolve) => setTimeout(resolve, SLOWER_THAN_BUN_DEFAULT_MS));
+        return new Response(MARKER);
+      }, 0);
+    });
+
+    afterAll(() => {
+      bound?.v4.stop(true);
+      bound?.v6.stop(true);
+    });
+
+    test("an answer slower than Bun's default idle timeout still reaches the caller", async () => {
+      if (!bound) {
+        throw new Error("beforeAll did not run -- bound is unset");
+      }
+      const res = await fetch(`http://127.0.0.1:${bound.v4.port}/`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(MARKER);
+    }, 60_000);
+  },
+);
