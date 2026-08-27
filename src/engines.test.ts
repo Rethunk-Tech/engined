@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult, type Probe } from "./docker.ts";
-import { EngineRegistry, type QueueSnapshot, type RegistryOptions } from "./engines.ts";
+import {
+  type AgenticProbeRunner,
+  EngineRegistry,
+  type QueueSnapshot,
+  type RegistryOptions,
+} from "./engines.ts";
+import { stateDir } from "./paths.ts";
 import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import { type Config, type EngineEntry, isContainerSpec, type ModelEntry } from "./types.ts";
@@ -53,6 +59,13 @@ const AGENTIC = `
 kind = "agentic-cli"
 serves = ["/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
+`;
+
+/** No `{claude_version}` placeholder: loads even when the engine configures none, unlike the shipped spec. */
+const AGENTIC_NO_VERSION_PLACEHOLDER = `
+kind = "agentic-cli"
+serves = ["/v1/chat/completions"]
+command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `;
 
 const COMFY_CONTAINER = `
@@ -294,6 +307,91 @@ describe("GET /v1/models", () => {
     expect(names).toContain("claude");
     expect(names).toContain("chain-private");
     expect(names).not.toContain("comfy");
+  });
+});
+
+function agenticEngine(id: string, version: string): EngineEntry {
+  return engine({ id, egress: "remote", claude_version: version });
+}
+
+function clearVerifiedVersion(id: string): void {
+  rmSync(join(stateDir(), "agentic", id), { recursive: true, force: true });
+}
+
+describe("agentic engines: unproved by default", () => {
+  test("no claude_version configured is unavailable, naming the engine", async () => {
+    const root = newEnginesRoot();
+    writeSpec(root, "agentic-verify-noversion", AGENTIC_NO_VERSION_PLACEHOLDER);
+    const reg = registry(config({ engines: [engine({ id: "agentic-verify-noversion" })] }), root);
+    const listed = (await reg.list()).engines.find((e) => e.id === "agentic-verify-noversion");
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("claude_version");
+  });
+
+  test("an unproved pin with no probe runner injected is unavailable, never installed on faith", async () => {
+    const id = "agentic-verify-unconfigured";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root);
+    const listed = (await reg.list()).engines.find((e) => e.id === id);
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("1.0.0");
+  });
+});
+
+describe("agentic engines: the verified_version gate", () => {
+  test("clearing the recorded version re-verifies: a failing probe stays unavailable, naming the probe and the version -- no real spawn occurs", async () => {
+    const id = "agentic-verify-fail";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const calls: Array<{ engineId: string; version: string }> = [];
+    const failingRunner: AgenticProbeRunner = (eng, version) => {
+      calls.push({ engineId: eng.id, version });
+      return Promise.resolve({ ok: false, failedProbe: "byte-identical" });
+    };
+    const reg = registry(config({ engines: [agenticEngine(id, "2.0.0")] }), root, {
+      agenticProbeRunner: failingRunner,
+    });
+
+    const listed = (await reg.list()).engines.find((e) => e.id === id);
+
+    expect(calls).toEqual([{ engineId: id, version: "2.0.0" }]);
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toContain("byte-identical");
+    expect(listed?.fix).toContain("2.0.0");
+    clearVerifiedVersion(id);
+  });
+
+  test("both probes passing yields installed, persists the proved version, and a later list skips the runner -- no real spawn occurs", async () => {
+    const id = "agentic-verify-pass";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const calls: Array<{ engineId: string; version: string }> = [];
+    const passingRunner: AgenticProbeRunner = (eng, version) => {
+      calls.push({ engineId: eng.id, version });
+      return Promise.resolve({ ok: true });
+    };
+    const reg = registry(config({ engines: [agenticEngine(id, "3.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+    });
+
+    const first = (await reg.list()).engines.find((e) => e.id === id);
+    expect(first?.state).toBe("installed");
+    expect(calls).toHaveLength(1);
+
+    // A fresh registry against the same state directory sees the proved
+    // version and never invokes the runner again -- the pin has not moved.
+    const reg2 = registry(config({ engines: [agenticEngine(id, "3.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+    });
+    const second = (await reg2.list()).engines.find((e) => e.id === id);
+    expect(second?.state).toBe("installed");
+    expect(calls).toHaveLength(1);
+
+    clearVerifiedVersion(id);
   });
 });
 

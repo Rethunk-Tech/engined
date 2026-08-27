@@ -5,7 +5,7 @@
  * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
@@ -13,6 +13,7 @@ import { stateDir } from "./paths.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
+  type AgenticSpec,
   CONTRACT,
   type Config,
   type EngineEntry,
@@ -97,6 +98,59 @@ function noSecretConfiguredFix(engineId: string): string {
   return `engine "${engineId}" is a remote address with no configured secret`;
 }
 
+/**
+ * The read-only floor is version-specific, so a proved version is only
+ * proof for that version. One file per engine, mirroring the local-llama
+ * preset's own directory shape under the state directory.
+ */
+const AGENTIC_VERIFIED_DIR = (engineId: string): string => `${stateDir()}/agentic/${engineId}`;
+const AGENTIC_VERIFIED_PATH = (engineId: string): string =>
+  `${AGENTIC_VERIFIED_DIR(engineId)}/verified_version`;
+
+function readVerifiedVersion(engineId: string): string | undefined {
+  try {
+    return readFileSync(AGENTIC_VERIFIED_PATH(engineId), "utf8").trim();
+  } catch {
+    // No file yet, or an unreadable one: this engine has no proved version.
+  }
+}
+
+function writeVerifiedVersion(engineId: string, version: string): void {
+  mkdirSync(AGENTIC_VERIFIED_DIR(engineId), { recursive: true });
+  writeFileSync(AGENTIC_VERIFIED_PATH(engineId), version, "utf8");
+}
+
+export interface AgenticProbeOutcome {
+  ok: boolean;
+  /** Which probe failed -- e.g. "byte-identical" or "no-hook-fires". Present only when `ok` is false. */
+  failedProbe?: string;
+}
+
+/**
+ * Runs the two probes the design names: a completion instructed to create a
+ * file, worktree-hashed before and after, and a planted `UserPromptSubmit`
+ * hook checked for silence. Injected rather than built in here -- each run
+ * costs a real billed call to Anthropic, so wiring the real implementation
+ * against a live `claude` is its own, separately-authorised task; nothing in
+ * this module calls out to a subprocess.
+ */
+export type AgenticProbeRunner = (
+  engine: EngineEntry,
+  claudeVersion: string,
+) => Promise<AgenticProbeOutcome>;
+
+function noClaudeVersionConfiguredFix(engineId: string): string {
+  return `engine "${engineId}" is agentic-cli with no claude_version configured`;
+}
+
+function noProbeRunnerConfiguredFix(engineId: string, version: string): string {
+  return `engine "${engineId}" pin ${version} has not been proved and no agentic probe runner is configured`;
+}
+
+function probeFailedFix(engineId: string, version: string, failedProbe: string): string {
+  return `engine "${engineId}" pin ${version} failed the "${failedProbe}" probe`;
+}
+
 export interface RegistryOptions {
   /** Root of the shipped `engines/` directory, passed straight through to `loadSpec`. */
   enginesRoot: string;
@@ -111,6 +165,8 @@ export interface RegistryOptions {
   /** Overridable for tests: a fast interval against a fake `/queue` response. */
   queueFetch?: QueueFetch;
   comfyPollIntervalMs?: number;
+  /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
+  agenticProbeRunner?: AgenticProbeRunner;
 }
 
 interface Entry {
@@ -162,6 +218,7 @@ export class EngineRegistry {
   private readonly specOptions: SpecLoadOptions;
   private readonly queueFetch: QueueFetch;
   private readonly comfyPollIntervalMs: number;
+  private readonly agenticProbeRunner?: AgenticProbeRunner;
   private config: Config;
   private entries: Entry[];
   private byId: Map<string, Entry>;
@@ -185,6 +242,7 @@ export class EngineRegistry {
     };
     this.queueFetch = opts.queueFetch ?? defaultQueueFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
+    this.agenticProbeRunner = opts.agenticProbeRunner;
     this.config = config;
     this.entries = buildEntries(config, this.specOptions);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));
@@ -334,7 +392,7 @@ export class EngineRegistry {
       return this.remoteStatus(entry);
     }
     if (!isContainerSpec(entry.spec.spec)) {
-      return this.syncStatus(entry);
+      return this.agenticStatus(entry.engine, entry.spec.spec, entry.spec.source);
     }
     const { engine } = entry;
     const { spec, source } = entry.spec;
@@ -350,6 +408,51 @@ export class EngineRegistry {
       spec_source: source,
       last_error: runtime.last_error,
     };
+  }
+
+  /**
+   * The version-proof gate: an engine whose configured pin has never been
+   * proved reports `unavailable` rather than serving on faith. Verification
+   * only runs when the configured pin differs from the one last proved —
+   * bumping the pin is what re-arms it, per the design's own reasoning for
+   * why the pin exists at all.
+   */
+  private async agenticStatus(
+    engine: EngineEntry,
+    spec: AgenticSpec,
+    source: string,
+  ): Promise<EngineStatus> {
+    const base = {
+      id: engine.id,
+      kind: spec.kind,
+      egress: engine.egress,
+      serves: spec.serves,
+      private_url: null,
+      spec_source: source,
+    } as const;
+    if (engine.claude_version === undefined) {
+      return { ...base, state: "unavailable", fix: noClaudeVersionConfiguredFix(engine.id) };
+    }
+    if (readVerifiedVersion(engine.id) === engine.claude_version) {
+      return { ...base, state: "installed" };
+    }
+    if (this.agenticProbeRunner === undefined) {
+      return {
+        ...base,
+        state: "unavailable",
+        fix: noProbeRunnerConfiguredFix(engine.id, engine.claude_version),
+      };
+    }
+    const outcome = await this.agenticProbeRunner(engine, engine.claude_version);
+    if (!outcome.ok) {
+      return {
+        ...base,
+        state: "unavailable",
+        fix: probeFailedFix(engine.id, engine.claude_version, outcome.failedProbe ?? "unknown"),
+      };
+    }
+    writeVerifiedVersion(engine.id, engine.claude_version);
+    return { ...base, state: "installed" };
   }
 
   async list(): Promise<EnginesResponse> {
