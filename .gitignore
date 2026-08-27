@@ -1,2 +1,6 @@
 node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
 *.db
+.orchestrate/

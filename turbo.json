@@ -1,0 +1,9 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "typecheck": { "outputs": ["*.tsbuildinfo"] },
+    "lint": {},
+    "test": {},
+    "build": { "dependsOn": ["typecheck"], "outputs": ["dist/**"] }
+  }
+}
