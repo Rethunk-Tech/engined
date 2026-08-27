@@ -238,6 +238,120 @@ test("adopt: keeps and re-reads the configured container, stops the unconfigured
   expect(lifecycle.getStatus("configured").state).toBe("installed");
 });
 
+test("start: a failed artifact check is not cached — a repaired condition re-runs it and succeeds", async () => {
+  const specWithArtifact: ContainerSpec = {
+    ...SPEC,
+    artifacts: [
+      { path: "/models/x.gguf", obtain: "curl -o /models/x.gguf https://example/x.gguf" },
+    ],
+  };
+  const STARTS_BEFORE_REPAIR = 2;
+  const STARTS_AFTER_REPAIR = 3;
+  const artifactState: { present: boolean; checkCount: number } = { present: false, checkCount: 0 };
+
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "run" && argv[1] === "--rm") {
+      artifactState.checkCount++;
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: artifactState.present ? 0 : 1 });
+    }
+    if (argv[0] === "start") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+    }
+    if (argv[0] === "run") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: "127.0.0.1:40010", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+  const first = await lifecycle.start("needs-artifact", specWithArtifact, START_OPTS);
+  expect(first.state).toBe("unavailable");
+  expect(artifactState.checkCount).toBe(1);
+
+  // Second start before the artifact is repaired must still report unavailable,
+  // proving the cache clear didn't just make the first result silently pass.
+  const stillMissing = await lifecycle.start("needs-artifact", specWithArtifact, START_OPTS);
+  expect(stillMissing.state).toBe("unavailable");
+  expect(artifactState.checkCount).toBe(STARTS_BEFORE_REPAIR);
+
+  artifactState.present = true;
+  const repaired = await lifecycle.start("needs-artifact", specWithArtifact, START_OPTS);
+  expect(repaired.state).toBe("running");
+  expect(artifactState.checkCount).toBe(STARTS_AFTER_REPAIR);
+});
+
+test("probe: reports unavailable and the matching fix without ever starting a container", async () => {
+  const runLog: string[][] = [];
+
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+    }
+    if (argv[0] === "run") {
+      runLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+  const pullStatus = await lifecycle.probe("pull-engine", SPEC);
+  expect(pullStatus.state).toBe("unavailable");
+  expect(pullStatus.fix).toContain("docker pull");
+
+  const buildSpec: ContainerSpec = { ...SPEC, obtain: "build" };
+  const buildStatus = await lifecycle.probe("build-engine", buildSpec);
+  expect(buildStatus.state).toBe("unavailable");
+  expect(buildStatus.fix).toContain("docker build");
+
+  expect(runLog.length).toBe(0);
+});
+
+test("probe: a container already running is left alone, not re-checked or restarted", async () => {
+  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), readyProbe);
+  const started = await lifecycle.start("already-running", SPEC, START_OPTS);
+  expect(started.state).toBe("running");
+
+  const probed = await lifecycle.probe("already-running", SPEC);
+  expect(probed).toEqual(started);
+});
+
+test("adopt: a container whose port cannot be read is reported running with last_error, never plainly installed", async () => {
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "ps") {
+      return Promise.resolve({ stdout: "engined-unreadable\n", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  await lifecycle.adopt(
+    new Map([["unreadable", { spec: SPEC, idleStopSeconds: IDLE_STOP_SECONDS }]]),
+  );
+
+  const status = lifecycle.getStatus("unreadable");
+  expect(status.state).toBe("running");
+  expect(status.state).not.toBe("installed");
+  expect(status.last_error).toBeDefined();
+});
+
 test("idle-stop failure is recorded as last_error, not thrown, and the container stays running", async () => {
   function exec(args: readonly string[]): Promise<ExecResult> {
     const argv = [...args];

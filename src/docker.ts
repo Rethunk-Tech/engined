@@ -165,7 +165,7 @@ export class DockerLifecycle {
 
   constructor(
     private readonly exec: Exec = dockerExec,
-    private readonly probe: Probe = defaultProbe,
+    private readonly httpProbe: Probe = defaultProbe,
   ) {}
 
   private runtime(id: string): Runtime {
@@ -237,6 +237,26 @@ export class DockerLifecycle {
     return status;
   }
 
+  /** Reports what an engine's artifacts say, without starting it. */
+  async probe(id: string, spec: ContainerSpec): Promise<RuntimeStatus> {
+    const rt = this.runtime(id);
+    if (rt.state === "running" || rt.state === "warming") {
+      return this.getStatus(id);
+    }
+    const image = await this.checkImage(spec);
+    if (!image.ok) {
+      return this.fail(id, rt, image.error, image.fix);
+    }
+    const artifacts = await this.ensureArtifactsChecked(rt, spec);
+    if (!artifacts.ok) {
+      return this.fail(id, rt, artifacts.error, artifacts.fix);
+    }
+    rt.state = "installed";
+    rt.fix = undefined;
+    rt.lastError = undefined;
+    return this.getStatus(id);
+  }
+
   private fail(id: string, rt: Runtime, error: string, fix?: string): RuntimeStatus {
     rt.state = "unavailable";
     rt.fix = fix;
@@ -303,15 +323,19 @@ export class DockerLifecycle {
     return { ok: true, containerPort: parsed.port };
   }
 
-  /** Run when the engine is first asked for; cached until it next starts. */
-  private ensureArtifactsChecked(rt: Runtime, spec: ContainerSpec): Promise<Result> {
+  /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix can make it pass, and the fix happens outside this process. */
+  private async ensureArtifactsChecked(rt: Runtime, spec: ContainerSpec): Promise<Result> {
     if (spec.artifacts.length === 0) {
-      return Promise.resolve({ ok: true });
+      return { ok: true };
     }
     if (!rt.artifactCheck) {
       rt.artifactCheck = this.checkArtifacts(spec);
     }
-    return rt.artifactCheck;
+    const result = await rt.artifactCheck;
+    if (!result.ok) {
+      rt.artifactCheck = null;
+    }
+    return result;
   }
 
   /** One short-lived container per artifact, mounting the volume it should live in. */
@@ -379,7 +403,7 @@ export class DockerLifecycle {
   /** Recursive rather than looping so a poll-retry never trips an await-in-loop shape. */
   private async pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
     try {
-      const res = await this.probe(`http://127.0.0.1:${hostPort}${ready.path}`);
+      const res = await this.httpProbe(`http://127.0.0.1:${hostPort}${ready.path}`);
       if (res.status === ready.status) {
         return true;
       }
@@ -447,21 +471,26 @@ export class DockerLifecycle {
     );
   }
 
+  /** A container found by `docker ps` is running whether or not it can be fully adopted, so a failed adopt reports `running` with `last_error` set rather than the silent, healthy-looking `installed` default. */
   private async adoptOne(
     id: string,
     containerName: string,
     spec: ContainerSpec,
     idleStopSeconds: number,
   ): Promise<void> {
+    const rt = this.runtime(id);
     const image = await this.checkImage(spec);
     if (!image.ok) {
+      rt.state = "running";
+      rt.lastError = `${containerName}: adopted but ${image.error}`;
       return;
     }
     const hostPort = await this.readHostPort(containerName, image.containerPort);
     if (hostPort === null) {
+      rt.state = "running";
+      rt.lastError = `${containerName}: adopted but docker port returned no host binding`;
       return;
     }
-    const rt = this.runtime(id);
     rt.state = "running";
     rt.hostPort = hostPort;
     this.endLease(id, idleStopSeconds);
