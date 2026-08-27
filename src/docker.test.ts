@@ -186,3 +186,87 @@ test("idle timer fires only after the lease ends, and a fresh start cancels a pe
   await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
   expect(stopLog.length).toBe(1);
 });
+
+test("adopt: keeps and re-reads the configured container, stops the unconfigured one", async () => {
+  const stopLog: string[][] = [];
+  const hostPort = 40_002;
+
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "ps") {
+      return Promise.resolve({
+        stdout: "engined-configured\nengined-orphan\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    }
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "stop") {
+      stopLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  await lifecycle.adopt(
+    new Map([["configured", { spec: SPEC, idleStopSeconds: IDLE_STOP_SECONDS }]]),
+  );
+
+  // The configured id is kept and its port re-read from docker, not guessed.
+  expect(lifecycle.getStatus("configured")).toEqual({
+    state: "running",
+    private_url: `127.0.0.1:${hostPort}`,
+    fix: undefined,
+    last_error: undefined,
+  });
+  // The id no longer in config is stopped, not left orphaned.
+  expect(stopLog).toEqual([["stop", "engined-orphan"]]);
+
+  // Adoption restarts the idle timer: with nothing acquiring the lease, the
+  // re-adopted container is stopped on its own once idleStopSeconds elapses.
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  expect(stopLog).toEqual([
+    ["stop", "engined-orphan"],
+    ["stop", "engined-configured"],
+  ]);
+  expect(lifecycle.getStatus("configured").state).toBe("installed");
+});
+
+test("idle-stop failure is recorded as last_error, not thrown, and the container stays running", async () => {
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "start") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+    }
+    if (argv[0] === "run") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve({ stdout: "127.0.0.1:40003", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "stop") {
+      return Promise.resolve({ stdout: "", stderr: "container is not running", exitCode: 1 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
+  await lifecycle.start("flaky-stop", SPEC, opts);
+
+  lifecycle.endLease("flaky-stop", opts.idleStopSeconds);
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+
+  const status = lifecycle.getStatus("flaky-stop");
+  expect(status.state).toBe("running");
+  expect(status.last_error).toBe("container is not running");
+});

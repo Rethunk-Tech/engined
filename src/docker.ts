@@ -214,7 +214,9 @@ export class DockerLifecycle {
     this.cancelIdle(rt);
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null;
-      this.stopContainer(rt).catch(() => undefined);
+      this.stopContainer(rt).catch((err: unknown) => {
+        rt.lastError = err instanceof Error ? err.message : String(err);
+      });
     }, idleStopSeconds * MS_PER_SECOND);
   }
 
@@ -391,11 +393,17 @@ export class DockerLifecycle {
     return this.pollReady(hostPort, ready, deadline);
   }
 
+  /** A failed `docker stop` leaves the container's real state (still running) alone and records why. */
   private async stopContainer(rt: Runtime): Promise<void> {
     this.cancelIdle(rt);
-    await this.exec(["stop", rt.containerName]);
+    const res = await this.exec(["stop", rt.containerName]);
+    if (res.exitCode !== 0) {
+      rt.lastError = res.stderr.trim() || `docker stop failed for ${rt.containerName}`;
+      return;
+    }
     rt.state = "installed";
     rt.hostPort = null;
+    rt.lastError = undefined;
   }
 
   /** An engine that has been running is stopped, never left orphaned. */
