@@ -155,7 +155,23 @@ describe("unavailable engines", () => {
     expect(listed?.fix).toBe("docker pull ghcr.io/example/llama@sha256:aaaa");
   });
 
-  test("missing image names the build command for a locally-built image", async () => {
+  test("missing image with a Dockerfile in its spec dir names a runnable docker build", async () => {
+    const root = newEnginesRoot();
+    writeSpec(root, "kokoro", BUILT_CONTAINER);
+    writeFileSync(join(root, "kokoro", "Dockerfile"), "FROM scratch\n");
+    const reg = registry(config({ engines: [engine({ id: "kokoro" })] }), root, {
+      exec: NO_IMAGE_EXEC,
+    });
+    const listed = (await reg.list()).engines.find((e) => e.id === "kokoro");
+    expect(listed?.state).toBe("unavailable");
+    expect(listed?.fix).toBe(
+      `docker build -t engined/kokoro:local -f ${join(root, "kokoro", "Dockerfile")} ${join(root, "kokoro")}`,
+    );
+  });
+
+  test("missing image with NO Dockerfile in its spec dir does not invent a build command", async () => {
+    // local-llama's real shape: obtain = "build", no Dockerfile shipped here
+    // because the image is built from a different repository entirely.
     const root = newEnginesRoot();
     writeSpec(root, "kokoro", BUILT_CONTAINER);
     const reg = registry(config({ engines: [engine({ id: "kokoro" })] }), root, {
@@ -163,7 +179,8 @@ describe("unavailable engines", () => {
     });
     const listed = (await reg.list()).engines.find((e) => e.id === "kokoro");
     expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toBe("docker build engined/kokoro:local");
+    expect(listed?.fix).not.toContain("docker build");
+    expect(listed?.fix).toContain("engined/kokoro:local");
   });
 
   test("missing artifact is unavailable and names the command that supplies it, via start()", async () => {

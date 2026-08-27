@@ -300,7 +300,7 @@ test("start: a bind-mounted artifact is checked with a host stat, never a contai
   }
 });
 
-test("probe: reports unavailable and the matching fix without ever starting a container", async () => {
+test("probe: a missing pull-obtain image reports a runnable docker pull, and starts no container", async () => {
   const runLog: string[][] = [];
 
   function exec(args: readonly string[]): Promise<ExecResult> {
@@ -319,14 +319,69 @@ test("probe: reports unavailable and the matching fix without ever starting a co
 
   const pullStatus = await lifecycle.probe("pull-engine", SPEC);
   expect(pullStatus.state).toBe("unavailable");
-  expect(pullStatus.fix).toContain("docker pull");
-
-  const buildSpec: ContainerSpec = { ...SPEC, obtain: "build" };
-  const buildStatus = await lifecycle.probe("build-engine", buildSpec);
-  expect(buildStatus.state).toBe("unavailable");
-  expect(buildStatus.fix).toContain("docker build");
-
+  expect(pullStatus.fix).toBe(`docker pull ${SPEC.image}`);
   expect(runLog.length).toBe(0);
+});
+
+test("probe: a missing build-obtain image whose spec dir HAS a Dockerfile reports a runnable docker build", async () => {
+  // `docker build <image>` (no `-t`/`-f`/context) is not runnable -- it treats
+  // the image name as a context PATH. Confirmed pre-fix: buildStatus.fix was
+  // exactly `docker build sagaforge-llama-cpp:local`, which fails the same
+  // way if pasted.
+  const dir = mkdtempSync(join(tmpdir(), "engined-dockerfile-"));
+  try {
+    writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
+    const buildSpec: ContainerSpec = { ...SPEC, obtain: "build", image: "engined-kokoro:local" };
+
+    function exec(args: readonly string[]): Promise<ExecResult> {
+      const argv = [...args];
+      if (argv[0] === "image" && argv[1] === "inspect") {
+        return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+
+    const lifecycle = new DockerLifecycle(exec, readyProbe);
+    const status = await lifecycle.probe("kokoro", buildSpec, dir);
+
+    expect(status.state).toBe("unavailable");
+    expect(status.fix).toBe(`docker build -t engined-kokoro:local -f ${dir}/Dockerfile ${dir}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does not invent a path that doesn't exist", async () => {
+  // local-llama's real shape: obtain = "build", image built from a different
+  // repository entirely, no Dockerfile shipped here. A `-f <dir>/Dockerfile`
+  // hint would name a file that does not exist -- the same defect in a new
+  // costume -- so this must not contain the literal string "docker build".
+  const dir = mkdtempSync(join(tmpdir(), "engined-no-dockerfile-"));
+  try {
+    const buildSpec: ContainerSpec = {
+      ...SPEC,
+      obtain: "build",
+      image: "sagaforge-llama-cpp:local",
+    };
+
+    function exec(args: readonly string[]): Promise<ExecResult> {
+      const argv = [...args];
+      if (argv[0] === "image" && argv[1] === "inspect") {
+        return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+
+    const lifecycle = new DockerLifecycle(exec, readyProbe);
+    const status = await lifecycle.probe("local-llama", buildSpec, dir);
+
+    expect(status.state).toBe("unavailable");
+    expect(status.fix).not.toContain("docker build");
+    expect(status.fix).toContain("sagaforge-llama-cpp:local");
+    expect(status.fix).toContain(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("probe: a container already running is left alone, not re-checked or restarted", async () => {

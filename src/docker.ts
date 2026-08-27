@@ -163,6 +163,8 @@ export function buildRunArgs(
 export interface LifecycleOptions {
   idleStopSeconds: number;
   readyTimeoutS: number;
+  /** The spec's own directory (shipped `engines/<id>`, or a `spec_dir` override) -- carried here rather than as its own parameter, since `doStart` already has four. */
+  specSource?: string;
 }
 
 export interface RuntimeStatus {
@@ -245,7 +247,13 @@ export class DockerLifecycle {
     }, idleStopSeconds * MS_PER_SECOND);
   }
 
-  /** Two concurrent calls for a stopped engine share one in-flight start. */
+  /**
+   * Two concurrent calls for a stopped engine share one in-flight start.
+   * `opts.specSource` is the spec's own directory (shipped `engines/<id>`, or
+   * a `spec_dir` override) -- optional only so tests that never exercise a
+   * `build`-obtain spec can omit it; every real caller has it, straight from
+   * `LoadedSpec.source`.
+   */
   async start(id: string, spec: ContainerSpec, opts: LifecycleOptions): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     this.cancelIdle(rt);
@@ -263,12 +271,12 @@ export class DockerLifecycle {
   }
 
   /** Reports what an engine's artifacts say, without starting it. */
-  async probe(id: string, spec: ContainerSpec): Promise<RuntimeStatus> {
+  async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     if (rt.state === "running" || rt.state === "warming") {
       return this.getStatus(id);
     }
-    const image = await this.checkImage(spec);
+    const image = await this.checkImage(spec, specSource);
     if (!image.ok) {
       return this.fail(id, rt, image.error, image.fix);
     }
@@ -299,7 +307,7 @@ export class DockerLifecycle {
     rt.fix = undefined;
     rt.lastError = undefined;
 
-    const image = await this.checkImage(spec);
+    const image = await this.checkImage(spec, opts.specSource);
     if (!image.ok) {
       return this.fail(id, rt, image.error, image.fix);
     }
@@ -334,12 +342,38 @@ export class DockerLifecycle {
     return this.getStatus(id);
   }
 
-  private async checkImage(spec: ContainerSpec): Promise<Result<{ containerPort: number }>> {
+  /**
+   * `pull` always has a runnable fix: the image name is the whole command.
+   * `build` does not by default -- `docker build <image>` treats the image
+   * name as a context PATH and fails. A real fix needs the spec's own
+   * directory, which is where a spec's Dockerfile lives when it has one.
+   * `obtain = "build"` with no Dockerfile there means the image was built
+   * elsewhere and only tagged locally, so naming a path that does not exist
+   * would be the same defect in a new costume.
+   */
+  private buildImageFix(spec: ContainerSpec, specSource?: string): string {
+    if (spec.obtain === "pull") {
+      return `docker pull ${spec.image}`;
+    }
+    const dockerfile = specSource === undefined ? undefined : posix.join(specSource, "Dockerfile");
+    if (dockerfile !== undefined && existsSync(dockerfile)) {
+      return `docker build -t ${spec.image} -f ${dockerfile} ${specSource}`;
+    }
+    const where = specSource === undefined ? "" : ` at ${specSource}`;
+    return `${spec.image}: no Dockerfile${where} to build from -- this image must already exist locally, built some other way`;
+  }
+
+  private async checkImage(
+    spec: ContainerSpec,
+    specSource?: string,
+  ): Promise<Result<{ containerPort: number }>> {
     const res = await this.exec(["image", "inspect", spec.image]);
     if (res.exitCode !== 0) {
-      const fix =
-        spec.obtain === "pull" ? `docker pull ${spec.image}` : `docker build ${spec.image}`;
-      return { ok: false, fix, error: `${spec.image}: image not present` };
+      return {
+        ok: false,
+        fix: this.buildImageFix(spec, specSource),
+        error: `${spec.image}: image not present`,
+      };
     }
     const parsed = parseExposedPort(res.stdout, spec.image);
     if ("error" in parsed) {

@@ -303,6 +303,7 @@ export class EngineRegistry {
       await this.lifecycle.start(engine.id, entry.spec.spec, {
         idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
         readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+        specSource: entry.spec.source,
       });
     }
   }
@@ -420,7 +421,7 @@ export class EngineRegistry {
     }
     const { engine } = entry;
     const { spec, source } = entry.spec;
-    const runtime = await this.lifecycle.probe(engine.id, spec);
+    const runtime = await this.lifecycle.probe(engine.id, spec, source);
     return {
       id: engine.id,
       kind: spec.kind,
@@ -554,6 +555,7 @@ export class EngineRegistry {
     await this.lifecycle.start(id, entry.spec.spec, {
       idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+      specSource: entry.spec.source,
     });
     return this.statusFor(entry);
   }

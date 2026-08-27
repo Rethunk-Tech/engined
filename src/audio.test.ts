@@ -235,9 +235,20 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   };
   const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
 
+  // The real shipped whisper spec dir, so the emitted fix is checked against
+  // the Dockerfile that actually ships there -- see docker.ts's checkImage:
+  // a build-obtain fix without a real spec directory to check can only be
+  // the honest "no Dockerfile" fallback, not the runnable command this test
+  // means to prove.
+  const whisperSpecDir = join(import.meta.dir, "..", "engines", "whisper");
   const result = await handleTranscription(
     { model: "whisper", file: SAMPLE_AUDIO_BYTES },
-    (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
+    (id) =>
+      lifecycle.start(id, spec, {
+        idleStopSeconds: 60,
+        readyTimeoutS: 1,
+        specSource: whisperSpecDir,
+      }),
     unreachableFetch("must not fetch an engine that never started"),
   );
 
@@ -247,7 +258,9 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   const status = lifecycle.getStatus("whisper");
   expect(status.state).toBe("unavailable");
   expect(status.state).not.toBe("installed");
-  expect(status.fix).toBe(`docker build ${spec.image}`);
+  expect(status.fix).toBe(
+    `docker build -t ${spec.image} -f ${join(whisperSpecDir, "Dockerfile")} ${whisperSpecDir}`,
+  );
 });
 
 test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
