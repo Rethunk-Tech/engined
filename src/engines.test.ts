@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult, type Probe } from "./docker.ts";
 import {
   type AgenticProbeRunner,
@@ -22,6 +23,27 @@ const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-engines-test-"));
 afterAll(() => {
   rmSync(TEST_ROOT, { recursive: true, force: true });
 });
+
+/**
+ * Redirects `stateDir()` under `TEST_ROOT` for whatever the caller does next,
+ * returning a restore function for its `finally`. Needed wherever the code
+ * under test resolves a path via `stateDir()` (paths.ts) directly rather than
+ * through an injectable option -- `local-llama`'s preset path is one such
+ * case, and writes there land on the real operator's state directory
+ * otherwise, not a sandbox.
+ */
+function redirectStateHome(): () => void {
+  const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
+  const previous = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = stateHome;
+  return () => {
+    if (previous === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = previous;
+    }
+  };
+}
 
 /** A fresh `<root>/<id>/spec.toml`, root usable as `enginesRoot`. Reuses one root across ids. */
 function writeSpec(root: string, id: string, content: string): void {
@@ -778,6 +800,11 @@ describe("spec construction is routed through the per-engine builder", () => {
 
   test("local-llama started through the registry carries --models-preset and its :ro mounts", async () => {
     const runArgvCalls: string[][] = [];
+    // start() on an id shaped like local-llama renders the preset to
+    // stateDir()/local-llama/preset.ini unconditionally (engines.ts's own
+    // LOCAL_LLAMA_PRESET_PATH, not overridable via RegistryOptions) -- the
+    // same path the real running engine has bind-mounted.
+    const restoreStateHome = redirectStateHome();
     const reg = new EngineRegistry(
       config({
         engines: [
@@ -805,6 +832,7 @@ describe("spec construction is routed through the per-engine builder", () => {
       expect(argv?.some((a) => a.includes("local-llama/preset.ini:/preset.ini:ro"))).toBe(true);
     } finally {
       await reg.shutdown();
+      restoreStateHome();
     }
   });
 });
