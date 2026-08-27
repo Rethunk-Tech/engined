@@ -22,7 +22,7 @@ import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
 import { proxyExtras } from "./extras.ts";
-import { type HttpClient, LlamaRouter } from "./llama.ts";
+import { type HttpClient, LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
@@ -296,8 +296,33 @@ async function execLlama(
     body: JSON.stringify(stripField(req.rawBody, "workdir")),
   };
   const response = await router.proxy(model, req.pathname, init);
-  req.setContentType(response.headers.get("content-type") ?? "application/json");
-  return { status: response.status, stream: response.body ?? undefined, startedBytes: false };
+  const contentType = response.headers.get("content-type") ?? "application/json";
+  req.setContentType(contentType);
+  // A live SSE body is bytes already committed to the caller; reading it here
+  // for `model` would consume what the caller is owed. Only a buffered JSON
+  // response is parsed — cloned so the caller's own read is untouched.
+  // ponytail: SSE hops report no model_reported; add per-chunk parsing if a
+  // streaming chat consumer needs it.
+  const modelReported = contentType.includes("application/json")
+    ? reportedModelFrom(
+        await response
+          .clone()
+          .json()
+          .catch(() => undefined),
+      )
+    : undefined;
+  // Per attempt, from the engine's own /v1/models — never the router's cached
+  // command bookkeeping, and never model_reported: the two answer different
+  // questions and one silently standing in for the other defeats provenance.
+  const modelResident =
+    model.role === undefined ? undefined : await router.residentModelId(model.role);
+  return {
+    status: response.status,
+    stream: response.body ?? undefined,
+    startedBytes: false,
+    modelReported,
+    modelResident,
+  };
 }
 
 /**
@@ -837,6 +862,21 @@ export function createDoor(
   return { fetch, reload, registry, configError: () => configErr };
 }
 
+/**
+ * The door's real listener setup: both loopback families bound to the same
+ * port. Exported so a test can bind through this exact code rather than a
+ * hand-rolled `Bun.serve` pair that would pass even if the `::1` listener
+ * were deleted here.
+ */
+export function bindDualFamily(
+  fetch: Door["fetch"],
+  port: number,
+): { v4: ReturnType<typeof Bun.serve>; v6: ReturnType<typeof Bun.serve> } {
+  const v4 = Bun.serve({ hostname: "127.0.0.1", port, fetch });
+  const v6 = Bun.serve({ hostname: "::1", port: v4.port, fetch });
+  return { v4, v6 };
+}
+
 if (import.meta.main) {
   let startupConfig: Config;
   try {
@@ -853,11 +893,9 @@ if (import.meta.main) {
     bunx,
   });
 
-  let v4: ReturnType<typeof Bun.serve>;
-  let v6: ReturnType<typeof Bun.serve>;
+  let bound: { v4: ReturnType<typeof Bun.serve>; v6: ReturnType<typeof Bun.serve> };
   try {
-    v4 = Bun.serve({ hostname: "127.0.0.1", port: startupConfig.listen_port, fetch: door.fetch });
-    v6 = Bun.serve({ hostname: "::1", port: v4.port, fetch: door.fetch });
+    bound = bindDualFamily(door.fetch, startupConfig.listen_port);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const holder = describePortHolder(startupConfig.listen_port);
@@ -875,8 +913,8 @@ if (import.meta.main) {
       .shutdown()
       .catch(() => undefined)
       .finally(() => {
-        v4.stop();
-        v6.stop();
+        bound.v4.stop();
+        bound.v6.stop();
         process.exit(0);
       });
   });

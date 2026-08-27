@@ -9,7 +9,7 @@ import { resolveModel } from "./dispatch.ts";
 import type { Exec, ExecResult, Probe } from "./docker.ts";
 import { type AgenticProbeRunner, EngineRegistry } from "./engines.ts";
 import type { HttpClient } from "./llama.ts";
-import { createDoor, type Door, parsePortHolder, resolveRedirect } from "./main.ts";
+import { bindDualFamily, createDoor, type Door, parsePortHolder, resolveRedirect } from "./main.ts";
 import { stateDir } from "./paths.ts";
 import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
@@ -231,13 +231,14 @@ function ephemeralPort(): number {
 }
 
 /**
- * Binds the door on both loopback families on `port`. The check needs
- * `config.listen_port` to equal it, so the caller picks the port first via
- * `ephemeralPort()` and builds both the config and this bind from it.
+ * Binds the door on both loopback families on `port`, through `main.ts`'s
+ * own `bindDualFamily` rather than a hand-rolled `Bun.serve` pair — a
+ * substitute here would pass even with the real `::1` listener deleted. The
+ * check needs `config.listen_port` to equal it, so the caller picks the port
+ * first via `ephemeralPort()` and builds both the config and this bind from it.
  */
 function startDualBind(fetch: Door["fetch"], port: number): { stop: () => void } {
-  const v4 = Bun.serve({ hostname: "127.0.0.1", port, fetch });
-  const v6 = Bun.serve({ hostname: "::1", port, fetch });
+  const { v4, v6 } = bindDualFamily(fetch, port);
   return {
     stop: () => {
       v4.stop();
@@ -556,6 +557,85 @@ describe("the door: content routing", () => {
     const forwarded = JSON.parse(recorded[0]?.body ?? "{}") as Record<string, unknown>;
     expect(forwarded.workdir).toBeUndefined();
     expect(forwarded.reasoning_effort).toBe("high");
+  });
+});
+
+/**
+ * `/v1/models` answers differently depending on when it is asked: while
+ * `loadAndWait` polls it for the requested id, it reports that id loaded so
+ * the proxy can proceed; once the chat call itself has been answered, it
+ * reports a *different* id loaded -- standing in for the GGUF that actually
+ * served the request, read fresh per attempt rather than copied from what
+ * the chat response echoed.
+ */
+function makeStaleReportedHttpClient(): HttpClient {
+  let chatAnswered = false;
+  return (url: string) => {
+    if (url.endsWith("/models/load")) {
+      return Promise.resolve(Response.json({ success: true }));
+    }
+    if (url.endsWith("/models/unload")) {
+      return Promise.resolve(Response.json({ status: "ok" }));
+    }
+    if (url.endsWith("/v1/models")) {
+      const id = chatAnswered ? "ornith-real" : "ornith";
+      return Promise.resolve(Response.json({ data: [{ id, status: { value: "loaded" } }] }));
+    }
+    chatAnswered = true;
+    // The engine echoes the router id it was given back in `model` -- the
+    // INI section name, never the GGUF that actually answered.
+    return Promise.resolve(
+      Response.json({ id: "resp-1", model: "ornith", choices: [{ message: { content: "hi" } }] }),
+    );
+  };
+}
+
+describe("the door: provenance model fields", () => {
+  test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
+    const root = mkdtempSync(join(tmpdir(), "engined-door-"));
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    const cfg = config({
+      engines: [
+        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+      ],
+      models: [
+        model({ id: "ornith", engine: "local-llama", filename: "ornith.gguf", role: "chat" }),
+        model({
+          id: "ornith-real",
+          engine: "local-llama",
+          filename: "ornith-real.gguf",
+          role: "chat",
+        }),
+      ],
+    });
+    const lines: string[] = [];
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeStaleReportedHttpClient(),
+        write: (l) => lines.push(l),
+        llamaPresetHostPath: join(mkdtempSync(join(tmpdir(), "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    );
+    // Draining the body is what completes the underlying stream and fires
+    // the deferred provenance line, same as a real consumer reading it.
+    await res.json();
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as {
+      attempts: { model_reported?: string; model_resident?: string }[];
+    };
+    expect(record.attempts).toHaveLength(1);
+    expect(record.attempts[0]?.model_reported).toBe("ornith");
+    expect(record.attempts[0]?.model_resident).toBe("ornith-real");
+    expect(record.attempts[0]?.model_reported).not.toBe(record.attempts[0]?.model_resident);
   });
 });
 
