@@ -4,4 +4,4 @@
 # section and still required in another. `gate` is not used to wrap it -- the
 # script already exits non-zero with the offending file:line.
 [gates.docs]
-run = "python3 scripts/doc-sweep.py TODO.md README.md docs/migrations/*.md"
+run = "python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md docs/migrations/*.md"

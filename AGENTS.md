@@ -1,14 +1,15 @@
 # engined
 
-Design only. Nothing here is built. `TODO.md` is the authoritative artifact —
-the broker's behaviour, the constraints every phase inherits, the config shape
-and the phases in build order. `docs/migrations/` holds one cutover guide per
-consumer. `README.md` says only what the service is.
+Design only. Nothing here is built. `TODO.md` is the authoritative artifact and
+is organised **per feature** — each entry carrying its own description, `Traps`
+and `Acceptance`. `PHASES.md` holds only the order to build them in and
+references those entries without restating them. `docs/migrations/` holds one
+cutover guide per consumer. `README.md` says only what the service is.
 
 ## Before committing
 
-`python3 scripts/doc-sweep.py TODO.md README.md docs/migrations/*.md`, or
-`gate run docs`. It catches edit damage a reader misses: a sentence that lost its
+`python3 scripts/doc-sweep.py TODO.md PHASES.md README.md AGENTS.md
+docs/migrations/*.md`, or `gate run docs`. It catches edit damage a reader misses: a sentence that lost its
 tail to a partial revision, an unclosed fence, a term declared absent in one
 section and still required by an acceptance criterion in another.
 
