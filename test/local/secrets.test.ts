@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import process from "node:process";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolveSecret, secretExec } from "../../src/secrets.ts";
 import type { SecretRef } from "../../src/types.ts";
 
