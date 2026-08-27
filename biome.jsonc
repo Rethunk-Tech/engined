@@ -19,7 +19,10 @@
         // Bun's globals come from @types/bun rather than a package import.
         "noUndeclaredDependencies": "off",
         // Biome does not resolve Bun's builtin `bun:` module scheme (bun:test).
-        "noUnresolvedImports": "off"
+        "noUnresolvedImports": "off",
+        // A framework rule from the preset. There is no Qwik here, and it fires
+        // on any module-scope async arrow with an explicit return type.
+        "useQwikValidLexicalScope": "off"
       },
       "style": {
         // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
@@ -48,6 +51,11 @@
         // definition -- awaiting them concurrently would fire every attempt at
         // once, which is the opposite of what a poll is.
         "noAwaitInLoops": "off"
+      },
+      "suspicious": {
+        // engined's environment comes from a systemd unit, not a .env file, so
+        // there is no manifest for this rule to check a name against.
+        "noUndeclaredEnvVars": "off"
       },
       "nursery": { "recommended": true }
     }
