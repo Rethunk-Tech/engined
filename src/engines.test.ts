@@ -80,6 +80,32 @@ path = "/queue"
 status = 200
 `;
 
+/** Mirrors engines/chatterbox and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */
+const TTS_EMPTY_COMMAND = `
+kind = "tts"
+image = "engined/faketts:local"
+obtain = "build"
+serves = ["/v1/audio/speech"]
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`;
+
+/** Mirrors engines/whisper's real shape: a real command that flags can extend. */
+const STT_REAL_COMMAND = `
+kind = "stt"
+image = "engined/fakestt:local"
+obtain = "build"
+serves = ["/v1/audio/transcriptions"]
+command = ["--host", "0.0.0.0"]
+
+[ready]
+path = "/health"
+status = 200
+`;
+
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return { id: "e", egress: "none", args: {}, ...overrides };
 }
@@ -770,6 +796,87 @@ describe("spec construction is routed through the per-engine builder", () => {
       expect(argv).toContain("--models-preset");
       expect(argv?.some((a) => a === "/data/gguf:/models:ro")).toBe(true);
       expect(argv?.some((a) => a.includes("local-llama/preset.ini:/preset.ini:ro"))).toBe(true);
+    } finally {
+      await reg.shutdown();
+    }
+  });
+});
+
+const RX_KOKORO_LIKE = /kokoro-like/;
+
+// [engine.args] reached argv only via buildLlamaSpec and buildComfySpec --
+// every other container kind (tts, stt, any future one) fell through
+// loadEngineSpec's `return loaded;` untouched, so args were parsed,
+// forbidden-flag-checked at config parse, and then silently dropped.
+describe("a container kind with no dedicated builder still gets [engine.args]", () => {
+  test("a stt engine's real command carries [engine.args] appended in the run argv", async () => {
+    const root = newEnginesRoot();
+    writeSpec(root, "whisper-like", STT_REAL_COMMAND);
+    const runArgvCalls: string[][] = [];
+    const reg = new EngineRegistry(
+      config({
+        engines: [
+          engine({ id: "whisper-like", egress: "none", args: { threads: 4 }, ready_timeout_s: 5 }),
+        ],
+      }),
+      {
+        enginesRoot: root,
+        bunx: BUNX,
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+      },
+    );
+    try {
+      await reg.start("whisper-like");
+      expect(runArgvCalls).toHaveLength(1);
+      const [argv] = runArgvCalls;
+      const threadsIdx = argv?.indexOf("--threads");
+      expect(threadsIdx).toBeGreaterThan(-1);
+      expect(argv?.[(threadsIdx as number) + 1]).toBe("4");
+      // The spec's own command survives untouched, ahead of the appended args.
+      expect(argv).toContain("--host");
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  /**
+   * chatterbox/kokoro's real shape: `command = []` because the image's own
+   * CMD is already correct. Appending flags to an EMPTY command array does
+   * not extend anything -- `buildRunArgs` pushes `image, ...command`, so an
+   * empty command means "run the image's own CMD unmodified" and a
+   * non-empty one REPLACES it. Honouring args there would silently corrupt
+   * the container's launch, not merely do nothing; rejecting at spec-load
+   * is the only shape that gives an operator either the effect or an error.
+   */
+  test("a tts engine with an image-defined (empty) command rejects non-empty [engine.args] loudly, at construction", () => {
+    const root = newEnginesRoot();
+    writeSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
+    expect(
+      () =>
+        new EngineRegistry(
+          config({
+            engines: [engine({ id: "kokoro-like", egress: "none", args: { foo: "bar" } })],
+          }),
+          { enginesRoot: root, bunx: BUNX },
+        ),
+    ).toThrow(RX_KOKORO_LIKE);
+  });
+
+  test("a tts engine with an image-defined (empty) command and NO [engine.args] starts clean", async () => {
+    const root = newEnginesRoot();
+    writeSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
+    const runArgvCalls: string[][] = [];
+    const reg = new EngineRegistry(
+      config({ engines: [engine({ id: "kokoro-like", egress: "none", ready_timeout_s: 5 })] }),
+      {
+        enginesRoot: root,
+        bunx: BUNX,
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+      },
+    );
+    try {
+      await reg.start("kokoro-like");
+      expect(runArgvCalls).toHaveLength(1);
     } finally {
       await reg.shutdown();
     }

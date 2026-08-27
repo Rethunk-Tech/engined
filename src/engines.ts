@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
-import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
+import { argvFromArgs, buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
@@ -16,6 +16,7 @@ import {
   type AgenticSpec,
   CONTRACT,
   type Config,
+  type ContainerSpec,
   type EngineEntry,
   type EngineKind,
   type EngineStatus,
@@ -197,6 +198,31 @@ interface Entry {
  * themselves; the first call here only exists to learn `kind` cheaply,
  * before ever running or proxying anything.
  */
+/**
+ * Every other container kind's own [engine.args] -- comfy and local-llama's
+ * own builders already append theirs. `buildRunArgs` renders as
+ * `image, ...entrypoint, ...command`, so an empty `command` means "run the
+ * image's own baked-in CMD unmodified" (chatterbox/kokoro's real shape: it
+ * is already correct, nothing to extend) and appending flags to it does not
+ * extend that CMD, it REPLACES "use the image's own" with "run these flags
+ * as the command" -- silently corrupting the launch, not merely leaving the
+ * args unused. That is rejected here instead: an operator who sets
+ * `[engine.args]` gets its effect or an error, the same contract
+ * config.ts's own closed key sets hold one layer up.
+ */
+function applyEngineArgs(engine: EngineEntry, spec: ContainerSpec): ContainerSpec {
+  const argv = argvFromArgs(engine.args);
+  if (argv.length === 0) {
+    return spec;
+  }
+  if (spec.command.length === 0) {
+    throw new Error(
+      `engine "${engine.id}": [engine.args] is set, but this engine's command is image-defined (empty) -- appending flags would replace the image's own CMD, not extend it`,
+    );
+  }
+  return { ...spec, command: [...spec.command, ...argv] };
+}
+
 function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): LoadedSpec {
   // The peek's own resolved spec is discarded whenever a builder below takes
   // over (each calls loadSpec again with the substitution `{preset_ini}`
@@ -215,7 +241,7 @@ function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): Load
   if (isLocalLlama(engine, loaded.spec.kind)) {
     return { ...loaded, spec: buildLlamaSpec(engine, specOptions, LOCAL_LLAMA_PRESET_PATH()) };
   }
-  return loaded;
+  return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
 }
 
 function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
