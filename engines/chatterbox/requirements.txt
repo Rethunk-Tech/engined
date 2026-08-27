@@ -1,0 +1,21 @@
+# chatterbox-tts (devnen's fork, gfx1151 dtype fixes) is installed --no-deps
+# in the Dockerfile — its pyproject.toml pins numpy<1.26 and torch==2.5.1,
+# neither satisfiable here (numpy<1.26 has no Python 3.12 wheel at all; we
+# run a newer torch on purpose for ROCm 7.2/gfx1151). These are its actual
+# runtime deps minus torch/torchaudio/numpy (already installed) and gradio
+# (its own demo UI, unused — we only call the library API via app.py).
+librosa==0.11.0
+s3tokenizer
+transformers==4.46.3
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg
+pykakasi==2.3.0
+pyloudnorm
+omegaconf
+
+fastapi
+uvicorn[standard]
+soundfile
