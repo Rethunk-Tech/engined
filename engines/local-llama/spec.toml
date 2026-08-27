@@ -11,8 +11,11 @@ obtain = "build"
 serves = ["/v1/chat/completions", "/v1/embeddings"]
 # Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
 # --group-add video) is for the ROCm/PyTorch engines -- comfy, chatterbox,
-# kokoro -- not llama.cpp. Both nodes exist on this box, so the ROCm flags
-# would run and the mistake would not announce itself.
+# kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three
+# and, in its own llama spec, keeps --group-add video while dropping
+# /dev/kfd alone -- the device node is the difference, not the group. Both
+# nodes exist on this box, so the ROCm flags would run and the mistake would
+# not announce itself.
 devices = ["/dev/dri"]
 group_add = ["video"]
 # Load-bearing on Fedora: without it the container cannot open the device.
@@ -22,12 +25,50 @@ security_opt = ["label=disable"]
 # directory, so /v1/models returned the uploader dirname as the only id and
 # the GGUF one level under it was never found. Passing both is worse: the
 # same GGUF then lists twice, once with MTP and once without.
+#
+# MTP is per GGUF, never process-wide: `--spec-type draft-mtp` on a headless
+# file exits 1, and the presets INI is the only channel that reaches argv --
+# `POST /models/load` with an `args` array returned `{"success":true}` and
+# left the child argv unchanged, while the same flags via the INI
+# (`spec-type = draft-mtp`, `spec-draft-p-min = 0.1`) reached argv, flipped
+# `/slots` to `speculative: true`, and produced `draft_n`/`draft_n_accepted`
+# in the streamed timings. `p-min 0.1`, not 0.75.
+#
+# The draft-token-count flag is `spec-draft-n-max`, not `spec-n-max` --
+# `spec-n-max` fails at router init with "option 'spec-n-max' not recognized
+# in preset 'ornith'", exit 1, before the container ever answers /health.
+# `--help` on the installed binary is what named the real flag. Measured on
+# this box, warm, same prompt: n=1 gives 62.94 t/s decode at 73% draft
+# acceptance, n=3 is 62.75 at 54%, n=12 collapses to 24.85 at 19% and n=16 to
+# 22.30. Decode degrades monotonically as acceptance falls, so raising it is
+# a loss here; a published gfx1151 ladder claiming the opposite does not
+# reproduce against this model.
+#
+# A per-model arg is honoured per flag, not as a class: only `spec-type` and
+# `spec-draft-p-min` are proven to reach argv this way. Probe each flag the
+# way those two were probed -- set it for one model, read the child's argv
+# and /slots back -- before a consumer is told it works. A flag that is
+# ignored and a flag that is honoured and did nothing look identical from
+# the outside.
+#
+# POST /models/load is asynchronous: it returned in 7 ms with status
+# "loading"; poll until "loaded" before proxying, and that poll IS the
+# `warming` state a caller sees.
 # --no-models-autoload is structural, not a tunable: router mode plus
 # per-role occupancy is what this engine is, and an [engine.args] key able to
 # turn it off is a key able to break eviction.
 # --models-max is the first-class models_max, substituted from config so an
 # operator who forgets to pin it gets a fatal "unresolved placeholder" at
 # spec load rather than a default that lets two 25 GB chat files stay resident.
+#
+# `parallel`, `ctx-size`, `cache-type-k/v` are config-level [engine.args] --
+# see config.example.toml, not this file. `parallel` measured here: llama's
+# auto (`-1`, four unified slots) decodes 62.94 t/s versus 68.28 t/s at
+# `-np 1 -kvu`, and /slots confirms n_ctx stays 32768 at -np 1 -- the
+# ctx-halving below does NOT apply there. Auto is kept anyway for the
+# smaller footgun: `-np 2` and above take slots off auto and disable
+# --kv-unified, halving ctx-size per slot so 32768 silently becomes 16384.
+# The 8.5% is not worth an edit one keystroke away from that.
 # --host 0.0.0.0 is structural, not a tunable: llama-server's own default is
 # 127.0.0.1, which binds fine inside the container and passes nothing --
 # docker's -p forwards to the container's interface, not its loopback, so a
@@ -46,6 +87,23 @@ command = [
   "--no-models-autoload",
 ]
 
+# Vision on Vulkan carries two open upstream defects, relevant to this
+# engine's [model.args] mmproj/no-mmproj-offload keys even though neither is
+# first-class here. One crashes llama-server on this APU; `no-mmproj-offload`
+# is the workaround. The other returns the wrong image content, silently,
+# and has no workaround -- a consumer gets a confident, plausible, incorrect
+# description with nothing to signal it. Checked live against a three-band
+# red/green/blue image with an overlaid text string, twice, including once
+# concurrent with a chat request: both runs named the correct three colours
+# in order and read the overlaid string correctly. The defect did not
+# reproduce on this box for this model/image pair -- that is one data point,
+# not a fix upstream, so keep checking fidelity per consumer rather than
+# assuming it from this comment.
+#
+# Model swap is seconds, not instant -- measured warm at roughly 8-16s
+# across the two GGUFs on disk, scaling with file size. Idle is `docker
+# stop`, not `/models/unload` alone: the resting state is no llama process,
+# so unload is the swap lever, not the idle lever.
 [ready]
 path = "/health"
 status = 200
