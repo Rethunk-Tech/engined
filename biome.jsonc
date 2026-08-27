@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["src/**", "*.json", "*.jsonc"] },
+  "files": { "includes": ["src/**", "test/**", "*.json", "*.jsonc"] },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -56,5 +56,13 @@
     // Bun's runtime global is ambient, supplied by @types/bun rather than an import.
     "globals": ["Bun"]
   },
+  "overrides": [
+    {
+      // A literal status code or byte count is the assertion in a test; naming
+      // it moves the value away from the line that checks it.
+      "includes": ["**/*.test.ts"],
+      "linter": { "rules": { "style": { "noMagicNumbers": "off" } } }
+    }
+  ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
 }

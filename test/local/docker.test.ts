@@ -1,5 +1,5 @@
-import process from "node:process";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import process from "node:process";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import type { ContainerSpec } from "../../src/types.ts";
 
@@ -28,7 +28,7 @@ const SPEC: ContainerSpec = {
 };
 
 const IDLE_STOP_SECONDS = 2;
-const IDLE_WAIT_MS = 2_500;
+const IDLE_WAIT_MS = 2500;
 const READY_TIMEOUT_S = 20;
 
 async function removeContainer(): Promise<void> {
