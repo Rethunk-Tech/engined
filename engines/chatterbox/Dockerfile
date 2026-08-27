@@ -13,14 +13,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# uv owns the interpreter, not the distro: this base's system python3 is
-# whatever Ubuntu 24.04 ships (3.12), an accident of the ROCm base image
-# rather than a deliberate floor. Fleet floor is >=3.12; fleet standard is
-# developing and running on 3.14. Minor-only so uv resolves the newest 3.14.x
-# patch rather than freezing one that goes stale.
+# Fleet standard is developing and running on 3.14, and chatterbox carries
+# no Requires-Python ceiling forcing a lower one -- but `uv python install`
+# puts the interpreter under /root/.local/share/uv/, outside /opt/venv, and
+# the runtime stage below copies only /opt/venv. That leaves the venv's
+# python symlink dangling: the build exports clean and every container dies
+# instantly on `exec /opt/venv/bin/uvicorn: no such file or directory`, an
+# error naming the script rather than the interpreter its shebang can't
+# reach (this is the same failure kokoro's Dockerfile hit and fixed the same
+# way). Building on the base image's own python3.12 instead -- present in
+# both stages, no second interpreter tree to carry across the copy -- costs
+# nothing here: the known-working chatterbox image in the fleet already runs
+# on this exact base's system python3, confirming 3.12 resolves every wheel
+# this build needs.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-RUN uv python install 3.14
-RUN uv venv --seed --python 3.14 /opt/venv
+RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN pip install --no-cache-dir torch torchvision torchaudio \
       --index-url https://download.pytorch.org/whl/rocm7.2
@@ -28,14 +35,9 @@ RUN pip install --no-cache-dir torch torchvision torchaudio \
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
-# and torch==2.5.1 -- version pins, not a wheel-availability quirk of any one
-# interpreter, so 3.14 doesn't relax them. If anything it's worse under 3.14:
-# numpy first shipped Python-3.12 wheels at 1.26.0, so anything below that
-# floor has no cp312 wheel and certainly no cp314 one either (numpy never
-# backported wheel builds for such an old point release), and torch==2.5.1
-# predates cp314 wheels entirely (confirmed against the ROCm 7.2 wheel index:
-# cp314 support starts at torch 2.11). requirements.txt installs the real
-# runtime deps at versions that actually work here instead.
+# and torch==2.5.1, both older than what this build actually installs above.
+# requirements.txt installs the real runtime deps at versions confirmed to
+# work here instead of letting pip downgrade to those stale pins.
 RUN pip install --no-cache-dir --no-deps \
       'chatterbox-tts @ git+https://github.com/devnen/chatterbox-v2.git@master'
 
@@ -62,8 +64,23 @@ RUN sed -i \
 # the same technique kokoro's own Dockerfile.rocm uses. Must match app.py's
 # real import (ChatterboxMultilingualTTS from chatterbox.mtl_tts, not the
 # English-only ChatterboxTTS) or the cache populated here misses at runtime.
+#
+# `docker build` attaches no /dev/kfd or /dev/dri, so ROCm torch reports no
+# device here even though the checkpoint's tensors are saved as CUDA-located
+# storages -- device='cpu' below only tells from_pretrained where to put the
+# model AFTER load, and the failure is inside torch.load's deserialization,
+# before that argument applies. The torch.load monkeypatch forces every
+# load in this process to map_location=cpu regardless of what the checkpoint
+# claims, without touching what from_pretrained actually requests -- so the
+# same files land in the cache a real run would fetch, which is the one
+# thing this step exists to guarantee.
 ENV HF_HOME=/app/hf_cache
-RUN python3 -c "from chatterbox.mtl_tts import ChatterboxMultilingualTTS; ChatterboxMultilingualTTS.from_pretrained(device='cpu')"
+RUN python3 -c "\
+import torch; \
+_load = torch.load; \
+torch.load = lambda *a, **k: _load(*a, **{**k, 'map_location': 'cpu'}); \
+from chatterbox.mtl_tts import ChatterboxMultilingualTTS; \
+ChatterboxMultilingualTTS.from_pretrained(device='cpu')"
 
 FROM rocm/dev-ubuntu-24.04:7.2.4
 
