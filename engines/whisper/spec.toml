@@ -1,15 +1,32 @@
-kind         = "stt"
-image        = "ghcr.io/ggml-org/whisper.cpp@sha256:793c6caae47b63c4f76d7a533e368c31cc32c2fe341feee103e76f5f7d12e889"
-obtain       = "pull"            # pull | build; build reads ./Dockerfile here
-serves       = ["/v1/audio/transcriptions"]
-devices      = ["/dev/dri"]
-group_add    = ["video"]
+kind = "stt"
+image = "ghcr.io/ggml-org/whisper.cpp@sha256:793c6caae47b63c4f76d7a533e368c31cc32c2fe341feee103e76f5f7d12e889"
+obtain = "pull" # pull | build; build reads ./Dockerfile here
+serves = ["/v1/audio/transcriptions"]
+devices = ["/dev/dri"]
+group_add = ["video"]
 security_opt = ["label=disable"]
-entrypoint   = ["/bin/bash", "{spec_dir}/quiet.sh"]
-command      = ["--host", "0.0.0.0",
-                "-m", "/models/ggml-large-v3-turbo-q5_0.bin",
-                "--request-path", "", "--inference-path", "/v1/audio/transcriptions",
-                "-fa", "-t", "8", "--no-timestamps"]
+entrypoint = ["/bin/bash", "{spec_dir}/quiet.sh"]
+command = [
+  "--host",
+  "0.0.0.0",
+  "-m",
+  "/models/ggml-large-v3-turbo-q8_0.bin", # see [[artifact]] below for citation
+  # --vad/-vm flag support confirmed present in the pinned digest's
+  # actual whisper-server binary (strings extracted via `docker
+  # create` + `docker cp`, no container ever started) -- see
+  # [[artifact]] for the VAD model below for the model-source citation.
+  "--vad",
+  "-vm",
+  "/models/ggml-silero-v6.2.0.bin",
+  "--request-path",
+  "",
+  "--inference-path",
+  "/v1/audio/transcriptions",
+  "-fa",
+  "-t",
+  "8",
+  "--no-timestamps",
+]
 # No -l: language is a per-request field, so pinning one here would make
 # changing it a wholesale spec override.
 
@@ -20,18 +37,47 @@ command      = ["--host", "0.0.0.0",
 # 404 never counts regardless of this range: probeSaysReady excludes it
 # unconditionally, since 404 is the one status that proves the route absent.
 [ready]
-path   = "/v1/audio/transcriptions"
+path = "/v1/audio/transcriptions"
 method = "POST"
 status = 200
 
-  [ready.accept]
-  min = 200
-  max = 499
+[ready.accept]
+min = 200
+max = 499
 
-  [[volume]]
-  name = "engined-whisper-models"
-  path = "/models"
+# Host bind-mount, read-only, matching llama's model-store posture: whisper
+# only ever reads these files. The host side is modelsRoot() (src/paths.ts) +
+# "whisper" -- $XDG_DATA_HOME/engined-models/whisper, or ~/.local/share/
+# engined-models/whisper when unset (unset on this box). spec.toml has no
+# placeholder for that resolution (substitute() in src/spec.ts only expands
+# {spec_dir} and {bunx}, and only on volume.path, never volume.name), so the
+# literal below is that function's output on this operator's machine, not an
+# independently chosen path. A sibling of installDir(), never inside it:
+# install.sh rsyncs the install dir with --delete.
+[[volume]]
+name = "/home/user/.local/share/engined-models/whisper"
+path = "/models"
+read_only = true
 
-  [[artifact]]
-  path   = "/models/ggml-large-v3-turbo-q5_0.bin"
-  obtain = "docker run --rm -v engined-whisper-models:/models curlimages/curl -fL -o /models/ggml-large-v3-turbo-q5_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+# q8_0 over q5_0 is not an accuracy claim -- no published WER-vs-quantisation
+# table exists for whisper.cpp on any hardware, and the q5_0 default this
+# replaces was itself untraceable folklore. The case is speed and provenance:
+# a CPU sweep (github.com/ggml-org/whisper.cpp discussions/3752) shows q5_0
+# running 3-5.5x slower than q4_0 while q8_0 tracks close to q4_0's speed;
+# upstream separately notes q8_0's encoder is slightly slower and its decoder
+# faster than q5_0, with quality about the same. The old
+# engined-whisper-models named volume and its q5_0 file are untouched --
+# removing them is the operator's call, not this change's.
+[[artifact]]
+path = "/models/ggml-large-v3-turbo-q8_0.bin"
+obtain = "curl -fL -o /home/user/.local/share/engined-models/whisper/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
+
+# Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
+# Filename and URL confirmed against whisper.cpp's own
+# models/download-vad-model.sh (src="https://huggingface.co/ggml-org/whisper-vad",
+# pfx="resolve/main/ggml") and the README's "Voice Activity Detection (VAD)"
+# section, both read from ggml-org/whisper.cpp master. v6.2.0 is the version
+# both of those name as current.
+[[artifact]]
+path = "/models/ggml-silero-v6.2.0.bin"
+obtain = "curl -fL -o /home/user/.local/share/engined-models/whisper/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"
