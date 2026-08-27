@@ -27,6 +27,14 @@ ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
 
+# An agentic `workdir` is caller-supplied and routinely lands under /tmp (the
+# `mktemp -d` default). PrivateTmp's private /tmp hides that real directory
+# from the unit, so node:child_process's spawn() gets a nonexistent cwd and
+# misreports it as ENOENT on the spawned executable itself -- reading as
+# "bunx vanished" when bunx was never the problem. Bind the real /tmp back in
+# so those workdirs resolve; PrivateTmp still isolates /var/tmp.
+BindPaths=/tmp
+
 # MemoryDenyWriteExecute is deliberately absent: Bun's JIT and the
 # subprocesses engined spawns both need W^X.
 
