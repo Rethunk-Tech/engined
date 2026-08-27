@@ -74,7 +74,15 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
     if (spec.entrypoint) {
       spec.entrypoint = spec.entrypoint.map((s) => substitute(s, subs, file));
     }
-    spec.volumes = spec.volumes.map((v) => ({ ...v, path: substitute(v.path, subs, file) }));
+    spec.volumes = spec.volumes.map((v) => ({
+      ...v,
+      name: substitute(v.name, subs, file),
+      path: substitute(v.path, subs, file),
+    }));
+    spec.artifacts = spec.artifacts.map((a) => ({
+      ...a,
+      obtain: substitute(a.obtain, subs, file),
+    }));
   }
 
   assertNoForbiddenFlags(spec.command, file);

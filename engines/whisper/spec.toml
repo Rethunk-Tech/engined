@@ -54,16 +54,12 @@ min = 200
 max = 499
 
 # Host bind-mount, read-only, matching llama's model-store posture: whisper
-# only ever reads these files. The host side is modelsRoot() (src/paths.ts) +
-# "whisper" -- $XDG_DATA_HOME/engined-models/whisper, or ~/.local/share/
-# engined-models/whisper when unset (unset on this box). spec.toml has no
-# placeholder for that resolution (substitute() in src/spec.ts only expands
-# {spec_dir} and {bunx}, and only on volume.path, never volume.name), so the
-# literal below is that function's output on this operator's machine, not an
-# independently chosen path. A sibling of installDir(), never inside it:
-# install.sh rsyncs the install dir with --delete.
+# only ever reads these files. {models_dir} resolves to this engine's
+# "models_dir" config entry, so this spec is only loadable for a config that
+# supplies one -- an engine that omits it fails loudly at parse, naming the
+# placeholder, rather than starting with a broken mount.
 [[volume]]
-name = "/home/user/.local/share/engined-models/whisper"
+name = "{models_dir}"
 path = "/models"
 read_only = true
 
@@ -72,11 +68,11 @@ read_only = true
 # substitutes to the HOST path install.sh synced it to (a plain string
 # substitution, not a mount), and nothing else copies it in -- run without
 # this, the container's real PID 1 is bash reporting the entrypoint path
-# "No such file or directory" and exiting immediately. Same
-# operator-machine-literal caveat as the model volume above: installDir() +
-# "engines/whisper" on this box.
+# "No such file or directory" and exiting immediately. {spec_dir} here is the
+# same installed spec directory, so the mount source and the entrypoint path
+# always agree.
 [[volume]]
-name = "/home/user/.local/share/engined/engines/whisper"
+name = "{spec_dir}"
 path = "/spec"
 read_only = true
 
@@ -91,7 +87,7 @@ read_only = true
 # removing them is the operator's call, not this change's.
 [[artifact]]
 path = "/models/ggml-large-v3-turbo-q8_0.bin"
-obtain = "curl -fL -o /home/user/.local/share/engined-models/whisper/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
+obtain = "curl -fL -o {models_dir}/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
 
 # Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
 # Filename and URL confirmed against whisper.cpp's own
@@ -101,4 +97,4 @@ obtain = "curl -fL -o /home/user/.local/share/engined-models/whisper/ggml-large-
 # both of those name as current.
 [[artifact]]
 path = "/models/ggml-silero-v6.2.0.bin"
-obtain = "curl -fL -o /home/user/.local/share/engined-models/whisper/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"
+obtain = "curl -fL -o {models_dir}/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"

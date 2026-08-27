@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSpec } from "./spec.ts";
@@ -7,6 +7,7 @@ import type { EngineEntry } from "./types.ts";
 
 const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
 const BUNX = "/home/x/.bun/bin/bunx";
+const RX_HOME_PATH = /\/home\/[^/"]+/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return { id: "claude", egress: "none", args: {}, ...overrides };
@@ -61,8 +62,92 @@ describe("shipped specs", () => {
       expect(loaded.spec.ready.path).toBe("/v1/audio/transcriptions");
       expect(loaded.spec.ready.method).toBe("POST");
       expect(loaded.spec.ready.accept).toEqual({ min: 200, max: 499 });
+      // {models_dir} and {spec_dir} must resolve to the supplied engine
+      // config and the installed spec directory, not survive as literals.
+      const specDirPath = join(ENGINES_ROOT, "whisper");
+      expect(loaded.spec.volumes).toEqual([
+        { name: "/data/models", path: "/models", read_only: true },
+        { name: specDirPath, path: "/spec", read_only: true },
+      ]);
+      expect(loaded.spec.artifacts).toEqual([
+        {
+          path: "/models/ggml-large-v3-turbo-q8_0.bin",
+          obtain:
+            "curl -fL -o /data/models/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+        },
+        {
+          path: "/models/ggml-silero-v6.2.0.bin",
+          obtain:
+            "curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
+        },
+      ]);
     }
   });
+
+  // The regression guard: the earlier literal /home/<user>/... paths leaked
+  // the operator's username into a file that ships. Assert against the real
+  // committed file so a reintroduced literal fails here regardless of what
+  // any loadSpec() call above happens to substitute.
+  test("the shipped whisper spec.toml contains no absolute host path", () => {
+    const raw = readFileSync(join(ENGINES_ROOT, "whisper", "spec.toml"), "utf8");
+    expect(raw).not.toMatch(RX_HOME_PATH);
+  });
+});
+
+test("volume.name and artifact.obtain placeholders resolve to the supplied values", () => {
+  const root = specDir(
+    "stt-engine",
+    `
+kind = "stt"
+image = "ghcr.io/example/whisper@sha256:aaaa"
+obtain = "pull"
+serves = ["/v1/audio/transcriptions"]
+command = ["-m", "{models_dir}/model.bin"]
+
+[ready]
+path = "/health"
+status = 200
+
+[[volume]]
+name = "{models_dir}"
+path = "/models"
+
+[[artifact]]
+path = "/models/model.bin"
+obtain = "curl -fL -o {models_dir}/model.bin --config {spec_dir}/fetch.conf https://example.com/model.bin"
+`,
+  );
+  const loaded = loadSpec(engine({ id: "stt-engine", models_dir: "/data/models" }), {
+    enginesRoot: root,
+    bunx: BUNX,
+  });
+  if (loaded.spec.kind === "agentic-cli") {
+    throw new Error("expected a container spec");
+  }
+  const specDirPath = join(root, "stt-engine");
+  expect(loaded.spec.volumes).toEqual([{ name: "/data/models", path: "/models" }]);
+  expect(loaded.spec.artifacts).toEqual([
+    {
+      path: "/models/model.bin",
+      obtain: `curl -fL -o /data/models/model.bin --config ${specDirPath}/fetch.conf https://example.com/model.bin`,
+    },
+  ]);
+});
+
+test("an unresolved placeholder in volume.name is fatal, naming it", () => {
+  const root = specDir(
+    "x",
+    `kind = "stt"\nimage = "img"\nobtain = "pull"\nserves = []\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n\n[[volume]]\nname = "{nope}"\npath = "/models"\n`,
+  );
+  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
+});
+
+test("an unresolved placeholder in artifact.obtain is fatal, naming it", () => {
+  const root = specDir(
+    "x",
+    `kind = "stt"\nimage = "img"\nobtain = "pull"\nserves = []\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n\n[[artifact]]\npath = "/models/x.bin"\nobtain = "curl -o {nope}/x.bin https://example.com/x.bin"\n`,
+  );
+  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
 });
 
 test("a container spec with a full round trip resolves clean", () => {

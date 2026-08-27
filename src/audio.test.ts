@@ -30,7 +30,12 @@ function loadChatterboxSpec() {
 }
 
 function loadWhisperSpec() {
-  const entry: EngineEntry = { id: "whisper", egress: "none", args: {} };
+  const entry: EngineEntry = {
+    id: "whisper",
+    egress: "none",
+    args: {},
+    models_dir: "/data/whisper-models",
+  };
   const loaded = loadSpec(entry, {
     enginesRoot: join(import.meta.dir, "..", "engines"),
     bunx: "/opt/engined/state/bunx",
