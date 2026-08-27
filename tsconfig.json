@@ -3,6 +3,7 @@
     "target": "esnext",
     "module": "preserve",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "types": ["bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,

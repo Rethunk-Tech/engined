@@ -17,7 +17,9 @@
         // the intended surface, not a browser-bundle mistake.
         "noNodejsModules": "off",
         // Bun's globals come from @types/bun rather than a package import.
-        "noUndeclaredDependencies": "off"
+        "noUndeclaredDependencies": "off",
+        // Biome does not resolve Bun's builtin `bun:` module scheme (bun:test).
+        "noUnresolvedImports": "off"
       },
       "style": {
         // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
@@ -31,10 +33,24 @@
         "noParameterProperties": "off",
         "noExcessiveClassesPerFile": "off",
         "useExportsLast": "off",
-        "useConsistentArrayType": "off"
+        "useConsistentArrayType": "off",
+        // A file's length is not a defect. Splitting config parse or the
+        // container lifecycle to hit a line count would scatter one concern
+        // across several files to satisfy a metric.
+        "noExcessiveLinesPerFile": "off"
+      },
+      "performance": {
+        // Readiness polls, idle waits and retry loops are sequential by
+        // definition -- awaiting them concurrently would fire every attempt at
+        // once, which is the opposite of what a poll is.
+        "noAwaitInLoops": "off"
       },
       "nursery": { "recommended": true }
     }
+  },
+  "javascript": {
+    // Bun's runtime global is ambient, supplied by @types/bun rather than an import.
+    "globals": ["Bun"]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
 }
