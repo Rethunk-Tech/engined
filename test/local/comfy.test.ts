@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
@@ -46,6 +47,31 @@ const TEST_TIMEOUT_MS = 300_000;
 /** Stopping two real containers outruns bun's 5s default hook timeout. */
 const SHUTDOWN_TIMEOUT_MS = 120_000;
 
+/**
+ * The weights the checkpoint render needs. Chroma1-HD is a UNET-only file --
+ * `CheckpointLoaderSimple` returns no CLIP for it -- so the text encoder and
+ * the VAE are named separately, and the CLIP type is what selects Chroma's
+ * T5-only conditioning. Any of the three missing is a skip, never a failure:
+ * this suite still must not be pinned to whichever weights an operator keeps.
+ */
+const RENDER_UNET = "Chroma1-HD.safetensors";
+const RENDER_CLIP = "t5xxl_fp16.safetensors";
+const RENDER_CLIP_TYPE = "chroma";
+const RENDER_VAE = "ae.safetensors";
+const RENDER_WIDTH = 512;
+const RENDER_HEIGHT = 512;
+/** Twelve resolves a clean image in well under a minute; four decodes only a blur. */
+const RENDER_STEPS = 12;
+/**
+ * A flat 512x512 PNG -- what the model-free job above produces -- compresses
+ * to a couple of KB. A real render is two orders larger, so this is what
+ * separates "the diffusion path ran" from "an image-shaped file appeared".
+ */
+const MIN_RENDERED_PNG_BYTES = 20_000;
+/** Cold, this loads ~27 GB of weights before it samples anything. */
+const RENDER_BUDGET_MS = 600_000;
+const RENDER_TIMEOUT_MS = 900_000;
+
 function imageBuilt(image: string): boolean {
   return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
 }
@@ -74,6 +100,7 @@ interface Fixture {
   chatModel: ModelEntry;
   llamaImage?: string;
   comfyImage?: string;
+  comfyModelsDir?: string;
 }
 
 /** Never throws: a stale or unreachable config.example.toml is a clean skip, not a crash before any test registers. */
@@ -101,6 +128,7 @@ function loadFixture(): Fixture | undefined {
       chatModel,
       llamaImage: specImage(llamaEngine),
       comfyImage: specImage(comfyEngine),
+      comfyModelsDir: comfyEngine.models_dir,
     };
   } catch {
     // No GGUF at the declared path, or any other parse failure: undefined falls through to a clean skip.
@@ -131,6 +159,31 @@ function skipReason(): string {
   return `${FIXTURE.llamaImage} and/or ${FIXTURE.comfyImage} are not built`;
 }
 
+/** Comfy resolves each of these from its own bind-mounted model tree. */
+function renderWeightPaths(modelsDir: string): string[] {
+  return [
+    join(modelsDir, "diffusion_models", RENDER_UNET),
+    join(modelsDir, "text_encoders", RENDER_CLIP),
+    join(modelsDir, "vae", RENDER_VAE),
+  ];
+}
+
+const MISSING_WEIGHTS =
+  FIXTURE?.comfyModelsDir === undefined
+    ? []
+    : renderWeightPaths(FIXTURE.comfyModelsDir).filter((path) => !existsSync(path));
+const CAN_RENDER = READY && FIXTURE?.comfyModelsDir !== undefined && MISSING_WEIGHTS.length === 0;
+
+function renderSkipReason(): string {
+  if (!READY) {
+    return skipReason();
+  }
+  if (FIXTURE?.comfyModelsDir === undefined) {
+    return "the comfy engine declares no models_dir";
+  }
+  return `absent from the comfy model tree: ${MISSING_WEIGHTS.join(", ")}`;
+}
+
 async function comfyQueueReachable(privateUrl: string | null): Promise<boolean> {
   if (privateUrl === null) {
     return false;
@@ -159,11 +212,15 @@ function modelFreeWorkflow(): Record<string, unknown> {
 }
 
 /** Submits the job and returns the output image filenames Comfy reports for it. */
-async function runComfyJob(privateUrl: string, budgetMs: number): Promise<string[]> {
+async function runComfyJob(
+  privateUrl: string,
+  budgetMs: number,
+  workflow: Record<string, unknown>,
+): Promise<string[]> {
   const submit = await fetch(`http://${privateUrl}/prompt`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt: modelFreeWorkflow() }),
+    body: JSON.stringify({ prompt: workflow }),
   });
   if (submit.status !== 200) {
     throw new Error(`comfy /prompt returned ${submit.status}`);
@@ -189,6 +246,76 @@ async function runComfyJob(privateUrl: string, budgetMs: number): Promise<string
     await sleep(IDLE_POLL_INTERVAL_MS);
   }
   throw new Error("comfy job did not complete within its budget");
+}
+
+/**
+ * The real diffusion graph: load the UNET, T5 and VAE separately, condition on
+ * a prompt, sample, decode, save. Unlike `modelFreeWorkflow` this actually
+ * puts weights on the GPU and runs the sampler.
+ */
+function diffusionWorkflow(): Record<string, unknown> {
+  return {
+    "1": {
+      class_type: "UNETLoader",
+      inputs: { unet_name: RENDER_UNET, weight_dtype: "default" },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: { clip_name: RENDER_CLIP, type: RENDER_CLIP_TYPE },
+    },
+    "3": { class_type: "VAELoader", inputs: { vae_name: RENDER_VAE } },
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: { text: "a red cube on a white table", clip: ["2", 0] },
+    },
+    "5": { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["2", 0] } },
+    "6": {
+      class_type: "EmptySD3LatentImage",
+      inputs: { width: RENDER_WIDTH, height: RENDER_HEIGHT, batch_size: 1 },
+    },
+    "7": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["1", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["6", 0],
+        seed: 7,
+        steps: RENDER_STEPS,
+        cfg: 4.0,
+        sampler_name: "euler",
+        scheduler: "simple",
+        denoise: 1.0,
+      },
+    },
+    "8": { class_type: "VAEDecode", inputs: { samples: ["7", 0], vae: ["3", 0] } },
+    "9": {
+      class_type: "SaveImage",
+      inputs: { images: ["8", 0], filename_prefix: "engined_local_checkpoint" },
+    },
+  };
+}
+
+async function fetchOutputImage(privateUrl: string, filename: string): Promise<Uint8Array> {
+  const res = await fetch(
+    `http://${privateUrl}/view?filename=${encodeURIComponent(filename)}&type=output`,
+  );
+  if (res.status !== 200) {
+    throw new Error(`comfy /view returned ${res.status}`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function isPng(bytes: Uint8Array): boolean {
+  return PNG_MAGIC.every((byte, i) => bytes[i] === byte);
+}
+
+/** IHDR is always the first chunk, so width and height are big-endian u32 at 16 and 20. */
+function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
 async function chatCompletes(router: LlamaRouter, model: ModelEntry): Promise<boolean> {
@@ -343,7 +470,11 @@ describe.skipIf(!READY)(
 
         const comfy = await registry.start("comfy");
         expect(comfy.state).toBe("running");
-        const images = await runComfyJob(comfy.private_url as string, TEST_TIMEOUT_MS / 2);
+        const images = await runComfyJob(
+          comfy.private_url as string,
+          TEST_TIMEOUT_MS / 2,
+          modelFreeWorkflow(),
+        );
         expect(images.length).toBeGreaterThan(0);
 
         // Same container, same published port: a reload would have replaced
@@ -354,6 +485,55 @@ describe.skipIf(!READY)(
         expect(registry.get("local-llama")?.private_url).toBe(before);
       },
       TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+/**
+ * The last hand-proof-only claim: `modelFreeWorkflow` deliberately loads no
+ * weights, so queue/execute/output were guarded while the diffusion path
+ * itself -- weights on the GPU, sampler, VAE decode -- was not. This drives a
+ * real checkpoint and skips when the weights are absent, so the suite gains
+ * the guard without becoming pinned to them.
+ */
+describe.skipIf(!CAN_RENDER)(
+  CAN_RENDER
+    ? "comfy renders through a real checkpoint (local)"
+    : `comfy renders through a real checkpoint (local): SKIPPED -- ${renderSkipReason()}`,
+  () => {
+    let rig: Rig | undefined;
+
+    beforeAll(() => {
+      rig = buildRig(FIXTURE as Fixture);
+    });
+
+    afterAll(async () => {
+      await rig?.registry.shutdown();
+      await rig?.lifecycle.shutdown();
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    test(
+      "a prompted checkpoint render decodes a real 512x512 PNG, not a flat image",
+      async () => {
+        if (!rig) {
+          throw new Error("beforeAll did not run -- rig is unset");
+        }
+        const comfy = await rig.registry.start("comfy");
+        expect(comfy.state).toBe("running");
+
+        const images = await runComfyJob(
+          comfy.private_url as string,
+          RENDER_BUDGET_MS,
+          diffusionWorkflow(),
+        );
+        expect(images.length).toBe(1);
+
+        const png = await fetchOutputImage(comfy.private_url as string, images[0] as string);
+        expect(isPng(png)).toBe(true);
+        expect(pngDimensions(png)).toEqual({ width: RENDER_WIDTH, height: RENDER_HEIGHT });
+        expect(png.byteLength).toBeGreaterThan(MIN_RENDERED_PNG_BYTES);
+      },
+      RENDER_TIMEOUT_MS,
     );
   },
 );
