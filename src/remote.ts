@@ -15,6 +15,7 @@
  * or an error body from anywhere in here.
  */
 
+import { STATUS_BAD_GATEWAY, STATUS_UNAVAILABLE } from "./http.ts";
 import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
 import type { EngineEntry } from "./types.ts";
 
@@ -46,14 +47,6 @@ export type SecretResolution =
   | { ok: true; value: string }
   | { ok: false; status: number; error: string };
 
-/**
- * A 502: the engine is misconfigured, and no amount of waiting fixes it.
- * Distinct from the 503 a locked or missing keyring entry earns, which
- * resolves itself the moment the operator signs in.
- */
-const STATUS_MISCONFIGURED = 502;
-const STATUS_UNAVAILABLE = 503;
-
 const TRAILING_SLASHES = /\/+$/;
 const LEADING_SLASHES = /^\/+/;
 /** Anchored on the segment boundary so `/v1beta/...` is left alone. */
@@ -76,7 +69,11 @@ export async function resolveRemoteSecret(
   if (!engine.secret) {
     return {
       ok: false,
-      status: STATUS_MISCONFIGURED,
+      // 502, not 503: a missing configured secret is misconfiguration, and
+      // no amount of waiting fixes it, unlike the 503 a locked or missing
+      // keyring entry earns below, which resolves at the operator's next
+      // sign-in.
+      status: STATUS_BAD_GATEWAY,
       error: `engine "${engine.id}" is a remote address with no configured secret`,
     };
   }
@@ -94,7 +91,11 @@ export async function resolveRemote(
   if (engine.base_url === undefined || engine.secret === undefined) {
     return {
       ok: false,
-      status: STATUS_MISCONFIGURED,
+      // 502, not 503: a missing configured secret is misconfiguration, and
+      // no amount of waiting fixes it, unlike the 503 a locked or missing
+      // keyring entry earns below, which resolves at the operator's next
+      // sign-in.
+      status: STATUS_BAD_GATEWAY,
       error: `engine "${engine.id}" is a remote address with no configured secret`,
     };
   }

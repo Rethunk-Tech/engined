@@ -25,15 +25,18 @@
  * discriminator when it exists, not before.
  */
 
+import {
+  jsonErrorBody,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_OK,
+  STATUS_UNAVAILABLE,
+} from "./http.ts";
 import { type RemoteEndpoint, remoteUrl } from "./remote.ts";
 
 const WAV_CONTENT_TYPE = "audio/wav";
 const TEXT_CONTENT_TYPE = "text/plain";
 const JSON_CONTENT_TYPE = "application/json";
-const STATUS_BAD_REQUEST = 400;
-const STATUS_OK = 200;
-const STATUS_UNAVAILABLE = 503;
-const STATUS_BAD_UPSTREAM = 502;
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
 const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
 /**
@@ -112,7 +115,7 @@ function extractAudioFromNdjson(body: string): string | undefined {
 }
 
 function errorResponse(status: number, message: string): DoorResponse {
-  return { status, contentType: JSON_CONTENT_TYPE, body: { error: message } };
+  return { status, contentType: JSON_CONTENT_TYPE, body: jsonErrorBody(message) };
 }
 
 export async function handleSpeech(
@@ -139,7 +142,7 @@ export async function handleSpeech(
     // Said out loud rather than left to fail as "not available", which would
     // read as a container that did not start.
     return errorResponse(
-      STATUS_BAD_UPSTREAM,
+      STATUS_BAD_GATEWAY,
       `${req.model} is a remote address, and no remote speech dialect ships`,
     );
   }
@@ -153,12 +156,12 @@ export async function handleSpeech(
     body: JSON.stringify({ text: req.input }),
   });
   if (!res.ok) {
-    return errorResponse(STATUS_BAD_UPSTREAM, `${req.model}: /v1/tts returned ${res.status}`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts returned ${res.status}`);
   }
 
   const audio = extractAudioFromNdjson(await res.text());
   if (audio === undefined) {
-    return errorResponse(STATUS_BAD_UPSTREAM, `${req.model}: /v1/tts response carried no audio`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts response carried no audio`);
   }
 
   return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: Buffer.from(audio, "base64") };
@@ -207,17 +210,14 @@ async function transcribeRemote(
   });
   if (!res.ok) {
     return errorResponse(
-      STATUS_BAD_UPSTREAM,
+      STATUS_BAD_GATEWAY,
       `${req.model}: /speech-to-text returned ${res.status}`,
     );
   }
 
   const parsed = (await res.json()) as { text?: unknown };
   if (typeof parsed.text !== "string") {
-    return errorResponse(
-      STATUS_BAD_UPSTREAM,
-      `${req.model}: /speech-to-text carried no transcript`,
-    );
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /speech-to-text carried no transcript`);
   }
   if (format !== undefined && REMOTE_TEXT_RESPONSE_FORMATS.has(format)) {
     return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: parsed.text };
@@ -263,7 +263,7 @@ export async function handleTranscription(
   });
   if (!res.ok) {
     return errorResponse(
-      STATUS_BAD_UPSTREAM,
+      STATUS_BAD_GATEWAY,
       `${req.model}: /v1/audio/transcriptions returned ${res.status}`,
     );
   }

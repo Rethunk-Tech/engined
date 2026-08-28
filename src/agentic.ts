@@ -29,6 +29,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { STATUS_BAD_GATEWAY, STATUS_OK } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, type EngineEntry } from "./types.ts";
 
@@ -42,8 +43,6 @@ import { AGENTIC_FLOOR, type EngineEntry } from "./types.ts";
  * unparseable envelope.
  */
 const OUTPUT_FORMAT_FLAGS = ["--output-format", "json"] as const;
-const STATUS_OK = 200;
-const STATUS_ENVELOPE_FAILURE = 502;
 
 /**
  * `--strict-mcp-config` closes the MCP door only against a config that
@@ -322,7 +321,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
 
   const outcome = parseEnvelope(spawned.stdout);
   return {
-    status: outcome.ok ? STATUS_OK : STATUS_ENVELOPE_FAILURE,
+    status: outcome.ok ? STATUS_OK : STATUS_BAD_GATEWAY,
     ok: outcome.ok,
     result: outcome.result,
     failure: outcome.failure,
