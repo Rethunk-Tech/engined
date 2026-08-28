@@ -21,7 +21,7 @@ import {
   type SpeechRequestBody,
   type TranscriptionRequestBody,
 } from "./audio.ts";
-import { type HopExec, type HopResult, runChain } from "./chain.ts";
+import { classifyResult, type HopExec, type HopResult, runChain } from "./chain.ts";
 import { loadConfig } from "./config.ts";
 import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
@@ -752,12 +752,21 @@ async function handleChatOrEmbeddings(
 interface AudioCallInfo {
   engineId: string;
   requested: string;
-  status: number;
+  result: DoorResponse;
   startedAt: number;
 }
 
+/**
+ * Audio provenance is classified by the same rule a chain hop is: one place
+ * decides ok-vs-failure, so a failed audio call records WHY it failed and a
+ * 200 carrying no audio is not recorded as a success.
+ */
 function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): void {
-  const { engineId, requested, status, startedAt } = info;
+  const { engineId, requested, result, startedAt } = info;
+  const verdict = classifyResult({
+    status: result.status,
+    body: result.bytes !== undefined && result.bytes.byteLength > 0 ? "audio" : result.body,
+  });
   recordCall(
     {
       chain: null,
@@ -766,11 +775,12 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): void {
         {
           engine: engineId,
           model: engineId,
-          ok: status < HTTP_CLIENT_ERROR_MIN,
+          ok: verdict.ok,
+          ...(verdict.failure === undefined ? {} : { failure: verdict.failure }),
           duration_ms: Date.now() - startedAt,
         },
       ],
-      engine_used: status < HTTP_CLIENT_ERROR_MIN ? engineId : null,
+      engine_used: verdict.ok ? engineId : null,
     },
     ctx.doorOpts.write,
   );
@@ -849,7 +859,7 @@ async function handleAudioSpeech(
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start, ctx.doorOpts.audioFetch);
   armAudioIdleStop(ctx, engineId);
-  recordAudioCall(ctx, { engineId, requested: rawModel ?? "", status: result.status, startedAt });
+  recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt });
   return doorResponseToResponse(result);
 }
 
@@ -899,12 +909,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start, ctx.doorOpts.audioFetch);
   armAudioIdleStop(ctx, engineId);
-  recordAudioCall(ctx, {
-    engineId,
-    requested: form.rawModel ?? "",
-    status: result.status,
-    startedAt,
-  });
+  recordAudioCall(ctx, { engineId, requested: form.rawModel ?? "", result, startedAt });
   return doorResponseToResponse(result);
 }
 

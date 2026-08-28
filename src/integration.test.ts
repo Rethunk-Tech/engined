@@ -724,3 +724,43 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     await door.registry.shutdown();
   }
 });
+
+test("a failed audio call records why it failed, not merely that it did", async () => {
+  const fake = startFakeUpstream((request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    // The engine is up and answers, and the synthesis itself fails. Provenance
+    // has to carry the reason: "ok: false" with no failure is unreadable later.
+    return new Response("", { status: 503 });
+  });
+  const port = Number(fake.base.split(":")[1]);
+  const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
+  const config = baseConfig({
+    engines: [containerEngine("chatterbox", ttsSpec())],
+  });
+  const lines: string[] = [];
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { write: (l) => lines.push(l) },
+  );
+
+  try {
+    await door.fetch(
+      req("POST", "/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+    );
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "{}") as {
+      attempts: { ok: boolean; failure?: string }[];
+      engine_used: string | null;
+    };
+    expect(record.attempts[0]?.ok).toBe(false);
+    expect(record.attempts[0]?.failure).toBeDefined();
+    expect(record.engine_used).toBeNull();
+  } finally {
+    fake.stop();
+    await door.registry.shutdown();
+  }
+});
