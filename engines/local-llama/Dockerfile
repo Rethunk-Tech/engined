@@ -1,8 +1,8 @@
 # llama.cpp server, Vulkan/RADV, gfx1151 (Strix Halo). Ported verbatim from
 # sagaforge-ts's docker/llama-cpp/Dockerfile (read from source, not a
-# summary) -- the image this box has been running, sagaforge-llama-cpp:local,
-# was built from that tree, not this one, which is the defect this file
-# fixes. llama-grammar.patch is vendored alongside it unchanged.
+# summary), so that the image this box runs is built from this tree rather
+# than a sibling project's. llama-grammar.patch is vendored alongside it
+# unchanged.
 #
 # Builds from Nathanw1014/llama.cpp's `strix-halo-vulkan` branch (a fork of
 # upstream llama.cpp, MIT), which carries Strix-Halo-specific Vulkan

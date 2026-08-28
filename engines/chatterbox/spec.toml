@@ -1,5 +1,5 @@
 kind   = "tts"
-image  = "sagaforge-chatterbox:local"
+image  = "engined-chatterbox:local"
 obtain = "build"
 serves = ["/v1/audio/speech"]
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.

@@ -1,5 +1,5 @@
 kind = "comfy"
-image = "sagaforge-comfyui:local"
+image = "engined-comfyui:local"
 obtain = "build"
 # Comfy has no OpenAI shape: a consumer reaches it through POST
 # /v1/engines/comfy/start and the private_url that returns, never as a model.
