@@ -433,6 +433,63 @@ test("a different-GGUF same-role chat arriving mid-lease waits, without eviction
   expect(unloadA).toBeDefined();
 });
 
+test("a queued waiter whose caller aborts is dropped before the swap it would have triggered", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  let releaseFirst: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    releaseFirst = r;
+  });
+  let firstStarted: () => void = () => undefined;
+  const firstStartedPromise = new Promise<void>((r) => {
+    firstStarted = r;
+  });
+  let sawFirstChat = false;
+  const { client, calls } = fakeLlama();
+  const gatedClient: HttpClient = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === CHAT_PATH && !sawFirstChat) {
+      sawFirstChat = true;
+      firstStarted();
+      await gate;
+    }
+    return client(input, init);
+  };
+  const router = new LlamaRouter(e, [a, b], lifecycle, baseOpts(gatedClient));
+
+  const res1 = router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+  await firstStartedPromise;
+
+  const controller = new AbortController();
+  const res2 = router.proxy(b, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "b" }),
+    signal: controller.signal,
+  });
+  // Let the pump run as far as it can while A's lease is still held, exactly
+  // as the mid-lease test above does, so B is genuinely queued (not merely
+  // still inside ensureStarted) before it aborts.
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  controller.abort();
+  await expect(res2).rejects.toThrow();
+
+  releaseFirst();
+  await text(res1);
+
+  const bTouched = calls.some(
+    (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "b",
+  );
+  expect(bTouched).toBe(false);
+});
+
 test('/models/load only triggers; readiness is polled via /v1/models until "loaded"', async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });

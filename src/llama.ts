@@ -291,8 +291,14 @@ export class LlamaRouter {
     }
   }
 
-  /** Same-GGUF overlap bypasses the queue entirely; anything else joins the back, in arrival order. */
-  private acquireLease(role: Role, modelId: string): Promise<void> {
+  /**
+   * Same-GGUF overlap bypasses the queue entirely; anything else joins the
+   * back, in arrival order. `signal` is the caller's own hop budget, not the
+   * lease grant itself: a caller that aborts while still queued behind a
+   * swap must never receive that swap's `pump()` work on nobody's behalf, so
+   * an abort splices the waiter back out instead of letting it resolve late.
+   */
+  private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<void> {
     const state = this.roleState(role);
     return new Promise<void>((resolve, reject) => {
       if (state.queue.length === 0 && state.activeModelId === modelId) {
@@ -300,7 +306,39 @@ export class LlamaRouter {
         resolve();
         return;
       }
-      state.queue.push({ modelId, resolve, reject });
+      let onAbort: (() => void) | undefined;
+      const cleanup = () => {
+        if (onAbort) {
+          signal?.removeEventListener("abort", onAbort);
+        }
+      };
+      const waiter: RoleWaiter = {
+        modelId,
+        resolve: () => {
+          cleanup();
+          resolve();
+        },
+        reject: (err) => {
+          cleanup();
+          reject(err);
+        },
+      };
+      state.queue.push(waiter);
+      if (signal) {
+        onAbort = () => {
+          const idx = state.queue.indexOf(waiter);
+          if (idx === -1) {
+            return;
+          }
+          state.queue.splice(idx, 1);
+          waiter.reject(signal.reason ?? new Error("lease request aborted while queued"));
+        };
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
       this.runPump(role);
     });
   }
@@ -487,9 +525,13 @@ export class LlamaRouter {
    * buffered proxy paths cannot drift out of sync with each other.
    */
   /** The acquire half of a lease. Paired with `finishLease`, which every path must call exactly once however it ends. */
-  private async beginLease(role: Role, modelId: string): Promise<void> {
+  private async beginLease(
+    role: Role,
+    modelId: string,
+    signal?: AbortSignal | null,
+  ): Promise<void> {
     await this.ensureStarted();
-    await this.acquireLease(role, modelId);
+    await this.acquireLease(role, modelId, signal);
     this.totalActive++;
   }
 
@@ -501,8 +543,13 @@ export class LlamaRouter {
     }
   }
 
-  private async withLease<T>(role: Role, modelId: string, fn: () => Promise<T>): Promise<T> {
-    await this.beginLease(role, modelId);
+  private async withLease<T>(
+    role: Role,
+    modelId: string,
+    signal: AbortSignal | null | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    await this.beginLease(role, modelId, signal);
     try {
       return await fn();
     } finally {
@@ -644,7 +691,7 @@ export class LlamaRouter {
     path: string,
     init: RequestInit,
   ): Promise<Response> {
-    return this.withLease(role, modelId, async () => {
+    return this.withLease(role, modelId, init.signal, async () => {
       const upstream = await this.fetchUpstream(path, init, modelId);
       const body = await upstream.arrayBuffer();
       return new Response(body, { status: upstream.status, headers: upstream.headers });
@@ -672,7 +719,7 @@ export class LlamaRouter {
   ): Promise<Response> {
     const state = this.roleState(role);
     const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId);
-    await this.beginLease(role, modelId);
+    await this.beginLease(role, modelId, init.signal);
     let upstream: Response;
     try {
       upstream = await this.fetchUpstream(path, init, modelId);
