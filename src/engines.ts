@@ -612,6 +612,11 @@ export class EngineRegistry {
     return entry.spec.spec.serves;
   }
 
+  /** The configured engine itself — secret, base_url, args, timeouts — as distinct from `get`'s runtime status. */
+  entry(id: string): EngineEntry | undefined {
+    return this.byId.get(id)?.engine;
+  }
+
   /** Sync accessor: reports the lifecycle's cached state — no image probe, no keyring lookup. */
   get(id: string): EngineStatus | undefined {
     const entry = this.byId.get(id);

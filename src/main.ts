@@ -274,14 +274,10 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
  * door rather than a registry method because nothing in `engines.ts` owns
  * config lookups by id.
  */
-function findEngine(config: Config, id: string): EngineEntry | undefined {
-  return config.engines.find((e) => e.id === id);
-}
-
 function egressOf(ctx: DoorContext, seg: string): "none" | "remote" {
   const config = ctx.getConfig();
   const id = resolveEngineSegment(seg, config) ?? seg;
-  return findEngine(config, id)?.egress ?? "remote";
+  return ctx.registry.entry(id)?.egress ?? "remote";
 }
 
 interface HopRequest {
@@ -571,7 +567,7 @@ async function execAgentic(
 ): Promise<HopResult> {
   const { rawBody, signal } = req;
   const config = ctx.getConfig();
-  const engineEntry = findEngine(config, engineId);
+  const engineEntry = ctx.registry.entry(engineId);
   if (!engineEntry) {
     return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(`unknown engine "${engineId}"`) };
   }
@@ -671,7 +667,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     if (kind === "agentic-cli") {
       return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
-    const engineEntry = findEngine(ctx.getConfig(), engineId);
+    const engineEntry = ctx.registry.entry(engineId);
     if (kind === "openai-http" && engineEntry && isRemote(engineEntry)) {
       return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
     }
@@ -812,7 +808,7 @@ function doorResponseToResponse(result: DoorResponse): Response {
  * off a queue poll. A no-op if the start attempt never reached "running".
  */
 function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
-  const engine = findEngine(ctx.getConfig(), engineId);
+  const engine = ctx.registry.entry(engineId);
   ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
 }
 
@@ -825,7 +821,7 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
  */
 function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string) => {
-    const engine = findEngine(ctx.getConfig(), id);
+    const engine = ctx.registry.entry(id);
     if (engine && isRemote(engine)) {
       const resolution = await resolveRemote(engine, ctx.doorOpts.secretExec);
       return resolution.ok
@@ -920,7 +916,7 @@ const EXTRAS_ROLE = "chat";
 async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
   const config = ctx.getConfig();
   const engineId = resolveEngineSegment("local", config);
-  const engineEntry = engineId === undefined ? undefined : findEngine(config, engineId);
+  const engineEntry = engineId === undefined ? undefined : ctx.registry.entry(engineId);
   if (engineId === undefined || !engineEntry) {
     return jsonError(STATUS_BAD_REQUEST, "no local llama engine configured");
   }
