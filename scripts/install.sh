@@ -141,6 +141,9 @@ main() {
   render_unit_file "$UNIT_PATH"
 
   systemctl --user daemon-reload
+  # enable, not just restart: without it the unit is only ever running because
+  # someone ran this script, and a logout takes it down for good.
+  systemctl --user enable engined.service
   systemctl --user restart engined.service
 }
 

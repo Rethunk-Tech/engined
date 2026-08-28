@@ -12,6 +12,11 @@ ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js
 Restart=on-failure
 RestartPreventExitStatus=78
 
+# The daemon already re-reads config.toml on SIGHUP; without this line
+# `systemctl --user reload` is rejected outright and operators have to know
+# to reach for `systemctl kill -s HUP` instead.
+ExecReload=/bin/kill -HUP $MAINPID
+
 # {bunx} in a spec.toml command resolves to this at render time.
 Environment=ENGINED_BUNX=@BUNX_PATH@
 

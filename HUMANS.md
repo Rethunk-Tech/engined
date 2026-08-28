@@ -37,7 +37,9 @@ bash scripts/install.sh
 
 Builds a single-file bundle, syncs `engines/` into `~/.local/share/engined/`
 (`$XDG_DATA_HOME/engined/` when that is set), renders the `systemd --user`
-unit at `~/.config/systemd/user/engined.service`, and restarts it.
+unit at `~/.config/systemd/user/engined.service`, then enables and restarts
+it. Enabled means it comes back at the next login on its own; `loginctl
+enable-linger` on top of that is what keeps it up with nobody logged in.
 
 Running it again **is** the update. There is no other install or update path,
 and nothing reachable over HTTP writes to the install directory.
@@ -96,7 +98,7 @@ readiness, so it is slower than the rest.
 ```sh
 curl -s localhost:29200/v1/engines | jq     # state, and the fix for anything unavailable
 journalctl --user -u engined -f             # one JSON line per call
-systemctl --user kill -s HUP engined        # re-read config.toml
+systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
 ```
 
@@ -107,11 +109,9 @@ internally becomes visible.
 
 ### Reload
 
-`systemctl --user reload` does **not** work: the unit defines no `ExecReload`.
-Send the signal instead, as above.
-
-`SIGHUP` re-reads `config.toml`. In-flight requests finish against the old
-engine list and new ones see the new list. A new or changed `[[model]]`,
+`systemctl --user reload` sends `SIGHUP`, which re-reads `config.toml`.
+In-flight requests finish against the old engine list and new ones see the
+new list. A new or changed `[[model]]`,
 `[engine.args]`, or a changed spec's `image`/devices/`models_max` does **not**
 reach a *running* container: llama-server reads its presets INI once, at its
 own startup, so an engine keeps serving its old shape until it next starts —
