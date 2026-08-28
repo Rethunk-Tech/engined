@@ -186,7 +186,12 @@ function promptFromMessages(body: Record<string, unknown>): string {
 
 let agenticCallSeq = 0;
 
-/** The minimal OpenAI chat-completion shape a caller expects back; nothing here builds `usage` or token counts. */
+/**
+ * The minimal OpenAI chat-completion shape a caller expects back. `usage` is
+ * absent rather than zeroed: an agentic CLI reports no token counts, and a
+ * fabricated zero reads as a real measurement. A consumer that needs usage
+ * needs the CLI to report it first.
+ */
 function agenticEnvelope(text: string | undefined): Record<string, unknown> {
   agenticCallSeq += 1;
   return {

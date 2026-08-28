@@ -96,7 +96,13 @@ interface StartedEngine {
   unavailable?: string;
 }
 
-/** The first NDJSON line carrying a non-empty `audio` field; later lines (if any) are ignored, same as an absent alignment. */
+/**
+ * The first NDJSON line carrying a non-empty `audio` field. Each engine app
+ * emits exactly one terminal `{phase:"done", audio}` frame, so a second one
+ * does not occur -- an engine that starts emitting CHUNKED audio needs this
+ * to concatenate rather than return early, and would be silently truncated
+ * to its first chunk until it does.
+ */
 function extractAudioFromNdjson(body: string): string | undefined {
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
