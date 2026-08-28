@@ -45,3 +45,16 @@ export function expandTilde(p: string): string {
   }
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
+
+/**
+ * The llama preset INI: `EngineRegistry` writes it, `LlamaRouter` mounts it,
+ * and llama-server reads it once at its own process start. One definition, so
+ * the writer and the mounter cannot drift onto different files.
+ */
+export function localLlamaPresetDir(): string {
+  return `${stateDir()}/local-llama`;
+}
+
+export function localLlamaPresetPath(): string {
+  return `${localLlamaPresetDir()}/preset.ini`;
+}

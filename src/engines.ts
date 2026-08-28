@@ -10,7 +10,7 @@ import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
-import { stateDir } from "./paths.ts";
+import { localLlamaPresetDir, localLlamaPresetPath, stateDir } from "./paths.ts";
 import { isRemote, noSecretConfiguredFix } from "./remote.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
@@ -96,8 +96,6 @@ const REMOTE_AGENTIC_SPEC: AgenticSpec = {
 };
 
 /** Must match `LlamaRouterOptions.presetHostPath`'s own default: both write and mount the same file. */
-const LOCAL_LLAMA_PRESET_DIR = (): string => `${stateDir()}/local-llama`;
-const LOCAL_LLAMA_PRESET_PATH = (): string => `${LOCAL_LLAMA_PRESET_DIR()}/preset.ini`;
 
 function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
   return kind === "openai-http" && engine.models_dir !== undefined;
@@ -218,7 +216,7 @@ function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): Load
     return { ...loaded, spec: buildComfySpec(engine, specOptions) };
   }
   if (isLocalLlama(engine, loaded.spec.kind)) {
-    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, LOCAL_LLAMA_PRESET_PATH()) };
+    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, localLlamaPresetPath()) };
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
 }
@@ -638,8 +636,8 @@ export class EngineRegistry {
    */
   private renderLocalLlamaPreset(engine: EngineEntry): void {
     const models = this.config.models.filter((m) => m.engine === engine.id);
-    mkdirSync(LOCAL_LLAMA_PRESET_DIR(), { recursive: true });
-    writeFileSync(LOCAL_LLAMA_PRESET_PATH(), renderPresetIni(engine, models), "utf8");
+    mkdirSync(localLlamaPresetDir(), { recursive: true });
+    writeFileSync(localLlamaPresetPath(), renderPresetIni(engine, models), "utf8");
   }
 
   /**

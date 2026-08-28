@@ -122,8 +122,6 @@ async function handleStart(registry: EngineRegistry, id: string): Promise<Respon
   }
 }
 
-/** No lifecycle default is exported from engines.ts; duplicated here rather than reaching in. */
-
 const EXTRAS_EXACT = new Set([
   "/tokenize",
   "/detokenize",

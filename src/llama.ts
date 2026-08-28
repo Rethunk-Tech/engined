@@ -15,7 +15,7 @@ import { dirname } from "node:path";
 import { resolveArgs } from "./config.ts";
 import type { DockerLifecycle } from "./docker.ts";
 import type { HttpClient } from "./http.ts";
-import { stateDir } from "./paths.ts";
+import { localLlamaPresetPath } from "./paths.ts";
 import { loadSpec } from "./spec.ts";
 import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
 import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
@@ -38,6 +38,12 @@ const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
 /** Any upstream fault, as distinct from a refusal this door authored. */
 const HTTP_SERVER_ERROR = 500;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
+
+/** One entry of llama-server's `GET /v1/models`, in the only shape this router reads. */
+interface ListedModel {
+  id: string;
+  status?: { value?: string };
+}
 
 function iniLines(args: Record<string, unknown>): string[] {
   return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`);
@@ -189,7 +195,7 @@ export class LlamaRouter {
   ) {
     this.httpClient = opts.httpClient ?? fetch;
     this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.presetHostPath = opts.presetHostPath ?? `${stateDir()}/local-llama/preset.ini`;
+    this.presetHostPath = opts.presetHostPath ?? localLlamaPresetPath();
   }
 
   /**
@@ -458,12 +464,16 @@ export class LlamaRouter {
   }
 
   /** The router's own per-model readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
-  private async modelStatus(baseUrl: string, modelId: string): Promise<string | undefined> {
+  /** The engine's own view of what it holds. Both callers below read it fresh; neither caches. */
+  private async listedModels(baseUrl: string): Promise<ListedModel[]> {
     const res = await this.httpClient(`${baseUrl}/v1/models`, { method: "GET" });
-    const body = (await res.json()) as {
-      data?: Array<{ id: string; status?: { value?: string } }>;
-    };
-    return body.data?.find((m) => m.id === modelId)?.status?.value;
+    const body = (await res.json()) as { data?: ListedModel[] };
+    return body.data ?? [];
+  }
+
+  private async modelStatus(baseUrl: string, modelId: string): Promise<string | undefined> {
+    const listed = await this.listedModels(baseUrl);
+    return listed.find((m) => m.id === modelId)?.status?.value;
   }
 
   /**
@@ -478,12 +488,9 @@ export class LlamaRouter {
    * it, so cache only per-request if provenance ever shows up in a profile.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
-    const res = await this.httpClient(`${this.baseUrl()}/v1/models`, { method: "GET" });
-    const body = (await res.json()) as {
-      data?: Array<{ id: string; status?: { value?: string } }>;
-    };
+    const listed = await this.listedModels(this.baseUrl());
     const roleIds = new Set(this.models.filter((m) => m.role === role).map((m) => m.id));
-    return body.data?.find((m) => roleIds.has(m.id) && m.status?.value === "loaded")?.id;
+    return listed.find((m) => roleIds.has(m.id) && m.status?.value === "loaded")?.id;
   }
 
   /**
