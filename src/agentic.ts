@@ -337,7 +337,9 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
  * checked for silence. Each run costs a real billed call to Anthropic, so
  * this is only ever wired into the version-proof gate (`engines.ts`'s
  * `agenticStatus`), which fires solely when the configured pin differs from
- * the one last recorded — never per request, never per status poll.
+ * the one last recorded, and at most once per pin: a probe that fails is
+ * cached against that pin and re-armed only when the pin itself changes, and
+ * concurrent polls share one in-flight run. Never per request.
  */
 const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
 const WITNESS_ID_RADIX = 36;
