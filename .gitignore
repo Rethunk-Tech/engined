@@ -4,3 +4,5 @@ dist/
 *.tsbuildinfo
 *.db
 .orchestrate/
+# Rendered by the local tier's router fixtures; regenerated every run.
+test/local/.scratch-preset*.ini
