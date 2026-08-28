@@ -196,6 +196,28 @@ models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
 
+# The second STT engine, and the only one that is not a container. A remote
+# address launches nothing, so it declares no spec_dir, no models_dir and no
+# idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
+# the engine id it names on /v1/audio/transcriptions: "whisper" stays on this
+# box, "elevenlabs" does not, and `egress` is what says so.
+#
+#   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
+[[engine]]
+id       = "elevenlabs"
+kind     = "stt"       # required: with no spec directory there is nothing else to read it from.
+egress   = "remote"
+base_url = "https://api.elevenlabs.io/v1"
+secret   = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key" }
+
+# On a remote engine these are wire parameters rather than process flags --
+# nothing is launched. `model_id` is deliberately NOT the door's `model`: on
+# this door `model` names the engine, so ElevenLabs' own model id can only
+# come from here. Forwarding the door's value verbatim would send the string
+# "elevenlabs" as a model id and earn a 422.
+[engine.args]
+model_id = "scribe_v1"
+
 [[engine]]
 id                = "comfy"
 egress            = "none"

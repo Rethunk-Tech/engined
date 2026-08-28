@@ -23,6 +23,7 @@ const EXPECTED_ENGINE_IDS = [
   "claude",
   "claude-kimi",
   "comfy",
+  "elevenlabs",
   "kokoro",
   "local-llama",
   "whisper",
@@ -69,4 +70,14 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // real installed config was found missing before this file existed.
   const whisper = config.engines.find((e) => e.id === "whisper");
   expect(whisper?.models_dir).toBeDefined();
+
+  // The remote STT engine's whole shape lives in this file -- it has no spec
+  // directory to carry any of it. A `kind` lost to an edit would make it an
+  // engine of no kind, and a lost `model_id` would send the door's own
+  // engine id upstream as a model.
+  const elevenlabs = config.engines.find((e) => e.id === "elevenlabs");
+  expect(elevenlabs?.kind).toBe("stt");
+  expect(elevenlabs?.egress).toBe("remote");
+  expect(elevenlabs?.secret?.header).toBe("xi-api-key");
+  expect(elevenlabs?.args.model_id).toBe("scribe_v1");
 });
