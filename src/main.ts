@@ -27,6 +27,15 @@ import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
 import { proxyExtras } from "./extras.ts";
+import {
+  jsonError,
+  jsonErrorBody,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_FORBIDDEN,
+  STATUS_NOT_FOUND,
+  STATUS_UNAVAILABLE,
+} from "./http.ts";
 import { type HttpClient, LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
@@ -49,7 +58,7 @@ const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** `ss -ltnp`'s process column: `users:(("name",pid=1234,fd=56))`. */
 function refuse(message: string): Response {
-  return Response.json({ error: message }, { status: 403 });
+  return jsonError(STATUS_FORBIDDEN, message);
 }
 
 function isLoopbackHost(hostHeader: string, port: number): boolean {
@@ -94,7 +103,7 @@ async function handleStart(registry: EngineRegistry, id: string): Promise<Respon
     return Response.json(await registry.start(id));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return Response.json({ error: message }, { status: 404 });
+    return jsonError(STATUS_NOT_FOUND, message);
   }
 }
 
@@ -289,8 +298,8 @@ async function execLlama(
     );
   if (!model) {
     return {
-      status: 502,
-      body: { error: `model "${modelSeg}" not found on "${engineEntry.id}"` },
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`model "${modelSeg}" not found on "${engineEntry.id}"`),
     };
   }
   const router = getLlamaRouter(ctx, engineEntry);
@@ -519,7 +528,7 @@ export async function resolveRedirect(
 ): Promise<RedirectResolution> {
   const resolved = await resolveRemoteSecret(engineEntry, secretExec);
   if (!resolved.ok) {
-    return { ok: false, result: { status: resolved.status, body: { error: resolved.error } } };
+    return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
   const model = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
   return { ok: true, env: redirectEnv(engineEntry.base_url as string, resolved.value, model) };
@@ -530,7 +539,7 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
   if (!outcome.ok) {
     return {
       status: outcome.status,
-      body: { error: outcome.failure ?? "agentic call failed" },
+      body: jsonErrorBody(outcome.failure ?? "agentic call failed"),
       envelopeFailure: outcome.envelopeFailure,
       version: outcome.version,
     };
@@ -553,12 +562,12 @@ async function execAgentic(
   const config = ctx.getConfig();
   const engineEntry = config.engines.find((e) => e.id === engineId);
   if (!engineEntry) {
-    return { status: 502, body: { error: `unknown engine "${engineId}"` } };
+    return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(`unknown engine "${engineId}"`) };
   }
   if (engineEntry.claude_version === undefined) {
     return {
-      status: 502,
-      body: { error: `engine "${engineId}" has no claude_version configured` },
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineId}" has no claude_version configured`),
     };
   }
 
@@ -583,8 +592,8 @@ async function execAgentic(
       // not a proven envelope failure, so a chain skips it (TODO.md's own
       // rule) rather than treating it as terminal.
       return {
-        status: 503,
-        body: { error: proof.fix ?? `engine "${engineId}" is not installed` },
+        status: STATUS_UNAVAILABLE,
+        body: jsonErrorBody(proof.fix ?? `engine "${engineId}" is not installed`),
       };
     }
   }
@@ -622,13 +631,13 @@ async function execRemoteHttp(
 ): Promise<HopResult> {
   const resolution = await resolveRemote(engineEntry, ctx.doorOpts.secretExec);
   if (!resolution.ok) {
-    return { status: resolution.status, body: { error: resolution.error } };
+    return { status: resolution.status, body: jsonErrorBody(resolution.error) };
   }
   const modelId = resolveUpstreamModelId(ctx.getConfig(), engineEntry.id, modelSeg);
   if (modelId === undefined) {
     return {
-      status: 502,
-      body: { error: `engine "${engineEntry.id}" requires a model, and none was named` },
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineEntry.id}" requires a model, and none was named`),
     };
   }
   const init = openAiRequestInit(stripField(req.rawBody, "local_only"), modelId, req.signal);
@@ -659,8 +668,8 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
       return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
     }
     return {
-      status: 502,
-      body: { error: `engine "${engineId}" of kind "${kind}" cannot serve this request` },
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineId}" of kind "${kind}" cannot serve this request`),
     };
   };
 }
@@ -708,6 +717,7 @@ async function handleChatOrEmbeddings(
     requested: rawModel,
     localOnly: body.local_only === true,
     egressOf: (seg) => egressOf(ctx, seg),
+    resolveEngine: (seg) => resolveEngineSegment(seg, ctx.getConfig()) ?? seg,
     timeoutMs: chatTimeoutMs(ctx),
     exec: buildHopExec(ctx, {
       pathname,
@@ -813,10 +823,10 @@ async function handleAudioSpeech(
   const rawModel = typeof body.model === "string" ? body.model : undefined;
   const resolved = resolveModel(rawModel, "/v1/audio/speech", ctx.getConfig(), ctx.registry);
   if (!resolved.ok) {
-    return Response.json({ error: resolved.error }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
   if (resolved.kind === "chain") {
-    return Response.json({ error: "audio endpoints do not take a chain" }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain");
   }
   const engineId = resolved.engine;
   const start = audioStart(ctx);
@@ -862,10 +872,10 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
     ctx.registry,
   );
   if (!resolved.ok) {
-    return Response.json({ error: resolved.error }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
   if (resolved.kind === "chain") {
-    return Response.json({ error: "audio endpoints do not take a chain" }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain");
   }
   const engineId = resolved.engine;
   const start = audioStart(ctx);
@@ -897,11 +907,11 @@ async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
   const engineEntry =
     engineId === undefined ? undefined : config.engines.find((e) => e.id === engineId);
   if (engineId === undefined || !engineEntry) {
-    return Response.json({ error: "no local llama engine configured" }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, "no local llama engine configured");
   }
   const status = await ctx.registry.start(engineId);
   if (status.private_url === null) {
-    return Response.json({ error: status.fix ?? `${engineId} is not available` }, { status: 503 });
+    return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`);
   }
   const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
   return proxyExtras(
@@ -920,7 +930,7 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
   }
   if (pathname === "/v1/audio/speech") {
     return handleAudioSpeech(ctx, body);
@@ -928,7 +938,7 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
   const rawModel = typeof body.model === "string" ? body.model : undefined;
   const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry);
   if (!resolved.ok) {
-    return Response.json({ error: resolved.error }, { status: 400 });
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
   return handleChatOrEmbeddings(ctx, resolved, { pathname, rawModel: rawModel ?? "", body });
 }
@@ -978,7 +988,7 @@ function routePost(
   if (startMatch) {
     const [, id] = startMatch;
     return id === undefined
-      ? Response.json({ error: "not found" }, { status: 404 })
+      ? jsonError(STATUS_NOT_FOUND, "not found")
       : handleStart(ctx.registry, id);
   }
   if (CONTENT_ENDPOINTS.has(pathname)) {
@@ -1001,7 +1011,7 @@ function routeRequest(
   } else if (req.method === "POST") {
     matched = routePost(ctx, req, pathname);
   }
-  return matched ?? Response.json({ error: "not found" }, { status: 404 });
+  return matched ?? jsonError(STATUS_NOT_FOUND, "not found");
 }
 
 export function createDoor(
