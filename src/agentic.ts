@@ -68,7 +68,7 @@ export interface AgenticSpawnResult {
   exitCode: number;
 }
 
-export interface AgenticSpawnOptions {
+interface AgenticSpawnOptions {
   cwd: string;
   env: Record<string, string>;
   input: string;
@@ -370,7 +370,7 @@ function plantUserPromptSubmitHook(workdir: string, witness: string): void {
   );
 }
 
-export interface AgenticProbeRunnerDeps {
+interface AgenticProbeRunnerDeps {
   /** Defaults to the real child-process spawn; a test injects a fake so no billed call ever runs. */
   spawn?: AgenticSpawn;
   ambientEnv?: NodeJS.ProcessEnv;

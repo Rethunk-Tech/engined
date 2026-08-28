@@ -103,6 +103,9 @@ function baseOpts(
     egressOf: () => "remote",
     resolveEngine: (engine) => engine,
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
+    // Without this every runChain here writes its provenance line to the real
+    // stdout; a test that asserts on the line passes its own collector.
+    write: () => {},
     ...overrides,
   };
 }

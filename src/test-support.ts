@@ -100,7 +100,7 @@ export function portResult(hostPort: number | string): ExecResult {
   return { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
 }
 
-export interface BuildExecOptions {
+interface BuildExecOptions {
   missingImages?: Set<string>;
   portByContainer?: Record<string, number>;
   runLog?: string[][];

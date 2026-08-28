@@ -238,8 +238,8 @@ secret   = { service = "elevenlabs-api", username = "scribe", header = "xi-api-k
 # this door `model` names the engine, so ElevenLabs' own model id can only
 # come from here. Forwarding the door's value verbatim would send the string
 # "elevenlabs" as a model id and earn a 422.
-[engine.args]
-model_id = "scribe_v1"
+  [engine.args]
+  model_id = "scribe_v1"
 
 [[engine]]
 id                = "comfy"
