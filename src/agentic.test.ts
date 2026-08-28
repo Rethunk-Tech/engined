@@ -1,6 +1,5 @@
-import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import {
@@ -17,6 +16,7 @@ import {
 // Read-only import: proves the real reachable path (config parse), not just
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from "./config.ts";
+import { BUNX, makeTestRoot } from "./test-support.ts";
 import {
   AGENTIC_FLOOR,
   assertNoForbiddenFlags,
@@ -25,16 +25,10 @@ import {
 } from "./types.ts";
 
 const PIN = "1.2.3";
-const BUNX = "/opt/engined/state/bunx";
 const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
 const RX_TOOLS_FLAG = /--tools/;
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-agentic-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-agentic-test-");
 
 /** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one of the three floor flags or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
@@ -116,6 +110,13 @@ claude_version = "1.2.3"
   expect(() => loadConfig(configPath)).toThrow(RX_TOOLS_FLAG);
 });
 
+/** Command[0] is the given bunx path, and the pin appears literally rather than latest -- the shape every launch's argv must hold, whether built directly by buildArgv or observed on a spawned call. */
+function assertPinnedArgv(argv: readonly string[]): void {
+  expect(argv[0]).toBe(BUNX);
+  expect(argv.some((token) => token.includes(PIN))).toBe(true);
+  expect(argv.some((token) => token.includes("latest"))).toBe(false);
+}
+
 test("buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest", () => {
   const argv = buildArgv({
     bunx: BUNX,
@@ -124,9 +125,7 @@ test("buildArgv: command[0] is the given bunx path, and the pin appears literall
     mcpConfigPath: MCP_CONFIG_PATH,
   });
 
-  expect(argv[0]).toBe(BUNX);
-  expect(argv.some((token) => token.includes(PIN))).toBe(true);
-  expect(argv.some((token) => token.includes("latest"))).toBe(false);
+  assertPinnedArgv(argv);
 });
 
 test("buildArgv: --strict-mcp-config is followed literally by the rendered config path, not left bare", () => {
@@ -206,6 +205,57 @@ function fakeSpawn(result: AgenticSpawnResult): { spawn: AgenticSpawn; calls: un
   };
 }
 
+/** A spawn whose stdout carries a real clean-success envelope, the shape every "does the argv/env look right" test launches against. */
+function fakeOkSpawn(): { spawn: AgenticSpawn; calls: unknown[][] } {
+  return fakeSpawn({
+    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
+    stderr: "",
+    exitCode: 0,
+  });
+}
+
+/** A spawn whose stdout carries a real is_error envelope, the shape every "reported as a failure" test launches against. */
+function fakeErrorEnvelopeSpawn(): { spawn: AgenticSpawn; calls: unknown[][] } {
+  return fakeSpawn({
+    stdout: JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      terminal_reason: "api_error",
+      result: "Not logged in",
+    }),
+    stderr: "",
+    exitCode: 0,
+  });
+}
+
+/** The runAgentic call every test below makes, varied only by spawn and whichever field the test is exercising. */
+function runAgenticFixture(
+  spawn: AgenticSpawn,
+  overrides: Partial<Parameters<typeof runAgentic>[0]> = {},
+) {
+  return runAgentic({
+    claudeVersion: PIN,
+    args: {},
+    envAllowlist: ["HOME"],
+    workdir: "/tmp/scratch-workdir",
+    prompt: "hello",
+    bunx: BUNX,
+    spawn,
+    ...overrides,
+  });
+}
+
+/** Both the absent- and empty-workdir tests assert the same 400-and-never-spawns shape; only the workdir value differs. */
+async function expectWorkdirRejected(workdir: string | undefined): Promise<void> {
+  const { spawn, calls } = fakeSpawn({ stdout: "{}", stderr: "", exitCode: 0 });
+
+  const result = await runAgenticFixture(spawn, { workdir });
+
+  expect(result.status).toBe(400);
+  expect(calls.length).toBe(0);
+}
+
 test("runAgentic: stderr is captured but never appears anywhere in the returned result", async () => {
   const stderrText = "warning: some noisy diagnostic the operator does not need in the answer";
   const { spawn } = fakeSpawn({
@@ -219,121 +269,38 @@ test("runAgentic: stderr is captured but never appears anywhere in the returned 
     exitCode: 0,
   });
 
-  const result = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-    logStderr: () => undefined,
-  });
+  const result = await runAgenticFixture(spawn, { logStderr: () => undefined });
 
   expect(JSON.stringify(result)).not.toContain(stderrText);
   expect(result.result).toBe("the answer");
 });
 
-test("runAgentic: workdir absent is 400 and never spawns", async () => {
-  const { spawn, calls } = fakeSpawn({ stdout: "{}", stderr: "", exitCode: 0 });
+test("runAgentic: workdir absent is 400 and never spawns", () => expectWorkdirRejected(undefined));
 
-  const result = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: undefined,
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
-
-  expect(result.status).toBe(400);
-  expect(calls.length).toBe(0);
-});
-
-test("runAgentic: workdir empty is 400 and never spawns", async () => {
-  const { spawn, calls } = fakeSpawn({ stdout: "{}", stderr: "", exitCode: 0 });
-
-  const result = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
-
-  expect(result.status).toBe(400);
-  expect(calls.length).toBe(0);
-});
+test("runAgentic: workdir empty is 400 and never spawns", () => expectWorkdirRejected(""));
 
 test("runAgentic: an is_error envelope with exit 0 is reported as a failure, not success", async () => {
-  const { spawn } = fakeSpawn({
-    stdout: JSON.stringify({
-      type: "result",
-      subtype: "success",
-      is_error: true,
-      terminal_reason: "api_error",
-      result: "Not logged in",
-    }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn } = fakeErrorEnvelopeSpawn();
 
-  const result = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
+  const result = await runAgenticFixture(spawn);
 
   expect(result.ok).toBe(false);
   expect(result.status).not.toBe(200);
 });
 
 test("runAgentic: command[0] resolves from the given bunx and the pin appears in argv, never latest", async () => {
-  const { spawn, calls } = fakeSpawn({
-    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn, calls } = fakeOkSpawn();
 
-  await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
+  await runAgenticFixture(spawn);
 
   const [argv] = calls[0] as [string[], unknown];
-  expect(argv[0]).toBe(BUNX);
-  expect(argv.some((token) => token.includes(PIN))).toBe(true);
-  expect(argv.some((token) => token.includes("latest"))).toBe(false);
+  assertPinnedArgv(argv);
 });
 
 test("runAgentic: --strict-mcp-config in the spawned argv names a real file holding an empty MCP config", async () => {
-  const { spawn, calls } = fakeSpawn({
-    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn, calls } = fakeOkSpawn();
 
-  await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
+  await runAgenticFixture(spawn);
 
   const [argv] = calls[0] as [string[], unknown];
   const flagIndex = argv.indexOf("--strict-mcp-config");
@@ -344,56 +311,19 @@ test("runAgentic: --strict-mcp-config in the spawned argv names a real file hold
 });
 
 test("runAgentic: an envelope failure is flagged distinctly from a request-shape 400", async () => {
-  const { spawn } = fakeSpawn({
-    stdout: JSON.stringify({
-      type: "result",
-      subtype: "success",
-      is_error: true,
-      terminal_reason: "api_error",
-      result: "Not logged in",
-    }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn } = fakeErrorEnvelopeSpawn();
 
-  const envelopeFailureResult = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
-  const workdirMissingResult = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: undefined,
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
+  const envelopeFailureResult = await runAgenticFixture(spawn);
+  const workdirMissingResult = await runAgenticFixture(spawn, { workdir: undefined });
 
   expect(envelopeFailureResult.envelopeFailure).toBe(true);
   expect(workdirMissingResult.envelopeFailure).toBe(false);
 });
 
 test("runAgentic: extraEnv is set on the child alongside the allowlist and wins on a name collision", async () => {
-  const { spawn, calls } = fakeSpawn({
-    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn, calls } = fakeOkSpawn();
 
-  await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
+  await runAgenticFixture(spawn, {
     ambientEnv: { HOME: "/home/engined" },
     extraEnv: { HOME: "/redirected", ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
   });
@@ -404,21 +334,9 @@ test("runAgentic: extraEnv is set on the child alongside the allowlist and wins 
 });
 
 test("runAgentic: a successful result's version is the pin that was launched, not read back from anywhere else", async () => {
-  const { spawn } = fakeSpawn({
-    stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
-    stderr: "",
-    exitCode: 0,
-  });
+  const { spawn } = fakeOkSpawn();
 
-  const result = await runAgentic({
-    claudeVersion: PIN,
-    args: {},
-    envAllowlist: ["HOME"],
-    workdir: "/tmp/scratch-workdir",
-    prompt: "hello",
-    spawn,
-    bunx: BUNX,
-  });
+  const result = await runAgenticFixture(spawn);
 
   expect(result.version).toBe(PIN);
 });
@@ -449,13 +367,16 @@ function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
   };
 }
 
+/** Every probe test below wires the same engine and pin through buildAgenticProbeRunner, varying only the injected spawn. */
+function runProbe(spawn: AgenticSpawn) {
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+  return runner(PROBE_ENGINE, PIN);
+}
+
 test("buildAgenticProbeRunner: a clean completion under both probes yields ok -- no real spawn, only the injected fake", async () => {
   const cwds: string[] = [];
-  const runner = buildAgenticProbeRunner(BUNX, {
-    spawn: cleanEnvelopeSpawn((cwd) => cwds.push(cwd)),
-  });
 
-  const outcome = await runner(PROBE_ENGINE, PIN);
+  const outcome = await runProbe(cleanEnvelopeSpawn((cwd) => cwds.push(cwd)));
 
   expect(outcome).toEqual({ ok: true });
   expect(cwds).toHaveLength(2);
@@ -468,9 +389,8 @@ test("buildAgenticProbeRunner: a completion that writes into the scratch worktre
     writeFileSync(join(opts.cwd, "proof.txt"), "hello");
     return cleanEnvelopeSpawn()([], opts);
   };
-  const runner = buildAgenticProbeRunner(BUNX, { spawn });
 
-  const outcome = await runner(PROBE_ENGINE, PIN);
+  const outcome = await runProbe(spawn);
 
   expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
   expect(calls).toHaveLength(1);
@@ -484,9 +404,8 @@ test("buildAgenticProbeRunner: a hook that actually fires fails no-hook-fires", 
     }
     return cleanEnvelopeSpawn()([], opts);
   };
-  const runner = buildAgenticProbeRunner(BUNX, { spawn });
 
-  const outcome = await runner(PROBE_ENGINE, PIN);
+  const outcome = await runProbe(spawn);
 
   expect(outcome).toEqual({ ok: false, failedProbe: "no-hook-fires" });
 });
@@ -494,9 +413,8 @@ test("buildAgenticProbeRunner: a hook that actually fires fails no-hook-fires", 
 test("buildAgenticProbeRunner: an envelope failure fails byte-identical even with an untouched worktree", async () => {
   const spawn: AgenticSpawn = () =>
     Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
-  const runner = buildAgenticProbeRunner(BUNX, { spawn });
 
-  const outcome = await runner(PROBE_ENGINE, PIN);
+  const outcome = await runProbe(spawn);
 
   expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
 });
