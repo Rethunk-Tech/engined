@@ -1,0 +1,153 @@
+import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import type { Exec, ExecResult } from "./exec.ts";
+import { createDoor } from "./main.ts";
+import {
+  BUNX,
+  config,
+  engine,
+  inspectSinglePort,
+  makeTestRoot,
+  writeEngineSpec,
+} from "./test-support.ts";
+
+const TEST_ROOT = makeTestRoot("engined-observability-");
+
+const CONTAINER_SPEC = `
+kind = "openai-http"
+image = "ghcr.io/example/llama@sha256:aaaa"
+obtain = "pull"
+serves = ["/v1/chat/completions"]
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`;
+
+/** Records what docker was asked to do, so a route's arguments can be asserted. */
+function recordingExec(handler: (args: readonly string[]) => Partial<ExecResult>): {
+  exec: Exec;
+  calls: string[][];
+} {
+  const calls: string[][] = [];
+  const exec: Exec = (args) => {
+    calls.push([...args]);
+    // `inspect` has a parsed payload: an empty stdout throws in parseExposedPort
+    // long before any route under test is reached.
+    // `docker image inspect` has a parsed payload -- empty stdout throws in
+    // parseExposedPort long before any route under test is reached.
+    const base: ExecResult = args.includes("inspect")
+      ? inspectSinglePort(8080)
+      : { stdout: "", stderr: "", exitCode: 0 };
+    return Promise.resolve({ ...base, ...handler(args) });
+  };
+  return { exec, calls };
+}
+
+function doorWith(exec: Exec) {
+  const root = mkdtempSync(join(TEST_ROOT, "door-"));
+  writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
+  return createDoor(
+    config({
+      engines: [
+        engine({ id: "local-llama", egress: "none" }),
+        engine({ id: "hosted", egress: "remote", base_url: "https://api.example.com/v1" }),
+      ],
+    }),
+    { enginesRoot: root, bunx: BUNX, exec },
+  );
+}
+
+test("logs pass the asked-for tail through to docker", async () => {
+  const { exec, calls } = recordingExec((args) =>
+    args[0] === "logs" ? { stdout: "line one\nline two\n" } : {},
+  );
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/v1/engines/local-llama/logs?tail=42"),
+  );
+
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ lines: ["line one", "line two"] });
+  expect(calls.find((c) => c[0] === "logs")).toEqual([
+    "logs",
+    "--tail",
+    "42",
+    "engined-local-llama",
+  ]);
+});
+
+// A caller asking for more than the door serves wants everything it can get.
+// Rejecting the request would hand back nothing over a number it chose freely.
+test("an absurd tail is clamped, not refused", async () => {
+  const { exec, calls } = recordingExec(() => ({}));
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/v1/engines/local-llama/logs?tail=999999"),
+  );
+
+  expect(res.status).toBe(200);
+  expect(calls.find((c) => c[0] === "logs")?.[2]).toBe("5000");
+});
+
+// Merged deliberately: docker hands the container's stderr back on stderr, and
+// most engines log there -- reading stdout alone returns an empty log for a
+// container that is talking.
+test("a container logging only to stderr is not reported as silent", async () => {
+  const { exec } = recordingExec((args) =>
+    args[0] === "logs" ? { stderr: "ggml: using Vulkan\n" } : {},
+  );
+  const res = await doorWith(exec).fetch(new Request("http://engined/v1/engines/local-llama/logs"));
+
+  expect(await res.json()).toEqual({ lines: ["ggml: using Vulkan"] });
+});
+
+// A remote engine has no container, and an empty log would read as a quiet one.
+test("logs and resources refuse an engine that runs no container", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const door = doorWith(exec);
+
+  for (const path of ["logs", "resources"]) {
+    const res = await door.fetch(new Request(`http://engined/v1/engines/hosted/${path}`));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toContain("runs no container");
+  }
+});
+
+// Distinct from "holds nothing": a stopped container has no cgroup to read and
+// no processes to account for.
+test("resources on a stopped container says it is not running", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/v1/engines/local-llama/resources"),
+  );
+
+  expect(res.status).toBe(404);
+  expect(((await res.json()) as { error: string }).error).toContain("not running");
+});
+
+// Stopping something already stopped reports the state rather than erroring, so
+// a consumer reclaiming the GPU never has to check first.
+test("stop on an idle engine is a no-op that reports its state", async () => {
+  const { exec, calls } = recordingExec(() => ({}));
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/v1/engines/local-llama/stop", { method: "POST" }),
+  );
+
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as { state: string }).state).not.toBe("running");
+  expect(calls.some((c) => c[0] === "stop")).toBe(false);
+});
+
+test("an unknown engine is a 404 on every new route", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const door = doorWith(exec);
+
+  for (const req of [
+    new Request("http://engined/v1/engines/nope/logs"),
+    new Request("http://engined/v1/engines/nope/resources"),
+    new Request("http://engined/v1/engines/nope/stop", { method: "POST" }),
+  ]) {
+    expect((await door.fetch(req)).status).toBe(404);
+  }
+});

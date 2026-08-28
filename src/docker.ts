@@ -14,6 +14,8 @@ import { existsSync } from "node:fs";
 import { posix } from "node:path";
 import process from "node:process";
 import { binExec, type Exec } from "./exec.ts";
+import type { EngineResources } from "./resources.ts";
+import { parseResources, RESOURCE_PROBE_SH } from "./resources.ts";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
 
 import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
@@ -612,6 +614,63 @@ export class DockerLifecycle {
     rt.lastError = undefined;
     rt.activeLeases = 0;
     return true;
+  }
+
+  /**
+   * `docker logs --tail`, merged. docker writes the container's stdout to ours
+   * and its stderr to ours, so the two arrive already separated and their
+   * relative order is lost before this sees them -- most engines log to stderr,
+   * so dropping it would return an empty log for a container that is talking.
+   *
+   * Keyed off the deterministic container name rather than this process's own
+   * runtime map, so an engine started by a previous engined still has readable
+   * logs. A container that does not exist surfaces docker's own message.
+   */
+  async logs(id: string, tail: number): Promise<Result<{ lines: string[] }>> {
+    const { containerName } = this.runtime(id);
+    const res = await this.exec(["logs", "--tail", String(tail), containerName]);
+    if (res.exitCode !== 0) {
+      return { ok: false, error: res.stderr.trim() || `docker logs failed for ${containerName}` };
+    }
+    const merged = `${res.stdout}${res.stderr}`.split("\n");
+    // A trailing newline yields one empty element that is not a log line.
+    if (merged.at(-1) === "") {
+      merged.pop();
+    }
+    return { ok: true, lines: merged };
+  }
+
+  /**
+   * What the container holds right now, in one `docker exec`. Only meaningful
+   * while it is running: a stopped engine has no processes to account for and
+   * no cgroup to read, which is a different answer from "holds nothing".
+   */
+  async resources(id: string): Promise<Result<{ resources: EngineResources }>> {
+    const rt = this.runtimes.get(id);
+    if (rt?.state !== "running") {
+      return { ok: false, error: `"${id}" is not running` };
+    }
+    const res = await this.exec(["exec", rt.containerName, "sh", "-c", RESOURCE_PROBE_SH]);
+    if (res.exitCode !== 0) {
+      return {
+        ok: false,
+        error: res.stderr.trim() || `docker exec failed for ${rt.containerName}`,
+      };
+    }
+    return { ok: true, resources: parseResources(res.stdout) };
+  }
+
+  /**
+   * Operator-driven stop, down the same path idle-stop takes -- so a stop
+   * cancels the pending countdown rather than racing it, and the leases reset
+   * with the container they belonged to.
+   */
+  async stop(id: string): Promise<RuntimeStatus> {
+    const rt = this.runtimes.get(id);
+    if (rt && (rt.state === "running" || rt.state === "warming")) {
+      await this.stopContainer(rt);
+    }
+    return this.getStatus(id);
   }
 
   /** An engine that has been running is stopped, never left orphaned. */

@@ -12,14 +12,13 @@ import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { localLlamaPresetDir, localLlamaPresetPath, stateDir } from "./paths.ts";
 import { isRemote, noSecretConfiguredFix } from "./remote.ts";
+import type { EngineResources } from "./resources.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   type AgenticSpec,
-  argvFromArgs,
   CONTRACT,
   type Config,
-  type ContainerSpec,
   type EngineEntry,
   type EngineKind,
   type EngineStatus,
@@ -648,6 +647,53 @@ export class EngineRegistry {
    * in the background rather than left orphaned; a running container whose
    * shape changed is left alone until its next start.
    */
+  /**
+   * `docker logs --tail` for a container-backed engine. A remote address or an
+   * agentic-cli engine has no container, and says so rather than returning an
+   * empty log that reads like a quiet engine.
+   */
+  async logs(id: string, tail: number): Promise<{ lines: string[] } | { error: string }> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      return { error: `unknown engine "${id}"` };
+    }
+    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+      return { error: `"${id}" runs no container of its own` };
+    }
+    const res = await this.lifecycle.logs(id, tail);
+    return res.ok ? { lines: res.lines } : { error: res.error };
+  }
+
+  /** What a running container holds. See resources.ts for why RAM alone is not the answer. */
+  async resources(id: string): Promise<EngineResources | { error: string }> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      return { error: `unknown engine "${id}"` };
+    }
+    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+      return { error: `"${id}" runs no container of its own` };
+    }
+    const res = await this.lifecycle.resources(id);
+    return res.ok ? res.resources : { error: res.error };
+  }
+
+  /**
+   * Explicit stop, for an operator reclaiming the GPU rather than waiting out
+   * the idle countdown. Stopping something already stopped is a no-op that
+   * reports the same state, so a consumer never has to check first.
+   */
+  async stop(id: string): Promise<EngineStatus> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      throw new Error(`unknown engine "${id}"`);
+    }
+    if (entry.spec !== null && isContainerSpec(entry.spec.spec)) {
+      this.comfyQueueEmpty.delete(id);
+      await this.lifecycle.stop(id);
+    }
+    return this.statusFor(entry);
+  }
+
   reload(config: Config): void {
     const newEntries = buildEntries(config, this.specOptions);
     const newIds = new Set(newEntries.map((e) => e.engine.id));

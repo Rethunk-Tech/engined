@@ -68,6 +68,12 @@ const CONTENT_ENDPOINTS = new Set([
 ]);
 
 const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
+const STOP_RE = /^\/v1\/engines\/([^/]+)\/stop$/;
+const LOGS_RE = /^\/v1\/engines\/([^/]+)\/logs$/;
+const RESOURCES_RE = /^\/v1\/engines\/([^/]+)\/resources$/;
+/** Enough to see a crash's stack without streaming a whole boot log by default. */
+const DEFAULT_LOG_TAIL = 200;
+const MAX_LOG_TAIL = 5000;
 
 /** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -121,6 +127,32 @@ async function handleStart(registry: EngineRegistry, id: string): Promise<Respon
     const message = errMessage(err);
     return jsonError(STATUS_NOT_FOUND, message);
   }
+}
+
+async function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
+  try {
+    return Response.json(await registry.stop(id));
+  } catch (err) {
+    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+  }
+}
+
+/**
+ * `?tail=` is clamped rather than rejected: a consumer asking for more lines
+ * than the door will serve wants as many as it can get, not a 400.
+ */
+async function handleLogs(registry: EngineRegistry, id: string, url: URL): Promise<Response> {
+  const asked = Number(url.searchParams.get("tail") ?? DEFAULT_LOG_TAIL);
+  const tail = Number.isFinite(asked)
+    ? Math.min(Math.max(1, Math.trunc(asked)), MAX_LOG_TAIL)
+    : DEFAULT_LOG_TAIL;
+  const res = await registry.logs(id, tail);
+  return "error" in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res);
+}
+
+async function handleResources(registry: EngineRegistry, id: string): Promise<Response> {
+  const res = await registry.resources(id);
+  return "error" in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res);
 }
 
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
@@ -983,14 +1015,23 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
 
 function routeGet(
   ctx: DoorContext,
-  pathname: string,
+  url: URL,
   configErr: string | undefined,
 ): Response | Promise<Response> | undefined {
+  const { pathname } = url;
   if (pathname === "/v1/models") {
     return modelsMenu(ctx.registry.models());
   }
   if (pathname === "/v1/engines") {
     return handleEngines(ctx.registry, configErr);
+  }
+  const logsMatch = LOGS_RE.exec(pathname)?.[1];
+  if (logsMatch !== undefined) {
+    return handleLogs(ctx.registry, logsMatch, url);
+  }
+  const resourcesMatch = RESOURCES_RE.exec(pathname)?.[1];
+  if (resourcesMatch !== undefined) {
+    return handleResources(ctx.registry, resourcesMatch);
   }
 }
 
@@ -1020,12 +1061,13 @@ function routePost(
   req: Request,
   pathname: string,
 ): Response | Promise<Response> | undefined {
-  const startMatch = START_RE.exec(pathname);
-  if (startMatch) {
-    const [, id] = startMatch;
-    return id === undefined
-      ? jsonError(STATUS_NOT_FOUND, "not found")
-      : handleStart(ctx.registry, id);
+  const startMatch = START_RE.exec(pathname)?.[1];
+  if (startMatch !== undefined) {
+    return handleStart(ctx.registry, startMatch);
+  }
+  const stopMatch = STOP_RE.exec(pathname)?.[1];
+  if (stopMatch !== undefined) {
+    return handleStop(ctx.registry, stopMatch);
   }
   if (CONTENT_ENDPOINTS.has(pathname)) {
     return handleContent(ctx, req, pathname);
@@ -1037,13 +1079,14 @@ function routeRequest(
   req: Request,
   configErr: string | undefined,
 ): Response | Promise<Response> {
-  const { pathname } = new URL(req.url);
+  const url = new URL(req.url);
+  const { pathname } = url;
   if (isExtrasPath(pathname)) {
     return handleExtras(ctx, req);
   }
   let matched: Response | Promise<Response> | undefined;
   if (req.method === "GET") {
-    matched = routeGet(ctx, pathname, configErr);
+    matched = routeGet(ctx, url, configErr);
   } else if (req.method === "POST") {
     matched = routePost(ctx, req, pathname);
   }
