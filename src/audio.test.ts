@@ -18,37 +18,40 @@ const CHATTERBOX_INSPECT = JSON.stringify([
   { Config: { ExposedPorts: { [`${CHATTERBOX_CONTAINER_PORT}/tcp`]: {} } } },
 ]);
 
-function loadChatterboxSpec() {
-  const entry: EngineEntry = { id: "chatterbox", egress: "none", args: {} };
+/** Loads `id`'s real spec.toml and asserts it parsed as a container spec — every engine under test here is one. */
+function loadSpecFor(id: string, models_dir?: string) {
+  const entry: EngineEntry = { id, egress: "none", args: {}, models_dir };
   const loaded = loadSpec(entry, {
     enginesRoot: join(import.meta.dir, "..", "engines"),
     bunx: "/opt/engined/state/bunx",
   });
   if (!isContainerSpec(loaded.spec)) {
-    throw new Error("chatterbox spec.toml did not parse as a container spec");
-  }
-  return loaded.spec;
-}
-
-function loadWhisperSpec() {
-  const entry: EngineEntry = {
-    id: "whisper",
-    egress: "none",
-    args: {},
-    models_dir: "/data/whisper-models",
-  };
-  const loaded = loadSpec(entry, {
-    enginesRoot: join(import.meta.dir, "..", "engines"),
-    bunx: "/opt/engined/state/bunx",
-  });
-  if (!isContainerSpec(loaded.spec)) {
-    throw new Error("whisper spec.toml did not parse as a container spec");
+    throw new Error(`${id} spec.toml did not parse as a container spec`);
   }
   return loaded.spec;
 }
 
 /** `docker image inspect`, one exposed port -- a synthetic shape for the fake exec, not a real capture. */
 const WHISPER_INSPECT = JSON.stringify([{ Config: { ExposedPorts: { "8080/tcp": {} } } }]);
+
+/** A fake `Exec` with a fixed `docker image inspect` reply; every other verb falls through to `extra` (when it recognizes the argv) then a no-op success. */
+function makeExec(
+  inspectResult: ExecResult,
+  extra?: (argv: string[]) => ExecResult | undefined,
+): Exec {
+  return (args): Promise<ExecResult> => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(inspectResult);
+    }
+    return Promise.resolve(extra?.(argv) ?? { stdout: "", stderr: "", exitCode: 0 });
+  };
+}
+
+/** A real `DockerLifecycle` over a fake `exec`, with a stub readiness fetch that always reports ready. */
+function makeLifecycle(exec: Exec): DockerLifecycle {
+  return new DockerLifecycle(exec, async () => ({ status: 200 }));
+}
 
 /** A real `Bun.serve` fake chatterbox, emitting real NDJSON: one frame with `audio`, alignment null. */
 function startFakeChatterbox(): { base: string; stop: () => void } {
@@ -112,7 +115,7 @@ test("response_format: mp3 on speech is rejected with 400 naming wav, not silent
 });
 
 test("chatterbox spec.toml produces run argv carrying the GPU flags and no all-interfaces publish", () => {
-  const spec = loadChatterboxSpec();
+  const spec = loadSpecFor("chatterbox");
   const argv = buildRunArgs("engined-chatterbox", spec, CHATTERBOX_CONTAINER_PORT);
 
   expect(argv).toContain("/dev/kfd");
@@ -127,25 +130,20 @@ test("a request against a stopped engine starts it on demand through the real do
   const [, fakePort] = fake.base.split(":");
   const runLog: string[][] = [];
 
-  const exec: Exec = (args): Promise<ExecResult> => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 });
-    }
+  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 }, (argv) => {
     if (argv[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+      return { stdout: "", stderr: "", exitCode: 1 };
     }
     if (argv[0] === "run") {
       runLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return { stdout: "", stderr: "", exitCode: 0 };
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: `127.0.0.1:${fakePort}`, stderr: "", exitCode: 0 });
+      return { stdout: `127.0.0.1:${fakePort}`, stderr: "", exitCode: 0 };
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-  const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
-  const spec = loadChatterboxSpec();
+  });
+  const lifecycle = makeLifecycle(exec);
+  const spec = loadSpecFor("chatterbox");
 
   const result = await handleSpeech({ model: "chatterbox", input: "hello there" }, (id) =>
     lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
@@ -191,6 +189,24 @@ function unreachableFetch(message: string): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
+/** A `makeExec` `extra` that records `docker run -d` invocations without executing them — the real container must never be reached from an unavailable state. */
+function trackRunD(runs: string[][]) {
+  return (argv: string[]): ExecResult | undefined => {
+    if (argv[0] === "run" && argv[1] === "-d") {
+      runs.push(argv);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
+  };
+}
+
+/** Asserts the engine settled to `unavailable`, never `installed`, and returns its status for the caller's own `fix` assertion. */
+function assertUnavailable(lifecycle: DockerLifecycle, id: string) {
+  const status = lifecycle.getStatus(id);
+  expect(status.state).toBe("unavailable");
+  expect(status.state).not.toBe("installed");
+  return status;
+}
+
 test("response_format: text on transcriptions returns bare text, not a JSON envelope", async () => {
   const fake = startFakeWhisper();
 
@@ -219,22 +235,14 @@ test("a per-request language reaches the engine, asserted against the fake upstr
 });
 
 test("with no whisper image built, transcriptions returns 503 naming it and GET /v1/engines' status reports the docker build command", async () => {
-  const spec = loadWhisperSpec();
+  const spec = loadSpecFor("whisper", "/data/whisper-models");
   const realContainerRuns: string[][] = [];
 
-  const exec: Exec = (args): Promise<ExecResult> => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
-    }
-    // The real whisper container: must never be reached from this state.
-    if (argv[0] === "run" && argv[1] === "-d") {
-      realContainerRuns.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-  const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
+  const exec = makeExec(
+    { stdout: "", stderr: "no such image", exitCode: 1 },
+    trackRunD(realContainerRuns),
+  );
+  const lifecycle = makeLifecycle(exec);
 
   // The real shipped whisper spec dir, so the emitted fix is checked against
   // the Dockerfile that actually ships there -- see docker.ts's checkImage:
@@ -256,9 +264,7 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   expect(result.status).toBe(503);
   expect(JSON.stringify(result.body)).toContain("whisper");
   expect(realContainerRuns.length).toBe(0);
-  const status = lifecycle.getStatus("whisper");
-  expect(status.state).toBe("unavailable");
-  expect(status.state).not.toBe("installed");
+  const status = assertUnavailable(lifecycle, "whisper");
   expect(status.fix).toBe(
     `docker build -t ${spec.image} -f ${join(whisperSpecDir, "Dockerfile")} ${whisperSpecDir}`,
   );
@@ -271,24 +277,16 @@ test("image present but the model artifact absent: unavailable naming the artifa
   // at the real spec would find the artifact present. Swap in a scratch
   // volume with nothing in it so "absent" is genuinely absent here, not an
   // artifact of this box's own state.
-  const base = loadWhisperSpec();
+  const base = loadSpecFor("whisper", "/data/whisper-models");
   const scratchDir = mkdtempSync(join(tmpdir(), "engined-whisper-artifact-"));
   const spec = { ...base, volumes: [{ name: scratchDir, path: "/models" }] };
   const realContainerRuns: string[][] = [];
 
-  const exec: Exec = (args): Promise<ExecResult> => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: WHISPER_INSPECT, stderr: "", exitCode: 0 });
-    }
-    // The real whisper container: must never be reached from this state.
-    if (argv[0] === "run" && argv[1] === "-d") {
-      realContainerRuns.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-  const lifecycle = new DockerLifecycle(exec, async () => ({ status: 200 }));
+  const exec = makeExec(
+    { stdout: WHISPER_INSPECT, stderr: "", exitCode: 0 },
+    trackRunD(realContainerRuns),
+  );
+  const lifecycle = makeLifecycle(exec);
 
   const result = await handleTranscription(
     { model: "whisper", file: SAMPLE_AUDIO_BYTES },
@@ -300,8 +298,6 @@ test("image present but the model artifact absent: unavailable naming the artifa
 
   expect(result.status).toBe(503);
   expect(realContainerRuns.length).toBe(0);
-  const status = lifecycle.getStatus("whisper");
-  expect(status.state).toBe("unavailable");
-  expect(status.state).not.toBe("installed");
+  const status = assertUnavailable(lifecycle, "whisper");
   expect(status.fix).toBe(spec.artifacts[0]?.obtain);
 });
