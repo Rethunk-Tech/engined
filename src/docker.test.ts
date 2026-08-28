@@ -245,19 +245,20 @@ test("start: two concurrent calls against a stopped engine spawn exactly one con
   });
 });
 
-test("idle timer fires only after the lease ends, and a fresh start cancels a pending stop", async () => {
+test("a held lease outlasts idle-stop; a lease-less start still counts down", async () => {
   const stopLog: string[][] = [];
   const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
   const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
 
   await lifecycle.start("idle-test", SPEC, opts);
+  lifecycle.beginLease("idle-test");
 
-  // No lease has ended: outlasting idleStopSeconds must not stop it mid-use.
+  // A lease is held: outlasting idleStopSeconds must not stop it mid-use.
   await new Promise((resolve) => setTimeout(resolve, OUTLAST_WAIT_MS));
   expect(stopLog.length).toBe(0);
   expect(lifecycle.getStatus("idle-test").state).toBe("running");
 
-  // Lease ends: idle-stop is armed now, and fires after idleStopSeconds.
+  // Last lease ends: idle-stop is armed now, and fires after idleStopSeconds.
   lifecycle.endLease("idle-test", opts.idleStopSeconds);
   await new Promise((resolve) => setTimeout(resolve, SHORT_WAIT_MS));
   expect(stopLog.length).toBe(0);
@@ -267,9 +268,47 @@ test("idle timer fires only after the lease ends, and a fresh start cancels a pe
 
   // A new start after a lease end cancels the pending stop rather than racing it.
   await lifecycle.start("idle-test", SPEC, opts);
+  lifecycle.beginLease("idle-test");
   lifecycle.endLease("idle-test", opts.idleStopSeconds);
   await new Promise((resolve) => setTimeout(resolve, SHORT_WAIT_MS));
   await lifecycle.start("idle-test", SPEC, opts);
+  lifecycle.beginLease("idle-test");
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  expect(stopLog.length).toBe(1);
+});
+
+test("an engine warmed by start and never dispatched to still idle-stops", async () => {
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
+
+  // POST /v1/engines/:id/start with no request behind it: nothing will ever
+  // call endLease, so before the countdown was armed here too this container
+  // stayed resident -- holding its GPU -- until the process died.
+  await lifecycle.start("warm-only", SPEC, {
+    idleStopSeconds: IDLE_STOP_SECONDS,
+    readyTimeoutS: 1,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  expect(stopLog.length).toBe(1);
+  expect(lifecycle.getStatus("warm-only").state).toBe("installed");
+});
+
+test("concurrent leases: the countdown starts only when the last one is released", async () => {
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
+  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
+
+  await lifecycle.start("two-leases", SPEC, opts);
+  lifecycle.beginLease("two-leases");
+  lifecycle.beginLease("two-leases");
+
+  lifecycle.endLease("two-leases", opts.idleStopSeconds);
+  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  expect(stopLog.length).toBe(0);
+  expect(lifecycle.getStatus("two-leases").state).toBe("running");
+
+  lifecycle.endLease("two-leases", opts.idleStopSeconds);
   await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
   expect(stopLog.length).toBe(1);
 });

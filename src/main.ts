@@ -848,6 +848,8 @@ function audioStart(ctx: DoorContext): EngineStart {
         : { private_url: null, unavailable: resolution.error };
     }
     const status = await ctx.registry.start(id);
+    // Paired with the `armAudioIdleStop` every audio path runs on the way out.
+    ctx.lifecycle.beginLease(id);
     return { private_url: status.private_url };
   };
 }

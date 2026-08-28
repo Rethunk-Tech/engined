@@ -334,7 +334,10 @@ export class EngineRegistry {
       return;
     }
     const empty = isQueueEmpty(queue);
-    const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? false;
+    // Unknown starts as empty: a first observation of a BUSY queue is then a
+    // real transition and takes a lease, rather than leaving a working Comfy
+    // counting down against the idle-stop its own start armed.
+    const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? true;
     this.comfyQueueEmpty.set(engine.id, empty);
     if (empty && !wasEmpty) {
       this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
@@ -344,6 +347,7 @@ export class EngineRegistry {
         readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
         specSource: entry.spec.source,
       });
+      this.lifecycle.beginLease(engine.id);
     }
   }
 

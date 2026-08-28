@@ -520,6 +520,9 @@ export class LlamaRouter {
     await this.ensureStarted();
     await this.acquireLease(role, modelId, signal);
     this.totalActive++;
+    if (this.totalActive === 1) {
+      this.lifecycle.beginLease(this.engine.id);
+    }
   }
 
   private finishLease(role: Role): void {

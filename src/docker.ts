@@ -164,6 +164,10 @@ interface Runtime {
   artifactCheck: Promise<Result> | null;
   /** Reset on every fresh `endLease`; counts retries within one continuous idle-stop attempt sequence. */
   idleStopAttempts: number;
+  /** Requests holding this container open. Idle-stop is armed only at zero, so a start with no traffic behind it still counts down. */
+  activeLeases: number;
+  /** Whatever the last `start`/`endLease` was told, so a re-arm does not need the caller to repeat it. */
+  idleStopSeconds: number | null;
 }
 
 export class DockerLifecycle {
@@ -186,6 +190,8 @@ export class DockerLifecycle {
         imageCheck: null,
         artifactCheck: null,
         idleStopAttempts: 0,
+        activeLeases: 0,
+        idleStopSeconds: null,
       };
       this.runtimes.set(id, rt);
     }
@@ -213,13 +219,43 @@ export class DockerLifecycle {
     }
   }
 
-  /** Arms idle-stop for the lease that just ended. Never call at request start: a timer armed there fires mid-stream. */
+  /**
+   * Takes a lease, holding the container open for one in-flight request.
+   * Paired with `endLease`, which every path must reach exactly once however
+   * it ends -- an unreleased lease pins the engine's GPU for the life of the
+   * process, since nothing else re-arms the countdown.
+   */
+  beginLease(id: string): void {
+    const rt = this.runtimes.get(id);
+    if (rt?.state !== "running") {
+      return;
+    }
+    rt.activeLeases++;
+    this.cancelIdle(rt);
+  }
+
+  /** Releases one lease. The countdown re-arms only once the last one is gone, so it can never fire mid-request. */
   endLease(id: string, idleStopSeconds: number): void {
     const rt = this.runtimes.get(id);
     if (rt?.state !== "running") {
       return;
     }
+    rt.activeLeases = Math.max(0, rt.activeLeases - 1);
+    this.refreshIdle(rt, idleStopSeconds);
+  }
+
+  /**
+   * Re-arms the countdown whenever nothing holds the container. Called on
+   * every start too, not only on a lease end: an engine warmed by
+   * `POST /v1/engines/:id/start` and never dispatched to has no lease to end,
+   * and before this it stayed resident until the process died.
+   */
+  private refreshIdle(rt: Runtime, idleStopSeconds: number): void {
+    rt.idleStopSeconds = idleStopSeconds;
     this.cancelIdle(rt);
+    if (rt.activeLeases > 0 || rt.state !== "running") {
+      return;
+    }
     rt.idleStopAttempts = 0;
     this.armIdleStop(rt, idleStopSeconds);
   }
@@ -257,6 +293,7 @@ export class DockerLifecycle {
     const rt = this.runtime(id);
     this.cancelIdle(rt);
     if (rt.state === "running" && rt.hostPort !== null) {
+      this.refreshIdle(rt, opts.idleStopSeconds);
       return this.getStatus(id);
     }
     if (rt.startPromise) {
@@ -266,6 +303,7 @@ export class DockerLifecycle {
     rt.startPromise = promise;
     const status = await promise;
     rt.startPromise = null;
+    this.refreshIdle(rt, opts.idleStopSeconds);
     return status;
   }
 
@@ -569,6 +607,7 @@ export class DockerLifecycle {
     rt.state = "installed";
     rt.hostPort = null;
     rt.lastError = undefined;
+    rt.activeLeases = 0;
     return true;
   }
 
