@@ -7,10 +7,16 @@ import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
 import { buildLlamaSpec, LlamaRouter, renderPresetIni, reportedModelFrom } from "./llama.ts";
+import {
+  BUNX,
+  engine as baseEngine,
+  model as baseModel,
+  ENGINES_ROOT,
+  inspectSinglePort,
+  portResult,
+} from "./test-support.ts";
 import type { EngineEntry, ModelEntry } from "./types.ts";
 
-const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
-const BUNX = "/home/x/.bun/bin/bunx";
 const CONTAINER_PORT = 8080;
 const HOST_PORT = 55_123;
 const LOAD_PATH = "/models/load";
@@ -21,26 +27,17 @@ const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return {
-    id: "local-llama",
-    egress: "none",
-    models_dir: "/models-host",
-    models_max: 3,
-    args: {},
-    ...overrides,
-  };
+  return baseEngine({ id: "local-llama", models_dir: "/models-host", models_max: 3, ...overrides });
 }
 
 function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return {
+  return baseModel({
     id: "a",
     engine: "local-llama",
     filename: "a.gguf",
     role: "chat",
-    aliases: [],
-    args: {},
     ...overrides,
-  };
+  });
 }
 
 function tmpIniPath(): string {
@@ -57,17 +54,13 @@ function fakeExec(): Exec {
   return (args) => {
     const [cmd] = args;
     if (cmd === "image") {
-      return Promise.resolve({
-        exitCode: 0,
-        stdout: JSON.stringify([{ Config: { ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} } } }]),
-        stderr: "",
-      });
+      return Promise.resolve(inspectSinglePort(CONTAINER_PORT));
     }
     if (cmd === "start") {
       return Promise.resolve({ exitCode: 1, stdout: "", stderr: "not created yet" });
     }
     if (cmd === "port") {
-      return Promise.resolve({ exitCode: 0, stdout: `127.0.0.1:${HOST_PORT}\n`, stderr: "" });
+      return Promise.resolve(portResult(HOST_PORT));
     }
     return Promise.resolve({ exitCode: 0, stdout: "", stderr: "" });
   };
@@ -159,6 +152,102 @@ function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
     return Promise.resolve(Response.json({ ok: true, model: body?.model }));
   };
   return { client, calls };
+}
+
+/** Wires the given models to a router talking to `httpClient` over a fresh lifecycle. */
+function routerWithClient(
+  e: EngineEntry,
+  models: ModelEntry[],
+  httpClient: HttpClient,
+): LlamaRouter {
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  return new LlamaRouter(e, models, lifecycle, baseOpts(httpClient));
+}
+
+/** Wires the given models to a router with the default `fakeLlama()` client. */
+function routerFor(
+  e: EngineEntry,
+  models: ModelEntry[],
+): { calls: RecordedCall[]; router: LlamaRouter } {
+  const { client, calls } = fakeLlama();
+  return { calls, router: routerWithClient(e, models, client) };
+}
+
+/** A single "a" model wired to a router with the default `fakeLlama()` client. */
+function singleModelRouter(): { e: EngineEntry; a: ModelEntry; router: LlamaRouter } {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const { router } = routerFor(e, [a]);
+  return { e, a, router };
+}
+
+/** Sends one warm-up chat so "a" is resident, then reports how many loads that took. */
+async function warmUpAndCountLoads(
+  router: LlamaRouter,
+  a: ModelEntry,
+  calls: RecordedCall[],
+): Promise<number> {
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  return calls.filter((c) => c.path === LOAD_PATH).length;
+}
+
+/** Gates the fake client's very first CHAT_PATH call so a caller can prove a
+ * second request is genuinely in flight (or queued) behind the first. */
+function gatedFirstChat(): {
+  client: HttpClient;
+  calls: RecordedCall[];
+  release: () => void;
+  started: Promise<void>;
+} {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let started: () => void = () => undefined;
+  const startedPromise = new Promise<void>((r) => {
+    started = r;
+  });
+  let sawFirstChat = false;
+  const { client, calls } = fakeLlama();
+  const gatedClient: HttpClient = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === CHAT_PATH && !sawFirstChat) {
+      sawFirstChat = true;
+      started();
+      await gate;
+    }
+    return client(input, init);
+  };
+  return { client: gatedClient, calls, release, started: startedPromise };
+}
+
+/** Wires `models` to a gated router, fires the first "a" chat, and waits
+ * until it is in flight -- the shared opening every gated-lease test needs
+ * before it can issue its own, distinguishing second request. */
+async function startGatedChat(
+  e: EngineEntry,
+  models: ModelEntry[],
+  a: ModelEntry,
+): Promise<{
+  router: LlamaRouter;
+  calls: RecordedCall[];
+  release: () => void;
+  res1: Promise<Response>;
+}> {
+  const { client: gatedClient, calls, release, started } = gatedFirstChat();
+  const router = routerWithClient(e, models, gatedClient);
+  const res1 = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  await started;
+  return { router, calls, release, res1 };
+}
+
+/** Lets a pending `.then` chain run as far as it can without resolving any
+ * new promise of its own -- three microtask turns is enough for the router's
+ * internal queue pump to reach its next await. */
+async function drainMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe("renderPresetIni", () => {
@@ -254,9 +343,7 @@ test("chat for model B while same-role model A is resident and idle: unload A, l
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client, calls } = fakeLlama();
-  const router = new LlamaRouter(e, [a, b], lifecycle, baseOpts(client));
+  const { calls, router } = routerFor(e, [a, b]);
 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
   await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
@@ -283,9 +370,7 @@ test("a different-role model resident is untouched by a chat swap", async () => 
   const a = model({ id: "a", filename: "a.gguf", role: "chat" });
   const b = model({ id: "b", filename: "b.gguf", role: "chat" });
   const v = model({ id: "v", filename: "v.gguf", role: "vision" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client, calls } = fakeLlama();
-  const router = new LlamaRouter(e, [a, b, v], lifecycle, baseOpts(client));
+  const { calls, router } = routerFor(e, [a, b, v]);
 
   await text(router.proxy(v, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "v" }) }));
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
@@ -302,9 +387,7 @@ test("an embedding request co-resides with a resident chat model: neither evicts
   const e = engine();
   const chat = model({ id: "chat-a", filename: "a.gguf", role: "chat" });
   const embed = model({ id: "embed", filename: "embed.gguf", role: "embedding" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client, calls } = fakeLlama();
-  const router = new LlamaRouter(e, [chat, embed], lifecycle, baseOpts(client));
+  const { calls, router } = routerFor(e, [chat, embed]);
 
   await text(
     router.proxy(chat, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "chat-a" }) }),
@@ -331,34 +414,8 @@ test("an embedding request co-resides with a resident chat model: neither evicts
 test("two overlapping chats for the same GGUF both complete without a second load", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  let releaseFirst: () => void = () => undefined;
-  const gate = new Promise<void>((r) => {
-    releaseFirst = r;
-  });
-  let firstStarted: () => void = () => undefined;
-  const firstStartedPromise = new Promise<void>((r) => {
-    firstStarted = r;
-  });
-  let sawFirstChat = false;
-  const { client, calls } = fakeLlama();
-  // Wrap the default client so the very first chat call gates on `gate` before resolving.
-  const gatedClient: HttpClient = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === CHAT_PATH && !sawFirstChat) {
-      sawFirstChat = true;
-      firstStarted();
-      await gate;
-    }
-    return client(input, init);
-  };
-  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(gatedClient));
+  const { router, calls, release, res1 } = await startGatedChat(e, [a], a);
 
-  const res1 = router.proxy(a, CHAT_PATH, {
-    method: "POST",
-    body: JSON.stringify({ model: "a" }),
-  });
-  await firstStartedPromise;
   const res2 = router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),
@@ -370,7 +427,7 @@ test("two overlapping chats for the same GGUF both complete without a second loa
   ]);
   expect(secondText.done).toBe(true);
 
-  releaseFirst();
+  release();
   await text(res1);
 
   const loadCalls = calls.filter((c) => c.path === LOAD_PATH);
@@ -382,48 +439,20 @@ test("a different-GGUF same-role chat arriving mid-lease waits, without eviction
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  let releaseFirst: () => void = () => undefined;
-  const gate = new Promise<void>((r) => {
-    releaseFirst = r;
-  });
-  let firstStarted: () => void = () => undefined;
-  const firstStartedPromise = new Promise<void>((r) => {
-    firstStarted = r;
-  });
-  let sawFirstChat = false;
-  const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === CHAT_PATH && !sawFirstChat) {
-      sawFirstChat = true;
-      firstStarted();
-      await gate;
-    }
-    return client(input, init);
-  };
-  const router = new LlamaRouter(e, [a, b], lifecycle, baseOpts(gatedClient));
-
-  const res1 = router.proxy(a, CHAT_PATH, {
-    method: "POST",
-    body: JSON.stringify({ model: "a" }),
-  });
-  await firstStartedPromise;
+  const { router, calls, release, res1 } = await startGatedChat(e, [a, b], a);
 
   const res2 = router.proxy(b, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "b" }),
   });
   // Let the pump run as far as it can while A's lease is still held.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await drainMicrotasks();
   const bTouchedWhileWaiting = calls.some(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === "b",
   );
   expect(bTouchedWhileWaiting).toBe(false);
 
-  releaseFirst();
+  release();
   const text1 = await text(res1);
   expect((JSON.parse(text1) as { model?: string }).model).toBe("a");
 
@@ -438,33 +467,7 @@ test("a queued waiter whose caller aborts is dropped before the swap it would ha
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  let releaseFirst: () => void = () => undefined;
-  const gate = new Promise<void>((r) => {
-    releaseFirst = r;
-  });
-  let firstStarted: () => void = () => undefined;
-  const firstStartedPromise = new Promise<void>((r) => {
-    firstStarted = r;
-  });
-  let sawFirstChat = false;
-  const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === CHAT_PATH && !sawFirstChat) {
-      sawFirstChat = true;
-      firstStarted();
-      await gate;
-    }
-    return client(input, init);
-  };
-  const router = new LlamaRouter(e, [a, b], lifecycle, baseOpts(gatedClient));
-
-  const res1 = router.proxy(a, CHAT_PATH, {
-    method: "POST",
-    body: JSON.stringify({ model: "a" }),
-  });
-  await firstStartedPromise;
+  const { router, calls, release, res1 } = await startGatedChat(e, [a, b], a);
 
   const controller = new AbortController();
   const res2 = router.proxy(b, CHAT_PATH, {
@@ -475,14 +478,12 @@ test("a queued waiter whose caller aborts is dropped before the swap it would ha
   // Let the pump run as far as it can while A's lease is still held, exactly
   // as the mid-lease test above does, so B is genuinely queued (not merely
   // still inside ensureStarted) before it aborts.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await drainMicrotasks();
 
   controller.abort();
   await expect(res2).rejects.toThrow();
 
-  releaseFirst();
+  release();
   await text(res1);
 
   const bTouched = calls.some(
@@ -566,11 +567,7 @@ test("the role's lease is free after a failed load: a later request for the role
 });
 
 test("a cold streaming request emits `: warming` before its first real byte", async () => {
-  const e = engine();
-  const a = model({ id: "a", filename: "a.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client } = fakeLlama();
-  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+  const { a, router } = singleModelRouter();
 
   const res = await router.proxy(a, CHAT_PATH, {
     method: "POST",
@@ -624,11 +621,7 @@ test("a client cancelling a streaming response cancels the upstream reader too, 
 });
 
 test("a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body", async () => {
-  const e = engine();
-  const a = model({ id: "a", filename: "a.gguf" });
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  const { client } = fakeLlama();
-  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+  const { a, router } = singleModelRouter();
 
   // No prior proxy() call: this is the container's first request, the
   // coldest possible load.
@@ -861,8 +854,7 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
-  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
-  const loadsBefore = calls.filter((c) => c.path === LOAD_PATH).length;
+  const loadsBefore = await warmUpAndCountLoads(router, a, calls);
 
   // Nothing tells engined about this: its own activeModelId still says "a".
   unloadedBehindBack = true;
@@ -917,8 +909,7 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
-  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
-  const loadsBefore = calls.filter((c) => c.path === LOAD_PATH).length;
+  const loadsBefore = await warmUpAndCountLoads(router, a, calls);
 
   childGone = true;
   const res = await router.proxy(a, CHAT_PATH, {
