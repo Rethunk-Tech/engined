@@ -36,6 +36,8 @@ export interface RunChainOptions {
   localOnly: boolean;
   /** The only input `local_only` reads. */
   egressOf: (engine: string) => Egress;
+  /** Resolves a hop's raw `@/<segment>/…` engine to the id `GET /v1/engines` reports (e.g. the `local` alias), falling back to the segment unchanged. Provenance must record the resolved id, never the alias, to stay reconcilable. */
+  resolveEngine: (engine: string) => string;
   /**
    * Per hop, not per request or per chain — a two-engine chain bounded per
    * request could run twice as long as intended, and a chain that merely
@@ -71,7 +73,11 @@ function bodyIsEmpty(body: unknown): boolean {
 }
 
 /** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body; 5xx and empty body always do — except an envelope failure, which never advances regardless of status. */
-function classifyResult(result: HopResult): { advance: boolean; ok: boolean; failure?: string } {
+export function classifyResult(result: HopResult): {
+  advance: boolean;
+  ok: boolean;
+  failure?: string;
+} {
   if (result.envelopeFailure) {
     return { advance: false, ok: false, failure: `http ${result.status}` };
   }
@@ -146,7 +152,8 @@ interface HopOutcome {
 
 /** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
-  const { engine, model } = parseHop(hop);
+  const { engine: rawEngine, model } = parseHop(hop);
+  const engine = opts.resolveEngine(rawEngine);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs(hop));
   const start = Date.now();

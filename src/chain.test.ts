@@ -116,6 +116,7 @@ function baseOpts(
     requested: "chain-test-chain",
     localOnly: false,
     egressOf: () => "remote",
+    resolveEngine: (engine) => engine,
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
     ...overrides,
   };
@@ -187,6 +188,22 @@ test("a non-agentic hop's attempt carries no version field at all", async () => 
   expect(result.status).toBe(200);
   const record = JSON.parse(lines[0] ?? "");
   expect(Object.hasOwn(record.attempts[0], "version")).toBe(false);
+});
+
+test("an alias hop's provenance records the resolved engine id, not the raw alias", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer" });
+
+  const result = await runChain(
+    ["@/local/model"],
+    baseOpts({ exec, write, resolveEngine: (engine) => (engine === "local" ? "llama" : engine) }),
+  );
+
+  expect(result.status).toBe(200);
+  expect(result.engineUsed).toBe("llama");
+  const record = JSON.parse(lines[0] ?? "");
+  expect(record.engine_used).toBe("llama");
+  expect(record.attempts[0].engine).toBe("llama");
 });
 
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
