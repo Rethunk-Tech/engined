@@ -172,6 +172,21 @@ before the CPU-wheel-first fix). Weights are baked at build time
 (`KPipeline(lang_code="a")` in the builder stage), the same no-runtime-download posture as
 Chatterbox. Fixed voice packs only (no cloning).
 
+## Vision fidelity (local-llama, Vulkan)
+
+Two upstream Vulkan defects affect the vision role. One crashes llama-server and has a
+workaround engined already applies (`no-mmproj-offload`, see `engines/local-llama/spec.toml`).
+
+The other has none: **a vision request can return a confident, plausible, wrong description of
+the image, with nothing in the response to signal it.** It did not reproduce across three live
+checks, which is three data points and not a fix — nothing in this repo can detect a recurrence,
+because a wrong description is indistinguishable from a right one without ground truth.
+
+If you are wiring a consumer to the vision role, check output fidelity against an image whose
+content you already know, and re-check it when the image, the GGUF or the mmproj build changes.
+Treat vision as unproven until you have done that for your own consumer; the other roles carry
+no equivalent caveat.
+
 ## Speculative decoding (local-llama)
 
 `engines/local-llama/spec.toml` passes `--spec-type draft-mtp` for any catalog model marked
