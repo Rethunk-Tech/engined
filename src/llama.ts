@@ -522,6 +522,12 @@ export class LlamaRouter {
     try {
       return await this.httpClient(`${this.baseUrl()}${path}`, init);
     } catch (err) {
+      // A cancelled request is the door's own timeout budget expiring, not a
+      // container that went away: retrying it would outlive the budget that
+      // just fired, and turn a chain's 503 into a late 200.
+      if (init.signal?.aborted === true) {
+        throw err;
+      }
       const reconciled = await this.lifecycle.reconcile(this.engine.id);
       if (reconciled.state === "running") {
         throw err;
