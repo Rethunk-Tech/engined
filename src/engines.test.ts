@@ -1,6 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
@@ -11,19 +10,21 @@ import {
   type RegistryOptions,
 } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
-import { stateDir } from "./paths.ts";
 import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
-import { type Config, type EngineEntry, isContainerSpec, type ModelEntry } from "./types.ts";
+import {
+  BUNX,
+  clearVerifiedVersion,
+  config,
+  ENGINES_ROOT,
+  engine,
+  makeTestRoot,
+  model,
+  writeEngineSpec,
+} from "./test-support.ts";
+import { type Config, type EngineEntry, type EngineStatus, isContainerSpec } from "./types.ts";
 
-const BUNX = "/home/x/.bun/bin/bunx";
-
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-engines-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-engines-test-");
 
 /**
  * Redirects `stateDir()` under `TEST_ROOT` for whatever the caller does next,
@@ -44,13 +45,6 @@ function redirectStateHome(): () => void {
       process.env.XDG_STATE_HOME = previous;
     }
   };
-}
-
-/** A fresh `<root>/<id>/spec.toml`, root usable as `enginesRoot`. Reuses one root across ids. */
-function writeSpec(root: string, id: string, content: string): void {
-  const dir = join(root, id);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "spec.toml"), content);
 }
 
 function newEnginesRoot(): string {
@@ -136,26 +130,6 @@ path = "/health"
 status = 200
 `;
 
-function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return { id: "e", egress: "none", args: {}, ...overrides };
-}
-
-function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return { id: "m", engine: "e", aliases: [], args: {}, ...overrides };
-}
-
-function config(overrides: Partial<Config> = {}): Config {
-  return {
-    listen_port: 29_200,
-    chat_timeout_seconds: 600,
-    agent_timeout_seconds: 3600,
-    models: [],
-    engines: [],
-    chains: {},
-    ...overrides,
-  };
-}
-
 /** Image present with one exposed port, no artifacts to fail: the tests that only need a registry to exist. */
 function okExec(args: readonly string[]): Promise<ExecResult> {
   const result: ExecResult =
@@ -197,13 +171,23 @@ function registry(
   return new EngineRegistry(cfg, { enginesRoot, bunx: BUNX, exec: OK_EXEC, ...extra });
 }
 
+/** A registry over one "llama" engine backed by a real spec on disk, per the digest-pinned container fixture. */
+function setupLlama(extra: Partial<RegistryOptions> = {}): { root: string; reg: EngineRegistry } {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "llama", PULLED_CONTAINER);
+  return { root, reg: registry(config({ engines: [engine({ id: "llama" })] }), root, extra) };
+}
+
+/** A registry over one "kokoro" engine backed by a real build-obtained spec on disk. */
+function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "kokoro", BUILT_CONTAINER);
+  return { root, reg: registry(config({ engines: [engine({ id: "kokoro" })] }), root, { exec }) };
+}
+
 describe("unavailable engines", () => {
   test("missing image is unavailable and names the pull command for a digest-pinned image", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root, {
-      exec: NO_IMAGE_EXEC,
-    });
+    const { reg } = setupLlama({ exec: NO_IMAGE_EXEC });
     // get() is the sync accessor and does not probe docker cold; list() does.
     expect(reg.get("llama")?.state).toBe("installed");
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
@@ -212,12 +196,8 @@ describe("unavailable engines", () => {
   });
 
   test("missing image with a Dockerfile in its spec dir names a runnable docker build", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "kokoro", BUILT_CONTAINER);
+    const { root, reg } = setupKokoro(NO_IMAGE_EXEC);
     writeFileSync(join(root, "kokoro", "Dockerfile"), "FROM scratch\n");
-    const reg = registry(config({ engines: [engine({ id: "kokoro" })] }), root, {
-      exec: NO_IMAGE_EXEC,
-    });
     const listed = (await reg.list()).engines.find((e) => e.id === "kokoro");
     expect(listed?.state).toBe("unavailable");
     expect(listed?.fix).toBe(
@@ -228,11 +208,7 @@ describe("unavailable engines", () => {
   test("missing image with NO Dockerfile in its spec dir does not invent a build command", async () => {
     // local-llama's real shape: obtain = "build", no Dockerfile shipped here
     // because the image is built from a different repository entirely.
-    const root = newEnginesRoot();
-    writeSpec(root, "kokoro", BUILT_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "kokoro" })] }), root, {
-      exec: NO_IMAGE_EXEC,
-    });
+    const { reg } = setupKokoro(NO_IMAGE_EXEC);
     const listed = (await reg.list()).engines.find((e) => e.id === "kokoro");
     expect(listed?.state).toBe("unavailable");
     expect(listed?.fix).not.toContain("docker build");
@@ -240,11 +216,7 @@ describe("unavailable engines", () => {
   });
 
   test("missing artifact is unavailable and names the command that supplies it, via start()", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "kokoro", BUILT_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "kokoro" })] }), root, {
-      exec: MISSING_ARTIFACT_EXEC,
-    });
+    const { reg } = setupKokoro(MISSING_ARTIFACT_EXEC);
     const status = await reg.start("kokoro");
     expect(status.state).toBe("unavailable");
     expect(status.fix).toContain("curlimages/curl");
@@ -253,9 +225,7 @@ describe("unavailable engines", () => {
 
 describe("installed engines", () => {
   test("an engine merely stopped is installed with a null private_url, never reported as broken", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root);
+    const { reg } = setupLlama();
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.state).toBe("installed");
     expect(listed?.private_url).toBeNull();
@@ -263,10 +233,8 @@ describe("installed engines", () => {
   });
 
   test("private_url is null before any start, from both get() and list()", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
     const lifecycle = new DockerLifecycle(OK_EXEC);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root, { lifecycle });
+    const { reg } = setupLlama({ lifecycle });
     expect(reg.get("llama")?.private_url).toBeNull();
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.private_url).toBeNull();
@@ -284,8 +252,21 @@ const REMOTE_ENGINE = engine({
 
 /** A second, ordinary engine in the same config, so "does the rest of the inventory still work" is provable in the same response. */
 function withAnotherEngine(root: string): Config {
-  writeSpec(root, "other", PULLED_CONTAINER);
+  writeEngineSpec(root, "other", PULLED_CONTAINER);
   return config({ engines: [REMOTE_ENGINE, engine({ id: "other" })] });
+}
+
+/** Lists the remote-proxy engine (plus its ordinary sibling) under a given keyring outcome. */
+async function listRemoteProxy(
+  secretResolves: () => Promise<SecretOutcome>,
+): Promise<{ proxy: EngineStatus | undefined; other: EngineStatus | undefined }> {
+  const root = newEnginesRoot();
+  const reg = registry(withAnotherEngine(root), root, { secretResolves });
+  const listed = await reg.list();
+  return {
+    proxy: listed.engines.find((e) => e.id === "remote-proxy"),
+    other: listed.engines.find((e) => e.id === "other"),
+  };
 }
 
 describe("remote-address engines: get() stays optimistic", () => {
@@ -302,52 +283,38 @@ describe("remote-address engines: get() stays optimistic", () => {
 
 describe("remote-address engines: GET /v1/engines resolves the keyring per request", () => {
   test("GET /v1/engines: installed when the secret resolves", async () => {
-    const root = newEnginesRoot();
-    const reg = registry(withAnotherEngine(root), root, {
-      secretResolves: () => Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
-    });
-    const listed = await reg.list();
-    const status = listed.engines.find((e) => e.id === "remote-proxy");
+    const { proxy: status } = await listRemoteProxy(() =>
+      Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
+    );
     expect(status?.state).toBe("installed");
     expect(status?.private_url).toBeNull();
   });
 
   test("GET /v1/engines: a missing outcome is unavailable, fix names secret-tool store", async () => {
-    const root = newEnginesRoot();
-    const reg = registry(withAnotherEngine(root), root, {
-      secretResolves: () =>
-        Promise.resolve({
-          ok: false,
-          reason: "missing",
-          fix: "secret-tool store --label='moonshot-api' service moonshot-api username kimi-k2.7-code",
-        } satisfies SecretOutcome),
-    });
-    const listed = await reg.list();
-    const kimi = listed.engines.find((e) => e.id === "remote-proxy");
+    const { proxy: kimi, other } = await listRemoteProxy(() =>
+      Promise.resolve({
+        ok: false,
+        reason: "missing",
+        fix: "secret-tool store --label='moonshot-api' service moonshot-api username kimi-k2.7-code",
+      } satisfies SecretOutcome),
+    );
     expect(kimi?.state).toBe("unavailable");
     expect(kimi?.fix).toContain("secret-tool store");
-
-    const other = listed.engines.find((e) => e.id === "other");
     expect(other?.state).toBe("installed");
   });
 
   test("GET /v1/engines: a locked outcome is unavailable but offers no store command", async () => {
-    const root = newEnginesRoot();
-    const reg = registry(withAnotherEngine(root), root, {
-      secretResolves: () =>
-        Promise.resolve({
-          ok: false,
-          reason: "locked",
-          fix: "keyring is locked; resolves automatically once the operator signs in",
-        } satisfies SecretOutcome),
-    });
-    const listed = await reg.list();
-    const kimi = listed.engines.find((e) => e.id === "remote-proxy");
+    const { proxy: kimi, other } = await listRemoteProxy(() =>
+      Promise.resolve({
+        ok: false,
+        reason: "locked",
+        fix: "keyring is locked; resolves automatically once the operator signs in",
+      } satisfies SecretOutcome),
+    );
     expect(kimi?.state).toBe("unavailable");
     expect(kimi?.fix).not.toContain("secret-tool store");
     expect(kimi?.fix).toContain("locked");
 
-    const other = listed.engines.find((e) => e.id === "other");
     expect(other?.state).toBe("installed");
   });
 });
@@ -463,9 +430,9 @@ describe("remote-address agentic engines: gated the same as a local one once pro
 describe("GET /v1/models", () => {
   test("includes chain names, GGUF ids and aliases, agentic and audio engine ids; excludes comfy", () => {
     const root = newEnginesRoot();
-    writeSpec(root, "claude", AGENTIC);
-    writeSpec(root, "kokoro", BUILT_CONTAINER);
-    writeSpec(root, "comfy", COMFY_CONTAINER);
+    writeEngineSpec(root, "claude", AGENTIC);
+    writeEngineSpec(root, "kokoro", BUILT_CONTAINER);
+    writeEngineSpec(root, "comfy", COMFY_CONTAINER);
     const cfg = config({
       engines: [
         engine({ id: "claude", egress: "remote", claude_version: "1.2.3" }),
@@ -490,14 +457,10 @@ function agenticEngine(id: string, version: string): EngineEntry {
   return engine({ id, egress: "remote", claude_version: version });
 }
 
-function clearVerifiedVersion(id: string): void {
-  rmSync(join(stateDir(), "agentic", id), { recursive: true, force: true });
-}
-
 describe("agentic engines: unproved by default", () => {
   test("no claude_version configured is unavailable, naming the engine", async () => {
     const root = newEnginesRoot();
-    writeSpec(root, "agentic-verify-noversion", AGENTIC_NO_VERSION_PLACEHOLDER);
+    writeEngineSpec(root, "agentic-verify-noversion", AGENTIC_NO_VERSION_PLACEHOLDER);
     const reg = registry(config({ engines: [engine({ id: "agentic-verify-noversion" })] }), root);
     const listed = (await reg.list()).engines.find((e) => e.id === "agentic-verify-noversion");
     expect(listed?.state).toBe("unavailable");
@@ -508,7 +471,7 @@ describe("agentic engines: unproved by default", () => {
     const id = "agentic-verify-unconfigured";
     clearVerifiedVersion(id);
     const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
+    writeEngineSpec(root, id, AGENTIC);
     const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root);
     const listed = (await reg.list()).engines.find((e) => e.id === id);
     expect(listed?.state).toBe("unavailable");
@@ -521,7 +484,7 @@ describe("agentic engines: the verified_version gate", () => {
     const id = "agentic-verify-fail";
     clearVerifiedVersion(id);
     const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
+    writeEngineSpec(root, id, AGENTIC);
     const calls: Array<{ engineId: string; version: string }> = [];
     const failingRunner: AgenticProbeRunner = (eng, version) => {
       calls.push({ engineId: eng.id, version });
@@ -544,7 +507,7 @@ describe("agentic engines: the verified_version gate", () => {
     const id = "agentic-verify-pass";
     clearVerifiedVersion(id);
     const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
+    writeEngineSpec(root, id, AGENTIC);
     const calls: Array<{ engineId: string; version: string }> = [];
     const passingRunner: AgenticProbeRunner = (eng, version) => {
       calls.push({ engineId: eng.id, version });
@@ -571,15 +534,28 @@ describe("agentic engines: the verified_version gate", () => {
   });
 });
 
+/** A registry over one just-cleared agentic pin, wired to a tracking probe runner with the given outcome. */
+function setupAgenticVerify(
+  id: string,
+  version: string,
+  outcome: { ok: boolean; failedProbe?: string },
+): { reg: EngineRegistry; calls: Array<{ engineId: string; version: string }> } {
+  clearVerifiedVersion(id);
+  const root = newEnginesRoot();
+  writeEngineSpec(root, id, AGENTIC);
+  const { runner, calls } = trackingRunner(outcome);
+  const reg = registry(config({ engines: [agenticEngine(id, version)] }), root, {
+    agenticProbeRunner: runner,
+  });
+  return { reg, calls };
+}
+
 describe("agentic engines: a failed probe is cached, not retried, until the pin changes", () => {
   test("a failing pin is probed once; a later list on the same pin skips the runner", async () => {
     const id = "agentic-verify-fail-cached";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
-    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
-    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: runner,
+    const { reg, calls } = setupAgenticVerify(id, "1.0.0", {
+      ok: false,
+      failedProbe: "byte-identical",
     });
 
     const first = (await reg.list()).engines.find((e) => e.id === id);
@@ -595,12 +571,9 @@ describe("agentic engines: a failed probe is cached, not retried, until the pin 
 
   test("bumping the pin after a failure re-arms the probe", async () => {
     const id = "agentic-verify-fail-rearm";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
-    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
-    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: runner,
+    const { reg, calls } = setupAgenticVerify(id, "1.0.0", {
+      ok: false,
+      failedProbe: "byte-identical",
     });
 
     await reg.list();
@@ -615,13 +588,7 @@ describe("agentic engines: a failed probe is cached, not retried, until the pin 
 
   test("two concurrent polls on the same unproved pin share one in-flight probe", async () => {
     const id = "agentic-verify-concurrent";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeSpec(root, id, AGENTIC);
-    const { runner, calls } = trackingRunner({ ok: true });
-    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: runner,
-    });
+    const { reg, calls } = setupAgenticVerify(id, "1.0.0", { ok: true });
 
     const [a, b] = await Promise.all([reg.list(), reg.list()]);
     expect(a.engines.find((e) => e.id === id)?.state).toBe("installed");
@@ -634,9 +601,7 @@ describe("agentic engines: a failed probe is cached, not retried, until the pin 
 
 describe("serves()", () => {
   test("returns the loaded spec's serves list for a container engine", () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root);
+    const { reg } = setupLlama();
     expect(reg.serves("llama")).toEqual(["/v1/chat/completions"]);
   });
 
@@ -660,9 +625,7 @@ describe("serves()", () => {
 
 describe("spec_source", () => {
   test("names the shipped directory when no spec_dir override is set", async () => {
-    const root = newEnginesRoot();
-    writeSpec(root, "llama", PULLED_CONTAINER);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root);
+    const { root, reg } = setupLlama();
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.spec_source).toBe(join(root, "llama"));
   });
@@ -680,12 +643,10 @@ describe("spec_source", () => {
   });
 });
 
-const REPO_ENGINES_ROOT = join(import.meta.dir, "..", "engines");
-
 describe("comfy: shipped spec", () => {
   test("the run argv takes GPU_FLAGS, label=disable and latent2rgb, and publishes to no wildcard interface", () => {
     const loaded = loadSpec(engine({ id: "comfy" }), {
-      enginesRoot: REPO_ENGINES_ROOT,
+      enginesRoot: ENGINES_ROOT,
       bunx: BUNX,
     });
     const { spec } = loaded;
@@ -703,18 +664,30 @@ describe("comfy: shipped spec", () => {
   });
 });
 
-/** Image present at container port 8188 (comfy's EXPOSE), a fresh host port on every "port" lookup. */
+/** `docker image inspect` reply naming one exposed container port, as real docker returns it. */
+function inspectReply(containerPort: number): ExecResult {
+  return {
+    stdout: `[{"Config":{"ExposedPorts":{"${containerPort}/tcp":{}}}}]`,
+    stderr: "",
+    exitCode: 0,
+  };
+}
+
+/** `docker port` reply for a freshly published host port. */
+function portReply(hostPort: number): ExecResult {
+  return { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
+}
+
 function comfyExec(): Exec {
   let port = 40_000;
   return (args) => {
-    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
     if (args[0] === "image" && args[1] === "inspect") {
-      result = { stdout: '[{"Config":{"ExposedPorts":{"8188/tcp":{}}}}]', stderr: "", exitCode: 0 };
-    } else if (args[0] === "port") {
-      port += 1;
-      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+      return Promise.resolve(inspectReply(8188));
     }
-    return Promise.resolve(result);
+    if (args[0] === "port") {
+      return Promise.resolve(portReply(++port));
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
 }
 
@@ -729,76 +702,95 @@ function comfyConfig(): Config {
   });
 }
 
+/** Builds a comfy-backed registry from the given fixtures, runs `body` against it, and always shuts it down. */
+async function withComfyRegistry(
+  opts: {
+    exec: Exec;
+    cfg: Config;
+    queueFetch: () => Promise<QueueSnapshot>;
+    comfyPollIntervalMs: number;
+  },
+  body: (reg: EngineRegistry, lifecycle: DockerLifecycle) => Promise<void>,
+): Promise<void> {
+  const lifecycle = new DockerLifecycle(opts.exec, READY_PROBE);
+  const reg = new EngineRegistry(opts.cfg, {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    lifecycle,
+    queueFetch: opts.queueFetch,
+    comfyPollIntervalMs: opts.comfyPollIntervalMs,
+  });
+  try {
+    await body(reg, lifecycle);
+  } finally {
+    await reg.shutdown();
+  }
+}
+
 describe("comfy: idle timer driven by /queue polling", () => {
   test("an empty queue advances the idle timer to a real stop", async () => {
-    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
-    const reg = new EngineRegistry(comfyConfig(), {
-      enginesRoot: REPO_ENGINES_ROOT,
-      bunx: BUNX,
-      lifecycle,
-      queueFetch: () => Promise.resolve(EMPTY_QUEUE),
-      comfyPollIntervalMs: 15,
-    });
-    try {
-      const started = await reg.start("comfy");
-      expect(started.state).toBe("running");
-      expect(started.private_url).not.toBeNull();
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfig(),
+        queueFetch: () => Promise.resolve(EMPTY_QUEUE),
+        comfyPollIntervalMs: 15,
+      },
+      async (reg) => {
+        const started = await reg.start("comfy");
+        expect(started.state).toBe("running");
+        expect(started.private_url).not.toBeNull();
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const after = reg.get("comfy");
-      expect(after?.state).toBe("installed");
-      expect(after?.private_url).toBeNull();
-    } finally {
-      await reg.shutdown();
-    }
+        const after = reg.get("comfy");
+        expect(after?.state).toBe("installed");
+        expect(after?.private_url).toBeNull();
+      },
+    );
   });
 
   test("a non-empty queue never lets the idle timer fire", async () => {
-    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
-    const reg = new EngineRegistry(comfyConfig(), {
-      enginesRoot: REPO_ENGINES_ROOT,
-      bunx: BUNX,
-      lifecycle,
-      queueFetch: () => Promise.resolve(BUSY_QUEUE),
-      comfyPollIntervalMs: 15,
-    });
-    try {
-      const started = await reg.start("comfy");
-      expect(started.state).toBe("running");
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfig(),
+        queueFetch: () => Promise.resolve(BUSY_QUEUE),
+        comfyPollIntervalMs: 15,
+      },
+      async (reg) => {
+        const started = await reg.start("comfy");
+        expect(started.state).toBe("running");
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const after = reg.get("comfy");
-      expect(after?.state).toBe("running");
-      expect(after?.private_url).not.toBeNull();
-    } finally {
-      await reg.shutdown();
-    }
+        const after = reg.get("comfy");
+        expect(after?.state).toBe("running");
+        expect(after?.private_url).not.toBeNull();
+      },
+    );
   });
 });
 
 describe("comfy: resolved URL outlives its container by exactly nothing", () => {
   test("two successive starts yield two different private_url values", async () => {
-    const lifecycle = new DockerLifecycle(comfyExec(), READY_PROBE);
-    const reg = new EngineRegistry(comfyConfig(), {
-      enginesRoot: REPO_ENGINES_ROOT,
-      bunx: BUNX,
-      lifecycle,
-      queueFetch: () => Promise.resolve(EMPTY_QUEUE),
-      comfyPollIntervalMs: 60_000,
-    });
-    try {
-      const first = await reg.start("comfy");
-      await lifecycle.removeEngine("comfy");
-      const second = await reg.start("comfy");
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfig(),
+        queueFetch: () => Promise.resolve(EMPTY_QUEUE),
+        comfyPollIntervalMs: 60_000,
+      },
+      async (reg, lifecycle) => {
+        const first = await reg.start("comfy");
+        await lifecycle.removeEngine("comfy");
+        const second = await reg.start("comfy");
 
-      expect(first.private_url).not.toBeNull();
-      expect(second.private_url).not.toBeNull();
-      expect(second.private_url).not.toBe(first.private_url);
-    } finally {
-      await reg.shutdown();
-    }
+        expect(first.private_url).not.toBeNull();
+        expect(second.private_url).not.toBeNull();
+        expect(second.private_url).not.toBe(first.private_url);
+      },
+    );
   });
 });
 
@@ -806,28 +798,22 @@ describe("comfy: resolved URL outlives its container by exactly nothing", () => 
 function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
   let port = 50_000;
   return (args) => {
-    const argv = [...args];
-    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
     if (args[0] === "image" && args[1] === "inspect") {
-      result = {
-        stdout: `[{"Config":{"ExposedPorts":{"${containerPort}/tcp":{}}}}]`,
-        stderr: "",
-        exitCode: 0,
-      };
-    } else if (args[0] === "start") {
-      result = { stdout: "", stderr: "", exitCode: 1 }; // never already created: fall through to "run"
-    } else if (args[0] === "run") {
-      runArgvCalls.push(argv);
-      result = { stdout: "", stderr: "", exitCode: 0 };
-    } else if (args[0] === "port") {
-      port += 1;
-      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+      return Promise.resolve(inspectReply(containerPort));
     }
-    return Promise.resolve(result);
+    if (args[0] === "start") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 }); // never already created: fall through to "run"
+    }
+    if (args[0] === "run") {
+      runArgvCalls.push([...args]);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (args[0] === "port") {
+      return Promise.resolve(portReply(++port));
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
 }
-
-const READY_200: Probe = () => Promise.resolve({ status: 200 });
 
 describe("spec construction is routed through the per-engine builder", () => {
   test("comfy started through the registry carries its models bind mount in the run argv", async () => {
@@ -844,9 +830,9 @@ describe("spec construction is routed through the per-engine builder", () => {
         ],
       }),
       {
-        enginesRoot: REPO_ENGINES_ROOT,
+        enginesRoot: ENGINES_ROOT,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8188, runArgvCalls), READY_200),
+        lifecycle: new DockerLifecycle(capturingExec(8188, runArgvCalls), READY_PROBE),
       },
     );
     try {
@@ -880,9 +866,9 @@ describe("spec construction is routed through the per-engine builder", () => {
         ],
       }),
       {
-        enginesRoot: REPO_ENGINES_ROOT,
+        enginesRoot: ENGINES_ROOT,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
       },
     );
     try {
@@ -908,7 +894,7 @@ const RX_KOKORO_LIKE = /kokoro-like/;
 describe("a container kind with no dedicated builder still gets [engine.args]", () => {
   test("a stt engine's real command carries [engine.args] appended in the run argv", async () => {
     const root = newEnginesRoot();
-    writeSpec(root, "whisper-like", STT_REAL_COMMAND);
+    writeEngineSpec(root, "whisper-like", STT_REAL_COMMAND);
     const runArgvCalls: string[][] = [];
     const reg = new EngineRegistry(
       config({
@@ -919,7 +905,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
       {
         enginesRoot: root,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
       },
     );
     try {
@@ -947,7 +933,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
    */
   test("a tts engine with an image-defined (empty) command rejects non-empty [engine.args] loudly, at construction", () => {
     const root = newEnginesRoot();
-    writeSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
+    writeEngineSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
     expect(
       () =>
         new EngineRegistry(
@@ -961,14 +947,14 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
 
   test("a tts engine with an image-defined (empty) command and NO [engine.args] starts clean", async () => {
     const root = newEnginesRoot();
-    writeSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
+    writeEngineSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
     const runArgvCalls: string[][] = [];
     const reg = new EngineRegistry(
       config({ engines: [engine({ id: "kokoro-like", egress: "none", ready_timeout_s: 5 })] }),
       {
         enginesRoot: root,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_200),
+        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
       },
     );
     try {
@@ -1003,49 +989,45 @@ function comfyLongIdleConfig(): Config {
 
 describe("comfy: a container that dies underneath engined", () => {
   test("a refused /queue poll against a gone container clears the stale running state", async () => {
-    const lifecycle = new DockerLifecycle(comfyExecLiveness(false), READY_PROBE);
-    const reg = new EngineRegistry(comfyLongIdleConfig(), {
-      enginesRoot: REPO_ENGINES_ROOT,
-      bunx: BUNX,
-      lifecycle,
-      queueFetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
-      comfyPollIntervalMs: 15,
-    });
-    try {
-      const started = await reg.start("comfy");
-      expect(started.state).toBe("running");
-      expect(started.private_url).not.toBeNull();
+    await withComfyRegistry(
+      {
+        exec: comfyExecLiveness(false),
+        cfg: comfyLongIdleConfig(),
+        queueFetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
+        comfyPollIntervalMs: 15,
+      },
+      async (reg) => {
+        const started = await reg.start("comfy");
+        expect(started.state).toBe("running");
+        expect(started.private_url).not.toBeNull();
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      // Never a 200 naming a dead address: the door reports what docker says.
-      const after = reg.get("comfy");
-      expect(after?.state).toBe("installed");
-      expect(after?.private_url).toBeNull();
-    } finally {
-      await reg.shutdown();
-    }
+        // Never a 200 naming a dead address: the door reports what docker says.
+        const after = reg.get("comfy");
+        expect(after?.state).toBe("installed");
+        expect(after?.private_url).toBeNull();
+      },
+    );
   });
 
   test("a refused poll against a container still up leaves it running", async () => {
-    const lifecycle = new DockerLifecycle(comfyExecLiveness(true), READY_PROBE);
-    const reg = new EngineRegistry(comfyLongIdleConfig(), {
-      enginesRoot: REPO_ENGINES_ROOT,
-      bunx: BUNX,
-      lifecycle,
-      queueFetch: () => Promise.reject(new Error("socket hang up")),
-      comfyPollIntervalMs: 15,
-    });
-    try {
-      expect((await reg.start("comfy")).state).toBe("running");
+    await withComfyRegistry(
+      {
+        exec: comfyExecLiveness(true),
+        cfg: comfyLongIdleConfig(),
+        queueFetch: () => Promise.reject(new Error("socket hang up")),
+        comfyPollIntervalMs: 15,
+      },
+      async (reg) => {
+        expect((await reg.start("comfy")).state).toBe("running");
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const after = reg.get("comfy");
-      expect(after?.state).toBe("running");
-      expect(after?.private_url).not.toBeNull();
-    } finally {
-      await reg.shutdown();
-    }
+        const after = reg.get("comfy");
+        expect(after?.state).toBe("running");
+        expect(after?.private_url).not.toBeNull();
+      },
+    );
   });
 });
