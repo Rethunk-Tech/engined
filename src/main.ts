@@ -55,6 +55,7 @@ import {
   type EngineKind,
   errMessage,
   FatalError,
+  findModelOnEngine,
   isRecord,
   MS_PER_SECOND,
 } from "./types.ts";
@@ -292,11 +293,7 @@ async function execLlama(
   modelSeg: string,
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
-  const model = ctx
-    .getConfig()
-    .models.find(
-      (m) => m.engine === engineEntry.id && (m.id === modelSeg || m.aliases.includes(modelSeg)),
-    );
+  const model = findModelOnEngine(ctx.getConfig().models, engineEntry.id, modelSeg);
   if (!model) {
     return {
       status: STATUS_BAD_GATEWAY,
@@ -495,10 +492,7 @@ function resolveUpstreamModelId(
   if (modelSeg === "") {
     return;
   }
-  const found = config.models.find(
-    (m) => m.engine === engineId && (m.id === modelSeg || m.aliases.includes(modelSeg)),
-  );
-  return found?.id ?? modelSeg;
+  return findModelOnEngine(config.models, engineId, modelSeg)?.id ?? modelSeg;
 }
 
 type RedirectResolution =

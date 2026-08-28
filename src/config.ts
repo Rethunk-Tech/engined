@@ -13,6 +13,7 @@ import {
   ENGINE_KINDS,
   isRecord,
   ParseError,
+  QUALIFIED_MODEL_RE,
 } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
@@ -53,7 +54,6 @@ const ENGINE_KEYS = new Set([
   "args",
 ]);
 const MODEL_KEYS = new Set(["id", "engine", "filename", "role", "aliases", "args"]);
-const HOP_RE = /^@\/([^/]+)\/([^/]+)$/;
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
 function asArray(v: unknown, key: string, file: string): unknown[] {
@@ -381,7 +381,7 @@ function parseChains(
       if (typeof hopRaw !== "string") {
         throw new ParseError(`chain "${name}"[${i}] must be a string`, file);
       }
-      const match = HOP_RE.exec(hopRaw);
+      const match = QUALIFIED_MODEL_RE.exec(hopRaw);
       const engineSeg = match?.[1];
       const modelSeg = match?.[2];
       if (!(engineSeg && modelSeg)) {

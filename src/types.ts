@@ -138,6 +138,28 @@ export interface ReadyProbe {
   accept?: { min: number; max: number };
 }
 
+/**
+ * The qualified `@/<engine>/<model>` form, as written by an operator in a
+ * chain or by a caller in `model`. Exactly two segments: `chain.ts`'s
+ * `parseHop` is deliberately looser because it also destructures the bare
+ * `@/<engine>` hop this rejects.
+ */
+export const QUALIFIED_MODEL_RE = /^@\/([^/]+)\/([^/]+)$/;
+
+/**
+ * A model on one engine, by id or by alias. The alias half is why this is
+ * shared: a caller that compares only `id` silently stops resolving aliases.
+ */
+export function findModelOnEngine<T extends { engine: string; id: string; aliases: string[] }>(
+  models: readonly T[],
+  engineId: string,
+  idOrAlias: string,
+): T | undefined {
+  return models.find(
+    (m) => m.engine === engineId && (m.id === idOrAlias || m.aliases.includes(idOrAlias)),
+  );
+}
+
 /** Whether a probe response means the engine is ready to serve. */
 export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
   if (status === STATUS_NOT_FOUND) {

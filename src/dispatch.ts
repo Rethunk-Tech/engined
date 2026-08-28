@@ -7,9 +7,8 @@
 import { resolveLocalCandidates } from "./config.ts";
 import type { EngineRegistry } from "./engines.ts";
 import type { Config } from "./types.ts";
-import { MODEL_LESS_KINDS } from "./types.ts";
+import { findModelOnEngine, MODEL_LESS_KINDS, QUALIFIED_MODEL_RE } from "./types.ts";
 
-const QUALIFIED_RE = /^@\/([^/]+)\/([^/]+)$/;
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
 const CHAIN_ENDPOINT = "/v1/chat/completions";
 
@@ -66,9 +65,7 @@ function resolveQualified(
   if (engineId === undefined) {
     return fail(`"@/${engineSeg}/${modelSeg}": engine "${engineSeg}" does not exist`);
   }
-  const found = config.models.find(
-    (m) => m.engine === engineId && (m.id === modelSeg || m.aliases.includes(modelSeg)),
-  );
+  const found = findModelOnEngine(config.models, engineId, modelSeg);
   if (!found) {
     return fail(
       `"@/${engineSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineId}"`,
@@ -142,7 +139,7 @@ export function resolveModel(
     return fail("model is required");
   }
 
-  const qualified = QUALIFIED_RE.exec(model);
+  const qualified = QUALIFIED_MODEL_RE.exec(model);
   if (qualified) {
     return resolveQualified(qualified, endpoint, config, registry);
   }
