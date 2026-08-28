@@ -34,7 +34,6 @@ import {
 import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
-  HTTP_CLIENT_ERROR_MIN,
   type HttpClient,
   jsonError,
   jsonErrorBody,
@@ -862,7 +861,7 @@ async function handleAudioSpeech(
   if (!audio.ok) {
     return audio.response;
   }
-  const engineId = audio.engineId;
+  const { engineId } = audio;
   const start = audioStart(ctx);
   const speechReq: SpeechRequestBody = {
     model: engineId,
@@ -903,7 +902,7 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm> 
  * recording a caller has reason to transcribe in one request; a longer one
  * belongs in segments, which is what every consumer already sends.
  */
-const MAX_AUDIO_UPLOAD_BYTES = 256 * 1024 * 1024;
+const MAX_AUDIO_UPLOAD_BYTES = 268_435_456;
 
 async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise<Response> {
   const declared = Number(req.headers.get("content-length") ?? Number.NaN);
@@ -924,7 +923,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   if (!audio.ok) {
     return audio.response;
   }
-  const engineId = audio.engineId;
+  const { engineId } = audio;
   const start = audioStart(ctx);
   const transcriptionReq: TranscriptionRequestBody = {
     model: engineId,
