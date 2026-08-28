@@ -308,3 +308,31 @@ test("the per-attempt timeout is per hop, not per request: two hops each under t
   expect(result.status).toBe(200);
   expect(result.engineUsed).toBe("slowSuccess");
 });
+
+test("a client disconnecting mid-stream still emits the call's provenance line", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      body: null,
+      stream: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new TextEncoder().encode("data: chunk\n\n"));
+        },
+      }),
+    });
+
+  const result = await runChain(["@/e1/m"], baseOpts({ exec, write }));
+
+  // Nothing is emitted while the body is still owed to the caller.
+  expect(lines.length).toBe(0);
+
+  const reader = result.stream?.getReader();
+  await reader?.read();
+  await reader?.cancel();
+
+  expect(lines.length).toBe(1);
+  const record = JSON.parse(lines[0] ?? "{}");
+  expect(record.attempts[0].ok).toBe(false);
+  expect(record.attempts[0].failure).toBe("client disconnected");
+});

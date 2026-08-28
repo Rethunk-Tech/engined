@@ -98,22 +98,36 @@ function wrapStream(
   onDone: (ok: boolean, failure?: string) => void,
 ): ReadableStream {
   const reader = source.getReader();
+  // Whichever terminus arrives first owns the line; `cancel` can still fire
+  // after a `pull` has closed the stream.
+  let settled = false;
+  const settle = (ok: boolean, failure?: string) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    onDone(ok, failure);
+  };
   return new ReadableStream({
     async pull(controller) {
       try {
         const { done, value } = await reader.read();
         if (done) {
           controller.close();
-          onDone(true);
+          settle(true);
           return;
         }
         controller.enqueue(value);
       } catch (err) {
         controller.error(err);
-        onDone(false, errMessage(err));
+        settle(false, errMessage(err));
       }
     },
     cancel(reason) {
+      // A disconnect is a terminus like any other. Without this the call that
+      // died mid-body is the one call that never appears in provenance --
+      // precisely the one worth being able to find later.
+      settle(false, "client disconnected");
       reader.cancel(reason).catch(() => undefined);
     },
   });
