@@ -131,3 +131,86 @@ own jobs. engined manages only its container lifecycle; a consumer reaches
 a started job at its `private_url` directly.
 
 Add any of these when a second consumer, modality or person makes the case.
+
+## Container images (this box: AMD Strix Halo / gfx1151, ROCm 7.2+)
+
+Own Dockerfile per engine, under `engines/<id>/` — no gfx1151-validated pre-built image exists
+for any of them. All are two-stage builds: build tools (compilers, venv creation, git) never
+reach the runtime image.
+
+**llama.cpp** (`engines/local-llama/Dockerfile`, image `engined-llama-cpp:local`) builds
+`llama-server` from [Nathanw1014/llama.cpp](https://github.com/Nathanw1014/llama.cpp)'s
+`strix-halo-vulkan` branch (fork of upstream llama.cpp, MIT) — Strix-Halo Vulkan performance
+work not yet upstream. Chosen over a same-generation ROCm build after benchmarking both on a
+realistic long-context prompt: ties ROCm's prefill throughput while keeping Vulkan's ~14% decode
+edge — best combination across 6 candidate images. Only `/dev/dri` needed (no `/dev/kfd`),
+native gfx1151 — no ROCm GFX-version override env var. Image: ~938MB.
+
+**ComfyUI** (`engines/comfy/Dockerfile`) bases on `rocm/dev-ubuntu-24.04:7.2.4` (minimal
+ROCm/HIP runtime, not `rocm/pytorch` or the `-complete` tag) plus the official PyTorch ROCm
+wheels (`--index-url https://download.pytorch.org/whl/rocm7.2`), which are self-contained and
+would otherwise duplicate a fuller base's own ROCm math libraries. gfx1151-native — no ROCm
+GFX-version override env var. Built and smoke-tested on this box — GPU correctly detected as
+`Radeon 8060S Graphics : native`, ROCm 7.2. Image: ~28.9GB (down from 41.1GB using
+`rocm/pytorch` as base directly).
+
+**Chatterbox** (`engines/chatterbox/Dockerfile`) follows the same base pattern as ComfyUI.
+Installs `chatterbox-tts` (devnen's `chatterbox-v2` fork, which carries gfx1151 dtype fixes over
+upstream resemble-ai/chatterbox) with `--no-deps`, then its real runtime dependencies at
+versions that actually work on Python 3.12/torch 2.13 — its own `pyproject.toml` pins
+`numpy<1.26` (no Python 3.12 wheel exists at all) and `torch==2.5.1`, neither usable here.
+`app.py` is the HTTP surface: `POST /v1/tts` → `{audio: base64 WAV, alignment}`. Detects the GPU
+(`Radeon 8060S Graphics`) and synthesizes real narration end-to-end over `/v1/tts`. Image:
+~29GB.
+
+**Kokoro** (`engines/kokoro/Dockerfile`, CPU) uses a `python:3.12-slim` base with no GPU device
+flags — torch installs first from the CPU wheel index (`pytorch.org/whl/cpu`), before
+`requirements.txt`, so pip resolves Kokoro's own torch dependency against it instead of pulling
+PyPI's CUDA-linked default. Kokoro-82M synthesizes faster than realtime on CPU — the point: it
+never queues behind ComfyUI/llama.cpp for the box's single GPU. Image: ~2.8GB (down from 9.33GB
+before the CPU-wheel-first fix). Weights are baked at build time
+(`KPipeline(lang_code="a")` in the builder stage), the same no-runtime-download posture as
+Chatterbox. Fixed voice packs only (no cloning).
+
+## Speculative decoding (local-llama)
+
+`engines/local-llama/spec.toml` passes `--spec-type draft-mtp` for any catalog model marked
+`mtp` — the head lives inside the GGUF, and llama.cpp only infers a speculative type from a
+*separate* draft model, so it has to be named. Naming it on a headless GGUF is fatal (`model
+doesn't contain MTP layers`, exit 1), which is why the flags follow the model rather than being
+unconditional.
+
+Two independent measurements on this box justify the choice, over Ornith-1.5-35B-A3B MTPv2,
+Vulkan/RADV, `q8_0` K/V:
+
+Sweeping `spec-draft-p-min` at `--ctx-size 32768`, 1200 tokens generated ("prose" is an
+8416-token prompt, "structured" a JSON array over the same context):
+
+| config | prose tok/s | structured tok/s |
+| --- | --- | --- |
+| no speculation | 54.05 | 53.13 |
+| `draft-mtp`, `p-min 0.95` | 47.75 | 60.91 |
+| `draft-mtp`, `p-min 0.75` | 50.99 | 66.12 |
+| `draft-mtp`, `p-min 0.10` | **54.70** | **66.99** |
+
+The payoff tracks draft acceptance, which is a property of the output shape: 83% on prose
+against 98% on structured output. A high `p-min` is counterproductive because the draft is
+computed before the gate reads it — the threshold only decides whether the work already done
+gets used. Hence `0.1`, where prose is break-even and structured output gains ~26%. Prompt
+processing is unaffected either way (~1000 tok/s on the 8.4k prompt) — speculation is a
+decode-side mechanism.
+
+Sweeping `spec-draft-n-max` at `p-min 0.1`, warm, same prompt: n=1 gives 62.94 t/s decode at 73%
+draft acceptance, n=3 is 62.75 at 54%, n=12 collapses to 24.85 at 19% and n=16 to 22.30 — decode
+degrades monotonically as acceptance falls, so raising `n-max` past 1 is a loss here. Those are
+32-token BURST figures; acceptance decays with generation length and decode tracks it almost
+exactly, so the same build measures 62.6 t/s over 32 generated tokens (93% acceptance), 54.3
+over 128 (73%), and 54.0 over 512 (71%). Quote ~54 t/s for anything that generates a paragraph,
+and never compare a decode number taken over 32 tokens with one taken over 512. `config.toml`
+therefore ships `spec-draft-n-max = 1`.
+
+Do not re-derive any of this by reasoning from file size. Decode on a sparse MoE tracks the
+*active* bytes per token, not the size of the GGUF: switching from a 36.9 GB Q8_0 file to this
+24.85 GB one is a 33% smaller file but only ~11% faster (49.60 → 55.40 tok/s, 400 tokens, short
+prompt), because only 8 of 256 experts are read per token and this tier's active bpw barely
+moves.
