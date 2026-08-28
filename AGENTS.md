@@ -149,10 +149,8 @@ enforcement has not been *shown* is not shipped.
 
 ## Before committing
 
-`python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md`, or `gate run
-docs`. It catches edit damage a reader misses: a sentence that lost its
-tail to a partial revision, an unclosed fence, a term declared absent in one
-section and still required by an acceptance criterion in another.
+`gate` — it detects this project's own tasks from `turbo.json` and runs
+build, typecheck, lint and test, plus `actionlint` over the workflows.
 
 ## Cutting a consumer over
 
