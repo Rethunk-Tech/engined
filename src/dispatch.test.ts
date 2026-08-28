@@ -23,7 +23,9 @@ import {
   clearVerifiedVersion,
   config,
   engine,
+  expectReportedAndResident,
   inspectSinglePort,
+  llamaControlPlane,
   makeTestRoot,
   model,
   portResult,
@@ -475,26 +477,11 @@ function createLlamaDoor(
  * "loaded" -- an already-resident model's 400 "already running" fires before the
  * child is actually able to serve, so it is not the signal `loadAndWait` trusts. */
 function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
-  let lastLoadedModel: string | undefined;
+  const control = llamaControlPlane();
   return (url: string, init?: RequestInit) => {
-    if (url.endsWith("/models/load")) {
-      if (typeof init?.body === "string") {
-        lastLoadedModel = (JSON.parse(init.body) as { model?: string }).model;
-      }
-      return Promise.resolve(Response.json({ success: true }));
-    }
-    if (url.endsWith("/models/unload")) {
-      return Promise.resolve(Response.json({ status: "ok" }));
-    }
-    if (url.endsWith("/v1/models")) {
-      return Promise.resolve(
-        Response.json({
-          data:
-            lastLoadedModel === undefined
-              ? []
-              : [{ id: lastLoadedModel, status: { value: "loaded" } }],
-        }),
-      );
+    const controlled = control(url, init);
+    if (controlled) {
+      return Promise.resolve(controlled);
     }
     if (typeof init?.body === "string") {
       recorded.push({ body: init.body });
@@ -967,14 +954,7 @@ describe("the door: streaming provenance", () => {
       write: (l) => lines.push(l),
     });
     await res.text();
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as {
-      attempts: { model_reported?: string; model_resident?: string }[];
-    };
-    expect(record.attempts).toHaveLength(1);
-    expect(record.attempts[0]?.model_reported).toBe("ornith");
-    expect(record.attempts[0]?.model_resident).toBe("ornith-real");
-    expect(record.attempts[0]?.model_reported).not.toBe(record.attempts[0]?.model_resident);
+    expectReportedAndResident(lines, "ornith", "ornith-real");
   });
 
   test("the caller's stream is byte-identical to what the upstream sent, tee in place", async () => {
@@ -1027,14 +1007,7 @@ describe("the door: provenance model fields", () => {
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
     await res.json();
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as {
-      attempts: { model_reported?: string; model_resident?: string }[];
-    };
-    expect(record.attempts).toHaveLength(1);
-    expect(record.attempts[0]?.model_reported).toBe("ornith");
-    expect(record.attempts[0]?.model_resident).toBe("ornith-real");
-    expect(record.attempts[0]?.model_reported).not.toBe(record.attempts[0]?.model_resident);
+    expectReportedAndResident(lines, "ornith", "ornith-real");
   });
 });
 
@@ -1282,26 +1255,11 @@ function makeSplitHttpClient(
   deadCalls: string[],
   liveCalls: string[],
 ): HttpClient {
-  let lastLoadedModel: string | undefined;
+  const control = llamaControlPlane();
   return (url: string, init?: RequestInit) => {
-    if (url.endsWith("/models/load")) {
-      if (typeof init?.body === "string") {
-        lastLoadedModel = (JSON.parse(init.body) as { model?: string }).model;
-      }
-      return Promise.resolve(Response.json({ success: true }));
-    }
-    if (url.endsWith("/v1/models")) {
-      return Promise.resolve(
-        Response.json({
-          data:
-            lastLoadedModel === undefined
-              ? []
-              : [{ id: lastLoadedModel, status: { value: "loaded" } }],
-        }),
-      );
-    }
-    if (url.endsWith("/models/unload")) {
-      return Promise.resolve(Response.json({ status: "ok" }));
+    const controlled = control(url, init);
+    if (controlled) {
+      return Promise.resolve(controlled);
     }
     const { port } = new URL(url);
     if (port === String(FAILOVER_DEAD_PORT)) {

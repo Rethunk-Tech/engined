@@ -4,7 +4,7 @@
  * Kept to constants and small builders only -- never a mock, never a
  * fixture framework standing in for the real dependency under test.
  */
-import { afterAll } from "bun:test";
+import { afterAll, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -141,5 +141,77 @@ export function buildExec(opts: BuildExecOptions): Exec {
       return Promise.resolve(execPort(argv, opts));
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+}
+
+/** The one provenance line a call emits, parsed. Fails loudly rather than yielding an empty object, so a missing line reads as a missing line. */
+export function soleProvenanceRecord(lines: string[]): {
+  chain: string | null;
+  requested: string;
+  engine_used: string | null;
+  attempts: Array<{
+    engine: string;
+    model: string;
+    ok: boolean;
+    failure?: string;
+    duration_ms: number;
+    model_reported?: string;
+    model_resident?: string;
+    version?: string;
+  }>;
+} {
+  expect(lines).toHaveLength(1);
+  return JSON.parse(lines[0] ?? "");
+}
+
+/**
+ * `model_reported` is what the engine echoed in the body; `model_resident` is
+ * what its own `GET /v1/models` says answered. Asserting they DIFFER is the
+ * point of every caller: equal values would pass a weaker check while proving
+ * nothing about which of the two a field actually came from.
+ */
+export function expectReportedAndResident(
+  lines: string[],
+  reported: string,
+  resident: string,
+): void {
+  const record = soleProvenanceRecord(lines);
+  expect(record.attempts).toHaveLength(1);
+  expect(record.attempts[0]?.model_reported).toBe(reported);
+  expect(record.attempts[0]?.model_resident).toBe(resident);
+  expect(reported).not.toBe(resident);
+}
+
+/**
+ * llama-server's control surface as router mode actually implements it:
+ * `/models/load` accepts, `GET /v1/models` then reports that id as "loaded"
+ * (the signal `loadAndWait` polls for -- an already-resident model's 400
+ * "already running" fires before the child can serve, so it is not trusted),
+ * and `/models/unload` acks.
+ *
+ * Returns undefined for every other path, which is the caller's own upstream
+ * to answer. Each call gets its own closure, so two fakes never share
+ * residency state.
+ */
+export function llamaControlPlane(): (url: string, init?: RequestInit) => Response | undefined {
+  let lastLoadedModel: string | undefined;
+  return (url, init) => {
+    if (url.endsWith("/models/load")) {
+      if (typeof init?.body === "string") {
+        lastLoadedModel = (JSON.parse(init.body) as { model?: string }).model;
+      }
+      return Response.json({ success: true });
+    }
+    if (url.endsWith("/models/unload")) {
+      return Response.json({ status: "ok" });
+    }
+    if (url.endsWith("/v1/models")) {
+      return Response.json({
+        data:
+          lastLoadedModel === undefined
+            ? []
+            : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+      });
+    }
   };
 }
