@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import process from "node:process";
 import { loadConfig, resolveArgs } from "./config.ts";
 import { ParseError } from "./types.ts";
 
@@ -212,6 +213,27 @@ test("tilde in models_dir is expanded to an absolute path", () => {
   // the dir) and the existence check is what should fire, naming an absolute
   // path rather than the literal "~".
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_ABSOLUTE_MODELS_DIR);
+});
+
+test("~/.local/share/ in models_dir resolves through XDG_DATA_HOME, not a bare home expansion", () => {
+  const prior = process.env.XDG_DATA_HOME;
+  process.env.XDG_DATA_HOME = mkdtempSync(join(TEST_ROOT, "engined-xdg-data-"));
+  try {
+    const toml = `
+[[engine]]
+id = "local-llama"
+egress = "none"
+models_dir = "~/.local/share/engined-models/llm"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.engines[0]?.models_dir).toBe(join(process.env.XDG_DATA_HOME, "engined-models/llm"));
+  } finally {
+    if (prior === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prior;
+    }
+  }
 });
 
 test("defaults apply when listen_port/chat_timeout/agent_timeout are absent", () => {

@@ -4,8 +4,8 @@
  * trust is worse than one that refuses to start.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { sep as pathSep, resolve as resolvePath } from "node:path";
-import { configPath, expandTilde } from "./paths.ts";
+import { join, sep as pathSep, resolve as resolvePath } from "node:path";
+import { configPath, dataHome, expandTilde } from "./paths.ts";
 import type { Config, EngineEntry, EngineKind, ModelEntry, Role, SecretRef } from "./types.ts";
 import { assertNoForbiddenFlags, ENGINE_KINDS, isRecord, ParseError } from "./types.ts";
 
@@ -14,6 +14,22 @@ const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
 const ROLES: readonly Role[] = ["chat", "vision", "embedding"];
+
+/**
+ * `~/.local/share/` in a config path means "wherever engined's own data
+ * lives" -- the same base `dataHome()` gives `installDir()` -- not literally
+ * the caller's home directory. Routing that one prefix through `dataHome()`
+ * is what keeps a configured `models_dir` a sibling of `installDir()` even
+ * when `XDG_DATA_HOME` overrides where both live; a bare `expandTilde` never
+ * consults it and drifts to `$HOME/.local/share` regardless. Any other tilde
+ * path is a literal home-directory reference and expands as one.
+ */
+const XDG_DATA_TILDE_PREFIX = "~/.local/share/";
+function expandConfigPath(p: string): string {
+  return p.startsWith(XDG_DATA_TILDE_PREFIX)
+    ? join(dataHome(), p.slice(XDG_DATA_TILDE_PREFIX.length))
+    : expandTilde(p);
+}
 
 /** Closed: a typo'd key here would otherwise silently do nothing. */
 const ENGINE_KEYS = new Set([
@@ -164,7 +180,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
     id,
     egress,
     spec_dir: optional(raw.spec_dir, "string", `${site} "spec_dir"`, file),
-    models_dir: rawModelsDir === undefined ? undefined : expandTilde(rawModelsDir),
+    models_dir: rawModelsDir === undefined ? undefined : expandConfigPath(rawModelsDir),
     models_max: optional(raw.models_max, "number", `${site} "models_max"`, file),
     idle_stop_seconds: optional(
       raw.idle_stop_seconds,
@@ -199,7 +215,7 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
   );
 
   const rawFilename = optional(raw.filename, "string", `${site} "filename"`, file);
-  const filename = rawFilename === undefined ? undefined : expandTilde(rawFilename);
+  const filename = rawFilename === undefined ? undefined : expandConfigPath(rawFilename);
 
   const roleStr = optional(raw.role, "string", `${site} "role"`, file);
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {

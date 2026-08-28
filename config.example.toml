@@ -33,10 +33,12 @@ agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, n
 [[engine]]
 id                = "local-llama"
 egress            = "none"
-# engined expands the tilde; a bind mount needs the absolute path. This tree
-# is a sibling of engined's own install directory, never inside it --
-# install.sh syncs the install directory from the repo, and a sync must
-# never be able to reach real model weights.
+# engined expands the tilde to an absolute path for the bind mount, routing
+# `~/.local/share/` through the same XDG_DATA_HOME-aware base its own install
+# directory uses -- so this tree stays that directory's sibling, never inside
+# it, even when XDG_DATA_HOME overrides where both live. install.sh syncs the
+# install directory from the repo, and a sync must never be able to reach
+# real model weights.
 models_dir        = "~/.local/share/engined-models/llm"
 # One per occupied role (chat, vision, embedding below) -- first-class
 # because occupancy is engined's job, not llama.cpp's, and this is fatal at

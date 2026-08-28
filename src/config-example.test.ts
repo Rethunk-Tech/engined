@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
+import { dataHome } from "./paths.ts";
 
 /**
  * config.example.toml is the only committed, always-parsing reference for
@@ -70,7 +71,11 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // artifact-fetch commands both use it) -- the exact gap the operator's
   // real installed config was found missing before this file existed.
   const whisper = config.engines.find((e) => e.id === "whisper");
-  expect(whisper?.models_dir).toBeDefined();
+  // The rule, not the literal: `~/.local/share/` resolves through the same
+  // XDG_DATA_HOME-aware dataHome() that engined's own install dir uses, so
+  // this stays that directory's sibling under any XDG_DATA_HOME -- it is
+  // never a plain $HOME expansion of the example's tilde text.
+  expect(whisper?.models_dir).toBe(join(dataHome(), "engined-models/whisper"));
 
   // The remote STT engine's whole shape lives in this file -- it has no spec
   // directory to carry any of it. A `kind` lost to an edit would make it an
