@@ -296,18 +296,32 @@ export class DockerLifecycle {
     if (rt.state === "running" || rt.state === "warming") {
       return this.getStatus(id);
     }
-    const image = await this.ensureImageChecked(rt, spec, specSource);
-    if (!image.ok) {
-      return this.fail(id, rt, image.error, image.fix);
-    }
-    const artifacts = await this.ensureArtifactsChecked(rt, spec);
-    if (!artifacts.ok) {
-      return this.fail(id, rt, artifacts.error, artifacts.fix);
+    const checked = await this.checkInstallable(id, rt, spec, specSource);
+    if (!checked.ok) {
+      return checked.status;
     }
     rt.state = "installed";
     rt.fix = undefined;
     rt.lastError = undefined;
     return this.getStatus(id);
+  }
+
+  /** Image then artifacts, in that order: an absent image is the cheaper and more likely fault, and its error names the pull. */
+  private async checkInstallable(
+    id: string,
+    rt: Runtime,
+    spec: ContainerSpec,
+    specSource?: string,
+  ): Promise<{ ok: true; containerPort: number } | { ok: false; status: RuntimeStatus }> {
+    const image = await this.ensureImageChecked(rt, spec, specSource);
+    if (!image.ok) {
+      return { ok: false, status: this.fail(id, rt, image.error, image.fix) };
+    }
+    const artifacts = await this.ensureArtifactsChecked(rt, spec);
+    if (!artifacts.ok) {
+      return { ok: false, status: this.fail(id, rt, artifacts.error, artifacts.fix) };
+    }
+    return { ok: true, containerPort: image.containerPort };
   }
 
   private fail(id: string, rt: Runtime, error: string, fix?: string): RuntimeStatus {
@@ -327,19 +341,15 @@ export class DockerLifecycle {
     rt.fix = undefined;
     rt.lastError = undefined;
 
-    const image = await this.ensureImageChecked(rt, spec, opts.specSource);
-    if (!image.ok) {
-      return this.fail(id, rt, image.error, image.fix);
+    const checked = await this.checkInstallable(id, rt, spec, opts.specSource);
+    if (!checked.ok) {
+      return checked.status;
     }
-    const artifacts = await this.ensureArtifactsChecked(rt, spec);
-    if (!artifacts.ok) {
-      return this.fail(id, rt, artifacts.error, artifacts.fix);
-    }
-    const ran = await this.runContainer(rt.containerName, spec, image.containerPort);
+    const ran = await this.runContainer(rt.containerName, spec, checked.containerPort);
     if (!ran.ok) {
       return this.fail(id, rt, ran.error);
     }
-    const hostPort = await this.readHostPort(rt.containerName, image.containerPort);
+    const hostPort = await this.readHostPort(rt.containerName, checked.containerPort);
     if (hostPort === null) {
       return this.fail(id, rt, `${rt.containerName}: docker port returned no host binding`);
     }

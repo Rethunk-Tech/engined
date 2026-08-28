@@ -811,6 +811,28 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
 }
 
 /**
+ * Both audio endpoints take an engine, never a chain and never a model: the
+ * door has no model concept here. Resolution and that refusal are one step.
+ */
+function resolveAudioEngine(
+  ctx: DoorContext,
+  rawModel: string | undefined,
+  endpoint: string,
+): { ok: true; engineId: string } | { ok: false; response: Response } {
+  const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry);
+  if (!resolved.ok) {
+    return { ok: false, response: jsonError(STATUS_BAD_REQUEST, resolved.error) };
+  }
+  if (resolved.kind === "chain") {
+    return {
+      ok: false,
+      response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
+    };
+  }
+  return { ok: true, engineId: resolved.engine };
+}
+
+/**
  * The audio door's `EngineStart`. A remote engine is resolved to an address
  * and a header instead of started — there is no container to warm — and a
  * secret that will not resolve surfaces as a null `private_url` with no
@@ -836,14 +858,11 @@ async function handleAudioSpeech(
   body: Record<string, unknown>,
 ): Promise<Response> {
   const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const resolved = resolveModel(rawModel, "/v1/audio/speech", ctx.getConfig(), ctx.registry);
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+  const audio = resolveAudioEngine(ctx, rawModel, "/v1/audio/speech");
+  if (!audio.ok) {
+    return audio.response;
   }
-  if (resolved.kind === "chain") {
-    return jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain");
-  }
-  const engineId = resolved.engine;
+  const engineId = audio.engineId;
   const start = audioStart(ctx);
   const speechReq: SpeechRequestBody = {
     model: engineId,
@@ -901,19 +920,11 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
       `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
     );
   }
-  const resolved = resolveModel(
-    form.rawModel ?? undefined,
-    "/v1/audio/transcriptions",
-    ctx.getConfig(),
-    ctx.registry,
-  );
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+  const audio = resolveAudioEngine(ctx, form.rawModel ?? undefined, "/v1/audio/transcriptions");
+  if (!audio.ok) {
+    return audio.response;
   }
-  if (resolved.kind === "chain") {
-    return jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain");
-  }
-  const engineId = resolved.engine;
+  const engineId = audio.engineId;
   const start = audioStart(ctx);
   const transcriptionReq: TranscriptionRequestBody = {
     model: engineId,

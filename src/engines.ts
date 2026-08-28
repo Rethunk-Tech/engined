@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildComfySpec } from "./comfy.ts";
-import { DockerLifecycle, dockerExec, type Probe } from "./docker.ts";
+import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
@@ -27,6 +27,7 @@ import {
   isContainerSpec,
   type LoadedSpec,
   type SecretRef,
+  type Spec,
 } from "./types.ts";
 
 /** Set at build time by the install script; absent in a working-tree run. */
@@ -254,6 +255,26 @@ function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
   }));
 }
 
+/** The reported shape of an engine, whichever way its runtime state was obtained. */
+function statusFrom(
+  engine: EngineEntry,
+  spec: Spec,
+  source: string,
+  runtime: RuntimeStatus,
+): EngineStatus {
+  return {
+    id: engine.id,
+    kind: spec.kind,
+    egress: engine.egress,
+    serves: spec.serves,
+    state: runtime.state,
+    fix: runtime.fix,
+    private_url: runtime.private_url,
+    spec_source: source,
+    last_error: runtime.last_error,
+  };
+}
+
 export class EngineRegistry {
   private readonly exec: Exec;
   private readonly lifecycle: DockerLifecycle;
@@ -397,18 +418,7 @@ export class EngineRegistry {
       };
     }
 
-    const runtime = this.lifecycle.getStatus(engine.id);
-    return {
-      id: engine.id,
-      kind: spec.kind,
-      egress: engine.egress,
-      serves: spec.serves,
-      state: runtime.state,
-      fix: runtime.fix,
-      private_url: runtime.private_url,
-      spec_source: source,
-      last_error: runtime.last_error,
-    };
+    return statusFrom(engine, spec, source, this.lifecycle.getStatus(engine.id));
   }
 
   /**
@@ -468,18 +478,7 @@ export class EngineRegistry {
     }
     const { engine } = entry;
     const { spec, source } = entry.spec;
-    const runtime = await this.lifecycle.probe(engine.id, spec, source);
-    return {
-      id: engine.id,
-      kind: spec.kind,
-      egress: engine.egress,
-      serves: spec.serves,
-      state: runtime.state,
-      fix: runtime.fix,
-      private_url: runtime.private_url,
-      spec_source: source,
-      last_error: runtime.last_error,
-    };
+    return statusFrom(engine, spec, source, await this.lifecycle.probe(engine.id, spec, source));
   }
 
   /**
