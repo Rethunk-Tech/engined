@@ -75,14 +75,16 @@ function specImage(id: string): string | undefined {
 }
 
 const KOKORO_IMAGE = LOCAL ? specImage("kokoro") : undefined;
+const PIPER_IMAGE = LOCAL ? specImage("piper") : undefined;
 const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox") : undefined;
 const WHISPER_IMAGE = LOCAL ? specImage("whisper") : undefined;
 const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
 const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE);
 const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
+const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
 
 // See llama.test.ts: chatterbox's test starts the very container the unit owns.
-if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO) {
+if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO || HAVE_PIPER) {
   requireDaemonStopped();
 }
 
@@ -196,68 +198,84 @@ describe.skipIf(!HAVE_WHISPER)(
 /**
  * Nothing in this tier touched kokoro before this block, and whisper was only
  * ever proved *unavailable* against an empty models_dir -- never transcribing.
- * The two are exercised as a round trip on purpose: kokoro's own words coming
- * back out of whisper is a stronger claim than either engine answering 200,
- * and it needs no committed audio fixture.
+ * Each TTS engine is exercised as a round trip on purpose: its own words
+ * coming back out of whisper is a stronger claim than either engine
+ * answering 200, and it needs no committed audio fixture.
+ *
+ * Run per TTS engine rather than once over a list of them, because the whole
+ * tier is serial against this box's single GPU: piper is the CPU engine and
+ * would otherwise be skipped wholesale whenever kokoro's image is missing.
  */
-describe.skipIf(!(HAVE_KOKORO && HAVE_WHISPER))(
-  describeTitle(
-    "kokoro -> whisper round trip (local)",
-    HAVE_KOKORO && HAVE_WHISPER,
-    "kokoro or whisper is not built",
-  ),
-  () => {
-    const lifecycle = new DockerLifecycle();
+const TTS_ROUND_TRIPS: { id: string; ready: boolean }[] = [
+  { id: "kokoro", ready: HAVE_KOKORO },
+  { id: "piper", ready: HAVE_PIPER },
+];
 
-    function startFor(id: string) {
-      const engine: EngineEntry = { id, egress: "none", args: {}, models_dir: WHISPER_MODELS_DIR };
-      const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
-      if (!isContainerSpec(loaded.spec)) {
-        throw new Error(`${id} spec.toml did not parse as a container spec`);
+for (const tts of TTS_ROUND_TRIPS) {
+  describe.skipIf(!(tts.ready && HAVE_WHISPER))(
+    describeTitle(
+      `${tts.id} -> whisper round trip (local)`,
+      tts.ready && HAVE_WHISPER,
+      `${tts.id} or whisper is not built`,
+    ),
+    () => {
+      const lifecycle = new DockerLifecycle();
+
+      function startFor(id: string) {
+        const engine: EngineEntry = {
+          id,
+          egress: "none",
+          args: {},
+          models_dir: WHISPER_MODELS_DIR,
+        };
+        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+        if (!isContainerSpec(loaded.spec)) {
+          throw new Error(`${id} spec.toml did not parse as a container spec`);
+        }
+        const { spec } = loaded;
+        return async (requested: string) => {
+          const status = await lifecycle.start(requested, spec, {
+            idleStopSeconds: IDLE_STOP_SECONDS,
+            readyTimeoutS: READY_TIMEOUT_S,
+            specSource: loaded.source,
+          });
+          return { private_url: status.private_url };
+        };
       }
-      const { spec } = loaded;
-      return async (requested: string) => {
-        const status = await lifecycle.start(requested, spec, {
-          idleStopSeconds: IDLE_STOP_SECONDS,
-          readyTimeoutS: READY_TIMEOUT_S,
-          specSource: loaded.source,
-        });
-        return { private_url: status.private_url };
-      };
-    }
 
-    afterAll(async () => {
-      await lifecycle.shutdown();
-    });
+      afterAll(async () => {
+        await lifecycle.shutdown();
+      });
 
-    test(
-      "kokoro speaks a phrase and whisper reads that same phrase back",
-      async () => {
-        const spoken = await handleSpeech(
-          { model: "kokoro", input: "The quick brown fox." },
-          startFor("kokoro"),
-        );
-        expect(spoken.status).toBe(200);
-        const wav = spoken.bytes as Uint8Array;
-        // RIFF, not merely non-empty: a door forwarding the engine's raw
-        // NDJSON envelope would also produce bytes.
-        expect(Buffer.from(wav.slice(0, 4)).toString("ascii")).toBe("RIFF");
+      test(
+        `${tts.id} speaks a phrase and whisper reads that same phrase back`,
+        async () => {
+          const spoken = await handleSpeech(
+            { model: tts.id, input: "The quick brown fox." },
+            startFor(tts.id),
+          );
+          expect(spoken.status).toBe(200);
+          const wav = spoken.bytes as Uint8Array;
+          // RIFF, not merely non-empty: a door forwarding the engine's raw
+          // NDJSON envelope would also produce bytes.
+          expect(Buffer.from(wav.slice(0, 4)).toString("ascii")).toBe("RIFF");
 
-        const heard = await handleTranscription(
-          {
-            model: "whisper",
-            file: wav as Uint8Array<ArrayBuffer>,
-            response_format: "text",
-          },
-          startFor("whisper"),
-        );
-        expect(heard.status).toBe(200);
-        // `text` must come back as bare text, not a JSON envelope: a consumer
-        // that asks for text stores this body verbatim as the transcript.
-        expect(typeof heard.body).toBe("string");
-        expect(String(heard.body).toLowerCase()).toContain("quick brown fox");
-      },
-      ROUND_TRIP_TIMEOUT_MS,
-    );
-  },
-);
+          const heard = await handleTranscription(
+            {
+              model: "whisper",
+              file: wav as Uint8Array<ArrayBuffer>,
+              response_format: "text",
+            },
+            startFor("whisper"),
+          );
+          expect(heard.status).toBe(200);
+          // `text` must come back as bare text, not a JSON envelope: a consumer
+          // that asks for text stores this body verbatim as the transcript.
+          expect(typeof heard.body).toBe("string");
+          expect(String(heard.body).toLowerCase()).toContain("quick brown fox");
+        },
+        ROUND_TRIP_TIMEOUT_MS,
+      );
+    },
+  );
+}

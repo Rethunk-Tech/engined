@@ -1,0 +1,24 @@
+kind = "tts"
+image = "engined-piper:local"
+obtain = "build"
+serves = ["/v1/audio/speech"]
+# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+command = []
+# Deliberately empty where chatterbox, kokoro and comfy all carry GPU flags:
+# piper is an ONNX model small enough that onnxruntime's CPU provider answers
+# a sentence in well under a second, and this box has one GPU. A voice that
+# never contends with a resident GGUF is the point of choosing this engine at
+# all, so no devices, no group_add, and no security_opt.
+devices = []
+group_add = []
+security_opt = []
+# The voice is baked into the image at build time -- no [[artifact]] and no
+# model volume, same posture as chatterbox and kokoro.
+
+# app.py's /health is a static {"status": "ok"} that never inspects the loaded
+# voice -- but PiperVoice.load runs at module import, before uvicorn creates
+# its listening socket, so a load failure kills the process before this port
+# ever opens. A connect here cannot happen before the voice is real.
+[ready]
+path = "/health"
+status = 200

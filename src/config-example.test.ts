@@ -26,6 +26,7 @@ const EXPECTED_ENGINE_IDS = [
   "elevenlabs",
   "kokoro",
   "local-llama",
+  "piper",
   "whisper",
 ];
 

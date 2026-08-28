@@ -185,6 +185,15 @@ egress            = "none"
 idle_stop_seconds = 1800
 # Same posture as chatterbox: weights are image-baked, nothing to mount.
 
+# The CPU voice. Same image-baked posture as the two above, and the only
+# engine here that asks for no GPU at all -- which is the reason to pick it
+# over kokoro or chatterbox for a voice channel: it speaks while a 25 GB GGUF
+# stays resident, instead of contending with it.
+[[engine]]
+id                = "piper"
+egress            = "none"
+idle_stop_seconds = 1800
+
 [[engine]]
 id                = "whisper"
 egress            = "none"
