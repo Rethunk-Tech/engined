@@ -8,9 +8,8 @@ One local engine broker for the whole workstation.
 
 ---
 
-`TODO.md` is the scope, one entry per feature, and is authoritative;
-`docs/migrations/` holds one cutover guide per consumer. This file says only
-what the service is.
+`TODO.md` is the scope, one entry per feature, and is authoritative. This
+file says only what the service is.
 
 `config.example.toml` is a worked, committed configuration covering every
 engine this repo ships a spec for. Copy it to
@@ -75,7 +74,7 @@ plausible on a box that runs ROCm containers.
 
 8080 was the earlier choice, on the argument that it is `llama-server`'s
 default and therefore the port a client guesses. That argument did not
-survive contact with the migration guides: **every consumer hardcodes the
+survive contact with the cutovers: **every consumer hardcodes the
 address anyway**, so guessability paid off exactly once — one line of
 paper-trail config that did not need editing — while the cost applied to all
 of them permanently. 8080 is also the most commonly occupied dev port on a

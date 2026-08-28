@@ -2,8 +2,7 @@
 
 `TODO.md` is the authoritative artifact and
 is organised **per feature** — each entry carrying its own description, `Traps`
-and `Acceptance`. `docs/migrations/` holds one
-cutover guide per consumer. `README.md` says only what the service is.
+and `Acceptance`. `README.md` says only what the service is.
 
 The implementation lives in `src/`, Bun and TypeScript, and is built against
 those entries rather than against itself: an acceptance criterion is the test,
@@ -150,8 +149,8 @@ enforcement has not been *shown* is not shipped.
 
 ## Before committing
 
-`python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md
-docs/migrations/*.md`, or `gate run docs`. It catches edit damage a reader misses: a sentence that lost its
+`python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md`, or `gate run
+docs`. It catches edit damage a reader misses: a sentence that lost its
 tail to a partial revision, an unclosed fence, a term declared absent in one
 section and still required by an acceptance criterion in another.
 
@@ -171,13 +170,6 @@ the reason this service exists. Both are cut over, and the rule that governed
 them still governs anything new: a consumer that keeps its own runner has not
 been cut over, only pointed twice. Every consumer is cut over now, so the next
 one to appear is the first place this can go wrong again.
-
-## Editing the migration guides
-
-Each guide describes a real repository that is on disk. Anchors are
-`path:symbol` with a line number as a hint — **grep the symbol**, line numbers
-drift. A claim about a consumer's behaviour is checkable against that consumer's
-source, so check it rather than reasoning from the guide.
 
 ## Three rules that are easy to get wrong
 

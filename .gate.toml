@@ -5,4 +5,4 @@
 # `gate run docs` finds it, but it is not wrapped in `gate` -- the script
 # already exits non-zero with the offending file:line.
 [gates.docs]
-run = "python3 scripts/doc-sweep.py --selftest && python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md docs/migrations/*.md"
+run = "python3 scripts/doc-sweep.py --selftest && python3 scripts/doc-sweep.py TODO.md README.md AGENTS.md"
