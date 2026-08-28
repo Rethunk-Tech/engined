@@ -427,7 +427,8 @@ test("probe: a container already running is left alone, not re-checked or restar
   expect(probed).toEqual(started);
 });
 
-test("idle-stop failure is recorded as last_error, not thrown, and the container stays running", async () => {
+test("idle-stop failure is recorded as last_error, not thrown, the container stays running, and the timer retries a bounded number of times with no new traffic", async () => {
+  const stopCalls: string[][] = [];
   function exec(args: readonly string[]): Promise<ExecResult> {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
@@ -443,6 +444,7 @@ test("idle-stop failure is recorded as last_error, not thrown, and the container
       return Promise.resolve({ stdout: "127.0.0.1:40003", stderr: "", exitCode: 0 });
     }
     if (argv[0] === "stop") {
+      stopCalls.push(argv);
       return Promise.resolve({ stdout: "", stderr: "container is not running", exitCode: 1 });
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
@@ -458,6 +460,21 @@ test("idle-stop failure is recorded as last_error, not thrown, and the container
   const status = lifecycle.getStatus("flaky-stop");
   expect(status.state).toBe("running");
   expect(status.last_error).toBe("container is not running");
+  expect(stopCalls.length).toBe(1);
+
+  // No new traffic arrives: the idle timer alone retries on the same
+  // cadence -- this is the fix. One initial attempt plus 3 retries, then it
+  // stops re-arming itself rather than retrying forever against a wedged
+  // daemon.
+  const RETRY_SETTLE_WAIT_MS = PAST_IDLE_WAIT_MS * 8;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_WAIT_MS));
+  const TOTAL_ATTEMPTS_WITH_RETRIES = 4;
+  expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES);
+
+  // Bounded: waiting again brings no further attempts.
+  await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_WAIT_MS));
+  expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES);
+  expect(lifecycle.getStatus("flaky-stop").state).toBe("running");
 });
 
 test("readiness honours a POST probe and an accept range, not just an exact GET status", async () => {

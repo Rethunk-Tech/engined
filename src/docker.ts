@@ -23,6 +23,8 @@ const MS_PER_SECOND = 1000;
 const READY_POLL_INTERVAL_MS = 250;
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
 const DOCKER_START_FAILURE_EXIT_CODE = 125;
+/** A stuck idle-stop is retried this many times, at the same idle-stop cadence, before it is left to the next real request's `endLease` -- bounded so a persistently wedged daemon does not retry forever. */
+const MAX_IDLE_STOP_RETRIES = 3;
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/;
 const NO_SUCH_CONTAINER = /no such container/i;
 
@@ -186,6 +188,8 @@ interface Runtime {
   startPromise: Promise<RuntimeStatus> | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   artifactCheck: Promise<Result> | null;
+  /** Reset on every fresh `endLease`; counts retries within one continuous idle-stop attempt sequence. */
+  idleStopAttempts: number;
 }
 
 export class DockerLifecycle {
@@ -206,6 +210,7 @@ export class DockerLifecycle {
         startPromise: null,
         idleTimer: null,
         artifactCheck: null,
+        idleStopAttempts: 0,
       };
       this.runtimes.set(id, rt);
     }
@@ -240,11 +245,29 @@ export class DockerLifecycle {
       return;
     }
     this.cancelIdle(rt);
+    rt.idleStopAttempts = 0;
+    this.armIdleStop(rt, idleStopSeconds);
+  }
+
+  /**
+   * A `docker stop` that fails leaves the container running with no traffic
+   * to trigger another attempt, so this re-arms itself on the same cadence
+   * up to `MAX_IDLE_STOP_RETRIES` -- a single hiccup no longer pins the
+   * engine's resources until a fresh request happens to arrive.
+   */
+  private armIdleStop(rt: Runtime, idleStopSeconds: number): void {
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null;
-      this.stopContainer(rt).catch((err: unknown) => {
-        rt.lastError = err instanceof Error ? err.message : String(err);
-      });
+      this.stopContainer(rt)
+        .then((stopped) => {
+          if (!stopped && rt.idleStopAttempts < MAX_IDLE_STOP_RETRIES) {
+            rt.idleStopAttempts++;
+            this.armIdleStop(rt, idleStopSeconds);
+          }
+        })
+        .catch((err: unknown) => {
+          rt.lastError = err instanceof Error ? err.message : String(err);
+        });
     }, idleStopSeconds * MS_PER_SECOND);
   }
 
@@ -533,17 +556,18 @@ export class DockerLifecycle {
     return this.pollReady(hostPort, ready, deadline);
   }
 
-  /** A failed `docker stop` leaves the container's real state (still running) alone and records why. */
-  private async stopContainer(rt: Runtime): Promise<void> {
+  /** A failed `docker stop` leaves the container's real state (still running) alone and records why. Returns whether it actually stopped. */
+  private async stopContainer(rt: Runtime): Promise<boolean> {
     this.cancelIdle(rt);
     const res = await this.exec(["stop", rt.containerName]);
     if (res.exitCode !== 0) {
       rt.lastError = res.stderr.trim() || `docker stop failed for ${rt.containerName}`;
-      return;
+      return false;
     }
     rt.state = "installed";
     rt.hostPort = null;
     rt.lastError = undefined;
+    return true;
   }
 
   /** An engine that has been running is stopped, never left orphaned. */
