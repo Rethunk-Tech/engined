@@ -7,6 +7,7 @@
 import { resolveLocalCandidates } from "./config.ts";
 import type { EngineRegistry } from "./engines.ts";
 import type { Config } from "./types.ts";
+import { MODEL_LESS_KINDS } from "./types.ts";
 
 const QUALIFIED_RE = /^@\/([^/]+)\/([^/]+)$/;
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
@@ -97,9 +98,6 @@ function resolveBareModel(
   }
   return withEndpointCheck(only.engine, only.id, endpoint, registry);
 }
-
-/** Kinds whose door takes no separate model id: agentic-cli picks its own model, tts/stt have none. */
-const MODEL_LESS_KINDS = new Set(["agentic-cli", "tts", "stt"]);
 
 /** An engine id bare, but only for a kind that answers without being told which model. */
 function resolveBareEngine(

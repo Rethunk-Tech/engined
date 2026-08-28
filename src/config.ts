@@ -7,14 +7,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { sep as pathSep, resolve as resolvePath } from "node:path";
 import { configPath, expandTilde } from "./paths.ts";
 import type { Config, EngineEntry, EngineKind, ModelEntry, Role, SecretRef } from "./types.ts";
-import { assertNoForbiddenFlags, isRecord, ParseError } from "./types.ts";
+import { assertNoForbiddenFlags, ENGINE_KINDS, isRecord, ParseError } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
 const ROLES: readonly Role[] = ["chat", "vision", "embedding"];
-const ENGINE_KINDS: readonly EngineKind[] = ["openai-http", "agentic-cli", "tts", "stt", "comfy"];
 
 /** Closed: a typo'd key here would otherwise silently do nothing. */
 const ENGINE_KEYS = new Set([

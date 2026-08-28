@@ -10,6 +10,7 @@ import {
   type AgenticSpec,
   type Artifact,
   assertNoForbiddenFlags,
+  CONTAINER_KINDS,
   type ContainerSpec,
   type EngineEntry,
   isContainerSpec,
@@ -45,8 +46,6 @@ const CONTAINER_ONLY_KEYS = [
 
 /** A spec declares no port: the container side is the image's EXPOSE, the host side is docker's. */
 const PORT_KEYS = new Set(["port", "ports", "expose"]);
-
-const CONTAINER_KINDS = new Set<string>(["openai-http", "tts", "stt", "comfy"]);
 
 export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec {
   const overridden = engine.spec_dir !== undefined;
@@ -187,7 +186,7 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
 }
 
 function parseContainer(raw: Record<string, unknown>, file: string, kind: string): ContainerSpec {
-  if (!CONTAINER_KINDS.has(kind)) {
+  if (!(CONTAINER_KINDS as ReadonlySet<string>).has(kind)) {
     throw new ParseError(`unknown engine kind "${kind}"`, file);
   }
   if (typeof raw.image !== "string") {

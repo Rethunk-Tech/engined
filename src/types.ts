@@ -13,6 +13,48 @@ export type Egress = "none" | "remote";
 export type EngineKind = "openai-http" | "agentic-cli" | "tts" | "stt" | "comfy";
 
 /**
+ * One entry per `EngineKind` member. A literal typed against this shape
+ * cannot omit a kind the union has, or keep one the union no longer has, so
+ * every table below fails to compile the moment `EngineKind` changes until
+ * it is given an explicit answer for the new (or removed) kind.
+ */
+type EngineKindTable<T> = Record<EngineKind, T>;
+
+/** The complete kind list `parseKind` accepts; config.ts's source of truth. */
+const ALL_ENGINE_KINDS: EngineKindTable<true> = {
+  "openai-http": true,
+  "agentic-cli": true,
+  tts: true,
+  stt: true,
+  comfy: true,
+};
+export const ENGINE_KINDS: readonly EngineKind[] = Object.keys(ALL_ENGINE_KINDS) as EngineKind[];
+
+/** Kinds whose spec is the container dialect: every kind except agentic-cli, which runs no container at all. */
+const CONTAINER_KIND_FLAGS: EngineKindTable<boolean> = {
+  "openai-http": true,
+  "agentic-cli": false,
+  tts: true,
+  stt: true,
+  comfy: true,
+};
+export const CONTAINER_KINDS: ReadonlySet<EngineKind> = new Set(
+  (Object.keys(CONTAINER_KIND_FLAGS) as EngineKind[]).filter((k) => CONTAINER_KIND_FLAGS[k]),
+);
+
+/** Kinds whose door takes no separate model id: agentic-cli picks its own model, tts/stt have none. */
+const MODEL_LESS_KIND_FLAGS: EngineKindTable<boolean> = {
+  "openai-http": false,
+  "agentic-cli": true,
+  tts: true,
+  stt: true,
+  comfy: false,
+};
+export const MODEL_LESS_KINDS: ReadonlySet<EngineKind> = new Set(
+  (Object.keys(MODEL_LESS_KIND_FLAGS) as EngineKind[]).filter((k) => MODEL_LESS_KIND_FLAGS[k]),
+);
+
+/**
  * There is no `idle`: idle-stop leaves an engine `installed` with nothing
  * running, which reads identically to one that has never started because
  * operationally it is.
