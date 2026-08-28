@@ -795,7 +795,7 @@ test("a model added by config reload becomes genuinely servable, not just listed
 
 // Concurrent chat + vision decode needs a registered vision [[model]] against
 // a real GGUF, which does not exist in this repo. Do not alias a chat model
-// onto the vision role to make this runnable -- see TODO.md's acceptance
+// onto the vision role to make this runnable -- see the acceptance
 // criteria for this engine; the criterion is skipped, not faked.
 
 /**

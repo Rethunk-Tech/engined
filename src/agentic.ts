@@ -311,7 +311,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
 }
 
 /**
- * The two probes the design names in TODO.md's "Bumping the pin re-proves
+ * The two probes that re-prove the read-only floor whenever the pin moves
  * the guarantee, automatically": a completion instructed to create a file,
  * worktree-hashed before and after, and a planted `UserPromptSubmit` hook
  * checked for silence. Each run costs a real billed call to Anthropic, so

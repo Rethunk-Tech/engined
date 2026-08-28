@@ -7,7 +7,7 @@ import { dataHome } from "./paths.ts";
 
 /**
  * config.example.toml is the only committed, always-parsing reference for
- * how to configure this daemon -- TODO.md's copy is prose scheduled for
+ * how to configure this daemon -- this file is the only copy that is
  * pruning, not a promise it still parses. The real GGUFs it names are tens
  * of gigabytes each and live only on the box that downloaded them, so this
  * swaps local-llama's models_dir for a temp dir carrying empty placeholders

@@ -581,7 +581,7 @@ async function execAgentic(
     if (proof.state !== "installed") {
       // A plain 503, matching resolveRedirect's own secret-resolution
       // failure above: an engine that cannot prove its pin is unavailable,
-      // not a proven envelope failure, so a chain skips it (TODO.md's own
+      // not a proven envelope failure, so a chain skips it (the same
       // rule) rather than treating it as terminal.
       return {
         status: STATUS_UNAVAILABLE,

@@ -256,7 +256,7 @@ status = 200
 `;
 
   /**
-   * TODO.md's own worked config shape: comfy carries a `models_dir` for its
+   * The worked config shape: comfy carries a `models_dir` for its
    * own bind mount, egress "none", and zero `[[model]]` rows -- the exact
    * config `models_dir !== undefined` (dispatch.ts's old rule) treats as a
    * second "local" candidate, making resolution ambiguous even though only
@@ -425,7 +425,7 @@ command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
 env = ["HOME"]
 `;
 
-/** TODO.md's own shape: models_dir for its own bind mount, zero `[[model]]` rows. */
+/** models_dir for its own bind mount, zero `[[model]]` rows. */
 const COMFY_SPEC = `
 kind = "comfy"
 image = "ghcr.io/example/comfy@sha256:bbbb"
@@ -585,7 +585,7 @@ function makeReloadRaceClient(
 
 describe("the door: reload mid in-flight request", () => {
   /**
-   * TODO.md:907: in-flight leases finish against the old engine list.
+   * In-flight leases finish against the old engine list.
    * Reloading used to clear every cached `LlamaRouter` unconditionally
    * (main.ts's old `ctx.llamaRouters.clear()`), so a request that arrived
    * after the reload but while an earlier one was still mid-lease got a
@@ -709,7 +709,7 @@ describe("resolveBunx: the ENGINED_BUNX invariant", () => {
 
 describe("the door: chain timeout follows the hop, not the chain", () => {
   /**
-   * TODO.md:244-246 scopes `chat_timeout_seconds` to "one engine," per
+   * `chat_timeout_seconds` is scoped to "one engine," per
    * attempt. `chatTimeoutMs` used to pick `agent_timeout_seconds` for EVERY
    * hop of ANY chain (`chainName !== null`), even one with no agentic hop
    * anywhere in it -- an all-local-llama chain inherited the long agentic
@@ -785,7 +785,7 @@ function llamaDoorConfig(): { cfg: Config; root: string } {
   return { cfg, root };
 }
 
-/** Same shape as `llamaDoorConfig`, plus TODO.md's comfy engine alongside it -- a second no-egress, models_dir engine with no `[[model]]` naming it. */
+/** Same shape as `llamaDoorConfig`, plus a comfy engine alongside it -- a second no-egress, models_dir engine with no `[[model]]` naming it. */
 function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
   const { cfg, root } = llamaDoorConfig();
   writeEngineSpec(root, "comfy", COMFY_SPEC);
@@ -1088,7 +1088,7 @@ describe("the door: agentic and chain routing", () => {
 
 describe("the door: chain skips an engine that fails its version proof", () => {
   /**
-   * TODO.md:227-229: a chain skips an unavailable engine. An engine that
+   * A chain skips an unavailable engine. An engine that
    * cannot prove its claude_version pin is exactly "unavailable" -- the
    * same 503 the secret-resolution path already produces (main.ts:519-524,
    * plain 503, no `envelopeFailure`) and the chain advances past that one.
@@ -1439,9 +1439,9 @@ describe("the door: extras injects the resident model for the right role", () =>
 
 describe("the door: extras resolution is not confused by a comfy-shaped models_dir engine", () => {
   /**
-   * TODO.md:1095's own case: `POST /tokenize` with no `model` in the body.
+   * `POST /tokenize` with no `model` in the body.
    * A comfy-shaped engine alongside local-llama (models_dir, zero
-   * `[[model]]` rows -- TODO.md's own worked shape) must not turn "local"
+   * `[[model]]` rows -- the worked shape) must not turn "local"
    * ambiguous: extras always resolves "local", so an ambiguous resolution
    * 400s every extras call, not just a chain hop.
    */
@@ -1466,7 +1466,7 @@ describe("the door: extras resolution is not confused by a comfy-shaped models_d
       }),
     );
 
-    // Reachability is the point here (TODO.md:1095): with "local" ambiguous
+    // Reachability is the point here: with "local" ambiguous
     // this 400s before ever calling `extrasClient`. Which resident model (if
     // any) gets injected with nothing warmed yet is the other test's concern.
     expect(res.status).toBe(200);

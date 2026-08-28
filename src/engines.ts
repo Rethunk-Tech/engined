@@ -34,7 +34,7 @@ import {
 /** Set at build time by the install script; absent in a working-tree run. */
 declare const ENGINED_COMMIT: string | undefined;
 
-/** No lifecycle default is stated in TODO.md; chosen here, not in config.ts. */
+/** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
 export const DEFAULT_IDLE_STOP_SECONDS = 900;
 export const DEFAULT_READY_TIMEOUT_S = 60;
 
@@ -67,7 +67,7 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
 /**
  * A remote-address-only engine (`base_url` set) has no spec directory, so its
  * `serves` list cannot come from a spec file. Mirrors the door table in
- * TODO.md `## The OpenAI door` — comfy is never reached this way, so it is
+ * The OpenAI door — comfy is never reached this way, so it is
  * absent from this map's callers rather than mapped to `[]` here.
  */
 const KIND_SERVES: Record<EngineKind, string[]> = {

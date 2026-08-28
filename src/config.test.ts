@@ -92,7 +92,7 @@ const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/;
 const RX_INVALID_TOML = /invalid TOML/;
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 
-// The worked config from TODO.md, with models_dir swapped for a temp dir whose
+// The worked config from config.example.toml, with models_dir swapped for a temp dir whose
 // files are pre-created -- the acceptance-level integration case.
 function workedConfig(): string {
   const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
@@ -191,7 +191,7 @@ chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5"]
 `;
 }
 
-test("the worked config from TODO.md parses clean", () => {
+test("the worked config parses clean", () => {
   const cfg = loadConfig(writeConfig(workedConfig()));
   expect(cfg.engines).toHaveLength(EXPECTED_ENGINE_COUNT);
   expect(cfg.models).toHaveLength(EXPECTED_MODEL_COUNT);

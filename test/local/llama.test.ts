@@ -377,7 +377,7 @@ describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local
       // thinks it swapped".
       expect(await router.residentModelId("chat")).toBe(modelB.id);
 
-      // TODO.md's own rule: the rendered preset file is not proof, the real
+      // The rendered preset file is not proof, the real
       // child's argv is. Re-read after the swap -- a relabelled bookkeeping
       // entry over the same unchanged process would still show the OLD value.
       const argvAfterB = await containerCmdlines();
