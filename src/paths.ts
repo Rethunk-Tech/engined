@@ -12,7 +12,7 @@ function xdg(name: string, fallback: string): string {
   return v !== undefined && v !== "" ? v : join(homedir(), fallback);
 }
 
-export function configHome(): string {
+function configHome(): string {
   return xdg("XDG_CONFIG_HOME", ".config");
 }
 
@@ -20,7 +20,7 @@ export function dataHome(): string {
   return xdg("XDG_DATA_HOME", ".local/share");
 }
 
-export function stateHome(): string {
+function stateHome(): string {
   return xdg("XDG_STATE_HOME", ".local/state");
 }
 

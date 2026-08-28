@@ -108,7 +108,7 @@ function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
  * reload to clear once the operator signs in rather than just recovering
  * on the next `GET /v1/engines`.
  */
-export function defaultSecretResolves(secret: SecretRef): Promise<SecretOutcome> {
+function defaultSecretResolves(secret: SecretRef): Promise<SecretOutcome> {
   return resolveSecret(secret);
 }
 
