@@ -1,0 +1,142 @@
+/**
+ * Fixtures shared by every suite under `src/*.test.ts`: scratch-dir helpers,
+ * object builders, and the exec-fake constants a container-spec test needs.
+ * Kept to constants and small builders only -- never a mock, never a
+ * fixture framework standing in for the real dependency under test.
+ */
+import { afterAll } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Exec, ExecResult } from "./exec.ts";
+import { stateDir } from "./paths.ts";
+import type { Config, EngineEntry, ModelEntry } from "./types.ts";
+
+/** The bunx path every test spec is built against; never resolved from a real PATH. */
+export const BUNX = "/home/x/.bun/bin/bunx";
+
+/** The repo's real `engines/` dir, usable as an `enginesRoot` for a shipped-spec test. */
+export const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
+
+/**
+ * One mkdtemp root for every fixture a suite creates under it, removed once
+ * in `afterAll` instead of each fixture leaking its own top-level temp dir.
+ */
+export function makeTestRoot(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  return root;
+}
+
+export function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
+  return { id: "e", egress: "none", args: {}, ...overrides };
+}
+
+export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
+  return { id: "m", engine: "e", aliases: [], args: {}, ...overrides };
+}
+
+export function config(overrides: Partial<Config> = {}): Config {
+  return {
+    listen_port: 29_200,
+    chat_timeout_seconds: 600,
+    agent_timeout_seconds: 3600,
+    models: [],
+    engines: [],
+    chains: {},
+    ...overrides,
+  };
+}
+
+/** A port nothing listens on: bind an ephemeral one and close it immediately. */
+export function deadPort(): number {
+  const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
+  const { port } = probe;
+  probe.stop(true);
+  if (port === undefined) {
+    throw new Error("Bun.serve did not report a port");
+  }
+  return port;
+}
+
+/** A fresh `<root>/<id>/spec.toml` written with `content`; `root` stays usable as an `enginesRoot`. */
+export function writeEngineSpec(root: string, id: string, content: string): void {
+  const dir = join(root, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "spec.toml"), content);
+}
+
+/** `LlamaRouter`'s default preset path is the real state dir; every test that reaches `ensureStarted()` redirects it here instead. */
+export function tempPresetPath(root: string): string {
+  return join(mkdtempSync(join(root, "engined-preset-")), "preset.ini");
+}
+
+export function collectLines(): { lines: string[]; write: (line: string) => void } {
+  const lines: string[] = [];
+  return { lines, write: (line: string) => lines.push(line) };
+}
+
+/**
+ * The registry's proof gate persists to the real state directory, so a test
+ * that proves an engine must clean up after itself the same way.
+ */
+export function clearVerifiedVersion(id: string): void {
+  rmSync(join(stateDir(), "agentic", id), { recursive: true, force: true });
+}
+
+/** A `docker image inspect` success payload exposing exactly one container port. */
+export function inspectSinglePort(containerPort: number | string): ExecResult {
+  return {
+    stdout: `[{"Config":{"ExposedPorts":{"${containerPort}/tcp":{}}}}]`,
+    stderr: "",
+    exitCode: 0,
+  };
+}
+
+/** A `docker port` success payload: the host port docker bound for the query. */
+export function portResult(hostPort: number | string): ExecResult {
+  return { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
+}
+
+export interface BuildExecOptions {
+  missingImages?: Set<string>;
+  portByContainer?: Record<string, number>;
+  runLog?: string[][];
+}
+
+function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
+  const [, , image] = argv;
+  if (image !== undefined && opts.missingImages?.has(image)) {
+    return { stdout: "", stderr: "", exitCode: 1 };
+  }
+  return inspectSinglePort(80);
+}
+
+function execPort(argv: string[], opts: BuildExecOptions): ExecResult {
+  const [, containerName] = argv;
+  const port = containerName === undefined ? undefined : opts.portByContainer?.[containerName];
+  return port === undefined ? { stdout: "", stderr: "", exitCode: 1 } : portResult(port);
+}
+
+/** One `Exec` shared by every container-spec engine in a test: dispatches on the image tag and the container name. */
+export function buildExec(opts: BuildExecOptions): Exec {
+  return (args): Promise<ExecResult> => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(execImageInspect(argv, opts));
+    }
+    if (argv[0] === "start") {
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+    }
+    if (argv[0] === "run" && argv[1] === "-d") {
+      opts.runLog?.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve(execPort(argv, opts));
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+}

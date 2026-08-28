@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { handleSpeech, handleTranscription } from "./audio.ts";
 import type { Exec as SecretExec } from "./exec.ts";
-import { createDoor } from "./main.ts";
+import { createDoor, type Door } from "./main.ts";
 import { isRemote, remoteUrl, resolveRemote, upstreamPath } from "./remote.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
@@ -270,7 +270,10 @@ function chatRequest(body: unknown): Request {
   });
 }
 
-test("a remote openai-http engine is proxied with its header, its model id, and no door fields", async () => {
+/** Every remote-proxy test stands up the same fake upstream and door, then tears both down; only the request and assertions differ. */
+async function withRemoteDoor(
+  fn: (door: Door, recorded: RecordedChat[]) => Promise<void>,
+): Promise<void> {
   const recorded: RecordedChat[] = [];
   const fake = startFakeOpenAiUpstream(recorded);
   const door = createDoor(
@@ -279,6 +282,15 @@ test("a remote openai-http engine is proxied with its header, its model id, and 
     { secretExec: foundSecret },
   );
   try {
+    await fn(door, recorded);
+  } finally {
+    fake.stop();
+    await door.registry.shutdown();
+  }
+}
+
+test("a remote openai-http engine is proxied with its header, its model id, and no door fields", async () => {
+  await withRemoteDoor(async (door, recorded) => {
     const res = await door.fetch(
       chatRequest({
         model: "upstream-model-7",
@@ -295,21 +307,11 @@ test("a remote openai-http engine is proxied with its header, its model id, and 
     // engined's own door fields are not this provider's request fields.
     expect(recorded[0]?.body).not.toHaveProperty("workdir");
     expect(recorded[0]?.body).not.toHaveProperty("local_only");
-  } finally {
-    fake.stop();
-    await door.registry.shutdown();
-  }
+  });
 });
 
 test("local_only never reaches a remote engine -- the upstream records no request at all", async () => {
-  const recorded: RecordedChat[] = [];
-  const fake = startFakeOpenAiUpstream(recorded);
-  const door = createDoor(
-    remoteChatConfig(fake.base),
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" },
-    { secretExec: foundSecret },
-  );
-  try {
+  await withRemoteDoor(async (door, recorded) => {
     const res = await door.fetch(
       chatRequest({
         model: "chain-private",
@@ -320,8 +322,5 @@ test("local_only never reaches a remote engine -- the upstream records no reques
 
     expect(res.status).not.toBe(200);
     expect(recorded).toHaveLength(0);
-  } finally {
-    fake.stop();
-    await door.registry.shutdown();
-  }
+  });
 });

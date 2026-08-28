@@ -1,15 +1,11 @@
 import { expect, test } from "bun:test";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
+import { collectLines } from "./test-support.ts";
 
 const DURATION_A_MS = 120;
 const DURATION_B_MS = 340;
 const DURATION_C_MS = 15;
 const ATTEMPT_COUNT = 3;
-
-function collectLines(): { lines: string[]; write: (line: string) => void } {
-  const lines: string[] = [];
-  return { lines, write: (line) => lines.push(line) };
-}
 
 test("recordCall: one call with three attempts emits exactly one line carrying all three failure reasons", () => {
   const { lines, write } = collectLines();

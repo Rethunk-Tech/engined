@@ -1,7 +1,6 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
@@ -14,35 +13,38 @@ import {
   bindDualFamily,
   createDoor,
   type Door,
+  type DoorOptions,
   resolveBunx,
   resolveRedirect,
   timeoutSecondsForKind,
 } from "./main.ts";
-import { stateDir } from "./paths.ts";
-import type { Config, EngineEntry, ModelEntry } from "./types.ts";
+import {
+  BUNX,
+  clearVerifiedVersion,
+  config,
+  engine,
+  inspectSinglePort,
+  makeTestRoot,
+  model,
+  portResult,
+  tempPresetPath,
+  writeEngineSpec,
+} from "./test-support.ts";
+import type { Config, EngineEntry } from "./types.ts";
 
-const BUNX = "/home/x/.bun/bin/bunx";
 const CHAT = "/v1/chat/completions";
 const SPEECH = "/v1/audio/speech";
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-dispatch-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
-
-/** Mirrors `engines.test.ts`'s helper: the registry's proof gate persists to
- * the real state directory, so a test that proves an engine must clean up
- * after itself the same way. */
-function clearVerifiedVersion(id: string): void {
-  rmSync(join(stateDir(), "agentic", id), { recursive: true, force: true });
-}
+const TEST_ROOT = makeTestRoot("engined-dispatch-test-");
 
 const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true });
 
-function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return { id: "e", egress: "none", args: {}, ...overrides };
+/** Every door test that posts a chat completion sends the same request shape; only the JSON body differs. */
+function chatRequest(body: unknown): Request {
+  return new Request("http://engined/v1/chat/completions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 function remoteAgentic(id: string): EngineEntry {
@@ -73,22 +75,6 @@ function remoteTts(id: string): EngineEntry {
     base_url: `https://example.com/${id}`,
     secret: { service: id, username: "u", header: "x-api-key" },
   });
-}
-
-function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return { id: "m", engine: "e", aliases: [], args: {}, ...overrides };
-}
-
-function config(overrides: Partial<Config> = {}): Config {
-  return {
-    listen_port: 29_200,
-    chat_timeout_seconds: 600,
-    agent_timeout_seconds: 3600,
-    models: [],
-    engines: [],
-    chains: {},
-    ...overrides,
-  };
 }
 
 /** No engine in these fixtures is a container, so no docker exec is ever invoked. */
@@ -243,8 +229,7 @@ status = 200
 
   test("resolves to the sole no-egress, models_dir engine", () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-dispatch-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), CONTAINER_SPEC);
+    writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
     const cfg = config({
       engines: [engine({ id: "local-llama", egress: "none", models_dir: "/models" })],
       models: [model({ id: "ornith", engine: "local-llama" })],
@@ -279,10 +264,8 @@ status = 200
    */
   test("a comfy-shaped engine that also carries models_dir does not shadow the real local candidate", () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-dispatch-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    mkdirSync(join(root, "comfy"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), CONTAINER_SPEC);
-    writeFileSync(join(root, "comfy", "spec.toml"), COMFY_SPEC);
+    writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
+    writeEngineSpec(root, "comfy", COMFY_SPEC);
     const cfg = config({
       engines: [
         engine({ id: "local-llama", egress: "none", models_dir: "/models" }),
@@ -344,88 +327,69 @@ function rawRequest(
   });
 }
 
+/** Every Origin/Host/dual-bind check binds a real door on an ephemeral port for `fn`'s duration, then tears it down; only the config and the request/assertion differ. */
+async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): Promise<T> {
+  const door = createDoor(cfg, { enginesRoot: "/nonexistent", bunx: BUNX });
+  const bound = startDualBind(door.fetch, cfg.listen_port);
+  try {
+    return await fn(cfg.listen_port);
+  } finally {
+    bound.stop();
+  }
+}
+
 describe("the door: Origin/Host check", () => {
   test("no Origin header is served normally, on a GET", async () => {
     const port = ephemeralPort();
-    const cfg = config({ listen_port: port, engines: [remoteAgentic("claude")] });
-    const door = createDoor(cfg, { enginesRoot: "/nonexistent", bunx: BUNX });
-    const bound = startDualBind(door.fetch, port);
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/models`);
-      expect(res.status).toBe(200);
-    } finally {
-      bound.stop();
-    }
+    await withBoundDoor(
+      config({ listen_port: port, engines: [remoteAgentic("claude")] }),
+      async () => {
+        const res = await fetch(`http://127.0.0.1:${port}/v1/models`);
+        expect(res.status).toBe(200);
+      },
+    );
   });
 
   test("a foreign Origin is refused on a GET", async () => {
     const port = ephemeralPort();
-    const door = createDoor(config({ listen_port: port }), {
-      enginesRoot: "/nonexistent",
-      bunx: BUNX,
-    });
-    const bound = startDualBind(door.fetch, port);
-    try {
+    await withBoundDoor(config({ listen_port: port }), async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/models`, {
         headers: { Origin: "https://evil.example" },
       });
       expect(res.status).toBe(403);
-    } finally {
-      bound.stop();
-    }
+    });
   });
 
   test("Origin: null is refused rather than treated as absent, on a POST", async () => {
     const port = ephemeralPort();
-    const door = createDoor(config({ listen_port: port }), {
-      enginesRoot: "/nonexistent",
-      bunx: BUNX,
-    });
-    const bound = startDualBind(door.fetch, port);
-    try {
+    await withBoundDoor(config({ listen_port: port }), async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
         method: "POST",
         headers: { Origin: "null", "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude" }),
       });
       expect(res.status).toBe(403);
-    } finally {
-      bound.stop();
-    }
+    });
   });
 
   test("a Host outside the loopback set is refused, on a GET", async () => {
     const port = ephemeralPort();
-    const door = createDoor(config({ listen_port: port }), {
-      enginesRoot: "/nonexistent",
-      bunx: BUNX,
-    });
-    const bound = startDualBind(door.fetch, port);
-    try {
+    await withBoundDoor(config({ listen_port: port }), async () => {
       const res = await rawRequest(port, "/v1/models", { Host: `evil.example:${port}` });
       expect(res.status).toBe(403);
-    } finally {
-      bound.stop();
-    }
+    });
   });
 });
 
 describe("the door: dual-family bind", () => {
   test("both 127.0.0.1 and [::1] answer on the same configured port", async () => {
     const port = ephemeralPort();
-    const door = createDoor(config({ listen_port: port }), {
-      enginesRoot: "/nonexistent",
-      bunx: BUNX,
-    });
-    const bound = startDualBind(door.fetch, port);
-    try {
+    await withBoundDoor(config({ listen_port: port }), async () => {
       const v4 = await fetch(`http://127.0.0.1:${port}/v1/models`);
       const v6 = await fetch(`http://[::1]:${port}/v1/models`);
       expect(v4.status).toBe(200);
       expect(v6.status).toBe(200);
-    } finally {
-      bound.stop();
-    }
+    });
   });
 });
 
@@ -510,20 +474,30 @@ function llamaExec(): Exec {
   return (args) => {
     let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
     if (args[0] === "image" && args[1] === "inspect") {
-      result = {
-        stdout: '[{"Config":{"ExposedPorts":{"8080/tcp":{}}}}]',
-        stderr: "",
-        exitCode: 0,
-      };
+      result = inspectSinglePort(8080);
     } else if (args[0] === "port") {
       port += 1;
-      result = { stdout: `127.0.0.1:${port}\n`, stderr: "", exitCode: 0 };
+      result = portResult(port);
     }
     return Promise.resolve(result);
   };
 }
 
 const READY_200: Probe = () => Promise.resolve({ status: 200 });
+
+/** Every llama-routed door test shares this enginesRoot/bunx/probe/preset wiring; only the config, the http client, and the exec fake (a second engine's failover tests supply their own) vary. */
+function createLlamaDoor(
+  cfg: Config,
+  root: string,
+  doorOpts: DoorOptions = {},
+  exec: Exec = llamaExec(),
+): Door {
+  return createDoor(
+    cfg,
+    { enginesRoot: root, bunx: BUNX, exec, probe: READY_200 },
+    { llamaPresetHostPath: tempPresetPath(TEST_ROOT), ...doorOpts },
+  );
+}
 
 /** `/models/load` and `/models/unload` answer immediately; every other call is recorded.
  * Real b10354 contract, probed live: `/models/load` accepts with `{success:true}` and
@@ -598,8 +572,7 @@ describe("the door: reload mid in-flight request", () => {
    */
   test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const modelsDir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
     writeFileSync(join(modelsDir, "x.gguf"), "");
     writeFileSync(join(modelsDir, "y.gguf"), "");
@@ -648,21 +621,13 @@ describe("the door: reload mid in-flight request", () => {
       calls.push("chat:other");
       return Response.json({ id: "r2", choices: [{ message: { content: "other-answer" } }] });
     };
-    const door = createDoor(
-      loadConfig(configFilePath),
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: client,
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: () => undefined,
-      },
-    );
+    const door = createLlamaDoor(loadConfig(configFilePath), root, {
+      llamaHttpClient: client,
+      write: () => undefined,
+    });
 
     const ornithReq = door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     await ornithStartedPromise;
 
@@ -671,10 +636,7 @@ describe("the door: reload mid in-flight request", () => {
     door.reload(configFilePath);
 
     const otherReq = door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "other", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "other", messages: [{ role: "user", content: "hi" }] }),
     );
     // Let the pump run as far as it can while ornith's lease is still held.
     await Promise.resolve();
@@ -769,8 +731,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
    */
   test("a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const UPSTREAM_DELAY_MS = 150;
     const cfg = config({
       chat_timeout_seconds: 0.05,
@@ -808,21 +769,13 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
       });
     };
     const lines: string[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: client,
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: (l) => lines.push(l),
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: client,
+      write: (l) => lines.push(l),
+    });
 
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "chain-x", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "chain-x", messages: [{ role: "user", content: "hi" }] }),
     );
     await res.text();
 
@@ -834,8 +787,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
 
 function llamaDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  mkdirSync(join(root, "local-llama"), { recursive: true });
-  writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
   const cfg = config({
     engines: [
       engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
@@ -848,8 +800,7 @@ function llamaDoorConfig(): { cfg: Config; root: string } {
 /** Same shape as `llamaDoorConfig`, plus TODO.md's comfy engine alongside it -- a second no-egress, models_dir engine with no `[[model]]` naming it. */
 function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
   const { cfg, root } = llamaDoorConfig();
-  mkdirSync(join(root, "comfy"), { recursive: true });
-  writeFileSync(join(root, "comfy", "spec.toml"), COMFY_SPEC);
+  writeEngineSpec(root, "comfy", COMFY_SPEC);
   return {
     cfg: {
       ...cfg,
@@ -864,20 +815,12 @@ describe("the door: content routing", () => {
     const { cfg, root } = llamaDoorConfig();
     const recorded: { body: string }[] = [];
     const lines: string[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeLlamaHttpClient(recorded),
-        write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      write: (l) => lines.push(l),
+    });
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
     expect(body.choices[0]?.message.content).toBe("hi");
@@ -890,24 +833,16 @@ describe("the door: content routing", () => {
   test("workdir is stripped and reasoning_effort passes through to an openai-http hop", async () => {
     const { cfg, root } = llamaDoorConfig();
     const recorded: { body: string }[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeLlamaHttpClient(recorded),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: () => undefined,
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      write: () => undefined,
+    });
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "ornith",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/should/not/reach/llama",
-          reasoning_effort: "high",
-        }),
+      chatRequest({
+        model: "ornith",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/should/not/reach/llama",
+        reasoning_effort: "high",
       }),
     );
     // The response is a lazily-produced stream: reading it to completion is
@@ -929,18 +864,26 @@ describe("the door: content routing", () => {
  * served the request, read fresh per attempt rather than copied from what
  * the chat response echoed.
  */
+/** `/models/load` and `/models/unload` always succeed; `/v1/models` reports whichever id last loaded, "ornith" before the chat call answers and "ornith-real" after -- undefined means the url is the chat call itself, for the caller to answer. */
+function llamaLifecycleResponse(url: string, chatAnswered: boolean): Response | undefined {
+  if (url.endsWith("/models/load")) {
+    return Response.json({ success: true });
+  }
+  if (url.endsWith("/models/unload")) {
+    return Response.json({ status: "ok" });
+  }
+  if (url.endsWith("/v1/models")) {
+    const id = chatAnswered ? "ornith-real" : "ornith";
+    return Response.json({ data: [{ id, status: { value: "loaded" } }] });
+  }
+}
+
 function makeStaleReportedHttpClient(): HttpClient {
   let chatAnswered = false;
   return (url: string) => {
-    if (url.endsWith("/models/load")) {
-      return Promise.resolve(Response.json({ success: true }));
-    }
-    if (url.endsWith("/models/unload")) {
-      return Promise.resolve(Response.json({ status: "ok" }));
-    }
-    if (url.endsWith("/v1/models")) {
-      const id = chatAnswered ? "ornith-real" : "ornith";
-      return Promise.resolve(Response.json({ data: [{ id, status: { value: "loaded" } }] }));
+    const lifecycle = llamaLifecycleResponse(url, chatAnswered);
+    if (lifecycle) {
+      return Promise.resolve(lifecycle);
     }
     chatAnswered = true;
     // The engine echoes the router id it was given back in `model` -- the
@@ -960,15 +903,9 @@ function makeStaleReportedHttpClient(): HttpClient {
 function makeStreamingReportedHttpClient(chunks: string[]): HttpClient {
   let chatAnswered = false;
   return (url: string) => {
-    if (url.endsWith("/models/load")) {
-      return Promise.resolve(Response.json({ success: true }));
-    }
-    if (url.endsWith("/models/unload")) {
-      return Promise.resolve(Response.json({ status: "ok" }));
-    }
-    if (url.endsWith("/v1/models")) {
-      const id = chatAnswered ? "ornith-real" : "ornith";
-      return Promise.resolve(Response.json({ data: [{ id, status: { value: "loaded" } }] }));
+    const lifecycle = llamaLifecycleResponse(url, chatAnswered);
+    if (lifecycle) {
+      return Promise.resolve(lifecycle);
     }
     chatAnswered = true;
     const encoder = new TextEncoder();
@@ -989,8 +926,7 @@ function makeStreamingReportedHttpClient(chunks: string[]): HttpClient {
 /** Two models on one role, same shape as the provenance fixture above, so `model_reported` and `model_resident` are guaranteed to differ. */
 function streamingDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  mkdirSync(join(root, "local-llama"), { recursive: true });
-  writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
   const cfg = config({
     engines: [
       engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
@@ -1017,6 +953,20 @@ const STREAM_REQUEST_BODY = JSON.stringify({
 /** A fresh `LlamaRouter`'s first streaming call always emits this ahead of the real bytes -- see `emitWarming` in llama.ts. Asserted here, not worked around, so the byte-identity check covers it too. */
 const WARMING_COMMENT = ": warming\n\n";
 
+/** Every streaming-provenance test sends the same request through a fresh llama door; only the upstream chunks, the door's `write` sink and the assertion differ. */
+async function fetchStreamChat(
+  cfg: Config,
+  root: string,
+  doorOpts: DoorOptions,
+): Promise<Response> {
+  return createLlamaDoor(cfg, root, doorOpts).fetch(
+    new Request("http://engined/v1/chat/completions", {
+      method: "POST",
+      body: STREAM_REQUEST_BODY,
+    }),
+  );
+}
+
 describe("the door: streaming provenance", () => {
   test("a streaming llama hop records model_reported from the first SSE frame, and it differs from model_resident", async () => {
     const { cfg, root } = streamingDoorConfig();
@@ -1026,21 +976,10 @@ describe("the door: streaming provenance", () => {
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
       "data: [DONE]\n\n",
     ];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
-        write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
-    const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: STREAM_REQUEST_BODY,
-      }),
-    );
+    const res = await fetchStreamChat(cfg, root, {
+      llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+      write: (l) => lines.push(l),
+    });
     await res.text();
     expect(lines).toHaveLength(1);
     const record = JSON.parse(lines[0] ?? "{}") as {
@@ -1059,21 +998,10 @@ describe("the door: streaming provenance", () => {
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
       "data: [DONE]\n\n",
     ];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
-        write: () => undefined,
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
-    const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: STREAM_REQUEST_BODY,
-      }),
-    );
+    const res = await fetchStreamChat(cfg, root, {
+      llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+      write: () => undefined,
+    });
     const body = await res.text();
     expect(body).toBe(WARMING_COMMENT + chunks.join(""));
   });
@@ -1085,21 +1013,10 @@ describe("the door: streaming provenance", () => {
       'data: {"id":"1","choices":[{"delta":{"content":"Hi"}}]}\n\n',
       "data: [DONE]\n\n",
     ];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeStreamingReportedHttpClient(chunks),
-        write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
-    const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: STREAM_REQUEST_BODY,
-      }),
-    );
+    const res = await fetchStreamChat(cfg, root, {
+      llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+      write: (l) => lines.push(l),
+    });
     const body = await res.text();
     expect(body).toBe(WARMING_COMMENT + chunks.join(""));
     expect(lines).toHaveLength(1);
@@ -1113,8 +1030,7 @@ describe("the door: streaming provenance", () => {
 describe("the door: provenance model fields", () => {
   test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const cfg = config({
       engines: [
         engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
@@ -1130,20 +1046,12 @@ describe("the door: provenance model fields", () => {
       ],
     });
     const lines: string[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeStaleReportedHttpClient(),
-        write: (l) => lines.push(l),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeStaleReportedHttpClient(),
+      write: (l) => lines.push(l),
+    });
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
@@ -1162,8 +1070,7 @@ describe("the door: provenance model fields", () => {
 describe("the door: agentic and chain routing", () => {
   test("an agentic attempt without workdir is 400 and the spawn is never invoked", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, "claude"), { recursive: true });
-    writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
+    writeEngineSpec(root, "claude", CLAUDE_SPEC);
     const cfg = config({
       engines: [engine({ id: "claude", egress: "remote", claude_version: "1.2.3" })],
     });
@@ -1179,10 +1086,7 @@ describe("the door: agentic and chain routing", () => {
       { agenticSpawn: fakeSpawn, write: (l) => lines.push(l) },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "claude", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "claude", messages: [{ role: "user", content: "hi" }] }),
     );
     expect(res.status).toBe(400);
     expect(spawnCalls).toHaveLength(0);
@@ -1193,8 +1097,7 @@ describe("the door: agentic and chain routing", () => {
     const id = "claude-unproved";
     clearVerifiedVersion(id);
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, id), { recursive: true });
-    writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    writeEngineSpec(root, id, CLAUDE_SPEC);
     const cfg = config({
       engines: [engine({ id, egress: "remote", claude_version: "9.9.9" })],
     });
@@ -1213,13 +1116,10 @@ describe("the door: agentic and chain routing", () => {
       { agenticSpawn: fakeSpawn, write: () => undefined },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: id,
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp",
-        }),
+      chatRequest({
+        model: id,
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp",
       }),
     );
     // A lone-hop dispatch that fails now advances like any other unavailable
@@ -1247,8 +1147,7 @@ describe("the door: chain skips an engine that fails its version proof", () => {
   test("a chain whose first hop fails its version proof advances to the second hop", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     for (const id of ["claude-unproved", "claude-b"]) {
-      mkdirSync(join(root, id), { recursive: true });
-      writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+      writeEngineSpec(root, id, CLAUDE_SPEC);
     }
     clearVerifiedVersion("claude-unproved");
     clearVerifiedVersion("claude-b");
@@ -1281,13 +1180,10 @@ describe("the door: chain skips an engine that fails its version proof", () => {
       { agenticSpawn: spawn, write: (l) => lines.push(l) },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "chain-x",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp",
-        }),
+      chatRequest({
+        model: "chain-x",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp",
       }),
     );
     expect(res.status).toBe(200);
@@ -1316,8 +1212,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
     const id = "claude-hangs";
     clearVerifiedVersion(id);
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, id), { recursive: true });
-    writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+    writeEngineSpec(root, id, CLAUDE_SPEC);
     const workdir = mkdtempSync(join(TEST_ROOT, "engined-workdir-"));
     const cfg = config({
       // Well under bun's own per-test timeout, so a correct fix resolves
@@ -1337,13 +1232,10 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
     );
 
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: id,
-          messages: [{ role: "user", content: "hi" }],
-          workdir,
-        }),
+      chatRequest({
+        model: id,
+        messages: [{ role: "user", content: "hi" }],
+        workdir,
       }),
     );
     await res.text();
@@ -1360,8 +1252,7 @@ describe("the door: chain routing", () => {
   test("a chain whose first hop's envelope fails is terminal there: the second hop's own spawn log stays empty", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     for (const id of ["claude-a", "claude-b"]) {
-      mkdirSync(join(root, id), { recursive: true });
-      writeFileSync(join(root, id, "spec.toml"), CLAUDE_SPEC);
+      writeEngineSpec(root, id, CLAUDE_SPEC);
     }
     clearVerifiedVersion("claude-a");
     clearVerifiedVersion("claude-b");
@@ -1390,13 +1281,10 @@ describe("the door: chain routing", () => {
       { agenticSpawn: spawn, write: (l) => lines.push(l) },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "chain-x",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp",
-        }),
+      chatRequest({
+        model: "chain-x",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp",
       }),
     );
     expect(res.status).toBe(502);
@@ -1423,15 +1311,11 @@ function twoEngineExec(): Exec {
   return (args) => {
     let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
     if (args[0] === "image" && args[1] === "inspect") {
-      result = {
-        stdout: '[{"Config":{"ExposedPorts":{"8080/tcp":{}}}}]',
-        stderr: "",
-        exitCode: 0,
-      };
+      result = inspectSinglePort(8080);
     } else if (args[0] === "port") {
       const name = args[1] ?? "";
       const hostPort = name.includes("dead") ? FAILOVER_DEAD_PORT : FAILOVER_LIVE_PORT;
-      result = { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
+      result = portResult(hostPort);
     }
     return Promise.resolve(result);
   };
@@ -1482,8 +1366,7 @@ function makeSplitHttpClient(
 function twoEngineDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   for (const id of ["llama-dead", "llama-live"]) {
-    mkdirSync(join(root, id), { recursive: true });
-    writeFileSync(join(root, id, "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, id, LOCAL_LLAMA_SPEC);
   }
   const cfg = config({
     engines: [
@@ -1504,22 +1387,19 @@ describe("the door: a llama hop's real status decides chain advance", () => {
     const { cfg, root } = twoEngineDoorConfig();
     const deadCalls: string[] = [];
     const liveCalls: string[] = [];
-    const door = createDoor(
+    const door = createLlamaDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
+      root,
       {
         llamaHttpClient: makeSplitHttpClient(500, deadCalls, liveCalls),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
+      twoEngineExec(),
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "chain-failover",
-          messages: [{ role: "user", content: "hi" }],
-        }),
+      chatRequest({
+        model: "chain-failover",
+        messages: [{ role: "user", content: "hi" }],
       }),
     );
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
@@ -1533,22 +1413,19 @@ describe("the door: a llama hop's real status decides chain advance", () => {
     const { cfg, root } = twoEngineDoorConfig();
     const deadCalls: string[] = [];
     const liveCalls: string[] = [];
-    const door = createDoor(
+    const door = createLlamaDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX, exec: twoEngineExec(), probe: READY_200 },
+      root,
       {
         llamaHttpClient: makeSplitHttpClient(400, deadCalls, liveCalls),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
       },
+      twoEngineExec(),
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "chain-failover",
-          messages: [{ role: "user", content: "hi" }],
-        }),
+      chatRequest({
+        model: "chain-failover",
+        messages: [{ role: "user", content: "hi" }],
       }),
     );
     await res.text();
@@ -1574,16 +1451,11 @@ describe("the door: extras injects the resident model for the right role", () =>
       extrasCalls.push(typeof init?.body === "string" ? init.body : "");
       return Promise.resolve(Response.json({ ok: true }));
     };
-    const door = createDoor(
-      cfgWithVision,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeLlamaHttpClient(recorded),
-        extrasHttpClient: extrasClient,
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: () => undefined,
-      },
-    );
+    const door = createLlamaDoor(cfgWithVision, root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      extrasHttpClient: extrasClient,
+      write: () => undefined,
+    });
 
     // Warm both roles: chat first, then vision *last* — a door-side "last
     // model proxied to this engine, any role" approximation would report
@@ -1591,18 +1463,12 @@ describe("the door: extras injects the resident model for the right role", () =>
     // the chat role specifically must still report the chat model.
     await (
       await door.fetch(
-        new Request("http://engined/v1/chat/completions", {
-          method: "POST",
-          body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
-        }),
+        chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
       )
     ).text();
     await (
       await door.fetch(
-        new Request("http://engined/v1/chat/completions", {
-          method: "POST",
-          body: JSON.stringify({ model: "vision-a", messages: [{ role: "user", content: "hi" }] }),
-        }),
+        chatRequest({ model: "vision-a", messages: [{ role: "user", content: "hi" }] }),
       )
     ).text();
 
@@ -1635,16 +1501,11 @@ describe("the door: extras resolution is not confused by a comfy-shaped models_d
       extrasCalls.push(typeof init?.body === "string" ? init.body : "");
       return Promise.resolve(Response.json({ tokens: [1, 2, 3] }));
     };
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeLlamaHttpClient(recorded),
-        extrasHttpClient: extrasClient,
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: () => undefined,
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      extrasHttpClient: extrasClient,
+      write: () => undefined,
+    });
 
     const res = await door.fetch(
       new Request("http://engined/tokenize", {
@@ -1695,8 +1556,7 @@ function kimiEngine(): EngineEntry {
 /** The redirected engine has no spec of its own; it reuses the shipped claude directory. */
 function redirectDoorRoot(): string {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  mkdirSync(join(root, "claude"), { recursive: true });
-  writeFileSync(join(root, "claude", "spec.toml"), CLAUDE_SPEC);
+  writeEngineSpec(root, "claude", CLAUDE_SPEC);
   return root;
 }
 
@@ -1733,13 +1593,10 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
       },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "kimi-k3",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp/scratch",
-        }),
+      chatRequest({
+        model: "kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
       }),
     );
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
@@ -1802,13 +1659,10 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
       },
     );
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "kimi-k3",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp/scratch",
-        }),
+      chatRequest({
+        model: "kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
       }),
     );
 
@@ -1840,8 +1694,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
 describe("the door: remote-agentic redirect, missing secret does not take down other engines", () => {
   test("the local engine still serves, and the kimi attempt is reported as a clean 503", async () => {
     const root = redirectDoorRoot();
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const cfg = config({
       engines: [
         kimiEngine(),
@@ -1853,34 +1706,23 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
       ],
     });
     const recorded: { body: string }[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        secretExec: fakeExec(undefined),
-        llamaHttpClient: makeLlamaHttpClient(recorded),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-        write: () => undefined,
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      secretExec: fakeExec(undefined),
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      write: () => undefined,
+    });
 
     const kimiRes = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "kimi-k3",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp/scratch",
-        }),
+      chatRequest({
+        model: "kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
       }),
     );
     expect(kimiRes.status).toBe(503);
 
     const llamaRes = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
-      }),
+      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     expect(llamaRes.status).toBe(200);
   });
@@ -1893,8 +1735,7 @@ describe("the door: a chain hop naming a local model by alias", () => {
   // identical hop works remote and 502s local.
   test("a chain hop written as an alias reaches the model", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    mkdirSync(join(root, "local-llama"), { recursive: true });
-    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const cfg = config({
       engines: [
         engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
@@ -1910,21 +1751,13 @@ describe("the door: a chain hop naming a local model by alias", () => {
       ],
       chains: { "chain-alias": ["@/local-llama/nickname"] },
     });
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
-      {
-        llamaHttpClient: makeStaleReportedHttpClient(),
-        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
-      },
-    );
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeStaleReportedHttpClient(),
+    });
     const res = await door.fetch(
-      new Request("http://engined/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "chain-alias",
-          messages: [{ role: "user", content: "hi" }],
-        }),
+      chatRequest({
+        model: "chain-alias",
+        messages: [{ role: "user", content: "hi" }],
       }),
     );
     expect(res.status).toBe(200);

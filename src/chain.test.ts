@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { type HopExec, type RunChainOptions, runChain } from "./chain.ts";
+import { collectLines, deadPort } from "./test-support.ts";
 import type { Egress } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -42,17 +43,6 @@ function startFakeUpstream(behaviors: Record<string, Behavior>): {
     },
   });
   return { base: `http://127.0.0.1:${server.port}`, requestLog, stop: () => server.stop(true) };
-}
-
-/** A port nothing listens on: bind an ephemeral one and close it immediately. */
-function deadPort(): number {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const { port } = probe;
-  probe.stop(true);
-  if (port === undefined) {
-    throw new Error("Bun.serve did not report a port");
-  }
-  return port;
 }
 
 /**
@@ -101,11 +91,6 @@ function makeExec(bases: Record<string, string>): HopExec {
     }
     return { status: res.status, body: await res.text() };
   };
-}
-
-function collectLines(): { lines: string[]; write: (line: string) => void } {
-  const lines: string[] = [];
-  return { lines, write: (line) => lines.push(line) };
 }
 
 function baseOpts(

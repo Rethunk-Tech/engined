@@ -6,19 +6,14 @@
  * loop against a fault no restart can clear.
  */
 
-import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { makeTestRoot } from "./test-support.ts";
 import { FatalError } from "./types.ts";
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-startup-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-startup-test-");
 
 /** An XDG pair that redirects both `configPath()` and `installDir()` at a scratch tree. */
 function scratchHome(

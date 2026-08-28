@@ -6,23 +6,23 @@
  * reached; a status code alone never is.
  */
 
-import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./exec.ts";
-import { createDoor } from "./main.ts";
+import { createDoor, type Door, type DoorOptions } from "./main.ts";
+import {
+  buildExec,
+  deadPort,
+  makeTestRoot,
+  tempPresetPath as sharedTempPresetPath,
+} from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
 /** Never 29200 — a real daemon may be installed on this box. This is only ever compared against a header, never bound. */
 const TEST_LISTEN_PORT = 39_217;
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-integration-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-integration-test-");
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -63,9 +63,8 @@ function specDirFor(toml: string): string {
   return dir;
 }
 
-/** LlamaRouter's default preset path is the real state dir; every test that reaches ensureStarted() redirects it here instead. */
 function tempPresetPath(): string {
-  return join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini");
+  return sharedTempPresetPath(TEST_ROOT);
 }
 
 const OPENAI_SPEC = `
@@ -218,8 +217,6 @@ test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
 // --- POST /v1/chat/completions, actually proxied: chain failover,
 // local_only truncation, chain exhaustion, and the agentic workdir rule.
 
-const SINGLE_PORT_INSPECT = JSON.stringify([{ Config: { ExposedPorts: { "80/tcp": {} } } }]);
-
 function openaiSpec(image = "test-openai:local"): string {
   return `
 kind = "openai-http"
@@ -248,17 +245,6 @@ status = 200
 `;
 }
 
-/** A port nothing listens on: bind an ephemeral one and close it immediately. */
-function deadPort(): number {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const { port } = probe;
-  probe.stop(true);
-  if (port === undefined) {
-    throw new Error("Bun.serve did not report a port");
-  }
-  return port;
-}
-
 /** A real `Bun.serve` fake engine; `requestLog` is the only thing that proves it was never reached. */
 function startFakeUpstream(fetchImpl: (req: Request) => Response | Promise<Response>): {
   base: string;
@@ -274,49 +260,6 @@ function startFakeUpstream(fetchImpl: (req: Request) => Response | Promise<Respo
     },
   });
   return { base: `127.0.0.1:${server.port}`, requestLog, stop: () => server.stop(true) };
-}
-
-interface BuildExecOptions {
-  missingImages?: Set<string>;
-  portByContainer?: Record<string, number>;
-  runLog?: string[][];
-}
-
-function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
-  const [, , image] = argv;
-  if (image !== undefined && opts.missingImages?.has(image)) {
-    return { stdout: "", stderr: "", exitCode: 1 };
-  }
-  return { stdout: SINGLE_PORT_INSPECT, stderr: "", exitCode: 0 };
-}
-
-function execPort(argv: string[], opts: BuildExecOptions): ExecResult {
-  const [, containerName] = argv;
-  const port = containerName === undefined ? undefined : opts.portByContainer?.[containerName];
-  return port === undefined
-    ? { stdout: "", stderr: "", exitCode: 1 }
-    : { stdout: `127.0.0.1:${port}`, stderr: "", exitCode: 0 };
-}
-
-/** One `Exec` shared by every container-spec engine in a test: dispatches on the image tag and the container name. */
-function buildExec(opts: BuildExecOptions): Exec {
-  return (args): Promise<ExecResult> => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve(execImageInspect(argv, opts));
-    }
-    if (argv[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
-    }
-    if (argv[0] === "run" && argv[1] === "-d") {
-      opts.runLog?.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "port") {
-      return Promise.resolve(execPort(argv, opts));
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
 }
 
 /**
@@ -366,6 +309,29 @@ function fakeLlamaUpstream(
   };
 }
 
+/** Every chat-completions test here stands up a door over the same fake-exec/preset wiring, runs one request, then tears the door and every fake upstream down; only the config, exec, upstream(s), doorOpts and assertion differ. */
+async function withChatDoor(
+  cfgOverrides: Partial<Config>,
+  exec: Exec,
+  stoppables: { stop: () => void }[],
+  fn: (door: Door) => Promise<void>,
+  doorOpts: DoorOptions = {},
+): Promise<void> {
+  const door = createDoor(
+    baseConfig(cfgOverrides),
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { llamaPresetHostPath: tempPresetPath(), ...doorOpts },
+  );
+  try {
+    await fn(door);
+  } finally {
+    for (const stoppable of stoppables) {
+      stoppable.stop();
+    }
+    await door.registry.shutdown();
+  }
+}
+
 test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good"));
   const [, goodPort] = good.base.split(":");
@@ -374,44 +340,40 @@ test("a chain whose first hop is dead completes on the second, and provenance na
   const exec = buildExec({
     portByContainer: { "engined-dead": dead, "engined-good": Number(goodPort) },
   });
-  const config = baseConfig({
-    models: [
-      { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
-      { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
-    ],
-    engines: [
-      // Short readiness timeout: nothing listens on `dead`, so the poll
-      // must give up fast rather than spend the 60s default finding out.
-      containerEngine("dead", openaiSpec(), { ready_timeout_s: 0.1 }),
-      containerEngine("good", openaiSpec()),
-    ],
-    chains: { "chain-x": ["@/dead/m", "@/good/m"] },
-  });
   const lines: string[] = [];
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { write: (line) => lines.push(line), llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [
+        { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
+        { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
+      ],
+      engines: [
+        // Short readiness timeout: nothing listens on `dead`, so the poll
+        // must give up fast rather than spend the 60s default finding out.
+        containerEngine("dead", openaiSpec(), { ready_timeout_s: 0.1 }),
+        containerEngine("good", openaiSpec()),
+      ],
+      chains: { "chain-x": ["@/dead/m", "@/good/m"] },
+    },
+    exec,
+    [good],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: { model: "chain-x", messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      const body = await res.text();
+
+      expect(res.status).toBe(200);
+      expect(body).toContain("answered by good");
+
+      expect(lines).toHaveLength(1);
+      const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+      expect(record.engine_used).toBe("good");
+    },
+    { write: (line) => lines.push(line) },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "chain-x", messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-    const body = await res.text();
-
-    expect(res.status).toBe(200);
-    expect(body).toContain("answered by good");
-
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
-    expect(record.engine_used).toBe("good");
-  } finally {
-    good.stop();
-    await door.registry.shutdown();
-  }
 });
 
 test("a streaming chain whose first hop 5xxs on the actual chat call advances to the second hop, and provenance names the second engine", async () => {
@@ -429,42 +391,37 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
   const exec = buildExec({
     portByContainer: { "engined-dead": Number(deadHostPort), "engined-good": Number(goodPort) },
   });
-  const config = baseConfig({
-    models: [
-      { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
-      { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
-    ],
-    engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
-    chains: { "chain-x": ["@/dead/m", "@/good/m"] },
-  });
   const lines: string[] = [];
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { write: (line) => lines.push(line), llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [
+        { id: "m", engine: "dead", role: "chat", aliases: [], args: {} },
+        { id: "m", engine: "good", role: "chat", aliases: [], args: {} },
+      ],
+      engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
+      chains: { "chain-x": ["@/dead/m", "@/good/m"] },
+    },
+    exec,
+    [dead, good],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: { model: "chain-x", stream: true, messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      const body = await res.text();
+
+      // Streaming stays streaming: the fix defers the 200 until upstream has
+      // actually answered rather than buffering, so status must still be real.
+      expect(res.status).toBe(200);
+      expect(body).toContain("answered by good");
+
+      expect(lines).toHaveLength(1);
+      const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+      expect(record.engine_used).toBe("good");
+    },
+    { write: (line) => lines.push(line) },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "chain-x", stream: true, messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-    const body = await res.text();
-
-    // Streaming stays streaming: the fix defers the 200 until upstream has
-    // actually answered rather than buffering, so status must still be real.
-    expect(res.status).toBe(200);
-    expect(body).toContain("answered by good");
-
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
-    expect(record.engine_used).toBe("good");
-  } finally {
-    dead.stop();
-    good.stop();
-    await door.registry.shutdown();
-  }
 });
 
 // --- The forwarded `model` field: a chain dispatch must rewrite it to the
@@ -478,31 +435,26 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
   const [, goodPort] = good.base.split(":");
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
-  const config = baseConfig({
-    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
-    engines: [containerEngine("good", openaiSpec())],
-    chains: { "chain-private": ["@/good/ornith"] },
-  });
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+      engines: [containerEngine("good", openaiSpec())],
+      chains: { "chain-private": ["@/good/ornith"] },
+    },
+    exec,
+    [good],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: { model: "chain-private", messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(chatBodies).toHaveLength(1);
+      expect(chatBodies[0]?.model).toBe("ornith");
+    },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "chain-private", messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-
-    expect(res.status).toBe(200);
-    expect(chatBodies).toHaveLength(1);
-    expect(chatBodies[0]?.model).toBe("ornith");
-  } finally {
-    good.stop();
-    await door.registry.shutdown();
-  }
 });
 
 test("a streaming chain dispatch to a llama hop also rewrites the forwarded body's model to the resolved model id", async () => {
@@ -511,31 +463,30 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
   const [, goodPort] = good.base.split(":");
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
-  const config = baseConfig({
-    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
-    engines: [containerEngine("good", openaiSpec())],
-    chains: { "chain-private": ["@/good/ornith"] },
-  });
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+      engines: [containerEngine("good", openaiSpec())],
+      chains: { "chain-private": ["@/good/ornith"] },
+    },
+    exec,
+    [good],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: {
+            model: "chain-private",
+            stream: true,
+            messages: [{ role: "user", content: "hi" }],
+          },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(chatBodies).toHaveLength(1);
+      expect(chatBodies[0]?.model).toBe("ornith");
+    },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "chain-private", stream: true, messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-
-    expect(res.status).toBe(200);
-    expect(chatBodies).toHaveLength(1);
-    expect(chatBodies[0]?.model).toBe("ornith");
-  } finally {
-    good.stop();
-    await door.registry.shutdown();
-  }
 });
 
 test("a direct (non-chain) model request still forwards its own model id unchanged", async () => {
@@ -544,30 +495,25 @@ test("a direct (non-chain) model request still forwards its own model id unchang
   const [, goodPort] = good.base.split(":");
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
-  const config = baseConfig({
-    models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
-    engines: [containerEngine("good", openaiSpec())],
-  });
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
+      engines: [containerEngine("good", openaiSpec())],
+    },
+    exec,
+    [good],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: { model: "ornith", messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(chatBodies).toHaveLength(1);
+      expect(chatBodies[0]?.model).toBe("ornith");
+    },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "ornith", messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-
-    expect(res.status).toBe(200);
-    expect(chatBodies).toHaveLength(1);
-    expect(chatBodies[0]?.model).toBe("ornith");
-  } finally {
-    good.stop();
-    await door.registry.shutdown();
-  }
 });
 
 test("local_only: true against a public chain never reaches a remote hop, even when the local hop cannot serve", async () => {
@@ -575,81 +521,72 @@ test("local_only: true against a public chain never reaches a remote hop, even w
   const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
 
   const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
-  const config = baseConfig({
-    models: [
-      { id: "m", engine: "local", role: "chat", aliases: [], args: {} },
-      { id: "m", engine: "remote", role: "chat", aliases: [], args: {} },
-    ],
-    engines: [
-      containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
-      containerEngine("remote", openaiSpec(), { egress: "remote" }),
-    ],
-    chains: { "chain-public": ["@/local/m", "@/remote/m"] },
-  });
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [
+        { id: "m", engine: "local", role: "chat", aliases: [], args: {} },
+        { id: "m", engine: "remote", role: "chat", aliases: [], args: {} },
+      ],
+      engines: [
+        containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
+        containerEngine("remote", openaiSpec(), { egress: "remote" }),
+      ],
+      chains: { "chain-public": ["@/local/m", "@/remote/m"] },
+    },
+    exec,
+    [remote],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: {
+            model: "chain-public",
+            local_only: true,
+            messages: [{ role: "user", content: "hi" }],
+          },
+        }),
+      );
+
+      // Truncation removes the remote hop before it is ever attempted -- the
+      // empty request log is what proves that, not the response shape. The
+      // local hop was never started before this call either: the container
+      // adopt/start-on-demand path, not a stopped container, is what put it in
+      // this state, and the first request starts it (and fails) on its own.
+      // A single unavailable hop is the degenerate one-attempt case of "every
+      // engine in the chain failed" -- 503, never 200 and never left at 501.
+      expect(res.status).toBe(503);
+      expect(remote.requestLog).toEqual([]);
+    },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: {
-          model: "chain-public",
-          local_only: true,
-          messages: [{ role: "user", content: "hi" }],
-        },
-      }),
-    );
-
-    // Truncation removes the remote hop before it is ever attempted -- the
-    // empty request log is what proves that, not the response shape. The
-    // local hop was never started before this call either: the container
-    // adopt/start-on-demand path, not a stopped container, is what put it in
-    // this state, and the first request starts it (and fails) on its own.
-    // A single unavailable hop is the degenerate one-attempt case of "every
-    // engine in the chain failed" -- 503, never 200 and never left at 501.
-    expect(res.status).toBe(503);
-    expect(remote.requestLog).toEqual([]);
-  } finally {
-    remote.stop();
-    await door.registry.shutdown();
-  }
 });
 
 test("every engine in a chain unavailable returns 503 listing each attempt", async () => {
   const exec = buildExec({ missingImages: new Set(["missing-e1:local", "missing-e2:local"]) });
-  const config = baseConfig({
-    models: [
-      { id: "m", engine: "e1", role: "chat", aliases: [], args: {} },
-      { id: "m", engine: "e2", role: "chat", aliases: [], args: {} },
-    ],
-    engines: [
-      containerEngine("e1", openaiSpec("missing-e1:local")),
-      containerEngine("e2", openaiSpec("missing-e2:local")),
-    ],
-    chains: { "chain-z": ["@/e1/m", "@/e2/m"] },
-  });
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { llamaPresetHostPath: tempPresetPath() },
+  await withChatDoor(
+    {
+      models: [
+        { id: "m", engine: "e1", role: "chat", aliases: [], args: {} },
+        { id: "m", engine: "e2", role: "chat", aliases: [], args: {} },
+      ],
+      engines: [
+        containerEngine("e1", openaiSpec("missing-e1:local")),
+        containerEngine("e2", openaiSpec("missing-e2:local")),
+      ],
+      chains: { "chain-z": ["@/e1/m", "@/e2/m"] },
+    },
+    exec,
+    [],
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/v1/chat/completions", {
+          body: { model: "chain-z", messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      const body = (await res.json()) as { attempts: unknown[] };
+
+      expect(res.status).toBe(503);
+      expect(body.attempts).toHaveLength(2);
+    },
   );
-
-  try {
-    const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
-        body: { model: "chain-z", messages: [{ role: "user", content: "hi" }] },
-      }),
-    );
-    const body = (await res.json()) as { attempts: unknown[] };
-
-    expect(res.status).toBe(503);
-    expect(body.attempts).toHaveLength(2);
-  } finally {
-    await door.registry.shutdown();
-  }
 });
 
 test("an agentic attempt with no workdir returns 400", async () => {

@@ -1,31 +1,29 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSpec } from "./spec.ts";
+import {
+  BUNX,
+  engine as baseEngine,
+  ENGINES_ROOT,
+  makeTestRoot,
+  writeEngineSpec,
+} from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 
-const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
-const BUNX = "/home/x/.bun/bin/bunx";
 const RX_HOME_PATH = /\/home\/[^/"]+/;
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-spec-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-spec-test-");
 
+/** Every shipped-spec test in this file resolves against the real `claude` engine unless told otherwise. */
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return { id: "claude", egress: "none", args: {}, ...overrides };
+  return baseEngine({ id: "claude", ...overrides });
 }
 
 /** A fresh `<root>/<id>/spec.toml` written with `content`, root usable as `enginesRoot`. */
 function specDir(id: string, content: string): string {
   const root = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
-  const dir = join(root, id);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "spec.toml"), content);
+  writeEngineSpec(root, id, content);
   return root;
 }
 

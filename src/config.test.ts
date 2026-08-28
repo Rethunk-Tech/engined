@@ -1,17 +1,12 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { loadConfig, resolveArgs } from "./config.ts";
+import { makeTestRoot } from "./test-support.ts";
 import { ParseError } from "./types.ts";
 
-// One temp root for every mkdtempSync fixture below, removed once at the end
-// of the file instead of leaking a fresh top-level dir per call.
-const TEST_ROOT = mkdtempSync(join(tmpdir(), "engined-config-test-"));
-afterAll(() => {
-  rmSync(TEST_ROOT, { recursive: true, force: true });
-});
+const TEST_ROOT = makeTestRoot("engined-config-test-");
 
 function writeConfig(toml: string): string {
   const dir = mkdtempSync(join(TEST_ROOT, "engined-config-"));

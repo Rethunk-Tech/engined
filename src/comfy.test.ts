@@ -1,22 +1,14 @@
 import { expect, test } from "bun:test";
-import { join } from "node:path";
 import { buildComfySpec } from "./comfy.ts";
 import { buildRunArgs } from "./docker.ts";
+import { BUNX, engine as baseEngine, ENGINES_ROOT } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 
-const ENGINES_ROOT = join(import.meta.dir, "..", "engines");
-const BUNX = "/home/x/.bun/bin/bunx";
 const CONTAINER_PORT = 8188;
 const RX_NO_MODELS_DIR = /has no models_dir/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return {
-    id: "comfy",
-    egress: "none",
-    models_dir: "/models-host/comfy",
-    args: {},
-    ...overrides,
-  };
+  return baseEngine({ id: "comfy", models_dir: "/models-host/comfy", ...overrides });
 }
 
 test("the run argv bind-mounts a host path ending in /comfy, never the old named volume, and it is not :ro", () => {
