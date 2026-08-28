@@ -7,7 +7,7 @@
  */
 
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -113,4 +113,14 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
   } finally {
     holder.stop(true);
   }
+});
+
+// The unit's RestartPreventExitStatus and FatalError.EXIT_CODE are one fact
+// split across two files that nothing else compares. Without this, changing
+// the constant leaves every test green while every fatal fault becomes a
+// restart loop -- the exact failure the exit code exists to prevent.
+test("the unit template prevents restart on the same code FatalError exits with", () => {
+  const unit = readFileSync(join(import.meta.dir, "../scripts/engined.service.in"), "utf8");
+  const match = unit.match(/^RestartPreventExitStatus=(\d+)$/m);
+  expect(match?.[1]).toBe(String(FatalError.EXIT_CODE));
 });

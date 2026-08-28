@@ -433,7 +433,12 @@ export function loadConfig(path?: string): Config {
   };
 }
 
-/** Later layers win. Callers order layers so the floor is passed last. */
+/**
+ * Later layers win. Callers order layers so the floor is passed last.
+ * ponytail: a shallow merge, so a nested table replaces wholesale rather than
+ * merging key by key. Correct while [engine.args] and [model.args] stay flat;
+ * deep-merge only once a spec actually nests one.
+ */
 export function resolveArgs(...layers: Record<string, unknown>[]): Record<string, unknown> {
   return Object.assign({}, ...layers);
 }

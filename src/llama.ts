@@ -441,6 +441,10 @@ export class LlamaRouter {
    * `residentModel`'s own bookkeeping, which records what this router last
    * commanded and not what the engine itself reports holding. Provenance's
    * `model_resident`, read per attempt.
+   *
+   * ponytail: costs a round-trip to the engine on every buffered attempt. The
+   * independence from `residentModel` is the point and caching would dissolve
+   * it, so cache only per-request if provenance ever shows up in a profile.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
     const res = await this.httpClient(`${this.baseUrl()}/v1/models`, { method: "GET" });

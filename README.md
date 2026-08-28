@@ -87,6 +87,15 @@ port turns that silent misdirect into `ECONNREFUSED`.
 `listen_port` still overrides it. **The door is the only port engined writes
 down for anything it runs.**
 
+The known holder of 8080 on this box is `Rethunk-AI/bakeoff`, which binds it
+for `llama-swap`. That is the misdirect this port choice avoids, arriving
+from the one repository deliberately exempt from this daemon. It measures
+engine configurations, so routing it through a broker that owns the args
+would measure the broker instead. It builds upstream
+`ghcr.io/ggml-org/llama.cpp:server-vulkan` rather than the Strix Halo fork
+built here, so its numbers describe a different `llama.cpp` than this one
+serves, and it runs under podman, which is not installed here.
+
 ## Reload
 
 `SIGHUP` re-reads `config.toml`; in-flight requests finish against the old

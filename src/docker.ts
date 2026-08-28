@@ -508,7 +508,12 @@ export class DockerLifecycle {
     return res.exitCode === 0 ? parseHostPort(res.stdout) : null;
   }
 
-  /** Recursive rather than looping so a poll-retry never trips an await-in-loop shape. */
+  /**
+   * Recursive rather than looping so a poll-retry never trips an await-in-loop shape.
+   * ponytail: one promise link per 250ms poll, so a 300s ready_timeout_s builds a
+   * 1200-deep chain before it resolves. Rewrite as a loop with an eslint-shaped
+   * exemption if a timeout ever needs to be minutes longer than that.
+   */
   private async pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
     try {
       const res = await this.httpProbe(
