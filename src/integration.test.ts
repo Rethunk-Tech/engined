@@ -119,7 +119,7 @@ function containerEngine(
   };
 }
 
-test("GET /v1/models is a menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
+test("GET /v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
   const config = baseConfig({
     models: [{ id: "ornith", engine: "local", aliases: ["default-chat"], args: {} }],
     engines: [
@@ -133,12 +133,19 @@ test("GET /v1/models is a menu: GGUF ids and aliases, chain names, agentic engin
 
   try {
     const res = await door.fetch(req("GET", "/v1/models"));
-    const body = (await res.json()) as string[];
+    const body = (await res.json()) as { object: string; data: Array<{ id: string }> };
 
-    expect(new Set(body)).toEqual(new Set(["ornith", "default-chat", "claude", "chain-x"]));
-    expect(body).not.toContain("comfy");
-    expect(body).not.toContain("vision");
-    expect(body).not.toContain("embed");
+    // Parsed the way a consumer parses it: a bare array leaves `data`
+    // undefined, which reads as "this engine has no models" rather than as
+    // an error. sagaforge-ts's probeModels is written exactly like this.
+    const ids = (body.data ?? []).map((m) => m.id);
+    expect(body.object).toBe("list");
+    expect(ids).not.toHaveLength(0);
+
+    expect(new Set(ids)).toEqual(new Set(["ornith", "default-chat", "claude", "chain-x"]));
+    expect(ids).not.toContain("comfy");
+    expect(ids).not.toContain("vision");
+    expect(ids).not.toContain("embed");
   } finally {
     await door.registry.shutdown();
   }

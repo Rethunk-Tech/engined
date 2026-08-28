@@ -981,11 +981,34 @@ function routeGet(
   configErr: string | undefined,
 ): Response | Promise<Response> | undefined {
   if (pathname === "/v1/models") {
-    return Response.json(ctx.registry.models());
+    return modelsMenu(ctx.registry.models());
   }
   if (pathname === "/v1/engines") {
     return handleEngines(ctx.registry, configErr);
   }
+}
+
+/**
+ * OpenAI's list envelope, because a bare array does not fail loudly against
+ * a consumer -- it fails silently. Anything parsing the documented shape
+ * reads `body.data`, which on an array is `undefined` and degrades to an
+ * empty model list with no throw and no bad status. Measured against
+ * sagaforge-ts's `probeModels` (packages/daemon/src/engines/probe.ts), which
+ * does `(body.data ?? []).map((m) => m.id)` and so showed no models at all
+ * while every other endpoint worked.
+ *
+ * What this is a menu OF does not change: `data[].id` is exactly the array
+ * this used to answer, aliases, chain names and agentic engine ids included.
+ * Those are dispatchable `model` strings rather than GGUFs, which is why the
+ * per-entry metadata stays minimal -- `created` and `owned_by` are here
+ * because strict clients require the fields, not because they carry meaning.
+ */
+function modelsMenu(ids: readonly string[]): Response {
+  const created = Math.floor(Date.now() / MS_PER_SECOND);
+  return Response.json({
+    object: "list",
+    data: ids.map((id) => ({ id, object: "model", created, owned_by: "engined" })),
+  });
 }
 
 function routePost(
