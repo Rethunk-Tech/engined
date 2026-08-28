@@ -34,7 +34,7 @@ import { recordCall } from "./provenance.ts";
 import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
 import type { Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
-import { type Config, type EngineEntry, type EngineKind, FatalError } from "./types.ts";
+import { type Config, type EngineEntry, type EngineKind, FatalError, isRecord } from "./types.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   "/v1/chat/completions",
@@ -156,10 +156,6 @@ function isExtrasPath(pathname: string): boolean {
   return EXTRAS_EXACT.has(pathname) || SLOTS_ID_RE.test(pathname);
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 /** `chain.ts`'s own hop format, `@/<engine>/<model>`; not exported, so mirrored rather than reached for. */
 const HOP_PREFIX_RE = /^@\//;
 function parseHopSegments(hop: string): { engine: string; model: string } {
@@ -168,7 +164,7 @@ function parseHopSegments(hop: string): { engine: string; model: string } {
 }
 
 const MS_PER_SECOND = 1000;
-/** Matches OpenAI's own convention: 4xx is the caller's fault, so a completed attempt reports it as `ok`. */
+/** A 4xx is the caller's fault rather than the engine's, but the attempt still did not produce output, so it is recorded as a failure. */
 const HTTP_CLIENT_ERROR_MIN = 400;
 
 /** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. */

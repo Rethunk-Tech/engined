@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import process from "node:process";
-import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec, NAME_PREFIX } from "../../src/docker.ts";
 import type { ContainerSpec } from "../../src/types.ts";
 
 /**
@@ -10,7 +10,7 @@ import type { ContainerSpec } from "../../src/types.ts";
  * `engined-local-smoke` and is removed, never left running or merely stopped.
  */
 const ID = "local-smoke";
-const CONTAINER_NAME = `engined-${ID}`;
+const CONTAINER_NAME = `${NAME_PREFIX}${ID}`;
 
 const SPEC: ContainerSpec = {
   kind: "openai-http",

@@ -13,6 +13,7 @@ import {
   type ContainerSpec,
   type EngineEntry,
   isContainerSpec,
+  isRecord,
   type LoadedSpec,
   ParseError,
   type ReadyProbe,
@@ -220,7 +221,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
 }
 
 function parseReady(raw: unknown, file: string): ReadyProbe {
-  if (raw === null || typeof raw !== "object") {
+  if (!isRecord(raw)) {
     throw new ParseError(
       "container spec has no readiness probe: a TCP connect is not readiness",
       file,
@@ -255,7 +256,7 @@ function parseVolumes(raw: unknown, file: string): Volume[] {
     throw new ParseError('"volume" must be an array of [[volume]] tables', file);
   }
   return raw.map((v) => {
-    if (v === null || typeof v !== "object") {
+    if (!isRecord(v)) {
       throw new ParseError("malformed [[volume]] entry", file);
     }
     const o = v as Record<string, unknown>;
@@ -277,7 +278,7 @@ function parseArtifacts(raw: unknown, file: string): Artifact[] {
     throw new ParseError('"artifact" must be an array of [[artifact]] tables', file);
   }
   return raw.map((a) => {
-    if (a === null || typeof a !== "object") {
+    if (!isRecord(a)) {
       throw new ParseError("malformed [[artifact]] entry", file);
     }
     const o = a as Record<string, unknown>;

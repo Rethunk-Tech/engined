@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
-import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec, NAME_PREFIX } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
@@ -104,7 +104,7 @@ function loadFixture(): Fixture {
 }
 
 const FIXTURE = loadFixture();
-const CONTAINER_NAME = `engined-${FIXTURE.engine.id}`;
+const CONTAINER_NAME = `${NAME_PREFIX}${FIXTURE.engine.id}`;
 const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
 const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;

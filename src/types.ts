@@ -281,3 +281,8 @@ export function assertNoForbiddenFlags(argv: readonly string[], file: string): v
     assertNotForbiddenOrFloorDuplicate(bare, file);
   }
 }
+
+/** A TOML table, as distinct from an array or a scalar. Arrays are objects too, which is the trap. */
+export function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}

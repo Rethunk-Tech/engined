@@ -17,7 +17,8 @@ import process from "node:process";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
 import { probeSaysReady } from "./types.ts";
 
-const NAME_PREFIX = "engined-";
+/** Exported so the local tier asserts against the real prefix rather than a hand-built copy. */
+export const NAME_PREFIX = "engined-";
 const MS_PER_SECOND = 1000;
 const READY_POLL_INTERVAL_MS = 250;
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */

@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { sep as pathSep, resolve as resolvePath } from "node:path";
 import { configPath, expandTilde } from "./paths.ts";
 import type { Config, EngineEntry, EngineKind, ModelEntry, Role, SecretRef } from "./types.ts";
-import { assertNoForbiddenFlags, ParseError } from "./types.ts";
+import { assertNoForbiddenFlags, isRecord, ParseError } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
@@ -34,9 +34,6 @@ const ENGINE_KEYS = new Set([
 const MODEL_KEYS = new Set(["id", "engine", "filename", "role", "aliases", "args"]);
 const HOP_RE = /^@\/([^/]+)\/([^/]+)$/;
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
