@@ -189,6 +189,14 @@ interface Entry {
 }
 
 /**
+ * Substituted into the throwaway peek below, never mounted: a spec that reads
+ * `{preset_ini}` is re-resolved by its own builder with the real path, and a
+ * spec that does not read it never sees this. Named rather than inlined so it
+ * is obvious no real path was meant.
+ */
+const PEEK_PRESET_INI = "/unused";
+
+/**
  * Picks the per-engine builder from the loaded spec's own `kind` and the
  * engine's own configuration, never from a hardcoded id — an operator naming
  * the local llama engine something other than "local-llama" must still get
@@ -196,13 +204,6 @@ interface Entry {
  * themselves; the first call here only exists to learn `kind` cheaply,
  * before ever running or proxying anything.
  */
-/**
- * Substituted into the throwaway peek below, never mounted: a spec that reads
- * `{preset_ini}` is re-resolved by its own builder with the real path, and a
- * spec that does not read it never sees this. Named rather than inlined so it
- * is obvious no real path was meant.
- */
-const PEEK_PRESET_INI = "/unused";
 
 function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): LoadedSpec {
   // The peek's own resolved spec is discarded whenever a builder below takes

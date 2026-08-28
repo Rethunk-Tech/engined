@@ -72,7 +72,7 @@ const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
 /** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-/** `ss -ltnp`'s process column: `users:(("name",pid=1234,fd=56))`. */
+/** Origin/Host refusals are 403 and carry no engine detail: the caller failed the door, not an engine. */
 function refuse(message: string): Response {
   return jsonError(STATUS_FORBIDDEN, message);
 }
@@ -123,6 +123,7 @@ async function handleStart(registry: EngineRegistry, id: string): Promise<Respon
   }
 }
 
+/** The llama.cpp routes proxied straight through: always the one local llama engine. */
 const EXTRAS_EXACT = new Set([
   "/tokenize",
   "/detokenize",
@@ -500,16 +501,12 @@ type RedirectResolution =
   | { ok: false; result: HopResult };
 
 /**
- * Resolved per request, never cached — a `--user` unit boots before the
- * login keyring unlocks, and this engine must recover at the operator's
- * next sign-in without a reload. A failure is a 5xx: `runChain` advances
- * past a dead engine rather than failing every consumer of the chain for
- * one unconfigured remote key, and a lone request to just this engine
- * surfaces the fix command directly. The resolved value only ever reaches
- * the child's environment below — never a log line, an error body, or
- * anything this function returns.
- */
-/**
+ * A failed secret is a 5xx: `runChain` advances past a dead engine rather
+ * than failing every consumer of the chain for one unconfigured remote key,
+ * and a lone request to just this engine surfaces the fix command directly.
+ * The resolved value only ever reaches the child's environment below --
+ * never a log line, an error body, or anything this function returns.
+ *
  * `engineEntry.id` doubles as the engine id everywhere here (`config.engines`
  * is keyed on it), so this needs no separate `ctx` — a `DoorContext` would
  * only ever contribute `secretExec`, and taking it directly makes this
@@ -931,7 +928,6 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   return doorResponseToResponse(result);
 }
 
-/** `/tokenize`, `/detokenize`, `/apply-template`, `/slots(/:id)`, `/models/load`, `/models/unload` — always the one local llama engine. */
 /** Tokenize/apply-template/slots are chat tools; asking the router for any other role would inject the wrong model. */
 const EXTRAS_ROLE = "chat";
 

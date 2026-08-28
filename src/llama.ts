@@ -498,8 +498,7 @@ export class LlamaRouter {
    * and loading as the occupancy rule requires), then proxies. A cold wait
    * gets an SSE `: warming` comment ahead of the first real byte, only for a
    * request that is itself streaming -- see `wantsStream`.
-   */
-  /**
+   *
    * Both paths carry the upstream's real status: `runChain` advances on a
    * 5xx and must not advance on a 4xx, and neither rule is reachable if a
    * hop's `Response` is committed before the upstream has actually answered.
@@ -518,12 +517,6 @@ export class LlamaRouter {
       : this.fetchBuffered(role, model.id, path, init);
   }
 
-  /**
-   * Ensures the container, takes this role's lease, runs `fn` against the
-   * live upstream, then releases — the one place a lease's whole lifetime
-   * (start, acquire, release, idle-arm) is written, so the streaming and
-   * buffered proxy paths cannot drift out of sync with each other.
-   */
   /** The acquire half of a lease. Paired with `finishLease`, which every path must call exactly once however it ends. */
   private async beginLease(
     role: Role,
@@ -546,6 +539,12 @@ export class LlamaRouter {
     }
   }
 
+  /**
+   * Ensures the container, takes this role's lease, runs `fn` against the
+   * live upstream, then releases -- the one place a lease's whole lifetime
+   * (start, acquire, release, idle-arm) is written, so the streaming and
+   * buffered proxy paths cannot drift out of sync with each other.
+   */
   private async withLease<T>(
     role: Role,
     modelId: string,
