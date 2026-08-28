@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import logging
+import threading
 
 import numpy as np
 import soundfile as sf
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 pipeline = KPipeline(lang_code="a")
 print(f"Kokoro pipeline resolved device: {pipeline.model.device}")
 SAMPLE_RATE = 24_000
+# One lock per process serializes concurrent TTS on this container. Correct for a single
+# GPU with no multi-lease concept upstream; the lock guards only the blocking pipeline
+# call, not the NDJSON streaming.
+_model_lock = threading.Lock()
 
 # hexgrad/kokoro's own American + British English voice-pack catalog. misaki's G2P doesn't
 # validate the voice id itself, so an unknown one must be rejected here rather than silently
@@ -88,7 +93,8 @@ def synthesize(req: TtsRequest):
             return
         yield json.dumps({"phase": "synthesizing"}) + "\n"
         try:
-            chunks = [audio for _, _, audio in pipeline(req.text, voice=voice)]
+            with _model_lock:
+                chunks = [audio for _, _, audio in pipeline(req.text, voice=voice)]
             wav = (
                 np.asarray(chunks[0])
                 if len(chunks) == 1

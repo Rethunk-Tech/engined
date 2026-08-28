@@ -50,6 +50,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # below defaults it to "en" so an unspecified language keeps today's output.
 model = ChatterboxMultilingualTTS.from_pretrained(device=device)
 DEFAULT_LANGUAGE = "en"
+# One lock per process serializes concurrent TTS on this container. Correct for a single
+# GPU with no multi-lease concept upstream (unlike LlamaRouter's roles); the lock guards only
+# the blocking generate() call, not the NDJSON streaming, so progress lines still flow.
+_model_lock = threading.Lock()
 
 _progress_local = threading.local()
 _SENTINEL = object()
@@ -126,11 +130,12 @@ def synthesize(req: TtsRequest):
             audio_prompt = (
                 req.voice if req.voice and os.path.exists(req.voice) else None
             )
-            wav = model.generate(
-                req.text,
-                req.language or DEFAULT_LANGUAGE,
-                audio_prompt_path=audio_prompt,
-            )
+            with _model_lock:
+                wav = model.generate(
+                    req.text,
+                    req.language or DEFAULT_LANGUAGE,
+                    audio_prompt_path=audio_prompt,
+                )
             buf = io.BytesIO()
             sf.write(buf, wav.squeeze(0).cpu().numpy(), model.sr, format="WAV")
             q.put(

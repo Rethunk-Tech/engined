@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import os
+import threading
 import wave
 
 from fastapi import FastAPI
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 VOICE_PATH = os.environ.get("PIPER_VOICE_PATH", "/app/voices/en_US-lessac-medium.onnx")
 voice = PiperVoice.load(VOICE_PATH)
 print(f"Piper voice loaded: {VOICE_PATH}")
+# One lock per process serializes concurrent TTS on this container. Correct for a single
+# GPU with no multi-lease concept upstream; the lock guards only the blocking synthesis
+# call, not the NDJSON streaming.
+_model_lock = threading.Lock()
 
 
 class TtsRequest(BaseModel):
@@ -54,7 +59,8 @@ def synthesize(req: TtsRequest):
             # synthesize_wav writes a complete RIFF header, so the bytes below are a
             # standalone WAV rather than raw PCM the door would have to describe.
             with wave.open(buf, "wb") as wav_file:
-                voice.synthesize_wav(req.text, wav_file)
+                with _model_lock:
+                    voice.synthesize_wav(req.text, wav_file)
             yield (
                 json.dumps(
                     {
