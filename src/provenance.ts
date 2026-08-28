@@ -28,7 +28,16 @@ export interface CallRecord {
   engine_used: string | null;
 }
 
-/** Picks only the known fields, so a caller that spreads a headers object onto an attempt never leaks it into the line. */
+function writeToStdout(line: string): void {
+  process.stdout.write(`${line}\n`);
+}
+
+/**
+ * Picks only the known fields, so a caller that spreads a headers object onto
+ * an attempt never leaks it into the line. Runtime, not compile-time: a cast
+ * to `Attempt` defeats excess-property checking, and provenance is written to
+ * journald where a leaked bearer token cannot be recalled.
+ */
 function serializeAttempt(attempt: Attempt): Attempt {
   return {
     engine: attempt.engine,
@@ -40,10 +49,6 @@ function serializeAttempt(attempt: Attempt): Attempt {
     model_resident: attempt.model_resident,
     version: attempt.version,
   };
-}
-
-function writeToStdout(line: string): void {
-  process.stdout.write(`${line}\n`);
 }
 
 export function recordCall(
