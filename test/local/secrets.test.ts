@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { resolveSecret, secretExec } from "../../src/secrets.ts";
@@ -6,8 +6,10 @@ import type { SecretRef } from "../../src/types.ts";
 
 /**
  * A real round trip against the real keyring, scoped to a throwaway service
- * name so it can never collide with an operator-stored credential. Stored
- * before the assertions and cleared in `afterAll` regardless of outcome.
+ * name so it can never collide with an operator-stored credential. Seeded
+ * before every test, not once for the file: the missing-entry test deletes
+ * the same entry the resolve test reads, so seeding once would make this
+ * file's result depend on the order its tests happen to run in.
  */
 const REF: SecretRef = {
   service: "engined-test-scratch",
@@ -38,7 +40,7 @@ function storeScratch(value: string): Promise<number> {
 }
 
 describe.skipIf(process.env.ENGINED_LOCAL !== "1")("resolveSecret (local)", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await clearScratch();
     const exitCode = await storeScratch(SCRATCH_VALUE);
     if (exitCode !== 0) {
@@ -62,7 +64,5 @@ describe.skipIf(process.env.ENGINED_LOCAL !== "1")("resolveSecret (local)", () =
     if (!outcome.ok) {
       expect(outcome.reason).toBe("missing");
     }
-    // re-store so a re-run of the suite (or a later test file) starts clean
-    // is unnecessary: afterAll clears it again regardless of order.
   });
 });
