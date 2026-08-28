@@ -278,6 +278,13 @@ secret   = { service = "openai-api", username = "default", header = "authorizati
 id     = "gpt-5.4-mini"
 engine = "openai"
 
+# A second hosted id on the same engine: a consumer that needs vision through
+# this door names it the way it names any other model, and engined resolves
+# the key. Remote models carry no role -- occupancy is a llama concern.
+[[model]]
+id     = "gpt-5.4"
+engine = "openai"
+
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
 # ---------------------------------------------------------------------------

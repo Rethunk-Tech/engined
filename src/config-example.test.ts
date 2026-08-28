@@ -32,7 +32,15 @@ const EXPECTED_ENGINE_IDS = [
   "whisper",
 ];
 
-const EXPECTED_MODEL_IDS = ["embed", "gpt-5.4-mini", "k3", "ornith", "sonnet-5", "vision"];
+const EXPECTED_MODEL_IDS = [
+  "embed",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "k3",
+  "ornith",
+  "sonnet-5",
+  "vision",
+];
 
 /** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
 function placeExampleModels(modelsDir: string): void {
