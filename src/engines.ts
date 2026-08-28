@@ -246,6 +246,7 @@ function statusFrom(
     private_url: runtime.private_url,
     spec_source: source,
     last_error: runtime.last_error,
+    active_leases: runtime.active_leases,
   };
 }
 

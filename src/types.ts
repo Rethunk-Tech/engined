@@ -224,6 +224,13 @@ export interface EngineStatus {
   private_url: string | null;
   spec_source: string;
   last_error?: string;
+  /**
+   * Requests holding this engine open right now. The audio engines serialize
+   * every request on one process-wide lock inside the container, so a second
+   * caller waits with nothing else reporting that it is waiting; this is how
+   * concurrent demand on them is visible at all.
+   */
+  active_leases?: number;
 }
 
 export interface EnginesResponse {

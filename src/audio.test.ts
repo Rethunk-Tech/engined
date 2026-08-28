@@ -295,3 +295,30 @@ test("image present but the model artifact absent: unavailable naming the artifa
   expect(status.state).toBe("unavailable");
   expect(status.fix).toBe(spec.artifacts[0]?.obtain);
 });
+
+test("a second audio caller is visible as a lease while the first is still in flight", async () => {
+  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 }, (argv) => {
+    if (argv[0] === "start") {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+    if (argv[0] === "port") {
+      return { stdout: "127.0.0.1:41000", stderr: "", exitCode: 0 };
+    }
+  });
+  const lifecycle = makeLifecycle(exec);
+  await lifecycle.start("chatterbox", loadSpecFor("chatterbox"), {
+    idleStopSeconds: 60,
+    readyTimeoutS: 1,
+  });
+
+  // The engine apps serialize synthesis on one process-wide lock, so a second
+  // caller simply waits. Without the lease count nothing outside the container
+  // reports that it is waiting at all.
+  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(0);
+  lifecycle.beginLease("chatterbox");
+  lifecycle.beginLease("chatterbox");
+  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(2);
+
+  lifecycle.endLease("chatterbox", 60);
+  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(1);
+});

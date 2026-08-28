@@ -148,6 +148,8 @@ export interface RuntimeStatus {
   private_url: string | null;
   fix?: string;
   last_error?: string;
+  /** Requests holding this engine open right now. Absent unless it is running. */
+  active_leases?: number;
 }
 
 type Result<T = unknown> = ({ ok: true } & T) | { ok: false; fix?: string; error: string };
@@ -209,6 +211,7 @@ export class DockerLifecycle {
         rt.state === "running" && rt.hostPort !== null ? `127.0.0.1:${rt.hostPort}` : null,
       fix: rt.fix,
       last_error: rt.lastError,
+      active_leases: rt.state === "running" ? rt.activeLeases : undefined,
     };
   }
 
