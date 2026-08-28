@@ -448,7 +448,11 @@ base_url = "https://api.anthropic.com"
     const path = join(dir, "config.toml");
     writeFileSync(path, GOOD_CONFIG);
 
-    const door = createDoor(loadConfig(path), { enginesRoot: "/nonexistent", bunx: BUNX });
+    const door = createDoor(loadConfig(path), {
+      enginesRoot: "/nonexistent",
+      bunx: BUNX,
+      secretResolves: fakeSecretResolves("reload-secret"),
+    });
     const before = (await (await door.fetch(new Request("http://engined/v1/engines"))).json()) as {
       engines: { id: string }[];
     };
@@ -1674,6 +1678,17 @@ describe("the door: extras resolution is not confused by a comfy-shaped models_d
   });
 });
 
+/**
+ * The registry runs its own availability probe, resolving each engine's secret
+ * separately from the door's dispatch path -- so faking `secretExec` alone
+ * still reaches the real `secret-tool`: absent on a CI runner, and on an
+ * operator's box liable to resolve a live credential and pass for the wrong
+ * reason.
+ */
+function fakeSecretResolves(value: string) {
+  return () => Promise.resolve({ ok: true as const, value });
+}
+
 function fakeSecretExec(value: string | undefined): SecretExec {
   return (args) => {
     if (args[0] === "lookup" && value !== undefined) {
@@ -1721,7 +1736,12 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
     };
     const door = createDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      {
+        enginesRoot: root,
+        bunx: BUNX,
+        agenticProbeRunner: PASSING_PROBE,
+        secretResolves: fakeSecretResolves("kimi-secret-value"),
+      },
       {
         agenticSpawn: spawn,
         secretExec: fakeSecretExec("kimi-secret-value"),
@@ -1787,7 +1807,11 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
     // and nothing can prove it, so the gate must refuse rather than serve.
     const door = createDoor(
       cfg,
-      { enginesRoot: root, bunx: BUNX },
+      {
+        enginesRoot: root,
+        bunx: BUNX,
+        secretResolves: fakeSecretResolves("kimi-secret-value"),
+      },
       {
         agenticSpawn: spawn,
         secretExec: fakeSecretExec("kimi-secret-value"),
