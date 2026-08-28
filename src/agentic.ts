@@ -31,7 +31,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { STATUS_BAD_GATEWAY, STATUS_OK } from "./http.ts";
 import { stateDir } from "./paths.ts";
-import { AGENTIC_FLOOR, type EngineEntry } from "./types.ts";
+import { AGENTIC_FLOOR, argvFromArgs, type EngineEntry } from "./types.ts";
 
 /**
  * Not part of the safety floor — needed only so stdout is the JSON
@@ -162,21 +162,6 @@ export function defaultAgenticSpawn(
   });
 }
 
-/** `--<key>` for every entry; `true` is a bare flag, `false`/`null`/`undefined` is omitted, anything else takes the stringified value. */
-function flattenArgs(args: Record<string, unknown>): string[] {
-  const out: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
-    if (value === false || value === undefined || value === null) {
-      continue;
-    }
-    out.push(`--${key}`);
-    if (value !== true) {
-      out.push(String(value));
-    }
-  }
-  return out;
-}
-
 export interface BuildArgvInput {
   /** The absolute path the install script resolved — never a bare `bunx`, never a path this module guesses. */
   bunx: string;
@@ -197,7 +182,7 @@ export function buildArgv(input: BuildArgvInput): string[] {
     ...OUTPUT_FORMAT_FLAGS,
     ...AGENTIC_FLOOR,
     input.mcpConfigPath,
-    ...flattenArgs(input.args),
+    ...argvFromArgs(input.args),
   ];
 }
 

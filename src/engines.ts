@@ -8,12 +8,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
-import { argvFromArgs, buildLlamaSpec, renderPresetIni } from "./llama.ts";
+import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   type AgenticSpec,
+  argvFromArgs,
   CONTRACT,
   type Config,
   type ContainerSpec,

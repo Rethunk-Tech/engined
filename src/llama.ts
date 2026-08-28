@@ -37,18 +37,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Mirrors config.ts's private renderer: an engine's own process flags, not a model's INI content. */
-export function argvFromArgs(args: Record<string, unknown>): string[] {
-  const argv: string[] = [];
-  for (const [k, v] of Object.entries(args)) {
-    argv.push(`--${k}`);
-    if (v !== true) {
-      argv.push(String(v));
-    }
-  }
-  return argv;
-}
-
 function iniLines(args: Record<string, unknown>): string[] {
   return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`);
 }

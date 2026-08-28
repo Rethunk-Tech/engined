@@ -6,10 +6,9 @@
  * model store. A docker-managed named volume would start Comfy against an
  * empty store instead of the operator's real models.
  */
-import { argvFromArgs } from "./llama.ts";
 import { loadSpec } from "./spec.ts";
 import type { ContainerSpec, EngineEntry } from "./types.ts";
-import { isContainerSpec } from "./types.ts";
+import { argvFromArgs, isContainerSpec } from "./types.ts";
 
 const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
 

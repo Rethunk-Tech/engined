@@ -328,3 +328,32 @@ export function assertNoForbiddenFlags(argv: readonly string[], file: string): v
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+
+/**
+ * The one way an args table becomes argv: `--key` for every entry, a bare flag
+ * when the value is `true`, the stringified value otherwise, and nothing at all
+ * when the value is `false`, `null` or `undefined` — a flag turned off is a flag
+ * not passed, never `--key false`.
+ */
+export function argvFromArgs(args: Record<string, unknown>): string[] {
+  const argv: string[] = [];
+  for (const [key, value] of Object.entries(args)) {
+    if (value === false || value === null || value === undefined) {
+      continue;
+    }
+    argv.push(`--${key}`);
+    if (value !== true) {
+      argv.push(String(value));
+    }
+  }
+  return argv;
+}
+
+/**
+ * Every key an args table declares, rendered as a flag regardless of its value.
+ * The read-only floor is checked by KEY, so a flag written `= false` must still
+ * be seen here — it is the value the floor refuses to let a config decide.
+ */
+export function argKeysAsFlags(args: Record<string, unknown>): string[] {
+  return Object.keys(args).map((key) => `--${key}`);
+}

@@ -7,7 +7,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, sep as pathSep, resolve as resolvePath } from "node:path";
 import { configPath, dataHome, expandTilde } from "./paths.ts";
 import type { Config, EngineEntry, EngineKind, ModelEntry, Role, SecretRef } from "./types.ts";
-import { assertNoForbiddenFlags, ENGINE_KINDS, isRecord, ParseError } from "./types.ts";
+import {
+  argKeysAsFlags,
+  assertNoForbiddenFlags,
+  ENGINE_KINDS,
+  isRecord,
+  ParseError,
+} from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
@@ -104,18 +110,6 @@ function asArgs(v: unknown, site: string, file: string): Record<string, unknown>
   return v;
 }
 
-/** Close enough to how an args table renders to argv to catch a forbidden flag by key. */
-function argsToArgv(args: Record<string, unknown>): string[] {
-  const argv: string[] = [];
-  for (const [k, v] of Object.entries(args)) {
-    argv.push(`--${k}`);
-    if (v !== true) {
-      argv.push(String(v));
-    }
-  }
-  return argv;
-}
-
 function parseSecret(v: unknown, site: string, file: string): SecretRef {
   if (!isRecord(v)) {
     throw new ParseError(`${site} "secret" must be a table`, file);
@@ -175,7 +169,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
   const rawModelsDir = optional(raw.models_dir, "string", `${site} "models_dir"`, file);
   const claudeVersion = optional(raw.claude_version, "string", `${site} "claude_version"`, file);
   const args = asArgs(raw.args, site, file);
-  assertNoForbiddenFlags(argsToArgv(args), file);
+  assertNoForbiddenFlags(argKeysAsFlags(args), file);
   return {
     id,
     egress,
@@ -223,7 +217,7 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
   }
 
   const args = asArgs(raw.args, site, file);
-  assertNoForbiddenFlags(argsToArgv(args), file);
+  assertNoForbiddenFlags(argKeysAsFlags(args), file);
 
   return { id, engine, filename, role: roleStr as Role | undefined, aliases, args };
 }

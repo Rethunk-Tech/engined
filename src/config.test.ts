@@ -575,3 +575,25 @@ describe("a scalar where an array of tables belongs", () => {
     expect(cfg.engines.length).toBeGreaterThan(0);
   });
 });
+
+const RX_FLOOR_REFUSAL = /dangerously-skip-permissions/;
+
+describe("the read-only floor is checked by key, not by rendered value", () => {
+  // A forbidden flag is refused because the config may not decide it at all.
+  // Writing it `= false` is still the config deciding it, so it stays fatal
+  // even though a false-valued arg renders to no argv token at run time.
+  test("a forbidden flag written false is still fatal at parse", () => {
+    const toml = [
+      "listen_port = 39218",
+      "",
+      "[[engine]]",
+      'id     = "claude"',
+      'egress = "remote"',
+      'kind   = "agentic-cli"',
+      "",
+      "[engine.args]",
+      '"dangerously-skip-permissions" = false',
+    ].join("\n");
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FLOOR_REFUSAL);
+  });
+});
