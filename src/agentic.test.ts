@@ -109,13 +109,6 @@ claude_version = "1.2.3"
   expect(() => loadConfig(configPath)).toThrow(RX_TOOLS_FLAG);
 });
 
-/** Command[0] is the given bunx path, and the pin appears literally rather than latest -- the shape every launch's argv must hold, whether built directly by buildArgv or observed on a spawned call. */
-function assertPinnedArgv(argv: readonly string[]): void {
-  expect(argv[0]).toBe(BUNX);
-  expect(argv.some((token) => token.includes(PIN))).toBe(true);
-  expect(argv.some((token) => token.includes("latest"))).toBe(false);
-}
-
 test("buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest", () => {
   const argv = buildArgv({
     bunx: BUNX,
@@ -124,7 +117,9 @@ test("buildArgv: command[0] is the given bunx path, and the pin appears literall
     mcpConfigPath: MCP_CONFIG_PATH,
   });
 
-  assertPinnedArgv(argv);
+  expect(argv[0]).toBe(BUNX);
+  expect(argv.some((token) => token.includes(PIN))).toBe(true);
+  expect(argv.some((token) => token.includes("latest"))).toBe(false);
 });
 
 test("buildArgv: --strict-mcp-config is followed literally by the rendered config path, not left bare", () => {
@@ -245,16 +240,6 @@ function runAgenticFixture(
   });
 }
 
-/** Both the absent- and empty-workdir tests assert the same 400-and-never-spawns shape; only the workdir value differs. */
-async function expectWorkdirRejected(workdir: string | undefined): Promise<void> {
-  const { spawn, calls } = fakeSpawn({ stdout: "{}", stderr: "", exitCode: 0 });
-
-  const result = await runAgenticFixture(spawn, { workdir });
-
-  expect(result.status).toBe(400);
-  expect(calls.length).toBe(0);
-}
-
 test("runAgentic: stderr is captured but never appears anywhere in the returned result", async () => {
   const stderrText = "warning: some noisy diagnostic the operator does not need in the answer";
   const { spawn } = fakeSpawn({
@@ -274,9 +259,17 @@ test("runAgentic: stderr is captured but never appears anywhere in the returned 
   expect(result.result).toBe("the answer");
 });
 
-test("runAgentic: workdir absent is 400 and never spawns", () => expectWorkdirRejected(undefined));
+test.each([
+  ["absent", undefined],
+  ["empty", ""],
+])("runAgentic: workdir %s is 400 and never spawns", async (_label, workdir) => {
+  const { spawn, calls } = fakeSpawn({ stdout: "{}", stderr: "", exitCode: 0 });
 
-test("runAgentic: workdir empty is 400 and never spawns", () => expectWorkdirRejected(""));
+  const result = await runAgenticFixture(spawn, { workdir });
+
+  expect(result.status).toBe(400);
+  expect(calls.length).toBe(0);
+});
 
 test("runAgentic: an is_error envelope with exit 0 is reported as a failure, not success", async () => {
   const { spawn } = fakeErrorEnvelopeSpawn();
@@ -293,7 +286,9 @@ test("runAgentic: command[0] resolves from the given bunx and the pin appears in
   await runAgenticFixture(spawn);
 
   const [argv] = calls[0] as [string[], unknown];
-  assertPinnedArgv(argv);
+  expect(argv[0]).toBe(BUNX);
+  expect(argv.some((token) => token.includes(PIN))).toBe(true);
+  expect(argv.some((token) => token.includes("latest"))).toBe(false);
 });
 
 test("runAgentic: --strict-mcp-config in the spawned argv names a real file holding an empty MCP config", async () => {

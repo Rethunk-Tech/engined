@@ -309,14 +309,19 @@ function fakeLlamaUpstream(
   };
 }
 
+interface ChatDoorSetup {
+  exec: Exec;
+  stoppables?: { stop: () => void }[];
+  doorOpts?: DoorOptions;
+}
+
 /** Every chat-completions test here stands up a door over the same fake-exec/preset wiring, runs one request, then tears the door and every fake upstream down; only the config, exec, upstream(s), doorOpts and assertion differ. */
 async function withChatDoor(
   cfgOverrides: Partial<Config>,
-  exec: Exec,
-  stoppables: { stop: () => void }[],
+  setup: ChatDoorSetup,
   fn: (door: Door) => Promise<void>,
-  doorOpts: DoorOptions = {},
 ): Promise<void> {
+  const { exec, stoppables = [], doorOpts = {} } = setup;
   const door = createDoor(
     baseConfig(cfgOverrides),
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
@@ -355,8 +360,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
       ],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
-    exec,
-    [good],
+    { exec, stoppables: [good], doorOpts: { write: (line) => lines.push(line) } },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -378,7 +382,6 @@ test("a chain whose first hop is dead completes on the second, and provenance na
       expect(record.attempts[0]?.engine).toBe("dead");
       expect(record.attempts[0]?.ok).toBe(false);
     },
-    { write: (line) => lines.push(line) },
   );
 });
 
@@ -407,8 +410,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
       engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
-    exec,
-    [dead, good],
+    { exec, stoppables: [dead, good], doorOpts: { write: (line) => lines.push(line) } },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -426,7 +428,6 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
       const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
       expect(record.engine_used).toBe("good");
     },
-    { write: (line) => lines.push(line) },
   );
 });
 
@@ -447,8 +448,7 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
-    exec,
-    [good],
+    { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -475,8 +475,7 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
-    exec,
-    [good],
+    { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -506,8 +505,7 @@ test("a direct (non-chain) model request still forwards its own model id unchang
       models: [{ id: "ornith", engine: "good", role: "chat", aliases: [], args: {} }],
       engines: [containerEngine("good", openaiSpec())],
     },
-    exec,
-    [good],
+    { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -539,8 +537,7 @@ test("local_only: true against a public chain never reaches a remote hop, even w
       ],
       chains: { "chain-public": ["@/local/m", "@/remote/m"] },
     },
-    exec,
-    [remote],
+    { exec, stoppables: [remote] },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {
@@ -579,8 +576,7 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
       ],
       chains: { "chain-z": ["@/e1/m", "@/e2/m"] },
     },
-    exec,
-    [],
+    { exec },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/v1/chat/completions", {

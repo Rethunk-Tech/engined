@@ -14,6 +14,7 @@ import { makeTestRoot } from "./test-support.ts";
 import { FatalError } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-startup-test-");
+const RX_RESTART_PREVENT_EXIT_STATUS = /^RestartPreventExitStatus=(\d+)$/m;
 
 /** An XDG pair that redirects both `configPath()` and `installDir()` at a scratch tree. */
 function scratchHome(
@@ -116,6 +117,6 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
 // restart loop -- the exact failure the exit code exists to prevent.
 test("the unit template prevents restart on the same code FatalError exits with", () => {
   const unit = readFileSync(join(import.meta.dir, "../scripts/engined.service.in"), "utf8");
-  const match = unit.match(/^RestartPreventExitStatus=(\d+)$/m);
+  const match = unit.match(RX_RESTART_PREVENT_EXIT_STATUS);
   expect(match?.[1]).toBe(String(FatalError.EXIT_CODE));
 });

@@ -527,6 +527,62 @@ role = "chat"
 `;
 }
 
+/** A fresh root/spec.toml plus an on-disk config.toml naming "ornith" and "other", both real files backing the same local-llama engine -- the reload-race test's own on-disk config, since it must go through `door.reload(path)`, not the in-memory `Config` shortcut. */
+function setupReloadRaceConfig(): { root: string; configFilePath: string } {
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+  const modelsDir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
+  writeFileSync(join(modelsDir, "x.gguf"), "");
+  writeFileSync(join(modelsDir, "y.gguf"), "");
+  const configDir = mkdtempSync(join(TEST_ROOT, "engined-config-"));
+  const configFilePath = join(configDir, "config.toml");
+  writeFileSync(configFilePath, llamaTomlConfig(modelsDir));
+  return { root, configFilePath };
+}
+
+/**
+ * Answers the real b10354 load/unload/`/v1/models` contract by replaying
+ * `calls`'s own load history, and gates the "ornith" chat call on `gate` so
+ * the reload race has a window to land while that lease is still held.
+ */
+function makeReloadRaceClient(
+  calls: string[],
+  gate: Promise<void>,
+  ornithStarted: () => void,
+): HttpClient {
+  return async (url, init) => {
+    const body =
+      typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+    if (url.endsWith("/models/load")) {
+      calls.push(`load:${body?.model}`);
+      return Response.json({ success: true });
+    }
+    if (url.endsWith("/models/unload")) {
+      calls.push(`unload:${body?.model}`);
+      return Response.json({ status: "ok" });
+    }
+    if (url.endsWith("/v1/models")) {
+      const lastLoad = [...calls]
+        .reverse()
+        .find((c) => c.startsWith("load:"))
+        ?.slice(5);
+      return Response.json({
+        data: lastLoad === undefined ? [] : [{ id: lastLoad, status: { value: "loaded" } }],
+      });
+    }
+    // The chat completion call itself.
+    if (body?.model === "ornith") {
+      calls.push("chat-start:ornith");
+      ornithStarted();
+      await gate;
+      calls.push("chat-end:ornith");
+      return Response.json({ id: "r1", choices: [{ message: { content: "ornith-answer" } }] });
+    }
+    calls.push("chat:other");
+    return Response.json({ id: "r2", choices: [{ message: { content: "other-answer" } }] });
+  };
+}
+
 describe("the door: reload mid in-flight request", () => {
   /**
    * TODO.md:907: in-flight leases finish against the old engine list.
@@ -541,15 +597,7 @@ describe("the door: reload mid in-flight request", () => {
    * behind the one in flight instead of racing it on a second tracker.
    */
   test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-    const modelsDir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
-    writeFileSync(join(modelsDir, "x.gguf"), "");
-    writeFileSync(join(modelsDir, "y.gguf"), "");
-    const configDir = mkdtempSync(join(TEST_ROOT, "engined-config-"));
-    const configFilePath = join(configDir, "config.toml");
-    const toml = llamaTomlConfig(modelsDir);
-    writeFileSync(configFilePath, toml);
+    const { root, configFilePath } = setupReloadRaceConfig();
 
     const calls: string[] = [];
     let releaseOrnith: () => void = () => undefined;
@@ -560,37 +608,7 @@ describe("the door: reload mid in-flight request", () => {
     const ornithStartedPromise = new Promise<void>((r) => {
       ornithStarted = r;
     });
-    const client: HttpClient = async (url, init) => {
-      const body =
-        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
-      if (url.endsWith("/models/load")) {
-        calls.push(`load:${body?.model}`);
-        return Response.json({ success: true });
-      }
-      if (url.endsWith("/models/unload")) {
-        calls.push(`unload:${body?.model}`);
-        return Response.json({ status: "ok" });
-      }
-      if (url.endsWith("/v1/models")) {
-        const lastLoad = [...calls]
-          .reverse()
-          .find((c) => c.startsWith("load:"))
-          ?.slice(5);
-        return Response.json({
-          data: lastLoad === undefined ? [] : [{ id: lastLoad, status: { value: "loaded" } }],
-        });
-      }
-      // The chat completion call itself.
-      if (body?.model === "ornith") {
-        calls.push("chat-start:ornith");
-        ornithStarted();
-        await gate;
-        calls.push("chat-end:ornith");
-        return Response.json({ id: "r1", choices: [{ message: { content: "ornith-answer" } }] });
-      }
-      calls.push("chat:other");
-      return Response.json({ id: "r2", choices: [{ message: { content: "other-answer" } }] });
-    };
+    const client = makeReloadRaceClient(calls, gate, ornithStarted);
     const door = createLlamaDoor(loadConfig(configFilePath), root, {
       llamaHttpClient: client,
       write: () => undefined,
@@ -924,16 +942,14 @@ const STREAM_REQUEST_BODY = JSON.stringify({
 const WARMING_COMMENT = ": warming\n\n";
 
 /** Every streaming-provenance test sends the same request through a fresh llama door; only the upstream chunks, the door's `write` sink and the assertion differ. */
-async function fetchStreamChat(
-  cfg: Config,
-  root: string,
-  doorOpts: DoorOptions,
-): Promise<Response> {
-  return createLlamaDoor(cfg, root, doorOpts).fetch(
-    new Request("http://engined/v1/chat/completions", {
-      method: "POST",
-      body: STREAM_REQUEST_BODY,
-    }),
+function fetchStreamChat(cfg: Config, root: string, doorOpts: DoorOptions): Promise<Response> {
+  return Promise.resolve(
+    createLlamaDoor(cfg, root, doorOpts).fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: STREAM_REQUEST_BODY,
+      }),
+    ),
   );
 }
 
@@ -1511,38 +1527,47 @@ function redirectDoorRoot(): string {
   return root;
 }
 
+/** A real door over one remote-agentic kimi engine, its resolved secret and every spawned argv/env recorded rather than actually launched. */
+function createKimiDoor(): {
+  door: Door;
+  spawnCalls: { argv: string[]; env: Record<string, string> }[];
+} {
+  const root = redirectDoorRoot();
+  const cfg = config({
+    engines: [kimiEngine()],
+    models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
+  });
+  const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+  const spawn: AgenticSpawn = (spawnArgv, opts) => {
+    spawnCalls.push({ argv: spawnArgv, env: opts.env });
+    return Promise.resolve({
+      stdout: '{"is_error":false,"result":"answered via kimi"}',
+      stderr: "",
+      exitCode: 0,
+    });
+  };
+  const door = createDoor(
+    cfg,
+    {
+      enginesRoot: root,
+      bunx: BUNX,
+      agenticProbeRunner: PASSING_PROBE,
+      secretResolves: fakeSecretResolves("kimi-secret-value"),
+    },
+    {
+      agenticSpawn: spawn,
+      secretExec: fakeExec("kimi-secret-value"),
+      agenticAmbientEnv: { HOME: "/home/test", GITHUB_TOKEN: "ghp_leaked_repo_scope" },
+      write: () => undefined,
+    },
+  );
+  return { door, spawnCalls };
+}
+
 describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => {
   test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
     clearVerifiedVersion("claude-kimi");
-    const root = redirectDoorRoot();
-    const cfg = config({
-      engines: [kimiEngine()],
-      models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
-    });
-    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
-    const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      spawnCalls.push({ argv: spawnArgv, env: opts.env });
-      return Promise.resolve({
-        stdout: '{"is_error":false,"result":"answered via kimi"}',
-        stderr: "",
-        exitCode: 0,
-      });
-    };
-    const door = createDoor(
-      cfg,
-      {
-        enginesRoot: root,
-        bunx: BUNX,
-        agenticProbeRunner: PASSING_PROBE,
-        secretResolves: fakeSecretResolves("kimi-secret-value"),
-      },
-      {
-        agenticSpawn: spawn,
-        secretExec: fakeExec("kimi-secret-value"),
-        agenticAmbientEnv: { HOME: "/home/test", GITHUB_TOKEN: "ghp_leaked_repo_scope" },
-        write: () => undefined,
-      },
-    );
+    const { door, spawnCalls } = createKimiDoor();
     const res = await door.fetch(
       chatRequest({
         model: "kimi-k3",

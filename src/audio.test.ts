@@ -199,14 +199,6 @@ function trackRunD(runs: string[][]) {
   };
 }
 
-/** Asserts the engine settled to `unavailable`, never `installed`, and returns its status for the caller's own `fix` assertion. */
-function assertUnavailable(lifecycle: DockerLifecycle, id: string) {
-  const status = lifecycle.getStatus(id);
-  expect(status.state).toBe("unavailable");
-  expect(status.state).not.toBe("installed");
-  return status;
-}
-
 test("response_format: text on transcriptions returns bare text, not a JSON envelope", async () => {
   const fake = startFakeWhisper();
 
@@ -264,7 +256,8 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   expect(result.status).toBe(503);
   expect(JSON.stringify(result.body)).toContain("whisper");
   expect(realContainerRuns.length).toBe(0);
-  const status = assertUnavailable(lifecycle, "whisper");
+  const status = lifecycle.getStatus("whisper");
+  expect(status.state).toBe("unavailable");
   expect(status.fix).toBe(
     `docker build -t ${spec.image} -f ${join(whisperSpecDir, "Dockerfile")} ${whisperSpecDir}`,
   );
@@ -298,6 +291,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
 
   expect(result.status).toBe(503);
   expect(realContainerRuns.length).toBe(0);
-  const status = assertUnavailable(lifecycle, "whisper");
+  const status = lifecycle.getStatus("whisper");
+  expect(status.state).toBe("unavailable");
   expect(status.fix).toBe(spec.artifacts[0]?.obtain);
 });

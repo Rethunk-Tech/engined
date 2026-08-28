@@ -586,13 +586,13 @@ test("a client cancelling a streaming response cancels the upstream reader too, 
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
   let upstreamCancelled = false;
-  const client: HttpClient = async (input) => {
+  const client: HttpClient = (input) => {
     const url = new URL(String(input));
     if (url.pathname === LOAD_PATH) {
-      return Response.json({ success: true });
+      return Promise.resolve(Response.json({ success: true }));
     }
     if (url.pathname === MODELS_LIST_PATH) {
-      return modelsList([{ id: "a", status: "loaded" }]);
+      return Promise.resolve(modelsList([{ id: "a", status: "loaded" }]));
     }
     if (url.pathname === CHAT_PATH) {
       const body = new ReadableStream<Uint8Array>({
@@ -603,7 +603,9 @@ test("a client cancelling a streaming response cancels the upstream reader too, 
           upstreamCancelled = true;
         },
       });
-      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+      return Promise.resolve(
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      );
     }
     throw new Error(`unexpected path ${url.pathname}`);
   };

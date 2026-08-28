@@ -106,12 +106,15 @@ export interface BuildExecOptions {
   runLog?: string[][];
 }
 
+/** Never asserted on directly: real host ports come from `portByContainer`, so this container port is an arbitrary placeholder. */
+const PLACEHOLDER_CONTAINER_PORT = 80;
+
 function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
   const [, , image] = argv;
   if (image !== undefined && opts.missingImages?.has(image)) {
     return { stdout: "", stderr: "", exitCode: 1 };
   }
-  return inspectSinglePort(80);
+  return inspectSinglePort(PLACEHOLDER_CONTAINER_PORT);
 }
 
 function execPort(argv: string[], opts: BuildExecOptions): ExecResult {

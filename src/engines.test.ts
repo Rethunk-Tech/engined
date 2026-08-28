@@ -823,25 +823,25 @@ function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
   };
 }
 
+/** A registry over one engine, its lifecycle wired to `capturingExec` so `runArgvCalls` fills in as `start()` runs it. */
+function capturingRegistry(
+  entry: EngineEntry,
+  containerPort: number,
+): { reg: EngineRegistry; runArgvCalls: string[][] } {
+  const runArgvCalls: string[][] = [];
+  const reg = new EngineRegistry(config({ engines: [entry] }), {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    lifecycle: new DockerLifecycle(capturingExec(containerPort, runArgvCalls), READY_PROBE),
+  });
+  return { reg, runArgvCalls };
+}
+
 describe("spec construction is routed through the per-engine builder", () => {
   test("comfy started through the registry carries its models bind mount in the run argv", async () => {
-    const runArgvCalls: string[][] = [];
-    const reg = new EngineRegistry(
-      config({
-        engines: [
-          engine({
-            id: "comfy",
-            egress: "none",
-            models_dir: "/data/comfy-models",
-            ready_timeout_s: 5,
-          }),
-        ],
-      }),
-      {
-        enginesRoot: ENGINES_ROOT,
-        bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8188, runArgvCalls), READY_PROBE),
-      },
+    const { reg, runArgvCalls } = capturingRegistry(
+      engine({ id: "comfy", egress: "none", models_dir: "/data/comfy-models", ready_timeout_s: 5 }),
+      8188,
     );
     try {
       await reg.start("comfy");
@@ -855,29 +855,20 @@ describe("spec construction is routed through the per-engine builder", () => {
   });
 
   test("local-llama started through the registry carries --models-preset and its :ro mounts", async () => {
-    const runArgvCalls: string[][] = [];
     // start() on an id shaped like local-llama renders the preset to
     // stateDir()/local-llama/preset.ini unconditionally (engines.ts's own
     // LOCAL_LLAMA_PRESET_PATH, not overridable via RegistryOptions) -- the
     // same path the real running engine has bind-mounted.
     const restoreStateHome = redirectStateHome();
-    const reg = new EngineRegistry(
-      config({
-        engines: [
-          engine({
-            id: "local-llama",
-            egress: "none",
-            models_dir: "/data/gguf",
-            models_max: 3,
-            ready_timeout_s: 5,
-          }),
-        ],
+    const { reg, runArgvCalls } = capturingRegistry(
+      engine({
+        id: "local-llama",
+        egress: "none",
+        models_dir: "/data/gguf",
+        models_max: 3,
+        ready_timeout_s: 5,
       }),
-      {
-        enginesRoot: ENGINES_ROOT,
-        bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
-      },
+      8080,
     );
     try {
       await reg.start("local-llama");

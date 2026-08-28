@@ -33,11 +33,8 @@ const EXPECTED_ENGINE_IDS = [
 
 const EXPECTED_MODEL_IDS = ["embed", "k3", "ornith", "sonnet-5", "vision"];
 
-test("config.example.toml parses through the real loadConfig()", () => {
-  const repoRoot = join(import.meta.dir, "..");
-  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
-
-  const modelsDir = mkdtempSync(join(tmpdir(), "engined-example-models-"));
+/** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
+function placeExampleModels(modelsDir: string): void {
   for (const rel of [
     "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf",
     "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
@@ -47,14 +44,26 @@ test("config.example.toml parses through the real loadConfig()", () => {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, "");
   }
+}
 
-  expect(raw).toMatch(LOCAL_LLAMA_MODELS_DIR_RE);
+/** `raw` with local-llama's real models_dir swapped for the scratch one, written to a fresh config.toml. */
+function writePatchedExampleConfig(raw: string, modelsDir: string): string {
   const patched = raw.replace(LOCAL_LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
-
   const configDir = mkdtempSync(join(tmpdir(), "engined-example-config-"));
   const configPath = join(configDir, "config.toml");
   writeFileSync(configPath, patched);
+  return configPath;
+}
 
+test("config.example.toml parses through the real loadConfig()", () => {
+  const repoRoot = join(import.meta.dir, "..");
+  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
+  expect(raw).toMatch(LOCAL_LLAMA_MODELS_DIR_RE);
+
+  const modelsDir = mkdtempSync(join(tmpdir(), "engined-example-models-"));
+  placeExampleModels(modelsDir);
+
+  const configPath = writePatchedExampleConfig(raw, modelsDir);
   const config = loadConfig(configPath);
 
   const byName = (a: string, b: string) => a.localeCompare(b);
