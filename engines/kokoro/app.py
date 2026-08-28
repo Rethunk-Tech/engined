@@ -14,8 +14,6 @@ import base64
 import io
 import json
 import logging
-import queue
-import threading
 
 import numpy as np
 import soundfile as sf
@@ -64,8 +62,6 @@ KNOWN_VOICES = {
     "bm_lewis",
 }
 
-_SENTINEL = object()
-
 
 class TtsRequest(BaseModel):
     text: str
@@ -80,50 +76,39 @@ def health():
 @app.post("/v1/tts")
 def synthesize(req: TtsRequest):
     voice = req.voice or "af_heart"
-    q: "queue.Queue" = queue.Queue()
 
-    def reject(detail: str):
-        q.put({"phase": "error", "detail": detail})
-        q.put(_SENTINEL)
-
-    if voice not in KNOWN_VOICES:
-        threading.Thread(
-            target=reject, args=(f'unknown Kokoro voice "{voice}"',), daemon=True
-        ).start()
-    else:
-
-        def worker():
-            q.put({"phase": "synthesizing"})
-            try:
-                chunks = [audio for _, _, audio in pipeline(req.text, voice=voice)]
-                wav = (
-                    np.asarray(chunks[0])
-                    if len(chunks) == 1
-                    else np.concatenate([np.asarray(c) for c in chunks])
+    def events():
+        if voice not in KNOWN_VOICES:
+            yield (
+                json.dumps(
+                    {"phase": "error", "detail": f'unknown Kokoro voice "{voice}"'}
                 )
-                buf = io.BytesIO()
-                sf.write(buf, wav, SAMPLE_RATE, format="WAV")
-                q.put(
+                + "\n"
+            )
+            return
+        yield json.dumps({"phase": "synthesizing"}) + "\n"
+        try:
+            chunks = [audio for _, _, audio in pipeline(req.text, voice=voice)]
+            wav = (
+                np.asarray(chunks[0])
+                if len(chunks) == 1
+                else np.concatenate([np.asarray(c) for c in chunks])
+            )
+            buf = io.BytesIO()
+            sf.write(buf, wav, SAMPLE_RATE, format="WAV")
+            yield (
+                json.dumps(
                     {
                         "phase": "done",
                         "audio": base64.b64encode(buf.getvalue()).decode("ascii"),
                         "alignment": None,
                     }
                 )
-            # Keep expected model/encoding failures on the NDJSON stream as terminal error events.
-            except (IndexError, RuntimeError, ValueError) as err:
-                logger.exception("Kokoro synthesis failed")
-                q.put({"phase": "error", "detail": str(err)})
-            finally:
-                q.put(_SENTINEL)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def events():
-        while True:
-            item = q.get()
-            if item is _SENTINEL:
-                break
-            yield json.dumps(item) + "\n"
+                + "\n"
+            )
+        # Keep expected model/encoding failures on the NDJSON stream as terminal error events.
+        except (IndexError, RuntimeError, ValueError) as err:
+            logger.exception("Kokoro synthesis failed")
+            yield json.dumps({"phase": "error", "detail": str(err)}) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson")

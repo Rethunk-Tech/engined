@@ -17,8 +17,6 @@ import io
 import json
 import logging
 import os
-import queue
-import threading
 import wave
 
 from fastapi import FastAPI
@@ -32,8 +30,6 @@ logger = logging.getLogger(__name__)
 VOICE_PATH = os.environ.get("PIPER_VOICE_PATH", "/app/voices/en_US-lessac-medium.onnx")
 voice = PiperVoice.load(VOICE_PATH)
 print(f"Piper voice loaded: {VOICE_PATH}")
-
-_SENTINEL = object()
 
 
 class TtsRequest(BaseModel):
@@ -51,38 +47,28 @@ def health():
 
 @app.post("/v1/tts")
 def synthesize(req: TtsRequest):
-    q: "queue.Queue" = queue.Queue()
-
-    def worker():
-        q.put({"phase": "synthesizing"})
+    def events():
+        yield json.dumps({"phase": "synthesizing"}) + "\n"
         try:
             buf = io.BytesIO()
             # synthesize_wav writes a complete RIFF header, so the bytes below are a
             # standalone WAV rather than raw PCM the door would have to describe.
             with wave.open(buf, "wb") as wav_file:
                 voice.synthesize_wav(req.text, wav_file)
-            q.put(
-                {
-                    "phase": "done",
-                    "audio": base64.b64encode(buf.getvalue()).decode("ascii"),
-                    "alignment": None,
-                }
+            yield (
+                json.dumps(
+                    {
+                        "phase": "done",
+                        "audio": base64.b64encode(buf.getvalue()).decode("ascii"),
+                        "alignment": None,
+                    }
+                )
+                + "\n"
             )
         # Keep expected model/encoding failures on the NDJSON stream as terminal error
         # events, the same classes kokoro's wrapper catches.
         except (OSError, RuntimeError, ValueError) as err:
             logger.exception("Piper synthesis failed")
-            q.put({"phase": "error", "detail": str(err)})
-        finally:
-            q.put(_SENTINEL)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def events():
-        while True:
-            item = q.get()
-            if item is _SENTINEL:
-                break
-            yield json.dumps(item) + "\n"
+            yield json.dumps({"phase": "error", "detail": str(err)}) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson")
