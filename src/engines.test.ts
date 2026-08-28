@@ -570,6 +570,67 @@ describe("agentic engines: the verified_version gate", () => {
   });
 });
 
+describe("agentic engines: a failed probe is cached, not retried, until the pin changes", () => {
+  test("a failing pin is probed once; a later list on the same pin skips the runner", async () => {
+    const id = "agentic-verify-fail-cached";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
+    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: runner,
+    });
+
+    const first = (await reg.list()).engines.find((e) => e.id === id);
+    expect(first?.state).toBe("unavailable");
+    expect(calls).toHaveLength(1);
+
+    const second = (await reg.list()).engines.find((e) => e.id === id);
+    expect(second?.state).toBe("unavailable");
+    expect(calls).toHaveLength(1);
+
+    clearVerifiedVersion(id);
+  });
+
+  test("bumping the pin after a failure re-arms the probe", async () => {
+    const id = "agentic-verify-fail-rearm";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
+    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: runner,
+    });
+
+    await reg.list();
+    expect(calls).toHaveLength(1);
+
+    reg.reload(config({ engines: [agenticEngine(id, "1.0.1")] }));
+    await reg.list();
+    expect(calls).toHaveLength(2);
+
+    clearVerifiedVersion(id);
+  });
+
+  test("two concurrent polls on the same unproved pin share one in-flight probe", async () => {
+    const id = "agentic-verify-concurrent";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeSpec(root, id, AGENTIC);
+    const { runner, calls } = trackingRunner({ ok: true });
+    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: runner,
+    });
+
+    const [a, b] = await Promise.all([reg.list(), reg.list()]);
+    expect(a.engines.find((e) => e.id === id)?.state).toBe("installed");
+    expect(b.engines.find((e) => e.id === id)?.state).toBe("installed");
+    expect(calls).toHaveLength(1);
+
+    clearVerifiedVersion(id);
+  });
+});
+
 describe("serves()", () => {
   test("returns the loaded spec's serves list for a container engine", () => {
     const root = newEnginesRoot();

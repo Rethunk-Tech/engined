@@ -270,6 +270,11 @@ export class EngineRegistry {
    * before it ever elapsed.
    */
   private readonly comfyQueueEmpty = new Map<string, boolean>();
+  /** Per-engine agentic-probe cache/dedupe; see `runAgenticProbe`. */
+  private readonly agenticProbeState = new Map<
+    string,
+    { version: string; outcome?: AgenticProbeOutcome; promise?: Promise<AgenticProbeOutcome> }
+  >();
 
   constructor(config: Config, opts: RegistryOptions) {
     this.exec = opts.exec ?? dockerExec;
@@ -479,7 +484,11 @@ export class EngineRegistry {
    * proved reports `unavailable` rather than serving on faith. Verification
    * only runs when the configured pin differs from the one last proved —
    * bumping the pin is what re-arms it, per the design's own reasoning for
-   * why the pin exists at all.
+   * why the pin exists at all. A pin that FAILS is cached the same way: the
+   * failed outcome for that exact pin is remembered so every later poll
+   * reports it for free until the pin changes, and two polls racing on the
+   * same unproved pin share one in-flight probe instead of each billing
+   * their own — see `runAgenticProbe`.
    */
   private async agenticStatus(
     engine: EngineEntry,
@@ -507,7 +516,7 @@ export class EngineRegistry {
         fix: noProbeRunnerConfiguredFix(engine.id, engine.claude_version),
       };
     }
-    const outcome = await this.agenticProbeRunner(engine, engine.claude_version);
+    const outcome = await this.runAgenticProbe(engine, engine.claude_version);
     if (!outcome.ok) {
       return {
         ...base,
@@ -516,7 +525,41 @@ export class EngineRegistry {
       };
     }
     writeVerifiedVersion(engine.id, engine.claude_version);
+    this.agenticProbeState.delete(engine.id);
     return { ...base, state: "installed" };
+  }
+
+  /**
+   * One real probe per (engine, pin) in flight at a time. A pin already
+   * being probed hands every caller the same promise; a pin that already
+   * failed hands every caller the cached outcome with no runner call at
+   * all. Keyed by version, so a pin bump — the only sanctioned way to
+   * re-arm this gate — misses the cache on its own, with no separate
+   * invalidation needed.
+   */
+  private runAgenticProbe(engine: EngineEntry, version: string): Promise<AgenticProbeOutcome> {
+    const cached = this.agenticProbeState.get(engine.id);
+    if (cached?.version === version) {
+      if (cached.promise) {
+        return cached.promise;
+      }
+      if (cached.outcome) {
+        return Promise.resolve(cached.outcome);
+      }
+    }
+    const runner = this.agenticProbeRunner;
+    if (!runner) {
+      return Promise.resolve({ ok: false, failedProbe: "no-runner-configured" });
+    }
+    const promise = runner(engine, version).then((outcome) => {
+      this.agenticProbeState.set(engine.id, {
+        version,
+        outcome: outcome.ok ? undefined : outcome,
+      });
+      return outcome;
+    });
+    this.agenticProbeState.set(engine.id, { version, promise });
+    return promise;
   }
 
   async list(): Promise<EnginesResponse> {
