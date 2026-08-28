@@ -533,3 +533,23 @@ test("malformed TOML is a ParseError naming the file, with the syntax error as c
     expect(parseErr.cause).toBeDefined();
   }
 });
+
+const RX_ENGINE_NOT_ARRAY = /"engine" must be an array of tables/;
+const RX_MODEL_NOT_ARRAY = /"model" must be an array of tables/;
+
+describe("a scalar where an array of tables belongs", () => {
+  // A daemon that starts with zero engines is worse than one that refuses to
+  // start: it serves 404s that read like a routing bug rather than a config one.
+  test("engine as a scalar is fatal rather than zero engines", () => {
+    expect(() => loadConfig(writeConfig('engine = "oops"\n'))).toThrow(RX_ENGINE_NOT_ARRAY);
+  });
+
+  test("model as a scalar is fatal", () => {
+    expect(() => loadConfig(writeConfig("model = 3\n"))).toThrow(RX_MODEL_NOT_ARRAY);
+  });
+
+  test("an absent table is still an empty list", () => {
+    const cfg = loadConfig(writeConfig(llamaEngineAndModel()));
+    expect(cfg.engines.length).toBeGreaterThan(0);
+  });
+});

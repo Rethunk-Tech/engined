@@ -6,7 +6,6 @@
  * process: binds, signal handlers, and the fatal-at-startup exit.
  */
 
-import { spawnSync } from "node:child_process";
 import process from "node:process";
 import {
   type AgenticSpawn,
@@ -49,47 +48,8 @@ const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** `ss -ltnp`'s process column: `users:(("name",pid=1234,fd=56))`. */
-const SS_HOLDER_RE = /users:\(\("([^"]+)",pid=(\d+)/;
-
 function refuse(message: string): Response {
   return Response.json({ error: message }, { status: 403 });
-}
-
-/** First listener only — a port already bound has exactly one holder worth naming. */
-export function parsePortHolder(ssOutput: string): { name: string; pid: number } | undefined {
-  const match = SS_HOLDER_RE.exec(ssOutput);
-  const name = match?.[1];
-  const pidStr = match?.[2];
-  if (name === undefined || pidStr === undefined) {
-    return;
-  }
-  return { name, pid: Number(pidStr) };
-}
-
-/**
- * Best-effort: `ss` absent or unparsable falls through to `undefined` rather
- * than throwing — a failed diagnosis must not replace the bind-error
- * diagnosis itself.
- *
- * Confirmed empirically under this unit's own sandbox (ProtectSystem=strict,
- * ProtectHome=read-only and PrivateTmp=yes each independently reproduce it):
- * `ss -p` resolves a listener's process only by reading `/proc/<pid>/fd/*`
- * in the holder process, and the kernel denies that readlink across mount
- * namespaces even for the same uid — `ls -la /proc/<pid>/fd` lists the
- * entries but every one is "Permission denied" to read. Any of these three
- * directives puts engined in its own mount namespace, so in the real unit
- * the holder is almost never nameable; this only reliably resolves a holder
- * when engined itself runs unsandboxed (a plain dev invocation). There is no
- * unprivileged workaround that does not mean weakening the sandbox, so this
- * stays best-effort by design rather than something to keep chasing.
- */
-function describePortHolder(port: number): string | undefined {
-  const res = spawnSync("ss", ["-ltnp", `sport = :${port}`], { encoding: "utf8" });
-  if (res.error || res.status !== 0) {
-    return;
-  }
-  const holder = parsePortHolder(res.stdout);
-  return holder ? `${holder.name} (pid ${holder.pid})` : undefined;
 }
 
 function isLoopbackHost(hostHeader: string, port: number): boolean {
@@ -324,7 +284,9 @@ async function execLlama(
 ): Promise<HopResult> {
   const model = ctx
     .getConfig()
-    .models.find((m) => m.engine === engineEntry.id && m.id === modelSeg);
+    .models.find(
+      (m) => m.engine === engineEntry.id && (m.id === modelSeg || m.aliases.includes(modelSeg)),
+    );
   if (!model) {
     return {
       status: 502,
@@ -939,7 +901,7 @@ async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
   }
   const status = await ctx.registry.start(engineId);
   if (status.private_url === null) {
-    return Response.json({ error: `${engineId} is not available` }, { status: 503 });
+    return Response.json({ error: status.fix ?? `${engineId} is not available` }, { status: 503 });
   }
   const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
   return proxyExtras(
@@ -1179,11 +1141,7 @@ if (import.meta.main) {
     bound = bindDualFamily(door.fetch, startupConfig.listen_port);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const holder = describePortHolder(startupConfig.listen_port);
-    const detail = holder
-      ? `port ${startupConfig.listen_port} already in use, held by ${holder}: ${message}`
-      : `port ${startupConfig.listen_port} already in use: ${message}`;
-    process.stderr.write(`${detail}\n`);
+    process.stderr.write(`port ${startupConfig.listen_port} already in use: ${message}\n`);
     process.exit(FatalError.EXIT_CODE);
   }
 

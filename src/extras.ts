@@ -7,11 +7,24 @@
  * name what they need and pass through untouched.
  */
 import type { HttpClient } from "./llama.ts";
+import { isRecord } from "./types.ts";
 
 const BODY_INJECT_PATHS = new Set(["/tokenize", "/detokenize", "/apply-template"]);
 
+/** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {
-  const parsed: Record<string, unknown> = bodyText === undefined ? {} : JSON.parse(bodyText);
+  if (bodyText === undefined) {
+    return JSON.stringify({ model });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    throw new SyntaxError("request body is not valid JSON");
+  }
+  if (!isRecord(parsed)) {
+    throw new SyntaxError("request body must be a JSON object");
+  }
   return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed);
 }
 
@@ -31,7 +44,14 @@ export async function proxyExtras(
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   let body = hasBody ? await req.text() : undefined;
   if (residentModel !== null && hasBody && BODY_INJECT_PATHS.has(url.pathname)) {
-    body = injectModel(body, residentModel);
+    try {
+      body = injectModel(body, residentModel);
+    } catch (err) {
+      return Response.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 400 },
+      );
+    }
   }
 
   const target = new URL(url.pathname + url.search, baseUrl);

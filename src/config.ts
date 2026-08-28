@@ -34,8 +34,15 @@ const ENGINE_KEYS = new Set([
 const MODEL_KEYS = new Set(["id", "engine", "filename", "role", "aliases", "args"]);
 const HOP_RE = /^@\/([^/]+)\/([^/]+)$/;
 
-function asArray(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
+/** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
+function asArray(v: unknown, key: string, file: string): unknown[] {
+  if (v === undefined) {
+    return [];
+  }
+  if (!Array.isArray(v)) {
+    throw new ParseError(`"${key}" must be an array of tables`, file);
+  }
+  return v;
 }
 /**
  * A model on this engine has a resident local file to account for. That is
@@ -188,7 +195,7 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
   const id = requireString(raw.id, `${posSite} "id"`, file);
   const site = `model "${id}"`;
   const engine = requireString(raw.engine, `${site} "engine"`, file);
-  const aliases = asArray(raw.aliases).map((a, i) =>
+  const aliases = asArray(raw.aliases, "aliases", file).map((a, i) =>
     requireString(a, `${site} "aliases[${i}]"`, file),
   );
 
@@ -356,7 +363,7 @@ function parseChains(
   const modelNames = new Set(models.flatMap((m) => [m.id, ...m.aliases]));
   const chains: Record<string, string[]> = {};
   for (const [name, hopsRaw] of Object.entries(raw)) {
-    const arr = asArray(hopsRaw);
+    const arr = asArray(hopsRaw, `chain.${name}`, file);
     if (arr.length === 0) {
       throw new ParseError(`chain "${name}" has no hops`, file);
     }
@@ -406,8 +413,8 @@ export function loadConfig(path?: string): Config {
     throw new ParseError("config must be a table", file);
   }
 
-  const engines = asArray(raw.engine).map((e, i) => parseEngine(e, i, file));
-  const models = asArray(raw.model).map((m, i) => parseModel(m, i, file));
+  const engines = asArray(raw.engine, "engine", file).map((e, i) => parseEngine(e, i, file));
+  const models = asArray(raw.model, "model", file).map((m, i) => parseModel(m, i, file));
   checkNamespaceCollisions(engines, models, file);
 
   const engineMap = new Map(engines.map((e) => [e.id, e]));

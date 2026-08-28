@@ -13,7 +13,6 @@ import {
   bindDualFamily,
   createDoor,
   type Door,
-  parsePortHolder,
   resolveBunx,
   resolveRedirect,
   timeoutSecondsForKind,
@@ -470,22 +469,6 @@ base_url = "https://api.anthropic.com"
     expect(after.engines.map((e) => e.id)).toEqual(["claude"]);
     expect(after.config_error).toBeDefined();
     expect(after.config_error).toContain(path);
-  });
-});
-
-describe("port-holder diagnosis", () => {
-  /** `ss -ltnp "sport = :3003"`, captured on this box. */
-  const REAL_SS_OUTPUT =
-    "State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                                       \n" +
-    'LISTEN 0      511                *:3003            *:*    users:(("next-server (v1",pid=3451678,fd=24))\n';
-
-  test("parses the holder's name and pid out of a real ss -ltnp line", () => {
-    expect(parsePortHolder(REAL_SS_OUTPUT)).toEqual({ name: "next-server (v1", pid: 3_451_678 });
-  });
-
-  test("no listener line, no match", () => {
-    const empty = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\n";
-    expect(parsePortHolder(empty)).toBeUndefined();
   });
 });
 
@@ -1905,5 +1888,50 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
       }),
     );
     expect(llamaRes.status).toBe(200);
+  });
+});
+
+describe("the door: a chain hop naming a local model by alias", () => {
+  // config.ts validates every chain hop against [id, ...aliases], so an alias
+  // is a config-valid hop. The hop executor passes the raw segment through, so
+  // the local path must resolve it the same way the remote one does -- or the
+  // identical hop works remote and 502s local.
+  test("a chain hop written as an alias reaches the model", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    mkdirSync(join(root, "local-llama"), { recursive: true });
+    writeFileSync(join(root, "local-llama", "spec.toml"), LOCAL_LLAMA_SPEC);
+    const cfg = config({
+      engines: [
+        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+      ],
+      models: [
+        model({
+          id: "ornith",
+          engine: "local-llama",
+          filename: "ornith.gguf",
+          role: "chat",
+          aliases: ["nickname"],
+        }),
+      ],
+      chains: { "chain-alias": ["@/local-llama/nickname"] },
+    });
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+      {
+        llamaHttpClient: makeStaleReportedHttpClient(),
+        llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
+      },
+    );
+    const res = await door.fetch(
+      new Request("http://engined/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "chain-alias",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
   });
 });

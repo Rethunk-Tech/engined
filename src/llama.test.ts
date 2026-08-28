@@ -761,7 +761,6 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
       served404s++;
       return Response.json({ error: { message: "model is not loaded" } }, { status: 400 });
     }
-    return undefined;
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
@@ -801,7 +800,7 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   let served500s = 0;
   const { client, calls } = fakeLlama((call) => {
     if (!childGone) {
-      return undefined;
+      return;
     }
     if (call.path === CHAT_PATH) {
       served500s++;
@@ -818,7 +817,6 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
     if (call.path === LOAD_PATH) {
       childGone = false;
     }
-    return undefined;
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
