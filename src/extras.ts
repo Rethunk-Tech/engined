@@ -7,7 +7,7 @@
  * name what they need and pass through untouched.
  */
 import type { HttpClient } from "./llama.ts";
-import { isRecord } from "./types.ts";
+import { errMessage, isRecord } from "./types.ts";
 
 const BODY_INJECT_PATHS = new Set(["/tokenize", "/detokenize", "/apply-template"]);
 
@@ -47,10 +47,7 @@ export async function proxyExtras(
     try {
       body = injectModel(body, residentModel);
     } catch (err) {
-      return Response.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        { status: 400 },
-      );
+      return Response.json({ error: errMessage(err) }, { status: 400 });
     }
   }
 

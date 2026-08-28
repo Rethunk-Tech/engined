@@ -21,13 +21,19 @@ import {
   type SpeechRequestBody,
   type TranscriptionRequestBody,
 } from "./audio.ts";
-import { classifyResult, type HopExec, type HopResult, runChain } from "./chain.ts";
+import { classifyResult, type HopExec, type HopResult, parseHop, runChain } from "./chain.ts";
 import { loadConfig } from "./config.ts";
 import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
-import { EngineRegistry, type RegistryOptions } from "./engines.ts";
+import {
+  DEFAULT_IDLE_STOP_SECONDS,
+  DEFAULT_READY_TIMEOUT_S,
+  EngineRegistry,
+  type RegistryOptions,
+} from "./engines.ts";
 import { proxyExtras } from "./extras.ts";
 import {
+  HTTP_CLIENT_ERROR_MIN,
   jsonError,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
@@ -42,7 +48,15 @@ import { recordCall } from "./provenance.ts";
 import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
 import type { Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
-import { type Config, type EngineEntry, type EngineKind, FatalError, isRecord } from "./types.ts";
+import {
+  type Config,
+  type EngineEntry,
+  type EngineKind,
+  errMessage,
+  FatalError,
+  isRecord,
+  MS_PER_SECOND,
+} from "./types.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   "/v1/chat/completions",
@@ -102,14 +116,12 @@ async function handleStart(registry: EngineRegistry, id: string): Promise<Respon
   try {
     return Response.json(await registry.start(id));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errMessage(err);
     return jsonError(STATUS_NOT_FOUND, message);
   }
 }
 
 /** No lifecycle default is exported from engines.ts; duplicated here rather than reaching in. */
-const DEFAULT_IDLE_STOP_SECONDS = 900;
-const DEFAULT_READY_TIMEOUT_S = 60;
 
 const EXTRAS_EXACT = new Set([
   "/tokenize",
@@ -124,17 +136,6 @@ const SLOTS_ID_RE = /^\/slots\/[^/]+$/;
 function isExtrasPath(pathname: string): boolean {
   return EXTRAS_EXACT.has(pathname) || SLOTS_ID_RE.test(pathname);
 }
-
-/** `chain.ts`'s own hop format, `@/<engine>/<model>`; not exported, so mirrored rather than reached for. */
-const HOP_PREFIX_RE = /^@\//;
-function parseHopSegments(hop: string): { engine: string; model: string } {
-  const [engine, ...rest] = hop.replace(HOP_PREFIX_RE, "").split("/");
-  return { engine: engine ?? hop, model: rest.join("/") };
-}
-
-const MS_PER_SECOND = 1000;
-/** A 4xx is the caller's fault rather than the engine's, but the attempt still did not produce output, so it is recorded as a failure. */
-const HTTP_CLIENT_ERROR_MIN = 400;
 
 /** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. */
 function hopFromDispatch(dispatch: Extract<Dispatch, { ok: true }>): string {
@@ -661,7 +662,7 @@ async function execRemoteHttp(
 
 function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
   return async (hop, signal) => {
-    const { engine: seg, model: modelSeg } = parseHopSegments(hop);
+    const { engine: seg, model: modelSeg } = parseHop(hop);
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
     if (kind === "agentic-cli") {
@@ -696,7 +697,7 @@ export function timeoutSecondsForKind(kind: EngineKind | undefined, config: Conf
 function chatTimeoutMs(ctx: DoorContext): (hop: string) => number {
   const config = ctx.getConfig();
   return (hop) => {
-    const { engine: seg } = parseHopSegments(hop);
+    const { engine: seg } = parseHop(hop);
     const engineId = resolveEngineSegment(seg, config) ?? seg;
     return timeoutSecondsForKind(ctx.registry.get(engineId)?.kind, config) * MS_PER_SECOND;
   };
@@ -1065,7 +1066,7 @@ export function createDoor(
         ctx.staleLlamaRouters.add(id);
       }
     } catch (err) {
-      configErr = err instanceof Error ? err.message : String(err);
+      configErr = errMessage(err);
     }
   }
 
@@ -1153,7 +1154,7 @@ if (import.meta.main) {
       agenticProbeRunner: buildAgenticProbeRunner(bunx),
     });
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`${errMessage(err)}\n`);
     process.exit(FatalError.EXIT_CODE);
   }
 
@@ -1161,7 +1162,7 @@ if (import.meta.main) {
   try {
     bound = bindDualFamily(door.fetch, startupConfig.listen_port);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errMessage(err);
     process.stderr.write(`port ${startupConfig.listen_port} already in use: ${message}\n`);
     process.exit(FatalError.EXIT_CODE);
   }

@@ -21,3 +21,8 @@ export function jsonErrorBody(message: string): { error: string } {
 export function jsonError(status: number, message: string): Response {
   return Response.json(jsonErrorBody(message), { status });
 }
+
+/** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
+export const HTTP_CLIENT_ERROR_MIN = 400;
+export const HTTP_SERVER_ERROR_MIN = 500;
+export const HTTP_SERVER_ERROR_MAX = 600;

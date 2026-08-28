@@ -15,11 +15,10 @@ import { existsSync } from "node:fs";
 import { posix } from "node:path";
 import process from "node:process";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
-import { probeSaysReady } from "./types.ts";
+import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
 
 /** Exported so the local tier asserts against the real prefix rather than a hand-built copy. */
 export const NAME_PREFIX = "engined-";
-const MS_PER_SECOND = 1000;
 const READY_POLL_INTERVAL_MS = 250;
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
 const DOCKER_START_FAILURE_EXIT_CODE = 125;
@@ -58,10 +57,6 @@ export type Probe = (url: string, method: "GET" | "POST") => Promise<{ status: n
 async function defaultProbe(url: string, method: "GET" | "POST"): Promise<{ status: number }> {
   const res = await fetch(url, { method });
   return { status: res.status };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export type PortResult = { port: number } | { error: string };
@@ -268,7 +263,7 @@ export class DockerLifecycle {
           }
         })
         .catch((err: unknown) => {
-          rt.lastError = err instanceof Error ? err.message : String(err);
+          rt.lastError = errMessage(err);
         });
     }, idleStopSeconds * MS_PER_SECOND);
   }
@@ -571,7 +566,7 @@ export class DockerLifecycle {
     if (Date.now() >= deadline) {
       return false;
     }
-    await sleep(READY_POLL_INTERVAL_MS);
+    await Bun.sleep(READY_POLL_INTERVAL_MS);
     return this.pollReady(hostPort, ready, deadline);
   }
 

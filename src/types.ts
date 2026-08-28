@@ -357,3 +357,10 @@ export function argvFromArgs(args: Record<string, unknown>): string[] {
 export function argKeysAsFlags(args: Record<string, unknown>): string[] {
   return Object.keys(args).map((key) => `--${key}`);
 }
+
+/** Whatever a `catch` produced, as a string — an `Error`'s message, anything else stringified. */
+export function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export const MS_PER_SECOND = 1000;

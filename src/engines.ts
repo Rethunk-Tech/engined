@@ -31,8 +31,8 @@ import {
 declare const ENGINED_COMMIT: string | undefined;
 
 /** No lifecycle default is stated in TODO.md; chosen here, not in config.ts. */
-const DEFAULT_IDLE_STOP_SECONDS = 900;
-const DEFAULT_READY_TIMEOUT_S = 60;
+export const DEFAULT_IDLE_STOP_SECONDS = 900;
+export const DEFAULT_READY_TIMEOUT_S = 60;
 
 /**
  * Comfy is the one engine whose idleness engined cannot observe, because it

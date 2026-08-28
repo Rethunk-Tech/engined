@@ -4,8 +4,10 @@
  * to the next hop and reports every attempt through `src/provenance.ts`.
  */
 
+import { HTTP_CLIENT_ERROR_MIN, HTTP_SERVER_ERROR_MAX, HTTP_SERVER_ERROR_MIN } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
 import type { Egress } from "./types.ts";
+import { errMessage } from "./types.ts";
 
 export interface HopResult {
   status: number;
@@ -59,11 +61,8 @@ export interface ChainResult {
 }
 
 const HOP_PREFIX = /^@\//;
-const HTTP_CLIENT_ERROR_MIN = 400;
-const HTTP_SERVER_ERROR_MIN = 500;
-const HTTP_SERVER_ERROR_MAX = 600;
 
-function parseHop(hop: string): { engine: string; model: string } {
+export function parseHop(hop: string): { engine: string; model: string } {
   const [engine, ...rest] = hop.replace(HOP_PREFIX, "").split("/");
   return { engine: engine ?? hop, model: rest.join("/") };
 }
@@ -111,7 +110,7 @@ function wrapStream(
         controller.enqueue(value);
       } catch (err) {
         controller.error(err);
-        onDone(false, err instanceof Error ? err.message : String(err));
+        onDone(false, errMessage(err));
       }
     },
     cancel(reason) {
@@ -177,9 +176,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
     };
   } catch (err) {
     clearTimeout(timer);
-    const failure = controller.signal.aborted
-      ? "timeout"
-      : `connection failed: ${err instanceof Error ? err.message : String(err)}`;
+    const failure = controller.signal.aborted ? "timeout" : `connection failed: ${errMessage(err)}`;
     return {
       attempt: { engine, model, ok: false, failure, duration_ms: Date.now() - start },
       advance: true,

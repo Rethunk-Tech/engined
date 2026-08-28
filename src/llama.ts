@@ -17,13 +17,12 @@ import type { DockerLifecycle } from "./docker.ts";
 import { stateDir } from "./paths.ts";
 import { loadSpec } from "./spec.ts";
 import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
-import { isContainerSpec } from "./types.ts";
+import { isContainerSpec, MS_PER_SECOND } from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
 const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
-const MS_PER_SECOND = 1000;
 /** `/models/load`'s status for a model the router already considers resident. */
 const HTTP_ALREADY_RUNNING = 400;
 /** llama-server's answer once its own residency disagrees with this router's. */
@@ -32,10 +31,6 @@ const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
 const HTTP_SERVER_ERROR = 500;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function iniLines(args: Record<string, unknown>): string[] {
   return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`);
@@ -448,7 +443,7 @@ export class LlamaRouter {
           `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
         );
       }
-      await sleep(this.pollIntervalMs);
+      await Bun.sleep(this.pollIntervalMs);
     }
   }
 
@@ -668,7 +663,7 @@ export class LlamaRouter {
       if (Date.now() >= deadline) {
         return;
       }
-      await sleep(this.pollIntervalMs);
+      await Bun.sleep(this.pollIntervalMs);
     }
   }
 
