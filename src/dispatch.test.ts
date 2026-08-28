@@ -1015,22 +1015,7 @@ describe("the door: streaming provenance", () => {
 
 describe("the door: provenance model fields", () => {
   test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-    const cfg = config({
-      engines: [
-        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
-      ],
-      models: [
-        model({ id: "ornith", engine: "local-llama", filename: "ornith.gguf", role: "chat" }),
-        model({
-          id: "ornith-real",
-          engine: "local-llama",
-          filename: "ornith-real.gguf",
-          role: "chat",
-        }),
-      ],
-    });
+    const { cfg, root } = streamingDoorConfig();
     const lines: string[] = [];
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeStaleReportedHttpClient(),
