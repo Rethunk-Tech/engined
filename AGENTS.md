@@ -18,9 +18,10 @@ provenance against a fake upstream `Bun.serve`, needing nothing installed.
 
 `test/local/*.test.ts` needs images, a GPU or `claude` auth, and is guarded by
 `ENGINED_LOCAL=1`. It never runs in CI. It runs **serially against real
-containers** — llama, comfy and chatterbox each start one — so this
-workstation's single GPU never carries a second engine instance to satisfy a
-test.
+containers** — llama, comfy, chatterbox, kokoro, whisper and piper each start
+one — so this workstation's single GPU never carries a second engine instance
+to satisfy a test. Piper is the one that needs no GPU at all, which is the
+reason it exists.
 
 **Stop the unit first: `systemctl --user stop engined.service`.** The local
 tier drives the same container names the installed unit owns, and its
@@ -165,10 +166,11 @@ a daemon that cannot yet serve it is a broken consumer.
 `Rethunk-Tech/project-register` is off limits entirely — someone else is working
 in it.
 
-The two consumers that each start their own `llama.cpp` today, `sagaforge-ts`
-and `paper-trail`, are the reason this service exists. Neither may be cut over
-while it still starts one: ending the duplicate ownership is the point, and a
-consumer that keeps its own runner has not been cut over, only pointed twice.
+`sagaforge-ts` and `paper-trail` each started their own `llama.cpp`, which is
+the reason this service exists. Both are cut over, and the rule that governed
+them still governs anything new: a consumer that keeps its own runner has not
+been cut over, only pointed twice. Every consumer is cut over now, so the next
+one to appear is the first place this can go wrong again.
 
 ## Editing the migration guides
 
