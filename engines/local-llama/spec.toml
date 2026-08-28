@@ -44,8 +44,18 @@ security_opt = ["label=disable"]
 # a loss here; a published gfx1151 ladder claiming the opposite does not
 # reproduce against this model.
 #
+# Read that ladder as BURST numbers, because that is what they are. Draft
+# acceptance decays with generation length and decode tracks acceptance
+# almost exactly, so the same build measures 62.6 t/s over 32 generated
+# tokens (93% acceptance), 54.3 over 128 (73%), and 54.0 over 512 (71%).
+# The ladder's ORDERING is what holds; its absolute figure is a 32-token
+# regime. Quote ~54 t/s for anything that generates a paragraph, and never
+# compare a decode number taken over 32 tokens with one taken over 512.
+#
 # A per-model arg is honoured per flag, not as a class: only `spec-type`,
-# `spec-draft-p-min`, and `embedding` are proven to reach argv this way.
+# `spec-draft-p-min`, `embedding`, `ctx-size` and `parallel` are proven to
+# reach argv this way -- the last two probed on b10637 by setting them for
+# ornith alone and reading back the child's argv and its slot geometry.
 # Probe each flag the way those were probed -- set it for one model, read
 # the child's argv and /slots back -- before a consumer is told it works. A
 # flag that is ignored and a flag that is honoured and did nothing look
@@ -79,13 +89,36 @@ security_opt = ["label=disable"]
 # spec load rather than a default that lets two 25 GB chat files stay resident.
 #
 # `parallel`, `ctx-size`, `cache-type-k/v` are config-level [engine.args] --
-# see config.example.toml, not this file. `parallel` measured here: llama's
-# auto (`-1`, four unified slots) decodes 62.94 t/s versus 68.28 t/s at
-# `-np 1 -kvu`, and /slots confirms n_ctx stays 32768 at -np 1 -- the
-# ctx-halving below does NOT apply there. Auto is kept anyway for the
-# smaller footgun: `-np 2` and above take slots off auto and disable
-# --kv-unified, halving ctx-size per slot so 32768 silently becomes 16384.
-# The 8.5% is not worth an edit one keystroke away from that.
+# see config.example.toml, not this file -- but both `parallel` and
+# `ctx-size` are settable per model too, which is how ornith gets a window
+# the other roles do not pay for. Measured slot geometry on b10637:
+#   -1 -> n_slots=4, n_ctx_slot=32768,        kv_unified=true
+#    1 -> n_slots=1, n_ctx_slot=ctx-size,     kv_unified=false
+#    2 -> n_slots=2, n_ctx_slot=ctx-size / 2, kv_unified=false
+#
+# kv_unified=true does NOT give each of those four slots its own 32768
+# window -- it gives all four ONE shared 32768 pool, and /slots reporting
+# n_ctx=32768 four times is what makes that easy to misread. The footprint
+# is the proof: 24.62 GiB loaded against a 23.13 GiB GGUF, where KV for
+# 32768 tokens at q8_0 computes to 0.64 GiB and four independent windows
+# would be 2.56 GiB on their own -- more than the entire measured overhead.
+# So `-np -1`'s "four slots" is a concurrency number and never a context
+# number: two concurrent 20k conversations already evict each other.
+#
+# The ctx-halving at `-np 2` is therefore a lever, not only a footgun. It
+# divides a declared ctx-size across slots, so ctx-size=262144 with
+# parallel=2 is two genuinely independent 131072 windows -- what this
+# config runs. KV scales with the declared total and not the slot count:
+# 262144 tokens of q8_0 KV is ~5.1 GiB, measured as a 27.20 GiB loaded
+# footprint against the same GGUF. 262144 is also this model's
+# n_ctx_train, so none of it involves RoPE scaling.
+#
+# Watch serialization rather than memory. At parallel=1 concurrent ornith
+# requests queue outright (measured waits of 0.18 / 2.41 / 4.73s across
+# three simultaneous requests); at parallel=2 two run together and the
+# third waits. Concurrent generation is slower per request than solo
+# (3.27s vs 2.06s for the same 128 tokens) because the two slots share
+# memory bandwidth -- aggregate throughput still wins.
 # --host 0.0.0.0 is structural, not a tunable: llama-server's own default is
 # 127.0.0.1, which binds fine inside the container and passes nothing --
 # docker's -p forwards to the container's interface, not its loopback, so a
@@ -112,10 +145,12 @@ command = [
 # description with nothing to signal it. Checked live against a three-band
 # red/green/blue image with an overlaid text string, twice, including once
 # concurrent with a chat request: both runs named the correct three colours
-# in order and read the overlaid string correctly. The defect did not
-# reproduce on this box for this model/image pair -- that is one data point,
-# not a fix upstream, so keep checking fidelity per consumer rather than
-# assuming it from this comment.
+# in order and read the overlaid string correctly. A third check on b10637
+# -- a two-band red/blue image, run concurrently with an ornith completion
+# and an embed request -- named both colours and their vertical order
+# correctly. The defect did not reproduce on this box for these model/image
+# pairs, and that is three data points, not a fix upstream, so keep checking
+# fidelity per consumer rather than assuming it from this comment.
 #
 # Model swap is seconds, not instant -- measured warm at roughly 8-16s
 # across the two GGUFs on disk, scaling with file size. Idle is `docker
