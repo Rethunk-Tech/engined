@@ -583,6 +583,45 @@ test("a cold streaming request emits `: warming` before its first real byte", as
   expect(new TextDecoder().decode(value)).toBe(": warming\n\n");
 });
 
+test("a client cancelling a streaming response cancels the upstream reader too, instead of leaking the connection", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  let upstreamCancelled = false;
+  const client: HttpClient = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === LOAD_PATH) {
+      return Response.json({ success: true });
+    }
+    if (url.pathname === MODELS_LIST_PATH) {
+      return modelsList([{ id: "a", status: "loaded" }]);
+    }
+    if (url.pathname === CHAT_PATH) {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new TextEncoder().encode("data: chunk\n\n"));
+        },
+        cancel() {
+          upstreamCancelled = true;
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }
+    throw new Error(`unexpected path ${url.pathname}`);
+  };
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a", stream: true }),
+  });
+  const reader = res.body?.getReader();
+  await reader?.read();
+  await reader?.cancel();
+
+  expect(upstreamCancelled).toBe(true);
+});
+
 test("a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });

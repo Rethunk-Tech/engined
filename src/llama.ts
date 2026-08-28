@@ -763,8 +763,13 @@ export class LlamaRouter {
           release();
         }
       },
-      cancel: () => {
+      cancel: (reason) => {
         release();
+        // A client disconnecting mid-stream cancels this ReadableStream, but
+        // that alone leaves the upstream llama-server connection open (and
+        // its reader pending) until GC -- cancel it too so the socket closes
+        // now, not eventually.
+        reader?.cancel(reason).catch(() => undefined);
       },
     });
     return new Response(stream, {
