@@ -86,6 +86,13 @@ key; it is not an args passthrough and it is never `@latest`. Precedence is
 one line: **model args beat engine args, config args beat spec args, and the
 floor beats everything.**
 
+**On a remote engine, `[engine.args]` are wire parameters, not process
+flags** — there is no process. `src/remote.ts` hands them to whichever
+dialect the door is speaking, and ElevenLabs' `model_id` is the first. They
+were rejected at parse while nothing read them; the moment something does,
+rejecting them would be the bug, so that check is gone and
+`src/config.test.ts` asserts they survive to the entry instead.
+
 **Which keys are required depends on what the entry describes.**
 
 | Entry | Required | Absent by construction |

@@ -414,25 +414,26 @@ secret = { service = "s", username = "u", header = "h" }
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_MODELS_DIR);
   });
 
-  // A remote, non-agentic engine has no spec directory at all (`entry.spec`
-  // is null for any `base_url` engine) and reaches `execAgentic`'s own
-  // `engineEntry.args` read only when its kind is agentic-cli -- so declaring
-  // args here is provably inert: nothing in the door will ever read them.
-  test("a remote, non-agentic engine's [engine.args] is rejected -- nothing reachable ever reads it", () => {
+  // A remote, non-agentic engine launches no process, so its [engine.args]
+  // are wire parameters rather than process flags -- `remote.ts` hands them
+  // to whichever dialect the door is speaking (ElevenLabs' `model_id` is the
+  // first). They were rejected while nothing read them; the moment something
+  // does, rejecting them would be the bug.
+  test("a remote, non-agentic engine's [engine.args] parse and survive to the entry", () => {
     const toml = `
 [[engine]]
 id = "hosted-thing"
 egress = "remote"
-kind = "openai-http"
+kind = "stt"
 base_url = "https://x"
 secret = { service = "s", username = "u", header = "h" }
 
   [engine.args]
-  some-flag = "value"
+  model_id = "scribe_v1"
 `;
-    const message = chainHopMessage(toml);
-    expect(message).toContain('engine "hosted-thing"');
-    expect(message).toContain("args");
+    const config = loadConfig(writeConfig(toml));
+    const engine = config.engines.find((e) => e.id === "hosted-thing");
+    expect(engine?.args.model_id).toBe("scribe_v1");
   });
 
   test("an unrecognised top-level engine key is fatal", () => {

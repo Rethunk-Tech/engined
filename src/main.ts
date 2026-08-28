@@ -16,6 +16,7 @@ import {
 } from "./agentic.ts";
 import {
   type DoorResponse,
+  type EngineStart,
   handleSpeech,
   handleTranscription,
   type SpeechRequestBody,
@@ -30,7 +31,8 @@ import { proxyExtras } from "./extras.ts";
 import { type HttpClient, LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
-import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
+import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
+import type { Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import { type Config, type EngineEntry, type EngineKind, FatalError } from "./types.ts";
 
@@ -190,8 +192,12 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
  * name, an alias, anything -- never necessarily this hop's resolved model
  * id, so it is overwritten rather than forwarded verbatim. `workdir` is
  * stripped as before; every other caller-supplied field passes through.
+ *
+ * Shared by the local llama proxy and the remote HTTP proxy: both speak the
+ * same OpenAI body, and the only thing that differs is where it is posted
+ * and what proves the caller may post it.
  */
-function llamaRequestInit(
+function openAiRequestInit(
   rawBody: Record<string, unknown>,
   resolvedModelId: string,
   signal: AbortSignal,
@@ -230,6 +236,8 @@ export interface DoorOptions {
   agenticSpawn?: AgenticSpawn;
   llamaHttpClient?: HttpClient;
   audioFetch?: typeof fetch;
+  /** Defaults to the real `fetch`; a test overrides it so a remote engine's upstream is a local `Bun.serve` rather than the internet. */
+  remoteFetch?: typeof fetch;
   extrasHttpClient?: HttpClient;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
@@ -330,34 +338,9 @@ async function execLlama(
   const router = getLlamaRouter(ctx, engineEntry);
   // Both fetchBuffered and fetchStreamed take this same `init`, so
   // rewriting `model` once here fixes both proxy paths.
-  const init = llamaRequestInit(req.rawBody, model.id, req.signal);
+  const init = openAiRequestInit(req.rawBody, model.id, req.signal);
   const response = await router.proxy(model, req.pathname, init);
-  const contentType = response.headers.get("content-type") ?? "application/json";
-  req.setContentType(contentType);
-  // A buffered JSON response is parsed from a clone, so the caller's own read
-  // stays untouched. An SSE body cannot be buffered the same way — those
-  // bytes are already owed to the caller as they arrive — so it is teed
-  // instead: one branch goes back to the caller unread, the other is sniffed
-  // only far enough to find the first `data:` frame's model id.
-  let callerStream: ReadableStream<Uint8Array> | undefined;
-  let modelReported: string | undefined;
-  if (contentType.includes("application/json")) {
-    // `.clone()` before `.body` is ever touched: reading the getter first
-    // disturbs the body Bun's clone() then tees from.
-    modelReported = reportedModelFrom(
-      await response
-        .clone()
-        .json()
-        .catch(() => undefined),
-    );
-    callerStream = response.body ?? undefined;
-  } else if (contentType.includes("text/event-stream") && response.body) {
-    const [forCaller, forSniff] = response.body.tee();
-    callerStream = forCaller;
-    modelReported = await firstReportedModel(forSniff);
-  } else {
-    callerStream = response.body ?? undefined;
-  }
+  const { stream, modelReported } = await readHopBody(response, req.setContentType);
   // Per attempt, from the engine's own /v1/models — never the router's cached
   // command bookkeeping, and never model_reported: the two answer different
   // questions and one silently standing in for the other defeats provenance.
@@ -365,10 +348,45 @@ async function execLlama(
     model.role === undefined ? undefined : await router.residentModelId(model.role);
   return {
     status: response.status,
-    stream: callerStream,
+    stream,
     modelReported,
     modelResident,
   };
+}
+
+/**
+ * The half of a hop's response handling that has nothing to do with which
+ * kind of engine answered: pick the content type, hand the caller its bytes
+ * untouched, and learn the model the upstream says it used.
+ *
+ * A buffered JSON response is parsed from a clone, so the caller's own read
+ * stays untouched. An SSE body cannot be buffered the same way — those bytes
+ * are already owed to the caller as they arrive — so it is teed instead: one
+ * branch goes back to the caller unread, the other is sniffed only far
+ * enough to find the first `data:` frame's model id.
+ */
+async function readHopBody(
+  response: Response,
+  setContentType: (ct: string) => void,
+): Promise<{ stream: ReadableStream<Uint8Array> | undefined; modelReported: string | undefined }> {
+  const contentType = response.headers.get("content-type") ?? "application/json";
+  setContentType(contentType);
+  if (contentType.includes("application/json")) {
+    // `.clone()` before `.body` is ever touched: reading the getter first
+    // disturbs the body Bun's clone() then tees from.
+    const modelReported = reportedModelFrom(
+      await response
+        .clone()
+        .json()
+        .catch(() => undefined),
+    );
+    return { stream: response.body ?? undefined, modelReported };
+  }
+  if (contentType.includes("text/event-stream") && response.body) {
+    const [forCaller, forSniff] = response.body.tee();
+    return { stream: forCaller, modelReported: await firstReportedModel(forSniff) };
+  }
+  return { stream: response.body ?? undefined, modelReported: undefined };
 }
 
 const SSE_FRAME_BOUNDARY = "\n\n";
@@ -495,8 +513,13 @@ function redirectEnv(
   };
 }
 
-/** The configured id verbatim — never invented, never stripped — resolved through aliases the same way a chat model is. */
-function resolveAgenticModelId(
+/**
+ * The configured id verbatim — never invented, never stripped — resolved
+ * through aliases the same way a chat model is. Shared by the agentic
+ * redirect and the remote HTTP proxy: both hand a `[[model]]` id straight to
+ * someone else's service, where a prettier local alias would simply 404.
+ */
+function resolveUpstreamModelId(
   config: Config,
   engineId: string,
   modelSeg: string,
@@ -536,24 +559,12 @@ export async function resolveRedirect(
   config: Config,
   secretExec?: SecretExec,
 ): Promise<RedirectResolution> {
-  if (!engineEntry.secret) {
-    return {
-      ok: false,
-      result: {
-        status: 502,
-        body: { error: `engine "${engineEntry.id}" is a remote address with no configured secret` },
-      },
-    };
+  const resolved = await resolveRemoteSecret(engineEntry, secretExec);
+  if (!resolved.ok) {
+    return { ok: false, result: { status: resolved.status, body: { error: resolved.error } } };
   }
-  const outcome = await resolveSecret(engineEntry.secret, secretExec);
-  if (!outcome.ok) {
-    return {
-      ok: false,
-      result: { status: 503, body: { error: outcome.fix } },
-    };
-  }
-  const model = resolveAgenticModelId(config, engineEntry.id, modelSeg);
-  return { ok: true, env: redirectEnv(engineEntry.base_url as string, outcome.value, model) };
+  const model = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
+  return { ok: true, env: redirectEnv(engineEntry.base_url as string, resolved.value, model) };
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
@@ -634,6 +645,46 @@ async function execAgentic(
   return hopResultFromAgenticOutcome(outcome);
 }
 
+/**
+ * The remote `openai-http` case: the same OpenAI body posted straight at a
+ * configured address with the engine's secret in its one header. No router,
+ * no occupancy and no `model_resident` — nothing is loaded here, so there is
+ * no resident model to report, and inventing one would put a claim in the
+ * provenance line that no read backs.
+ *
+ * `local_only` is stripped alongside `workdir`: both are engined's own door
+ * fields, and a provider that validates its request body strictly rejects
+ * the whole call over one it has never heard of.
+ */
+async function execRemoteHttp(
+  ctx: DoorContext,
+  engineEntry: EngineEntry,
+  modelSeg: string,
+  req: HopRequest & { signal: AbortSignal },
+): Promise<HopResult> {
+  const resolution = await resolveRemote(engineEntry, ctx.doorOpts.secretExec);
+  if (!resolution.ok) {
+    return { status: resolution.status, body: { error: resolution.error } };
+  }
+  const modelId = resolveUpstreamModelId(ctx.getConfig(), engineEntry.id, modelSeg);
+  if (modelId === undefined) {
+    return {
+      status: 502,
+      body: { error: `engine "${engineEntry.id}" requires a model, and none was named` },
+    };
+  }
+  const init = openAiRequestInit(stripField(req.rawBody, "local_only"), modelId, req.signal);
+  const response = await (ctx.doorOpts.remoteFetch ?? fetch)(
+    remoteUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
+    {
+      ...init,
+      headers: { ...(init.headers as Record<string, string>), ...resolution.endpoint.headers },
+    },
+  );
+  const { stream, modelReported } = await readHopBody(response, req.setContentType);
+  return { status: response.status, stream, modelReported };
+}
+
 function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
   return async (hop, signal) => {
     const { engine: seg, model: modelSeg } = parseHopSegments(hop);
@@ -643,6 +694,9 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
       return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
     const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
+    if (kind === "openai-http" && engineEntry && isRemote(engineEntry)) {
+      return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
+    }
     if (kind === "openai-http" && engineEntry) {
       return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
     }
@@ -773,6 +827,27 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
   ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
 }
 
+/**
+ * The audio door's `EngineStart`. A remote engine is resolved to an address
+ * and a header instead of started — there is no container to warm — and a
+ * secret that will not resolve surfaces as a null `private_url` with no
+ * `remote`, which the door reports as unavailable exactly like a container
+ * that failed to come up.
+ */
+function audioStart(ctx: DoorContext): EngineStart {
+  return async (id: string) => {
+    const engine = ctx.getConfig().engines.find((e) => e.id === id);
+    if (engine && isRemote(engine)) {
+      const resolution = await resolveRemote(engine, ctx.doorOpts.secretExec);
+      return resolution.ok
+        ? { private_url: null, remote: resolution.endpoint }
+        : { private_url: null, unavailable: resolution.error };
+    }
+    const status = await ctx.registry.start(id);
+    return { private_url: status.private_url };
+  };
+}
+
 async function handleAudioSpeech(
   ctx: DoorContext,
   body: Record<string, unknown>,
@@ -786,10 +861,7 @@ async function handleAudioSpeech(
     return Response.json({ error: "audio endpoints do not take a chain" }, { status: 400 });
   }
   const engineId = resolved.engine;
-  const start = async (id: string) => {
-    const status = await ctx.registry.start(id);
-    return { private_url: status.private_url };
-  };
+  const start = audioStart(ctx);
   const speechReq: SpeechRequestBody = {
     model: engineId,
     input: typeof body.input === "string" ? body.input : "",
@@ -838,10 +910,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
     return Response.json({ error: "audio endpoints do not take a chain" }, { status: 400 });
   }
   const engineId = resolved.engine;
-  const start = async (id: string) => {
-    const status = await ctx.registry.start(id);
-    return { private_url: status.private_url };
-  };
+  const start = audioStart(ctx);
   const transcriptionReq: TranscriptionRequestBody = {
     model: engineId,
     file: form.file,

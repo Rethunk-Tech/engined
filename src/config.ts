@@ -157,18 +157,6 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
   const claudeVersion = optional(raw.claude_version, "string", `${site} "claude_version"`, file);
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argsToArgv(args), file);
-  // A remote address with no claude_version launches nothing agentic-cli
-  // reaches (execAgentic only reads engine.args for that kind) and has no
-  // spec directory to render argv into either (base_url skips loadEngineSpec
-  // entirely) -- so its own [engine.args] is provably inert, not merely
-  // unused. Rejected here rather than silently accepted and dropped.
-  if (raw.base_url !== undefined && claudeVersion === undefined && Object.keys(args).length > 0) {
-    throw new ParseError(
-      `${site} is a remote, non-agentic engine and declares "args" that nothing will ever read`,
-      file,
-    );
-  }
-
   return {
     id,
     egress,

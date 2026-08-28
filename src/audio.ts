@@ -16,7 +16,16 @@
  * `response_format` decides whether the reply is unwrapped to bare text or
  * passed through as JSON. `language` is a per-request field that reaches the
  * engine on the wire; it never touches the shipped spec.
+ *
+ * A **remote** STT engine is the one place this door translates the request
+ * as well as the reply. ElevenLabs is not OpenAI-shaped: the path is
+ * `/speech-to-text`, the model field is `model_id`, the language field is
+ * `language_code`, and the reply is always JSON. Exactly one remote STT
+ * dialect ships, because exactly one is configured — a second one earns a
+ * discriminator when it exists, not before.
  */
+
+import { type RemoteEndpoint, remoteUrl } from "./remote.ts";
 
 const WAV_CONTENT_TYPE = "audio/wav";
 const TEXT_CONTENT_TYPE = "text/plain";
@@ -60,8 +69,28 @@ export interface TranscriptionRequestBody {
   response_format?: string;
 }
 
-/** Whatever starts an engine on demand and reports where it landed — `EngineRegistry.start`, in production. */
-export type EngineStart = (id: string) => Promise<{ private_url: string | null }>;
+/**
+ * Whatever starts an engine on demand and reports where it landed —
+ * `EngineRegistry.start`, in production.
+ *
+ * A remote engine lands nowhere: it has no container and so no
+ * `private_url`, and `remote` carries its address and header instead. The
+ * two are mutually exclusive by construction, not by convention — a
+ * `base_url` engine is never handed to the lifecycle at all.
+ */
+export type EngineStart = (id: string) => Promise<StartedEngine>;
+
+export interface StartedEngine {
+  private_url: string | null;
+  remote?: RemoteEndpoint;
+  /**
+   * The runnable fix for an engine that could not be reached at all — a
+   * `secret-tool store` line, usually. Carried rather than collapsed into
+   * "not available", because for a remote engine the reason is always
+   * actionable and always specific.
+   */
+  unavailable?: string;
+}
 
 /** The first NDJSON line carrying a non-empty `audio` field; later lines (if any) are ignored, same as an absent alignment. */
 function extractAudioFromNdjson(body: string): string | undefined {
@@ -105,8 +134,17 @@ export async function handleSpeech(
   }
 
   const engine = await start(req.model);
+  if (engine.remote !== undefined) {
+    // No remote TTS upstream is configured, so no remote TTS dialect ships.
+    // Said out loud rather than left to fail as "not available", which would
+    // read as a container that did not start.
+    return errorResponse(
+      STATUS_BAD_UPSTREAM,
+      `${req.model} is a remote address, and no remote speech dialect ships`,
+    );
+  }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, `${req.model} is not available`);
+    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
   }
 
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
@@ -126,6 +164,70 @@ export async function handleSpeech(
   return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: Buffer.from(audio, "base64") };
 }
 
+/** ElevenLabs' own default. Overridable per engine through `[engine.args] model_id`. */
+const ELEVENLABS_DEFAULT_MODEL_ID = "scribe_v1";
+/**
+ * ElevenLabs returns words with timings, so `srt`/`vtt` are buildable — and
+ * building them means owning a subtitle writer for a format no consumer has
+ * asked this door for. Rejected while that is still true, in the same spirit
+ * as `SPEECH_RESPONSE_FORMATS` rejecting mp3 rather than mislabelling WAV.
+ */
+const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
+
+/**
+ * The ElevenLabs Scribe dialect. `model_id` is not the door's `model`: on
+ * this door `model` names the *engine*, so the upstream's own model id can
+ * only come from config — forwarding `model` verbatim would send the string
+ * "elevenlabs" as a model id and earn a 422.
+ */
+async function transcribeRemote(
+  req: TranscriptionRequestBody,
+  remote: RemoteEndpoint,
+  fetchImpl: typeof fetch,
+): Promise<DoorResponse> {
+  const format = req.response_format;
+  if (format !== undefined && !REMOTE_TEXT_RESPONSE_FORMATS.has(format) && format !== "json") {
+    return errorResponse(
+      STATUS_BAD_REQUEST,
+      `${req.model}: response_format must be one of: text, json`,
+    );
+  }
+
+  const form = new FormData();
+  form.append("file", new Blob([req.file]), "audio");
+  form.append("model_id", String(remote.args.model_id ?? ELEVENLABS_DEFAULT_MODEL_ID));
+  if (req.language !== undefined) {
+    form.append("language_code", req.language);
+  }
+
+  const res = await fetchImpl(remoteUrl(remote.base_url, "/speech-to-text"), {
+    method: "POST",
+    headers: remote.headers,
+    body: form,
+  });
+  if (!res.ok) {
+    return errorResponse(
+      STATUS_BAD_UPSTREAM,
+      `${req.model}: /speech-to-text returned ${res.status}`,
+    );
+  }
+
+  const parsed = (await res.json()) as { text?: unknown };
+  if (typeof parsed.text !== "string") {
+    return errorResponse(
+      STATUS_BAD_UPSTREAM,
+      `${req.model}: /speech-to-text carried no transcript`,
+    );
+  }
+  if (format !== undefined && REMOTE_TEXT_RESPONSE_FORMATS.has(format)) {
+    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: parsed.text };
+  }
+  // The door's own JSON shape, not the upstream's: a consumer that switched
+  // engines would otherwise start seeing ElevenLabs' word timings and
+  // language-probability fields appear and disappear with the engine id.
+  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text: parsed.text } };
+}
+
 export async function handleTranscription(
   req: TranscriptionRequestBody,
   start: EngineStart,
@@ -139,8 +241,11 @@ export async function handleTranscription(
   }
 
   const engine = await start(req.model);
+  if (engine.remote !== undefined) {
+    return await transcribeRemote(req, engine.remote, fetchImpl);
+  }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, `${req.model} is not available`);
+    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
   }
 
   const form = new FormData();
