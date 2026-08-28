@@ -44,7 +44,10 @@ type RemoteResolution =
  * `ANTHROPIC_API_KEY`. Everything else takes `resolveRemote` and never sees
  * it.
  */
-type SecretResolution = { ok: true; value: string } | { ok: false; status: number; error: string };
+/** `header` rides along so a caller never has to reach back into `engine.secret` the resolver already validated. */
+type SecretResolution =
+  | { ok: true; value: string; header: string }
+  | { ok: false; status: number; error: string };
 
 const TRAILING_SLASHES = /\/+$/;
 const LEADING_SLASHES = /^\/+/;
@@ -61,6 +64,11 @@ export function isRemote(engine: EngineEntry): boolean {
  * keyring unlocks, and every remote engine must recover at the operator's
  * next sign-in without a reload.
  */
+/** One wording for the missing-secret refusal, shared by the resolver and by `GET /v1/engines`'s `fix`. */
+export function noSecretConfiguredFix(engineId: string): string {
+  return `engine "${engineId}" is a remote address with no configured secret`;
+}
+
 export async function resolveRemoteSecret(
   engine: EngineEntry,
   secretExec?: SecretExec,
@@ -73,12 +81,12 @@ export async function resolveRemoteSecret(
       // keyring entry earns below, which resolves at the operator's next
       // sign-in.
       status: STATUS_BAD_GATEWAY,
-      error: `engine "${engine.id}" is a remote address with no configured secret`,
+      error: noSecretConfiguredFix(engine.id),
     };
   }
   const outcome = await resolveSecret(engine.secret, secretExec);
   return outcome.ok
-    ? { ok: true, value: outcome.value }
+    ? { ok: true, value: outcome.value, header: engine.secret.header }
     : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix };
 }
 
@@ -87,15 +95,12 @@ export async function resolveRemote(
   engine: EngineEntry,
   secretExec?: SecretExec,
 ): Promise<RemoteResolution> {
-  if (engine.base_url === undefined || engine.secret === undefined) {
+  if (engine.base_url === undefined) {
+    // 502, not 503: misconfiguration, which no amount of waiting fixes.
     return {
       ok: false,
-      // 502, not 503: a missing configured secret is misconfiguration, and
-      // no amount of waiting fixes it, unlike the 503 a locked or missing
-      // keyring entry earns below, which resolves at the operator's next
-      // sign-in.
       status: STATUS_BAD_GATEWAY,
-      error: `engine "${engine.id}" is a remote address with no configured secret`,
+      error: `engine "${engine.id}" is a remote address with no base_url`,
     };
   }
   const resolved = await resolveRemoteSecret(engine, secretExec);
@@ -106,7 +111,7 @@ export async function resolveRemote(
     ok: true,
     endpoint: {
       base_url: engine.base_url,
-      headers: { [engine.secret.header]: resolved.value },
+      headers: { [resolved.header]: resolved.value },
       args: engine.args,
     },
   };

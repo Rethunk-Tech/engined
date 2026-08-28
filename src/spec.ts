@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
   type AgenticSpec,
   type Artifact,
+  argvFromArgs,
   assertNoForbiddenFlags,
   CONTAINER_KINDS,
   type ContainerSpec,
@@ -286,4 +287,29 @@ function parseArtifacts(raw: unknown, file: string): Artifact[] {
     }
     return { path: o.path, obtain: o.obtain };
   });
+}
+
+/**
+ * Every container kind's own [engine.args]. local-llama's builder appends its
+ * own; every other kind, comfy included, comes through here. `buildRunArgs` renders as
+ * `image, ...entrypoint, ...command`, so an empty `command` means "run the
+ * image's own baked-in CMD unmodified" (chatterbox/kokoro's real shape: it
+ * is already correct, nothing to extend) and appending flags to it does not
+ * extend that CMD, it REPLACES "use the image's own" with "run these flags
+ * as the command" -- silently corrupting the launch, not merely leaving the
+ * args unused. That is rejected here instead: an operator who sets
+ * `[engine.args]` gets its effect or an error, the same contract
+ * config.ts's own closed key sets hold one layer up.
+ */
+export function applyEngineArgs(engine: EngineEntry, spec: ContainerSpec): ContainerSpec {
+  const argv = argvFromArgs(engine.args);
+  if (argv.length === 0) {
+    return spec;
+  }
+  if (spec.command.length === 0) {
+    throw new Error(
+      `engine "${engine.id}": [engine.args] is set, but this engine's command is image-defined (empty) -- appending flags would replace the image's own CMD, not extend it`,
+    );
+  }
+  return { ...spec, command: [...spec.command, ...argv] };
 }
