@@ -147,6 +147,74 @@ function readyProbe(): ReturnType<Probe> {
   return Promise.resolve({ status: READY_STATUS });
 }
 
+/** A successful, empty `ExecResult` -- the default for any command a fake `exec` doesn't care about. */
+function ok(): ExecResult {
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+/** `docker image inspect` success: the redis fixture is present. */
+function inspectFound(): ExecResult {
+  return { stdout: REDIS_INSPECT, stderr: "", exitCode: 0 };
+}
+
+/** `docker image inspect` failure: no such image locally. */
+function inspectMissing(): ExecResult {
+  return { stdout: "", stderr: "no such image", exitCode: 1 };
+}
+
+/** `docker start` miss on a stopped/absent container: forces the caller to `run` instead. */
+function startMiss(): ExecResult {
+  return { stdout: "", stderr: "", exitCode: 1 };
+}
+
+/** `docker port` success: the container answers on the given host port. */
+function portFound(hostPort: number): ExecResult {
+  return { stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 };
+}
+
+/** Every command reports success except `docker image inspect`, which reports the image absent. */
+function execImageMissing(): Exec {
+  return (args) => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(inspectMissing());
+    }
+    return Promise.resolve(ok());
+  };
+}
+
+/**
+ * A recording `Exec`: logs every call's argv into `calls`, always reports
+ * `docker image inspect` as the redis fixture present, and defers any other
+ * verb to `rest` -- returning `undefined` from `rest` falls through to a bare
+ * success.
+ */
+function recordingExec(
+  calls: string[][],
+  rest: (argv: readonly string[]) => ExecResult | undefined,
+): Exec {
+  return (args) => {
+    const argv = [...args];
+    calls.push(argv);
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(inspectFound());
+    }
+    return Promise.resolve(rest(argv) ?? ok());
+  };
+}
+
+/** An `Exec` that answers `docker image inspect` via `onInspect` and counts how many times it was asked; every other verb succeeds. */
+function inspectCountingExec(counter: { count: number }, onInspect: () => ExecResult): Exec {
+  return (args) => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      counter.count++;
+      return Promise.resolve(onInspect());
+    }
+    return Promise.resolve(ok());
+  };
+}
+
 const STUB_HOST_PORT_A = 40_000;
 const STUB_HOST_PORT_B = 40_001;
 const IDLE_STOP_SECONDS = 0.03;
@@ -231,22 +299,22 @@ test("start: a failed artifact check is not cached — a repaired condition re-r
   function exec(args: readonly string[]): Promise<ExecResult> {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+      return Promise.resolve(inspectFound());
     }
     if (argv[0] === "run" && argv[1] === "--rm") {
       artifactState.checkCount++;
       return Promise.resolve({ stdout: "", stderr: "", exitCode: artifactState.present ? 0 : 1 });
     }
     if (argv[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+      return Promise.resolve(startMiss());
     }
     if (argv[0] === "run") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return Promise.resolve(ok());
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: "127.0.0.1:40010", stderr: "", exitCode: 0 });
+      return Promise.resolve(portFound(40_010));
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    return Promise.resolve(ok());
   }
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
@@ -297,17 +365,9 @@ test("start: a bind-mounted artifact is checked with a host stat, never a contai
       ],
     };
     const calls: string[][] = [];
-    function exec(args: readonly string[]): Promise<ExecResult> {
-      const argv = [...args];
-      calls.push(argv);
-      if (argv[0] === "image" && argv[1] === "inspect") {
-        return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
-      }
-      if (argv[0] === "port") {
-        return Promise.resolve({ stdout: "127.0.0.1:40030", stderr: "", exitCode: 0 });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
+    const exec = recordingExec(calls, (argv) =>
+      argv[0] === "port" ? portFound(40_030) : undefined,
+    );
     const lifecycle = new DockerLifecycle(exec, readyProbe);
 
     // Missing: unavailable, carrying the artifact's own obtain command, never a container run.
@@ -332,13 +392,13 @@ test("probe: a missing pull-obtain image reports a runnable docker pull, and sta
   function exec(args: readonly string[]): Promise<ExecResult> {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+      return Promise.resolve(inspectMissing());
     }
     if (argv[0] === "run") {
       runLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return Promise.resolve(ok());
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    return Promise.resolve(ok());
   }
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
@@ -359,15 +419,7 @@ test("probe: a missing build-obtain image whose spec dir HAS a Dockerfile report
     writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
     const buildSpec: ContainerSpec = { ...SPEC, obtain: "build", image: "engined-kokoro:local" };
 
-    function exec(args: readonly string[]): Promise<ExecResult> {
-      const argv = [...args];
-      if (argv[0] === "image" && argv[1] === "inspect") {
-        return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-
-    const lifecycle = new DockerLifecycle(exec, readyProbe);
+    const lifecycle = new DockerLifecycle(execImageMissing(), readyProbe);
     const status = await lifecycle.probe("kokoro", buildSpec, dir);
 
     expect(status.state).toBe("unavailable");
@@ -397,15 +449,7 @@ test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does 
       image: "no-dockerfile-example:local",
     };
 
-    function exec(args: readonly string[]): Promise<ExecResult> {
-      const argv = [...args];
-      if (argv[0] === "image" && argv[1] === "inspect") {
-        return Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-
-    const lifecycle = new DockerLifecycle(exec, readyProbe);
+    const lifecycle = new DockerLifecycle(execImageMissing(), readyProbe);
     const status = await lifecycle.probe("no-dockerfile-example", buildSpec, dir);
 
     expect(status.state).toBe("unavailable");
@@ -427,55 +471,41 @@ test("probe: a container already running is left alone, not re-checked or restar
 });
 
 test("probe: the image check is cached across repeated polls, not re-shelled on every GET /v1/engines", async () => {
-  let inspectCount = 0;
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      inspectCount++;
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  }
-
-  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  const inspectCalls = { count: 0 };
+  const lifecycle = new DockerLifecycle(
+    inspectCountingExec(inspectCalls, inspectFound),
+    readyProbe,
+  );
 
   const first = await lifecycle.probe("cached-image", SPEC);
   expect(first.state).toBe("installed");
-  expect(inspectCount).toBe(1);
+  expect(inspectCalls.count).toBe(1);
 
   const second = await lifecycle.probe("cached-image", SPEC);
   expect(second.state).toBe("installed");
-  expect(inspectCount).toBe(1);
+  expect(inspectCalls.count).toBe(1);
 });
 
 test("probe: a missing image is not cached -- a pull between polls is picked up without a restart", async () => {
   let present = false;
-  let inspectCount = 0;
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      inspectCount++;
-      return present
-        ? Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 })
-        : Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  }
-
-  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  const inspectCalls = { count: 0 };
+  const lifecycle = new DockerLifecycle(
+    inspectCountingExec(inspectCalls, () => (present ? inspectFound() : inspectMissing())),
+    readyProbe,
+  );
 
   const missing = await lifecycle.probe("repairable-image", SPEC);
   expect(missing.state).toBe("unavailable");
-  expect(inspectCount).toBe(1);
+  expect(inspectCalls.count).toBe(1);
 
   const stillMissing = await lifecycle.probe("repairable-image", SPEC);
   expect(stillMissing.state).toBe("unavailable");
-  expect(inspectCount).toBe(2);
+  expect(inspectCalls.count).toBe(2);
 
   present = true;
   const repaired = await lifecycle.probe("repairable-image", SPEC);
   expect(repaired.state).toBe("installed");
-  expect(inspectCount).toBe(3);
+  expect(inspectCalls.count).toBe(3);
 });
 
 test("idle-stop failure is recorded as last_error, not thrown, the container stays running, and the timer retries a bounded number of times with no new traffic", async () => {
@@ -483,22 +513,22 @@ test("idle-stop failure is recorded as last_error, not thrown, the container sta
   function exec(args: readonly string[]): Promise<ExecResult> {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+      return Promise.resolve(inspectFound());
     }
     if (argv[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
+      return Promise.resolve(startMiss());
     }
     if (argv[0] === "run") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return Promise.resolve(ok());
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: "127.0.0.1:40003", stderr: "", exitCode: 0 });
+      return Promise.resolve(portFound(40_003));
     }
     if (argv[0] === "stop") {
       stopCalls.push(argv);
       return Promise.resolve({ stdout: "", stderr: "container is not running", exitCode: 1 });
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    return Promise.resolve(ok());
   }
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
@@ -563,24 +593,15 @@ test("start: a stale container by this name is removed and recreated from the cu
   const currentSpec: ContainerSpec = { ...SPEC, command: [DISTINGUISHING_ARG] };
   const hostPort = 40_020;
 
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    calls.push(argv);
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
-    }
+  const exec = recordingExec(calls, (argv) => {
     if (argv[0] === "rm") {
       // A stopped container by this name existed and is removed.
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "run") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return ok();
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+      return portFound(hostPort);
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  }
+  });
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
   const status = await lifecycle.start("stale", currentSpec, START_OPTS);
@@ -603,41 +624,35 @@ test("start: a container already running under this name is force-removed and re
   const hostPort = 40_022;
   let removed = false;
 
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    calls.push(argv);
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
-    }
+  const exec = recordingExec(calls, (argv) => {
     if (argv[0] === "rm") {
       if (argv.includes("-f")) {
         removed = true;
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+        return ok();
       }
-      return Promise.resolve({
+      return {
         stdout: "",
         stderr:
           "Error response from daemon: You cannot remove a running container ... Stop the container before attempting removal or force remove",
         exitCode: 1,
-      });
+      };
     }
     if (argv[0] === "run") {
       if (!removed) {
         const DOCKER_NAME_CONFLICT_EXIT_CODE = 125;
-        return Promise.resolve({
+        return {
           stdout: "",
           stderr:
             'docker: Error response from daemon: Conflict. The container name "/engined-running-conflict" is already in use by container ...',
           exitCode: DOCKER_NAME_CONFLICT_EXIT_CODE,
-        });
+        };
       }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return ok();
     }
     if (argv[0] === "port") {
-      return Promise.resolve({ stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 });
+      return portFound(hostPort);
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  }
+  });
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
   const status = await lifecycle.start("running-conflict", SPEC, START_OPTS);
@@ -649,21 +664,15 @@ test("start: a container already running under this name is force-removed and re
 test("start: a genuine docker rm failure is surfaced, not swallowed into a doomed run", async () => {
   const calls: string[][] = [];
 
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    calls.push(argv);
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
-    }
+  const exec = recordingExec(calls, (argv) => {
     if (argv[0] === "rm") {
-      return Promise.resolve({
+      return {
         stdout: "",
         stderr: "Error response from daemon: driver failed programming external connectivity",
         exitCode: 1,
-      });
+      };
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  }
+  });
 
   const lifecycle = new DockerLifecycle(exec, readyProbe);
   const status = await lifecycle.start("rm-fails", SPEC, START_OPTS);
