@@ -26,6 +26,8 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 const MS_PER_SECOND = 1000;
 /** `/models/load`'s status for a model the router already considers resident. */
 const HTTP_ALREADY_RUNNING = 400;
+/** llama-server's answer once its own residency disagrees with this router's. */
+const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 
 function sleep(ms: number): Promise<void> {
@@ -518,7 +520,7 @@ export class LlamaRouter {
    * string body (`main.ts` stringifies the JSON it forwards). A streamed
    * request body would already be consumed and must not be retried here.
    */
-  private async fetchUpstream(path: string, init: RequestInit): Promise<Response> {
+  private async fetchUpstreamOnce(path: string, init: RequestInit): Promise<Response> {
     try {
       return await this.httpClient(`${this.baseUrl()}${path}`, init);
     } catch (err) {
@@ -537,6 +539,52 @@ export class LlamaRouter {
     }
   }
 
+  /**
+   * `activeModelId` records what this router last commanded, not what the
+   * engine actually holds, and the two come apart whenever anything unloads
+   * behind it -- an operator poking `/models/unload`, or a router-side
+   * eviction. The lease layer then sees its own belief satisfied, skips the
+   * swap, and proxies to a child that answers 400 "model is not loaded" for
+   * the rest of the process's life: the role never reloads, because nothing
+   * in the request path ever asks the engine who is resident.
+   *
+   * So the 400 is the trigger to reconcile, exactly as a transport failure is
+   * the trigger to reconcile the container in `fetchUpstreamOnce`. Both pay
+   * only once a request has already failed rather than taxing healthy ones,
+   * and both re-send `init` as given -- safe because every caller builds it
+   * with a string body, and a consumed stream must never be retried here.
+   *
+   * `loadAndWait` is the whole repair: the belief is already correct about
+   * WHICH model belongs here, so nothing needs unloading first, and its
+   * `/v1/models` poll is what makes the retry wait for real readiness
+   * instead of racing the child's load.
+   */
+  private async fetchUpstream(
+    path: string,
+    init: RequestInit,
+    modelId?: string,
+  ): Promise<Response> {
+    const res = await this.fetchUpstreamOnce(path, init);
+    if (modelId === undefined || !(await this.saysModelNotLoaded(res))) {
+      return res;
+    }
+    await this.loadAndWait(this.baseUrl(), modelId);
+    return await this.fetchUpstreamOnce(path, init);
+  }
+
+  /** Reads a clone so the caller still owns an unconsumed body on every path. */
+  private async saysModelNotLoaded(res: Response): Promise<boolean> {
+    if (res.ok) {
+      return false;
+    }
+    try {
+      const body = (await res.clone().json()) as { error?: { message?: string } };
+      return body.error?.message === MODEL_NOT_LOADED_MESSAGE;
+    } catch {
+      return false;
+    }
+  }
+
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
   private fetchBuffered(
     role: Role,
@@ -545,7 +593,7 @@ export class LlamaRouter {
     init: RequestInit,
   ): Promise<Response> {
     return this.withLease(role, modelId, async () => {
-      const upstream = await this.fetchUpstream(path, init);
+      const upstream = await this.fetchUpstream(path, init, modelId);
       const body = await upstream.arrayBuffer();
       return new Response(body, { status: upstream.status, headers: upstream.headers });
     });
@@ -575,7 +623,7 @@ export class LlamaRouter {
     await this.beginLease(role, modelId);
     let upstream: Response;
     try {
-      upstream = await this.fetchUpstream(path, init);
+      upstream = await this.fetchUpstream(path, init, modelId);
     } catch (err) {
       this.finishLease(role);
       throw err;

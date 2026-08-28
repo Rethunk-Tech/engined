@@ -742,3 +742,43 @@ test("a request that cannot connect while the container is genuinely up rethrows
   // Not retried: docker said the container is up, so this is a real upstream error.
   expect(chatCalls).toBe(1);
 });
+
+/**
+ * The desync this heals is not hypothetical: unloading ornith straight at the
+ * router (`POST /models/unload`) left engined still believing it resident, so
+ * the very next proxied request came back 400 "model is not loaded" in ~12ms
+ * and the role never reloaded on its own. Reproduced live against b10637.
+ */
+test("a model unloaded behind the router's back reloads once, instead of 400ing forever", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  let unloadedBehindBack = false;
+  let served404s = 0;
+  const { client, calls } = fakeLlama((call) => {
+    if (call.path === CHAT_PATH && unloadedBehindBack) {
+      unloadedBehindBack = false;
+      served404s++;
+      return Response.json({ error: { message: "model is not loaded" } }, { status: 400 });
+    }
+    return undefined;
+  });
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  const loadsBefore = calls.filter((c) => c.path === LOAD_PATH).length;
+
+  // Nothing tells engined about this: its own activeModelId still says "a".
+  unloadedBehindBack = true;
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+
+  expect(served404s).toBe(1);
+  expect(res.status).toBe(200);
+  // The reload is a real /models/load, not a silent retry against the same dead state.
+  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1);
+  // And no eviction: the belief about WHICH model belongs here was never wrong.
+  expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
+});
