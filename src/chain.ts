@@ -53,7 +53,7 @@ export interface RunChainOptions {
   write?: (line: string) => void;
 }
 
-export interface ChainResult {
+interface ChainResult {
   status: number;
   body?: unknown;
   stream?: ReadableStream;

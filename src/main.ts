@@ -203,13 +203,9 @@ function agenticEnvelope(text: string | undefined): Record<string, unknown> {
 export interface DoorOptions {
   agenticSpawn?: AgenticSpawn;
   llamaHttpClient?: HttpClient;
-  audioFetch?: HttpClient;
-  /** Defaults to the real `fetch`; a test overrides it so a remote engine's upstream is a local `Bun.serve` rather than the internet. */
-  remoteFetch?: HttpClient;
   extrasHttpClient?: HttpClient;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
-  llamaPollIntervalMs?: number;
   /** Defaults to `LlamaRouter`'s own default; a test overrides it so it never touches the real state dir. */
   llamaPresetHostPath?: string;
   /** Defaults to the real `secret-tool`; a test overrides it so a remote-agentic engine's keyring lookup never runs for real. */
@@ -263,7 +259,6 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
     idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
     readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
     httpClient: ctx.doorOpts.llamaHttpClient,
-    pollIntervalMs: ctx.doorOpts.llamaPollIntervalMs,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
   });
   ctx.llamaRouters.set(engine.id, router);
@@ -510,7 +505,7 @@ function resolveUpstreamModelId(
   return found?.id ?? modelSeg;
 }
 
-export type RedirectResolution =
+type RedirectResolution =
   | { ok: true; env: Record<string, string> }
   | { ok: false; result: HopResult };
 
@@ -651,7 +646,7 @@ async function execRemoteHttp(
     };
   }
   const init = openAiRequestInit(stripField(req.rawBody, "local_only"), modelId, req.signal);
-  const response = await (ctx.doorOpts.remoteFetch ?? fetch)(
+  const response = await fetch(
     remoteUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
     {
       ...init,
@@ -856,7 +851,7 @@ async function handleAudioSpeech(
     response_format: typeof body.response_format === "string" ? body.response_format : undefined,
   };
   const startedAt = Date.now();
-  const result = await handleSpeech(speechReq, start, ctx.doorOpts.audioFetch);
+  const result = await handleSpeech(speechReq, start);
   armAudioIdleStop(ctx, engineId);
   recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt });
   return doorResponseToResponse(result);
@@ -927,7 +922,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
     response_format: form.responseFormat,
   };
   const startedAt = Date.now();
-  const result = await handleTranscription(transcriptionReq, start, ctx.doorOpts.audioFetch);
+  const result = await handleTranscription(transcriptionReq, start);
   armAudioIdleStop(ctx, engineId);
   recordAudioCall(ctx, { engineId, requested: form.rawModel ?? "", result, startedAt });
   return doorResponseToResponse(result);

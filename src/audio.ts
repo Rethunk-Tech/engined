@@ -84,7 +84,7 @@ export interface TranscriptionRequestBody {
  */
 export type EngineStart = (id: string) => Promise<StartedEngine>;
 
-export interface StartedEngine {
+interface StartedEngine {
   private_url: string | null;
   remote?: RemoteEndpoint;
   /**

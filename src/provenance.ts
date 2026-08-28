@@ -26,7 +26,6 @@ export interface CallRecord {
   requested: string;
   attempts: Attempt[];
   engine_used: string | null;
-  tokens?: { prompt?: number; completion?: number };
 }
 
 /** Picks only the known fields, so a caller that spreads a headers object onto an attempt never leaks it into the line. */
@@ -57,7 +56,6 @@ export function recordCall(
       requested: record.requested,
       attempts: record.attempts.map(serializeAttempt),
       engine_used: record.engine_used,
-      tokens: record.tokens,
     }),
   );
 }

@@ -162,7 +162,7 @@ export function defaultAgenticSpawn(
   });
 }
 
-export interface BuildArgvInput {
+interface BuildArgvInput {
   /** The absolute path the install script resolved — never a bare `bunx`, never a path this module guesses. */
   bunx: string;
   /** The configured pin, e.g. `"1.2.3"` — never `"latest"`. */
@@ -201,7 +201,7 @@ export function buildChildEnv(
   return out;
 }
 
-export interface AgenticOutcome {
+interface AgenticOutcome {
   ok: boolean;
   result?: string;
   failure?: string;
@@ -222,7 +222,7 @@ export function parseEnvelope(stdout: string): AgenticOutcome {
   return { ok: true, result: envelope.result };
 }
 
-export interface RunAgenticInput {
+interface RunAgenticInput {
   claudeVersion: string;
   args: Record<string, unknown>;
   envAllowlist: readonly string[];

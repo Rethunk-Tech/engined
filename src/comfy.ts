@@ -12,7 +12,7 @@ import { argvFromArgs, isContainerSpec, ParseError } from "./types.ts";
 
 const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
 
-export interface ComfyBuildOptions {
+interface ComfyBuildOptions {
   enginesRoot: string;
   bunx: string;
 }

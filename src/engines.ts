@@ -51,7 +51,7 @@ export interface QueueSnapshot {
   queue_pending: unknown[];
 }
 
-export type QueueFetch = (url: string) => Promise<QueueSnapshot>;
+type QueueFetch = (url: string) => Promise<QueueSnapshot>;
 
 async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
   const res = await fetch(url);
@@ -138,7 +138,7 @@ function writeVerifiedVersion(engineId: string, version: string): void {
   writeFileSync(AGENTIC_VERIFIED_PATH(engineId), version, "utf8");
 }
 
-export interface AgenticProbeOutcome {
+interface AgenticProbeOutcome {
   ok: boolean;
   /** Which probe failed -- e.g. "byte-identical" or "no-hook-fires". Present only when `ok` is false. */
   failedProbe?: string;

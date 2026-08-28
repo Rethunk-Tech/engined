@@ -37,7 +37,7 @@ async function defaultProbe(url: string, method: "GET" | "POST"): Promise<{ stat
   return { status: res.status };
 }
 
-export type PortResult = { port: number } | { error: string };
+type PortResult = { port: number } | { error: string };
 
 /** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
 function mountSpec(volume: Volume): string {
@@ -136,7 +136,7 @@ export function buildRunArgs(
   return args;
 }
 
-export interface LifecycleOptions {
+interface LifecycleOptions {
   idleStopSeconds: number;
   readyTimeoutS: number;
   /** The spec's own directory (shipped `engines/<id>`, or a `spec_dir` override) -- carried here rather than as its own parameter, since `doStart` already has four. */

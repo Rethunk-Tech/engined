@@ -34,7 +34,7 @@ export interface RemoteEndpoint {
   args: Record<string, unknown>;
 }
 
-export type RemoteResolution =
+type RemoteResolution =
   | { ok: true; endpoint: RemoteEndpoint }
   | { ok: false; status: number; error: string };
 
@@ -44,9 +44,7 @@ export type RemoteResolution =
  * `ANTHROPIC_API_KEY`. Everything else takes `resolveRemote` and never sees
  * it.
  */
-export type SecretResolution =
-  | { ok: true; value: string }
-  | { ok: false; status: number; error: string };
+type SecretResolution = { ok: true; value: string } | { ok: false; status: number; error: string };
 
 const TRAILING_SLASHES = /\/+$/;
 const LEADING_SLASHES = /^\/+/;
