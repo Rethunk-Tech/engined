@@ -267,10 +267,21 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
   return router;
 }
 
+/**
+ * `EngineRegistry.get()` answers a different question — an `EngineStatus`
+ * (whether it's running, its private_url) — never the configured
+ * `EngineEntry` a caller here wants (secret, base_url, args). Local to this
+ * door rather than a registry method because nothing in `engines.ts` owns
+ * config lookups by id.
+ */
+function findEngine(config: Config, id: string): EngineEntry | undefined {
+  return config.engines.find((e) => e.id === id);
+}
+
 function egressOf(ctx: DoorContext, seg: string): "none" | "remote" {
   const config = ctx.getConfig();
   const id = resolveEngineSegment(seg, config) ?? seg;
-  return config.engines.find((e) => e.id === id)?.egress ?? "remote";
+  return findEngine(config, id)?.egress ?? "remote";
 }
 
 interface HopRequest {
@@ -560,7 +571,7 @@ async function execAgentic(
 ): Promise<HopResult> {
   const { rawBody, signal } = req;
   const config = ctx.getConfig();
-  const engineEntry = config.engines.find((e) => e.id === engineId);
+  const engineEntry = findEngine(config, engineId);
   if (!engineEntry) {
     return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(`unknown engine "${engineId}"`) };
   }
@@ -660,7 +671,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
     if (kind === "agentic-cli") {
       return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
-    const engineEntry = ctx.getConfig().engines.find((e) => e.id === engineId);
+    const engineEntry = findEngine(ctx.getConfig(), engineId);
     if (kind === "openai-http" && engineEntry && isRemote(engineEntry)) {
       return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
     }
@@ -791,7 +802,7 @@ function doorResponseToResponse(result: DoorResponse): Response {
  * off a queue poll. A no-op if the start attempt never reached "running".
  */
 function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
-  const engine = ctx.getConfig().engines.find((e) => e.id === engineId);
+  const engine = findEngine(ctx.getConfig(), engineId);
   ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
 }
 
@@ -804,7 +815,7 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
  */
 function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string) => {
-    const engine = ctx.getConfig().engines.find((e) => e.id === id);
+    const engine = findEngine(ctx.getConfig(), id);
     if (engine && isRemote(engine)) {
       const resolution = await resolveRemote(engine, ctx.doorOpts.secretExec);
       return resolution.ok
@@ -904,8 +915,7 @@ const EXTRAS_ROLE = "chat";
 async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
   const config = ctx.getConfig();
   const engineId = resolveEngineSegment("local", config);
-  const engineEntry =
-    engineId === undefined ? undefined : config.engines.find((e) => e.id === engineId);
+  const engineEntry = engineId === undefined ? undefined : findEngine(config, engineId);
   if (engineId === undefined || !engineEntry) {
     return jsonError(STATUS_BAD_REQUEST, "no local llama engine configured");
   }
