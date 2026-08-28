@@ -242,6 +242,7 @@ test("start: two concurrent calls against a stopped engine spawn exactly one con
     private_url: `127.0.0.1:${STUB_HOST_PORT_A}`,
     fix: undefined,
     last_error: undefined,
+    active_leases: 0,
   });
 });
 
