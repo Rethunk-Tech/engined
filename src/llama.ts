@@ -14,10 +14,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { resolveArgs } from "./config.ts";
 import type { DockerLifecycle } from "./docker.ts";
+import type { HttpClient } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { loadSpec } from "./spec.ts";
 import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
-import { isContainerSpec, MS_PER_SECOND } from "./types.ts";
+import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
 const PRESET_CONTAINER_PATH = "/preset.ini";
@@ -103,10 +104,16 @@ export function buildLlamaSpec(
     presetIni: PRESET_CONTAINER_PATH,
   });
   if (!isContainerSpec(loaded.spec)) {
-    throw new Error(`engine "${engine.id}": local-llama spec must be a container spec`);
+    throw new ParseError(
+      `engine "${engine.id}": local-llama spec must be a container spec`,
+      loaded.source,
+    );
   }
   if (engine.models_dir === undefined) {
-    throw new Error(`engine "${engine.id}": local-llama engine has no models_dir`);
+    throw new ParseError(
+      `engine "${engine.id}": local-llama engine has no models_dir`,
+      loaded.source,
+    );
   }
   const { spec } = loaded;
   spec.volumes = [
@@ -129,9 +136,6 @@ interface RoleState {
   queue: RoleWaiter[];
   pumping: boolean;
 }
-
-/** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */
-export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface LlamaRouterOptions {
   enginesRoot: string;

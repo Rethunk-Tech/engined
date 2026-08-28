@@ -26,6 +26,7 @@
  */
 
 import {
+  type HttpClient,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -121,7 +122,7 @@ function errorResponse(status: number, message: string): DoorResponse {
 export async function handleSpeech(
   req: SpeechRequestBody,
   start: EngineStart,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
   if (!req.model) {
     return errorResponse(STATUS_BAD_REQUEST, "model is required");
@@ -186,7 +187,7 @@ const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
 async function transcribeRemote(
   req: TranscriptionRequestBody,
   remote: RemoteEndpoint,
-  fetchImpl: typeof fetch,
+  fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
   const format = req.response_format;
   if (format !== undefined && !REMOTE_TEXT_RESPONSE_FORMATS.has(format) && format !== "json") {
@@ -231,7 +232,7 @@ async function transcribeRemote(
 export async function handleTranscription(
   req: TranscriptionRequestBody,
   start: EngineStart,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
   if (!req.model) {
     return errorResponse(STATUS_BAD_REQUEST, "model is required");

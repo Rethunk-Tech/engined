@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { proxyExtras } from "./extras.ts";
-import type { HttpClient } from "./llama.ts";
+import type { HttpClient } from "./http.ts";
 
 const BASE = "http://127.0.0.1:9999";
 

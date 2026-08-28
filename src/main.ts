@@ -35,6 +35,7 @@ import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
   HTTP_CLIENT_ERROR_MIN,
+  type HttpClient,
   jsonError,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
@@ -43,7 +44,7 @@ import {
   STATUS_NOT_FOUND,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
-import { type HttpClient, LlamaRouter, reportedModelFrom } from "./llama.ts";
+import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
@@ -201,9 +202,9 @@ function agenticEnvelope(text: string | undefined): Record<string, unknown> {
 export interface DoorOptions {
   agenticSpawn?: AgenticSpawn;
   llamaHttpClient?: HttpClient;
-  audioFetch?: typeof fetch;
+  audioFetch?: HttpClient;
   /** Defaults to the real `fetch`; a test overrides it so a remote engine's upstream is a local `Bun.serve` rather than the internet. */
-  remoteFetch?: typeof fetch;
+  remoteFetch?: HttpClient;
   extrasHttpClient?: HttpClient;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
@@ -434,7 +435,7 @@ async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<st
 const SHIPPED_CLAUDE_ID = "claude";
 
 function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
-  const id = engineEntry.base_url === undefined ? engineEntry.id : SHIPPED_CLAUDE_ID;
+  const id = isRemote(engineEntry) ? SHIPPED_CLAUDE_ID : engineEntry.id;
   // spec_dir is not touched: config.ts's checkRemoteAddress already forbids
   // it wherever base_url is set, so it is undefined there by construction —
   // forcing it would only ever discard a *local* agentic engine's own
@@ -580,7 +581,7 @@ async function execAgentic(
   }
 
   let extraEnv: Record<string, string> | undefined;
-  if (engineEntry.base_url !== undefined) {
+  if (isRemote(engineEntry)) {
     const redirect = await resolveRedirect(engineEntry, modelSeg, config, ctx.doorOpts.secretExec);
     if (!redirect.ok) {
       return redirect.result;

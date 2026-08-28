@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Probe } from "./docker.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec } from "./exec.ts";
-import type { HttpClient } from "./llama.ts";
+import type { HttpClient } from "./http.ts";
 import { buildLlamaSpec, LlamaRouter, renderPresetIni, reportedModelFrom } from "./llama.ts";
 import type { EngineEntry, ModelEntry } from "./types.ts";
 

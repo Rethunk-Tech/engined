@@ -26,3 +26,6 @@ export function jsonError(status: number, message: string): Response {
 export const HTTP_CLIENT_ERROR_MIN = 400;
 export const HTTP_SERVER_ERROR_MIN = 500;
 export const HTTP_SERVER_ERROR_MAX = 600;
+
+/** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */
+export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>;

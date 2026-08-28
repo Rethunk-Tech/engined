@@ -11,6 +11,7 @@ import { DockerLifecycle, dockerExec, type Probe } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
+import { isRemote } from "./remote.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
@@ -249,7 +250,7 @@ function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): Load
 function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
   return config.engines.map((engine) => ({
     engine,
-    spec: engine.base_url === undefined ? loadEngineSpec(engine, specOptions) : null,
+    spec: isRemote(engine) ? null : loadEngineSpec(engine, specOptions),
   }));
 }
 

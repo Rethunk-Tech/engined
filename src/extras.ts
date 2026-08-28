@@ -6,7 +6,7 @@
  * passthrough. `/slots/:id`, `/models/load` and `/models/unload` already
  * name what they need and pass through untouched.
  */
-import type { HttpClient } from "./llama.ts";
+import type { HttpClient } from "./http.ts";
 import { errMessage, isRecord } from "./types.ts";
 
 const BODY_INJECT_PATHS = new Set(["/tokenize", "/detokenize", "/apply-template"]);

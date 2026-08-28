@@ -8,7 +8,7 @@
  */
 import { loadSpec } from "./spec.ts";
 import type { ContainerSpec, EngineEntry } from "./types.ts";
-import { argvFromArgs, isContainerSpec } from "./types.ts";
+import { argvFromArgs, isContainerSpec, ParseError } from "./types.ts";
 
 const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
 
@@ -25,10 +25,13 @@ export interface ComfyBuildOptions {
 export function buildComfySpec(engine: EngineEntry, opts: ComfyBuildOptions): ContainerSpec {
   const loaded = loadSpec(engine, { enginesRoot: opts.enginesRoot, bunx: opts.bunx });
   if (!isContainerSpec(loaded.spec)) {
-    throw new Error(`engine "${engine.id}": comfy spec must be a container spec`);
+    throw new ParseError(
+      `engine "${engine.id}": comfy spec must be a container spec`,
+      loaded.source,
+    );
   }
   if (engine.models_dir === undefined) {
-    throw new Error(`engine "${engine.id}": comfy engine has no models_dir`);
+    throw new ParseError(`engine "${engine.id}": comfy engine has no models_dir`, loaded.source);
   }
   const { spec } = loaded;
   spec.volumes = [...spec.volumes, { name: engine.models_dir, path: MODELS_CONTAINER_PATH }];
