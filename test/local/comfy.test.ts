@@ -43,6 +43,8 @@ const COMFY_POLL_INTERVAL_MS = 1000;
 const IDLE_POLL_INTERVAL_MS = 500;
 const IDLE_WAIT_BUDGET_MS = 30_000;
 const TEST_TIMEOUT_MS = 300_000;
+/** Stopping two real containers outruns bun's 5s default hook timeout. */
+const SHUTDOWN_TIMEOUT_MS = 120_000;
 
 function imageBuilt(image: string): boolean {
   return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
@@ -137,6 +139,58 @@ async function comfyQueueReachable(privateUrl: string | null): Promise<boolean> 
   return res.status === 200;
 }
 
+/**
+ * A real Comfy job with no checkpoint in it: `EmptyImage` -> `SaveImage`
+ * exercises queue, execute and output exactly as a diffusion graph does,
+ * without pinning this test to whichever weights happen to sit in the
+ * operator's comfy model tree.
+ */
+function modelFreeWorkflow(): Record<string, unknown> {
+  return {
+    "1": {
+      class_type: "EmptyImage",
+      inputs: { width: 64, height: 64, batch_size: 1, color: 0 },
+    },
+    "2": {
+      class_type: "SaveImage",
+      inputs: { images: ["1", 0], filename_prefix: "engined_local_smoke" },
+    },
+  };
+}
+
+/** Submits the job and returns the output image filenames Comfy reports for it. */
+async function runComfyJob(privateUrl: string, budgetMs: number): Promise<string[]> {
+  const submit = await fetch(`http://${privateUrl}/prompt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt: modelFreeWorkflow() }),
+  });
+  if (submit.status !== 200) {
+    throw new Error(`comfy /prompt returned ${submit.status}`);
+  }
+  const { prompt_id: promptId } = (await submit.json()) as { prompt_id: string };
+
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    const res = await fetch(`http://${privateUrl}/history/${promptId}`);
+    const history = (await res.json()) as Record<
+      string,
+      {
+        status?: { completed?: boolean };
+        outputs?: Record<string, { images?: { filename: string }[] }>;
+      }
+    >;
+    const entry = history[promptId];
+    if (entry?.status?.completed === true) {
+      return Object.values(entry.outputs ?? {}).flatMap((o) =>
+        (o.images ?? []).map((i) => i.filename),
+      );
+    }
+    await sleep(IDLE_POLL_INTERVAL_MS);
+  }
+  throw new Error("comfy job did not complete within its budget");
+}
+
 async function chatCompletes(router: LlamaRouter, model: ModelEntry): Promise<boolean> {
   const res = await router.proxy(model, "/v1/chat/completions", {
     method: "POST",
@@ -212,7 +266,7 @@ describe.skipIf(!READY)(
     afterAll(async () => {
       await rig?.registry.shutdown();
       await rig?.lifecycle.shutdown();
-    });
+    }, SHUTDOWN_TIMEOUT_MS);
 
     test(
       "a chat completion and a comfy start co-reside with no reload of either, and comfy idle-stops off its own /queue poll while llama stays running",
@@ -248,6 +302,56 @@ describe.skipIf(!READY)(
         // llama's own idle-stop (900s) never fired in this ~30s window, and
         // comfy idling never touched it.
         expect(registry.get("local-llama")?.state).toBe("running");
+      },
+      TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+/**
+ * `comfy.test.ts` proved a *started* comfy co-resident with a chat GGUF;
+ * nothing submitted a job. The reload question only really bites once Comfy
+ * has executed something, so this drives a real one.
+ */
+describe.skipIf(!READY)(
+  READY
+    ? "comfy runs a real job beside a resident chat GGUF (local)"
+    : `comfy runs a real job beside a resident chat GGUF (local): SKIPPED -- ${skipReason()}`,
+  () => {
+    let rig: Rig | undefined;
+
+    beforeAll(() => {
+      rig = buildRig(FIXTURE as Fixture);
+    });
+
+    afterAll(async () => {
+      await rig?.registry.shutdown();
+      await rig?.lifecycle.shutdown();
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    test(
+      "a comfy job produces an image while the chat model stays resident, and the chat after it pays no reload",
+      async () => {
+        if (!rig) {
+          throw new Error("beforeAll did not run -- rig is unset");
+        }
+        const { registry, router } = rig;
+        const { chatModel } = FIXTURE as Fixture;
+
+        expect(await chatCompletes(router, chatModel)).toBe(true);
+        const before = registry.get("local-llama")?.private_url;
+
+        const comfy = await registry.start("comfy");
+        expect(comfy.state).toBe("running");
+        const images = await runComfyJob(comfy.private_url as string, TEST_TIMEOUT_MS / 2);
+        expect(images.length).toBeGreaterThan(0);
+
+        // Same container, same published port: a reload would have replaced
+        // both, and engined proxied none of the job -- it went straight to the
+        // private_url above.
+        expect(await chatCompletes(router, chatModel)).toBe(true);
+        expect(registry.get("local-llama")?.state).toBe("running");
+        expect(registry.get("local-llama")?.private_url).toBe(before);
       },
       TEST_TIMEOUT_MS,
     );
