@@ -42,6 +42,7 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
+  STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
@@ -882,8 +883,29 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm> 
   };
 }
 
+/**
+ * An upload is read into memory whole, so a request larger than this is
+ * refused before it is read rather than after. Generous enough for any
+ * recording a caller has reason to transcribe in one request; a longer one
+ * belongs in segments, which is what every consumer already sends.
+ */
+const MAX_AUDIO_UPLOAD_BYTES = 256 * 1024 * 1024;
+
 async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise<Response> {
+  const declared = Number(req.headers.get("content-length") ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
+    return jsonError(
+      STATUS_PAYLOAD_TOO_LARGE,
+      `upload is ${declared} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
+    );
+  }
   const form = await parseTranscriptionForm(req);
+  if (form.file.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
+    return jsonError(
+      STATUS_PAYLOAD_TOO_LARGE,
+      `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
+    );
+  }
   const resolved = resolveModel(
     form.rawModel ?? undefined,
     "/v1/audio/transcriptions",

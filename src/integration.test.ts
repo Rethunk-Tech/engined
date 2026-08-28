@@ -764,3 +764,26 @@ test("a failed audio call records why it failed, not merely that it did", async 
     await door.registry.shutdown();
   }
 });
+
+test("an oversized transcription upload is refused before it is read", async () => {
+  const door = createDoor(baseConfig({}), {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec: buildExec({}),
+  });
+
+  try {
+    // Declared, not sent: the point is that the size is refused on the header
+    // rather than after the body has been read into memory.
+    const res = await door.fetch(
+      new Request("http://engined/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { "content-length": String(512 * 1024 * 1024) },
+        body: "x",
+      }),
+    );
+    expect(res.status).toBe(413);
+  } finally {
+    await door.registry.shutdown();
+  }
+});
