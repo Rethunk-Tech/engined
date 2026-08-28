@@ -16,7 +16,11 @@
 # verbatim.
 
 listen_port           = 29200 # IANA-unassigned.
-chat_timeout_seconds  = 600   # covers a cold load of a 25 GB-class GGUF plus prefill.
+chat_timeout_seconds  = 1200  # covers a cold load of a 25 GB-class GGUF plus prefill.
+                              # 600 was sized for a 32768 window; measured prefill at the
+                              # wider window is 153s for 100k tokens and degrades with
+                              # depth (1291 t/s at 3.5k, 654 at 100k), so a full-window
+                              # request plus generation can approach the old ceiling.
 agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, not seconds.
 
 # ---------------------------------------------------------------------------
@@ -45,10 +49,10 @@ idle_stop_seconds = 900
   # llama-server's own process flags. Whatever isn't first-class above lands
   # here untouched; a [[model]]'s own [model.args] wins over the same key.
   [engine.args]
-  parallel     = -1      # llama.cpp's auto (4 unified slots here): 62.94 t/s decode,
-                          # versus 68.28 t/s at `-np 1 -kvu`. -np 2+ halves ctx-size
-                          # per slot by disabling --kv-unified -- not worth that
-                          # footgun. Full reasoning: engines/local-llama/spec.toml.
+  parallel     = -1      # llama.cpp's auto: 4 slots sharing ONE unified ctx pool,
+                          # not 4 windows of ctx-size. Fine as an engine-level
+                          # default for the small roles; ornith overrides it below
+                          # to buy real context. Full reasoning: spec.toml.
   ctx-size     = 32768    # floor for any model whose own [model.args] omits it.
   cache-type-k = "q8_0"
   cache-type-v = "q8_0"
@@ -78,8 +82,16 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
   spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
   spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
                            # acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
-                           # 22.30 at n=16. Full reasoning: engines/local-llama/spec.toml.
-  ctx-size         = 32768
+                           # 22.30 at n=16. Those are 32-token BURST figures --
+                           # acceptance decays with length, so sustained is ~54 t/s.
+                           # Full reasoning: engines/local-llama/spec.toml.
+  # 262144 split across 2 slots = two independent 131072 windows. -np 2 halves
+  # ctx-size per slot, which is the lever that buys them; 262144 is also this
+  # model's n_ctx_train, so no RoPE scaling is involved. Costs ~5.1 GiB of q8_0
+  # KV (27.20 GiB loaded against a 23.13 GiB GGUF). Two ornith requests then run
+  # concurrently and a third queues.
+  ctx-size         = 262144
+  parallel         = 2
 
 # Embeddings live under the same per-role occupancy as chat/vision. Picked
 # for native 32768 context -- a header that declares a shorter window needs
