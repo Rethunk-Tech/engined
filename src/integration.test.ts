@@ -369,8 +369,14 @@ test("a chain whose first hop is dead completes on the second, and provenance na
       expect(body).toContain("answered by good");
 
       expect(lines).toHaveLength(1);
-      const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
+      const record = JSON.parse(lines[0] ?? "{}") as {
+        engine_used: string;
+        attempts: { engine: string; ok: boolean }[];
+      };
       expect(record.engine_used).toBe("good");
+      expect(record.attempts).toHaveLength(2);
+      expect(record.attempts[0]?.engine).toBe("dead");
+      expect(record.attempts[0]?.ok).toBe(false);
     },
     { write: (line) => lines.push(line) },
   );

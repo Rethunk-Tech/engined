@@ -339,39 +339,9 @@ async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): 
 }
 
 describe("the door: Origin/Host check", () => {
-  test("no Origin header is served normally, on a GET", async () => {
-    const port = ephemeralPort();
-    await withBoundDoor(
-      config({ listen_port: port, engines: [remoteAgentic("claude")] }),
-      async () => {
-        const res = await fetch(`http://127.0.0.1:${port}/v1/models`);
-        expect(res.status).toBe(200);
-      },
-    );
-  });
-
-  test("a foreign Origin is refused on a GET", async () => {
-    const port = ephemeralPort();
-    await withBoundDoor(config({ listen_port: port }), async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/models`, {
-        headers: { Origin: "https://evil.example" },
-      });
-      expect(res.status).toBe(403);
-    });
-  });
-
-  test("Origin: null is refused rather than treated as absent, on a POST", async () => {
-    const port = ephemeralPort();
-    await withBoundDoor(config({ listen_port: port }), async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
-        method: "POST",
-        headers: { Origin: "null", "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude" }),
-      });
-      expect(res.status).toBe(403);
-    });
-  });
-
+  // The foreign-Origin, Origin:null and clean-request cases are covered by
+  // integration.test.ts's own Origin guard test; `Host` is Fetch-forbidden,
+  // so only this real-socket, raw `node:http` request can exercise it.
   test("a Host outside the loopback set is refused, on a GET", async () => {
     const port = ephemeralPort();
     await withBoundDoor(config({ listen_port: port }), async () => {
@@ -1068,30 +1038,11 @@ describe("the door: provenance model fields", () => {
 });
 
 describe("the door: agentic and chain routing", () => {
-  test("an agentic attempt without workdir is 400 and the spawn is never invoked", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "claude", CLAUDE_SPEC);
-    const cfg = config({
-      engines: [engine({ id: "claude", egress: "remote", claude_version: "1.2.3" })],
-    });
-    const spawnCalls: unknown[] = [];
-    const fakeSpawn: AgenticSpawn = (argv, opts) => {
-      spawnCalls.push({ argv, opts });
-      return Promise.resolve({ stdout: '{"result":"hi"}', stderr: "", exitCode: 0 });
-    };
-    const lines: string[] = [];
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX },
-      { agenticSpawn: fakeSpawn, write: (l) => lines.push(l) },
-    );
-    const res = await door.fetch(
-      chatRequest({ model: "claude", messages: [{ role: "user", content: "hi" }] }),
-    );
-    expect(res.status).toBe(400);
-    expect(spawnCalls).toHaveLength(0);
-    expect(lines).toHaveLength(1);
-  });
+  // The 400-without-workdir shape itself is covered by two survivors:
+  // agentic.test.ts's "runAgentic: workdir absent is 400 and never spawns"
+  // (the function, including the never-spawns assertion) and
+  // integration.test.ts's "an agentic attempt with no workdir returns 400"
+  // (the same rejection through a real door).
 
   test("an unproved agentic engine does not spawn", async () => {
     const id = "claude-unproved";

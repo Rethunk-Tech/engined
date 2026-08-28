@@ -172,17 +172,6 @@ function portFound(hostPort: number): ExecResult {
   return { stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 };
 }
 
-/** Every command reports success except `docker image inspect`, which reports the image absent. */
-function execImageMissing(): Exec {
-  return (args) => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve(inspectMissing());
-    }
-    return Promise.resolve(ok());
-  };
-}
-
 /**
  * A recording `Exec`: logs every call's argv into `calls`, always reports
  * `docker image inspect` as the redis fixture present, and defers any other
@@ -381,81 +370,6 @@ test("start: a bind-mounted artifact is checked with a host stat, never a contai
     expect(present.state).toBe("running");
 
     expect(calls.some((c) => c[0] === "run" && c[1] === "--rm")).toBe(false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("probe: a missing pull-obtain image reports a runnable docker pull, and starts no container", async () => {
-  const runLog: string[][] = [];
-
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve(inspectMissing());
-    }
-    if (argv[0] === "run") {
-      runLog.push(argv);
-      return Promise.resolve(ok());
-    }
-    return Promise.resolve(ok());
-  }
-
-  const lifecycle = new DockerLifecycle(exec, readyProbe);
-
-  const pullStatus = await lifecycle.probe("pull-engine", SPEC);
-  expect(pullStatus.state).toBe("unavailable");
-  expect(pullStatus.fix).toBe(`docker pull ${SPEC.image}`);
-  expect(runLog.length).toBe(0);
-});
-
-test("probe: a missing build-obtain image whose spec dir HAS a Dockerfile reports a runnable docker build", async () => {
-  // `docker build <image>` (no `-t`/`-f`/context) is not runnable -- it treats
-  // the image name as a context PATH. Confirmed pre-fix: buildStatus.fix was
-  // exactly `docker build sagaforge-llama-cpp:local`, which fails the same
-  // way if pasted.
-  const dir = mkdtempSync(join(tmpdir(), "engined-dockerfile-"));
-  try {
-    writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
-    const buildSpec: ContainerSpec = { ...SPEC, obtain: "build", image: "engined-kokoro:local" };
-
-    const lifecycle = new DockerLifecycle(execImageMissing(), readyProbe);
-    const status = await lifecycle.probe("kokoro", buildSpec, dir);
-
-    expect(status.state).toBe("unavailable");
-    expect(status.fix).toBe(`docker build -t engined-kokoro:local -f ${dir}/Dockerfile ${dir}`);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("probe: a missing build-obtain image whose spec dir has NO Dockerfile does not invent a path that doesn't exist", async () => {
-  // A synthetic stand-in, not a real shipped engine -- every engine this
-  // repo actually ships now has a Dockerfile beside its spec (local-llama
-  // got its own this session, the scenario this test was originally
-  // modelled on). The shape under test still exists in principle -- obtain
-  // = "build" naming an image built from a different repository entirely,
-  // with nothing shipped here to build it from -- so it stays covered
-  // against a fixture invented for the purpose rather than a real engine's
-  // name, which would otherwise drift out from under this test again the
-  // next time a real engine gains its own Dockerfile. A `-f <dir>/Dockerfile`
-  // hint would name a file that does not exist -- the same defect in a new
-  // costume -- so this must not contain the literal string "docker build".
-  const dir = mkdtempSync(join(tmpdir(), "engined-no-dockerfile-"));
-  try {
-    const buildSpec: ContainerSpec = {
-      ...SPEC,
-      obtain: "build",
-      image: "no-dockerfile-example:local",
-    };
-
-    const lifecycle = new DockerLifecycle(execImageMissing(), readyProbe);
-    const status = await lifecycle.probe("no-dockerfile-example", buildSpec, dir);
-
-    expect(status.state).toBe("unavailable");
-    expect(status.fix).not.toContain("docker build");
-    expect(status.fix).toContain("no-dockerfile-example:local");
-    expect(status.fix).toContain(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

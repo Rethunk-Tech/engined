@@ -67,22 +67,21 @@ test("buildArgv: the floor's three flags all survive a long list of other args, 
 // (config.ts:158,207) -- these tests exercise that real choke point, plus
 // loadConfig end to end, rather than only the shape buildArgv would produce.
 
-test("assertNoForbiddenFlags: a config arg that duplicates the floor's --tools is rejected, not silently applied last-wins", () => {
-  // The real call site (config.ts:158) never sees the floor -- it validates
-  // only what argsToArgv rendered from `[engine.args]` itself, exactly this
-  // shape for `tools = "Bash,Write"`.
-  const argv = ["--tools", "Bash,Write"];
-
-  expect(() => assertNoForbiddenFlags(argv, "config.toml")).toThrow(RX_TOOLS_FLAG);
-});
-
-test("assertNoForbiddenFlags: every floor flag is rejected if a config names it, not just --tools", () => {
+test("assertNoForbiddenFlags: every floor flag is rejected if a config names it, and the thrown message names it", () => {
   const floorFlagNames = AGENTIC_FLOOR.filter((token) => token.startsWith("--"));
   expect(floorFlagNames).toEqual(["--safe-mode", "--tools", "--strict-mcp-config"]);
 
   for (const floorFlag of floorFlagNames) {
-    expect(() => assertNoForbiddenFlags([floorFlag], "config.toml")).toThrow();
+    expect(() => assertNoForbiddenFlags([floorFlag], "config.toml")).toThrow(floorFlag);
   }
+
+  // The real call site (config.ts:158) never sees the floor -- it validates
+  // only what argsToArgv rendered from `[engine.args]` itself, exactly this
+  // shape for `tools = "Bash,Write"`: a value alongside the flag, not the
+  // bare flag the loop above used.
+  expect(() => assertNoForbiddenFlags(["--tools", "Bash,Write"], "config.toml")).toThrow(
+    RX_TOOLS_FLAG,
+  );
 });
 
 test("assertNoForbiddenFlags: a long list of ordinary args that name none of the floor's flags still passes clean", () => {

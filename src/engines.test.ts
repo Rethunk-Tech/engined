@@ -186,13 +186,21 @@ function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
 }
 
 describe("unavailable engines", () => {
-  test("missing image is unavailable and names the pull command for a digest-pinned image", async () => {
-    const { reg } = setupLlama({ exec: NO_IMAGE_EXEC });
+  test("missing image is unavailable and names the pull command for a digest-pinned image, and never starts a container", async () => {
+    const runLog: string[][] = [];
+    const trackingExec: Exec = (args) => {
+      if (args[0] === "run") {
+        runLog.push([...args]);
+      }
+      return noImageExec(args);
+    };
+    const { reg } = setupLlama({ exec: trackingExec });
     // get() is the sync accessor and does not probe docker cold; list() does.
     expect(reg.get("llama")?.state).toBe("installed");
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.state).toBe("unavailable");
     expect(listed?.fix).toBe("docker pull ghcr.io/example/llama@sha256:aaaa");
+    expect(runLog.length).toBe(0);
   });
 
   test("missing image with a Dockerfile in its spec dir names a runnable docker build", async () => {

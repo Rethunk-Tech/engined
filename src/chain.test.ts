@@ -107,73 +107,12 @@ function baseOpts(
   };
 }
 
-test("first hop at a dead port completes on the second, and provenance names the second engine", async () => {
-  const up = startFakeUpstream({
-    good: { status: 200, body: "answer", contentType: "text/plain" },
-  });
-  const { lines, write } = collectLines();
-  const dead = deadPort();
-
-  const result = await runChain(
-    ["@/dead/model", "@/good/model"],
-    baseOpts({ exec: makeExec({ dead: `http://127.0.0.1:${dead}`, good: up.base }), write }),
-  );
-  up.stop();
-
-  expect(result.status).toBe(200);
-  expect(result.engineUsed).toBe("good");
-  const record = JSON.parse(lines[0] ?? "");
-  expect(record.engine_used).toBe("good");
-  expect(record.attempts).toHaveLength(2);
-  expect(record.attempts[0].engine).toBe("dead");
-  expect(record.attempts[0].ok).toBe(false);
-});
-
-test("a hop's model_reported and model_resident flow through to the emitted attempt, distinct when they differ", async () => {
-  const { lines, write } = collectLines();
-  const exec: HopExec = () =>
-    Promise.resolve({
-      status: 200,
-      body: "answer",
-      modelReported: "router-section",
-      modelResident: "qwen3-30b-a3b-q4.gguf",
-    });
-
-  const result = await runChain(["@/llama/router-section"], baseOpts({ exec, write }));
-
-  expect(result.status).toBe(200);
-  const record = JSON.parse(lines[0] ?? "");
-  expect(record.attempts[0].model_reported).toBe("router-section");
-  expect(record.attempts[0].model_resident).toBe("qwen3-30b-a3b-q4.gguf");
-  expect(record.attempts[0].model_reported).not.toBe(record.attempts[0].model_resident);
-});
-
-test("an agentic hop's version flows through to the emitted attempt, equal to the pin that was launched", async () => {
-  const { lines, write } = collectLines();
-  const exec: HopExec = () =>
-    Promise.resolve({
-      status: 200,
-      body: "hello",
-      version: "1.2.3",
-    });
-
-  const result = await runChain(["@/claude/model"], baseOpts({ exec, write }));
-
-  expect(result.status).toBe(200);
-  const record = JSON.parse(lines[0] ?? "");
-  expect(record.attempts[0].version).toBe("1.2.3");
-});
-
-test("a non-agentic hop's attempt carries no version field at all", async () => {
-  const { lines, write } = collectLines();
-  const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer" });
-
-  const result = await runChain(["@/llama/model"], baseOpts({ exec, write }));
-
-  expect(result.status).toBe(200);
-  const record = JSON.parse(lines[0] ?? "");
-  expect(Object.hasOwn(record.attempts[0], "version")).toBe(false);
-});
+// model_reported/model_resident and version pass-through are not covered
+// here: chain.ts's HopResult -> Attempt step is an unconditional object
+// spread with no branching, and the values themselves are already proven at
+// llama.test.ts (the derived model_reported/model_resident computation),
+// provenance.test.ts (recordCall's serialization of both fields and of
+// version) and dispatch.test.ts (the door's end-to-end provenance line).
 
 test("an alias hop's provenance records the resolved engine id, not the raw alias", async () => {
   const { lines, write } = collectLines();

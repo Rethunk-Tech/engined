@@ -138,22 +138,10 @@ obtain = "curl -fL -o {models_dir}/model.bin --config {spec_dir}/fetch.conf http
   ]);
 });
 
-test("an unresolved placeholder in volume.name is fatal, naming it", () => {
-  const root = specDir(
-    "x",
-    `kind = "stt"\nimage = "img"\nobtain = "pull"\nserves = []\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n\n[[volume]]\nname = "{nope}"\npath = "/models"\n`,
-  );
-  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
-});
-
-test("an unresolved placeholder in artifact.obtain is fatal, naming it", () => {
-  const root = specDir(
-    "x",
-    `kind = "stt"\nimage = "img"\nobtain = "pull"\nserves = []\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n\n[[artifact]]\npath = "/models/x.bin"\nobtain = "curl -o {nope}/x.bin https://example.com/x.bin"\n`,
-  );
-  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow("{nope}");
-});
-
+// volume.name and artifact.obtain both resolve through the same generic
+// substituteDeep recursion proven above -- no per-field branching to cover
+// beyond it. artifact.path is different (see the test below): it bypassed
+// substituteDeep entirely, which is a real defect, not a generic case.
 test("an unresolved placeholder in artifact.path is fatal, naming it", () => {
   // artifact.path was never scanned for placeholders: hostPathFor() prefix-matches
   // it against the already-substituted volume.path, so a literal placeholder here

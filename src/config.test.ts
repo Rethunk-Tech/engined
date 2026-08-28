@@ -258,24 +258,18 @@ aliases = ["ornith"]
 });
 
 describe("chain hops", () => {
-  test("a bare model id is not a fully-qualified hop, naming it", () => {
-    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`);
-    expect(message).toMatch(RX_NOT_QUALIFIED);
-    expect(message).toContain('"ornith"');
-  });
-
-  test("a bare engine id is not a fully-qualified hop, naming it", () => {
-    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["local-llama"]\n`);
-    expect(message).toMatch(RX_NOT_QUALIFIED);
-    expect(message).toContain('"local-llama"');
-  });
-
-  test("another chain's name is not a fully-qualified hop, naming it", () => {
-    const message = chainHopMessage(
+  test.each([
+    ["a bare model id", `${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`, "ornith"],
+    ["a bare engine id", `${llamaEngineAndModel()}\n[chain]\nc = ["local-llama"]\n`, "local-llama"],
+    [
+      "another chain's name",
       `${llamaEngineAndModel()}\n[chain]\nc = ["other"]\nother = ["@/local/ornith"]\n`,
-    );
+      "other",
+    ],
+  ])("%s is not a fully-qualified hop, naming it", (_label, toml, hop) => {
+    const message = chainHopMessage(toml);
     expect(message).toMatch(RX_NOT_QUALIFIED);
-    expect(message).toContain('"other"');
+    expect(message).toContain(`"${hop}"`);
   });
 
   test("a qualified hop naming an unknown engine fails, naming the engine half and the hop", () => {
