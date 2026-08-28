@@ -719,13 +719,33 @@ export class LlamaRouter {
     }
     const reader = upstream.body?.getReader();
     let released = false;
+    const signal = init.signal;
     const release = () => {
       if (released) {
         return;
       }
       released = true;
+      signal?.removeEventListener("abort", onAbort);
       this.finishLease(role);
     };
+    /**
+     * Every other release path is driven by the stream's consumer -- `pull`
+     * on drain, `cancel` on disconnect. A client that goes away without the
+     * runtime pulling or cancelling reaches none of them, and the lease is
+     * then never released: `totalActive` never returns to zero, so this
+     * engine's idle-stop is never armed again for the life of the process.
+     * The abort signal is the one signal that does not depend on the
+     * consumer, so it releases too.
+     */
+    const onAbort = () => {
+      release();
+      reader?.cancel(signal?.reason).catch(() => undefined);
+    };
+    if (signal?.aborted) {
+      onAbort();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
         if (emitWarming) {

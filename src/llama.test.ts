@@ -622,6 +622,47 @@ test("a client cancelling a streaming response cancels the upstream reader too, 
   expect(upstreamCancelled).toBe(true);
 });
 
+test("a streaming client that aborts without draining the stream still releases its lease", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  const client: HttpClient = (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === LOAD_PATH) {
+      return Promise.resolve(Response.json({ success: true }));
+    }
+    if (url.pathname === MODELS_LIST_PATH) {
+      return Promise.resolve(modelsList([{ id: "a", status: "loaded" }]));
+    }
+    if (url.pathname === CHAT_PATH) {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new TextEncoder().encode("data: chunk\n\n"));
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      );
+    }
+    throw new Error(`unexpected path ${url.pathname}`);
+  };
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  const controller = new AbortController();
+  await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a", stream: true }),
+    signal: controller.signal,
+  });
+
+  // The returned stream is never read and never cancelled -- exactly what a
+  // client that goes away mid-generation leaves behind. Only the abort signal
+  // can release the lease here.
+  expect(router.hasOutstandingLeases()).toBe(true);
+  controller.abort();
+  expect(router.hasOutstandingLeases()).toBe(false);
+});
+
 test("a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body", async () => {
   const { a, router } = singleModelRouter();
 
