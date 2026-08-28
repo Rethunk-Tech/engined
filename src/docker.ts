@@ -187,6 +187,7 @@ interface Runtime {
   lastError?: string;
   startPromise: Promise<RuntimeStatus> | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  imageCheck: Promise<Result<{ containerPort: number }>> | null;
   artifactCheck: Promise<Result> | null;
   /** Reset on every fresh `endLease`; counts retries within one continuous idle-stop attempt sequence. */
   idleStopAttempts: number;
@@ -209,6 +210,7 @@ export class DockerLifecycle {
         hostPort: null,
         startPromise: null,
         idleTimer: null,
+        imageCheck: null,
         artifactCheck: null,
         idleStopAttempts: 0,
       };
@@ -321,7 +323,7 @@ export class DockerLifecycle {
     if (rt.state === "running" || rt.state === "warming") {
       return this.getStatus(id);
     }
-    const image = await this.checkImage(spec, specSource);
+    const image = await this.ensureImageChecked(rt, spec, specSource);
     if (!image.ok) {
       return this.fail(id, rt, image.error, image.fix);
     }
@@ -352,7 +354,7 @@ export class DockerLifecycle {
     rt.fix = undefined;
     rt.lastError = undefined;
 
-    const image = await this.checkImage(spec, opts.specSource);
+    const image = await this.ensureImageChecked(rt, spec, opts.specSource);
     if (!image.ok) {
       return this.fail(id, rt, image.error, image.fix);
     }
@@ -383,6 +385,7 @@ export class DockerLifecycle {
 
     rt.hostPort = hostPort;
     rt.state = "running";
+    rt.imageCheck = null;
     rt.artifactCheck = null;
     return this.getStatus(id);
   }
@@ -425,6 +428,22 @@ export class DockerLifecycle {
       return { ok: false, error: parsed.error };
     }
     return { ok: true, containerPort: parsed.port };
+  }
+
+  /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix (e.g. `docker pull`) can make it pass, and that fix happens outside this process. */
+  private async ensureImageChecked(
+    rt: Runtime,
+    spec: ContainerSpec,
+    specSource?: string,
+  ): Promise<Result<{ containerPort: number }>> {
+    if (!rt.imageCheck) {
+      rt.imageCheck = this.checkImage(spec, specSource);
+    }
+    const result = await rt.imageCheck;
+    if (!result.ok) {
+      rt.imageCheck = null;
+    }
+    return result;
   }
 
   /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix can make it pass, and the fix happens outside this process. */

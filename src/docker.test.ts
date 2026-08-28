@@ -427,6 +427,58 @@ test("probe: a container already running is left alone, not re-checked or restar
   expect(probed).toEqual(started);
 });
 
+test("probe: the image check is cached across repeated polls, not re-shelled on every GET /v1/engines", async () => {
+  let inspectCount = 0;
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      inspectCount++;
+      return Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+  const first = await lifecycle.probe("cached-image", SPEC);
+  expect(first.state).toBe("installed");
+  expect(inspectCount).toBe(1);
+
+  const second = await lifecycle.probe("cached-image", SPEC);
+  expect(second.state).toBe("installed");
+  expect(inspectCount).toBe(1);
+});
+
+test("probe: a missing image is not cached -- a pull between polls is picked up without a restart", async () => {
+  let present = false;
+  let inspectCount = 0;
+  function exec(args: readonly string[]): Promise<ExecResult> {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      inspectCount++;
+      return present
+        ? Promise.resolve({ stdout: REDIS_INSPECT, stderr: "", exitCode: 0 })
+        : Promise.resolve({ stdout: "", stderr: "no such image", exitCode: 1 });
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  }
+
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+  const missing = await lifecycle.probe("repairable-image", SPEC);
+  expect(missing.state).toBe("unavailable");
+  expect(inspectCount).toBe(1);
+
+  const stillMissing = await lifecycle.probe("repairable-image", SPEC);
+  expect(stillMissing.state).toBe("unavailable");
+  expect(inspectCount).toBe(2);
+
+  present = true;
+  const repaired = await lifecycle.probe("repairable-image", SPEC);
+  expect(repaired.state).toBe("installed");
+  expect(inspectCount).toBe(3);
+});
+
 test("idle-stop failure is recorded as last_error, not thrown, the container stays running, and the timer retries a bounded number of times with no new traffic", async () => {
   const stopCalls: string[][] = [];
   function exec(args: readonly string[]): Promise<ExecResult> {
