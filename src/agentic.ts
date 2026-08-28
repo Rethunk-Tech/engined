@@ -29,7 +29,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { STATUS_BAD_GATEWAY, STATUS_OK } from "./http.ts";
+import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, argvFromArgs, type EngineEntry } from "./types.ts";
 
@@ -274,7 +274,7 @@ function logToStderr(text: string): void {
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
   if (input.workdir === undefined || input.workdir === "") {
     return {
-      status: 400,
+      status: STATUS_BAD_REQUEST,
       ok: false,
       failure: "workdir is required for an agentic attempt",
       envelopeFailure: false,

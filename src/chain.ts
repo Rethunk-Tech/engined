@@ -4,7 +4,14 @@
  * to the next hop and reports every attempt through `src/provenance.ts`.
  */
 
-import { HTTP_CLIENT_ERROR_MIN, HTTP_SERVER_ERROR_MAX, HTTP_SERVER_ERROR_MIN } from "./http.ts";
+import {
+  HTTP_CLIENT_ERROR_MIN,
+  HTTP_SERVER_ERROR_MAX,
+  HTTP_SERVER_ERROR_MIN,
+  jsonErrorBody,
+  STATUS_BAD_REQUEST,
+  STATUS_UNAVAILABLE,
+} from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
 import type { Egress } from "./types.ts";
 import { errMessage } from "./types.ts";
@@ -225,8 +232,8 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
   if (truncated === null) {
     emit(opts, [], null);
     return {
-      status: 400,
-      body: { error: "local_only: true but no hop in this chain is local" },
+      status: STATUS_BAD_REQUEST,
+      body: jsonErrorBody("local_only: true but no hop in this chain is local"),
       engineUsed: null,
     };
   }
@@ -243,8 +250,8 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
 
   emit(opts, attempts, null);
   return {
-    status: 503,
-    body: { error: "every engine in this chain failed", attempts },
+    status: STATUS_UNAVAILABLE,
+    body: { ...jsonErrorBody("every engine in this chain failed"), attempts },
     engineUsed: null,
   };
 }

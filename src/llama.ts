@@ -24,12 +24,18 @@ import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
 const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
+/**
+ * Statuses llama-server SENDS, named for what they mean coming back from it --
+ * not statuses this door returns, which is what `http.ts` names. Keeping these
+ * local is what lets the checks below read as the upstream conditions they are.
+ */
 /** `/models/load`'s status for a model the router already considers resident. */
 const HTTP_ALREADY_RUNNING = 400;
 /** llama-server's answer once its own residency disagrees with this router's. */
 const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 /** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
 const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
+/** Any upstream fault, as distinct from a refusal this door authored. */
 const HTTP_SERVER_ERROR = 500;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 

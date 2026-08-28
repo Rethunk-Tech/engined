@@ -1,8 +1,12 @@
 /**
- * The shapes every module shares. Kept free of behaviour so that config parse,
- * spec loading, lifecycle and the door can be written against one another
- * without importing each other's implementations.
+ * The shapes every module shares, plus the few pure helpers that read them
+ * (`probeSaysReady`, `argvFromArgs`, the agentic-floor assertions). Depends on
+ * nothing but `http.ts`'s status names, so config parse, spec loading,
+ * lifecycle and the door can be written against one another without importing
+ * each other's implementations.
  */
+
+import { STATUS_NOT_FOUND } from "./http.ts";
 
 /** Occupancy is one resident GGUF per role, so the set is closed. */
 export type Role = "chat" | "vision" | "embedding";
@@ -13,45 +17,37 @@ export type Egress = "none" | "remote";
 export type EngineKind = "openai-http" | "agentic-cli" | "tts" | "stt" | "comfy";
 
 /**
- * One entry per `EngineKind` member. A literal typed against this shape
- * cannot omit a kind the union has, or keep one the union no longer has, so
- * every table below fails to compile the moment `EngineKind` changes until
- * it is given an explicit answer for the new (or removed) kind.
+ * One table, whose value says what each kind is. Typed as a complete record
+ * over `EngineKind`, so adding or removing a kind fails to compile here until
+ * this file gives the new one an explicit answer -- which is the whole point:
+ * an inline `kind === "a" || kind === "b"` elsewhere silently omits it.
  */
-type EngineKindTable<T> = Record<EngineKind, T>;
+const KIND_TRAITS: Record<EngineKind, { container: boolean; modelLess: boolean }> = {
+  "openai-http": { container: true, modelLess: false },
+  // The only kind that runs no container at all.
+  "agentic-cli": { container: false, modelLess: true },
+  // tts/stt have no model id of their own; agentic-cli picks its own.
+  tts: { container: true, modelLess: true },
+  stt: { container: true, modelLess: true },
+  comfy: { container: true, modelLess: false },
+};
+
+const KIND_ENTRIES = Object.entries(KIND_TRAITS) as [
+  EngineKind,
+  { container: boolean; modelLess: boolean },
+][];
 
 /** The complete kind list `parseKind` accepts; config.ts's source of truth. */
-const ALL_ENGINE_KINDS: EngineKindTable<true> = {
-  "openai-http": true,
-  "agentic-cli": true,
-  tts: true,
-  stt: true,
-  comfy: true,
-};
-export const ENGINE_KINDS: readonly EngineKind[] = Object.keys(ALL_ENGINE_KINDS) as EngineKind[];
+export const ENGINE_KINDS: readonly EngineKind[] = KIND_ENTRIES.map(([kind]) => kind);
 
-/** Kinds whose spec is the container dialect: every kind except agentic-cli, which runs no container at all. */
-const CONTAINER_KIND_FLAGS: EngineKindTable<boolean> = {
-  "openai-http": true,
-  "agentic-cli": false,
-  tts: true,
-  stt: true,
-  comfy: true,
-};
+/** Kinds whose spec is the container dialect. */
 export const CONTAINER_KINDS: ReadonlySet<EngineKind> = new Set(
-  (Object.keys(CONTAINER_KIND_FLAGS) as EngineKind[]).filter((k) => CONTAINER_KIND_FLAGS[k]),
+  KIND_ENTRIES.filter(([, t]) => t.container).map(([kind]) => kind),
 );
 
-/** Kinds whose door takes no separate model id: agentic-cli picks its own model, tts/stt have none. */
-const MODEL_LESS_KIND_FLAGS: EngineKindTable<boolean> = {
-  "openai-http": false,
-  "agentic-cli": true,
-  tts: true,
-  stt: true,
-  comfy: false,
-};
+/** Kinds whose door takes no separate model id. */
 export const MODEL_LESS_KINDS: ReadonlySet<EngineKind> = new Set(
-  (Object.keys(MODEL_LESS_KIND_FLAGS) as EngineKind[]).filter((k) => MODEL_LESS_KIND_FLAGS[k]),
+  KIND_ENTRIES.filter(([, t]) => t.modelLess).map(([kind]) => kind),
 );
 
 /**
@@ -144,8 +140,7 @@ export interface ReadyProbe {
 
 /** Whether a probe response means the engine is ready to serve. */
 export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
-  const NOT_FOUND = 404;
-  if (status === NOT_FOUND) {
+  if (status === STATUS_NOT_FOUND) {
     return false;
   }
   if (probe.accept === undefined) {

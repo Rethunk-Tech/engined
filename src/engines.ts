@@ -26,6 +26,7 @@ import {
   type EnginesResponse,
   isContainerSpec,
   type LoadedSpec,
+  MODEL_LESS_KINDS,
   type SecretRef,
   type Spec,
 } from "./types.ts";
@@ -573,7 +574,7 @@ export class EngineRegistry {
     }
     for (const entry of this.entries) {
       const kind = this.kindOf(entry);
-      if (kind === "agentic-cli" || kind === "tts" || kind === "stt") {
+      if (MODEL_LESS_KINDS.has(kind)) {
         out.add(entry.engine.id);
       }
     }

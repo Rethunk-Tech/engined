@@ -6,7 +6,7 @@
  * passthrough. `/slots/:id`, `/models/load` and `/models/unload` already
  * name what they need and pass through untouched.
  */
-import type { HttpClient } from "./http.ts";
+import { type HttpClient, jsonError, STATUS_BAD_REQUEST } from "./http.ts";
 import { errMessage, isRecord } from "./types.ts";
 
 const BODY_INJECT_PATHS = new Set(["/tokenize", "/detokenize", "/apply-template"]);
@@ -47,7 +47,7 @@ export async function proxyExtras(
     try {
       body = injectModel(body, residentModel);
     } catch (err) {
-      return Response.json({ error: errMessage(err) }, { status: 400 });
+      return jsonError(STATUS_BAD_REQUEST, errMessage(err));
     }
   }
 
