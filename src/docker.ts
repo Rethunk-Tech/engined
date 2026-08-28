@@ -534,28 +534,28 @@ export class DockerLifecycle {
   }
 
   /**
-   * Recursive rather than looping so a poll-retry never trips an await-in-loop shape.
-   * ponytail: one promise link per 250ms poll, so a 300s ready_timeout_s builds a
-   * 1200-deep chain before it resolves. Rewrite as a loop with an eslint-shaped
-   * exemption if a timeout ever needs to be minutes longer than that.
+   * Polls until ready or past the deadline. Sequential by nature -- each probe
+   * only matters once the previous one has failed -- so the awaits belong in a
+   * loop rather than a promise chain per interval.
    */
   private async pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
-    try {
-      const res = await this.httpProbe(
-        `http://127.0.0.1:${hostPort}${ready.path}`,
-        ready.method ?? "GET",
-      );
-      if (probeSaysReady(ready, res.status)) {
-        return true;
+    for (;;) {
+      try {
+        const res = await this.httpProbe(
+          `http://127.0.0.1:${hostPort}${ready.path}`,
+          ready.method ?? "GET",
+        );
+        if (probeSaysReady(ready, res.status)) {
+          return true;
+        }
+      } catch {
+        // not listening yet
       }
-    } catch {
-      // not listening yet
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await Bun.sleep(READY_POLL_INTERVAL_MS);
     }
-    if (Date.now() >= deadline) {
-      return false;
-    }
-    await Bun.sleep(READY_POLL_INTERVAL_MS);
-    return this.pollReady(hostPort, ready, deadline);
   }
 
   /** A failed `docker stop` leaves the container's real state (still running) alone and records why. Returns whether it actually stopped. */
