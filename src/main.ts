@@ -637,7 +637,11 @@ async function execRemoteHttp(
       body: jsonErrorBody(`engine "${engineEntry.id}" requires a model, and none was named`),
     };
   }
-  const init = openAiRequestInit(stripField(req.rawBody, "local_only"), modelId, req.signal);
+  // [engine.args] are engine-level wire defaults (reasoning_effort, and
+  // whatever else this upstream takes) -- the caller's own body wins, the same
+  // way a [model.args] key wins over [engine.args] one layer down.
+  const body = { ...resolution.endpoint.args, ...stripField(req.rawBody, "local_only") };
+  const init = openAiRequestInit(body, modelId, req.signal);
   const response = await fetch(
     remoteUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
     {

@@ -251,6 +251,33 @@ egress            = "none"
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 
+# A remote OpenAI-shaped engine: no spec directory, no container, nothing to
+# start -- `base_url` is the whole shape, the same as the remote STT engine
+# above. This is what lets a consumer stop carrying its own provider key and
+# its own primary/fallback ordering: put the key here, name the engine in a
+# chain, and engined owns both.
+#
+# Reports unavailable, naming its own fix, until:
+#   secret-tool store --label='openai-api' service openai-api username default
+[[engine]]
+id       = "openai"
+kind     = "openai-http"
+egress   = "remote"
+base_url = "https://api.openai.com/v1"
+secret   = { service = "openai-api", username = "default", header = "authorization" }
+
+  # Wire defaults for every request through this engine. A caller that sets
+  # the same key in its own body wins; these only fill what it left out.
+  [engine.args]
+  reasoning_effort = "medium"
+
+# Remote models carry no filename and no role -- nothing is resident, so
+# llama's occupancy rule does not apply. The id is passed upstream verbatim,
+# so it must be the name the provider actually serves.
+[[model]]
+id     = "gpt-5.4-mini"
+engine = "openai"
+
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
 # ---------------------------------------------------------------------------
@@ -261,4 +288,4 @@ idle_stop_seconds = 1800
 # engine later is a config edit, not a consumer change.
 [chain]
 chain-private = ["@/local/ornith"]
-chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5"]
+chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5", "@/openai/gpt-5.4-mini"]

@@ -27,11 +27,12 @@ const EXPECTED_ENGINE_IDS = [
   "elevenlabs",
   "kokoro",
   "local-llama",
+  "openai",
   "piper",
   "whisper",
 ];
 
-const EXPECTED_MODEL_IDS = ["embed", "k3", "ornith", "sonnet-5", "vision"];
+const EXPECTED_MODEL_IDS = ["embed", "gpt-5.4-mini", "k3", "ornith", "sonnet-5", "vision"];
 
 /** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
 function placeExampleModels(modelsDir: string): void {
@@ -74,6 +75,7 @@ test("config.example.toml parses through the real loadConfig()", () => {
     "@/local/ornith",
     "@/claude-kimi/k3",
     "@/claude/sonnet-5",
+    "@/openai/gpt-5.4-mini",
   ]);
 
   // whisper's spec needs models_dir on the wire (its bind mount and
