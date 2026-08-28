@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import type { Probe } from "./docker.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec } from "./exec.ts";
@@ -13,7 +11,9 @@ import {
   model as baseModel,
   ENGINES_ROOT,
   inspectSinglePort,
+  makeTestRoot,
   portResult,
+  tempPresetPath,
 } from "./test-support.ts";
 import type { EngineEntry, ModelEntry } from "./types.ts";
 
@@ -40,8 +40,10 @@ function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
   });
 }
 
+const TEST_ROOT = makeTestRoot("engined-llama-test-");
+
 function tmpIniPath(): string {
-  return join(mkdtempSync(join(tmpdir(), "engined-llama-test-")), "preset.ini");
+  return tempPresetPath(TEST_ROOT);
 }
 
 /** `proxy()` now returns `Promise<Response>` — real status requires buffering, see llama.ts. */

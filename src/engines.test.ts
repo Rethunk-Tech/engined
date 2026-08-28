@@ -18,8 +18,10 @@ import {
   config,
   ENGINES_ROOT,
   engine,
+  inspectSinglePort,
   makeTestRoot,
   model,
+  portResult,
   writeEngineSpec,
 } from "./test-support.ts";
 import { type Config, type EngineEntry, type EngineStatus, isContainerSpec } from "./types.ts";
@@ -672,28 +674,14 @@ describe("comfy: shipped spec", () => {
   });
 });
 
-/** `docker image inspect` reply naming one exposed container port, as real docker returns it. */
-function inspectReply(containerPort: number): ExecResult {
-  return {
-    stdout: `[{"Config":{"ExposedPorts":{"${containerPort}/tcp":{}}}}]`,
-    stderr: "",
-    exitCode: 0,
-  };
-}
-
-/** `docker port` reply for a freshly published host port. */
-function portReply(hostPort: number): ExecResult {
-  return { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
-}
-
 function comfyExec(): Exec {
   let port = 40_000;
   return (args) => {
     if (args[0] === "image" && args[1] === "inspect") {
-      return Promise.resolve(inspectReply(8188));
+      return Promise.resolve(inspectSinglePort(8188));
     }
     if (args[0] === "port") {
-      return Promise.resolve(portReply(++port));
+      return Promise.resolve(portResult(++port));
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
@@ -807,7 +795,7 @@ function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
   let port = 50_000;
   return (args) => {
     if (args[0] === "image" && args[1] === "inspect") {
-      return Promise.resolve(inspectReply(containerPort));
+      return Promise.resolve(inspectSinglePort(containerPort));
     }
     if (args[0] === "start") {
       return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 }); // never already created: fall through to "run"
@@ -817,7 +805,7 @@ function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
       return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
     }
     if (args[0] === "port") {
-      return Promise.resolve(portReply(++port));
+      return Promise.resolve(portResult(++port));
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
