@@ -10,11 +10,14 @@
  * network installed.
  */
 
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { posix } from "node:path";
 import process from "node:process";
+import { binExec, type Exec } from "./exec.ts";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
+
+export type { Exec, ExecResult } from "./exec.ts";
+
 import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
 
 /** Exported so the local tier asserts against the real prefix rather than a hand-built copy. */
@@ -27,30 +30,7 @@ const MAX_IDLE_STOP_RETRIES = 3;
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/;
 const NO_SUCH_CONTAINER = /no such container/i;
 
-export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-export type Exec = (args: readonly string[]) => Promise<ExecResult>;
-
-export function dockerExec(args: readonly string[]): Promise<ExecResult> {
-  return new Promise((resolve) => {
-    const proc = spawn("docker", args);
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk;
-    });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk;
-    });
-    proc.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-  });
-}
+export const dockerExec: Exec = binExec("docker");
 
 export type Probe = (url: string, method: "GET" | "POST") => Promise<{ status: number }>;
 

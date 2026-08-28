@@ -5,38 +5,18 @@
  * operator signs in. Always `secret-tool lookup`, never `search` — `search`
  * printed a live key to stdout during this design.
  */
-import { spawn } from "node:child_process";
+import { binExec, type Exec } from "./exec.ts";
+
+export type { Exec, ExecResult } from "./exec.ts";
+
 import type { SecretRef } from "./types.ts";
-
-export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-export type Exec = (args: readonly string[]) => Promise<ExecResult>;
 
 export type SecretOutcome =
   | { ok: true; value: string }
   | { ok: false; reason: "missing"; fix: string }
   | { ok: false; reason: "locked"; fix: string };
 
-export function secretExec(args: readonly string[]): Promise<ExecResult> {
-  return new Promise((resolve) => {
-    const proc = spawn("secret-tool", args);
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk;
-    });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk;
-    });
-    proc.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-  });
-}
+export const secretExec: Exec = binExec("secret-tool");
 
 function storeFix(ref: SecretRef): string {
   return `secret-tool store --label='${ref.service}' service ${ref.service} username ${ref.username}`;

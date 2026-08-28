@@ -18,7 +18,6 @@ import {
   timeoutSecondsForKind,
 } from "./main.ts";
 import { stateDir } from "./paths.ts";
-import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry, ModelEntry } from "./types.ts";
 
 const BUNX = "/home/x/.bun/bin/bunx";
@@ -1672,7 +1671,7 @@ function fakeSecretResolves(value: string) {
   return () => Promise.resolve({ ok: true as const, value });
 }
 
-function fakeSecretExec(value: string | undefined): SecretExec {
+function fakeExec(value: string | undefined): Exec {
   return (args) => {
     if (args[0] === "lookup" && value !== undefined) {
       return Promise.resolve({ stdout: value, stderr: "", exitCode: 0 });
@@ -1727,7 +1726,7 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
       },
       {
         agenticSpawn: spawn,
-        secretExec: fakeSecretExec("kimi-secret-value"),
+        secretExec: fakeExec("kimi-secret-value"),
         agenticAmbientEnv: { HOME: "/home/test", GITHUB_TOKEN: "ghp_leaked_repo_scope" },
         write: () => undefined,
       },
@@ -1797,7 +1796,7 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
       },
       {
         agenticSpawn: spawn,
-        secretExec: fakeSecretExec("kimi-secret-value"),
+        secretExec: fakeExec("kimi-secret-value"),
         write: () => undefined,
       },
     );
@@ -1825,12 +1824,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // a 5xx as advance-and-nothing-left-to-advance-to (chain.ts is not this
     // worker's file to change), so the fix text is only observable on the
     // HopResult resolveRedirect itself produces, before runChain ever sees it.
-    const redirect = await resolveRedirect(
-      kimiEngine(),
-      "kimi-k3",
-      config(),
-      fakeSecretExec(undefined),
-    );
+    const redirect = await resolveRedirect(kimiEngine(), "kimi-k3", config(), fakeExec(undefined));
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
       throw new Error("expected resolveRedirect to fail for a missing secret");
@@ -1862,7 +1856,7 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
       cfg,
       { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
       {
-        secretExec: fakeSecretExec(undefined),
+        secretExec: fakeExec(undefined),
         llamaHttpClient: makeLlamaHttpClient(recorded),
         llamaPresetHostPath: join(mkdtempSync(join(TEST_ROOT, "engined-preset-")), "preset.ini"),
         write: () => undefined,
