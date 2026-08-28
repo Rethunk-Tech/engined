@@ -501,6 +501,36 @@ export class LlamaRouter {
     }
   }
 
+  /**
+   * A container killed from outside engined leaves `state: running` and a
+   * `private_url` nothing listens on. Nothing else ever asks docker about an
+   * `openai-http` engine between starts -- `DockerLifecycle.start` returns
+   * early while it believes the engine is up -- so without this the router
+   * proxies to a dead port for the rest of the process's life, and only a
+   * restart clears it.
+   *
+   * Reconciling here costs a `docker inspect` only once a request has already
+   * failed; doing it before every request would tax every healthy one. Docker
+   * decides, so a genuine upstream error against a live container rethrows
+   * untouched rather than provoking a pointless restart.
+   *
+   * The retry re-sends `init` as given, which every caller builds with a
+   * string body (`main.ts` stringifies the JSON it forwards). A streamed
+   * request body would already be consumed and must not be retried here.
+   */
+  private async fetchUpstream(path: string, init: RequestInit): Promise<Response> {
+    try {
+      return await this.httpClient(`${this.baseUrl()}${path}`, init);
+    } catch (err) {
+      const reconciled = await this.lifecycle.reconcile(this.engine.id);
+      if (reconciled.state === "running") {
+        throw err;
+      }
+      await this.ensureStarted();
+      return await this.httpClient(`${this.baseUrl()}${path}`, init);
+    }
+  }
+
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
   private fetchBuffered(
     role: Role,
@@ -509,7 +539,7 @@ export class LlamaRouter {
     init: RequestInit,
   ): Promise<Response> {
     return this.withLease(role, modelId, async () => {
-      const upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
+      const upstream = await this.fetchUpstream(path, init);
       const body = await upstream.arrayBuffer();
       return new Response(body, { status: upstream.status, headers: upstream.headers });
     });
@@ -539,7 +569,7 @@ export class LlamaRouter {
     await this.beginLease(role, modelId);
     let upstream: Response;
     try {
-      upstream = await this.httpClient(`${this.baseUrl()}${path}`, init);
+      upstream = await this.fetchUpstream(path, init);
     } catch (err) {
       this.finishLease(role);
       throw err;

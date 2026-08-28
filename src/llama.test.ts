@@ -664,3 +664,81 @@ test("a model added by config reload becomes genuinely servable, not just listed
 // a real GGUF, which does not exist in this repo. Do not alias a chat model
 // onto the vision role to make this runnable -- see TODO.md's acceptance
 // criteria for this engine; the criterion is skipped, not faked.
+
+/**
+ * The container dies from outside engined. Nothing else asks docker about an
+ * `openai-http` engine between starts, so without reconciling on the failure
+ * the router proxies to a dead port until the process restarts.
+ */
+test("a request that cannot connect reconciles a dead container, restarts it and retries once", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+
+  const base = fakeExec();
+  const goneExec: Exec = (args) =>
+    args[0] === "inspect"
+      ? Promise.resolve({ exitCode: 0, stdout: "false\n", stderr: "" })
+      : base(args);
+
+  // Only the proxied completion fails, and only the first time: the load and
+  // /v1/models polling the lease itself does must still succeed, or the
+  // failure under test is never reached.
+  let chatCalls = 0;
+  const { client } = fakeLlama((call) => {
+    if (call.path !== CHAT_PATH) {
+      return;
+    }
+    chatCalls += 1;
+    if (chatCalls === 1) {
+      throw new Error("Unable to connect");
+    }
+  });
+
+  const router = new LlamaRouter(
+    e,
+    [a],
+    new DockerLifecycle(goneExec, fakeProbe),
+    baseOpts(client),
+  );
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+
+  expect(res.status).toBe(200);
+  expect(chatCalls).toBe(2);
+});
+
+/** Docker decides: a real upstream failure against a live container must not provoke a restart-and-retry. */
+test("a request that cannot connect while the container is genuinely up rethrows", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+
+  const base = fakeExec();
+  const aliveExec: Exec = (args) =>
+    args[0] === "inspect"
+      ? Promise.resolve({ exitCode: 0, stdout: "true\n", stderr: "" })
+      : base(args);
+
+  let chatCalls = 0;
+  const { client } = fakeLlama((call) => {
+    if (call.path !== CHAT_PATH) {
+      return;
+    }
+    chatCalls += 1;
+    throw new Error("Unable to connect");
+  });
+
+  const router = new LlamaRouter(
+    e,
+    [a],
+    new DockerLifecycle(aliveExec, fakeProbe),
+    baseOpts(client),
+  );
+
+  await expect(
+    router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }),
+  ).rejects.toThrow("Unable to connect");
+  // Not retried: docker said the container is up, so this is a real upstream error.
+  expect(chatCalls).toBe(1);
+});
