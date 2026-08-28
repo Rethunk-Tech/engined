@@ -782,3 +782,60 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
   // And no eviction: the belief about WHICH model belongs here was never wrong.
   expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
 });
+
+/**
+ * The narrower half of the same desync, captured live: a request that reaches
+ * the router inside the window where an unload has begun but not finished is
+ * proxied to the dying child, and the router answers 500 with the plain-text
+ * body "proxy error: Could not establish connection" -- 11ms after the unload
+ * in the observed run. The trap is that the router still advertises the model
+ * as loaded through that window, so reloading immediately is a no-op and the
+ * retry lands on the same corpse.
+ */
+test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 500", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
+  let childGone = false;
+  let staleAdvertisements = 2;
+  let served500s = 0;
+  const { client, calls } = fakeLlama((call) => {
+    if (!childGone) {
+      return undefined;
+    }
+    if (call.path === CHAT_PATH) {
+      served500s++;
+      return new Response("proxy error: Could not establish connection", { status: 500 });
+    }
+    if (call.path === MODELS_LIST_PATH) {
+      // The router keeps claiming the instance for a beat after accepting the unload.
+      if (staleAdvertisements > 0) {
+        staleAdvertisements--;
+        return modelsList([{ id: "a", status: "loaded" }]);
+      }
+      return modelsList([{ id: "a", status: "unloaded" }]);
+    }
+    if (call.path === LOAD_PATH) {
+      childGone = false;
+    }
+    return undefined;
+  });
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
+
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  const loadsBefore = calls.filter((c) => c.path === LOAD_PATH).length;
+
+  childGone = true;
+  const res = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+
+  expect(served500s).toBe(1);
+  expect(res.status).toBe(200);
+  // It waited for the router to stop advertising the dying instance...
+  expect(staleAdvertisements).toBe(0);
+  // ...and only then issued a real reload.
+  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1);
+  expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
+});

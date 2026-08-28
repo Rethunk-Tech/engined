@@ -28,6 +28,9 @@ const MS_PER_SECOND = 1000;
 const HTTP_ALREADY_RUNNING = 400;
 /** llama-server's answer once its own residency disagrees with this router's. */
 const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
+/** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
+const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
+const HTTP_SERVER_ERROR = 500;
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 
 function sleep(ms: number): Promise<void> {
@@ -565,23 +568,68 @@ export class LlamaRouter {
     modelId?: string,
   ): Promise<Response> {
     const res = await this.fetchUpstreamOnce(path, init);
-    if (modelId === undefined || !(await this.saysModelNotLoaded(res))) {
+    if (modelId === undefined) {
       return res;
     }
-    await this.loadAndWait(this.baseUrl(), modelId);
+    const fault = await this.residencyFault(res);
+    if (fault === "none") {
+      return res;
+    }
+    const url = this.baseUrl();
+    // An unreachable child is one the router is still advertising as loaded,
+    // so reloading first would be a no-op and the retry would land on the same
+    // dying process. Waiting for the router to admit the instance is gone is
+    // what makes the reload real.
+    if (fault === "unreachable") {
+      await this.awaitInstanceGone(url, modelId);
+    }
+    await this.loadAndWait(url, modelId);
     return await this.fetchUpstreamOnce(path, init);
   }
 
-  /** Reads a clone so the caller still owns an unconsumed body on every path. */
-  private async saysModelNotLoaded(res: Response): Promise<boolean> {
+  /**
+   * Both faults mean "the child that should serve this is not there", and
+   * both are reached only after a request has already failed. They are kept
+   * apart because they need different repairs, and because neither may be
+   * widened into "retry any 5xx": re-sending a request a live child genuinely
+   * failed turns one bad answer into two. Reads a clone so the caller still
+   * owns an unconsumed body on every path.
+   */
+  private async residencyFault(res: Response): Promise<"none" | "not-loaded" | "unreachable"> {
     if (res.ok) {
-      return false;
+      return "none";
+    }
+    let body: string;
+    try {
+      body = await res.clone().text();
+    } catch {
+      return "none";
+    }
+    // The router writes this one as plain text, not as its JSON error shape.
+    if (res.status === HTTP_SERVER_ERROR && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
+      return "unreachable";
     }
     try {
-      const body = (await res.clone().json()) as { error?: { message?: string } };
-      return body.error?.message === MODEL_NOT_LOADED_MESSAGE;
+      const parsed = JSON.parse(body) as { error?: { message?: string } };
+      return parsed.error?.message === MODEL_NOT_LOADED_MESSAGE ? "not-loaded" : "none";
     } catch {
-      return false;
+      return "none";
+    }
+  }
+
+  /**
+   * Bounded by the same `readyTimeoutS` every other "wait for the engine to be
+   * able to serve" uses. Giving up returns rather than throws: the reload and
+   * its own poll follow, and they are better placed to fail with a real reason
+   * than a timeout here would be.
+   */
+  private async awaitInstanceGone(baseUrl: string, modelId: string): Promise<void> {
+    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
+    while ((await this.modelStatus(baseUrl, modelId)) === "loaded") {
+      if (Date.now() >= deadline) {
+        return;
+      }
+      await sleep(this.pollIntervalMs);
     }
   }
 
