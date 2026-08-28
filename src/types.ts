@@ -288,10 +288,8 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
  * `[engine.args]` key that renders to `--tools` (or any other floor flag)
  * appends a SECOND copy after the floor's own, and last-wins argument
  * parsing means whatever the config supplied is what the child actually
- * gets — the floor was never really prepended, just overwritten. A
- * maintained second list is exactly how `--tools` escaped
- * `FORBIDDEN_AGENTIC_FLAGS` in the first place; deriving from the floor
- * array means any flag later added to the floor is automatically
+ * gets — the floor was never really prepended, just overwritten. Deriving
+ * from the floor array means any flag later added to it is automatically
  * unbeatable too, with nothing new to remember to blacklist.
  */
 const AGENTIC_FLOOR_FLAG_NAMES = new Set<string>(

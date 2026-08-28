@@ -114,9 +114,9 @@ function substitute(s: string, subs: Record<string, string>, file: string): stri
 /**
  * Substitutes every string value anywhere in a parsed spec, so no field can
  * carry an unresolved placeholder past parse. Mirrors `assertNoPortKey`'s
- * traversal: a hand-list of which fields to substitute is how the fields this
- * replaces (image, obtain, serves, env, devices, ..., artifact.path) went
- * unscanned in the first place.
+ * traversal deliberately: a hand-list of which fields to substitute leaves
+ * whatever it forgets (image, obtain, serves, env, devices, artifact.path,
+ * ...) silently unscanned.
  */
 function substituteDeep<T>(value: T, subs: Record<string, string>, file: string): T {
   if (typeof value === "string") {

@@ -989,14 +989,12 @@ function routeGet(
  * OpenAI's list envelope, because a bare array does not fail loudly against
  * a consumer -- it fails silently. Anything parsing the documented shape
  * reads `body.data`, which on an array is `undefined` and degrades to an
- * empty model list with no throw and no bad status. Measured against
- * sagaforge-ts's `probeModels` (packages/daemon/src/engines/probe.ts), which
- * does `(body.data ?? []).map((m) => m.id)` and so showed no models at all
- * while every other endpoint worked.
+ * empty model list with no throw and no bad status: a consumer doing
+ * `(body.data ?? []).map((m) => m.id)` sees no models at all while every
+ * other endpoint works for it.
  *
- * What this is a menu OF does not change: `data[].id` is exactly the array
- * this used to answer, aliases, chain names and agentic engine ids included.
- * Those are dispatchable `model` strings rather than GGUFs, which is why the
+ * `data[].id` carries every dispatchable `model` string: GGUF ids, aliases,
+ * chain names and agentic engine ids. Those are dispatchable `model` strings rather than GGUFs, which is why the
  * per-entry metadata stays minimal -- `created` and `owned_by` are here
  * because strict clients require the fields, not because they carry meaning.
  */
@@ -1122,10 +1120,9 @@ export function bindDualFamily(
  * `ENGINED_BUNX` is what the `--user` unit always sets (`scripts/engined.service.in`)
  * so `{bunx}` in a spec.toml command, and every agentic launch, resolve to an
  * absolute path rather than a bare `bunx` a sandboxed unit's PATH may not
- * carry at all. A bare-string fallback here used to be silently truthy no
- * matter what, which made `agentic.ts:117`'s own "bunx is unresolved" guard
- * dead code in production -- a unit that lost the env var failed late, at
- * exec inside a spawned child, instead of loudly at startup.
+ * carry at all. Resolving here, at startup, is what makes a lost env var
+ * fail loudly and immediately rather than late, at exec inside a spawned
+ * child.
  *
  * The legitimate case this must not break is a plain working-tree dev run
  * with no unit and no `ENGINED_BUNX` at all: resolving off PATH (real,

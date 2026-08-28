@@ -70,8 +70,9 @@ function asArray(v: unknown, key: string, file: string): unknown[] {
  * never true for a remote address: `checkRemoteAddress` already forbids
  * `models_dir` there structurally, so it has no file to check a `filename`
  * against regardless of what kind it is (agentic-cli, or an openai-http
- * endpoint hosted elsewhere) -- conflating "no local file" with "agentic"
- * is exactly the wrong-message bug this predicate used to carry.
+ * endpoint hosted elsewhere). Conflating "no local file" with "agentic"
+ * yields the wrong message, which is why the test is on the two fields
+ * rather than on kind.
  */
 function requiresFilenameAndRole(e: EngineEntry): boolean {
   return e.base_url === undefined && e.models_dir !== undefined;
