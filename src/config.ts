@@ -170,10 +170,11 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
   const claudeVersion = optional(raw.claude_version, "string", `${site} "claude_version"`, file);
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
+  const rawSpecDir = optional(raw.spec_dir, "string", `${site} "spec_dir"`, file);
   return {
     id,
     egress,
-    spec_dir: optional(raw.spec_dir, "string", `${site} "spec_dir"`, file),
+    spec_dir: rawSpecDir === undefined ? undefined : expandConfigPath(rawSpecDir),
     models_dir: rawModelsDir === undefined ? undefined : expandConfigPath(rawModelsDir),
     models_max: optional(raw.models_max, "number", `${site} "models_max"`, file),
     idle_stop_seconds: optional(
