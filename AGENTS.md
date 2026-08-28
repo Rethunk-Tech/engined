@@ -1,12 +1,14 @@
 # engined
 
-`TODO.md` is the authoritative artifact and
-is organised **per feature** — each entry carrying its own description, `Traps`
-and `Acceptance`. `README.md` says only what the service is.
+v1 is built. `README.md` is the user-facing document — what the service is,
+how to install, configure and operate it, and the measurements behind the
+settings it ships. This file is the contributor's: the test tiers, the
+config/spec split, and the rules that are easy to get wrong. `TODO.md`
+carries genuine outstanding work only, and is currently empty.
 
-The implementation lives in `src/`, Bun and TypeScript, and is built against
-those entries rather than against itself: an acceptance criterion is the test,
-and a `Traps` bullet is a behaviour some engine actually has.
+The implementation lives in `src/`, Bun and TypeScript. An acceptance
+criterion is a test, and a trap is a behaviour some engine actually has —
+both live beside the code they govern rather than in a plan document.
 
 ## Testing
 
@@ -39,6 +41,39 @@ reproduces the logic and none of the behaviour. Where a dependency must be
 substituted it is injected as a function with a real default, and the fixtures
 are recorded output from the real tool.
 
+### Four guards worth knowing
+
+Each of these was, at some point, protected by nothing — a regression would
+have been silent. Each now has a test verified able to FAIL: the behaviour
+was neutered, the test failed, the behaviour was restored.
+
+- **Two concurrent requests to a stopped engine start exactly one
+  container.** The pre-existing test passed for the wrong reason: two
+  unawaited `start()` calls only race correctly because an async body runs
+  synchronously to its first `await`. It now holds `docker run` pending
+  across a real timer tick and asserts mid-flight.
+- **Exactly one llama.cpp owner under load from two consumers.** Proven
+  live: three concurrent client processes — one naming a model id, one a
+  chain, one the vision role — ran twelve completions through the door while
+  `engined-local-llama` was sampled twice a second for a minute, and all 120
+  samples read exactly one container. This is the criterion the whole
+  occupancy design exists for; `llama.test.ts`'s concurrent cross-role test
+  guards it.
+- **A port already bound at startup exits 78 rather than restart-looping.**
+  The error names the port but deliberately NOT the holding process: `ss -p`
+  cannot resolve a pid across the unit's mount namespace, so the holder is
+  genuinely unknowable from inside the sandbox.
+- **A Comfy render through a real checkpoint.** The suite's other comfy job
+  is deliberately model-free (`EmptyImage` -> `SaveImage`), so queue, execute
+  and output were guarded while the diffusion path itself — weights on the
+  GPU, the sampler, the VAE decode — was not. `comfy.test.ts` drives
+  Chroma1-HD through `UNETLoader`, with the T5 encoder and the VAE named
+  separately because that file carries no CLIP of its own, and asserts the
+  decoded PNG is 512x512 and far larger than a flat image compresses to.
+  Twelve steps resolve a clean image in about 45 seconds. The whole describe
+  skips when those weights are absent, so the suite gains the guard without
+  being pinned to them.
+
 **Shipped images are migrated, never invented.** The fleet already carries
 Dockerfiles and run specs for comfy, chatterbox, kokoro and whisper; they are
 adapted here for this GPU — gfx1151, ROCm or Vulkan, never CUDA.
@@ -69,8 +104,7 @@ frames never arrive; kokoro's entrypoint override, without which its image
 floods the log at debug level; whisper's `--inference-path`, which is the
 only reason it is OpenAI-shaped — and the agentic launch flags are the
 read-only guarantee itself. Those belong in a file that ships and diffs, not
-one an operator edits. `TODO.md`'s Engine specs entry says what a spec itself
-describes.
+one an operator edits.
 
 **Everything tunable is config, and it goes as deep as the model.** So
 `[engine.args]` carries an engine's process flags and `[model.args]` carries
