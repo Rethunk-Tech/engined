@@ -30,7 +30,8 @@ import type { Config, EngineEntry } from "../../src/types.ts";
  * so they are exercised here as the same executable code, not a checklist.
  */
 const CLAUDE_VERSION = process.env.ENGINED_TEST_CLAUDE_VERSION;
-const BUNX = process.env.ENGINED_BUNX;
+// Set by the `test:local` script, alongside ENGINED_LOCAL that gates this tier.
+const BUNX = process.env.ENGINED_BUNX as string;
 const ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"];
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 

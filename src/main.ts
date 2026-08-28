@@ -138,11 +138,10 @@ function isExtrasPath(pathname: string): boolean {
   return EXTRAS_EXACT.has(pathname) || SLOTS_ID_RE.test(pathname);
 }
 
-/** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. */
-function hopFromDispatch(dispatch: Extract<Dispatch, { ok: true }>): string {
-  if (dispatch.kind === "chain") {
-    throw new Error("hopFromDispatch: a chain dispatch carries its own hops");
-  }
+/** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. A chain never arrives here: it carries its own hops. */
+function hopFromDispatch(
+  dispatch: Exclude<Extract<Dispatch, { ok: true }>, { kind: "chain" }>,
+): string {
   return dispatch.kind === "model"
     ? `@/${dispatch.engine}/${dispatch.model}`
     : `@/${dispatch.engine}`;

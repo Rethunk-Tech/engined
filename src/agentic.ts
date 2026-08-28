@@ -230,8 +230,8 @@ interface RunAgenticInput {
   workdir: string | undefined;
   prompt: string;
   spawn: AgenticSpawn;
-  /** Defaults to `process.env.ENGINED_BUNX`, the absolute path the unit sets. */
-  bunx?: string;
+  /** The absolute path `resolveBunx` produced, which refuses to be empty. */
+  bunx: string;
   ambientEnv?: NodeJS.ProcessEnv;
   /** stderr is logged, never folded into the result. Defaults to the real stderr, which a `systemd --user` unit ships to journald the same as stdout. */
   logStderr?: (text: string) => void;
@@ -280,13 +280,8 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     };
   }
-  const bunx = input.bunx ?? process.env.ENGINED_BUNX;
-  if (bunx === undefined || bunx === "") {
-    throw new Error("ENGINED_BUNX is not set; the unit must set it to the resolved bunx path");
-  }
-
   const argv = buildArgv({
-    bunx,
+    bunx: input.bunx,
     claudeVersion: input.claudeVersion,
     args: input.args,
     mcpConfigPath: renderEmptyMcpConfig(),

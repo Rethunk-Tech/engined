@@ -170,7 +170,6 @@ export interface RegistryOptions {
   /** Root of the shipped `engines/` directory, passed straight through to `loadSpec`. */
   enginesRoot: string;
   bunx: string;
-  presetIni?: string;
   /** Injected together so the image probe below agrees with a test's fake lifecycle. */
   exec?: Exec;
   probe?: Probe;
@@ -198,15 +197,19 @@ interface Entry {
  * themselves; the first call here only exists to learn `kind` cheaply,
  * before ever running or proxying anything.
  */
+/**
+ * Substituted into the throwaway peek below, never mounted: a spec that reads
+ * `{preset_ini}` is re-resolved by its own builder with the real path, and a
+ * spec that does not read it never sees this. Named rather than inlined so it
+ * is obvious no real path was meant.
+ */
+const PEEK_PRESET_INI = "/unused";
+
 function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): LoadedSpec {
   // The peek's own resolved spec is discarded whenever a builder below takes
-  // over (each calls loadSpec again with the substitution `{preset_ini}`
-  // actually needs) — this placeholder only has to satisfy substitution, not
-  // name a real path.
-  const loaded = loadSpec(engine, {
-    ...specOptions,
-    presetIni: specOptions.presetIni ?? "/unused",
-  });
+  // over -- each calls loadSpec again with the substitution `{preset_ini}`
+  // actually needs.
+  const loaded = loadSpec(engine, { ...specOptions, presetIni: PEEK_PRESET_INI });
   if (!isContainerSpec(loaded.spec)) {
     return loaded;
   }
@@ -278,7 +281,6 @@ export class EngineRegistry {
     this.specOptions = {
       enginesRoot: opts.enginesRoot,
       bunx: opts.bunx,
-      presetIni: opts.presetIni,
     };
     this.queueFetch = opts.queueFetch ?? defaultQueueFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
@@ -493,7 +495,11 @@ export class EngineRegistry {
         fix: noProbeRunnerConfiguredFix(engine.id, engine.claude_version),
       };
     }
-    const outcome = await this.runAgenticProbe(engine, engine.claude_version);
+    const outcome = await this.runAgenticProbe(
+      engine,
+      engine.claude_version,
+      this.agenticProbeRunner,
+    );
     if (!outcome.ok) {
       return {
         ...base,
@@ -514,7 +520,11 @@ export class EngineRegistry {
    * re-arm this gate — misses the cache on its own, with no separate
    * invalidation needed.
    */
-  private runAgenticProbe(engine: EngineEntry, version: string): Promise<AgenticProbeOutcome> {
+  private runAgenticProbe(
+    engine: EngineEntry,
+    version: string,
+    runner: AgenticProbeRunner,
+  ): Promise<AgenticProbeOutcome> {
     const cached = this.agenticProbeState.get(engine.id);
     if (cached?.version === version) {
       if (cached.promise) {
@@ -523,10 +533,6 @@ export class EngineRegistry {
       if (cached.outcome) {
         return Promise.resolve(cached.outcome);
       }
-    }
-    const runner = this.agenticProbeRunner;
-    if (!runner) {
-      return Promise.resolve({ ok: false, failedProbe: "no-runner-configured" });
     }
     const promise = runner(engine, version).then((outcome) => {
       this.agenticProbeState.set(engine.id, {
