@@ -6,8 +6,9 @@ import { join } from "node:path";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
 import { resolveModel } from "./dispatch.ts";
-import type { Exec, ExecResult, Probe } from "./docker.ts";
+import type { Probe } from "./docker.ts";
 import { type AgenticProbeRunner, EngineRegistry } from "./engines.ts";
+import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./llama.ts";
 import {
   bindDualFamily,

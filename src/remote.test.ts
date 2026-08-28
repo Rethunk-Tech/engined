@@ -7,9 +7,9 @@
 
 import { expect, test } from "bun:test";
 import { handleSpeech, handleTranscription } from "./audio.ts";
+import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor } from "./main.ts";
 import { isRemote, remoteUrl, resolveRemote, upstreamPath } from "./remote.ts";
-import type { Exec as SecretExec } from "./secrets.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
 const TEST_LISTEN_PORT = 39_218;

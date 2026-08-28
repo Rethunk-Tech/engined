@@ -16,8 +16,6 @@ import process from "node:process";
 import { binExec, type Exec } from "./exec.ts";
 import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
 
-export type { Exec, ExecResult } from "./exec.ts";
-
 import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
 
 /** Exported so the local tier asserts against the real prefix rather than a hand-built copy. */

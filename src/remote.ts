@@ -15,8 +15,9 @@
  * or an error body from anywhere in here.
  */
 
+import type { Exec as SecretExec } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_UNAVAILABLE } from "./http.ts";
-import { resolveSecret, type Exec as SecretExec } from "./secrets.ts";
+import { resolveSecret } from "./secrets.ts";
 import type { EngineEntry } from "./types.ts";
 
 /** Where a remote engine actually is, and what proves we may talk to it. */

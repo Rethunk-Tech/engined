@@ -10,7 +10,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Exec, ExecResult } from "./docker.ts";
+import type { Exec, ExecResult } from "./exec.ts";
 import { createDoor } from "./main.ts";
 import type { Config, EngineEntry } from "./types.ts";
 

@@ -3,13 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { buildRunArgs, DockerLifecycle, type Exec, type ExecResult, type Probe } from "./docker.ts";
+import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
 import {
   type AgenticProbeRunner,
   EngineRegistry,
   type QueueSnapshot,
   type RegistryOptions,
 } from "./engines.ts";
+import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
 import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";

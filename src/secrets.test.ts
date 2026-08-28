@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Exec, ExecResult } from "./secrets.ts";
+import type { Exec, ExecResult } from "./exec.ts";
 import { resolveSecret } from "./secrets.ts";
 import type { SecretRef } from "./types.ts";
 

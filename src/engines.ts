@@ -7,7 +7,8 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { buildComfySpec } from "./comfy.ts";
-import { DockerLifecycle, dockerExec, type Exec, type Probe } from "./docker.ts";
+import { DockerLifecycle, dockerExec, type Probe } from "./docker.ts";
+import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { stateDir } from "./paths.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";

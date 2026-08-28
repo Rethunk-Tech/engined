@@ -7,8 +7,6 @@
  */
 import { binExec, type Exec } from "./exec.ts";
 
-export type { Exec, ExecResult } from "./exec.ts";
-
 import type { SecretRef } from "./types.ts";
 
 export type SecretOutcome =

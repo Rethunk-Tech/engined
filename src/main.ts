@@ -31,6 +31,7 @@ import {
   EngineRegistry,
   type RegistryOptions,
 } from "./engines.ts";
+import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
   HTTP_CLIENT_ERROR_MIN,
@@ -46,7 +47,6 @@ import { type HttpClient, LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
-import type { Exec as SecretExec } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type Config,

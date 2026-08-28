@@ -4,13 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DockerLifecycle,
-  type Exec,
-  type ExecResult,
   hostPathFor,
   type Probe,
   parseExposedPort,
   parseHostPort,
 } from "./docker.ts";
+import type { Exec, ExecResult } from "./exec.ts";
 import type { ContainerSpec, Volume } from "./types.ts";
 
 /** `docker image inspect redis:alpine`, captured on this box — the one-port case. */
