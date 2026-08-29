@@ -50,7 +50,9 @@ decoder runs one step where the multilingual model runs ten. English-only:
 Turbo's `generate()` takes no `language_id`, so there is no language to plumb.
 Kept alongside Chatterbox rather than replacing it; both images ship.
 
-It is the only TTS engine here that is faster than realtime on this box.
+It is the fastest of the three GPU TTS engines, and the only one of them that
+is faster than realtime on this box. Piper is faster than all of them and is
+not in this comparison: it runs on the CPU, so it measures a different thing.
 Measured, median of three runs after warm-up, on the same input:
 
 | engine | `MIOPEN_FIND_MODE` | RTF | realtime |
@@ -92,6 +94,23 @@ only, no cloning.
 Being a ROCm engine, it contends for the box's single GPU like ComfyUI and
 llama.cpp do. Piper is the CPU voice, and that is the reason to reach for it
 instead when speech has to run while a large GGUF stays resident.
+
+### Piper
+
+`engines/piper/`. The one engine with no GPU flags at all: an ONNX voice small
+enough that onnxruntime's CPU provider is the right answer, which is what makes
+it the voice to reach for while a large GGUF stays resident. ~0.5 GB. Voice
+baked at build time.
+
+Faster than realtime by a wide margin, and by more than the GPU engines above:
+measured through the door, median of three runs, warm, on a three-sentence
+input, RTF 0.022 -- 8.64s of audio in 0.19s, about 46x realtime. That is a
+different measurement from the ROCm table above (no GPU contention, no MIOpen
+search), which is why it is quoted separately rather than added as a row.
+
+Its voice synthesizes at **22050 Hz**, not the 24000 kokoro uses. Nothing
+inside a WAV cares, but a streamed `audio/L16` reply has only the content type
+to say so -- see [http-api.md](http-api.md).
 
 ## Three specs carry a detail that fails silently
 

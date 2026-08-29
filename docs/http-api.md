@@ -85,12 +85,21 @@ inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside.
 
 `POST /v1/audio/speech` buffers by default and returns a complete `audio/wav`.
-With `"stream": true` it returns `audio/L16; rate=24000; channels=1` — signed
-16-bit little-endian mono, forwarded as each piece is synthesized. PCM rather
-than a WAV because a WAV header carries a length nothing knows until synthesis
-ends; the rate and encoding ride in the content type instead. A mid-stream
-failure ends the stream rather than changing a status code that has already
-been sent, so a caller sees short audio.
+With `"stream": true` it returns `audio/L16; rate=<engine's own rate>;
+channels=1` — signed 16-bit little-endian mono, forwarded as each piece is
+synthesized. PCM rather than a WAV because a WAV header carries a length
+nothing knows until synthesis ends; the rate and encoding ride in the content
+type instead. **Read the rate off the content type of the reply you got.** It
+is not the same for every engine — kokoro synthesizes at 24000 and piper's
+voice at 22050 — and a caller that assumes one plays the other 8.8% fast and
+sharp. A mid-stream failure ends the stream rather than changing a status code
+that has already been sent, so a caller sees short audio.
+
+Only an engine that implements chunking can be streamed: kokoro and piper do,
+and chatterbox and chatterbox-fast do not — a single blocking `generate()` has
+no piece to forward before the last one. A request that streams one of those
+gets a 502 saying the engine streamed no audio, sent before any header is
+committed, rather than a 200 whose body never arrives.
 
 **How much this buys depends on the text.** Kokoro's pipeline splits on
 newlines, not sentences: measured here, four newline-separated lines produced
@@ -98,7 +107,9 @@ four chunks of 1.7–2.0s each, while a single five-sentence paragraph produced
 one chunk of 18.68s and therefore streams no earlier than buffering would. A
 caller that wants early audio should send its text newline-separated. Making
 the engine split on sentences instead would change how it reads across
-sentence boundaries, so it is not done here.
+sentence boundaries, so it is not done here. Piper splits on sentences itself,
+so its chunk boundaries follow the text's punctuation and need nothing from
+the caller.
 
 `POST /v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
 no body it warms the container, which is what it has always done. With one it
