@@ -8,6 +8,7 @@ import {
   type Probe,
   parseExposedPort,
   parseHostPort,
+  specDigest,
 } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { containerRunning, makeTestRoot } from "./test-support.ts";
@@ -475,6 +476,120 @@ describe("a container that vanished underneath engined", () => {
     expect(second.private_url).toBe(first.private_url);
     expect(runLog.length).toBe(2);
   });
+});
+
+/**
+ * An unclean exit -- a crash, a kill -9, a host reboot with the daemon dead --
+ * leaves `shutdown` unrun and its containers up, against a map that starts
+ * empty. Destroying one is worst exactly then, because whatever it was
+ * serving is still being served.
+ */
+describe("a container an unclean exit left running", () => {
+  const ADOPTED_HOST_PORT = 41_000;
+
+  /**
+   * The orphan `docker ps` reports under this engine's name, plus the ordinary
+   * stub for everything else -- so a declined adoption really does fall
+   * through to a fresh `run` on the stub's own port.
+   */
+  function orphanExec(orphan: { digest: string; ports: string }, runLog: string[][]): Exec {
+    const live = stubExec(runLog, [], STUB_HOST_PORT_A);
+    return (args) => {
+      if (args[0] === "ps") {
+        return Promise.resolve({
+          stdout: `engined-orphan\t${orphan.digest}\t${orphan.ports}\n`,
+          stderr: "",
+          exitCode: 0,
+        });
+      }
+      return live(args);
+    };
+  }
+
+  function matching(): { digest: string; ports: string } {
+    return { digest: specDigest(SPEC), ports: `127.0.0.1:${ADOPTED_HOST_PORT}->6379/tcp` };
+  }
+
+  test("probe reports one launched from this exact spec as running, on its own port", async () => {
+    const runLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(orphanExec(matching(), runLog), readyProbe);
+
+    const probed = await lifecycle.probe("orphan", SPEC);
+    expect(probed.state).toBe("running");
+    expect(probed.private_url).toBe(`127.0.0.1:${ADOPTED_HOST_PORT}`);
+    expect(runLog.length).toBe(0);
+  });
+
+  test("start hands it back rather than removing and recreating it", async () => {
+    const runLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(orphanExec(matching(), runLog), readyProbe);
+
+    const started = await lifecycle.start("orphan", SPEC, START_OPTS);
+    expect(started.private_url).toBe(`127.0.0.1:${ADOPTED_HOST_PORT}`);
+    expect(runLog.length).toBe(0);
+  });
+
+  test("docker is asked once, not on every poll", async () => {
+    const calls: string[][] = [];
+    const orphan = matching();
+    const lifecycle = new DockerLifecycle((args) => {
+      calls.push([...args]);
+      return args[0] === "ps"
+        ? Promise.resolve({
+            stdout: `engined-orphan\t${orphan.digest}\t${orphan.ports}\n`,
+            stderr: "",
+            exitCode: 0,
+          })
+        : Promise.resolve(args[0] === "image" ? inspectFound() : containerRunning());
+    }, readyProbe);
+
+    await lifecycle.probe("orphan", SPEC);
+    await lifecycle.probe("orphan", SPEC);
+    expect(calls.filter((argv) => argv[0] === "ps").length).toBe(1);
+  });
+
+  test("one whose launch no longer matches the spec is replaced", async () => {
+    const runLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(
+      orphanExec(
+        { digest: specDigest({ ...SPEC, image: "redis:7" }), ports: "127.0.0.1:9/tcp" },
+        runLog,
+      ),
+      readyProbe,
+    );
+
+    const started = await lifecycle.start("orphan", SPEC, START_OPTS);
+    expect(started.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`);
+    expect(runLog.length).toBe(1);
+  });
+
+  test("one publishing no host binding is replaced", async () => {
+    const runLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(
+      orphanExec({ digest: specDigest(SPEC), ports: "" }, runLog),
+      readyProbe,
+    );
+
+    await lifecycle.start("orphan", SPEC, START_OPTS);
+    expect(runLog.length).toBe(1);
+  });
+
+  test("one that no longer answers its own readiness probe is replaced", async () => {
+    const runLog: string[][] = [];
+    // Ready only once the fresh container's port answers: the orphan's does not.
+    const probe: Probe = (url) =>
+      Promise.resolve({ status: url.includes(String(STUB_HOST_PORT_A)) ? READY_STATUS : 503 });
+    const lifecycle = new DockerLifecycle(orphanExec(matching(), runLog), probe);
+
+    const started = await lifecycle.start("orphan", SPEC, START_OPTS);
+    expect(started.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`);
+    expect(runLog.length).toBe(1);
+  });
+});
+
+test("the digest stamped on a container is the one adoption compares against", () => {
+  expect(buildRunArgs("engined-redis", SPEC, 6379)).toContain(`engined.spec=${specDigest(SPEC)}`);
+  expect(specDigest({ ...SPEC, command: ["--verbose"] })).not.toBe(specDigest(SPEC));
 });
 
 test("probe: the image check is cached across repeated polls, not re-shelled on every GET /v1/engines", async () => {

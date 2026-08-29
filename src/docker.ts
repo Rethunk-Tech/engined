@@ -29,6 +29,12 @@ const DOCKER_START_FAILURE_EXIT_CODE = 125;
 const MAX_IDLE_STOP_RETRIES = 3;
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/;
 const NO_SUCH_CONTAINER = /no such container/i;
+/**
+ * Carries `specDigest` on every container engined starts, so a container
+ * found running after an unclean exit can say what it was launched from.
+ * Exported for the local tier, which reads it off real docker.
+ */
+export const SPEC_LABEL = "engined.spec";
 
 export const dockerExec: Exec = binExec("docker");
 
@@ -105,13 +111,22 @@ export function parseHostPort(portOutput: string): number | null {
   return null;
 }
 
-/** The flags docker never receives from config: the container name and both ports are read back, not written. */
-export function buildRunArgs(
-  containerName: string,
-  spec: ContainerSpec,
-  containerPort: number,
-): string[] {
-  const args = ["run", "-d", "--name", containerName, "-p", `127.0.0.1::${containerPort}`];
+/**
+ * `docker ps --format {{.Ports}}` prints one comma-separated mapping per
+ * published binding: `127.0.0.1:33103->8006/tcp, [::]:33103->8006/tcp`. The
+ * left of each arrow is the host side, which is the shape `parseHostPort`
+ * already reads — including the `[::]` line it declines to match.
+ */
+export function hostBindings(ports: string): string {
+  return ports
+    .split(",")
+    .map((mapping) => mapping.split("->")[0]?.trim() ?? "")
+    .join("\n");
+}
+
+/** Everything `docker run` takes that comes from the spec, in the order the image needs: flags, then the image, then its argv. */
+function specRunArgs(spec: ContainerSpec): string[] {
+  const args: string[] = [];
   for (const device of spec.devices) {
     args.push("--device", device);
   }
@@ -139,6 +154,37 @@ export function buildRunArgs(
   }
   args.push(spec.image, ...entryRest, ...spec.command);
   return args;
+}
+
+/**
+ * What a container was launched from, condensed to one label value. Derived
+ * from the argv itself rather than from a hand-picked list of spec fields, so
+ * a field added to `specRunArgs` later is part of the identity without this
+ * having to be told about it. The name and the port publish are excluded:
+ * both are read back rather than written, and neither says anything about
+ * the configuration the container is serving.
+ */
+export function specDigest(spec: ContainerSpec): string {
+  return Bun.SHA256.hash(JSON.stringify(specRunArgs(spec)), "hex");
+}
+
+/** The flags docker never receives from config: the container name and both ports are read back, not written. */
+export function buildRunArgs(
+  containerName: string,
+  spec: ContainerSpec,
+  containerPort: number,
+): string[] {
+  return [
+    "run",
+    "-d",
+    "--name",
+    containerName,
+    "-p",
+    `127.0.0.1::${containerPort}`,
+    "--label",
+    `${SPEC_LABEL}=${specDigest(spec)}`,
+    ...specRunArgs(spec),
+  ];
 }
 
 interface LifecycleOptions {
@@ -176,6 +222,14 @@ interface Runtime {
   activeLeases: number;
   /** Whatever the last `start`/`endLease` was told, so a re-arm does not need the caller to repeat it. */
   idleStopSeconds: number | null;
+  /**
+   * Whether this process has already asked docker about a container holding
+   * this name that it did not start. Only an unclean exit can leave one, so
+   * the question has exactly one true answer per process -- once engined has
+   * started or stopped this container itself, the map is the truth and the
+   * docker round trip on every poll would buy nothing.
+   */
+  adoptChecked: boolean;
 }
 
 export class DockerLifecycle {
@@ -233,6 +287,7 @@ export class DockerLifecycle {
         idleStopAttempts: 0,
         activeLeases: 0,
         idleStopSeconds: null,
+        adoptChecked: false,
       };
       this.runtimes.set(id, rt);
     }
@@ -335,14 +390,11 @@ export class DockerLifecycle {
     const rt = this.runtime(id);
     this.cancelIdle(rt);
     // Returning the map's record on faith hands back a corpse when the
-    // container crashed, was OOM-killed or was removed underneath engined,
-    // and leaves the caller with no recovery short of restarting the daemon.
-    // A reconcile that finds nothing falls through to a fresh start.
-    if (
-      rt.state === "running" &&
-      rt.hostPort !== null &&
-      (await this.reconcile(id)).state === "running"
-    ) {
+    // container crashed, was OOM-killed or was removed underneath engined --
+    // and starting on faith destroys a container this process never started
+    // but an earlier one did. A reconcile decides both, and only what it
+    // leaves `running` is handed back without a fresh start.
+    if ((await this.reconcile(id, spec)).state === "running" && rt.hostPort !== null) {
       this.refreshIdle(rt, opts.idleStopSeconds);
       return this.getStatus(id);
     }
@@ -358,45 +410,129 @@ export class DockerLifecycle {
   }
 
   /**
-   * Believed-running state lives only in this map, so a container killed from
-   * outside this process leaves it stale and keeps handing out a dead
-   * `private_url`. Docker decides: a transient HTTP failure against a
-   * container that is genuinely still up leaves the record alone.
+   * The one seam where docker, not this map, decides what is true — in both
+   * directions. Believed-running state lives only in the map, so a container
+   * killed from outside this process leaves it stale and keeps handing out a
+   * dead `private_url`; and the map is empty at startup, so a container an
+   * unclean exit left running is invisible to it. A transient HTTP failure
+   * against a container that is genuinely still up leaves the record alone.
+   *
+   * `spec` enables the adoption direction and is passed by the two reads that
+   * can act on it. A caller reconciling an engine it already believes running
+   * has nothing to adopt and omits it.
    */
-  async reconcile(id: string): Promise<RuntimeStatus> {
+  async reconcile(id: string, spec?: ContainerSpec): Promise<RuntimeStatus> {
     const rt = this.runtimes.get(id);
-    if (!rt || (rt.state !== "running" && rt.state !== "warming")) {
+    if (!rt) {
       return this.getStatus(id);
     }
-    const res = await this.exec(["inspect", "-f", "{{.State.Running}}", rt.containerName]);
-    if (res.exitCode === 0 && res.stdout.trim() === "true") {
-      return this.getStatus(id);
-    }
-    this.cancelIdle(rt);
-    this.transition(rt, "installed");
-    rt.hostPort = null;
-    return this.getStatus(id);
-  }
-
-  /** Reports what an engine's artifacts say, without starting it. */
-  async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
-    const rt = this.runtime(id);
     // `warming` is a state this process is actively driving, with an in-flight
     // start that will resolve it -- and the container it names may not exist
     // yet, so asking docker about it would report a live start as dead.
     if (rt.state === "warming") {
       return this.getStatus(id);
     }
-    // `running` is believed, not known: it survives in the map long after the
-    // container behind it died, and this is the read every operator uses to
-    // decide whether the engine is servable. A reconcile that finds it gone
-    // falls through to the installability check, which reports the truthful
-    // resting state instead of a dead `private_url`.
     if (rt.state === "running") {
-      const status = await this.reconcile(id);
-      if (status.state === "running") {
-        return status;
+      // Whatever holds this name is this process's own from here on.
+      rt.adoptChecked = true;
+      const res = await this.exec(["inspect", "-f", "{{.State.Running}}", rt.containerName]);
+      if (res.exitCode === 0 && res.stdout.trim() === "true") {
+        return this.getStatus(id);
       }
+      this.cancelIdle(rt);
+      this.transition(rt, "installed");
+      rt.hostPort = null;
+      return this.getStatus(id);
+    }
+    if (spec !== undefined && !rt.adoptChecked) {
+      rt.adoptChecked = true;
+      await this.adopt(rt, spec);
+    }
+    return this.getStatus(id);
+  }
+
+  /**
+   * A container still running under this engine's name that this process did
+   * not start. Only an unclean exit leaves one -- `shutdown` stops everything
+   * on SIGTERM -- and it is exactly then that destroying it is worst, because
+   * whatever it was serving is still being served.
+   *
+   * Adopted only when its launch is byte-identical to the spec now in force,
+   * a host binding is still published, and its own readiness probe answers.
+   * Anything else is recreated: an orphan whose image or argv predates the
+   * current spec silently serves a configuration engined no longer offers,
+   * and one nothing can reach is not serving anything worth keeping. That
+   * recreate is announced rather than taken silently, because a container
+   * being destroyed is the one outcome an operator would want to have seen.
+   */
+  private async adopt(rt: Runtime, spec: ContainerSpec): Promise<void> {
+    const found = await this.findOrphan(rt.containerName);
+    if (found === null) {
+      return;
+    }
+    if (found.digest !== specDigest(spec)) {
+      this.declineAdoption(
+        rt,
+        found.digest === ""
+          ? "it carries no spec digest, so what it was launched from cannot be established"
+          : "its launch does not match the spec now in force",
+      );
+      return;
+    }
+    const hostPort = parseHostPort(hostBindings(found.ports));
+    if (hostPort === null) {
+      this.declineAdoption(rt, "docker publishes no host binding for it");
+      return;
+    }
+    // One attempt, not the start-path poll: a container that has been up long
+    // enough to be an orphan is either answering now or is not worth keeping,
+    // and this runs on the GET that every operator poll makes.
+    if (!(await this.pollReady(hostPort, spec.ready, Date.now()))) {
+      this.declineAdoption(rt, `${spec.ready.path} did not answer`);
+      return;
+    }
+    rt.hostPort = hostPort;
+    this.transition(rt, "running");
+  }
+
+  /** Running only: a container that already exited holds nothing, and the next start removes it as it always did. */
+  private async findOrphan(
+    containerName: string,
+  ): Promise<{ digest: string; ports: string } | null> {
+    const res = await this.exec([
+      "ps",
+      "--filter",
+      `name=^${containerName}$`,
+      "--format",
+      `{{.Names}}\t{{.Label "${SPEC_LABEL}"}}\t{{.Ports}}`,
+    ]);
+    const line = res.stdout.trim();
+    if (res.exitCode !== 0 || line === "") {
+      return null;
+    }
+    const [, digest, ports] = line.split("\t");
+    return { digest: digest ?? "", ports: ports ?? "" };
+  }
+
+  private declineAdoption(rt: Runtime, reason: string): void {
+    process.stderr.write(
+      `${rt.containerName}: left running by an unclean exit and will be replaced on the next start -- ${reason}\n`,
+    );
+  }
+
+  /** Reports what an engine's artifacts say, without starting it. */
+  async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
+    const rt = this.runtime(id);
+    // Neither `running` nor `installed` is known here, only believed: the
+    // first survives in the map long after the container behind it died, and
+    // the second is what an empty map says about a container an unclean exit
+    // left running. This is the read every operator uses to decide whether
+    // the engine is servable, so both go to docker first. Whatever reconcile
+    // does not leave running falls through to the installability check, which
+    // reports the truthful resting state instead of a dead `private_url`.
+    const reconciled = await this.reconcile(id, spec);
+    if (reconciled.state === "running" || reconciled.state === "warming") {
+      return reconciled;
     }
     const checked = await this.checkInstallable(id, rt, spec, specSource);
     if (!checked.ok) {
