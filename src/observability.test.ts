@@ -260,3 +260,29 @@ test("a state change reaches a subscriber as a live frame", async () => {
   expect(live.length).toBeGreaterThan(0);
   expect(live.join("\n")).toContain("local-llama");
 });
+
+test("start with a model names an unknown one rather than warming silently", async () => {
+  const { exec } = recordingExec((args) =>
+    args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
+  );
+  const door = doorWith(exec);
+  const res = await door.fetch(
+    new Request("http://engined/v1/engines/local-llama/start", {
+      method: "POST",
+      body: JSON.stringify({ model: "nope" }),
+    }),
+  );
+  expect(res.status).toBe(502);
+  expect(((await res.json()) as { error: string }).error).toContain("nope");
+});
+
+test("start with no body still warms only the container", async () => {
+  const { exec } = recordingExec((args) =>
+    args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
+  );
+  const door = doorWith(exec);
+  const res = await door.fetch(
+    new Request("http://engined/v1/engines/local-llama/start", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+});

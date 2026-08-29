@@ -21,7 +21,7 @@ treated as a caller.
 | `/v1/audio/transcriptions` | POST | `stt` |
 | `/v1/models` | GET | every dispatchable `model` string |
 | `/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
-| `/v1/engines/:id/start` | POST | warms one engine, returns its `private_url` |
+| `/v1/engines/:id/start` | POST | warms one engine, and the model named in the body if there is one |
 | `/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
@@ -83,6 +83,15 @@ A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside.
+
+`POST /v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
+no body it warms the container, which is what it has always done. With one it
+also loads that GGUF, so the first real request does not pay the cold load --
+measured at 13.84s cold against 2.09s warm for a TTS round trip on this box.
+The warm goes through the ordinary lease, so it cannot jump the queue or hold
+a role against anyone; it is released immediately and idle-stop is armed as
+usual. It is a head start, not a pin. `keep_resident` in
+[configuration.md](configuration.md) is what makes residency survive.
 
 A llama engine additionally reports `roles`, one entry per role that is doing
 something: `{ role, active, waiting }`. These are not the same number as

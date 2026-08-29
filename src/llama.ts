@@ -241,6 +241,8 @@ export class LlamaRouter {
   private totalActive = 0;
   /** De-dupes concurrent first-requests the same way `DockerLifecycle.start`'s own `startPromise` does -- `ensureStarted` now has a second mutating step (a recreate) that isn't safe to double-fire. */
   private ensureStartedPromise: Promise<void> | null = null;
+  /** See `pinContainer`: at most one, held for the life of the router. */
+  private containerLease: "none" | "held" = "none";
 
   constructor(
     private readonly engine: EngineEntry,
@@ -261,6 +263,49 @@ export class LlamaRouter {
    */
   residentModel(role: Role): string | null {
     return this.roleStates.get(role)?.activeModelId ?? null;
+  }
+
+  /**
+   * A `keep_resident` model is pointless if idle-stop takes the container out
+   * from under it -- idle-stop stops the container, it does not unload a
+   * model. So an engine with one holds a single lifecycle lease that is never
+   * released, which is the same mechanism a live request uses to keep the
+   * container up. Taken once, on the first lease of the process.
+   */
+  private pinContainer(): void {
+    if (this.containerLease === "held") {
+      return;
+    }
+    if (!this.models.some((m) => m.keep_resident === true)) {
+      return;
+    }
+    this.containerLease = "held";
+    this.lifecycle.beginLease(this.engine.id);
+  }
+
+  /** The model this role returns to when nothing is waiting, if config pinned one. */
+  private pinnedFor(role: Role): ModelEntry | undefined {
+    return this.models.find((m) => m.role === role && m.keep_resident === true);
+  }
+
+  /**
+   * Makes `model` the resident one for its role and then lets go, so the next
+   * real request finds it already loaded instead of paying the cold load.
+   *
+   * Deliberately routed through the ordinary lease rather than calling the
+   * swap directly: a warm must not jump the queue, and it must obey the same
+   * one-model-per-role occupancy every request does. It is exactly a request
+   * that does no work. The lease is released immediately, so idle-stop is
+   * armed as usual and this buys a head start rather than permanent
+   * residency -- `keep_resident` is what makes residency survive.
+   */
+  async warm(model: ModelEntry, signal?: AbortSignal | null): Promise<void> {
+    const { role } = model;
+    if (role === undefined) {
+      throw new Error(`model "${model.id}" has no role`);
+    }
+    await this.beginLease(role, model.id, signal);
+    this.finishLease(role);
   }
 
   /**
@@ -419,6 +464,26 @@ export class LlamaRouter {
     this.runPump(role);
   }
 
+  /**
+   * Reloads what `keep_resident` asked this role to hold, once the role has
+   * drained. True when it swapped, so the pump knows to look at the queue
+   * again. A failed re-warm is nobody's request to fail: it is dropped and the
+   * next release retries.
+   */
+  private async rewarmPinned(role: Role, state: RoleState): Promise<boolean> {
+    const pinned = this.pinnedFor(role);
+    if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned.id) {
+      return false;
+    }
+    try {
+      await this.swapResident(role, pinned.id);
+    } catch {
+      return false;
+    }
+    state.activeModelId = pinned.id;
+    return true;
+  }
+
   /** `pump` itself never rejects -- a failed swap is routed to its waiter's own `reject` -- so a catch here only guards a bug in pump. */
   private runPump(role: Role): void {
     this.pump(role).catch((_err: unknown) => {
@@ -442,6 +507,12 @@ export class LlamaRouter {
       for (;;) {
         const [front] = state.queue;
         if (!front) {
+          // Re-check the queue after a re-warm rather than returning: a request
+          // arriving during the swap queues behind a pump that is already
+          // running, and would otherwise never be woken.
+          if (await this.rewarmPinned(role, state)) {
+            continue;
+          }
           return;
         }
         if (state.activeModelId === front.modelId) {
@@ -603,6 +674,7 @@ export class LlamaRouter {
     if (this.totalActive === 1) {
       this.lifecycle.beginLease(this.engine.id);
     }
+    this.pinContainer();
   }
 
   private finishLease(role: Role): void {

@@ -143,13 +143,45 @@ async function handleEngines(ctx: DoorContext, configErr: string | undefined): P
   return Response.json(listed);
 }
 
-async function handleStart(registry: EngineRegistry, id: string): Promise<Response> {
+/**
+ * Warms the container, and — when the body names a model — that GGUF too, so
+ * the first real request does not pay the cold load. An absent or empty body
+ * is the original container-only behaviour, which every existing caller sends.
+ *
+ * The warm is a head start, not a pin: the lease is released immediately and
+ * idle-stop is armed as usual. `keep_resident` in config is what survives.
+ */
+async function handleStart(ctx: DoorContext, id: string, req: Request): Promise<Response> {
+  let modelSeg: string | undefined;
   try {
-    return Response.json(await registry.start(id));
-  } catch (err) {
-    const message = errMessage(err);
-    return jsonError(STATUS_NOT_FOUND, message);
+    const raw = (await req.json()) as unknown;
+    if (isRecord(raw) && typeof raw.model === "string") {
+      modelSeg = raw.model;
+    }
+  } catch {
+    // No body, or not JSON: warming the container alone is the whole request.
   }
+  let started: Awaited<ReturnType<EngineRegistry["start"]>>;
+  try {
+    started = await ctx.registry.start(id);
+  } catch (err) {
+    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+  }
+  if (modelSeg === undefined) {
+    return Response.json(started);
+  }
+  const engineEntry = ctx.registry.entry(id);
+  const model =
+    engineEntry === undefined ? undefined : findModelOnEngine(ctx.getConfig().models, id, modelSeg);
+  if (engineEntry === undefined || model === undefined) {
+    return jsonError(STATUS_BAD_GATEWAY, `model "${modelSeg}" not found on "${id}"`);
+  }
+  try {
+    await getLlamaRouter(ctx, engineEntry).warm(model);
+  } catch (err) {
+    return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
+  }
+  return Response.json(started);
 }
 
 async function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
@@ -1178,7 +1210,7 @@ function routePost(
 ): Response | Promise<Response> | undefined {
   const startMatch = START_RE.exec(pathname)?.[1];
   if (startMatch !== undefined) {
-    return handleStart(ctx.registry, startMatch);
+    return handleStart(ctx, startMatch, req);
   }
   const stopMatch = STOP_RE.exec(pathname)?.[1];
   if (stopMatch !== undefined) {

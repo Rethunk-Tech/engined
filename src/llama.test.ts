@@ -249,6 +249,17 @@ async function startGatedChat(
   return { router, calls, release, res1 };
 }
 
+/** Polls a condition the router reaches on its own, for work no caller can await. */
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() >= deadline) {
+      throw new Error("condition never became true");
+    }
+    await Bun.sleep(5);
+  }
+}
+
 /** Lets a pending `.then` chain run as far as it can without resolving any
  * new promise of its own -- three microtask turns is enough for the router's
  * internal queue pump to reach its next await. */
@@ -1030,5 +1041,46 @@ test("a role nothing has touched is absent from contention rather than reported 
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const { router } = routerFor(e, [a]);
+  expect(router.contention()).toEqual([]);
+});
+
+test("a keep_resident model is reloaded once its role drains", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf", keep_resident: true });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { calls, router } = routerFor(e, [a, b]);
+
+  // b wins the swap -- keep_resident never blocks another model's request.
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
+
+  // The re-warm is deliberately not awaited by the release that triggers it --
+  // a request must not wait for the next one's head start -- so poll for it.
+  await waitFor(() => router.residentModel("chat") === "a");
+
+  const loaded = calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model);
+  expect(loaded).toEqual(["b", "a"]);
+});
+
+test("without keep_resident a role stays on whatever last served it", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { router } = routerFor(e, [a, b]);
+
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
+
+  expect(router.residentModel("chat")).toBe("b");
+});
+
+test("warm loads a model without holding it: the lease is released again", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const { calls, router } = routerFor(e, [a]);
+
+  await router.warm(a);
+
+  expect(router.residentModel("chat")).toBe("a");
+  expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual(["a"]);
+  expect(router.hasOutstandingLeases()).toBe(false);
   expect(router.contention()).toEqual([]);
 });
