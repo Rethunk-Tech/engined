@@ -85,4 +85,18 @@ project exists to end — it already loads on demand and unloads after its own
 jobs. engined manages only its container lifecycle; a consumer reaches a
 started job at its `private_url` directly.
 
+**No `Bun.serve` declarative routes.** Measured against bun 1.3.14, not
+assumed: all five engine-path regexes are expressible as `:id` routes, and SSE
+under a route handler was probed working -- `req.signal` fires and the stream's
+`cancel()` runs, which is what the engine-event feed's teardown needs. It is
+still refused. `Bun.serve` has no pre-route hook (the `fetch` option is only
+the unmatched-route fallback, probed), so the Origin/Host check that is now one
+unbypassable chokepoint in `createDoor`'s `fetch` would have to be re-applied
+by wrapping every route value -- a route added without the wrapper would
+silently skip it. And `routes` exists only as a `Bun.serve` option with no
+offline matcher, so the 57 socket-free `door.fetch(new Request(...))`
+assertions would all become network round-trips. The trade is -53 source lines
+for a fail-open security boundary and a slower, larger test surface.
+Reconsider only if Bun ships a documented pre-route middleware hook.
+
 Add any of these when a second consumer, modality or person makes the case.
