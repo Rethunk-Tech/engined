@@ -39,6 +39,7 @@ const CONTAINER_ONLY_KEYS = [
   "devices",
   "group_add",
   "security_opt",
+  "init",
   "entrypoint",
   "volume",
   "artifact",
@@ -206,6 +207,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
     devices: raw.devices === undefined ? [] : requireStringArray(raw.devices, "devices", file),
     group_add:
       raw.group_add === undefined ? [] : requireStringArray(raw.group_add, "group_add", file),
+    init: raw.init === true,
     security_opt:
       raw.security_opt === undefined
         ? []

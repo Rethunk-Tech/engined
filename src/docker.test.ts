@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  buildRunArgs,
   DockerLifecycle,
   hostPathFor,
   type Probe,
@@ -103,6 +104,7 @@ const SPEC: ContainerSpec = {
   devices: [],
   group_add: [],
   security_opt: [],
+  init: false,
   volumes: [],
   artifacts: [],
   ready: { path: "/health", status: READY_STATUS },
@@ -665,4 +667,9 @@ test("a 404 never counts as ready, even inside the accept range", async () => {
   });
 
   expect(status.state).not.toBe("running");
+});
+
+test("init = true reaches the run argv as --init, and is absent by default", () => {
+  expect(buildRunArgs("engined-x", { ...SPEC, init: true }, 8188)).toContain("--init");
+  expect(buildRunArgs("engined-x", { ...SPEC, init: false }, 8188)).not.toContain("--init");
 });

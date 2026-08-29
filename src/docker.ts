@@ -121,6 +121,9 @@ export function buildRunArgs(
   for (const opt of spec.security_opt) {
     args.push("--security-opt", opt);
   }
+  if (spec.init) {
+    args.push("--init");
+  }
   for (const envName of spec.env) {
     const value = process.env[envName];
     if (value !== undefined) {
