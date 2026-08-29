@@ -74,6 +74,8 @@ root; docker-group access is root-equivalent. A `spec_dir` override is a
 privilege decision — spec is trusted code. See `scripts/engined.service.in`.
 
 Before committing: `gate` (build, typecheck, lint, test, actionlint).
+`bun run ci` runs the same four bun tasks through turbo, which keys each
+on its own inputs -- a docs-only change replays them from cache.
 
 Do not cut consumers over until engined can replace what they run today.
 `Rethunk-Tech/project-register` is off limits.

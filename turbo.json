@@ -1,9 +1,22 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "tasks": {
-    "typecheck": { "outputs": ["*.tsbuildinfo"] },
-    "lint": {},
-    "test": {},
-    "build": { "dependsOn": ["typecheck"], "outputs": ["dist/**"] }
+    "typecheck": {
+      "inputs": ["src/**/*.ts", "test/**/*.ts", "tsconfig.json", "package.json"],
+      "outputs": ["*.tsbuildinfo"]
+    },
+    "lint": {
+      "inputs": ["src/**/*.ts", "test/**/*.ts", "biome.jsonc", "package.json"],
+      "outputs": []
+    },
+    "test": {
+      "inputs": ["src/**/*.ts", "package.json"],
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": ["typecheck"],
+      "inputs": ["src/**/*.ts", "tsconfig.json", "package.json"],
+      "outputs": ["dist/**"]
+    }
   }
 }
