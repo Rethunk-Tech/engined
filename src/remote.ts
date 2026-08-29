@@ -91,17 +91,18 @@ export async function resolveRemoteSecret(
 }
 
 /** The address and the one header, for every remote caller that speaks HTTP itself. */
+/** One wording for the missing-address refusal, shared by every caller that has to have one. */
+export function noBaseUrlFix(engineId: string): string {
+  return `engine "${engineId}" is a remote address with no base_url`;
+}
+
 export async function resolveRemote(
   engine: EngineEntry,
   secretExec?: SecretExec,
 ): Promise<RemoteResolution> {
   if (engine.base_url === undefined) {
     // 502, not 503: misconfiguration, which no amount of waiting fixes.
-    return {
-      ok: false,
-      status: STATUS_BAD_GATEWAY,
-      error: `engine "${engine.id}" is a remote address with no base_url`,
-    };
+    return { ok: false, status: STATUS_BAD_GATEWAY, error: noBaseUrlFix(engine.id) };
   }
   const resolved = await resolveRemoteSecret(engine, secretExec);
   if (!resolved.ok) {

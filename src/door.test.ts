@@ -1368,6 +1368,20 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     expect(failBody.error).toContain("secret-tool store");
     expect(failBody.error).toContain("moonshot-api");
   });
+
+  test("a remote engine with a secret but no base_url refuses instead of redirecting nowhere", async () => {
+    // Config requires a base_url alongside a secret but not the converse, so
+    // this shape is legal and must not reach the child as an undefined
+    // upstream.
+    const { base_url: _dropped, ...addressless } = kimiEngine();
+    const redirect = await resolveRedirect(addressless, "kimi-k3", config(), fakeExec("k"));
+    expect(redirect.ok).toBe(false);
+    if (redirect.ok) {
+      throw new Error("expected resolveRedirect to fail without a base_url");
+    }
+    expect(redirect.result.status).toBe(502);
+    expect((redirect.result.body as { error: string }).error).toContain("no base_url");
+  });
 });
 
 describe("the door: remote-agentic redirect, missing secret does not take down other engines", () => {

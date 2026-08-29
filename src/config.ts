@@ -101,12 +101,24 @@ function optional<T extends "string" | "number">(
   return v as T extends "string" ? string : number;
 }
 
+/**
+ * Values must be scalar because every consumer renders them with `String(v)` --
+ * `argvFromArgs` onto a command line, `iniLines` into the llama preset. A
+ * nested table parses as valid TOML and would reach the engine as the literal
+ * "[object Object]", so it is refused here rather than shipped silently.
+ */
 function asArgs(v: unknown, site: string, file: string): Record<string, unknown> {
   if (v === undefined) {
     return {};
   }
   if (!isRecord(v)) {
     throw new ParseError(`${site} "args" must be a table`, file);
+  }
+  for (const [key, value] of Object.entries(v)) {
+    const kind = typeof value;
+    if (kind !== "string" && kind !== "number" && kind !== "boolean") {
+      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, file);
+    }
   }
   return v;
 }

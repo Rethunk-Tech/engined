@@ -47,7 +47,14 @@ import {
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
-import { isRemote, remoteUrl, resolveRemote, resolveRemoteSecret, upstreamPath } from "./remote.ts";
+import {
+  isRemote,
+  noBaseUrlFix,
+  remoteUrl,
+  resolveRemote,
+  resolveRemoteSecret,
+  upstreamPath,
+} from "./remote.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type Config,
@@ -562,12 +569,22 @@ export async function resolveRedirect(
   config: Config,
   secretExec?: SecretExec,
 ): Promise<RedirectResolution> {
+  const { base_url } = engineEntry;
+  if (base_url === undefined) {
+    // Config requires a secret alongside a base_url but not the converse, so
+    // an address-less remote reaches here and must refuse rather than hand
+    // the child an undefined upstream.
+    return {
+      ok: false,
+      result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(noBaseUrlFix(engineEntry.id)) },
+    };
+  }
   const resolved = await resolveRemoteSecret(engineEntry, secretExec);
   if (!resolved.ok) {
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
   const model = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
-  return { ok: true, env: redirectEnv(engineEntry.base_url as string, resolved.value, model) };
+  return { ok: true, env: redirectEnv(base_url, resolved.value, model) };
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */

@@ -759,23 +759,26 @@ export class EngineRegistry {
   }
 
   /**
-   * In-flight work keeps using the entries captured at call time; only new
-   * lookups see the rebuilt map. An engine dropped from `config` is stopped
-   * in the background rather than left orphaned; a running container whose
-   * shape changed is left alone until its next start.
+   * Why a per-container read cannot answer for this engine, or `undefined` if
+   * it can. A remote address or an agentic-cli engine has no container, and
+   * says so rather than returning an empty result that reads like a quiet one.
    */
-  /**
-   * `docker logs --tail` for a container-backed engine. A remote address or an
-   * agentic-cli engine has no container, and says so rather than returning an
-   * empty log that reads like a quiet engine.
-   */
-  async logs(id: string, tail: number): Promise<{ lines: string[] } | { error: string }> {
+  private containerRefusal(id: string): { error: string } | undefined {
     const entry = this.byId.get(id);
     if (!entry) {
       return { error: `unknown engine "${id}"` };
     }
     if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
       return { error: `"${id}" runs no container of its own` };
+    }
+    return undefined;
+  }
+
+  /** `docker logs --tail` for a container-backed engine. */
+  async logs(id: string, tail: number): Promise<{ lines: string[] } | { error: string }> {
+    const refusal = this.containerRefusal(id);
+    if (refusal) {
+      return refusal;
     }
     const res = await this.lifecycle.logs(id, tail);
     return res.ok ? { lines: res.lines } : { error: res.error };
@@ -783,12 +786,9 @@ export class EngineRegistry {
 
   /** What a running container holds. See resources.ts for why RAM alone is not the answer. */
   async resources(id: string): Promise<EngineResources | { error: string }> {
-    const entry = this.byId.get(id);
-    if (!entry) {
-      return { error: `unknown engine "${id}"` };
-    }
-    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
-      return { error: `"${id}" runs no container of its own` };
+    const refusal = this.containerRefusal(id);
+    if (refusal) {
+      return refusal;
     }
     const res = await this.lifecycle.resources(id);
     return res.ok ? res.resources : { error: res.error };
@@ -844,6 +844,12 @@ export class EngineRegistry {
     return res.ok ? { released: true } : { error: `${id}: release failed with HTTP ${res.status}` };
   }
 
+  /**
+   * In-flight work keeps using the entries captured at call time; only new
+   * lookups see the rebuilt map. An engine dropped from `config` is stopped
+   * in the background rather than left orphaned; a running container whose
+   * shape changed is left alone until its next start.
+   */
   reload(config: Config): void {
     const newEntries = buildEntries(config, this.specOptions, this.presetHostPath);
     // A newly-disabled engine is torn down like a removed one: it keeps its

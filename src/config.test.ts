@@ -72,6 +72,7 @@ const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 const RX_COLLISION =
   /"ornith" is declared twice: engine "ornith" and model "chat-model" alias "ornith"/;
 const RX_NOT_QUALIFIED = /not a fully-qualified/;
+const RX_NON_SCALAR_ARG = /must be a string, number or boolean/;
 const RX_UNKNOWN_ENGINE = /engine "nope" does not exist/;
 const RX_UNKNOWN_MODEL = /model "nope" does not exist/;
 const RX_NO_LOCAL_CANDIDATE = /candidates: none/;
@@ -611,4 +612,24 @@ describe("the read-only floor is checked by key, not by rendered value", () => {
     ].join("\n");
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FLOOR_REFUSAL);
   });
+});
+
+test("a nested table under [engine.args] is fatal, not stringified into the argv", () => {
+  const dir = tempModelsDir("ornith.gguf");
+  const toml = `
+[[engine]]
+id = "local-llama"
+egress = "none"
+models_dir = "${dir}"
+
+[[model]]
+id = "ornith"
+engine = "local-llama"
+filename = "ornith.gguf"
+role = "chat"
+
+  [engine.args.sampler]
+  top-k = 40
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NON_SCALAR_ARG);
 });
