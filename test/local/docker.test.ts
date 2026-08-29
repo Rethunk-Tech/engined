@@ -24,6 +24,7 @@ const SPEC: ContainerSpec = {
   group_add: [],
   security_opt: [],
   init: false,
+  streaming: false,
   volumes: [],
   artifacts: [],
   ready: { path: "/", status: 200 },

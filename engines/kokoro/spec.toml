@@ -2,6 +2,11 @@ kind = "tts"
 image = "engined-kokoro:local"
 obtain = "build"
 serves = ["/v1/audio/speech"]
+# KPipeline yields per segment, and app.py forwards each as an NDJSON chunk
+# frame, so `"stream": true` on /v1/audio/speech has boundaries to forward.
+# It splits on newlines rather than sentences -- see docs/http-api.md for
+# what that costs a caller that sends one long paragraph.
+streaming = true
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.
 command = []
 # Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: kokoro-rocm is

@@ -2,6 +2,9 @@ kind = "tts"
 image = "engined-piper:local"
 obtain = "build"
 serves = ["/v1/audio/speech"]
+# app.py splits on sentences and emits one NDJSON chunk frame per sentence,
+# so `"stream": true` on /v1/audio/speech has boundaries to forward.
+streaming = true
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.
 command = []
 # Deliberately empty where chatterbox, kokoro and comfy all carry GPU flags:

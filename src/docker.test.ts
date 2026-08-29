@@ -106,6 +106,7 @@ const SPEC: ContainerSpec = {
   group_add: [],
   security_opt: [],
   init: false,
+  streaming: false,
   volumes: [],
   artifacts: [],
   ready: { path: "/health", status: READY_STATUS },

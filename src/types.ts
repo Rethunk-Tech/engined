@@ -217,6 +217,15 @@ export interface ContainerSpec extends SpecCommon {
    * nothing.
    */
   init: boolean;
+  /**
+   * This engine's `/v1/tts` emits per-chunk NDJSON frames, so the door can
+   * forward audio as it is synthesized. A `tts` key only: it is what makes
+   * `"stream": true` on `POST /v1/audio/speech` servable, and no other route
+   * has a chunk contract to honour. Off unless the engine's app says
+   * otherwise — an engine that cannot chunk and claims it can hands the
+   * caller a 502 on every streamed request.
+   */
+  streaming: boolean;
   entrypoint?: string[];
   volumes: Volume[];
   artifacts: Artifact[];
@@ -277,6 +286,15 @@ export interface EngineStatus {
    * versus "loading", which `state` alone cannot answer.
    */
   roles?: RoleContention[];
+  /**
+   * Whether `"stream": true` on `POST /v1/audio/speech` is servable by this
+   * engine. Reported only on the kind that serves that route at all: `false`
+   * elsewhere would read as "streaming is turned off here" rather than "there
+   * is no streaming to have". Without it a consumer's only way to learn that
+   * an engine cannot chunk is a 502 per request, or a hardcoded engine list
+   * that goes stale the moment engined gains an engine.
+   */
+  streaming?: boolean;
   /** Docker reassigns the host port every start, so this is a per-job read. */
   private_url: string | null;
   spec_source: string;

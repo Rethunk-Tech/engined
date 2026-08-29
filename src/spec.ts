@@ -197,6 +197,11 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
   if (raw.obtain !== "pull" && raw.obtain !== "build") {
     throw new ParseError('"obtain" must be "pull" or "build"', file);
   }
+  // Only `/v1/audio/speech` has a chunk contract, so on any other kind this
+  // key would be read, reported, and honoured by nothing.
+  if (raw.streaming !== undefined && kind !== "tts") {
+    throw new ParseError(`"streaming" is a tts-only key, invalid on a ${kind} spec`, file);
+  }
   return {
     kind: kind as ContainerSpec["kind"],
     image: raw.image,
@@ -208,6 +213,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
     group_add:
       raw.group_add === undefined ? [] : requireStringArray(raw.group_add, "group_add", file),
     init: raw.init === true,
+    streaming: raw.streaming === true,
     security_opt:
       raw.security_opt === undefined
         ? []

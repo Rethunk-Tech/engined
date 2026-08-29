@@ -122,6 +122,24 @@ describe("shipped specs", () => {
     }
   });
 
+  /**
+   * The four shipped TTS engines, against the real spec files: this is what
+   * `GET /v1/engines` advertises, and a wrong answer either costs a consumer
+   * a 502 per streamed request or costs it streaming it could have had.
+   */
+  test.each([
+    ["piper", true],
+    ["kokoro", true],
+    ["chatterbox", false],
+    ["chatterbox-fast", false],
+  ] as const)("the shipped %s spec declares streaming = %p", (id, streaming) => {
+    const loaded = loadSpec(engine({ id }), { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+    expect(loaded.spec.kind).toBe("tts");
+    if (loaded.spec.kind !== "agentic-cli") {
+      expect(loaded.spec.streaming).toBe(streaming);
+    }
+  });
+
   // The regression guard: a literal /home/<user>/... path in a shipped spec
   // leaks the operator's username into a file that ships. Assert against the
   // real committed files so a reintroduced literal fails here regardless of
@@ -261,6 +279,16 @@ test("an agentic spec carrying a container-only key is fatal, naming the key", (
   expect(() =>
     loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow('"image"');
+});
+
+test("streaming on a kind with no chunk contract is fatal, naming the kind", () => {
+  const root = specDir(
+    "x",
+    `kind = "stt"\nimage = "i"\nobtain = "pull"\nserves = []\ncommand = []\nstreaming = true\n\n[ready]\npath = "/health"\nstatus = 200\n`,
+  );
+  expect(() => loadSpec(engine({ id: "x" }), { enginesRoot: root, bunx: BUNX })).toThrow(
+    '"streaming" is a tts-only key, invalid on a stt spec',
+  );
 });
 
 test("command[0] redirected away from {bunx} is fatal", () => {

@@ -305,6 +305,49 @@ describe("unavailable engines", () => {
   });
 });
 
+/**
+ * Discovering this by trying costs a 502 on every streamed request, and the
+ * alternative -- a hardcoded engine list per consumer -- goes stale the moment
+ * engined gains an engine. So it is reported where the engines are defined.
+ */
+describe("streaming capability", () => {
+  function ttsSpec(streaming: boolean): string {
+    return `
+kind = "tts"
+image = "ghcr.io/example/tts@sha256:aaaa"
+obtain = "pull"
+serves = ["/v1/audio/speech"]
+command = []
+${streaming ? "streaming = true" : ""}
+
+[ready]
+path = "/health"
+status = 200
+`;
+  }
+
+  test("reported per tts engine, and absent on a kind with no chunk contract at all", async () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "chunker", ttsSpec(true));
+    writeEngineSpec(root, "blocker", ttsSpec(false));
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "chunker" }), engine({ id: "blocker" }), engine({ id: "llama" })],
+      }),
+      root,
+    );
+
+    const listed = await reg.list();
+    const streamingOf = (id: string) => listed.engines.find((e) => e.id === id)?.streaming;
+    expect(streamingOf("chunker")).toBe(true);
+    expect(streamingOf("blocker")).toBe(false);
+    // Not `false`: an openai-http engine has no /v1/audio/speech to stream on,
+    // which is a different answer from "streaming is turned off here".
+    expect(streamingOf("llama")).toBeUndefined();
+  });
+});
+
 describe("installed engines", () => {
   test("an engine merely stopped is installed with a null private_url, never reported as broken", async () => {
     const { reg } = setupLlama();

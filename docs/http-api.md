@@ -70,6 +70,12 @@ unauditable egress is not one this design accepts.
 `unavailable` plus the literal command that fixes it: `docker pull …`,
 `docker build …`, or a `secret-tool store` line for a missing key.
 
+The response carries a `contract` number, bumped when a field is **removed**,
+a state renamed, or a route's meaning altered — never for a field added. A
+consumer that ignores fields it does not know keeps working across an
+addition, so bumping for one would spend the signal that tells it when
+something it already reads has changed underneath it.
+
 An engine named in the config's [`disabled`](configuration.md#turning-something-off)
 list is listed here too, carrying `disabled: true` and `state: "unavailable"`.
 Nothing was probed to establish that state -- no docker call, no keyring
@@ -100,6 +106,16 @@ and chatterbox and chatterbox-fast do not — a single blocking `generate()` has
 no piece to forward before the last one. A request that streams one of those
 gets a 502 saying the engine streamed no audio, sent before any header is
 committed, rather than a 200 whose body never arrives.
+
+**Ask, rather than hardcoding that list.** Every `tts` engine in
+`GET /v1/engines` carries `streaming`, a boolean saying whether it can serve a
+chunked request, declared in the engine's own `spec.toml` — see
+[engines.md](engines.md). A consumer carrying its own list of streaming engine
+ids is stale the moment engined gains one. Kinds that do not serve
+`/v1/audio/speech` at all omit the field rather than reporting `false`: there
+is no streaming to have, which is a different answer from "streaming is turned
+off here". A remote-address TTS engine reports `false` — engined ships no
+remote TTS dialect to chunk through.
 
 **How much this buys depends on the text.** Kokoro's pipeline splits on
 newlines, not sentences: measured here, four newline-separated lines produced

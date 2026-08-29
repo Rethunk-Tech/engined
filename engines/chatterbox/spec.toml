@@ -2,6 +2,10 @@ kind   = "tts"
 image  = "engined-chatterbox:local"
 obtain = "build"
 serves = ["/v1/audio/speech"]
+# No `streaming` key: chatterbox-tts synthesizes in one blocking generate()
+# call with no intermediate boundary to forward, so a streamed request is a
+# 502 rather than a slow 200. Absent, not `false`, because absent is what
+# every non-streaming spec says.
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.
 command = []
 # Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: chatterbox is a

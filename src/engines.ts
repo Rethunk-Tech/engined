@@ -253,6 +253,20 @@ function buildEntries(
   }));
 }
 
+/**
+ * Whether a chunked `stream: true` on `/v1/audio/speech` is servable here.
+ * Only `tts` serves that route, so every other kind reports nothing at all
+ * rather than a `false` that reads as "streaming is turned off". A remote
+ * address has no spec to declare it and engined ships no remote TTS dialect,
+ * so it is a truthful `false` there rather than an unknown.
+ */
+function streamingOf(kind: EngineKind, spec: Spec | null): boolean | undefined {
+  if (kind !== "tts") {
+    return undefined;
+  }
+  return spec !== null && isContainerSpec(spec) ? spec.streaming : false;
+}
+
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
 function statusFrom(
   engine: EngineEntry,
@@ -265,6 +279,7 @@ function statusFrom(
     kind: spec.kind,
     egress: engine.egress,
     serves: spec.serves,
+    streaming: streamingOf(spec.kind, spec),
     state: runtime.state,
     fix: runtime.fix,
     private_url: runtime.private_url,
@@ -452,6 +467,7 @@ export class EngineRegistry {
         kind,
         egress: engine.egress,
         serves: KIND_SERVES[kind],
+        streaming: streamingOf(kind, null),
         state: "installed",
         private_url: null,
         spec_source: REMOTE_SPEC_SOURCE,
@@ -488,6 +504,7 @@ export class EngineRegistry {
       kind: this.kindOf(entry),
       egress: engine.egress,
       serves: this.serves(engine.id),
+      streaming: streamingOf(this.kindOf(entry), spec?.spec ?? null),
       state: "unavailable",
       disabled: true,
       fix: `remove "${engine.id}" from "disabled" in config.toml`,
@@ -520,6 +537,7 @@ export class EngineRegistry {
       kind,
       egress: engine.egress,
       serves: KIND_SERVES[kind],
+      streaming: streamingOf(kind, null),
       private_url: null,
       spec_source: REMOTE_SPEC_SOURCE,
     } as const;
