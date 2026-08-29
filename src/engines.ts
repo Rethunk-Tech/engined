@@ -76,10 +76,6 @@ async function defaultReleaseFetch(
  * container reloads in about a second, which is cheaper than the endpoint
  * needed to avoid it.
  */
-const RELEASE_ENDPOINT: Partial<Record<EngineKind, { path: string; body: unknown }>> = {
-  comfy: { path: "/free", body: { unload_models: true, free_memory: true } },
-};
-
 async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
   const res = await fetch(url);
   return (await res.json()) as QueueSnapshot;
@@ -831,10 +827,10 @@ export class EngineRegistry {
       return { error: `unknown engine "${id}"` };
     }
     const kind = this.kindOf(entry);
-    const endpoint = RELEASE_ENDPOINT[kind];
-    if (!endpoint) {
+    if (kind !== "comfy") {
       return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` };
     }
+    const endpoint = { path: "/free", body: { unload_models: true, free_memory: true } };
     const status = this.lifecycle.getStatus(id);
     if (status.state !== "running" || status.private_url === null) {
       // Nothing is loaded, so nothing is held -- the caller's intent is

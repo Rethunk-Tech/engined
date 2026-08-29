@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
-import { loadConfig, resolveArgs } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { makeTestRoot } from "./test-support.ts";
 import { ParseError } from "./types.ts";
 
@@ -68,7 +68,6 @@ const EXPECTED_MODEL_COUNT = 5;
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
-const MODEL_CTX_SIZE = 32_768;
 
 const RX_COLLISION =
   /"ornith" is declared twice: engine "ornith" and model "chat-model" alias "ornith"/;
@@ -411,7 +410,7 @@ filename = "should-not-be-here.gguf"
   });
 
   // `[model.args]` reaches argv only via llama.ts's own preset-INI renderer
-  // (`resolveArgs(engine.args, m.args)`), gated on the same
+  // (engine.args under m.args), gated on the same
   // `requiresFilenameAndRole` boundary as filename/role. An agentic model's
   // args were parsed and forbidden-flag-checked but then simply never read
   // again anywhere -- the same accept-and-drop failure the closed key sets
@@ -551,11 +550,6 @@ engine = "claude"
   add-dir = "/etc"
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
-});
-
-test("resolveArgs: a model arg beats an engine arg naming the same key", () => {
-  const merged = resolveArgs({ "ctx-size": 4096 }, { "ctx-size": MODEL_CTX_SIZE });
-  expect(merged["ctx-size"]).toBe(MODEL_CTX_SIZE);
 });
 
 test("loadConfig throws ParseError, not a bare Error, on a fatal rule", () => {

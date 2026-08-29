@@ -4,7 +4,6 @@ import { join } from "node:path";
 import process from "node:process";
 import {
   type AgenticSpawn,
-  type AgenticSpawnResult,
   buildAgenticProbeRunner,
   buildArgv,
   buildChildEnv,
@@ -16,6 +15,7 @@ import {
 // Read-only import: proves the real reachable path (config parse), not just
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from "./config.ts";
+import type { ExecResult } from "./exec.ts";
 import { BUNX, makeTestRoot } from "./test-support.ts";
 import {
   AGENTIC_FLOOR,
@@ -188,7 +188,7 @@ test("buildChildEnv: only the allowlisted keys survive — a planted secret in t
   expect(Object.values(childEnv)).not.toContain(ambient.GITHUB_TOKEN);
 });
 
-function fakeSpawn(result: AgenticSpawnResult): { spawn: AgenticSpawn; calls: unknown[][] } {
+function fakeSpawn(result: ExecResult): { spawn: AgenticSpawn; calls: unknown[][] } {
   const calls: unknown[][] = [];
   return {
     calls,

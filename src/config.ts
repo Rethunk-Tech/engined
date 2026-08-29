@@ -249,7 +249,7 @@ function validateModelAgainstEngine(
       );
     }
     // A model's own [model.args] reaches argv only through llama's preset-INI
-    // renderer (resolveArgs(engine.args, m.args)), which runs exclusively for
+    // renderer (engine.args under m.args), which runs exclusively for
     // a model on the same models_dir-hosting engine filename/role require.
     // Anywhere else it is parsed, forbidden-flag-checked, and never read
     // again -- the same accept-and-drop failure the closed key sets exist to
@@ -513,14 +513,4 @@ export function loadConfig(path?: string): Config {
     engines,
     chains,
   };
-}
-
-/**
- * Later layers win. Callers order layers so the floor is passed last.
- * ponytail: a shallow merge, so a nested table replaces wholesale rather than
- * merging key by key. Correct while [engine.args] and [model.args] stay flat;
- * deep-merge only once a spec actually nests one.
- */
-export function resolveArgs(...layers: Record<string, unknown>[]): Record<string, unknown> {
-  return Object.assign({}, ...layers);
 }

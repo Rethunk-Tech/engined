@@ -29,6 +29,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, argvFromArgs, type EngineEntry } from "./types.ts";
@@ -62,12 +63,6 @@ export function renderEmptyMcpConfig(): string {
   return path;
 }
 
-export interface AgenticSpawnResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
 interface AgenticSpawnOptions {
   cwd: string;
   env: Record<string, string>;
@@ -87,10 +82,7 @@ interface AgenticSpawnOptions {
   signal?: AbortSignal;
 }
 
-export type AgenticSpawn = (
-  argv: string[],
-  opts: AgenticSpawnOptions,
-) => Promise<AgenticSpawnResult>;
+export type AgenticSpawn = (argv: string[], opts: AgenticSpawnOptions) => Promise<ExecResult>;
 
 /** Graceful-then-forceful: real work (writes, network calls) gets a chance to unwind before the group is SIGKILLed out from under it. */
 const KILL_GRACE_MS = 3000;
@@ -98,7 +90,7 @@ const KILL_GRACE_MS = 3000;
 export function defaultAgenticSpawn(
   argv: string[],
   opts: AgenticSpawnOptions,
-): Promise<AgenticSpawnResult> {
+): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const [cmd, ...rest] = argv;
     if (cmd === undefined) {

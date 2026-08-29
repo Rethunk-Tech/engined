@@ -1,7 +1,7 @@
 /**
  * The llama.cpp router: one container, one `llama-server` in router mode,
  * one resident GGUF per role. Composes `DockerLifecycle` for the container
- * itself and `loadSpec`/`resolveArgs` for the spec and precedence rules;
+ * itself and `loadSpec` for the spec and precedence rules;
  * this file owns only what those don't: the presets INI, per-role occupancy,
  * and the load/unload/proxy sequence.
  *
@@ -12,11 +12,10 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { resolveArgs } from "./config.ts";
 import type { DockerLifecycle } from "./docker.ts";
 import type { HttpClient } from "./http.ts";
 import { localLlamaPresetPath } from "./paths.ts";
-import { loadSpec } from "./spec.ts";
+import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
 import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
 
@@ -69,8 +68,8 @@ export function reportedModelFrom(body: unknown): string | undefined {
 
 /**
  * One `[id]` section per model on this engine. A model's section starts from
- * the engine's process-flag defaults and layers the model's own on top — the
- * precedence `resolveArgs` already encodes — then passes the merged table
+ * the engine's process-flag defaults and layers the model's own on top —
+ * a model key beats the engine key naming it — then passes the merged table
  * through as INI keys verbatim. A headless GGUF's `[model.args]` simply omits
  * `spec-*`, so MTP never applies process-wide by construction.
  */
@@ -81,16 +80,11 @@ export function renderPresetIni(engine: EngineEntry, models: readonly ModelEntry
         m.engine === engine.id && m.filename !== undefined,
     )
     .map((m) => {
-      const args = resolveArgs(engine.args, m.args);
+      const args = { ...engine.args, ...m.args };
       const lines = [`model = ${MODELS_CONTAINER_PATH}/${m.filename}`, ...iniLines(args)];
       return `[${m.id}]\n${lines.join("\n")}`;
     })
     .join("\n\n");
-}
-
-export interface LlamaBuildOptions {
-  enginesRoot: string;
-  bunx: string;
 }
 
 /**
@@ -107,7 +101,7 @@ export interface LlamaBuildOptions {
  */
 export function buildLlamaSpec(
   engine: EngineEntry,
-  opts: LlamaBuildOptions,
+  opts: SpecLoadOptions,
   presetHostPath: string,
 ): ContainerSpec {
   const loaded = loadSpec(engine, {

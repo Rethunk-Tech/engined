@@ -6,23 +6,18 @@
  * model store. A docker-managed named volume would start Comfy against an
  * empty store instead of the operator's real models.
  */
-import { applyEngineArgs, loadSpec } from "./spec.ts";
+import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { ContainerSpec, EngineEntry } from "./types.ts";
 import { isContainerSpec, ParseError } from "./types.ts";
 
 const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
-
-interface ComfyBuildOptions {
-  enginesRoot: string;
-  bunx: string;
-}
 
 /**
  * Mounted read-write, not `:ro`: unlike llama's GGUF store, ComfyUI writes
  * caches beneath its models directory. Tightening this needs evidence it
  * still starts clean, not an assumption.
  */
-export function buildComfySpec(engine: EngineEntry, opts: ComfyBuildOptions): ContainerSpec {
+export function buildComfySpec(engine: EngineEntry, opts: SpecLoadOptions): ContainerSpec {
   const loaded = loadSpec(engine, { enginesRoot: opts.enginesRoot, bunx: opts.bunx });
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
