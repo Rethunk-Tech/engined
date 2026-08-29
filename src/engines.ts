@@ -672,6 +672,11 @@ export class EngineRegistry {
       }
     }
     for (const entry of this.entries) {
+      // A disabled engine is reported by /v1/engines, never advertised here:
+      // this list is what a caller may put in `model`, and dispatch refuses it.
+      if (entry.engine.disabled) {
+        continue;
+      }
       const kind = this.kindOf(entry);
       if (MODEL_LESS_KINDS.has(kind)) {
         out.add(entry.engine.id);

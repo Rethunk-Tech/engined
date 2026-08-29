@@ -71,8 +71,8 @@ Nothing was probed to establish that state -- no docker call, no keyring
 lookup, no version proof -- and its `fix` is the config edit that turns it
 back on. It is listed rather than omitted because "turned off here" and "gone
 from the config" are different answers to an operator staring at this route.
-`POST /v1/engines/:id/start` on one is a 404 saying so, and no `model` string
-resolves to it.
+`POST /v1/engines/:id/start` on one is a 404 saying so, no `model` string
+resolves to it, and `GET /v1/models` does not advertise it.
 
 A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock

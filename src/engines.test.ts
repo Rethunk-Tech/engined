@@ -216,6 +216,23 @@ describe("disabled engines", () => {
     expect(execLog).toEqual([]);
   });
 
+  test("are not advertised by models(), which is what a caller may put in `model`", () => {
+    // A model-less kind: its engine id IS its model string, so excluding it
+    // is the only way the disabling reaches /v1/models at all.
+    const voice = engine({
+      id: "voice",
+      egress: "remote",
+      kind: "tts",
+      base_url: "https://example.com/voice",
+      secret: { service: "voice", username: "u", header: "x-api-key" },
+    });
+    const enabled = registry(config({ engines: [voice] }), newEnginesRoot());
+    expect(enabled.models()).toContain("voice");
+
+    const off = registry(config({ engines: [{ ...voice, disabled: true }] }), newEnginesRoot());
+    expect(off.models()).not.toContain("voice");
+  });
+
   test("a reload that disables an engine tears its container down like a removal", () => {
     const root = newEnginesRoot();
     writeEngineSpec(root, "llama", PULLED_CONTAINER);

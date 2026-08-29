@@ -61,6 +61,15 @@ describe("disabled engines", () => {
     expect(result.ok === false && result.error).toContain('engine "off" is disabled');
   });
 
+  test("its models are gone, so a qualified request must not read as a missing model", () => {
+    const cfg = config({
+      engines: [{ ...remoteAgentic("off"), disabled: true }],
+      models: [],
+    });
+    const result = resolveModel("@/off/whatever", CHAT, cfg, registry(cfg));
+    expect(result.ok === false && result.error).toContain('engine "off" is disabled');
+  });
+
   test("a bare model-less engine id is refused the same way", () => {
     const cfg = config({ engines: [{ ...remoteTts("voice"), disabled: true }] });
     const result = resolveModel("voice", SPEECH, cfg, registry(cfg));

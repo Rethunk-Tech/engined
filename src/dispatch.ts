@@ -71,6 +71,11 @@ function resolveQualified(
   if (engineId === undefined) {
     return fail(`"@/${engineSeg}/${modelSeg}": engine "${engineSeg}" does not exist`);
   }
+  // Ahead of the model lookup, which would otherwise report a disabled
+  // engine's dropped models as models that never existed.
+  if (registry.entry(engineId)?.disabled) {
+    return fail(`engine "${engineId}" is disabled in config`);
+  }
   const found = findModelOnEngine(config.models, engineId, modelSeg);
   if (!found) {
     return fail(
