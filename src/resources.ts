@@ -34,6 +34,12 @@ export interface EngineResources {
    * three GGUFs resident, `engined-local-llama` reported 1.59 GiB here while
    * holding 40.89 GiB of graphics memory -- a consumer showing only this
    * number understates a busy engine by more than an order of magnitude.
+   *
+   * It also counts reclaimable page cache, so it spikes after a release and
+   * settles on its own: comfy read 8.30 GiB loaded, 33.74 GiB in the seconds
+   * after `/release`, then 8.18 GiB once reclaim caught up -- of which
+   * 6.67 GiB was cached safetensors, not anything the engine needs held. Read
+   * it as a live figure, never as "how much RAM this engine requires".
    */
   memory_bytes: number | null;
   /**
