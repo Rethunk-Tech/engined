@@ -286,7 +286,8 @@ base_url = "https://api.openai.com/v1"
 secret   = { service = "openai-api", username = "default", header = "authorization" }
 
   # Wire defaults for every request through this engine. A caller that sets
-  # the same key in its own body wins; these only fill what it left out.
+  # the same key in its own body wins; these only fill what it left out, and a
+  # caller sending the key as an explicit null drops it from the request.
   [engine.args]
   reasoning_effort = "medium"
 

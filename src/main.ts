@@ -239,6 +239,29 @@ function hopFromDispatch(
     : `@/${dispatch.engine}`;
 }
 
+/**
+ * An explicit `null` from the caller unsets a wire default rather than being
+ * forwarded as a null. Without this a caller can override an `[engine.args]`
+ * key but never remove one, and a vendor that answers 400 for a parameter is
+ * unrecoverable: the caller drops the field from its retry, and engined puts
+ * the configured value straight back.
+ *
+ * Only the caller's own nulls count. A null in `[engine.args]` is the operator
+ * saying to send one, which is a different instruction.
+ */
+function withoutCallerNulls(
+  merged: Record<string, unknown>,
+  caller: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...merged };
+  for (const [key, value] of Object.entries(caller)) {
+    if (value === null) {
+      delete out[key];
+    }
+  }
+  return out;
+}
+
 function stripField(body: Record<string, unknown>, field: string): Record<string, unknown> {
   const rest = { ...body };
   delete rest[field];
@@ -742,7 +765,8 @@ async function execRemoteHttp(
   // [engine.args] are engine-level wire defaults (reasoning_effort, and
   // whatever else this upstream takes) -- the caller's own body wins, the same
   // way a [model.args] key wins over [engine.args] one layer down.
-  const body = { ...resolution.endpoint.args, ...stripField(req.rawBody, "local_only") };
+  const callerBody = stripField(req.rawBody, "local_only");
+  const body = withoutCallerNulls({ ...resolution.endpoint.args, ...callerBody }, callerBody);
   const init = openAiRequestInit(body, modelId, req.signal);
   const response = await fetch(
     remoteUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),

@@ -245,7 +245,7 @@ function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop
   return { base: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
 }
 
-function remoteChatConfig(base: string): Config {
+function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {
   return baseConfig({
     models: [{ id: "upstream-model-7", engine: "hosted", aliases: [], args: {} }],
     engines: [
@@ -255,7 +255,7 @@ function remoteChatConfig(base: string): Config {
         kind: "openai-http",
         base_url: `${base}/v1`,
         secret: { service: "svc", username: "user", header: "x-api-key" },
-        args: {},
+        args: engineArgs,
       },
     ],
     chains: { "chain-private": ["@/hosted/upstream-model-7"] },
@@ -273,11 +273,12 @@ function chatRequest(body: unknown): Request {
 /** Every remote-proxy test stands up the same fake upstream and door, then tears both down; only the request and assertions differ. */
 async function withRemoteDoor(
   fn: (door: Door, recorded: RecordedChat[]) => Promise<void>,
+  engineArgs: Record<string, unknown> = {},
 ): Promise<void> {
   const recorded: RecordedChat[] = [];
   const fake = startFakeOpenAiUpstream(recorded);
   const door = createDoor(
-    remoteChatConfig(fake.base),
+    remoteChatConfig(fake.base, engineArgs),
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" },
     { secretExec: foundSecret },
   );
@@ -323,4 +324,36 @@ test("local_only never reaches a remote engine -- the upstream records no reques
     expect(res.status).not.toBe(200);
     expect(recorded).toHaveLength(0);
   });
+});
+
+test("a caller's explicit null unsets an [engine.args] wire default", async () => {
+  await withRemoteDoor(
+    async (door, recorded) => {
+      const res = await door.fetch(
+        chatRequest({
+          model: "upstream-model-7",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning_effort: null,
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(recorded).toHaveLength(1);
+      // Not forwarded as null either: the key is gone, which is what a vendor
+      // answering 400 for that parameter needs on the retry.
+      expect("reasoning_effort" in (recorded[0]?.body ?? {})).toBe(false);
+    },
+    { reasoning_effort: "medium" },
+  );
+});
+
+test("an [engine.args] default still fills a key the caller left out", async () => {
+  await withRemoteDoor(
+    async (door, recorded) => {
+      await door.fetch(
+        chatRequest({ model: "upstream-model-7", messages: [{ role: "user", content: "hi" }] }),
+      );
+      expect(recorded[0]?.body.reasoning_effort).toBe("medium");
+    },
+    { reasoning_effort: "medium" },
+  );
 });

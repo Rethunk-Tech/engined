@@ -111,6 +111,13 @@ speaking: ElevenLabs' `model_id` for STT, `reasoning_effort` and anything else
 an OpenAI-shaped upstream takes for chat, where the caller's own body wins over
 the configured default.
 
+A caller can also *unset* one, by sending the key as an explicit `null`: the
+key is then dropped from the request rather than forwarded as a null. Without
+that a wire default could be overridden but never removed, which strands any
+caller whose own recovery from a vendor 400 is to drop the parameter and retry
+-- engined would put the configured value straight back. A `null` written in
+`[engine.args]` itself is unaffected: that is the operator asking to send one.
+
 ## Paths
 
 `~/.local/share/` in a config path means "wherever engined's own data lives" —
