@@ -48,10 +48,11 @@ export function expandTilde(p: string): string {
 
 /**
  * The llama preset INI: `EngineRegistry` writes it, `LlamaRouter` mounts it,
- * and llama-server reads it once at its own process start. One definition, so
- * the writer and the mounter cannot drift onto different files.
+ * and llama-server reads it once at its own process start. This is only the
+ * default — both take the path as an option and the door hands them the same
+ * one, so a test can redirect the pair together and neither writes here.
  */
-export function localLlamaPresetDir(): string {
+function localLlamaPresetDir(): string {
   return `${stateDir()}/local-llama`;
 }
 

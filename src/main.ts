@@ -249,7 +249,7 @@ export interface DoorOptions {
   extrasHttpClient?: HttpClient;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
-  /** Defaults to `LlamaRouter`'s own default; a test overrides it so it never touches the real state dir. */
+  /** Reaches both the registry that writes the preset and the router that mounts it; a test overrides it so neither touches the real state dir. */
   llamaPresetHostPath?: string;
   /** Defaults to the real `secret-tool`; a test overrides it so a remote-agentic engine's keyring lookup never runs for real. */
   secretExec?: SecretExec;
@@ -1191,7 +1191,11 @@ export function createDoor(
   const lifecycle =
     registryOpts.lifecycle ??
     new DockerLifecycle(registryOpts.exec ?? dockerExec, registryOpts.probe);
-  const registry = new EngineRegistry(config, { ...registryOpts, lifecycle });
+  const registry = new EngineRegistry(config, {
+    ...registryOpts,
+    lifecycle,
+    presetHostPath: doorOpts.llamaPresetHostPath,
+  });
 
   // One LlamaRouter per llama-kind engine, sharing `lifecycle` with the
   // registry so idle-stop, port read-back and start-locking are never

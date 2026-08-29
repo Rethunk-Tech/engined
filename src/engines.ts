@@ -6,11 +6,12 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
-import { localLlamaPresetDir, localLlamaPresetPath, stateDir } from "./paths.ts";
+import { localLlamaPresetPath, stateDir } from "./paths.ts";
 import { isRemote, noSecretConfiguredFix } from "./remote.ts";
 import type { EngineResources } from "./resources.ts";
 import { resolveSecret, type SecretOutcome } from "./secrets.ts";
@@ -119,8 +120,6 @@ const REMOTE_AGENTIC_SPEC: AgenticSpec = {
   command: [],
 };
 
-/** Must match `LlamaRouterOptions.presetHostPath`'s own default: both write and mount the same file. */
-
 function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
   return kind === "openai-http" && engine.models_dir !== undefined;
 }
@@ -205,6 +204,8 @@ export interface RegistryOptions {
   comfyPollIntervalMs?: number;
   /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
   agenticProbeRunner?: AgenticProbeRunner;
+  /** Defaults under the one writable state dir; tests always override this. Must be the same path the door hands `LlamaRouter`, since one writes the file the other mounts. */
+  presetHostPath?: string;
 }
 
 interface Entry {
@@ -230,7 +231,11 @@ const PEEK_PRESET_INI = "/unused";
  * before ever running or proxying anything.
  */
 
-function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): LoadedSpec {
+function loadEngineSpec(
+  engine: EngineEntry,
+  specOptions: SpecLoadOptions,
+  presetHostPath: string,
+): LoadedSpec {
   // The peek's own resolved spec is discarded whenever a builder below takes
   // over -- each calls loadSpec again with the substitution `{preset_ini}`
   // actually needs.
@@ -242,15 +247,19 @@ function loadEngineSpec(engine: EngineEntry, specOptions: SpecLoadOptions): Load
     return { ...loaded, spec: buildComfySpec(engine, specOptions) };
   }
   if (isLocalLlama(engine, loaded.spec.kind)) {
-    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, localLlamaPresetPath()) };
+    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPath) };
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
 }
 
-function buildEntries(config: Config, specOptions: SpecLoadOptions): Entry[] {
+function buildEntries(
+  config: Config,
+  specOptions: SpecLoadOptions,
+  presetHostPath: string,
+): Entry[] {
   return config.engines.map((engine) => ({
     engine,
-    spec: isRemote(engine) ? null : loadEngineSpec(engine, specOptions),
+    spec: isRemote(engine) ? null : loadEngineSpec(engine, specOptions, presetHostPath),
   }));
 }
 
@@ -284,6 +293,7 @@ export class EngineRegistry {
   private readonly releaseFetch: ReleaseFetch;
   private readonly comfyPollIntervalMs: number;
   private readonly agenticProbeRunner?: AgenticProbeRunner;
+  private readonly presetHostPath: string;
   private config: Config;
   private entries: Entry[];
   private byId: Map<string, Entry>;
@@ -313,8 +323,9 @@ export class EngineRegistry {
     this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.agenticProbeRunner = opts.agenticProbeRunner;
+    this.presetHostPath = opts.presetHostPath ?? localLlamaPresetPath();
     this.config = config;
-    this.entries = buildEntries(config, this.specOptions);
+    this.entries = buildEntries(config, this.specOptions, this.presetHostPath);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));
     // Attached here, not passed to the constructor above: `createDoor` builds
     // its own lifecycle to share with the llama routers and hands it in, and
@@ -747,8 +758,8 @@ export class EngineRegistry {
    */
   private renderLocalLlamaPreset(engine: EngineEntry): void {
     const models = this.config.models.filter((m) => m.engine === engine.id);
-    mkdirSync(localLlamaPresetDir(), { recursive: true });
-    writeFileSync(localLlamaPresetPath(), renderPresetIni(engine, models), "utf8");
+    mkdirSync(dirname(this.presetHostPath), { recursive: true });
+    writeFileSync(this.presetHostPath, renderPresetIni(engine, models), "utf8");
   }
 
   /**
@@ -838,7 +849,7 @@ export class EngineRegistry {
   }
 
   reload(config: Config): void {
-    const newEntries = buildEntries(config, this.specOptions);
+    const newEntries = buildEntries(config, this.specOptions, this.presetHostPath);
     // A newly-disabled engine is torn down like a removed one: it keeps its
     // entry so the route can report it, but nothing of it may keep running.
     const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id));
