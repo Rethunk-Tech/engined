@@ -40,6 +40,29 @@ design rather than a silent no-op.
 Everything else passes through untouched. A first-class key not on that list
 is a bug in the list rather than a passthrough.
 
+## Turning something off
+
+`disabled` is a top-level array of engine and chain names:
+
+```toml
+disabled = ["claude", "claude-kimi", "openai"]
+```
+
+A name here is dropped at parse as if it had never been configured. The engine
+is absent from `GET /v1/engines`, its `[[model]]` entries resolve to nothing,
+and every chain hop onto it drops out of that chain — so `chain-public`, written
+with a local hop and three remote ones, serves the local hop alone. A chain left
+with no hops is dropped with them rather than resolving to an empty list. A
+chain name in `disabled` drops that chain only; the engines it hopped through
+stay served.
+
+Dropping happens *before* validation, which is what lets an engine be turned off
+precisely because its weights or its secret are not on this box. A name that is
+neither an engine nor a chain is fatal, so a typo cannot quietly leave something
+running. It is one list rather than a per-entry flag because `[chain]` is a table
+of hop arrays with nowhere to hang one, and because "what is off right now" is
+the operator's question.
+
 ## Required keys depend on what the entry describes
 
 | Entry | Required | Absent by construction |

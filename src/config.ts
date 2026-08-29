@@ -359,10 +359,23 @@ function resolveEngineHalf(
   }
 }
 
+/**
+ * Names of engines and chains that are configured but not served. One
+ * top-level list rather than a per-entry flag because `[chain]` is a table of
+ * hop arrays with nowhere to hang one, and because the operator question is
+ * "what is off right now", which one list answers.
+ */
+function parseDisabled(v: unknown, file: string): Set<string> {
+  return new Set(
+    asArray(v, "disabled", file).map((n, i) => requireString(n, `"disabled[${i}]"`, file)),
+  );
+}
+
 function parseChains(
   raw: unknown,
   engines: EngineEntry[],
   models: ModelEntry[],
+  disabled: Set<string>,
   file: string,
 ): Record<string, string[]> {
   if (raw === undefined) {
@@ -378,7 +391,11 @@ function parseChains(
     if (arr.length === 0) {
       throw new ParseError(`chain "${name}" has no hops`, file);
     }
-    chains[name] = arr.map((hopRaw, i) => {
+    if (disabled.has(name)) {
+      continue;
+    }
+    const hops: string[] = [];
+    for (const [i, hopRaw] of arr.entries()) {
       if (typeof hopRaw !== "string") {
         throw new ParseError(`chain "${name}"[${i}] must be a string`, file);
       }
@@ -391,6 +408,13 @@ function parseChains(
           file,
         );
       }
+      // A hop onto a disabled engine drops out rather than failing parse:
+      // the point of disabling one is that the chains naming it keep working
+      // on what is left. Its model is gone with it, so validating either
+      // half here would report a hole this file just made.
+      if (disabled.has(engineSeg)) {
+        continue;
+      }
       resolveEngineHalf(engineSeg, { engines, models, file }, hopRaw);
       if (!modelNames.has(modelSeg)) {
         throw new ParseError(
@@ -398,8 +422,13 @@ function parseChains(
           file,
         );
       }
-      return hopRaw;
-    });
+      hops.push(hopRaw);
+    }
+    // Nothing left to route to: the chain goes with its hops rather than
+    // resolving to an empty list a request would fall off the end of.
+    if (hops.length > 0) {
+      chains[name] = hops;
+    }
   }
   return chains;
 }
@@ -424,8 +453,23 @@ export function loadConfig(path?: string): Config {
     throw new ParseError("config must be a table", file);
   }
 
-  const engines = asArray(raw.engine, "engine", file).map((e, i) => parseEngine(e, i, file));
-  const models = asArray(raw.model, "model", file).map((m, i) => parseModel(m, i, file));
+  const declaredEngines = asArray(raw.engine, "engine", file).map((e, i) =>
+    parseEngine(e, i, file),
+  );
+  const declaredModels = asArray(raw.model, "model", file).map((m, i) => parseModel(m, i, file));
+
+  // Dropped before validation, not after: disabling is "as if never
+  // configured", which is what lets an engine be turned off precisely
+  // because its weights or its secret are not on this box.
+  const disabled = parseDisabled(raw.disabled, file);
+  const chainNames = isRecord(raw.chain) ? Object.keys(raw.chain) : [];
+  for (const name of disabled) {
+    if (!(declaredEngines.some((e) => e.id === name) || chainNames.includes(name))) {
+      throw new ParseError(`"disabled" names "${name}", which is no engine or chain here`, file);
+    }
+  }
+  const engines = declaredEngines.filter((e) => !disabled.has(e.id));
+  const models = declaredModels.filter((m) => !disabled.has(m.engine));
   checkNamespaceCollisions(engines, models, file);
 
   const engineMap = new Map(engines.map((e) => [e.id, e]));
@@ -434,7 +478,7 @@ export function loadConfig(path?: string): Config {
   }
   validateModelsMax(engines, models, file);
 
-  const chains = parseChains(raw.chain, engines, models, file);
+  const chains = parseChains(raw.chain, engines, models, disabled, file);
 
   return {
     listen_port:

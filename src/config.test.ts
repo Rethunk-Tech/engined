@@ -202,6 +202,32 @@ test("the worked config parses clean", () => {
   ]);
 });
 
+/** Top-level, so it must lead the file: a TOML key after the first table belongs to that table. */
+function withDisabled(...names: string[]): string {
+  return `disabled = [${names.map((n) => `"${n}"`).join(", ")}]\n${workedConfig()}`;
+}
+
+test("disabled drops an engine, its models and its chain hops", () => {
+  const toml = withDisabled("claude", "claude-kimi");
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.engines.map((e) => e.id)).not.toContain("claude");
+  expect(cfg.models.map((m) => m.id)).not.toContain("sonnet-5");
+  expect(cfg.chains["chain-public"]).toEqual(["@/local/ornith"]);
+});
+
+test("disabling a chain drops it while its engines stay served", () => {
+  const toml = withDisabled("chain-public");
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.chains["chain-public"]).toBeUndefined();
+  expect(cfg.chains["chain-private"]).toEqual(["@/local/ornith"]);
+  expect(cfg.engines.map((e) => e.id)).toContain("claude");
+});
+
+test("disabled naming nothing that exists is fatal", () => {
+  const toml = withDisabled("claud");
+  expect(() => loadConfig(writeConfig(toml))).toThrow(/no engine or chain here/);
+});
+
 test("tilde in models_dir is expanded to an absolute path", () => {
   const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "y.gguf"\nrole = "chat"\n`;
   // No file on disk -- the escape check passes (tilde expanded, still under

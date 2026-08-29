@@ -19,28 +19,21 @@ const LOCAL_LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
+// The example disables its three non-local LLM engines, so they and their
+// models are absent here by design -- that list is the worked example of
+// `disabled`, and this is what dropping a name from service looks like from
+// the outside.
 const EXPECTED_ENGINE_IDS = [
   "chatterbox",
-  "claude",
-  "claude-kimi",
   "comfy",
   "elevenlabs",
   "kokoro",
   "local-llama",
-  "openai",
   "piper",
   "whisper",
 ];
 
-const EXPECTED_MODEL_IDS = [
-  "embed",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "k3",
-  "ornith",
-  "sonnet-5",
-  "vision",
-];
+const EXPECTED_MODEL_IDS = ["embed", "ornith", "vision"];
 
 /** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
 function placeExampleModels(modelsDir: string): void {
@@ -79,12 +72,9 @@ test("config.example.toml parses through the real loadConfig()", () => {
   expect(config.engines.map((e) => e.id).sort(byName)).toEqual(EXPECTED_ENGINE_IDS);
   expect(config.models.map((m) => m.id).sort(byName)).toEqual(EXPECTED_MODEL_IDS);
   expect(config.chains["chain-private"]).toEqual(["@/local/ornith"]);
-  expect(config.chains["chain-public"]).toEqual([
-    "@/local/ornith",
-    "@/claude-kimi/k3",
-    "@/claude/sonnet-5",
-    "@/openai/gpt-5.4-mini",
-  ]);
+  // Written with three remote hops after the local one; all three engines are
+  // disabled, so what survives parse is the local hop alone.
+  expect(config.chains["chain-public"]).toEqual(["@/local/ornith"]);
 
   // whisper's spec needs models_dir on the wire (its bind mount and
   // artifact-fetch commands both use it) -- the exact gap the operator's
