@@ -1005,3 +1005,30 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1);
   expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0);
 });
+
+test("contention reports the request holding a role's lease and the one queued behind it", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { router, release, res1 } = await startGatedChat(e, [a, b], a);
+
+  // A different model on the same role cannot overlap, so this one queues.
+  const res2 = router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) });
+  await drainMicrotasks();
+
+  expect(router.contention()).toEqual([{ role: "chat", active: 1, waiting: 1 }]);
+
+  release();
+  await text(res1);
+  await text(res2);
+
+  // Nothing running and nothing queued reports as no roles at all, not zeroes.
+  expect(router.contention()).toEqual([]);
+});
+
+test("a role nothing has touched is absent from contention rather than reported idle", () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const { router } = routerFor(e, [a]);
+  expect(router.contention()).toEqual([]);
+});

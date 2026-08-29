@@ -62,8 +62,7 @@ reachable over HTTP writes to the install directory.
 
 No `/v1/complete`, no `/v1/agent`, no `/v1/health` — contract version, parse
 state and reachability all live in `GET /v1/engines`, and a `Type=simple` unit
-needs no liveness probe. No `stop` route; idle-stop covers the resting state.
-No `GET /v1/runs/:id` — a file read on a client-supplied id with no named
+needs no liveness probe. No `GET /v1/runs/:id` — a file read on a client-supplied id with no named
 consumer, where `journalctl --user -u engined` is the whole feature.
 
 No `engine` CLI until someone types the same `curl` twice. No capability

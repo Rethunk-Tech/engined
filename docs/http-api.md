@@ -22,6 +22,11 @@ treated as a caller.
 | `/v1/models` | GET | every dispatchable `model` string |
 | `/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
 | `/v1/engines/:id/start` | POST | warms one engine, returns its `private_url` |
+| `/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
+| `/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
+| `/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
+| `/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
+| `/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
 
 `/tokenize`, `/detokenize`, `/apply-template`, `/slots`, `/slots/:id`,
 `/models/load` and `/models/unload` proxy through to the one local llama
@@ -78,6 +83,16 @@ A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside.
+
+A llama engine additionally reports `roles`, one entry per role that is doing
+something: `{ role, active, waiting }`. These are not the same number as
+`active_leases` and answer a different question -- that one counts the whole
+container, this one counts a single role's occupancy, where `waiting` is the
+requests queued behind a resident model that has to be swapped out before
+theirs can load. It is the difference between "the model is still loading" and
+"three requests are ahead of you", which `state` alone cannot express. A role
+with nothing running and nothing queued is omitted rather than reported as
+zero, and a kind with no roles carries no `roles` at all.
 
 ## Provenance
 

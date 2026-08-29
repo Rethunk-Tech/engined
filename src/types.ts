@@ -219,6 +219,17 @@ export interface LoadedSpec {
   source: string;
 }
 
+/**
+ * What one role is doing right now: the requests holding its lease, and the
+ * ones queued behind them. Reported only for a role that has either, so an
+ * idle engine carries none of this rather than a row of zeroes.
+ */
+export interface RoleContention {
+  role: Role;
+  active: number;
+  waiting: number;
+}
+
 export interface EngineStatus {
   id: string;
   kind: EngineKind;
@@ -234,6 +245,13 @@ export interface EngineStatus {
   disabled?: boolean;
   /** The literal `docker pull` / `docker build` / `secret-tool store` that fixes it. */
   fix?: string;
+  /**
+   * Per-role contention, for the llama engines that have roles at all. Absent
+   * when nothing is queued or running, and absent entirely on a kind that has
+   * no leases -- the distinction a caller needs is "waiting behind someone"
+   * versus "loading", which `state` alone cannot answer.
+   */
+  roles?: RoleContention[];
   /** Docker reassigns the host port every start, so this is a per-job read. */
   private_url: string | null;
   spec_source: string;

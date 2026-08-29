@@ -125,11 +125,20 @@ function checkOrigin(req: Request, port: number): Response | null {
   return null;
 }
 
-async function handleEngines(
-  registry: EngineRegistry,
-  configErr: string | undefined,
-): Promise<Response> {
-  const listed = await registry.list();
+/**
+ * Contention comes from the routers, which the door owns and the registry has
+ * never heard of -- so it is added here rather than by giving `EngineRegistry`
+ * a back-reference to the door. An engine no request has touched yet has no
+ * router, and so reports no roles, which is the honest answer.
+ */
+async function handleEngines(ctx: DoorContext, configErr: string | undefined): Promise<Response> {
+  const listed = await ctx.registry.list();
+  for (const engine of listed.engines) {
+    const busy = ctx.llamaRouters.get(engine.id)?.contention();
+    if (busy !== undefined && busy.length > 0) {
+      engine.roles = busy;
+    }
+  }
   listed.config_error = configErr;
   return Response.json(listed);
 }
@@ -1125,7 +1134,7 @@ function routeGet(
     return modelsMenu(ctx.registry.models());
   }
   if (pathname === "/v1/engines") {
-    return handleEngines(ctx.registry, configErr);
+    return handleEngines(ctx, configErr);
   }
   if (pathname === "/v1/engines/events") {
     return handleEngineEvents(ctx, signal);

@@ -16,7 +16,7 @@ import type { DockerLifecycle } from "./docker.ts";
 import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
 import { localLlamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
+import type { ContainerSpec, EngineEntry, ModelEntry, Role, RoleContention } from "./types.ts";
 import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
@@ -261,6 +261,22 @@ export class LlamaRouter {
    */
   residentModel(role: Role): string | null {
     return this.roleStates.get(role)?.activeModelId ?? null;
+  }
+
+  /**
+   * Every role currently doing something, for the door's own status report.
+   * Read-only in the same sense as `residentModel`: it never creates a role
+   * state, and it takes no lease -- a status read must not queue behind the
+   * traffic it is describing.
+   */
+  contention(): RoleContention[] {
+    const busy: RoleContention[] = [];
+    for (const [role, state] of this.roleStates) {
+      if (state.activeCount > 0 || state.queue.length > 0) {
+        busy.push({ role, active: state.activeCount, waiting: state.queue.length });
+      }
+    }
+    return busy;
   }
 
   /**
