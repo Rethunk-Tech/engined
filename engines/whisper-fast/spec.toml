@@ -1,14 +1,12 @@
 kind = "stt"
-# The bare upstream image (pinned digest, still the base layer of ./Dockerfile
-# below) declares no EXPOSE, and engined's port discovery has exactly one
-# source: the image's own ExposedPorts. Confirmed live -- `docker image
-# inspect ghcr.io/ggml-org/whisper.cpp@sha256:793c6ca...` prints
-# `Config.ExposedPorts: null`, and `docker history` carries no EXPOSE layer --
-# so `obtain = "pull"` against that image directly leaves every start
-# refusing before `docker run` with "exposes no ports". `./Dockerfile` adds
-# only that missing metadata on top of the same pinned base.
+# The same image engines/whisper runs, by tag: this engine differs from that
+# one by its model file and nothing else, so a second Dockerfile here would be
+# a second copy of the same pinned upstream digest to keep in step. There is
+# deliberately no Dockerfile in this directory -- engined never builds, it only
+# reports a build command when an image is absent, and the runnable one lives
+# with the digest it pins, at engines/whisper/Dockerfile.
 image = "engined-whisper:local"
-obtain = "build" # pull | build; build reads ./Dockerfile here
+obtain = "build" # pull | build; the build is engines/whisper's, see above
 serves = ["/v1/audio/transcriptions"]
 devices = ["/dev/dri"]
 group_add = ["video"]
@@ -18,7 +16,7 @@ command = [
   "--host",
   "0.0.0.0",
   "-m",
-  "/models/ggml-medium.en-q8_0.bin", # see [[artifact]] below for citation
+  "/models/ggml-small.en-q8_0.bin", # see [[artifact]] below for citation
   # --vad/-vm flag support confirmed present in the pinned digest's
   # actual whisper-server binary (strings extracted via `docker
   # create` + `docker cp`, no container ever started) -- see
@@ -59,7 +57,9 @@ max = 499
 # only ever reads these files. {models_dir} resolves to this engine's
 # "models_dir" config entry, so this spec is only loadable for a config that
 # supplies one -- an engine that omits it fails loudly at parse, naming the
-# placeholder, rather than starting with a broken mount.
+# placeholder, rather than starting with a broken mount. Pointing it at the
+# same directory engines/whisper uses is what lets both engines share the one
+# copy of the VAD model below.
 [[volume]]
 name = "{models_dir}"
 path = "/models"
@@ -71,42 +71,32 @@ read_only = true
 # {spec_dir} substitutes to the HOST path install.sh synced it to and mounts
 # it at /spec -- run without this, the container's real PID 1 is bash
 # reporting the entrypoint path "No such file or directory" and exiting
-# immediately. {spec_dir} here is the same installed spec directory, so the
-# mount source and the entrypoint path always agree.
+# immediately. {spec_dir} is this engine's own directory, so the copy of
+# quiet.sh that ships here is the one that gets mounted; a symlink to the
+# whisper engine's copy would point outside the mount and dangle inside the
+# container.
 [[volume]]
 name = "{spec_dir}"
 path = "/spec"
 read_only = true
 
-# medium.en is what measured best here, on both axes at once. Word error
-# rate over 8 recorded speech clips (4.3-8.7s, known transcripts, scored
-# after normalising numeral formatting so "twenty five" vs "25" is not
-# counted a mishearing), median encode per clip on this box:
-#
-#   medium.en-q8_0        11.5% WER   2715 ms
-#   large-v3-turbo-q8_0   13.5% WER   4063 ms
-#   small.en-q8_0         13.5% WER    929 ms
-#
-# So the larger multilingual model is beaten on accuracy AND speed, and the
-# English-only pair is the whole useful frontier: this engine takes the
-# accurate end, engines/whisper-fast takes the fast one. Load time is
-# 41-196ms for all three -- encode is the entire cost, so model size does not
-# buy back its own load.
-#
-# q8_0 rather than a smaller quantisation: a CPU sweep
-# (github.com/ggml-org/whisper.cpp discussions/3752) shows q5_0 running
-# 3-5.5x slower than q4_0 while q8_0 tracks close to q4_0's speed, and
-# upstream notes q8_0's quality is about q5_0's.
+# small.en is the latency end of the frontier engines/whisper's [[artifact]]
+# comment measures: same 13.5% word error rate as the large multilingual model
+# on this box's 8-clip speech corpus, at 929 ms per clip against that model's
+# 4063 and medium.en's 2715. It is here for a consumer that is waiting on the
+# transcript in a loop; a consumer that is not should name "whisper" and take
+# the 11.5%.
 [[artifact]]
-path = "/models/ggml-medium.en-q8_0.bin"
-obtain = "curl -fL -o {models_dir}/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin"
+path = "/models/ggml-small.en-q8_0.bin"
+obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin"
 
 # Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
 # Filename and URL confirmed against whisper.cpp's own
 # models/download-vad-model.sh (src="https://huggingface.co/ggml-org/whisper-vad",
 # pfx="resolve/main/ggml") and the README's "Voice Activity Detection (VAD)"
 # section, both read from ggml-org/whisper.cpp master. v6.2.0 is the version
-# both of those name as current.
+# both of those name as current. The same file engines/whisper mounts, from
+# the same models_dir -- one download serves both engines.
 [[artifact]]
 path = "/models/ggml-silero-v6.2.0.bin"
 obtain = "curl -fL -o {models_dir}/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"

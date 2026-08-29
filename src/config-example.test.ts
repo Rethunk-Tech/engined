@@ -35,6 +35,7 @@ const EXPECTED_ENGINE_IDS = [
   "openai",
   "piper",
   "whisper",
+  "whisper-fast",
 ];
 
 // The example ships every off-box engine disabled, and a disabled engine's

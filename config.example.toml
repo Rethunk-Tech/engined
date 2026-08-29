@@ -249,11 +249,27 @@ models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
 
-# The second STT engine, and the only one that is not a container. A remote
+# The same image and the same models_dir as the engine above, carrying a
+# smaller model file: engines/whisper-fast/spec.toml is where that difference
+# lives, because the model a container runs is a property of the engine, not
+# of the install. Measured on this box, the two are a real frontier rather
+# than a big/small pair -- 11.5% word error rate at 2715 ms per clip above
+# against 13.5% at 929 ms here -- so a consumer waiting on a transcript in a
+# loop names this one and a consumer that is not names "whisper". Both are
+# English-only.
+[[engine]]
+id                = "whisper-fast"
+egress            = "none"
+models_dir        = "~/.local/share/engined-models/whisper"
+idle_stop_seconds = 1800
+ready_timeout_s   = 300
+
+# The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so it declares no spec_dir, no models_dir and no
 # idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
-# the engine id it names on /v1/audio/transcriptions: "whisper" stays on this
-# box, "elevenlabs" does not, and `egress` is what says so.
+# the engine id it names on /v1/audio/transcriptions: "whisper" and
+# "whisper-fast" stay on this box, "elevenlabs" does not, and `egress` is
+# what says so.
 #
 #   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 [[engine]]

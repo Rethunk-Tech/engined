@@ -112,6 +112,41 @@ Its voice synthesizes at **22050 Hz**, not the 24000 kokoro uses. Nothing
 inside a WAV cares, but a streamed `audio/L16` reply has only the content type
 to say so -- see [http-api.md](http-api.md).
 
+### Whisper (`whisper`, `whisper-fast`)
+
+`engines/whisper/` and `engines/whisper-fast/`, both running
+`engined-whisper:local` — a two-line Dockerfile over a pinned
+`ghcr.io/ggml-org/whisper.cpp` digest, adding the `EXPOSE` the upstream image
+omits and engined's port discovery requires. Only `engines/whisper/` holds
+that Dockerfile: the two engines differ by their `-m` model file and nothing
+else, so a second copy of the pinned digest would only be a second thing to
+keep in step.
+
+Which one a consumer names is a latency choice, and it is a real frontier
+rather than a big/small pair. Measured on this box over 8 recorded speech
+clips (4.3–8.7s, known transcripts, scored after normalising numeral
+formatting so "twenty five" against "25" is not counted a mishearing), median
+encode per clip:
+
+| engine | model | WER | ms/clip |
+| ------ | ------ | ------ | ------ |
+| `whisper` | `ggml-medium.en-q8_0` | 11.5% | 2715 |
+| `whisper-fast` | `ggml-small.en-q8_0` | 13.5% | 929 |
+| — | `ggml-large-v3-turbo-q8_0` | 13.5% | 4063 |
+
+The third row is not served: the large multilingual model is beaten on
+accuracy *and* speed by `medium.en`, so nothing points at it. Model load is
+41–196ms across all three — encode is the entire cost, and size does not buy
+back its own load.
+
+**Both models are English-only.** Neither spec pins `-l` (language stays a
+per-request field), but a request naming another language is still decoded by
+English-trained weights. Non-English work belongs on the remote STT engine,
+or on a multilingual model that is not currently configured.
+
+Both engines mount the same `models_dir`, so the Silero VAD model both load
+is one file on disk, not two.
+
 ## Three specs carry a detail that fails silently
 
 Dropping any of these produces no error, just wrong behaviour:
@@ -120,7 +155,8 @@ Dropping any of these produces no error, just wrong behaviour:
   frames never arrive.
 - Kokoro's entrypoint override, without which its image floods the log at
   debug level.
-- Whisper's `--inference-path`, which is the only reason it is OpenAI-shaped.
+- Whisper's `--inference-path` — in both whisper specs — which is the only
+  reason those engines are OpenAI-shaped.
 
 The agentic launch flags are the read-only guarantee itself. All of these
 belong in a file that ships and diffs, not one an operator edits.
