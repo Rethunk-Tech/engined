@@ -1,21 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import {
   buildAgenticProbeRunner,
   defaultAgenticSpawn,
+  hashTree,
+  PROBE_ENV_ALLOWLIST,
+  plantUserPromptSubmitHook,
   type RunAgenticResult,
   runAgentic,
 } from "../../src/agentic.ts";
@@ -32,7 +25,6 @@ import type { Config, EngineEntry } from "../../src/types.ts";
 const CLAUDE_VERSION = process.env.ENGINED_TEST_CLAUDE_VERSION;
 // Set by the `test:local` script, alongside ENGINED_LOCAL that gates this tier.
 const BUNX = process.env.ENGINED_BUNX;
-const ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"];
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 
 /** A real observed round trip through `bunx claude -p` took ~6s; 60s is genuine headroom over that, not a number picked to match bun's 5s default. */
@@ -70,25 +62,7 @@ function describeTitle(base: string): string {
 }
 
 /** Function declaration, not a const arrow: avoids a nursery false-positive on serializable closures. */
-function hashTree(root: string): string {
-  const hash = createHash("sha256");
-  hashWalk(root, root, hash);
-  return hash.digest("hex");
-}
-
-function hashWalk(root: string, dir: string, hash: ReturnType<typeof createHash>): void {
-  for (const name of readdirSync(dir).sort()) {
-    const full = join(dir, name);
-    const stat = statSync(full);
-    hash.update(full.slice(root.length));
-    if (stat.isDirectory()) {
-      hashWalk(root, full, hash);
-    } else {
-      hash.update(readFileSync(full));
-    }
-  }
-}
-
+/** Deliberately not the exported probe's own scratch dir: the two want distinguishable temp prefixes. */
 function scratchWorktree(): string {
   const dir = mkdtempSync(join(tmpdir(), "engined-agentic-"));
   writeFileSync(join(dir, "seed.txt"), "unrelated pre-existing content\n");
@@ -99,27 +73,12 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
   return runAgentic({
     claudeVersion: claudeVersion(),
     args: {},
-    envAllowlist: ENV_ALLOWLIST,
+    envAllowlist: [...PROBE_ENV_ALLOWLIST],
     workdir,
     prompt,
     spawn: defaultAgenticSpawn,
     bunx: bunx(),
   });
-}
-
-function plantUserPromptSubmitHook(workdir: string, witness: string): void {
-  const claudeDir = join(workdir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(
-    join(claudeDir, "settings.json"),
-    JSON.stringify({
-      hooks: {
-        UserPromptSubmit: [
-          { matcher: "", hooks: [{ type: "command", command: `echo fired >> ${witness}` }] },
-        ],
-      },
-    }),
-  );
 }
 
 describe.skipIf(!AGENTIC_READY)(describeTitle("agentic probes (local)"), () => {

@@ -293,10 +293,10 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
 }
 
 /** Everything else is stripped from a probe's environment, so a probe proves the floor rather than the operator's shell. */
-const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
+export const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
 const WITNESS_ID_RADIX = 36;
 
-function hashTree(root: string): string {
+export function hashTree(root: string): string {
   const hash = createHash("sha256");
   hashWalk(root, root, hash);
   return hash.digest("hex");
@@ -322,7 +322,7 @@ function scratchWorktree(): string {
   return dir;
 }
 
-function plantUserPromptSubmitHook(workdir: string, witness: string): void {
+export function plantUserPromptSubmitHook(workdir: string, witness: string): void {
   const claudeDir = join(workdir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(
