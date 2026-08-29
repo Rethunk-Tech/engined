@@ -231,3 +231,37 @@ export function llamaControlPlane(): (url: string, init?: RequestInit) => Respon
     }
   };
 }
+
+/**
+ * A real `Bun.serve` on an ephemeral port, for a suite that needs an upstream
+ * to actually be reached rather than substituted. `base` always carries its
+ * scheme and `port` is the number, so no caller has to take one apart to get
+ * the other; `requestLog` records each pathname, which is what proves an
+ * engine was -- or was never -- reached.
+ */
+export function startFakeUpstream(fetchImpl: (req: Request) => Response | Promise<Response>): {
+  base: string;
+  port: number;
+  requestLog: string[];
+  stop: () => void;
+} {
+  const requestLog: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      requestLog.push(new URL(req.url).pathname);
+      return fetchImpl(req);
+    },
+  });
+  // `port` is optional on Bun's Server (a unix-socket server has none); a
+  // port: 0 listener always has one.
+  const port = server.port ?? 0;
+  return {
+    base: `http://127.0.0.1:${port}`,
+    port,
+    requestLog,
+    stop: () => {
+      server.stop(true);
+    },
+  };
+}

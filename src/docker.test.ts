@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DockerLifecycle,
@@ -10,7 +9,10 @@ import {
   parseHostPort,
 } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
+import { makeTestRoot } from "./test-support.ts";
 import type { ContainerSpec, Volume } from "./types.ts";
+
+const TEST_ROOT = makeTestRoot("engined-docker-");
 
 /** `docker image inspect redis:alpine`, captured on this box — the one-port case. */
 const REDIS_INSPECT = `[
@@ -384,7 +386,7 @@ describe("hostPathFor", () => {
 });
 
 test("start: a bind-mounted artifact is checked with a host stat, never a container", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "engined-artifact-"));
+  const dir = mkdtempSync(join(TEST_ROOT, "artifact-"));
   try {
     const specWithBindMount: ContainerSpec = {
       ...SPEC,

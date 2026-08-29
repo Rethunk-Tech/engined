@@ -16,6 +16,7 @@ import {
   deadPort,
   makeTestRoot,
   tempPresetPath as sharedTempPresetPath,
+  startFakeUpstream,
 } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
@@ -247,23 +248,6 @@ status = 200
 `;
 }
 
-/** A real `Bun.serve` fake engine; `requestLog` is the only thing that proves it was never reached. */
-function startFakeUpstream(fetchImpl: (req: Request) => Response | Promise<Response>): {
-  base: string;
-  requestLog: string[];
-  stop: () => void;
-} {
-  const requestLog: string[] = [];
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      requestLog.push(new URL(request.url).pathname);
-      return fetchImpl(request);
-    },
-  });
-  return { base: `127.0.0.1:${server.port}`, requestLog, stop: () => server.stop(true) };
-}
-
 /**
  * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
  * triggers via `/models/load` (real b10354 contract, probed live: answers
@@ -341,7 +325,7 @@ async function withChatDoor(
 
 test("a chain whose first hop is dead completes on the second, and provenance names the second engine", async () => {
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good"));
-  const [, goodPort] = good.base.split(":");
+  const goodPort = String(good.port);
   const dead = deadPort();
 
   const exec = buildExec({
@@ -396,8 +380,8 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
   // this 500 and treated the dead hop as the terminal, successful answer.
   const dead = startFakeUpstream(fakeLlamaUpstream("boom", 500));
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good"));
-  const [, deadHostPort] = dead.base.split(":");
-  const [, goodPort] = good.base.split(":");
+  const deadHostPort = String(dead.port);
+  const goodPort = String(good.port);
 
   const exec = buildExec({
     portByContainer: { "engined-dead": Number(deadHostPort), "engined-good": Number(goodPort) },
@@ -441,7 +425,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
 test("a chain dispatch to a llama hop rewrites the forwarded body's model to the resolved model id, not the chain name", async () => {
   const chatBodies: Record<string, unknown>[] = [];
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
-  const [, goodPort] = good.base.split(":");
+  const goodPort = String(good.port);
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
@@ -468,7 +452,7 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
 test("a streaming chain dispatch to a llama hop also rewrites the forwarded body's model to the resolved model id", async () => {
   const chatBodies: Record<string, unknown>[] = [];
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
-  const [, goodPort] = good.base.split(":");
+  const goodPort = String(good.port);
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
@@ -499,7 +483,7 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
 test("a direct (non-chain) model request still forwards its own model id unchanged", async () => {
   const chatBodies: Record<string, unknown>[] = [];
   const good = startFakeUpstream(fakeLlamaUpstream("answered by good", 200, chatBodies));
-  const [, goodPort] = good.base.split(":");
+  const goodPort = String(good.port);
 
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
@@ -634,7 +618,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     }
     return new Response("", { status: 404 });
   });
-  const port = Number(fake.base.split(":")[1]);
+  const { port } = fake;
   const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
   const IDLE_STOP_SECONDS = 0.03;
   const config = baseConfig({
@@ -676,7 +660,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
     // has to carry the reason: "ok: false" with no failure is unreadable later.
     return new Response("", { status: 503 });
   });
-  const port = Number(fake.base.split(":")[1]);
+  const { port } = fake;
   const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
   const config = baseConfig({
     engines: [containerEngine("chatterbox", ttsSpec())],

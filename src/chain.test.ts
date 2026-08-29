@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { type HopExec, type RunChainOptions, runChain } from "./chain.ts";
-import { collectLines, deadPort } from "./test-support.ts";
+import { collectLines, deadPort, startFakeUpstream } from "./test-support.ts";
 import type { Egress } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -17,32 +17,23 @@ interface Behavior {
   delayMs?: number;
 }
 
-/** One `Bun.serve` fake upstream shared by every hop in a test; `requestLog` is the only proof a hop was never called. */
-function startFakeUpstream(behaviors: Record<string, Behavior>): {
-  base: string;
-  requestLog: string[];
-  stop: () => void;
-} {
-  const requestLog: string[] = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const engine = new URL(req.url).pathname.slice(1);
-      requestLog.push(engine);
-      const behavior = behaviors[engine];
-      if (!behavior) {
-        return new Response("no route", { status: 404 });
-      }
-      if (behavior.delayMs) {
-        await new Promise((resolve) => setTimeout(resolve, behavior.delayMs));
-      }
-      return new Response(behavior.body ?? "", {
-        status: behavior.status,
-        headers: behavior.contentType ? { "content-type": behavior.contentType } : undefined,
-      });
-    },
+/** One fake upstream shared by every hop in a test, keyed by engine id; `requestLog` is the only proof a hop was never called. */
+function startBehaviorUpstream(behaviors: Record<string, Behavior>) {
+  const up = startFakeUpstream(async (req) => {
+    const engine = new URL(req.url).pathname.slice(1);
+    const behavior = behaviors[engine];
+    if (!behavior) {
+      return new Response("no route", { status: 404 });
+    }
+    if (behavior.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, behavior.delayMs));
+    }
+    return new Response(behavior.body ?? "", {
+      status: behavior.status,
+      headers: behavior.contentType ? { "content-type": behavior.contentType } : undefined,
+    });
   });
-  return { base: `http://127.0.0.1:${server.port}`, requestLog, stop: () => server.stop(true) };
+  return up;
 }
 
 /**
@@ -134,7 +125,7 @@ test("an alias hop's provenance records the resolved engine id, not the raw alia
 });
 
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
-  const up = startFakeUpstream({
+  const up = startBehaviorUpstream({
     badreq: { status: 400, body: "bad request", contentType: "text/plain" },
     unused: { status: 200, body: "should never be seen" },
   });
@@ -146,7 +137,7 @@ test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
   up.stop();
 
   expect(result.status).toBe(400);
-  expect(up.requestLog).not.toContain("unused");
+  expect(up.requestLog).not.toContain("/unused");
 });
 
 test("an envelope failure on hop 1 does not advance, even carrying a 5xx status: hop 2's own call log stays empty", async () => {
@@ -170,7 +161,7 @@ test("an envelope failure on hop 1 does not advance, even carrying a 5xx status:
 });
 
 test("a 5xx, a connection failure, and an empty body each advance to the next hop", async () => {
-  const up = startFakeUpstream({
+  const up = startBehaviorUpstream({
     servererr: { status: 500, body: "boom", contentType: "text/plain" },
     empty: { status: 200, body: "", contentType: "text/plain" },
     success: { status: 200, body: "answer", contentType: "text/plain" },
@@ -196,7 +187,7 @@ test("a 5xx, a connection failure, and an empty body each advance to the next ho
 
 test("a stream that dies after the first byte does not advance, and the failure lands in provenance", async () => {
   const flaky = startFlakyStreamUpstream();
-  const up = startFakeUpstream({ unused: { status: 200, body: "should never be seen" } });
+  const up = startBehaviorUpstream({ unused: { status: 200, body: "should never be seen" } });
   const { lines, write } = collectLines();
 
   const result = await runChain(
@@ -221,7 +212,7 @@ test("a stream that dies after the first byte does not advance, and the failure 
   up.stop();
 
   expect(sawError).toBe(true);
-  expect(up.requestLog).not.toContain("unused");
+  expect(up.requestLog).not.toContain("/unused");
   const record = JSON.parse(lines[0] ?? "");
   expect(record.attempts).toHaveLength(1);
   expect(record.attempts[0].ok).toBe(false);
@@ -229,7 +220,7 @@ test("a stream that dies after the first byte does not advance, and the failure 
 });
 
 test("every hop failing returns 503 listing each attempt", async () => {
-  const up = startFakeUpstream({
+  const up = startBehaviorUpstream({
     servererr: { status: 500, body: "boom", contentType: "text/plain" },
   });
   const dead = deadPort();
@@ -246,7 +237,7 @@ test("every hop failing returns 503 listing each attempt", async () => {
 });
 
 test("local_only truncates after the last local hop: later remote hops are never invoked", async () => {
-  const up = startFakeUpstream({
+  const up = startBehaviorUpstream({
     localengine: { status: 200, body: "local answer", contentType: "text/plain" },
     remote1: { status: 200, body: "should never be seen" },
     remote2: { status: 200, body: "should never be seen" },
@@ -269,8 +260,8 @@ test("local_only truncates after the last local hop: later remote hops are never
 
   expect(result.status).toBe(200);
   expect(result.engineUsed).toBe("localengine");
-  expect(up.requestLog).not.toContain("remote1");
-  expect(up.requestLog).not.toContain("remote2");
+  expect(up.requestLog).not.toContain("/remote1");
+  expect(up.requestLog).not.toContain("/remote2");
 });
 
 test("a chain with no local hop and local_only true returns 400 without calling exec", async () => {
@@ -291,7 +282,7 @@ test("a chain with no local hop and local_only true returns 400 without calling 
 test("the per-attempt timeout is per hop, not per request: two hops each under the bound both run", async () => {
   const HOP_DELAY_MS = 100;
   const PER_HOP_TIMEOUT_MS = 400;
-  const up = startFakeUpstream({
+  const up = startBehaviorUpstream({
     slowFail: { status: 500, body: "boom", contentType: "text/plain", delayMs: HOP_DELAY_MS },
     slowSuccess: { status: 200, body: "answer", contentType: "text/plain", delayMs: HOP_DELAY_MS },
   });

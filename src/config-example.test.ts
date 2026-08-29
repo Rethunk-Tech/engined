@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { dataHome } from "./paths.ts";
+import { makeTestRoot } from "./test-support.ts";
+
+const TEST_ROOT = makeTestRoot("engined-example-");
 
 /**
  * config.example.toml is the only committed, always-parsing reference for
@@ -56,7 +58,7 @@ function placeExampleModels(modelsDir: string): void {
 /** `raw` with local-llama's real models_dir swapped for the scratch one, written to a fresh config.toml. */
 function writePatchedExampleConfig(raw: string, modelsDir: string): string {
   const patched = raw.replace(LOCAL_LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
-  const configDir = mkdtempSync(join(tmpdir(), "engined-example-config-"));
+  const configDir = mkdtempSync(join(TEST_ROOT, "config-"));
   const configPath = join(configDir, "config.toml");
   writeFileSync(configPath, patched);
   return configPath;
@@ -67,7 +69,7 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
   expect(raw).toMatch(LOCAL_LLAMA_MODELS_DIR_RE);
 
-  const modelsDir = mkdtempSync(join(tmpdir(), "engined-example-models-"));
+  const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
   placeExampleModels(modelsDir);
 
   const configPath = writePatchedExampleConfig(raw, modelsDir);

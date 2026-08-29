@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { handleSpeech, handleTranscription } from "./audio.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { loadSpec } from "./spec.ts";
+import { makeTestRoot } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 import { isContainerSpec } from "./types.ts";
+
+const TEST_ROOT = makeTestRoot("engined-audio-");
 
 const CHATTERBOX_CONTAINER_PORT = 8004;
 const SAMPLE_WAV_BYTES = Buffer.from("RIFF____WAVEfmt ", "utf8");
@@ -271,7 +273,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
   // volume with nothing in it so "absent" is genuinely absent here, not an
   // artifact of this box's own state.
   const base = loadSpecFor("whisper", "/data/whisper-models");
-  const scratchDir = mkdtempSync(join(tmpdir(), "engined-whisper-artifact-"));
+  const scratchDir = mkdtempSync(join(TEST_ROOT, "whisper-artifact-"));
   const spec = { ...base, volumes: [{ name: scratchDir, path: "/models" }] };
   const realContainerRuns: string[][] = [];
 
@@ -286,8 +288,6 @@ test("image present but the model artifact absent: unavailable naming the artifa
     (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
     unreachableFetch("must not fetch an engine that never started"),
   );
-
-  rmSync(scratchDir, { recursive: true, force: true });
 
   expect(result.status).toBe(503);
   expect(realContainerRuns.length).toBe(0);
