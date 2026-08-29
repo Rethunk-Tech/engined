@@ -3,9 +3,11 @@ kokoro speak (engines/kokoro/app.py) -- not a new protocol. engined's audio door
 (src/audio.ts) reads the first frame carrying a non-empty base64 `audio` field and returns
 those bytes as WAV; a wrapper that served /v1/audio/speech directly would be invisible to it.
 
-Piper is a single forward pass through a small ONNX model, with no sampling loop to
-instrument -- so this emits synthesizing -> done and never step/step_limit, exactly as
-kokoro's wrapper does for the same reason.
+Piper is a single forward pass per sentence, with no sampling loop to instrument -- so this
+emits synthesizing -> done and never step/step_limit, exactly as kokoro's wrapper does for
+the same reason. A caller asking for `chunks` additionally gets one `chunk` frame per
+sentence as it lands, carrying that sentence's PCM and the voice's own sample rate: the door
+has no other channel to learn the rate on, because raw PCM has no container to put it in.
 
 The voice is baked into the image and loaded once at import, before uvicorn binds its
 listening socket. A load failure therefore kills the process rather than leaving a port
@@ -43,6 +45,9 @@ class TtsRequest(BaseModel):
     # sends the field anyway. Declared so a caller that speaks the kokoro/chatterbox shape
     # gets a synthesis rather than a 422 over a field that would have made no difference.
     voice: str | None = None
+    # Additive: a caller that does not ask still sees exactly the frames it always did.
+    # Asking adds per-sentence PCM ahead of the terminal frame.
+    chunks: bool = False
 
 
 @app.get("/health")
@@ -55,12 +60,49 @@ def synthesize(req: TtsRequest):
     def events():
         yield json.dumps({"phase": "synthesizing"}) + "\n"
         try:
+            # One AudioChunk per sentence. Collecting them and emitting a single WAV is
+            # what makes time-to-first-audio equal time-to-last-audio; when the caller asks
+            # for chunks each one goes out as it is produced, and the terminal frame still
+            # follows.
+            pcm = bytearray()
+            fmt = None
+            with _model_lock:
+                for chunk in voice.synthesize(req.text):
+                    fmt = (chunk.sample_channels, chunk.sample_width, chunk.sample_rate)
+                    pcm += chunk.audio_int16_bytes
+                    if req.chunks:
+                        yield (
+                            json.dumps(
+                                {
+                                    "phase": "chunk",
+                                    "pcm": base64.b64encode(
+                                        chunk.audio_int16_bytes
+                                    ).decode("ascii"),
+                                    "rate": chunk.sample_rate,
+                                }
+                            )
+                            + "\n"
+                        )
+            if fmt is None:
+                # Text that phonemizes to nothing -- punctuation alone, say. There is no
+                # format to write a WAV header with, and a zero-length WAV would read to
+                # the caller as a successful silent synthesis.
+                yield (
+                    json.dumps(
+                        {"phase": "error", "detail": "text produced no audio"}
+                    )
+                    + "\n"
+                )
+                return
+            channels, width, rate = fmt
             buf = io.BytesIO()
-            # synthesize_wav writes a complete RIFF header, so the bytes below are a
-            # standalone WAV rather than raw PCM the door would have to describe.
+            # A complete RIFF header, so the bytes below are a standalone WAV rather than
+            # raw PCM the door would have to describe.
             with wave.open(buf, "wb") as wav_file:
-                with _model_lock:
-                    voice.synthesize_wav(req.text, wav_file)
+                wav_file.setnchannels(channels)
+                wav_file.setsampwidth(width)
+                wav_file.setframerate(rate)
+                wav_file.writeframes(pcm)
             yield (
                 json.dumps(
                     {

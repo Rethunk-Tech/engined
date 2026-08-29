@@ -25,10 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Dockerfile records: `uv python install` puts the interpreter outside
 # /opt/venv, so a runtime stage copying only /opt/venv inherits a venv whose
 # python symlink dangles. Nothing fails at build time; every container dies
-# instantly on `exec /opt/venv/bin/uvicorn: no such file or directory`. This
-# base ships 3.12 at a stable path in both stages, which is what makes it safe.
+# instantly on `exec /opt/venv/bin/uvicorn: no such file or directory`. The
+# unversioned `python3` is what makes both stages agree: they share one FROM
+# tag, so naming a minor version here turns the next base bump into a build
+# that fails on a path that no longer exists.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-RUN uv venv --seed --python /usr/local/bin/python3.12 /opt/venv
+RUN uv venv --seed --python /usr/local/bin/python3 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Pinned rather than floating: this image is rebuilt rarely and a voice that
