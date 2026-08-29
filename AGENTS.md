@@ -175,11 +175,8 @@ local process, which is the case that argument covers.
 
 ## Why cursor-agent was not shipped
 
-Only `claude` ships. `cursor-agent`'s read-only mode could not be
-demonstrated: it refuses to run at all in an untrusted directory, and with
-`--plan --trust` it wrote nothing but produced no output either, so "the mode
-held" and "it never ran" are indistinguishable. A kind whose read-only
-enforcement has not been *shown* is not shipped.
+Only `claude` ships. The reasoning, and the rule it comes from, live in
+[docs/security-model.md](docs/security-model.md#why-cursor-agent-was-not-shipped).
 
 ## Before committing
 

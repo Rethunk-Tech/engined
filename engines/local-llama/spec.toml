@@ -1,11 +1,8 @@
 kind = "openai-http"
-# Renamed from sagaforge-llama-cpp:local (kokoro and whisper already made
-# this same move to an engined-* tag). That tag is still live on this box --
-# a sagaforge-launched container references it -- and this engine's build
-# now has its own Dockerfile here, so building under the old name would
-# overwrite an image sagaforge still uses before the cutover. A fresh tag
-# costs one line of coordination (this file); reusing the old one costs a
-# silent swap under a workload this project doesn't own yet.
+# engined-* tag, matching every other engine here: this engine builds from its
+# own Dockerfile in this directory, so the tag has to be one no other project
+# builds into. Sharing a tag with an outside workload means a rebuild here
+# silently swaps the image underneath it.
 image = "engined-llama-cpp:local"
 obtain = "build"
 serves = ["/v1/chat/completions", "/v1/embeddings"]
