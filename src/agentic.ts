@@ -233,8 +233,6 @@ interface RunAgenticInput {
   /** The absolute path `resolveBunx` produced, which refuses to be empty. */
   bunx: string;
   ambientEnv?: NodeJS.ProcessEnv;
-  /** stderr is logged, never folded into the result. Defaults to the real stderr, which a `systemd --user` unit ships to journald the same as stdout. */
-  logStderr?: (text: string) => void;
   /**
    * Set on the child unconditionally, after the allowlist — a different
    * thing from ambient inheritance. `envAllowlist` governs what leaks in
@@ -265,12 +263,6 @@ export interface RunAgenticResult {
   version?: string;
 }
 
-function logToStderr(text: string): void {
-  if (text.length > 0) {
-    process.stderr.write(`${text}\n`);
-  }
-}
-
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
   if (input.workdir === undefined || input.workdir === "") {
     return {
@@ -296,8 +288,6 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     input: input.prompt,
     signal: input.signal,
   });
-
-  (input.logStderr ?? logToStderr)(spawned.stderr);
 
   const outcome = parseEnvelope(spawned.stdout);
   return {

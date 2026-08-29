@@ -240,8 +240,10 @@ function runAgenticFixture(
   });
 }
 
-test("runAgentic: stderr is captured but never appears anywhere in the returned result", async () => {
-  const stderrText = "warning: some noisy diagnostic the operator does not need in the answer";
+test("runAgentic: the child's stderr reaches neither the result nor the log", async () => {
+  // A child that echoes its stdin is the whole risk: journald keeps whatever
+  // lands there, and only the provenance line may describe an agentic call.
+  const stderrText = "hello: prompt echoed back by a noisy diagnostic";
   const { spawn } = fakeSpawn({
     stdout: JSON.stringify({
       type: "result",
@@ -252,9 +254,21 @@ test("runAgentic: stderr is captured but never appears anywhere in the returned 
     stderr: stderrText,
     exitCode: 0,
   });
+  const written: string[] = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    written.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
 
-  const result = await runAgenticFixture(spawn, { logStderr: () => undefined });
+  let result: Awaited<ReturnType<typeof runAgentic>>;
+  try {
+    result = await runAgenticFixture(spawn);
+  } finally {
+    process.stderr.write = realWrite;
+  }
 
+  expect(written.join("")).toBe("");
   expect(JSON.stringify(result)).not.toContain(stderrText);
   expect(result.result).toBe("the answer");
 });

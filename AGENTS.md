@@ -61,6 +61,10 @@ remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.
 **Agentic guarantee is integrity, not confidentiality.** An agentic call cannot
 change a worktree; it can read anything this uid can open.
 
+**No door logs a prompt.** The provenance line is the only per-call record and
+carries no request content; an agentic child's stderr is dropped, never
+forwarded. See [docs/security-model.md](docs/security-model.md).
+
 **The unit's read-only sandbox does not survive docker.** `docker run` writes as
 root; docker-group access is root-equivalent. A `spec_dir` override is a
 privilege decision — spec is trusted code. See `scripts/engined.service.in`.
