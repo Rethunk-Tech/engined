@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
-import { DockerLifecycle } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { LlamaRouter } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
@@ -13,7 +13,7 @@ import {
   isContainerSpec,
   type ModelEntry,
 } from "../../src/types.ts";
-import { requireDaemonStopped } from "./exclusive.ts";
+import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -146,7 +146,7 @@ const READY = LOCAL && HAVE_IMAGES && FIXTURE !== undefined;
 
 // See llama.test.ts: loud when this file would really drive containers.
 if (READY) {
-  requireDaemonStopped();
+  requireNoResidentEngine();
 }
 
 function skipReason(): string {
@@ -362,7 +362,7 @@ interface Rig {
  * collected, ENGINED_LOCAL or not.
  */
 function buildRig(fixture: Fixture): Rig {
-  const lifecycle = new DockerLifecycle();
+  const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const registry = new EngineRegistry(fixture.config, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,

@@ -2,11 +2,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
-import { DockerLifecycle, dockerExec, NAME_PREFIX } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
-import { requireDaemonStopped } from "./exclusive.ts";
+import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
  * Drives the real `LlamaRouter` against local-llama's real container and
@@ -104,7 +104,7 @@ function loadFixture(): Fixture {
 }
 
 const FIXTURE = loadFixture();
-const CONTAINER_NAME = `${NAME_PREFIX}${FIXTURE.engine.id}`;
+const CONTAINER_NAME = `${TEST_NAME_PREFIX}${FIXTURE.engine.id}`;
 const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
 const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
@@ -112,7 +112,7 @@ const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 // Module scope, guarded by READY: it must fire only when these tests would
 // really drive containers, and it must be loud rather than another clean skip.
 if (READY) {
-  requireDaemonStopped();
+  requireNoResidentEngine();
 }
 
 function skipReason(): string {
@@ -245,7 +245,7 @@ async function proxyEmbedding(router: LlamaRouter, model: ModelEntry): Promise<E
 }
 
 describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
-  const lifecycle = new DockerLifecycle();
+  const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const router = buildRouter(FIXTURE.engine, FIXTURE.models, ".scratch-preset.ini", lifecycle);
 
   afterAll(async () => {
@@ -344,7 +344,7 @@ function argvHasSpecPMin(lines: string[], value: number): boolean {
 }
 
 describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local)"), () => {
-  const lifecycle = new DockerLifecycle();
+  const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const models = swapModels() ?? [];
   const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);
 

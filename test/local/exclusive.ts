@@ -1,28 +1,38 @@
 import { spawnSync } from "node:child_process";
 
 /**
- * The local tier drives `DockerLifecycle` against the very container names
- * the installed unit owns (`engined-local-llama`, `engined-comfy`, ...), and
- * its `afterAll` shutdown stops them. Run alongside a live daemon it
- * therefore tears that daemon's own containers out from under it, leaving it
- * serving a `private_url` that refuses connections.
+ * The prefix this tier's own containers take, so it never names -- and on
+ * teardown never stops -- a container an installed unit owns. `DockerLifecycle`
+ * defaults to the unit's own prefix; every construction in this tier passes
+ * this one instead.
+ */
+export const TEST_NAME_PREFIX = "engined-test-";
+
+/**
+ * Refuses while any engine of the installed unit is actually running.
  *
- * Refusing is not only about the names: this workstation shares one GPU, so
- * a resident model plus a test loading its own is the second instance
- * `AGENTS.md` forbids outright.
+ * This is about the GPU, not the daemon: this workstation shares one, so a
+ * resident model plus a test loading its own is the second instance
+ * `AGENTS.md` forbids outright. A unit that is merely *active* with every
+ * engine idle-stopped holds nothing and is no obstacle, which is why the
+ * check reads docker rather than systemd.
  *
  * Throws rather than skipping. A skip here would be indistinguishable from
  * the clean skips the rest of this tier uses for a missing image, and the
  * whole point is that this one must not pass unnoticed.
  */
-export function requireDaemonStopped(): void {
-  const res = spawnSync("systemctl", ["--user", "is-active", "engined.service"], {
+export function requireNoResidentEngine(): void {
+  const res = spawnSync("docker", ["ps", "--filter", "name=^engined-", "--format", "{{.Names}}"], {
     encoding: "utf8",
   });
-  if (res.stdout.trim() === "active") {
+  const running = res.stdout
+    .split("\n")
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0 && !n.startsWith(TEST_NAME_PREFIX));
+  if (running.length > 0) {
     throw new Error(
-      "engined.service is running: the local tier would stop its containers and share its GPU. " +
-        "Run `systemctl --user stop engined.service` first, and start it again afterwards.",
+      `engined containers are running and hold the GPU: ${running.join(", ")}. ` +
+        "Stop them (or `systemctl --user stop engined.service`) and run again.",
     );
   }
 }

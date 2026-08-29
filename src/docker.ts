@@ -181,6 +181,12 @@ export class DockerLifecycle {
   constructor(
     private readonly exec: Exec = dockerExec,
     private readonly httpProbe: Probe = defaultProbe,
+    /**
+     * What this lifecycle's containers are called. Overridden only by the
+     * local tier, which drives real docker: under the default it would name
+     * -- and on teardown stop -- the very containers an installed unit owns.
+     */
+    private readonly namePrefix: string = NAME_PREFIX,
   ) {}
 
   /**
@@ -214,7 +220,7 @@ export class DockerLifecycle {
     if (!rt) {
       rt = {
         id,
-        containerName: `${NAME_PREFIX}${id}`,
+        containerName: `${this.namePrefix}${id}`,
         state: "installed",
         hostPort: null,
         startPromise: null,

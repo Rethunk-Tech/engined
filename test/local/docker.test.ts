@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import process from "node:process";
-import { DockerLifecycle, dockerExec, NAME_PREFIX } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import type { ContainerSpec } from "../../src/types.ts";
+import { TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
  * A real round trip against a trivial, already-small single-port image:
@@ -10,7 +11,7 @@ import type { ContainerSpec } from "../../src/types.ts";
  * `engined-local-smoke` and is removed, never left running or merely stopped.
  */
 const ID = "local-smoke";
-const CONTAINER_NAME = `${NAME_PREFIX}${ID}`;
+const CONTAINER_NAME = `${TEST_NAME_PREFIX}${ID}`;
 
 const SPEC: ContainerSpec = {
   kind: "openai-http",
@@ -48,7 +49,7 @@ describe.skipIf(process.env.ENGINED_LOCAL !== "1")("docker lifecycle (local)", (
   afterAll(removeContainer);
 
   test("start, reach, idle-stop, restart: two different reachable private_urls", async () => {
-    const lifecycle = new DockerLifecycle();
+    const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
     const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: READY_TIMEOUT_S };
 
     const first = await lifecycle.start(ID, SPEC, opts);

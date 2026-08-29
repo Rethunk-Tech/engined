@@ -5,11 +5,11 @@ import { join } from "node:path";
 import process from "node:process";
 import { handleSpeech, handleTranscription } from "../../src/audio.ts";
 import { loadConfig } from "../../src/config.ts";
-import { DockerLifecycle } from "../../src/docker.ts";
+import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { loadSpec } from "../../src/spec.ts";
 import type { EngineEntry } from "../../src/types.ts";
 import { isContainerSpec } from "../../src/types.ts";
-import { requireDaemonStopped } from "./exclusive.ts";
+import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox container
@@ -85,7 +85,7 @@ const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
 
 // See llama.test.ts: chatterbox's test starts the very container the unit owns.
 if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO || HAVE_PIPER) {
-  requireDaemonStopped();
+  requireNoResidentEngine();
 }
 
 function describeTitle(base: string, ready: boolean, reason: string): string {
@@ -101,7 +101,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
       : `${CHATTERBOX_IMAGE} is not built`,
   ),
   () => {
-    const lifecycle = new DockerLifecycle();
+    const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
     const engine: EngineEntry = { id: "chatterbox", egress: "none", args: {} };
     const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
     if (!isContainerSpec(loaded.spec)) {
@@ -168,7 +168,7 @@ describe.skipIf(!HAVE_WHISPER)(
     test(
       "an empty models_dir reports unavailable naming the artifact's own obtain command, via real image inspection",
       async () => {
-        const lifecycle = new DockerLifecycle();
+        const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
         const engine: EngineEntry = {
           id: "whisper",
           egress: "none",
@@ -219,7 +219,7 @@ for (const tts of TTS_ROUND_TRIPS) {
       `${tts.id} or whisper is not built`,
     ),
     () => {
-      const lifecycle = new DockerLifecycle();
+      const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
 
       function startFor(id: string) {
         const engine: EngineEntry = {
