@@ -6,6 +6,14 @@
  * container's own processes, so a `docker exec` reading `/proc/<pid>/fdinfo`
  * there is already scoped to one engine with nothing to correlate.
  *
+ * The exec is not a stylistic choice. A container's processes run as root, and
+ * `/proc/<pid>/fdinfo` is readable only by the owning UID -- engined is a
+ * `systemd --user` unit, so reading the host's `/proc` would silently skip
+ * every engine. Measured with all six running: the host-side read saw
+ * 13.45 GiB of desktop applications while the kernel's own amdgpu counters
+ * reported 85.07 GiB in use. Going through the containers accounted for the
+ * missing 71.63 GiB and reconciled with the kernel to within 10 MiB.
+ *
  * Parsing is pure and takes strings, same contract as docker.ts -- the shell
  * snippet below is the only thing that needs a container.
  */
