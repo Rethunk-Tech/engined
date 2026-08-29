@@ -316,7 +316,51 @@ export class EngineRegistry {
     this.config = config;
     this.entries = buildEntries(config, this.specOptions);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));
+    // Attached here, not passed to the constructor above: `createDoor` builds
+    // its own lifecycle to share with the llama routers and hands it in, and
+    // a constructor argument would never reach that one.
+    this.lifecycle.onChange((id) => {
+      this.announce(id);
+    });
     this.comfyTimers = this.startComfyWatches(this.entries);
+  }
+
+  /**
+   * Subscribers to engine state changes. A set, so a dropped connection
+   * removes exactly its own listener and a reconnect is a fresh entry rather
+   * than a duplicate of the old one.
+   */
+  private readonly watchers = new Set<(status: EngineStatus) => void>();
+
+  /**
+   * Subscribe to state changes; the returned function unsubscribes. Callers
+   * get the changed engine's full status, not just its id -- a consumer
+   * receiving only an id has to turn around and ask, which reintroduces the
+   * polling the stream exists to remove.
+   */
+  watch(listener: (status: EngineStatus) => void): () => void {
+    this.watchers.add(listener);
+    return () => this.watchers.delete(listener);
+  }
+
+  /** A listener that throws must not stop the others from hearing about it. */
+  private announce(id: string): void {
+    const entry = this.byId.get(id);
+    if (!entry || this.watchers.size === 0) {
+      return;
+    }
+    // syncStatus, not statusFor: the async one runs an installability probe,
+    // which is both a docker round trip on every transition and a path that
+    // can itself transition -- announcing from inside it would recurse.
+    const status = this.syncStatus(entry);
+    for (const listener of this.watchers) {
+      try {
+        listener(status);
+      } catch {
+        // A broken subscriber is its own problem; the lifecycle transition
+        // that triggered this has already happened either way.
+      }
+    }
   }
 
   /** One poll timer per `comfy`-kind engine; idleness for it comes from nowhere else. */

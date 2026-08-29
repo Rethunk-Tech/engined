@@ -157,6 +157,7 @@ export interface RuntimeStatus {
 type Result<T = unknown> = ({ ok: true } & T) | { ok: false; fix?: string; error: string };
 
 interface Runtime {
+  id: string;
   containerName: string;
   state: EngineState;
   hostPort: number | null;
@@ -182,10 +183,37 @@ export class DockerLifecycle {
     private readonly httpProbe: Probe = defaultProbe,
   ) {}
 
+  /**
+   * Fired when an engine's state actually changes. Set rather than
+   * constructor-injected because a lifecycle is built in two places -- the
+   * registry makes its own, and `createDoor` makes one to share with the
+   * llama routers and hands it in. A constructor argument is silently
+   * dropped by the second path, so the owner attaches instead.
+   */
+  private onStateChange: (id: string) => void = () => undefined;
+
+  onChange(listener: (id: string) => void): void {
+    this.onStateChange = listener;
+  }
+
+  /**
+   * The only place `state` is assigned. A write of the same value is not a
+   * change, and every assignment routes through here so a state reached by a
+   * path added later is announced without that path remembering to say so.
+   */
+  private transition(rt: Runtime, state: EngineState): void {
+    if (rt.state === state) {
+      return;
+    }
+    rt.state = state;
+    this.onStateChange(rt.id);
+  }
+
   private runtime(id: string): Runtime {
     let rt = this.runtimes.get(id);
     if (!rt) {
       rt = {
+        id,
         containerName: `${NAME_PREFIX}${id}`,
         state: "installed",
         hostPort: null,
@@ -328,7 +356,7 @@ export class DockerLifecycle {
       return this.getStatus(id);
     }
     this.cancelIdle(rt);
-    rt.state = "installed";
+    this.transition(rt, "installed");
     rt.hostPort = null;
     return this.getStatus(id);
   }
@@ -343,7 +371,7 @@ export class DockerLifecycle {
     if (!checked.ok) {
       return checked.status;
     }
-    rt.state = "installed";
+    this.transition(rt, "installed");
     rt.fix = undefined;
     rt.lastError = undefined;
     return this.getStatus(id);
@@ -368,7 +396,7 @@ export class DockerLifecycle {
   }
 
   private fail(id: string, rt: Runtime, error: string, fix?: string): RuntimeStatus {
-    rt.state = "unavailable";
+    this.transition(rt, "unavailable");
     rt.fix = fix;
     rt.lastError = error;
     return this.getStatus(id);
@@ -380,7 +408,7 @@ export class DockerLifecycle {
     spec: ContainerSpec,
     opts: LifecycleOptions,
   ): Promise<RuntimeStatus> {
-    rt.state = "warming";
+    this.transition(rt, "warming");
     rt.fix = undefined;
     rt.lastError = undefined;
 
@@ -410,7 +438,7 @@ export class DockerLifecycle {
     }
 
     rt.hostPort = hostPort;
-    rt.state = "running";
+    this.transition(rt, "running");
     rt.imageCheck = null;
     rt.artifactCheck = null;
     return this.getStatus(id);
@@ -609,7 +637,7 @@ export class DockerLifecycle {
       rt.lastError = res.stderr.trim() || `docker stop failed for ${rt.containerName}`;
       return false;
     }
-    rt.state = "installed";
+    this.transition(rt, "installed");
     rt.hostPort = null;
     rt.lastError = undefined;
     rt.activeLeases = 0;

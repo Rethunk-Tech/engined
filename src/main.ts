@@ -72,6 +72,8 @@ const STOP_RE = /^\/v1\/engines\/([^/]+)\/stop$/;
 const LOGS_RE = /^\/v1\/engines\/([^/]+)\/logs$/;
 const RESOURCES_RE = /^\/v1\/engines\/([^/]+)\/resources$/;
 const RELEASE_RE = /^\/v1\/engines\/([^/]+)\/release$/;
+/** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
+const SSE_KEEPALIVE_MS = 30_000;
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
 const DEFAULT_LOG_TAIL = 200;
 const MAX_LOG_TAIL = 5000;
@@ -1019,10 +1021,83 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
   return handleChatOrEmbeddings(ctx, resolved, { pathname, rawModel: rawModel ?? "", body });
 }
 
+/**
+ * The state stream. engined idle-stops engines on its own, so without this a
+ * consumer only discovers an engine went away when a call against it fails --
+ * and the alternative to being told is polling `GET /v1/engines` forever.
+ *
+ * A snapshot goes out before the live frames, because a client that connects
+ * between two transitions would otherwise sit blind until the next one and
+ * have to poll once anyway to find out where it stands.
+ */
+function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let open = true;
+      const send = (event: string, data: unknown): void => {
+        if (!open) {
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // The client went away between the abort check and the write.
+          open = false;
+        }
+      };
+
+      const unwatch = ctx.registry.watch((status) => {
+        send("engine", status);
+      });
+      const keepalive = setInterval(() => {
+        if (open) {
+          try {
+            controller.enqueue(encoder.encode(": keepalive\n\n"));
+          } catch {
+            open = false;
+          }
+        }
+      }, SSE_KEEPALIVE_MS);
+
+      const close = (): void => {
+        open = false;
+        clearInterval(keepalive);
+        unwatch();
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the client's disconnect.
+        }
+      };
+      signal.addEventListener("abort", close, { once: true });
+
+      ctx.registry
+        .list()
+        .then((listed) => {
+          send("snapshot", listed);
+        })
+        .catch(() => {
+          // A snapshot that cannot be built is not a reason to deny the
+          // client the live frames it actually subscribed for.
+        });
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    },
+  });
+}
+
 function routeGet(
   ctx: DoorContext,
   url: URL,
   configErr: string | undefined,
+  signal: AbortSignal,
 ): Response | Promise<Response> | undefined {
   const { pathname } = url;
   if (pathname === "/v1/models") {
@@ -1030,6 +1105,9 @@ function routeGet(
   }
   if (pathname === "/v1/engines") {
     return handleEngines(ctx.registry, configErr);
+  }
+  if (pathname === "/v1/engines/events") {
+    return handleEngineEvents(ctx, signal);
   }
   const logsMatch = LOGS_RE.exec(pathname)?.[1];
   if (logsMatch !== undefined) {
@@ -1096,7 +1174,7 @@ function routeRequest(
   }
   let matched: Response | Promise<Response> | undefined;
   if (req.method === "GET") {
-    matched = routeGet(ctx, url, configErr);
+    matched = routeGet(ctx, url, configErr, req.signal);
   } else if (req.method === "POST") {
     matched = routePost(ctx, req, pathname);
   }

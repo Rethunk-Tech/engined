@@ -69,7 +69,15 @@ function doorWith(exec: Exec, releaseFetch?: ReleaseFetch) {
         engine({ id: "hosted", egress: "remote", base_url: "https://api.example.com/v1" }),
       ],
     }),
-    { enginesRoot: root, bunx: BUNX, exec, ...(releaseFetch ? { releaseFetch } : {}) },
+    {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec,
+      // Without this the readiness poll makes a real connection to a port
+      // nothing serves and start blocks for the whole ready timeout.
+      probe: () => Promise.resolve({ status: 200 }),
+      ...(releaseFetch ? { releaseFetch } : {}),
+    },
   );
 }
 
@@ -201,4 +209,54 @@ test("release on a stopped engine succeeds without reaching the endpoint", async
   // the 500 above is never reached, which is the point of the short-circuit.
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ released: true });
+});
+
+/** Reads SSE frames off the body until `want` of them have arrived, or the deadline passes. */
+async function readFrames(res: Response, want: number, timeoutMs = 5000): Promise<string[]> {
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  const frames: string[] = [];
+  const deadline = Date.now() + timeoutMs;
+  let buffer = "";
+  while (frames.length < want && Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    frames.push(...parts.filter((p) => p.startsWith("event:")));
+  }
+  await reader.cancel();
+  return frames;
+}
+
+// A client connecting between two transitions would otherwise sit blind until
+// the next one, and have to poll once anyway to learn where it stands.
+test("the stream opens with a snapshot before any live frame", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const res = await doorWith(exec).fetch(new Request("http://engined/v1/engines/events"));
+
+  expect(res.headers.get("content-type")).toBe("text/event-stream");
+  const [first] = await readFrames(res, 1);
+  expect(first).toContain("event: snapshot");
+  expect(first).toContain("local-llama");
+});
+
+// The whole point: engined idle-stops engines itself, so a consumer that is
+// never told only finds out when a call against one fails.
+test("a state change reaches a subscriber as a live frame", async () => {
+  const { exec } = recordingExec((args) =>
+    args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
+  );
+  const door = doorWith(exec);
+  const res = await door.fetch(new Request("http://engined/v1/engines/events"));
+  const frames = readFrames(res, 2);
+
+  await door.fetch(new Request("http://engined/v1/engines/local-llama/start", { method: "POST" }));
+
+  const live = (await frames).filter((f) => f.startsWith("event: engine"));
+  expect(live.length).toBeGreaterThan(0);
+  expect(live.join("\n")).toContain("local-llama");
 });
