@@ -44,15 +44,19 @@ neither usable here. ~29 GB.
 
 ### Kokoro
 
-`engines/kokoro/`, CPU only. Uses `python:3.12-slim` with no GPU device
-flags — torch installs first from the CPU wheel index, before
-`requirements.txt`, so pip resolves Kokoro's own torch dependency against it
-instead of pulling PyPI's CUDA-linked default.
+`engines/kokoro/`. Follows ComfyUI's base pattern — `rocm/dev-ubuntu-24.04:7.2.4`
+plus the official PyTorch ROCm wheel — and takes the full GPU flags
+(`/dev/kfd`, `/dev/dri`, `video`), not the Vulkan-only pair local-llama uses.
+Ported from sagaforge-ts's `Dockerfile.rocm` rather than the vendored
+`ghcr.io/remsky` image: that one speaks OpenAI's `/v1/audio/speech` natively,
+while the audio door already translates the NDJSON `/v1/tts` contract this
+build speaks, and taking it would need a second path through a door meant to
+have exactly one. ~29.7 GB. Weights baked at build time. Fixed voice packs
+only, no cloning.
 
-Kokoro-82M synthesizes faster than realtime on CPU, which is the point: it
-never queues behind ComfyUI/llama.cpp for the box's single GPU. ~2.8 GB, down
-from 9.33 GB before the CPU-wheel-first fix. Weights baked at build time.
-Fixed voice packs only, no cloning.
+Being a ROCm engine, it contends for the box's single GPU like ComfyUI and
+llama.cpp do. Piper is the CPU voice, and that is the reason to reach for it
+instead when speech has to run while a large GGUF stays resident.
 
 ## Three specs carry a detail that fails silently
 
