@@ -11,7 +11,7 @@
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} ENGINED_TEST_CLAUDE_VERSION=${ENGINED_TEST_CLAUDE_VERSION:-$(grep -m1 '^claude_version' config.example.toml | tr -cd '0-9.')} bun test test/local"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.7",
+    "@biomejs/biome": "2.5.11",
     "@types/bun": "^1.4.0",
     "turbo": "^2.10.12",
     "typescript": "^7.0.2"
