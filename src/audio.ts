@@ -30,7 +30,7 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonErrorBody,
-  PCM_CONTENT_TYPE,
+  pcmContentType,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
@@ -131,71 +131,129 @@ function extractAudioFromNdjson(body: string): string | undefined {
   }
 }
 
-/**
- * Forwards each `phase: "chunk"` frame's PCM as it arrives and drops
- * everything else, including the terminal frame's whole-utterance WAV -- a
- * streaming caller has already been handed those samples.
- *
- * Raw PCM rather than a WAV because a WAV header carries a length nothing
- * knows until synthesis ends, and the alternatives are a sentinel length that
- * players disagree about or concatenated headers that are not a WAV at all.
- * The rate and encoding travel in the content type instead.
- *
- * A frame-level failure cannot become a status code once bytes are committed,
- * so a mid-stream error frame ends the stream. The caller sees short audio,
- * which is the honest signal available at that point.
- */
-function pcmFromNdjson(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+interface Frame {
+  phase?: unknown;
+  pcm?: unknown;
+  rate?: unknown;
+  detail?: unknown;
+}
+
+/** Every parseable NDJSON line, including a last one the engine did not newline-terminate. */
+async function* ndjsonFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<Frame> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let pending = "";
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
+  try {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) {
-        controller.close();
-        return;
+        break;
       }
       pending += decoder.decode(value, { stream: true });
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
-      if (!forwardFrames(lines, controller)) {
-        controller.close();
+      for (const line of lines) {
+        const frame = parseFrame(line);
+        if (frame !== undefined) {
+          yield frame;
+        }
       }
-    },
-    cancel() {
-      reader.cancel().catch(() => undefined);
-    },
-  });
-}
-
-/** False once an error frame has been seen, which is where a committed stream has to stop. */
-function forwardFrames(
-  lines: readonly string[],
-  controller: ReadableStreamDefaultController<Uint8Array>,
-): boolean {
-  for (const line of lines) {
-    const frame = parseFrame(line);
-    if (frame?.phase === "error") {
-      return false;
     }
-    if (frame?.phase === "chunk" && typeof frame.pcm === "string") {
-      controller.enqueue(Buffer.from(frame.pcm, "base64"));
+    const last = parseFrame(pending);
+    if (last !== undefined) {
+      yield last;
     }
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
-  return true;
 }
 
-function parseFrame(line: string): { phase?: unknown; pcm?: unknown } | undefined {
+function parseFrame(line: string): Frame | undefined {
   const trimmed = line.trim();
   if (trimmed.length === 0) {
     return undefined;
   }
   try {
-    return JSON.parse(trimmed) as { phase?: unknown; pcm?: unknown };
+    return JSON.parse(trimmed) as Frame;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Holds the reply open until the first `chunk` frame, because that frame
+ * carries the sample rate and the content type stating it has to be written
+ * before any byte of body. Waiting is also what keeps an engine that never
+ * chunks from hanging the caller: a stream that ends having produced no audio
+ * is a 502 here, where committing 200 + headers first would leave the caller
+ * on a body that never arrives and never ends.
+ *
+ * Everything after that first frame is forwarded as it lands and everything
+ * else is dropped, including the terminal frame's whole-utterance WAV -- a
+ * streaming caller has already been handed those samples.
+ *
+ * Raw PCM rather than a WAV because a WAV header carries a length nothing
+ * knows until synthesis ends, and the alternatives are a sentinel length that
+ * players disagree about or concatenated headers that are not a WAV at all.
+ */
+async function streamedSpeech(
+  model: string,
+  body: ReadableStream<Uint8Array>,
+): Promise<DoorResponse> {
+  const frames = ndjsonFrames(body);
+  for (;;) {
+    const { done, value } = await frames.next();
+    if (done) {
+      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts streamed no audio`);
+    }
+    if (value.phase === "error") {
+      const detail = typeof value.detail === "string" ? value.detail : "no detail";
+      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts failed: ${detail}`);
+    }
+    if (value.phase !== "chunk" || typeof value.pcm !== "string") {
+      continue;
+    }
+    if (typeof value.rate !== "number") {
+      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts chunk carried no sample rate`);
+    }
+    return {
+      status: STATUS_OK,
+      contentType: pcmContentType(value.rate),
+      stream: pcmStream(Buffer.from(value.pcm, "base64"), frames),
+    };
+  }
+}
+
+/**
+ * A frame-level failure cannot become a status code once bytes are committed,
+ * so a mid-stream error frame ends the stream. The caller sees short audio,
+ * which is the honest signal available at that point.
+ */
+function pcmStream(first: Uint8Array, frames: AsyncGenerator<Frame>): ReadableStream<Uint8Array> {
+  let head: Uint8Array | undefined = first;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (head !== undefined) {
+        controller.enqueue(head);
+        head = undefined;
+        return;
+      }
+      for (;;) {
+        const { done, value } = await frames.next();
+        if (done || value.phase === "error") {
+          controller.close();
+          return;
+        }
+        if (value.phase === "chunk" && typeof value.pcm === "string") {
+          controller.enqueue(Buffer.from(value.pcm, "base64"));
+          return;
+        }
+      }
+    },
+    cancel() {
+      frames.return(undefined).catch(() => undefined);
+    },
+  });
 }
 
 function errorResponse(status: number, message: string): DoorResponse {
@@ -249,7 +307,7 @@ export async function handleSpeech(
     if (body === null) {
       return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts streamed no body`);
     }
-    return { status: STATUS_OK, contentType: PCM_CONTENT_TYPE, stream: pcmFromNdjson(body) };
+    return await streamedSpeech(req.model, body);
   }
 
   const audio = extractAudioFromNdjson(await res.text());

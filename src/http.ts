@@ -27,10 +27,15 @@ export const TEXT_CONTENT_TYPE = "text/plain";
 export const WAV_CONTENT_TYPE = "audio/wav";
 /**
  * Streamed speech. The rate and encoding ride in the type because there is no
- * container to carry them: signed 16-bit little-endian mono at 24 kHz, which
- * is what the TTS engines synthesize before anything wraps it in a WAV.
+ * container to carry them: signed 16-bit little-endian mono, at whatever the
+ * engine that answered synthesizes. The rate is a parameter and not a constant
+ * because the engines disagree -- piper's voice is 22.05 kHz where kokoro is
+ * 24 kHz, and a caller told the wrong one plays the audio at the wrong pitch
+ * with nothing to signal it.
  */
-export const PCM_CONTENT_TYPE = "audio/L16; rate=24000; channels=1";
+export function pcmContentType(rate: number): string {
+  return `audio/L16; rate=${rate}; channels=1`;
+}
 
 /** The one JSON error shape, for a caller that builds its own response envelope (`DoorResponse`, `HopResult`) around it. */
 export function jsonErrorBody(message: string): { error: string } {

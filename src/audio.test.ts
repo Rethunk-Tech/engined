@@ -352,6 +352,57 @@ test("a streamed speech request forwards each chunk's PCM and drops the terminal
   expect([...out]).toEqual([1, 2, 3, 4, 5, 6]);
 });
 
+test("a streamed speech request advertises the rate the engine reported, not a constant", async () => {
+  const frames = [
+    JSON.stringify({ phase: "synthesizing" }),
+    JSON.stringify({ phase: "chunk", pcm: Buffer.from([9]).toString("base64"), rate: 22_050 }),
+    JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
+  ].join("\n");
+  const res = await handleSpeech(
+    { model: "piper", input: "hi", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+
+  expect(res.contentType).toBe("audio/L16; rate=22050; channels=1");
+  const out = Buffer.from(await new Response(res.stream).arrayBuffer());
+  expect([...out]).toEqual([9]);
+});
+
+test("an engine that streams no chunk frames is a 502, not a caller waiting forever", async () => {
+  // Status and headers are committed the moment a stream is returned, so an
+  // engine that never chunks has to be caught before that -- otherwise the
+  // caller holds a 200 whose body never produces a byte and never ends.
+  const frames = [
+    JSON.stringify({ phase: "synthesizing" }),
+    JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
+  ].join("\n");
+  const res = await handleSpeech(
+    { model: "piper", input: "hi", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+
+  expect(res.status).toBe(502);
+  expect(res.stream).toBeUndefined();
+  expect(res.body).toEqual({ error: "piper: /v1/tts streamed no audio" });
+});
+
+test("an error frame before any audio is a 502 carrying the engine's own detail", async () => {
+  const frames = [
+    JSON.stringify({ phase: "synthesizing" }),
+    JSON.stringify({ phase: "error", detail: "text produced no audio" }),
+  ].join("\n");
+  const res = await handleSpeech(
+    { model: "piper", input: ".", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+
+  expect(res.status).toBe(502);
+  expect(res.body).toEqual({ error: "piper: /v1/tts failed: text produced no audio" });
+});
+
 test("a buffered speech request is unchanged and never asks for chunks", async () => {
   let asked: unknown;
   const res = await handleSpeech(
