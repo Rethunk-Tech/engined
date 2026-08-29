@@ -43,6 +43,12 @@ function withEndpointCheck(
   endpoint: string,
   registry: EngineRegistry,
 ): Dispatch {
+  // The one funnel every resolved dispatch passes through, so the disabled
+  // check lives here rather than in each resolver. Chains never arrive here
+  // holding a disabled hop: config parse drops those.
+  if (registry.entry(engineId)?.disabled) {
+    return fail(`engine "${engineId}" is disabled in config`);
+  }
   if (!registry.serves(engineId).includes(endpoint)) {
     return fail(`engine "${engineId}" does not serve ${endpoint}`);
   }

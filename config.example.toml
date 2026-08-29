@@ -23,18 +23,18 @@ chat_timeout_seconds  = 1200  # covers a cold load of a 25 GB-class GGUF plus pr
                               # request plus generation can approach the old ceiling.
 agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, not seconds.
 
-# Engines and chains that are configured below but not served. Each name is
-# dropped at parse as if it had never been written: it is absent from
-# /v1/engines, its [[model]] entries resolve to nothing, and any chain hop
+# Engines and chains that are configured below but not served. An engine named
+# here is not startable and not dispatchable: it is reported by
+# /v1/engines as `disabled` with `state = "unavailable"` and nothing else
+# probed, its [[model]] entries resolve to nothing, and any chain hop
 # onto it drops out of that chain (a chain left with no hops drops too). A
 # name here that is neither an engine nor a chain is fatal, so a typo cannot
 # quietly leave something running.
 #
-# This box answers prompts locally: the three engines below send them to
-# someone else's GPU, so they stay declared -- for the day that changes --
-# and off. `elevenlabs` is not among them: it transcribes, it does not
-# prompt an LLM.
-disabled = ["claude", "claude-kimi", "openai"]
+# This box answers locally: every engine below that would send a prompt, or a
+# recording, to someone else's GPU stays declared -- for the day that changes
+# -- and off.
+disabled = ["claude", "claude-kimi", "openai", "elevenlabs"]
 
 # ---------------------------------------------------------------------------
 # local-llama: the one local openai-http engine, router mode over llama.cpp.

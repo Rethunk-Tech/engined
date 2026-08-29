@@ -46,6 +46,29 @@ function registry(cfg: Config, enginesRoot = "/nonexistent"): EngineRegistry {
   return new EngineRegistry(cfg, { enginesRoot, bunx: BUNX });
 }
 
+describe("disabled engines", () => {
+  // Config parse drops a disabled engine's [[model]] rows and chain hops, so
+  // the reachable route is a fully-qualified request naming it directly --
+  // which resolves, and then must be refused as disabled rather than as
+  // missing.
+  test("a qualified request onto one is refused as disabled, not as nonexistent", () => {
+    const cfg = config({
+      engines: [remoteAgentic("engineA"), { ...remoteAgentic("off"), disabled: true }],
+      models: [model({ id: "m", engine: "engineA" }), model({ id: "gone", engine: "off" })],
+    });
+    const result = resolveModel("@/off/gone", CHAT, cfg, registry(cfg));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('engine "off" is disabled');
+  });
+
+  test("a bare model-less engine id is refused the same way", () => {
+    const cfg = config({ engines: [{ ...remoteTts("voice"), disabled: true }] });
+    const result = resolveModel("voice", SPEECH, cfg, registry(cfg));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('engine "voice" is disabled');
+  });
+});
+
 describe("bare model ambiguity", () => {
   test("two engines serving the same bare id: 400 listing the qualified forms", () => {
     const cfg = config({

@@ -366,7 +366,7 @@ export class EngineRegistry {
   /** One poll timer per `comfy`-kind engine; idleness for it comes from nowhere else. */
   private startComfyWatches(entries: Entry[]): ReturnType<typeof setInterval>[] {
     return entries
-      .filter((e) => this.kindOf(e) === "comfy")
+      .filter((e) => !e.engine.disabled && this.kindOf(e) === "comfy")
       .map((entry) =>
         setInterval(() => {
           this.pollComfyQueue(entry).catch(() => undefined);
@@ -440,6 +440,9 @@ export class EngineRegistry {
    */
   private syncStatus(entry: Entry): EngineStatus {
     const { engine } = entry;
+    if (engine.disabled) {
+      return this.disabledStatus(entry);
+    }
 
     if (entry.spec === null) {
       const kind = this.kindOf(entry);
@@ -468,6 +471,28 @@ export class EngineRegistry {
     }
 
     return statusFrom(engine, spec, source, this.lifecycle.getStatus(engine.id));
+  }
+
+  /**
+   * Reported, not inspected: no docker probe, no keyring round trip, no
+   * version proof. `unavailable` is the honest state -- nothing here is
+   * servable -- and `disabled` is what separates it from an engine that is
+   * unavailable for a reason the operator would have to go fix. `fix` names
+   * the edit that undoes it, the same as every other unavailable engine.
+   */
+  private disabledStatus(entry: Entry): EngineStatus {
+    const { engine, spec } = entry;
+    return {
+      id: engine.id,
+      kind: this.kindOf(entry),
+      egress: engine.egress,
+      serves: this.serves(engine.id),
+      state: "unavailable",
+      disabled: true,
+      fix: `remove "${engine.id}" from "disabled" in config.toml`,
+      private_url: null,
+      spec_source: spec === null ? REMOTE_SPEC_SOURCE : spec.source,
+    };
   }
 
   /**
@@ -519,6 +544,9 @@ export class EngineRegistry {
    * waiting for a start attempt to notice.
    */
   private async statusFor(entry: Entry): Promise<EngineStatus> {
+    if (entry.engine.disabled) {
+      return this.disabledStatus(entry);
+    }
     if (entry.spec === null) {
       return this.remoteStatus(entry);
     }
@@ -683,6 +711,11 @@ export class EngineRegistry {
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
     }
+    // Listed by `GET /v1/engines` and startable are different things: an
+    // operator can see it is off, and starting it is still the config edit.
+    if (entry.engine.disabled) {
+      throw new Error(`engine "${id}" is disabled in config`);
+    }
     if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
       // Nothing to warm up: a remote address or an agentic-cli local engine
       // has no standing container.
@@ -803,7 +836,9 @@ export class EngineRegistry {
 
   reload(config: Config): void {
     const newEntries = buildEntries(config, this.specOptions);
-    const newIds = new Set(newEntries.map((e) => e.engine.id));
+    // A newly-disabled engine is torn down like a removed one: it keeps its
+    // entry so the route can report it, but nothing of it may keep running.
+    const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id));
     for (const old of this.entries) {
       if (!newIds.has(old.engine.id)) {
         this.lifecycle.removeEngine(old.engine.id).catch(() => undefined);

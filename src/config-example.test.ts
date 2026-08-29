@@ -19,19 +19,24 @@ const LOCAL_LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
-// The example disables its three non-local LLM engines, so they and their
-// models are absent here by design -- that list is the worked example of
-// `disabled`, and this is what dropping a name from service looks like from
-// the outside.
+// A disabled engine keeps its entry -- that is what lets GET /v1/engines
+// report it as off -- so the list here is every engine the file declares.
 const EXPECTED_ENGINE_IDS = [
   "chatterbox",
+  "claude",
+  "claude-kimi",
   "comfy",
   "elevenlabs",
   "kokoro",
   "local-llama",
+  "openai",
   "piper",
   "whisper",
 ];
+
+// The example ships every off-box engine disabled, and a disabled engine's
+// models are dropped: nothing here can be dispatched to.
+const EXPECTED_DISABLED_IDS = ["claude", "claude-kimi", "elevenlabs", "openai"];
 
 const EXPECTED_MODEL_IDS = ["embed", "ornith", "vision"];
 
@@ -71,6 +76,13 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const byName = (a: string, b: string) => a.localeCompare(b);
   expect(config.engines.map((e) => e.id).sort(byName)).toEqual(EXPECTED_ENGINE_IDS);
   expect(config.models.map((m) => m.id).sort(byName)).toEqual(EXPECTED_MODEL_IDS);
+  expect(
+    config.engines
+      .filter((e) => e.disabled)
+      .map((e) => e.id)
+      .sort(byName),
+  ).toEqual(EXPECTED_DISABLED_IDS);
+
   expect(config.chains["chain-private"]).toEqual(["@/local/ornith"]);
   // Written with three remote hops after the local one; all three engines are
   // disabled, so what survives parse is the local hop alone.

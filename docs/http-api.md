@@ -65,6 +65,15 @@ unauditable egress is not one this design accepts.
 `unavailable` plus the literal command that fixes it: `docker pull …`,
 `docker build …`, or a `secret-tool store` line for a missing key.
 
+An engine named in the config's [`disabled`](configuration.md#turning-something-off)
+list is listed here too, carrying `disabled: true` and `state: "unavailable"`.
+Nothing was probed to establish that state -- no docker call, no keyring
+lookup, no version proof -- and its `fix` is the config edit that turns it
+back on. It is listed rather than omitted because "turned off here" and "gone
+from the config" are different answers to an operator staring at this route.
+`POST /v1/engines/:id/start` on one is a 404 saying so, and no `model` string
+resolves to it.
+
 A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that

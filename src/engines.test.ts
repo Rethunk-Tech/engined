@@ -187,6 +187,55 @@ function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
   return { root, reg: registry(config({ engines: [engine({ id: "kokoro" })] }), root, { exec }) };
 }
 
+const RX_DISABLED_START = /is disabled in config/;
+
+describe("disabled engines", () => {
+  test("are reported as disabled and unavailable, are never probed, and refuse to start", async () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const execLog: string[][] = [];
+    const reg = registry(config({ engines: [engine({ id: "llama", disabled: true })] }), root, {
+      exec: (args) => {
+        execLog.push([...args]);
+        return OK_EXEC(args);
+      },
+    });
+
+    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
+    expect(listed?.disabled).toBe(true);
+    expect(listed?.state).toBe("unavailable");
+    // Its real spec, not a guess: the engine is off, not unknown.
+    expect(listed?.kind).toBe("openai-http");
+    expect(listed?.serves).toEqual(["/v1/chat/completions"]);
+    expect(listed?.fix).toBe('remove "llama" from "disabled" in config.toml');
+    // list() probes docker for every engine it does not short-circuit.
+    expect(execLog).toEqual([]);
+
+    expect(reg.get("llama")?.disabled).toBe(true);
+    await expect(reg.start("llama")).rejects.toThrow(RX_DISABLED_START);
+    expect(execLog).toEqual([]);
+  });
+
+  test("a reload that disables an engine tears its container down like a removal", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    // The entry survives a disabling reload, so the removal that a dropped
+    // engine gets for free has to be asked for -- this is that ask.
+    class RemovalSpy extends DockerLifecycle {
+      readonly removed: string[] = [];
+      override removeEngine(id: string): Promise<void> {
+        this.removed.push(id);
+        return super.removeEngine(id);
+      }
+    }
+    const lifecycle = new RemovalSpy(OK_EXEC);
+    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root, { lifecycle });
+
+    reg.reload(config({ engines: [engine({ id: "llama", disabled: true })] }));
+    expect(lifecycle.removed).toEqual(["llama"]);
+  });
+});
+
 describe("unavailable engines", () => {
   test("missing image is unavailable and names the pull command for a digest-pinned image, and never starts a container", async () => {
     const runLog: string[][] = [];

@@ -78,6 +78,13 @@ export interface ModelEntry {
 export interface EngineEntry {
   id: string;
   egress: Egress;
+  /**
+   * Configured but not served: named in the top-level `disabled` list. Kept
+   * on the entry rather than filtered out of `Config` so `GET /v1/engines`
+   * can report it as off — which is the difference an operator needs between
+   * "turned off here" and "gone from the config".
+   */
+  disabled?: boolean;
   /** Replaces a shipped spec wholesale, never field by field. */
   spec_dir?: string;
   models_dir?: string;
@@ -218,6 +225,13 @@ export interface EngineStatus {
   egress: Egress;
   serves: string[];
   state: EngineState;
+  /**
+   * Named in the config's `disabled` list. Always reported with
+   * `state: "unavailable"` — nothing was probed to establish that, so the two
+   * are not independent readings — and `fix` names the config edit that
+   * undoes it. Absent on every engine that is actually served.
+   */
+  disabled?: boolean;
   /** The literal `docker pull` / `docker build` / `secret-tool store` that fixes it. */
   fix?: string;
   /** Docker reassigns the host port every start, so this is a per-job read. */
