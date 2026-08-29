@@ -1,8 +1,8 @@
 # engined
 
-v1 is built. `README.md` is the user-facing document — what the service is,
-how to install, configure and operate it, and the measurements behind the
-settings it ships. This file is the contributor's: the test tiers, the
+v1 is built. `README.md` is orientation — what the service is, why it exists, and where
+to read more. `HUMANS.md` is the runbook: install, configure, operate and
+remove it. This file is the contributor's: the test tiers, the
 config/spec split, and the rules that are easy to get wrong. `TODO.md`
 carries genuine outstanding work only, and is currently empty.
 
