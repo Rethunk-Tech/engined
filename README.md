@@ -51,6 +51,19 @@ runbook are in **[HUMANS.md](HUMANS.md)**.
   before the keyring unlocks recovers without a reload.
 - **Failures name their own fix.** An engine that cannot run reports the
   literal `docker build` or `secret-tool store` command that resolves it.
+- **Observable from outside.** engined holds the only docker access on the
+  box, so it answers the questions nothing else can: `GET
+  /v1/engines/<id>/logs`, `GET /v1/engines/<id>/resources`, and a live state
+  stream at `GET /v1/engines/events` so a consumer learns about an idle-stop
+  rather than discovering it on a failed call.
+- **Graphics memory measured, not guessed.** Resources are read from inside
+  each container, summing VRAM and GTT per DRM client. On a unified-memory
+  APU neither number alone is the footprint, a cgroup reading misses the
+  model entirely, and an unprivileged host-side read cannot see a container
+  at all — the three ways to get this wrong.
+- **Release without restarting.** `POST /v1/engines/<id>/release` drops a
+  Comfy engine's weights and keeps the process, so freeing the GPU between
+  phases does not cost a custom-node reload.
 
 ## Documentation
 
