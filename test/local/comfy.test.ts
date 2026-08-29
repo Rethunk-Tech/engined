@@ -319,7 +319,7 @@ function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
 }
 
 async function chatCompletes(router: LlamaRouter, model: ModelEntry): Promise<boolean> {
-  const res = await router.proxy(model, "/v1/chat/completions", {
+  const { response: res } = await router.proxy(model, "/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

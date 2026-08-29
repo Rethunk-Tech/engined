@@ -222,7 +222,7 @@ async function proxyStatus(
   path: string,
   body: string,
 ): Promise<number> {
-  const res = await router.proxy(model, path, {
+  const { response: res } = await router.proxy(model, path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
@@ -236,7 +236,7 @@ interface EmbeddingResponse {
 }
 
 async function proxyEmbedding(router: LlamaRouter, model: ModelEntry): Promise<EmbeddingResponse> {
-  const res = await router.proxy(model, "/v1/embeddings", {
+  const { response: res } = await router.proxy(model, "/v1/embeddings", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ model: model.id, input: "hello world" }),

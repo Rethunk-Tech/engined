@@ -4,7 +4,13 @@ import type { Probe } from "./docker.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
-import { buildLlamaSpec, LlamaRouter, renderPresetIni, reportedModelFrom } from "./llama.ts";
+import {
+  buildLlamaSpec,
+  type LlamaHop,
+  LlamaRouter,
+  renderPresetIni,
+  reportedModelFrom,
+} from "./llama.ts";
 import {
   BUNX,
   engine as baseEngine,
@@ -46,9 +52,9 @@ function tmpIniPath(): string {
   return tempPresetPath(TEST_ROOT);
 }
 
-/** `proxy()` now returns `Promise<Response>` — real status requires buffering, see llama.ts. */
-async function text(res: Promise<Response>): Promise<string> {
-  return (await res).text();
+/** `proxy()` hands back the hop's `Response` plus the model resident under its lease, see llama.ts. */
+async function text(hop: Promise<LlamaHop>): Promise<string> {
+  return (await hop).response.text();
 }
 
 /** Answers `docker image inspect`/`run`/`start`/`port` the way a fresh, never-started container would. */
@@ -234,7 +240,7 @@ async function startGatedChat(
   router: LlamaRouter;
   calls: RecordedCall[];
   release: () => void;
-  res1: Promise<Response>;
+  res1: Promise<LlamaHop>;
 }> {
   const { client: gatedClient, calls, release, started } = gatedFirstChat();
   const router = routerWithClient(e, models, gatedClient);
@@ -352,19 +358,42 @@ test("chat for model B while same-role model A is resident and idle: unload A, l
 
   // Default fakeLlama mirrors the real b10354 handshake: a POST /models/load
   // trigger, then a GET /v1/models poll for the "loaded" status -- the real
-  // ready signal, per the live probe -- before the swap proceeds.
+  // ready signal, per the live probe -- before the swap proceeds. The list
+  // read that follows each chat is the provenance one, and it lands before
+  // the unload: taken under the same lease, so it cannot name B's model as
+  // what answered for A.
   const paths = calls.map((c) => c.path);
   expect(paths).toEqual([
     LOAD_PATH,
     MODELS_LIST_PATH,
     CHAT_PATH,
+    MODELS_LIST_PATH,
     UNLOAD_PATH,
     LOAD_PATH,
     MODELS_LIST_PATH,
     CHAT_PATH,
+    MODELS_LIST_PATH,
   ]);
-  expect(calls[3]?.body?.model).toBe("a");
-  expect(calls[4]?.body?.model).toBe("b");
+  expect(calls[4]?.body?.model).toBe("a");
+  expect(calls[5]?.body?.model).toBe("b");
+});
+
+test("the resident model reported for a hop is the one that served it, not a later swap", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { router } = routerFor(e, [a, b]);
+
+  const first = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+  await first.response.text();
+  // Swaps the role onto B. The hop above already carries its own answer, so
+  // this cannot retroactively change what it reported holding.
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
+
+  expect(first.modelResident).toBe("a");
 });
 
 test("a different-role model resident is untouched by a chat swap", async () => {
@@ -510,12 +539,14 @@ test('/models/load only triggers; readiness is polled via /v1/models until "load
 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
 
-  expect(pollAttempts).toBe(3);
+  // Three readiness polls, then the provenance read once the chat has answered.
+  expect(pollAttempts).toBe(4);
   const pollIdxs = calls
     .map((c, i) => (c.path === MODELS_LIST_PATH ? i : -1))
     .filter((i) => i >= 0);
   const chatIdx = calls.findIndex((c) => c.path === CHAT_PATH);
-  expect(chatIdx).toBeGreaterThan(Math.max(...pollIdxs));
+  const readinessIdxs = pollIdxs.filter((i) => i < chatIdx);
+  expect(readinessIdxs).toHaveLength(3);
 });
 
 test('a model that never reports "loaded" via /v1/models fails within the timeout instead of hanging', async () => {
@@ -571,7 +602,7 @@ test("the role's lease is free after a failed load: a later request for the role
 test("a cold streaming request emits `: warming` before its first real byte", async () => {
   const { a, router } = singleModelRouter();
 
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a", stream: true }),
   });
@@ -613,7 +644,7 @@ test("a client cancelling a streaming response cancels the upstream reader too, 
   };
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a", stream: true }),
   });
@@ -670,7 +701,7 @@ test("a cold non-streaming request never gets an SSE `: warming` comment, which 
 
   // No prior proxy() call: this is the container's first request, the
   // coldest possible load.
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),
   });
@@ -690,12 +721,13 @@ test("model_reported (the echoed body) and model_resident (read from /v1/models)
   );
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
-  const body = (await (
-    await router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) })
-  ).json()) as { model?: string };
+  const { response, modelResident } = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+  const body = (await response.json()) as { model?: string };
 
   const modelReported = reportedModelFrom(body);
-  const modelResident = await router.residentModelId("chat");
   expect(modelReported).toBe("stale-id");
   expect(modelResident).toBe("a");
   expect(modelReported).not.toBe(modelResident);
@@ -788,7 +820,7 @@ test("a model added by config reload becomes genuinely servable, not just listed
   // is already true here (its one request finished above), so this mirrors
   // the real handoff, not a shortcut past it.
   const router2 = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(client), presetHostPath });
-  const res = await router2.proxy(b, CHAT_PATH, {
+  const { response: res } = await router2.proxy(b, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "b" }),
   });
@@ -835,7 +867,7 @@ test("a request that cannot connect reconciles a dead container, restarts it and
     new DockerLifecycle(goneExec, fakeProbe),
     baseOpts(client),
   );
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),
   });
@@ -903,7 +935,7 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
 
   // Nothing tells engined about this: its own activeModelId still says "a".
   unloadedBehindBack = true;
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),
   });
@@ -960,7 +992,7 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   const loadsBefore = await warmUpAndCountLoads(router, a, calls);
 
   child.gone = true;
-  const res = await router.proxy(a, CHAT_PATH, {
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),
   });

@@ -143,6 +143,16 @@ interface RoleState {
   pumping: boolean;
 }
 
+/**
+ * One hop's answer, with the GGUF the engine reported holding for the role
+ * while that answer was being served. Read under the same lease, so it cannot
+ * name a model promoted after the fact.
+ */
+export interface LlamaHop {
+  response: Response;
+  modelResident: string | undefined;
+}
+
 export interface LlamaRouterOptions {
   enginesRoot: string;
   bunx: string;
@@ -526,7 +536,10 @@ export class LlamaRouter {
    * commanded and not what the engine itself reports holding. Provenance's
    * `model_resident`, read per attempt.
    *
-   * ponytail: costs a round-trip to the engine on every buffered attempt. The
+   * Read while the role's lease is still held, so a waiter promoted for a
+   * different model cannot swap occupancy between the answer and this read.
+   *
+   * ponytail: costs a round-trip to the engine on every roled attempt. The
    * independence from `residentModel` is the point and caching would dissolve
    * it, so cache only per-request if provenance ever shows up in a profile.
    */
@@ -550,7 +563,7 @@ export class LlamaRouter {
    * `Response`, piping the already-open upstream body through rather than
    * buffering it.
    */
-  proxy(model: ModelEntry, path: string, init: RequestInit): Promise<Response> {
+  proxy(model: ModelEntry, path: string, init: RequestInit): Promise<LlamaHop> {
     const { role } = model;
     if (role === undefined) {
       throw new Error(`model "${model.id}" has no role`);
@@ -735,11 +748,14 @@ export class LlamaRouter {
     modelId: string,
     path: string,
     init: RequestInit,
-  ): Promise<Response> {
+  ): Promise<LlamaHop> {
     return this.withLease(role, modelId, init.signal, async () => {
       const upstream = await this.fetchUpstream(path, init, modelId);
       const body = await upstream.arrayBuffer();
-      return new Response(body, { status: upstream.status, headers: upstream.headers });
+      return {
+        response: new Response(body, { status: upstream.status, headers: upstream.headers }),
+        modelResident: await this.residentModelId(role),
+      };
     });
   }
 
@@ -761,7 +777,7 @@ export class LlamaRouter {
     modelId: string,
     path: string,
     init: RequestInit,
-  ): Promise<Response> {
+  ): Promise<LlamaHop> {
     const state = this.roleState(role);
     const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId);
     await this.beginLease(role, modelId, init.signal);
@@ -801,10 +817,14 @@ export class LlamaRouter {
     } else {
       signal?.addEventListener("abort", onAbort, { once: true });
     }
+    const modelResident = await this.residentModelId(role);
     const stream = pipeUpstream(reader, emitWarming, release);
-    return new Response(stream, {
-      status: upstream.status,
-      headers: { "content-type": "text/event-stream" },
-    });
+    return {
+      response: new Response(stream, {
+        status: upstream.status,
+        headers: { "content-type": "text/event-stream" },
+      }),
+      modelResident,
+    };
   }
 }

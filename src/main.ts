@@ -350,13 +350,12 @@ async function execLlama(
   // Both fetchBuffered and fetchStreamed take this same `init`, so
   // rewriting `model` once here fixes both proxy paths.
   const init = openAiRequestInit(req.rawBody, model.id, req.signal);
-  const response = await router.proxy(model, req.pathname, init);
+  // `modelResident` comes back with the hop, read under the same lease: from
+  // the engine's own /v1/models — never the router's cached command
+  // bookkeeping, and never model_reported: the two answer different questions
+  // and one silently standing in for the other defeats provenance.
+  const { response, modelResident } = await router.proxy(model, req.pathname, init);
   const { stream, modelReported } = await readHopBody(response, req.setContentType);
-  // Per attempt, from the engine's own /v1/models — never the router's cached
-  // command bookkeeping, and never model_reported: the two answer different
-  // questions and one silently standing in for the other defeats provenance.
-  const modelResident =
-    model.role === undefined ? undefined : await router.residentModelId(model.role);
   return {
     status: response.status,
     stream,
