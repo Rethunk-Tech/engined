@@ -86,6 +86,12 @@ filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
 role     = "chat"  # chat | vision | embedding. Required: occupancy is one
                     # resident GGUF per role, so without a role models_max is
                     # just an arbitrary number with nothing to enforce.
+# keep_resident = true   # Load at engine start and reload whenever this role
+                         # falls idle. A different model on this role still
+                         # wins the swap -- this only decides what the role
+                         # returns to. Pins the container up too, since
+                         # idle-stop stops the container rather than a model,
+                         # so the engine's share of the pool is never returned.
 
   # A model's [model.args] section is the rendered llama-server preset INI
   # for that model, passed through verbatim -- the channel proven to reach

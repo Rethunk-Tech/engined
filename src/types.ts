@@ -73,6 +73,19 @@ export interface ModelEntry {
   aliases: string[];
   /** Rendered into this model's section of the presets INI, verbatim. */
   args: Record<string, unknown>;
+  /**
+   * Load this GGUF when its engine starts, and reload it whenever its role
+   * falls idle again — warmth guaranteed against idleness, never against
+   * contention. Occupancy is still one model per role, so a request for a
+   * different model on the same role wins the swap exactly as it does now;
+   * this only decides what the role returns to once nothing is waiting.
+   *
+   * It necessarily pins the container up too: idle-stop stops the whole
+   * container, so an engine with one of these never idle-stops and holds its
+   * share of the pool until engined is reloaded. That is the cost, and it is
+   * why this is opt-in per model rather than a default.
+   */
+  keep_resident?: boolean;
 }
 
 export interface EngineEntry {

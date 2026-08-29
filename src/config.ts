@@ -53,7 +53,15 @@ const ENGINE_KEYS = new Set([
   "secret",
   "args",
 ]);
-const MODEL_KEYS = new Set(["id", "engine", "filename", "role", "aliases", "args"]);
+const MODEL_KEYS = new Set([
+  "id",
+  "engine",
+  "filename",
+  "role",
+  "aliases",
+  "args",
+  "keep_resident",
+]);
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
 function asArray(v: unknown, key: string, file: string): unknown[] {
@@ -86,19 +94,19 @@ function requireString(v: unknown, label: string, file: string): string {
 }
 
 /** One helper for both optional-typed keys; `kind` selects "string" or "number". */
-function optional<T extends "string" | "number">(
+function optional<T extends "string" | "number" | "boolean">(
   v: unknown,
   kind: T,
   label: string,
   file: string,
-): (T extends "string" ? string : number) | undefined {
+): (T extends "string" ? string : T extends "number" ? number : boolean) | undefined {
   if (v === undefined) {
     return;
   }
   if (typeof v !== kind) {
     throw new ParseError(`${label} must be a ${kind}`, file);
   }
-  return v as T extends "string" ? string : number;
+  return v as T extends "string" ? string : T extends "number" ? number : boolean;
 }
 
 /**
@@ -233,7 +241,15 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
 
-  return { id, engine, filename, role: roleStr as Role | undefined, aliases, args };
+  return {
+    id,
+    engine,
+    filename,
+    role: roleStr as Role | undefined,
+    aliases,
+    args,
+    keep_resident: optional(raw.keep_resident, "boolean", `${site} "keep_resident"`, file),
+  };
 }
 
 function validateModelAgainstEngine(
@@ -288,6 +304,39 @@ function validateModelAgainstEngine(
   }
   if (!existsSync(target)) {
     throw new ParseError(`${site} "filename" does not exist at "${target}"`, file);
+  }
+}
+
+/**
+ * Both of these are unsatisfiable rather than merely unwise, so they are fatal
+ * here instead of surprising at runtime: occupancy is one model per role.
+ *
+ * There is deliberately no check against `models_max`. Every pinned model has
+ * a role, `validateModelsMax` already refuses a `models_max` below the engine's
+ * distinct role count, and the pinned roles are a subset of those -- so a
+ * pinned set can never exceed it, and a guard here would be unreachable.
+ */
+function validateKeepResident(engines: EngineEntry[], models: ModelEntry[], file: string): void {
+  for (const e of engines) {
+    const pinned = models.filter((m) => m.engine === e.id && m.keep_resident === true);
+    const byRole = new Map<string, string[]>();
+    for (const m of pinned) {
+      if (m.role === undefined) {
+        throw new ParseError(
+          `model "${m.id}" declares "keep_resident" but has no "role": nothing on engine "${e.id}" holds it resident`,
+          file,
+        );
+      }
+      byRole.set(m.role, [...(byRole.get(m.role) ?? []), m.id]);
+    }
+    for (const [role, ids] of byRole) {
+      if (ids.length > 1) {
+        throw new ParseError(
+          `engine "${e.id}" role "${role}" has ${ids.length} models declaring "keep_resident" (${ids.join(", ")}): only one model per role can be resident`,
+          file,
+        );
+      }
+    }
   }
 }
 
@@ -510,6 +559,7 @@ export function loadConfig(path?: string): Config {
     validateModelAgainstEngine(m, engineMap, file);
   }
   validateModelsMax(engines, models, file);
+  validateKeepResident(engines, models, file);
 
   const chains = parseChains(raw.chain, { engines, models, disabled, file });
 

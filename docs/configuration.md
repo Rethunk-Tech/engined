@@ -37,6 +37,19 @@ design rather than a silent no-op.
 | `claude_version` | agentic engines; substituted as `{claude_version}`, never `@latest` |
 | `kind`, `base_url`, `secret` | an engine that is only a remote address |
 
+On a `[[model]]`, `keep_resident = true` asks for that GGUF to be the one its
+role returns to. Warmth is guaranteed against idleness, never against
+contention: occupancy is still one model per role, so a request for a
+different model on the same role wins the swap exactly as it does now, and
+this only decides what loads again once nothing is waiting. Two models
+declaring it on one role is fatal at parse, as is declaring it on a model with
+no role -- both are unsatisfiable rather than merely unwise.
+
+It pins the container up as well, because idle-stop stops the whole container
+rather than unloading a model. An engine holding one never idle-stops and
+keeps its share of the pool until engined reloads. That is the cost, and it is
+why this is per model and opt-in.
+
 Everything else passes through untouched. A first-class key not on that list
 is a bug in the list rather than a passthrough.
 

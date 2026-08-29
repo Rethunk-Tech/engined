@@ -73,6 +73,8 @@ const RX_COLLISION =
   /"ornith" is declared twice: engine "ornith" and model "chat-model" alias "ornith"/;
 const RX_NOT_QUALIFIED = /not a fully-qualified/;
 const RX_NON_SCALAR_ARG = /must be a string, number or boolean/;
+const RX_TWO_PINNED = /only one model per role can be resident/;
+const RX_PINNED_NO_ROLE = /declares "keep_resident" but has no "role"/;
 const RX_UNKNOWN_ENGINE = /engine "nope" does not exist/;
 const RX_UNKNOWN_MODEL = /model "nope" does not exist/;
 const RX_NO_LOCAL_CANDIDATE = /candidates: none/;
@@ -632,4 +634,49 @@ role = "chat"
   top-k = 40
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NON_SCALAR_ARG);
+});
+
+test("two keep_resident models on one role is fatal: only one can be resident", () => {
+  const dir = tempModelsDir("a.gguf", "b.gguf");
+  const toml = `
+[[engine]]
+id = "local-llama"
+egress = "none"
+models_dir = "${dir}"
+
+[[model]]
+id = "a"
+engine = "local-llama"
+filename = "a.gguf"
+role = "chat"
+keep_resident = true
+
+[[model]]
+id = "b"
+engine = "local-llama"
+filename = "b.gguf"
+role = "chat"
+keep_resident = true
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_TWO_PINNED);
+});
+
+test("keep_resident on a roleless model is fatal: nothing would hold it", () => {
+  const toml = `
+[[engine]]
+id = "claude"
+egress = "remote"
+base_url = "https://api.anthropic.com"
+
+  [engine.secret]
+  service = "s"
+  username = "u"
+  header = "x-api-key"
+
+[[model]]
+id = "sonnet"
+engine = "claude"
+keep_resident = true
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_PINNED_NO_ROLE);
 });
