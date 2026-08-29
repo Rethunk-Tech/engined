@@ -5,7 +5,7 @@ import { handleSpeech, handleTranscription } from "./audio.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { loadSpec } from "./spec.ts";
-import { makeTestRoot } from "./test-support.ts";
+import { containerRunning, makeTestRoot } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 import { isContainerSpec } from "./types.ts";
 
@@ -45,6 +45,9 @@ function makeExec(
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
       return Promise.resolve(inspectResult);
+    }
+    if (argv[0] === "inspect") {
+      return Promise.resolve(containerRunning());
     }
     return Promise.resolve(extra?.(argv) ?? { stdout: "", stderr: "", exitCode: 0 });
   };

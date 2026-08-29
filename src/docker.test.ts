@@ -10,7 +10,7 @@ import {
   parseHostPort,
 } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
-import { makeTestRoot } from "./test-support.ts";
+import { containerRunning, makeTestRoot } from "./test-support.ts";
 import type { ContainerSpec, Volume } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-docker-");
@@ -141,6 +141,9 @@ function stubExec(runLog: string[][], stopLog: string[][], hostPort: number, run
     if (argv[0] === "stop") {
       stopLog.push(argv);
       return { stdout: "", stderr: "", exitCode: 0 };
+    }
+    if (argv[0] === "inspect") {
+      return containerRunning();
     }
     return { stdout: "", stderr: "", exitCode: 0 };
   };
@@ -419,13 +422,59 @@ test("start: a bind-mounted artifact is checked with a host stat, never a contai
   }
 });
 
-test("probe: a container already running is left alone, not re-checked or restarted", async () => {
-  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), readyProbe);
+test("probe: a container docker still reports as up is left alone, not re-checked or restarted", async () => {
+  const runLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(stubExec(runLog, [], STUB_HOST_PORT_A), readyProbe);
   const started = await lifecycle.start("already-running", SPEC, START_OPTS);
   expect(started.state).toBe("running");
 
   const probed = await lifecycle.probe("already-running", SPEC);
   expect(probed).toEqual(started);
+  expect(runLog.length).toBe(1);
+});
+
+/**
+ * A container that crashed, was OOM-killed or was removed behind engined's
+ * back presents identically to this map: `running`, with a `private_url`
+ * nothing answers on. Both reads that hand that record to a caller ask
+ * docker first, so recovery never needs the daemon restarted.
+ */
+describe("a container that vanished underneath engined", () => {
+  /** Live until `gone` flips, then absent exactly as docker reports it: `inspect` fails, and a re-`run` succeeds. */
+  function vanishingExec(gone: { yet: boolean }, runLog: string[][]): Exec {
+    const live = stubExec(runLog, [], STUB_HOST_PORT_A);
+    return (args) => {
+      if (args[0] === "inspect" && gone.yet) {
+        return Promise.resolve({ stdout: "", stderr: "No such object", exitCode: 1 });
+      }
+      return live(args);
+    };
+  }
+
+  test("probe stops advertising it as running with a dead private_url", async () => {
+    const gone = { yet: false };
+    const lifecycle = new DockerLifecycle(vanishingExec(gone, []), readyProbe);
+    expect((await lifecycle.start("vanisher", SPEC, START_OPTS)).state).toBe("running");
+
+    gone.yet = true;
+    const probed = await lifecycle.probe("vanisher", SPEC);
+    expect(probed.state).toBe("installed");
+    expect(probed.private_url).toBeNull();
+  });
+
+  test("start brings up a fresh container rather than handing back the corpse", async () => {
+    const gone = { yet: false };
+    const runLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(vanishingExec(gone, runLog), readyProbe);
+    const first = await lifecycle.start("vanisher", SPEC, START_OPTS);
+    expect(runLog.length).toBe(1);
+
+    gone.yet = true;
+    const second = await lifecycle.start("vanisher", SPEC, START_OPTS);
+    expect(second.state).toBe("running");
+    expect(second.private_url).toBe(first.private_url);
+    expect(runLog.length).toBe(2);
+  });
 });
 
 test("probe: the image check is cached across repeated polls, not re-shelled on every GET /v1/engines", async () => {

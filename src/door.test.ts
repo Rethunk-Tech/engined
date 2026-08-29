@@ -22,6 +22,7 @@ import {
   BUNX,
   clearVerifiedVersion,
   config,
+  containerRunning,
   engine,
   inspectSinglePort,
   llamaControlPlane,
@@ -210,6 +211,8 @@ function llamaExec(): Exec {
     } else if (args[0] === "port") {
       port += 1;
       result = portResult(port);
+    } else if (args[0] === "inspect") {
+      result = containerRunning();
     }
     return Promise.resolve(result);
   };
@@ -999,6 +1002,8 @@ function twoEngineExec(): Exec {
       const name = args[1] ?? "";
       const hostPort = name.includes("dead") ? FAILOVER_DEAD_PORT : FAILOVER_LIVE_PORT;
       result = portResult(hostPort);
+    } else if (args[0] === "inspect") {
+      result = containerRunning();
     }
     return Promise.resolve(result);
   };

@@ -334,7 +334,15 @@ export class DockerLifecycle {
   async start(id: string, spec: ContainerSpec, opts: LifecycleOptions): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     this.cancelIdle(rt);
-    if (rt.state === "running" && rt.hostPort !== null) {
+    // Returning the map's record on faith hands back a corpse when the
+    // container crashed, was OOM-killed or was removed underneath engined,
+    // and leaves the caller with no recovery short of restarting the daemon.
+    // A reconcile that finds nothing falls through to a fresh start.
+    if (
+      rt.state === "running" &&
+      rt.hostPort !== null &&
+      (await this.reconcile(id)).state === "running"
+    ) {
       this.refreshIdle(rt, opts.idleStopSeconds);
       return this.getStatus(id);
     }
@@ -373,8 +381,22 @@ export class DockerLifecycle {
   /** Reports what an engine's artifacts say, without starting it. */
   async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
-    if (rt.state === "running" || rt.state === "warming") {
+    // `warming` is a state this process is actively driving, with an in-flight
+    // start that will resolve it -- and the container it names may not exist
+    // yet, so asking docker about it would report a live start as dead.
+    if (rt.state === "warming") {
       return this.getStatus(id);
+    }
+    // `running` is believed, not known: it survives in the map long after the
+    // container behind it died, and this is the read every operator uses to
+    // decide whether the engine is servable. A reconcile that finds it gone
+    // falls through to the installability check, which reports the truthful
+    // resting state instead of a dead `private_url`.
+    if (rt.state === "running") {
+      const status = await this.reconcile(id);
+      if (status.state === "running") {
+        return status;
+      }
     }
     const checked = await this.checkInstallable(id, rt, spec, specSource);
     if (!checked.ok) {

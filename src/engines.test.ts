@@ -16,6 +16,7 @@ import {
   BUNX,
   clearVerifiedVersion,
   config,
+  containerRunning,
   ENGINES_ROOT,
   engine,
   inspectSinglePort,
@@ -754,6 +755,9 @@ function comfyExec(): Exec {
     if (args[0] === "port") {
       return Promise.resolve(portResult(++port));
     }
+    if (args[0] === "inspect") {
+      return Promise.resolve(containerRunning());
+    }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
 }
@@ -877,6 +881,9 @@ function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
     }
     if (args[0] === "port") {
       return Promise.resolve(portResult(++port));
+    }
+    if (args[0] === "inspect") {
+      return Promise.resolve(containerRunning());
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
@@ -1025,15 +1032,15 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
 });
 
 /**
- * `comfyExec` answers `inspect` with an empty stdout, which reconcile would
- * read as "gone" no matter what: liveness has to be stated for the transient
- * case to mean anything.
+ * Liveness the test can change mid-run: the container under test is up when
+ * it starts and dies afterwards, so a fixed answer cannot express it -- a
+ * dead-from-the-first-inspect container never reaches `running` at all.
  */
-function comfyExecLiveness(alive: boolean): Exec {
+function comfyExecLiveness(live: { alive: boolean }): Exec {
   const base = comfyExec();
   return (args) => {
     if (args[0] === "inspect") {
-      return Promise.resolve({ stdout: `${alive}\n`, stderr: "", exitCode: 0 });
+      return Promise.resolve(containerRunning(live.alive));
     }
     return base(args);
   };
@@ -1047,9 +1054,10 @@ function comfyLongIdleConfig(): Config {
 
 describe("comfy: a container that dies underneath engined", () => {
   test("a refused /queue poll against a gone container clears the stale running state", async () => {
+    const comfyLive = { alive: true };
     await withComfyRegistry(
       {
-        exec: comfyExecLiveness(false),
+        exec: comfyExecLiveness(comfyLive),
         cfg: comfyLongIdleConfig(),
         queueFetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
         comfyPollIntervalMs: 15,
@@ -1059,6 +1067,7 @@ describe("comfy: a container that dies underneath engined", () => {
         expect(started.state).toBe("running");
         expect(started.private_url).not.toBeNull();
 
+        comfyLive.alive = false;
         await new Promise((resolve) => setTimeout(resolve, 300));
 
         // Never a 200 naming a dead address: the door reports what docker says.
@@ -1072,7 +1081,7 @@ describe("comfy: a container that dies underneath engined", () => {
   test("a refused poll against a container still up leaves it running", async () => {
     await withComfyRegistry(
       {
-        exec: comfyExecLiveness(true),
+        exec: comfyExecLiveness({ alive: true }),
         cfg: comfyLongIdleConfig(),
         queueFetch: () => Promise.reject(new Error("socket hang up")),
         comfyPollIntervalMs: 15,

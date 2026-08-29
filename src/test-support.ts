@@ -100,6 +100,17 @@ export function portResult(hostPort: number | string): ExecResult {
   return { stdout: `127.0.0.1:${hostPort}\n`, stderr: "", exitCode: 0 };
 }
 
+/**
+ * `docker inspect -f '{{.State.Running}}'`: the liveness read every reconcile
+ * makes before believing its own record. A fake that let `run` succeed is
+ * modelling a container that is up, and must say so — an unanswered inspect
+ * reads as empty stdout, which is indistinguishable from "gone". Tests about
+ * a container dying underneath engined pass `false`.
+ */
+export function containerRunning(alive = true): ExecResult {
+  return { stdout: `${alive}\n`, stderr: "", exitCode: 0 };
+}
+
 interface BuildExecOptions {
   missingImages?: Set<string>;
   portByContainer?: Record<string, number>;
@@ -139,6 +150,9 @@ export function buildExec(opts: BuildExecOptions): Exec {
     }
     if (argv[0] === "port") {
       return Promise.resolve(execPort(argv, opts));
+    }
+    if (argv[0] === "inspect") {
+      return Promise.resolve(containerRunning());
     }
     return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
   };
