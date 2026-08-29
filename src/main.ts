@@ -322,9 +322,10 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
 /**
  * `EngineRegistry.get()` answers a different question — an `EngineStatus`
  * (whether it's running, its private_url) — never the configured
- * `EngineEntry` a caller here wants (secret, base_url, args). Local to this
- * door rather than a registry method because nothing in `engines.ts` owns
- * config lookups by id.
+ * `EngineEntry` a caller here wants (secret, base_url, args), which is what
+ * `EngineRegistry.entry` hands back. Local to this door because resolving the
+ * segment to an id first is the door's own addressing rule, not the
+ * registry's.
  */
 function egressOf(ctx: DoorContext, seg: string): "none" | "remote" {
   const config = ctx.getConfig();
@@ -738,10 +739,10 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
 /**
  * The budget for one hop, keyed on THAT hop's own engine kind -- never on
  * whether the request happens to be a chain, and never on any other hop
- * sharing it. `chat_timeout_seconds` is scoped to one engine,
- * per attempt; an all-local-llama chain must not inherit the long agentic
- * budget just because a chain is, in general, allowed to contain agentic
- * hops.
+ * sharing it. Both budgets are single top-level values, applied per attempt
+ * according to the kind answering it; an all-local-llama chain must not
+ * inherit the long agentic budget just because a chain is, in general,
+ * allowed to contain agentic hops.
  */
 export function timeoutSecondsForKind(kind: EngineKind | undefined, config: Config): number {
   return kind === "agentic-cli" ? config.agent_timeout_seconds : config.chat_timeout_seconds;
@@ -1148,9 +1149,10 @@ function routeGet(
  * other endpoint works for it.
  *
  * `data[].id` carries every dispatchable `model` string: GGUF ids, aliases,
- * chain names and agentic engine ids. Those are dispatchable `model` strings rather than GGUFs, which is why the
- * per-entry metadata stays minimal -- `created` and `owned_by` are here
- * because strict clients require the fields, not because they carry meaning.
+ * chain names and agentic engine ids. Most of those name something other than
+ * a GGUF, which is why the per-entry metadata stays minimal -- `created` and
+ * `owned_by` are here because strict clients require the fields, not because
+ * they carry meaning.
  */
 function modelsMenu(ids: readonly string[]): Response {
   const created = Math.floor(Date.now() / MS_PER_SECOND);

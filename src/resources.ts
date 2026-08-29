@@ -70,13 +70,7 @@ function kib(value: string): number {
   return Number(AMOUNT.exec(value.trim())?.[1] ?? 0);
 }
 
-/**
- * Sums per DRM client, never per fd. One client appears once per open fd --
- * 29 of them for a single process on the machine this was measured against --
- * and every copy repeats that client's whole total, so adding fds up reported
- * 59490 MiB where the box actually held 15101 MiB. Taking the largest
- * observation per `drm-client-id` reproduces the real figure.
- */
+/** One fd's reading, before the per-client fold below collapses the repeats. */
 interface FdEntry {
   client?: string;
   vram: number;
@@ -109,8 +103,9 @@ function foldLine(perFile: Map<string, FdEntry>, line: string): void {
 }
 
 /**
- * Sums per DRM client, never per fd. One client appears once per open fd and
- * every copy repeats that client's whole total, so adding fds up reported
+ * Sums per DRM client, never per fd. One client appears once per open fd --
+ * 29 of them for a single process on the machine this was measured against --
+ * and every copy repeats that client's whole total, so adding fds up reported
  * 59490 MiB on a host holding 15101 MiB. Taking the largest observation per
  * `drm-client-id` reproduces the real figure.
  */

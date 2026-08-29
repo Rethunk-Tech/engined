@@ -439,11 +439,10 @@ describe("resolveBunx: the ENGINED_BUNX invariant", () => {
   });
 
   /**
-   * The actual regression: the old call site was `process.env.ENGINED_BUNX
-   * ?? "bunx"`, a fallback that is always a truthy string no matter what --
-   * it never threw, so agentic.ts:117's own "bunx is unresolved" guard was
-   * unreachable in production. Confirm that literally: the old expression
-   * evaluated against the exact env/PATH state that should be fatal.
+   * A bare `?? "bunx"` fallback is always a truthy string, so it can never be
+   * fatal however unresolvable bunx actually is. This asserts the two halves
+   * side by side: that expression against the exact env/PATH state that should
+   * refuse, and `resolveBunx` refusing it.
    */
   test("neither ENGINED_BUNX nor a PATH bunx is fatal -- the old bare fallback would have silently produced a truthy string here", () => {
     const env: Record<string, string | undefined> = {};
@@ -592,14 +591,13 @@ describe("the door: content routing", () => {
 });
 
 /**
- * `/v1/models` answers differently depending on when it is asked: while
- * `loadAndWait` polls it for the requested id, it reports that id loaded so
- * the proxy can proceed; once the chat call itself has been answered, it
- * reports a *different* id loaded -- standing in for the GGUF that actually
- * served the request, read fresh per attempt rather than copied from what
- * the chat response echoed.
+ * `/models/load` and `/models/unload` always succeed; `/v1/models` reports whichever id last
+ * loaded: "ornith" while `loadAndWait` is still polling, so the proxy can
+ * proceed, and "ornith-real" once the chat has answered -- standing in for the
+ * GGUF that actually served it, read fresh per attempt rather than copied from
+ * what the chat response echoed. `undefined` means the url is the chat call
+ * itself, for the caller to answer.
  */
-/** `/models/load` and `/models/unload` always succeed; `/v1/models` reports whichever id last loaded, "ornith" before the chat call answers and "ornith-real" after -- undefined means the url is the chat call itself, for the caller to answer. */
 function llamaLifecycleResponse(url: string, chatAnswered: boolean): Response | undefined {
   if (url.endsWith("/models/load")) {
     return Response.json({ success: true });
@@ -823,7 +821,7 @@ describe("the door: chain skips an engine that fails its version proof", () => {
   /**
    * A chain skips an unavailable engine. An engine that
    * cannot prove its claude_version pin is exactly "unavailable" -- the
-   * same 503 the secret-resolution path already produces (main.ts:519-524,
+   * same 503 the secret-resolution path already produces (`resolveRedirect`,
    * plain 503, no `envelopeFailure`) and the chain advances past that one.
    * The version-proof 503 used to set `envelopeFailure: true`, which
    * `classifyResult` treats as never-advancing regardless of status --

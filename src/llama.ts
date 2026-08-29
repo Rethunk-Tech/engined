@@ -36,6 +36,8 @@ const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
 /** Any upstream fault, as distinct from a refusal this door authored. */
 const HTTP_SERVER_ERROR = 500;
+
+/** Not an upstream status like the group above: the bytes this door writes while a cold swap is still waiting. */
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
 
 /** One entry of llama-server's `GET /v1/models`, in the only shape this router reads. */
@@ -516,7 +518,6 @@ export class LlamaRouter {
     }
   }
 
-  /** The router's own per-model readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
   /** The engine's own view of what it holds. Both callers below read it fresh; neither caches. */
   private async listedModels(baseUrl: string): Promise<ListedModel[]> {
     const res = await this.httpClient(`${baseUrl}/v1/models`, { method: "GET" });
@@ -524,6 +525,7 @@ export class LlamaRouter {
     return body.data ?? [];
   }
 
+  /** One model's readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
   private async modelStatus(baseUrl: string, modelId: string): Promise<string | undefined> {
     const listed = await this.listedModels(baseUrl);
     return listed.find((m) => m.id === modelId)?.status?.value;

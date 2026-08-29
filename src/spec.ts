@@ -290,8 +290,9 @@ function parseArtifacts(raw: unknown, file: string): Artifact[] {
 }
 
 /**
- * Every container kind's own [engine.args]. local-llama's builder appends its
- * own; every other kind, comfy included, comes through here. `buildRunArgs` renders as
+ * Every container kind's own [engine.args]. local-llama does not come through
+ * here at all -- its builder routes them into the preset INI instead, because
+ * a CLI flag would override the preset for every model. `buildRunArgs` renders as
  * `image, ...entrypoint, ...command`, so an empty `command` means "run the
  * image's own baked-in CMD unmodified" (chatterbox/kokoro's real shape: it
  * is already correct, nothing to extend) and appending flags to it does not

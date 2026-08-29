@@ -70,13 +70,6 @@ async function defaultReleaseFetch(
   return { ok: res.ok, status: res.status };
 }
 
-/**
- * What "drop the weights but stay up" means for each engine kind. Only comfy
- * has one: llama's residency is engined's own to manage (`models_max` and the
- * router's swap), so an outside release would fight it, and a TTS or STT
- * container reloads in about a second, which is cheaper than the endpoint
- * needed to avoid it.
- */
 async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
   const res = await fetch(url);
   return (await res.json()) as QueueSnapshot;
@@ -88,9 +81,9 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
 
 /**
  * A remote-address-only engine (`base_url` set) has no spec directory, so its
- * `serves` list cannot come from a spec file. Mirrors the door table in
- * The OpenAI door — comfy is never reached this way, so it is
- * absent from this map's callers rather than mapped to `[]` here.
+ * `serves` list cannot come from a spec file. Mirrors the route table in
+ * docs/http-api.md. Comfy is never reached this way, so it is absent from
+ * this map's callers rather than mapped to `[]` here.
  */
 const KIND_SERVES: Record<EngineKind, string[]> = {
   "openai-http": ["/v1/chat/completions", "/v1/embeddings"],
@@ -818,9 +811,12 @@ export class EngineRegistry {
    * but the container's own startup is not worth paying again. ComfyUI reloads
    * its custom nodes on boot, which is the cost `stop` would charge here.
    *
-   * Restricted to kinds that have such an endpoint, and never silently a
-   * no-op: a caller told the memory was released when it was not would go on
-   * to schedule work that cannot fit.
+   * Only comfy has such an endpoint: llama's residency is engined's own to
+   * manage (`models_max` and the router's swap), so an outside release would
+   * fight it, and a TTS or STT container reloads in about a second, which is
+   * cheaper than the endpoint needed to avoid it. Never silently a no-op: a
+   * caller told the memory was released when it was not would go on to
+   * schedule work that cannot fit.
    */
   async release(id: string): Promise<{ released: true } | { error: string }> {
     const entry = this.byId.get(id);

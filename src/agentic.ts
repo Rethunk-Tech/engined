@@ -292,17 +292,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   };
 }
 
-/**
- * The two probes that re-prove the read-only floor whenever the pin moves
- * the guarantee, automatically": a completion instructed to create a file,
- * worktree-hashed before and after, and a planted `UserPromptSubmit` hook
- * checked for silence. Each run costs a real billed call to Anthropic, so
- * this is only ever wired into the version-proof gate (`engines.ts`'s
- * `agenticStatus`), which fires solely when the configured pin differs from
- * the one last recorded, and at most once per pin: a probe that fails is
- * cached against that pin and re-armed only when the pin itself changes, and
- * concurrent polls share one in-flight run. Never per request.
- */
+/** Everything else is stripped from a probe's environment, so a probe proves the floor rather than the operator's shell. */
 const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
 const WITNESS_ID_RADIX = 36;
 
@@ -409,11 +399,22 @@ async function runHookSilenceProbe(
 }
 
 /**
- * Runs the byte-identical probe, then — only if it passed — the hook-silence
- * probe: a probe run is a real billed call, so a proven-broken pin skips the
- * second one rather than paying for it. Return type matches `engines.ts`'s
- * `AgenticProbeRunner` exactly; `EngineEntry` is accepted and unused because
- * every agentic launch is identical regardless of which engine asked for it.
+ * The two probes that re-prove the read-only floor whenever the pin moves, so
+ * a version bump cannot quietly drop the guarantee: a completion instructed to
+ * create a file, worktree-hashed before and after, and a planted
+ * `UserPromptSubmit` hook checked for silence. The byte-identical probe runs
+ * first and the hook-silence probe only if it passed, because each run is a
+ * real billed call and a proven-broken pin should not pay for the second.
+ *
+ * For the same reason this is only ever wired into the version-proof gate
+ * (`engines.ts`'s `agenticStatus`), which fires solely when the configured pin
+ * differs from the one last recorded, and at most once per pin: a failure is
+ * cached against that pin and re-armed only when the pin itself changes, and
+ * concurrent polls share one in-flight run. Never per request.
+ *
+ * Return type matches `engines.ts`'s `AgenticProbeRunner` exactly;
+ * `EngineEntry` is accepted and unused because every agentic launch is
+ * identical regardless of which engine asked for it.
  */
 export function buildAgenticProbeRunner(
   bunx: string,

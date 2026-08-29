@@ -41,7 +41,6 @@ async function defaultProbe(url: string, method: "GET" | "POST"): Promise<{ stat
 
 type PortResult = { port: number } | { error: string };
 
-/** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
 function mountSpec(volume: Volume): string {
   const base = `${volume.name}:${volume.path}`;
   return volume.read_only === true ? `${base}:ro` : base;
@@ -69,6 +68,7 @@ export function hostPathFor(artifact: Artifact, volumes: readonly Volume[]): str
   return null;
 }
 
+/** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
 export function parseExposedPort(inspectJson: string, image: string): PortResult {
   const parsed = JSON.parse(inspectJson) as Array<{
     Config?: { ExposedPorts?: Record<string, unknown> };

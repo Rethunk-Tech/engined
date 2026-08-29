@@ -261,8 +261,9 @@ function validateModelAgainstEngine(
       );
     }
     // A model's own [model.args] reaches argv only through llama's preset-INI
-    // renderer (engine.args under m.args), which runs exclusively for
-    // a model on the same models_dir-hosting engine filename/role require.
+    // renderer (engine.args under m.args), which runs exclusively for a model
+    // on a models_dir-hosting engine -- the same engines that require
+    // filename and role.
     // Anywhere else it is parsed, forbidden-flag-checked, and never read
     // again -- the same accept-and-drop failure the closed key sets exist to
     // prevent, so it is rejected here rather than silently ignored.

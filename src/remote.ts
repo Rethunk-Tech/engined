@@ -38,12 +38,6 @@ type RemoteResolution =
   | { ok: true; endpoint: RemoteEndpoint }
   | { ok: false; status: number; error: string };
 
-/**
- * The raw secret, for the one caller that needs the value itself rather than
- * a header: the agentic redirect hands it to a child process as
- * `ANTHROPIC_API_KEY`. Everything else takes `resolveRemote` and never sees
- * it.
- */
 /** `header` rides along so a caller never has to reach back into `engine.secret` the resolver already validated. */
 type SecretResolution =
   | { ok: true; value: string; header: string }
@@ -59,16 +53,21 @@ export function isRemote(engine: EngineEntry): boolean {
   return engine.base_url !== undefined;
 }
 
-/**
- * Resolved per request, never cached — a `--user` unit boots before the login
- * keyring unlocks, and every remote engine must recover at the operator's
- * next sign-in without a reload.
- */
 /** One wording for the missing-secret refusal, shared by the resolver and by `GET /v1/engines`'s `fix`. */
 export function noSecretConfiguredFix(engineId: string): string {
   return `engine "${engineId}" is a remote address with no configured secret`;
 }
 
+/**
+ * The raw secret, for the one caller that needs the value itself rather than
+ * a header: the agentic redirect hands it to a child process as
+ * `ANTHROPIC_API_KEY`. Everything else takes `resolveRemote` and never sees
+ * it.
+ *
+ * Resolved per request, never cached — a `--user` unit boots before the login
+ * keyring unlocks, and every remote engine must recover at the operator's
+ * next sign-in without a reload.
+ */
 export async function resolveRemoteSecret(
   engine: EngineEntry,
   secretExec?: SecretExec,
@@ -90,12 +89,12 @@ export async function resolveRemoteSecret(
     : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix };
 }
 
-/** The address and the one header, for every remote caller that speaks HTTP itself. */
 /** One wording for the missing-address refusal, shared by every caller that has to have one. */
 export function noBaseUrlFix(engineId: string): string {
   return `engine "${engineId}" is a remote address with no base_url`;
 }
 
+/** The address and the one header, for every remote caller that speaks HTTP itself. */
 export async function resolveRemote(
   engine: EngineEntry,
   secretExec?: SecretExec,
