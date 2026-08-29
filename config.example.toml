@@ -212,6 +212,17 @@ egress            = "none"
 idle_stop_seconds = 1800
 # No models_dir: chatterbox's weights are baked into its image at build time.
 
+# Chatterbox Turbo, kept alongside the one above rather than replacing it: a
+# different checkpoint with a one-step diffusion decoder, English-only, and
+# noticeably quieter output. Measured on this box, median of three runs after
+# warm-up: RTF 0.62 here against 2.48 for the engine above as it shipped --
+# faster than realtime, where that one is not. Roughly half that gain is
+# MIOPEN_FIND_MODE=FAST, baked into this image; the rest is the model.
+[[engine]]
+id                = "chatterbox-fast"
+egress            = "none"
+idle_stop_seconds = 1800
+
 [[engine]]
 id                = "kokoro"
 egress            = "none"

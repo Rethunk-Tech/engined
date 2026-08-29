@@ -1,0 +1,24 @@
+kind   = "tts"
+image  = "engined-chatterbox-fast:local"
+obtain = "build"
+serves = ["/v1/audio/speech"]
+# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+command = []
+# Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: this is a
+# ROCm/PyTorch engine like engines/chatterbox. See engines/local-llama/spec.toml
+# for why that one omits /dev/kfd.
+devices      = ["/dev/kfd", "/dev/dri"]
+group_add    = ["video"]
+security_opt = ["label=disable"]
+# Weights are baked into the image at build time (HF_HOME) -- no [[artifact]]
+# and no model volume, unlike whisper. A different checkpoint from
+# engines/chatterbox: ResembleAI/chatterbox-turbo, not the multilingual model.
+#
+# MIOPEN_FIND_MODE=FAST is set in the Dockerfile rather than here, because
+# `env` in a spec is an allowlist of host variables to forward, not a place to
+# set a value -- and the setting is a property of this image's measured
+# tuning, not of the install.
+
+[ready]
+path   = "/health"
+status = 200

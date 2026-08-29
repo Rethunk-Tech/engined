@@ -42,6 +42,41 @@ work on Python 3.12 / torch 2.13 — its own `pyproject.toml` pins
 `numpy<1.26` (no Python 3.12 wheel exists at all) and `torch==2.5.1`,
 neither usable here. ~29 GB.
 
+### Chatterbox Turbo (`chatterbox-fast`)
+
+`engines/chatterbox-fast/`. The same base and ROCm posture as Chatterbox, but
+a different checkpoint -- `ResembleAI/chatterbox-turbo`, whose diffusion
+decoder runs one step where the multilingual model runs ten. English-only:
+Turbo's `generate()` takes no `language_id`, so there is no language to plumb.
+Kept alongside Chatterbox rather than replacing it; both images ship.
+
+It is the only TTS engine here that is faster than realtime on this box.
+Measured, median of three runs after warm-up, on the same input:
+
+| engine | `MIOPEN_FIND_MODE` | RTF | realtime |
+| ------ | ------ | ------ | ------ |
+| chatterbox | default | 2.48 | 0.40x |
+| chatterbox | FAST | 1.06 | 0.94x |
+| chatterbox-fast | default | 1.29 | 0.78x |
+| chatterbox-fast | FAST | 0.62 | 1.52-1.60x |
+
+Roughly half the gain is the model and half is `MIOPEN_FIND_MODE=FAST`, set in
+this image's Dockerfile. MIOpen's default search picks a `GemmFwdRest`
+fallback for the vocoder's convolutions and warns that it was handed no
+workspace; FAST skips that search. `NORMAL`, `HYBRID` and `DYNAMIC_HYBRID` all
+measured indistinguishable from the default, so this is one specific mode
+rather than a tuning dial.
+
+Two things that were measured and did **not** help, recorded so they are not
+retried: autocast to float16 or bfloat16 made synthesis ~1.5x *slower* (and
+bfloat16 tripped a token-repetition warning), despite gfx1151's known float32
+throughput gap; and cutting `n_cfm_timesteps` to 1 moved RTF only ~6% while
+driving peak amplitude to 1.40, which clips.
+
+Turbo's output is markedly quieter than the multilingual model's -- peak
+around 0.33-0.45 against 0.83-1.00 -- so a consumer switching between them
+hears a level change.
+
 ### Kokoro
 
 `engines/kokoro/`. Follows ComfyUI's base pattern — `rocm/dev-ubuntu-24.04:7.2.4`
