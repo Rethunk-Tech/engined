@@ -61,4 +61,4 @@ token and this tier's active bpw barely moves.
 
 `parallel = -1` is llama.cpp's auto (4 unified slots here): 62.94 t/s decode,
 against 68.28 t/s at `-np 1 -kvu`. `-np 2` and above halves ctx-size per slot
-by disabling `--kv-unified`, which is not worth that footgun.
+by turning off kv_unified, which is not worth that footgun.

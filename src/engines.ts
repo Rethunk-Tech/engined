@@ -689,7 +689,7 @@ export class EngineRegistry {
       return this.statusFor(entry);
     }
     // A fresh start's first queue observation must be a real transition, not
-    // one suppressed by emptiness left over from the container's last run.
+    // one suppressed by stale queue-emptiness from an earlier session.
     this.comfyQueueEmpty.delete(id);
     if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
       this.renderLocalLlamaPreset(entry.engine);

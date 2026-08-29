@@ -37,7 +37,7 @@ Unassigned, and stays that way. IANA lists 29170–29998 with no service in it;
 it sits below the ephemeral floor (`ip_local_port_range` starts at 32768 here)
 so no outbound connection can take it first; it avoids the `188xx` block
 sagaforge reserves and the informal squatters nearby — PyTorch distributed
-defaults `MASTER_PORT` to 29500, Gerrit uses 29418.
+defaults distributed training port to 29500, Gerrit uses 29418.
 
 The alternative was 8080, `llama-server`'s own default. Every consumer
 hardcodes the address anyway, so guessability buys one line of config while
