@@ -638,8 +638,8 @@ test("a streaming client that aborts without draining the stream still releases 
     }
     if (url.pathname === CHAT_PATH) {
       const body = new ReadableStream<Uint8Array>({
-        pull(controller) {
-          controller.enqueue(new TextEncoder().encode("data: chunk\n\n"));
+        pull(sink) {
+          sink.enqueue(new TextEncoder().encode("data: chunk\n\n"));
         },
       });
       return Promise.resolve(
@@ -929,11 +929,14 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
-  let childGone = false;
+  // An annotated holder rather than a bare `let`: read from the closure
+  // below, a boolean is narrowed to `false` where that closure is written and
+  // the flips further down never widen it back.
+  const child: { gone: boolean } = { gone: false };
   let staleAdvertisements = 2;
   let served500s = 0;
   const { client, calls } = fakeLlama((call) => {
-    if (!childGone) {
+    if (!child.gone) {
       return;
     }
     if (call.path === CHAT_PATH) {
@@ -949,14 +952,14 @@ test("a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
       return modelsList([{ id: "a", status: "unloaded" }]);
     }
     if (call.path === LOAD_PATH) {
-      childGone = false;
+      child.gone = false;
     }
   });
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client));
 
   const loadsBefore = await warmUpAndCountLoads(router, a, calls);
 
-  childGone = true;
+  child.gone = true;
   const res = await router.proxy(a, CHAT_PATH, {
     method: "POST",
     body: JSON.stringify({ model: "a" }),

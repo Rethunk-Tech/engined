@@ -4,7 +4,7 @@
  * Kept to constants and small builders only -- never a mock, never a
  * fixture framework standing in for the real dependency under test.
  */
-import { afterAll, expect } from "bun:test";
+import { afterAll } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,8 +160,16 @@ export function soleProvenanceRecord(lines: string[]): {
     version?: string;
   }>;
 } {
-  expect(lines).toHaveLength(1);
-  return JSON.parse(lines[0] ?? "");
+  const [only, ...rest] = lines;
+  // Thrown, not `expect`ed: this runs inside a helper rather than a test
+  // body, and a throw fails the calling test just as loudly while naming the
+  // lines it actually got.
+  if (only === undefined || rest.length > 0) {
+    throw new Error(
+      `expected exactly one provenance line, got ${lines.length}: ${lines.join(" | ")}`,
+    );
+  }
+  return JSON.parse(only);
 }
 
 /**
@@ -170,16 +178,24 @@ export function soleProvenanceRecord(lines: string[]): {
  * point of every caller: equal values would pass a weaker check while proving
  * nothing about which of the two a field actually came from.
  */
-export function expectReportedAndResident(
+export function assertReportedAndResident(
   lines: string[],
   reported: string,
   resident: string,
 ): void {
-  const record = soleProvenanceRecord(lines);
-  expect(record.attempts).toHaveLength(1);
-  expect(record.attempts[0]?.model_reported).toBe(reported);
-  expect(record.attempts[0]?.model_resident).toBe(resident);
-  expect(reported).not.toBe(resident);
+  if (reported === resident) {
+    throw new Error(`the two values must differ to prove anything; both are "${reported}"`);
+  }
+  const { attempts } = soleProvenanceRecord(lines);
+  const [only, ...rest] = attempts;
+  if (only === undefined || rest.length > 0) {
+    throw new Error(`expected exactly one attempt, got ${attempts.length}`);
+  }
+  if (only.model_reported !== reported || only.model_resident !== resident) {
+    throw new Error(
+      `expected reported "${reported}" / resident "${resident}", got "${only.model_reported}" / "${only.model_resident}"`,
+    );
+  }
 }
 
 /**

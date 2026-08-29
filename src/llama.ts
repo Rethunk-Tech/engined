@@ -178,6 +178,55 @@ function wantsStream(init: RequestInit): boolean {
   }
 }
 
+/**
+ * The consumer-driven half of `fetchStreamed`: chunks piped from the already
+ * open upstream reader, and `release` called on whichever terminus arrives --
+ * drain, error, or the client cancelling. Module-scope because it touches no
+ * router state; the lease is entirely `release`'s business.
+ */
+function pipeUpstream(
+  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
+  emitWarming: boolean,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start: (controller) => {
+      if (emitWarming) {
+        controller.enqueue(WARMING_COMMENT);
+      }
+      if (!reader) {
+        controller.close();
+        release();
+      }
+    },
+    pull: async (controller) => {
+      if (!reader) {
+        return;
+      }
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          release();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (err) {
+        controller.error(err instanceof Error ? err : new Error(String(err)));
+        release();
+      }
+    },
+    cancel: (reason) => {
+      release();
+      // A client disconnecting mid-stream cancels this ReadableStream, but
+      // that alone leaves the upstream llama-server connection open (and its
+      // reader pending) until GC -- cancel it too so the socket closes now,
+      // not eventually.
+      reader?.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
 export class LlamaRouter {
   private readonly roleStates = new Map<Role, RoleState>();
   private readonly httpClient: HttpClient;
@@ -731,7 +780,7 @@ export class LlamaRouter {
     }
     const reader = upstream.body?.getReader();
     let released = false;
-    const signal = init.signal;
+    const { signal } = init;
     const release = () => {
       if (released) {
         return;
@@ -758,42 +807,7 @@ export class LlamaRouter {
     } else {
       signal?.addEventListener("abort", onAbort, { once: true });
     }
-    const stream = new ReadableStream<Uint8Array>({
-      start: (controller) => {
-        if (emitWarming) {
-          controller.enqueue(WARMING_COMMENT);
-        }
-        if (!reader) {
-          controller.close();
-          release();
-        }
-      },
-      pull: async (controller) => {
-        if (!reader) {
-          return;
-        }
-        try {
-          const { done, value } = await reader.read();
-          if (done) {
-            controller.close();
-            release();
-            return;
-          }
-          controller.enqueue(value);
-        } catch (err) {
-          controller.error(err instanceof Error ? err : new Error(String(err)));
-          release();
-        }
-      },
-      cancel: (reason) => {
-        release();
-        // A client disconnecting mid-stream cancels this ReadableStream, but
-        // that alone leaves the upstream llama-server connection open (and
-        // its reader pending) until GC -- cancel it too so the socket closes
-        // now, not eventually.
-        reader?.cancel(reason).catch(() => undefined);
-      },
-    });
+    const stream = pipeUpstream(reader, emitWarming, release);
     return new Response(stream, {
       status: upstream.status,
       headers: { "content-type": "text/event-stream" },

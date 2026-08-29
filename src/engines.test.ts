@@ -189,6 +189,26 @@ function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
 
 const RX_DISABLED_START = /is disabled in config/;
 
+/** A remote tts engine: a model-less kind, so its engine id IS its model string. */
+function voiceEngine(): EngineEntry {
+  return engine({
+    id: "voice",
+    egress: "remote",
+    kind: "tts",
+    base_url: "https://example.com/voice",
+    secret: { service: "voice", username: "u", header: "x-api-key" },
+  });
+}
+
+/** Records what `reload` asks to be torn down; a disabling reload must ask. */
+class RemovalSpy extends DockerLifecycle {
+  readonly removed: string[] = [];
+  override removeEngine(id: string): Promise<void> {
+    this.removed.push(id);
+    return super.removeEngine(id);
+  }
+}
+
 describe("disabled engines", () => {
   test("are reported as disabled and unavailable, are never probed, and refuse to start", async () => {
     const root = newEnginesRoot();
@@ -217,15 +237,7 @@ describe("disabled engines", () => {
   });
 
   test("are not advertised by models(), which is what a caller may put in `model`", () => {
-    // A model-less kind: its engine id IS its model string, so excluding it
-    // is the only way the disabling reaches /v1/models at all.
-    const voice = engine({
-      id: "voice",
-      egress: "remote",
-      kind: "tts",
-      base_url: "https://example.com/voice",
-      secret: { service: "voice", username: "u", header: "x-api-key" },
-    });
+    const voice = voiceEngine();
     const enabled = registry(config({ engines: [voice] }), newEnginesRoot());
     expect(enabled.models()).toContain("voice");
 
@@ -238,13 +250,6 @@ describe("disabled engines", () => {
     writeEngineSpec(root, "llama", PULLED_CONTAINER);
     // The entry survives a disabling reload, so the removal that a dropped
     // engine gets for free has to be asked for -- this is that ask.
-    class RemovalSpy extends DockerLifecycle {
-      readonly removed: string[] = [];
-      override removeEngine(id: string): Promise<void> {
-        this.removed.push(id);
-        return super.removeEngine(id);
-      }
-    }
     const lifecycle = new RemovalSpy(OK_EXEC);
     const reg = registry(config({ engines: [engine({ id: "llama" })] }), root, { lifecycle });
 

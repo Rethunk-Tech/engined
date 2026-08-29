@@ -31,7 +31,7 @@ import type { Config, EngineEntry } from "../../src/types.ts";
  */
 const CLAUDE_VERSION = process.env.ENGINED_TEST_CLAUDE_VERSION;
 // Set by the `test:local` script, alongside ENGINED_LOCAL that gates this tier.
-const BUNX = process.env.ENGINED_BUNX as string;
+const BUNX = process.env.ENGINED_BUNX;
 const ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"];
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 
@@ -39,6 +39,20 @@ const LOCAL = process.env.ENGINED_LOCAL === "1";
 const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;
 /** The probe-gate test below makes two real round trips sequentially. */
 const PROBE_GATE_TIMEOUT_MS = 180_000;
+
+/**
+ * Called only from inside a test body: the whole tier is skipped when either
+ * var is unset (`MISSING_ENV_VARS` below names which), so reaching the throw
+ * means that gate is broken, not that the environment is.
+ */
+function requireEnv(name: string, value: string | undefined): string {
+  if (value === undefined) {
+    throw new Error(`${name} is unset: this tier runs only under \`bun run test:local\``);
+  }
+  return value;
+}
+const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
+const claudeVersion = (): string => requireEnv("ENGINED_TEST_CLAUDE_VERSION", CLAUDE_VERSION);
 
 const MISSING_ENV_VARS = [
   CLAUDE_VERSION === undefined ? "ENGINED_TEST_CLAUDE_VERSION" : undefined,
@@ -83,13 +97,13 @@ function scratchWorktree(): string {
 
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
   return runAgentic({
-    claudeVersion: CLAUDE_VERSION as string,
+    claudeVersion: claudeVersion(),
     args: {},
     envAllowlist: ENV_ALLOWLIST,
     workdir,
     prompt,
     spawn: defaultAgenticSpawn,
-    bunx: BUNX,
+    bunx: bunx(),
   });
 }
 
@@ -203,7 +217,7 @@ function buildProbeGateConfig(): Config {
   const engine: EngineEntry = {
     id: PROBE_GATE_ENGINE_ID,
     egress: "remote",
-    claude_version: CLAUDE_VERSION as string,
+    claude_version: claudeVersion(),
     spec_dir: join(PROBE_GATE_ENGINES_ROOT, "claude"),
     args: {},
   };
@@ -233,7 +247,7 @@ describe.skipIf(!AGENTIC_READY)(
         // does not serve on faith even with a syntactically valid pin.
         const gated = new EngineRegistry(buildProbeGateConfig(), {
           enginesRoot: PROBE_GATE_ENGINES_ROOT,
-          bunx: BUNX as string,
+          bunx: bunx(),
         });
         const beforeStatus = (await gated.list()).engines.find(
           (e) => e.id === PROBE_GATE_ENGINE_ID,
@@ -245,8 +259,8 @@ describe.skipIf(!AGENTIC_READY)(
         // by start() itself, not called directly by this test.
         const proven = new EngineRegistry(buildProbeGateConfig(), {
           enginesRoot: PROBE_GATE_ENGINES_ROOT,
-          bunx: BUNX as string,
-          agenticProbeRunner: buildAgenticProbeRunner(BUNX as string),
+          bunx: bunx(),
+          agenticProbeRunner: buildAgenticProbeRunner(bunx()),
         });
         const afterStatus = await proven.start(PROBE_GATE_ENGINE_ID);
         expect(afterStatus.state).toBe("installed");
@@ -257,7 +271,7 @@ describe.skipIf(!AGENTIC_READY)(
           join(PROBE_GATE_VERIFIED_DIR, "verified_version"),
           "utf8",
         ).trim();
-        expect(recorded).toBe(CLAUDE_VERSION as string);
+        expect(recorded).toBe(claudeVersion());
       },
       PROBE_GATE_TIMEOUT_MS,
     );

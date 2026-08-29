@@ -18,11 +18,11 @@ import {
   timeoutSecondsForKind,
 } from "./main.ts";
 import {
+  assertReportedAndResident,
   BUNX,
   clearVerifiedVersion,
   config,
   engine,
-  expectReportedAndResident,
   inspectSinglePort,
   llamaControlPlane,
   makeTestRoot,
@@ -714,7 +714,7 @@ describe("the door: streaming provenance", () => {
       write: (l) => lines.push(l),
     });
     await res.text();
-    expectReportedAndResident(lines, "ornith", "ornith-real");
+    assertReportedAndResident(lines, "ornith", "ornith-real");
   });
 
   test("the caller's stream is byte-identical to what the upstream sent, tee in place", async () => {
@@ -767,7 +767,7 @@ describe("the door: provenance model fields", () => {
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
     await res.json();
-    expectReportedAndResident(lines, "ornith", "ornith-real");
+    assertReportedAndResident(lines, "ornith", "ornith-real");
   });
 });
 

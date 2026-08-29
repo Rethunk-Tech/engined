@@ -132,7 +132,9 @@ test("GET /v1/models is an OpenAI list envelope whose data[].id is the menu: GGU
 
   try {
     const res = await door.fetch(req("GET", "/v1/models"));
-    const body = (await res.json()) as { object: string; data: Array<{ id: string }> };
+    // `data` optional, because that is the shape a consumer must survive: the
+    // `?? []` below is only a real fallback if the type admits its absence.
+    const body = (await res.json()) as { object: string; data?: Array<{ id: string }> };
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
     // undefined, which reads as "this engine has no models" rather than as

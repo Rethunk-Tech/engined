@@ -820,11 +820,9 @@ export class EngineRegistry {
       return { error: `unknown engine "${id}"` };
     }
     const kind = this.kindOf(entry);
-    const endpoint = kind === undefined ? undefined : RELEASE_ENDPOINT[kind];
+    const endpoint = RELEASE_ENDPOINT[kind];
     if (!endpoint) {
-      return {
-        error: `"${id}" (${kind ?? "unknown kind"}) has no release endpoint; stop it instead`,
-      };
+      return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` };
     }
     const status = this.lifecycle.getStatus(id);
     if (status.state !== "running" || status.private_url === null) {

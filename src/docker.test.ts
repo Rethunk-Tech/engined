@@ -441,10 +441,13 @@ test("probe: the image check is cached across repeated polls, not re-shelled on 
 });
 
 test("probe: a missing image is not cached -- a pull between polls is picked up without a restart", async () => {
-  let present = false;
+  // An annotated holder, not a bare `let`: the exec closure below reads this
+  // on every call, and a boolean captured before its first flip is narrowed
+  // to `false` for good at the point the closure is written.
+  const image: { present: boolean } = { present: false };
   const inspectCalls = { count: 0 };
   const lifecycle = new DockerLifecycle(
-    inspectCountingExec(inspectCalls, () => (present ? inspectFound() : inspectMissing())),
+    inspectCountingExec(inspectCalls, () => (image.present ? inspectFound() : inspectMissing())),
     readyProbe,
   );
 
@@ -456,7 +459,7 @@ test("probe: a missing image is not cached -- a pull between polls is picked up 
   expect(stillMissing.state).toBe("unavailable");
   expect(inspectCalls.count).toBe(2);
 
-  present = true;
+  image.present = true;
   const repaired = await lifecycle.probe("repairable-image", SPEC);
   expect(repaired.state).toBe("installed");
   expect(inspectCalls.count).toBe(3);
