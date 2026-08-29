@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DockerLifecycle } from "./docker.ts";
-import type { HttpClient } from "./http.ts";
+import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
 import { localLlamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { ContainerSpec, EngineEntry, ModelEntry, Role } from "./types.ts";
@@ -463,7 +463,7 @@ export class LlamaRouter {
   private async unload(baseUrl: string, modelId: string): Promise<void> {
     await this.httpClient(`${baseUrl}/models/unload`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
     });
   }
@@ -490,7 +490,7 @@ export class LlamaRouter {
     const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
     const triggerRes = await this.httpClient(`${baseUrl}/models/load`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
     });
     if (triggerRes.status === HTTP_ALREADY_RUNNING) {
@@ -822,7 +822,7 @@ export class LlamaRouter {
     return {
       response: new Response(stream, {
         status: upstream.status,
-        headers: { "content-type": "text/event-stream" },
+        headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
       }),
       modelResident,
     };

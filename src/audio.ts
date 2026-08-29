@@ -26,18 +26,19 @@
  */
 
 import {
+  CONTENT_TYPE,
   type HttpClient,
+  JSON_CONTENT_TYPE,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
   STATUS_UNAVAILABLE,
+  TEXT_CONTENT_TYPE,
+  WAV_CONTENT_TYPE,
 } from "./http.ts";
 import { type RemoteEndpoint, remoteUrl } from "./remote.ts";
 
-const WAV_CONTENT_TYPE = "audio/wav";
-const TEXT_CONTENT_TYPE = "text/plain";
-const JSON_CONTENT_TYPE = "application/json";
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
 const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
 /**
@@ -159,7 +160,7 @@ export async function handleSpeech(
 
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
     method: "POST",
-    headers: { "content-type": JSON_CONTENT_TYPE },
+    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify({ text: req.input }),
   });
   if (!res.ok) {

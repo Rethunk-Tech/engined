@@ -145,7 +145,7 @@ export function buildExec(opts: BuildExecOptions): Exec {
 }
 
 /** The one provenance line a call emits, parsed. Fails loudly rather than yielding an empty object, so a missing line reads as a missing line. */
-export function soleProvenanceRecord(lines: string[]): {
+function soleProvenanceRecord(lines: string[]): {
   chain: string | null;
   requested: string;
   engine_used: string | null;

@@ -6,7 +6,13 @@
  * passthrough. `/slots/:id`, `/models/load` and `/models/unload` already
  * name what they need and pass through untouched.
  */
-import { type HttpClient, jsonError, STATUS_BAD_REQUEST } from "./http.ts";
+import {
+  CONTENT_TYPE,
+  type HttpClient,
+  JSON_CONTENT_TYPE,
+  jsonError,
+  STATUS_BAD_REQUEST,
+} from "./http.ts";
 import { errMessage, isRecord } from "./types.ts";
 
 const BODY_INJECT_PATHS = new Set(["/tokenize", "/detokenize", "/apply-template"]);
@@ -63,7 +69,7 @@ export async function proxyExtras(
 
   return httpClient(target.toString(), {
     method: req.method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body,
   });
 }

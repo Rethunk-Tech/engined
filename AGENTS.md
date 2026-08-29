@@ -1,8 +1,12 @@
 # engined
 
 Contributor map. `README.md` orients; `HUMANS.md` is the runbook. This file
-covers test tiers, the config/spec split, and invariants. `TODO.md` is
-currently empty.
+covers test tiers, the config/spec split, and invariants.
+
+Outstanding work is tracked in the task list, not in a file. Only one thing
+is worth writing down here: an acceptance criterion nobody has actually
+proven stays recorded even when the feature looks done, because deleting it
+erases the only record that it is unproven.
 
 Implementation: `src/`, Bun and TypeScript. Acceptance criteria and engine
 traps live beside the code they govern.

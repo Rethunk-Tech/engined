@@ -13,6 +13,19 @@ export const STATUS_PAYLOAD_TOO_LARGE = 413;
 export const STATUS_BAD_GATEWAY = 502;
 export const STATUS_UNAVAILABLE = 503;
 
+/**
+ * The header every response here sets, and the media types this door speaks:
+ * JSON for the OpenAI shapes, SSE for a streamed hop or the engine-event
+ * feed, and the two whisper/TTS body types. Named here rather than beside
+ * each writer so the reader and the writer of a body cannot spell it
+ * differently.
+ */
+export const CONTENT_TYPE = "content-type";
+export const JSON_CONTENT_TYPE = "application/json";
+export const SSE_CONTENT_TYPE = "text/event-stream";
+export const TEXT_CONTENT_TYPE = "text/plain";
+export const WAV_CONTENT_TYPE = "audio/wav";
+
 /** The one JSON error shape, for a caller that builds its own response envelope (`DoorResponse`, `HopResult`) around it. */
 export function jsonErrorBody(message: string): { error: string } {
   return { error: message };

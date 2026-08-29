@@ -44,7 +44,6 @@ Edit the config, then `curl -s localhost:29200/v1/engines` — runbook: **[HUMAN
 | [docs/tuning.md](docs/tuning.md) | Speculative-decoding measurements |
 | [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary |
 | [docs/design.md](docs/design.md) | Ownership line, why 29200 |
-| [TODO.md](TODO.md) | Outstanding work — currently empty |
 
 ## License
 

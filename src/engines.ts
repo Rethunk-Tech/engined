@@ -10,6 +10,7 @@ import { dirname } from "node:path";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
+import { CONTENT_TYPE, JSON_CONTENT_TYPE } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { localLlamaPresetPath, stateDir } from "./paths.ts";
 import { isRemote, noSecretConfiguredFix } from "./remote.ts";
@@ -63,7 +64,7 @@ async function defaultReleaseFetch(
 ): Promise<{ ok: boolean; status: number }> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
   });
   return { ok: res.ok, status: res.status };

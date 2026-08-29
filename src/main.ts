@@ -34,15 +34,19 @@ import {
 import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
+  CONTENT_TYPE,
   type HttpClient,
+  JSON_CONTENT_TYPE,
   jsonError,
   jsonErrorBody,
+  SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
+  TEXT_CONTENT_TYPE,
 } from "./http.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
@@ -217,7 +221,7 @@ function openAiRequestInit(
 ): RequestInit {
   return {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify({ ...stripField(rawBody, "workdir"), model: resolvedModelId }),
     signal,
   };
@@ -386,9 +390,9 @@ async function readHopBody(
   response: Response,
   setContentType: (ct: string) => void,
 ): Promise<{ stream: ReadableStream<Uint8Array> | undefined; modelReported: string | undefined }> {
-  const contentType = response.headers.get("content-type") ?? "application/json";
+  const contentType = response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE;
   setContentType(contentType);
-  if (contentType.includes("application/json")) {
+  if (contentType.includes(JSON_CONTENT_TYPE)) {
     // `.clone()` before `.body` is ever touched: reading the getter first
     // disturbs the body Bun's clone() then tees from.
     const modelReported = reportedModelFrom(
@@ -399,7 +403,7 @@ async function readHopBody(
     );
     return { stream: response.body ?? undefined, modelReported };
   }
-  if (contentType.includes("text/event-stream") && response.body) {
+  if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
     const [forCaller, forSniff] = response.body.tee();
     return { stream: forCaller, modelReported: await firstReportedModel(forSniff) };
   }
@@ -768,7 +772,7 @@ async function handleChatOrEmbeddings(
   const hops = resolved.kind === "chain" ? [...resolved.hops] : [hopFromDispatch(resolved)];
   const chainName = resolved.kind === "chain" ? resolved.chain : null;
 
-  let contentType = "application/json";
+  let contentType: string = JSON_CONTENT_TYPE;
   const result = await runChain(hops, {
     chain: chainName,
     requested: rawModel,
@@ -789,7 +793,7 @@ async function handleChatOrEmbeddings(
   if (result.stream) {
     return new Response(result.stream, {
       status: result.status,
-      headers: { "content-type": contentType },
+      headers: { [CONTENT_TYPE]: contentType },
     });
   }
   return Response.json(result.body, { status: result.status });
@@ -839,13 +843,13 @@ function doorResponseToResponse(result: DoorResponse): Response {
     // does not accept directly.
     return new Response(Buffer.from(result.bytes), {
       status: result.status,
-      headers: { "content-type": result.contentType },
+      headers: { [CONTENT_TYPE]: result.contentType },
     });
   }
-  if (result.contentType === "text/plain") {
+  if (result.contentType === TEXT_CONTENT_TYPE) {
     return new Response(String(result.body), {
       status: result.status,
-      headers: { "content-type": result.contentType },
+      headers: { [CONTENT_TYPE]: result.contentType },
     });
   }
   return Response.json(result.body, { status: result.status });
@@ -1102,7 +1106,7 @@ function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Response {
 
   return new Response(stream, {
     headers: {
-      "content-type": "text/event-stream",
+      [CONTENT_TYPE]: SSE_CONTENT_TYPE,
       "cache-control": "no-cache",
       connection: "keep-alive",
     },

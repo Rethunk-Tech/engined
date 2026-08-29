@@ -7,3 +7,4 @@ __pycache__/
 .orchestrate/
 # Rendered by the local tier's router fixtures; regenerated every run.
 test/local/.scratch-preset*.ini
+FINDINGS.jsonl
