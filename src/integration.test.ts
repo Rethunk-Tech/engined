@@ -690,6 +690,104 @@ test("a failed audio call records why it failed, not merely that it did", async 
   }
 });
 
+/**
+ * Two 4-byte PCM chunks over the engine's own NDJSON, which is what a streamed
+ * `/v1/audio/speech` forwards: the door buffers none of it, so provenance can
+ * only learn the size from the stream itself.
+ */
+function fakeStreamingTts(): (request: Request) => Response {
+  const pcm = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString("base64");
+  return (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (pathname === "/v1/tts") {
+      return new Response(
+        `${JSON.stringify({ phase: "chunk", pcm, rate: 22050 })}\n${JSON.stringify({ phase: "chunk", pcm, rate: 22050 })}\n`,
+      );
+    }
+    return new Response("", { status: 404 });
+  };
+}
+
+interface StreamingSpeechDoor {
+  door: ReturnType<typeof createDoor>;
+  lines: string[];
+  stop: () => void;
+}
+
+function streamingSpeechDoor(): StreamingSpeechDoor {
+  const fake = startFakeUpstream(fakeStreamingTts());
+  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const lines: string[] = [];
+  const door = createDoor(
+    baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] }),
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { write: (l) => lines.push(l) },
+  );
+  return {
+    door,
+    lines,
+    stop: () => {
+      fake.stop();
+    },
+  };
+}
+
+function speechAttempt(lines: string[]): {
+  attempts: { ok: boolean; failure?: string }[];
+  engine_used: string | null;
+} {
+  expect(lines).toHaveLength(1);
+  return JSON.parse(lines[0] ?? "{}") as {
+    attempts: { ok: boolean; failure?: string }[];
+    engine_used: string | null;
+  };
+}
+
+const STREAM_SPEECH = { model: "chatterbox", input: "hi", stream: true };
+
+test("a streamed audio call that forwards its whole body records a success, not an empty body", async () => {
+  const { door, lines, stop } = streamingSpeechDoor();
+  try {
+    const res = await door.fetch(req("POST", "/v1/audio/speech", { body: STREAM_SPEECH }));
+    expect(res.status).toBe(200);
+    // Nothing is recorded until the caller has the bytes: the line is the
+    // stream's outcome, not the response header's.
+    expect(lines).toHaveLength(0);
+    expect((await res.arrayBuffer()).byteLength).toBe(8);
+
+    const record = speechAttempt(lines);
+    expect(record.attempts[0]?.ok).toBe(true);
+    expect(record.attempts[0]?.failure).toBeUndefined();
+    expect(record.engine_used).toBe("chatterbox");
+  } finally {
+    stop();
+    await door.registry.shutdown();
+  }
+});
+
+test("a streamed audio call abandoned mid-body still records a failure", async () => {
+  const { door, lines, stop } = streamingSpeechDoor();
+  try {
+    const res = await door.fetch(req("POST", "/v1/audio/speech", { body: STREAM_SPEECH }));
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    // Bytes did reach the caller, so this is not the empty-body case -- only
+    // the abandonment separates it from the success above.
+    expect((await reader.read()).value?.byteLength).toBe(4);
+    await reader.cancel();
+
+    const record = speechAttempt(lines);
+    expect(record.attempts[0]?.ok).toBe(false);
+    expect(record.attempts[0]?.failure).toBe("client disconnected");
+    expect(record.engine_used).toBeNull();
+  } finally {
+    stop();
+    await door.registry.shutdown();
+  }
+});
+
 test("an oversized transcription upload is refused before it is read", async () => {
   const door = createDoor(baseConfig({}), {
     enginesRoot: "/nonexistent/engines",

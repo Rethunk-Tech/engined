@@ -99,12 +99,13 @@ export function classifyResult(result: HopResult): {
   return { advance: false, ok: true };
 }
 
-/** Forwards chunks unchanged; a read that throws mid-body reports the failure instead of restarting the prompt elsewhere. */
-function wrapStream(
-  source: ReadableStream,
-  onDone: (ok: boolean, failure?: string) => void,
-): ReadableStream {
+/** Forwards chunks unchanged; a read that throws mid-body reports the failure instead of restarting the prompt elsewhere. `onDone` is handed the byte count actually forwarded, so a caller that classifies by body size sees what the client received rather than nothing at all. */
+export function wrapStream<T>(
+  source: ReadableStream<T>,
+  onDone: (ok: boolean, failure?: string, bytes?: number) => void,
+): ReadableStream<T> {
   const reader = source.getReader();
+  let forwarded = 0;
   // Whichever terminus arrives first owns the line; `cancel` can still fire
   // after a `pull` has closed the stream.
   let settled = false;
@@ -113,9 +114,9 @@ function wrapStream(
       return;
     }
     settled = true;
-    onDone(ok, failure);
+    onDone(ok, failure, forwarded);
   };
-  return new ReadableStream({
+  return new ReadableStream<T>({
     async pull(controller) {
       try {
         const { done, value } = await reader.read();
@@ -124,6 +125,7 @@ function wrapStream(
           settle(true);
           return;
         }
+        forwarded += ArrayBuffer.isView(value) ? value.byteLength : 0;
         controller.enqueue(value);
       } catch (err) {
         controller.error(err);

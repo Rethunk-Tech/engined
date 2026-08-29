@@ -21,7 +21,14 @@ import {
   type SpeechRequestBody,
   type TranscriptionRequestBody,
 } from "./audio.ts";
-import { classifyResult, type HopExec, type HopResult, parseHop, runChain } from "./chain.ts";
+import {
+  classifyResult,
+  type HopExec,
+  type HopResult,
+  parseHop,
+  runChain,
+  wrapStream,
+} from "./chain.ts";
 import { loadConfig } from "./config.ts";
 import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
@@ -875,31 +882,48 @@ interface AudioCallInfo {
 /**
  * Audio provenance is classified by the same rule a chain hop is: one place
  * decides ok-vs-failure, so a failed audio call records WHY it failed and a
- * 200 carrying no audio is not recorded as a success.
+ * 200 carrying no audio is not recorded as a success. A streamed call holds
+ * no buffered `bytes`, so its line waits for the stream and reports the bytes
+ * it actually forwarded -- a stream that ended having delivered audio is a
+ * success, and one that died mid-body is not.
  */
-function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): void {
+function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
   const { engineId, requested, result, startedAt } = info;
-  const verdict = classifyResult({
-    status: result.status,
-    body: result.bytes !== undefined && result.bytes.byteLength > 0 ? "audio" : result.body,
-  });
-  recordCall(
-    {
-      chain: null,
-      requested,
-      attempts: [
-        {
-          engine: engineId,
-          model: engineId,
-          ok: verdict.ok,
-          ...(verdict.failure === undefined ? {} : { failure: verdict.failure }),
-          duration_ms: Date.now() - startedAt,
-        },
-      ],
-      engine_used: verdict.ok ? engineId : null,
-    },
-    ctx.doorOpts.write,
-  );
+  const emit = (audioBytes: number, streamFailure?: string): void => {
+    const verdict = classifyResult({
+      status: result.status,
+      body: audioBytes > 0 ? "audio" : result.body,
+    });
+    const ok = verdict.ok && streamFailure === undefined;
+    const failure = streamFailure ?? verdict.failure;
+    recordCall(
+      {
+        chain: null,
+        requested,
+        attempts: [
+          {
+            engine: engineId,
+            model: engineId,
+            ok,
+            ...(failure === undefined ? {} : { failure }),
+            duration_ms: Date.now() - startedAt,
+          },
+        ],
+        engine_used: ok ? engineId : null,
+      },
+      ctx.doorOpts.write,
+    );
+  };
+  if (!result.stream) {
+    emit(result.bytes?.byteLength ?? 0);
+    return result;
+  }
+  return {
+    ...result,
+    stream: wrapStream(result.stream, (ok, streamFailure, bytes) =>
+      emit(bytes ?? 0, ok ? undefined : (streamFailure ?? "stream ended before completion")),
+    ),
+  };
 }
 
 function doorResponseToResponse(result: DoorResponse): Response {
@@ -1003,8 +1027,9 @@ async function handleAudioSpeech(
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);
   armAudioIdleStop(ctx, engineId);
-  recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt });
-  return doorResponseToResponse(result);
+  return doorResponseToResponse(
+    recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt }),
+  );
 }
 
 interface TranscriptionForm {
@@ -1066,8 +1091,9 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
   armAudioIdleStop(ctx, engineId);
-  recordAudioCall(ctx, { engineId, requested: form.rawModel ?? "", result, startedAt });
-  return doorResponseToResponse(result);
+  return doorResponseToResponse(
+    recordAudioCall(ctx, { engineId, requested: form.rawModel ?? "", result, startedAt }),
+  );
 }
 
 /** Tokenize/apply-template/slots are chat tools; asking the router for any other role would inject the wrong model. */
