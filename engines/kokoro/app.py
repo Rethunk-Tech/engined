@@ -71,6 +71,18 @@ KNOWN_VOICES = {
 class TtsRequest(BaseModel):
     text: str
     voice: str | None = None
+    # Additive: an adapter that does not ask still sees exactly the frames it
+    # always did. Asking adds per-chunk PCM ahead of the terminal frame.
+    chunks: bool = False
+
+
+def _pcm16(samples: np.ndarray) -> bytes:
+    """Signed 16-bit little-endian, the one encoding a streaming caller can
+    concatenate without a container format in the way. Kokoro emits float in
+    [-1, 1]; clipping first keeps a hot sample from wrapping to the opposite
+    sign instead of saturating."""
+    clipped = np.clip(samples, -1.0, 1.0)
+    return (clipped * 32767.0).astype("<i2").tobytes()
 
 
 @app.get("/health")
@@ -93,8 +105,28 @@ def synthesize(req: TtsRequest):
             return
         yield json.dumps({"phase": "synthesizing"}) + "\n"
         try:
+            # The pipeline yields one array per sentence. Collecting them and
+            # emitting a single WAV is what makes time-to-first-audio equal
+            # time-to-last-audio; when the caller asks for chunks each one goes
+            # out as it is produced, and the terminal frame still follows.
+            collected = []
             with _model_lock:
-                chunks = [audio for _, _, audio in pipeline(req.text, voice=voice)]
+                for _, _, audio in pipeline(req.text, voice=voice):
+                    collected.append(audio)
+                    if req.chunks:
+                        yield (
+                            json.dumps(
+                                {
+                                    "phase": "chunk",
+                                    "pcm": base64.b64encode(
+                                        _pcm16(np.asarray(audio))
+                                    ).decode("ascii"),
+                                    "rate": SAMPLE_RATE,
+                                }
+                            )
+                            + "\n"
+                        )
+            chunks = collected
             wav = (
                 np.asarray(chunks[0])
                 if len(chunks) == 1

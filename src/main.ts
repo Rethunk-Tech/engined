@@ -903,6 +903,12 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): void {
 }
 
 function doorResponseToResponse(result: DoorResponse): Response {
+  if (result.stream) {
+    return new Response(result.stream, {
+      status: result.status,
+      headers: { [CONTENT_TYPE]: result.contentType },
+    });
+  }
   if (result.bytes) {
     // `Buffer.from` rather than the raw `Uint8Array`: DoorResponse.bytes is
     // typed as the generic `ArrayBufferLike` view, which Bun's `BodyInit`
@@ -992,6 +998,7 @@ async function handleAudioSpeech(
     model: engineId,
     input: typeof body.input === "string" ? body.input : "",
     response_format: typeof body.response_format === "string" ? body.response_format : undefined,
+    stream: body.stream === true,
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);

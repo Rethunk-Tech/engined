@@ -17,7 +17,7 @@ treated as a caller.
 | --- | --- | --- |
 | `/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
 | `/v1/embeddings` | POST | `openai-http` |
-| `/v1/audio/speech` | POST | `tts` |
+| `/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized |
 | `/v1/audio/transcriptions` | POST | `stt` |
 | `/v1/models` | GET | every dispatchable `model` string |
 | `/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
@@ -83,6 +83,22 @@ A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside.
+
+`POST /v1/audio/speech` buffers by default and returns a complete `audio/wav`.
+With `"stream": true` it returns `audio/L16; rate=24000; channels=1` — signed
+16-bit little-endian mono, forwarded as each piece is synthesized. PCM rather
+than a WAV because a WAV header carries a length nothing knows until synthesis
+ends; the rate and encoding ride in the content type instead. A mid-stream
+failure ends the stream rather than changing a status code that has already
+been sent, so a caller sees short audio.
+
+**How much this buys depends on the text.** Kokoro's pipeline splits on
+newlines, not sentences: measured here, four newline-separated lines produced
+four chunks of 1.7–2.0s each, while a single five-sentence paragraph produced
+one chunk of 18.68s and therefore streams no earlier than buffering would. A
+caller that wants early audio should send its text newline-separated. Making
+the engine split on sentences instead would change how it reads across
+sentence boundaries, so it is not done here.
 
 `POST /v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
 no body it warms the container, which is what it has always done. With one it

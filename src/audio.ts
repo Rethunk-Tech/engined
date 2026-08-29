@@ -30,6 +30,7 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonErrorBody,
+  PCM_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
@@ -54,14 +55,22 @@ export interface SpeechRequestBody {
   model: string;
   input: string;
   response_format?: string;
+  /**
+   * Deliver audio as it is synthesized instead of after all of it is. Opt-in
+   * because it changes what comes back: PCM rather than a WAV, since a WAV's
+   * header carries a length nothing knows until the end.
+   */
+  stream?: boolean;
 }
 
 export interface DoorResponse {
   status: number;
   contentType: string;
-  /** A JSON error body, a transcription's bare-text/srt/vtt body, or its parsed JSON — never set on a speech success, which is `bytes`. */
+  /** A JSON error body, a transcription's bare-text/srt/vtt body, or its parsed JSON — never set on a speech success, which is `bytes` or `stream`. */
   body?: unknown;
   bytes?: Uint8Array;
+  /** Set instead of `bytes` on a streamed speech response. */
+  stream?: ReadableStream<Uint8Array>;
 }
 
 export interface TranscriptionRequestBody {
@@ -122,6 +131,73 @@ function extractAudioFromNdjson(body: string): string | undefined {
   }
 }
 
+/**
+ * Forwards each `phase: "chunk"` frame's PCM as it arrives and drops
+ * everything else, including the terminal frame's whole-utterance WAV -- a
+ * streaming caller has already been handed those samples.
+ *
+ * Raw PCM rather than a WAV because a WAV header carries a length nothing
+ * knows until synthesis ends, and the alternatives are a sentinel length that
+ * players disagree about or concatenated headers that are not a WAV at all.
+ * The rate and encoding travel in the content type instead.
+ *
+ * A frame-level failure cannot become a status code once bytes are committed,
+ * so a mid-stream error frame ends the stream. The caller sees short audio,
+ * which is the honest signal available at that point.
+ */
+function pcmFromNdjson(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      if (!forwardFrames(lines, controller)) {
+        controller.close();
+      }
+    },
+    cancel() {
+      reader.cancel().catch(() => undefined);
+    },
+  });
+}
+
+/** False once an error frame has been seen, which is where a committed stream has to stop. */
+function forwardFrames(
+  lines: readonly string[],
+  controller: ReadableStreamDefaultController<Uint8Array>,
+): boolean {
+  for (const line of lines) {
+    const frame = parseFrame(line);
+    if (frame?.phase === "error") {
+      return false;
+    }
+    if (frame?.phase === "chunk" && typeof frame.pcm === "string") {
+      controller.enqueue(Buffer.from(frame.pcm, "base64"));
+    }
+  }
+  return true;
+}
+
+function parseFrame(line: string): { phase?: unknown; pcm?: unknown } | undefined {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(trimmed) as { phase?: unknown; pcm?: unknown };
+  } catch {
+    return undefined;
+  }
+}
+
 function errorResponse(status: number, message: string): DoorResponse {
   return { status, contentType: JSON_CONTENT_TYPE, body: jsonErrorBody(message) };
 }
@@ -158,13 +234,22 @@ export async function handleSpeech(
     return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
   }
 
+  const streaming = req.stream === true;
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
     method: "POST",
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify({ text: req.input }),
+    body: JSON.stringify({ text: req.input, chunks: streaming }),
   });
   if (!res.ok) {
     return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts returned ${res.status}`);
+  }
+
+  if (streaming) {
+    const { body } = res;
+    if (body === null) {
+      return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts streamed no body`);
+    }
+    return { status: STATUS_OK, contentType: PCM_CONTENT_TYPE, stream: pcmFromNdjson(body) };
   }
 
   const audio = extractAudioFromNdjson(await res.text());

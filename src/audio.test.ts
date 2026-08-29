@@ -322,3 +322,49 @@ test("a second audio caller is visible as a lease while the first is still in fl
   lifecycle.endLease("chatterbox", 60);
   expect(lifecycle.getStatus("chatterbox").active_leases).toBe(1);
 });
+
+test("a streamed speech request forwards each chunk's PCM and drops the terminal WAV", async () => {
+  const frames = [
+    JSON.stringify({ phase: "synthesizing" }),
+    JSON.stringify({
+      phase: "chunk",
+      pcm: Buffer.from([1, 2, 3, 4]).toString("base64"),
+      rate: 24_000,
+    }),
+    JSON.stringify({ phase: "chunk", pcm: Buffer.from([5, 6]).toString("base64"), rate: 24_000 }),
+    JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
+  ].join("\n");
+  let asked: unknown;
+  const res = await handleSpeech(
+    { model: "kokoro", input: "hi", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    (_url, init) => {
+      asked = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response(frames));
+    },
+  );
+
+  expect((asked as { chunks?: boolean }).chunks).toBe(true);
+  expect(res.contentType).toContain("audio/L16");
+  expect(res.bytes).toBeUndefined();
+  const out = Buffer.from(await new Response(res.stream).arrayBuffer());
+  // Only the chunk PCM, in order -- the terminal frame's WAV is not appended.
+  expect([...out]).toEqual([1, 2, 3, 4, 5, 6]);
+});
+
+test("a buffered speech request is unchanged and never asks for chunks", async () => {
+  let asked: unknown;
+  const res = await handleSpeech(
+    { model: "kokoro", input: "hi" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    (_url, init) => {
+      asked = JSON.parse(String(init?.body));
+      return Promise.resolve(
+        Response.json({ phase: "done", audio: Buffer.from("wav").toString("base64") }),
+      );
+    },
+  );
+  expect((asked as { chunks?: boolean }).chunks).toBe(false);
+  expect(res.contentType).toBe("audio/wav");
+  expect(Buffer.from(res.bytes ?? new Uint8Array()).toString()).toBe("wav");
+});
