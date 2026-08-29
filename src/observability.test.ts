@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import type { ReleaseFetch } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { createDoor } from "./main.ts";
 import {
@@ -13,6 +14,18 @@ import {
 } from "./test-support.ts";
 
 const TEST_ROOT = makeTestRoot("engined-observability-");
+
+const COMFY_SPEC = `
+kind = "comfy"
+image = "ghcr.io/example/comfy@sha256:bbbb"
+obtain = "pull"
+serves = []
+command = []
+
+[ready]
+path = "/"
+status = 200
+`;
 
 const CONTAINER_SPEC = `
 kind = "openai-http"
@@ -46,7 +59,7 @@ function recordingExec(handler: (args: readonly string[]) => Partial<ExecResult>
   return { exec, calls };
 }
 
-function doorWith(exec: Exec) {
+function doorWith(exec: Exec, releaseFetch?: ReleaseFetch) {
   const root = mkdtempSync(join(TEST_ROOT, "door-"));
   writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
   return createDoor(
@@ -56,7 +69,7 @@ function doorWith(exec: Exec) {
         engine({ id: "hosted", egress: "remote", base_url: "https://api.example.com/v1" }),
       ],
     }),
-    { enginesRoot: root, bunx: BUNX, exec },
+    { enginesRoot: root, bunx: BUNX, exec, ...(releaseFetch ? { releaseFetch } : {}) },
   );
 }
 
@@ -150,4 +163,42 @@ test("an unknown engine is a 404 on every new route", async () => {
   ]) {
     expect((await door.fetch(req)).status).toBe(404);
   }
+});
+
+// llama's residency is engined's own to manage, so an outside release would
+// fight the router's swap rather than help it.
+test("release refuses a kind that has no such endpoint", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/v1/engines/local-llama/release", { method: "POST" }),
+  );
+
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toContain("no release endpoint");
+});
+
+// Nothing loaded means nothing held, so the caller's intent already holds and
+// no request is made -- the injected 500 below would fire if one were, which
+// is what makes this an assertion about the short-circuit rather than luck.
+test("release on a stopped engine succeeds without reaching the endpoint", async () => {
+  const root = mkdtempSync(join(TEST_ROOT, "door-"));
+  writeEngineSpec(root, "comfy", COMFY_SPEC);
+  const door = createDoor(
+    config({ engines: [engine({ id: "comfy", egress: "none", models_dir: "/models" })] }),
+    {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec: () => Promise.resolve({ stdout: "", stderr: "", exitCode: 0 }),
+      releaseFetch: () => Promise.resolve({ ok: false, status: 500 }),
+      comfyPollIntervalMs: 1_000_000,
+    },
+  );
+  const res = await door.fetch(
+    new Request("http://engined/v1/engines/comfy/release", { method: "POST" }),
+  );
+
+  // Not running, so nothing is held and the caller's intent already holds --
+  // the 500 above is never reached, which is the point of the short-circuit.
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ released: true });
 });

@@ -53,6 +53,31 @@ export interface QueueSnapshot {
 }
 
 type QueueFetch = (url: string) => Promise<QueueSnapshot>;
+/** Overridable for tests; the release POST is the only other call engined makes into a running container. */
+export type ReleaseFetch = (url: string, body: unknown) => Promise<{ ok: boolean; status: number }>;
+
+async function defaultReleaseFetch(
+  url: string,
+  body: unknown,
+): Promise<{ ok: boolean; status: number }> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, status: res.status };
+}
+
+/**
+ * What "drop the weights but stay up" means for each engine kind. Only comfy
+ * has one: llama's residency is engined's own to manage (`models_max` and the
+ * router's swap), so an outside release would fight it, and a TTS or STT
+ * container reloads in about a second, which is cheaper than the endpoint
+ * needed to avoid it.
+ */
+const RELEASE_ENDPOINT: Partial<Record<EngineKind, { path: string; body: unknown }>> = {
+  comfy: { path: "/free", body: { unload_models: true, free_memory: true } },
+};
 
 async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
   const res = await fetch(url);
@@ -176,6 +201,7 @@ export interface RegistryOptions {
   secretResolves?: (secret: SecretRef) => Promise<SecretOutcome>;
   /** Overridable for tests: a fast interval against a fake `/queue` response. */
   queueFetch?: QueueFetch;
+  releaseFetch?: ReleaseFetch;
   comfyPollIntervalMs?: number;
   /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
   agenticProbeRunner?: AgenticProbeRunner;
@@ -255,6 +281,7 @@ export class EngineRegistry {
   private readonly secretResolves: (secret: SecretRef) => Promise<SecretOutcome>;
   private readonly specOptions: SpecLoadOptions;
   private readonly queueFetch: QueueFetch;
+  private readonly releaseFetch: ReleaseFetch;
   private readonly comfyPollIntervalMs: number;
   private readonly agenticProbeRunner?: AgenticProbeRunner;
   private config: Config;
@@ -283,6 +310,7 @@ export class EngineRegistry {
       bunx: opts.bunx,
     };
     this.queueFetch = opts.queueFetch ?? defaultQueueFetch;
+    this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.agenticProbeRunner = opts.agenticProbeRunner;
     this.config = config;
@@ -692,6 +720,41 @@ export class EngineRegistry {
       await this.lifecycle.stop(id);
     }
     return this.statusFor(entry);
+  }
+
+  /**
+   * Drops an engine's loaded weights without stopping it -- the operation a
+   * consumer wants between phases, when the GPU is needed for something else
+   * but the container's own startup is not worth paying again. ComfyUI reloads
+   * its custom nodes on boot, which is the cost `stop` would charge here.
+   *
+   * Restricted to kinds that have such an endpoint, and never silently a
+   * no-op: a caller told the memory was released when it was not would go on
+   * to schedule work that cannot fit.
+   */
+  async release(id: string): Promise<{ released: true } | { error: string }> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      return { error: `unknown engine "${id}"` };
+    }
+    const kind = this.kindOf(entry);
+    const endpoint = kind === undefined ? undefined : RELEASE_ENDPOINT[kind];
+    if (!endpoint) {
+      return {
+        error: `"${id}" (${kind ?? "unknown kind"}) has no release endpoint; stop it instead`,
+      };
+    }
+    const status = this.lifecycle.getStatus(id);
+    if (status.state !== "running" || status.private_url === null) {
+      // Nothing is loaded, so nothing is held -- the caller's intent is
+      // already satisfied and failing here would make them special-case it.
+      return { released: true };
+    }
+    const res = await this.releaseFetch(
+      `http://${status.private_url}${endpoint.path}`,
+      endpoint.body,
+    );
+    return res.ok ? { released: true } : { error: `${id}: release failed with HTTP ${res.status}` };
   }
 
   reload(config: Config): void {

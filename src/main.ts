@@ -71,6 +71,7 @@ const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
 const STOP_RE = /^\/v1\/engines\/([^/]+)\/stop$/;
 const LOGS_RE = /^\/v1\/engines\/([^/]+)\/logs$/;
 const RESOURCES_RE = /^\/v1\/engines\/([^/]+)\/resources$/;
+const RELEASE_RE = /^\/v1\/engines\/([^/]+)\/release$/;
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
 const DEFAULT_LOG_TAIL = 200;
 const MAX_LOG_TAIL = 5000;
@@ -148,6 +149,11 @@ async function handleLogs(registry: EngineRegistry, id: string, url: URL): Promi
     : DEFAULT_LOG_TAIL;
   const res = await registry.logs(id, tail);
   return "error" in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res);
+}
+
+async function handleRelease(registry: EngineRegistry, id: string): Promise<Response> {
+  const res = await registry.release(id);
+  return "error" in res ? jsonError(STATUS_BAD_REQUEST, res.error) : Response.json(res);
 }
 
 async function handleResources(registry: EngineRegistry, id: string): Promise<Response> {
@@ -1068,6 +1074,10 @@ function routePost(
   const stopMatch = STOP_RE.exec(pathname)?.[1];
   if (stopMatch !== undefined) {
     return handleStop(ctx.registry, stopMatch);
+  }
+  const releaseMatch = RELEASE_RE.exec(pathname)?.[1];
+  if (releaseMatch !== undefined) {
+    return handleRelease(ctx.registry, releaseMatch);
   }
   if (CONTENT_ENDPOINTS.has(pathname)) {
     return handleContent(ctx, req, pathname);
