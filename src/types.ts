@@ -104,7 +104,7 @@ export interface EngineEntry {
   models_max?: number;
   idle_stop_seconds?: number;
   ready_timeout_s?: number;
-  claude_version?: string;
+  agent_version?: string;
   /** An engine that is only a remote address launches nothing. */
   kind?: EngineKind;
   base_url?: string;
@@ -238,6 +238,8 @@ export interface ContainerSpec extends SpecCommon {
  */
 export interface AgenticSpec extends SpecCommon {
   kind: "agentic-cli";
+  /** Which agent CLI this launches; `agents.ts` holds everything that differs between them. */
+  agent: string;
 }
 
 export type Spec = ContainerSpec | AgenticSpec;
@@ -359,6 +361,10 @@ export const AGENTIC_FLOOR = [
 
 /** Each dissolves the guarantee. Fatal at parse wherever they appear. */
 export const FORBIDDEN_AGENTIC_FLAGS = [
+  // opencode's own dangerous flag: "auto-approve permissions that are not
+  // explicitly denied". It cannot reach the sandbox floor, but it hands an
+  // agent shell and network without asking, so no agentic engine gets it.
+  "--auto",
   "--add-dir",
   "--dangerously-skip-permissions",
   "--allow-dangerously-skip-permissions",

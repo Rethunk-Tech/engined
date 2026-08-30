@@ -105,6 +105,9 @@ const REMOTE_SPEC_SOURCE = "(none: remote address)";
  */
 const REMOTE_AGENTIC_SPEC: AgenticSpec = {
   kind: "agentic-cli",
+  // A remote address has no spec directory to declare one, and every remote
+  // agentic engine shipped so far is a claude upstream behind a different door.
+  agent: "claude",
   serves: KIND_SERVES["agentic-cli"],
   env: [],
   command: [],
@@ -163,11 +166,13 @@ interface AgenticProbeOutcome {
  */
 export type AgenticProbeRunner = (
   engine: EngineEntry,
-  claudeVersion: string,
+  agentVersion: string,
+  /** From the spec, never the engine entry: the floor is a property of the agent. */
+  agent: string,
 ) => Promise<AgenticProbeOutcome>;
 
-function noClaudeVersionConfiguredFix(engineId: string): string {
-  return `engine "${engineId}" is agentic-cli with no claude_version configured`;
+function noAgentVersionConfiguredFix(engineId: string): string {
+  return `engine "${engineId}" is agentic-cli with no agent_version configured`;
 }
 
 function noProbeRunnerConfiguredFix(engineId: string, version: string): string {
@@ -601,32 +606,33 @@ export class EngineRegistry {
       private_url: null,
       spec_source: source,
     } as const;
-    if (engine.claude_version === undefined) {
-      return { ...base, state: "unavailable", fix: noClaudeVersionConfiguredFix(engine.id) };
+    if (engine.agent_version === undefined) {
+      return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };
     }
-    if (readVerifiedVersion(engine.id) === engine.claude_version) {
+    if (readVerifiedVersion(engine.id) === engine.agent_version) {
       return { ...base, state: "installed" };
     }
     if (this.agenticProbeRunner === undefined) {
       return {
         ...base,
         state: "unavailable",
-        fix: noProbeRunnerConfiguredFix(engine.id, engine.claude_version),
+        fix: noProbeRunnerConfiguredFix(engine.id, engine.agent_version),
       };
     }
     const outcome = await this.runAgenticProbe(
       engine,
-      engine.claude_version,
+      engine.agent_version,
+      spec.agent,
       this.agenticProbeRunner,
     );
     if (!outcome.ok) {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix(engine.id, engine.claude_version, outcome.failedProbe ?? "unknown"),
+        fix: probeFailedFix(engine.id, engine.agent_version, outcome.failedProbe ?? "unknown"),
       };
     }
-    writeVerifiedVersion(engine.id, engine.claude_version);
+    writeVerifiedVersion(engine.id, engine.agent_version);
     this.agenticProbeState.delete(engine.id);
     return { ...base, state: "installed" };
   }
@@ -642,6 +648,7 @@ export class EngineRegistry {
   private runAgenticProbe(
     engine: EngineEntry,
     version: string,
+    agent: string,
     runner: AgenticProbeRunner,
   ): Promise<AgenticProbeOutcome> {
     const cached = this.agenticProbeState.get(engine.id);
@@ -653,7 +660,7 @@ export class EngineRegistry {
         return Promise.resolve(cached.outcome);
       }
     }
-    const promise = runner(engine, version).then((outcome) => {
+    const promise = runner(engine, version, agent).then((outcome) => {
       this.agenticProbeState.set(engine.id, {
         version,
         outcome: outcome.ok ? undefined : outcome,

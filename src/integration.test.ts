@@ -82,6 +82,7 @@ status = 200
 
 const AGENTIC_SPEC = `
 kind = "agentic-cli"
+agent = "claude"
 serves = ["/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@1.0.0", "-p"]
 `;
@@ -579,11 +580,11 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
 
 test("an agentic attempt with no workdir returns 400", async () => {
   const config = baseConfig({
-    // claude_version drives buildArgv directly (not the loaded spec's own
+    // agent_version drives buildArgv directly (not the loaded spec's own
     // command array, which agentic.ts never reads) -- required for
     // execAgentic to reach the workdir check at all.
     engines: [
-      containerEngine("claude", AGENTIC_SPEC, { egress: "remote", claude_version: "1.0.0" }),
+      containerEngine("claude", AGENTIC_SPEC, { egress: "remote", agent_version: "1.0.0" }),
     ],
   });
   const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
@@ -704,7 +705,7 @@ function fakeStreamingTts(): (request: Request) => Response {
     }
     if (pathname === "/v1/tts") {
       return new Response(
-        `${JSON.stringify({ phase: "chunk", pcm, rate: 22050 })}\n${JSON.stringify({ phase: "chunk", pcm, rate: 22050 })}\n`,
+        `${JSON.stringify({ phase: "chunk", pcm, rate: 22_050 })}\n${JSON.stringify({ phase: "chunk", pcm, rate: 22_050 })}\n`,
       );
     }
     return new Response("", { status: 404 });

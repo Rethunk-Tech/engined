@@ -47,7 +47,7 @@ const ENGINE_KEYS = new Set([
   "models_max",
   "idle_stop_seconds",
   "ready_timeout_s",
-  "claude_version",
+  "agent_version",
   "kind",
   "base_url",
   "secret",
@@ -188,7 +188,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
 
   checkRemoteAddress(raw, site, file);
   const rawModelsDir = optional(raw.models_dir, "string", `${site} "models_dir"`, file);
-  const claudeVersion = optional(raw.claude_version, "string", `${site} "claude_version"`, file);
+  const agentVersion = optional(raw.agent_version, "string", `${site} "agent_version"`, file);
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
   const rawSpecDir = optional(raw.spec_dir, "string", `${site} "spec_dir"`, file);
@@ -205,7 +205,7 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
       file,
     ),
     ready_timeout_s: optional(raw.ready_timeout_s, "number", `${site} "ready_timeout_s"`, file),
-    claude_version: claudeVersion,
+    agent_version: agentVersion,
     kind: parseKind(raw, site, file),
     base_url: optional(raw.base_url, "string", `${site} "base_url"`, file),
     secret: raw.secret === undefined ? undefined : parseSecret(raw.secret, site, file),

@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { AGENT_IDS, agentCli } from "./agents.ts";
 import {
   type AgenticSpec,
   type Artifact,
@@ -57,8 +58,8 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
   if (!existsSync(file)) {
     throw new ParseError(`no spec directory for engine "${engine.id}"`, file);
   }
-  if (engine.claude_version === "latest" || engine.claude_version === "@latest") {
-    throw new ParseError('claude_version must not be "latest" or "@latest"', file);
+  if (engine.agent_version === "latest" || engine.agent_version === "@latest") {
+    throw new ParseError('agent_version must not be "latest" or "@latest"', file);
   }
 
   const raw = Bun.TOML.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
@@ -93,8 +94,8 @@ function buildSubs(
   if (engine.models_dir !== undefined) {
     subs.models_dir = engine.models_dir;
   }
-  if (engine.claude_version !== undefined) {
-    subs.claude_version = engine.claude_version;
+  if (engine.agent_version !== undefined) {
+    subs.agent_version = engine.agent_version;
   }
   if (engine.models_max !== undefined) {
     subs.models_max = String(engine.models_max);
@@ -172,6 +173,16 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
       );
     }
   }
+  if (typeof raw.agent !== "string") {
+    throw new ParseError(`agentic-cli spec needs "agent", one of: ${AGENT_IDS.join(", ")}`, file);
+  }
+  const agent = agentCli(raw.agent);
+  if (agent === undefined) {
+    throw new ParseError(
+      `unknown agent "${raw.agent}"; engined launches one of: ${AGENT_IDS.join(", ")}`,
+      file,
+    );
+  }
   const command = requireStringArray(raw.command, "command", file);
   if (command[0] !== "{bunx}") {
     throw new ParseError(
@@ -179,8 +190,19 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
       file,
     );
   }
+  // The launch argv is built from scratch in agentic.ts and this array is
+  // discarded, so this is the only moment a spec pointing the pin at some
+  // other package can be caught at all.
+  const [, pkg] = command;
+  if (pkg === undefined || !(pkg === agent.pkg || pkg.startsWith(`${agent.pkg}@`))) {
+    throw new ParseError(
+      `command[1] of an agent "${agent.id}" spec must be the "${agent.pkg}" package, never another`,
+      file,
+    );
+  }
   return {
     kind: "agentic-cli",
+    agent: agent.id,
     serves: requireStringArray(raw.serves, "serves", file),
     env: raw.env === undefined ? [] : requireStringArray(raw.env, "env", file),
     command,

@@ -26,6 +26,7 @@
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 import { stateDir } from "./paths.ts";
 
 /**
@@ -87,4 +88,39 @@ export function sandboxArgv(input: SandboxInput): string[] {
     "--",
     ...input.argv,
   ];
+}
+
+/**
+ * Resolved at launch rather than at startup: a box that only ever runs a
+ * `flags` agent needs no `bwrap` at all, and making it fatal at boot would
+ * take engined down for an engine nobody configured. `null` is refused by the
+ * caller -- there is no unsandboxed fallback, because the fallback would be
+ * running a write-capable agent loose in someone's repository.
+ */
+export function resolveBwrap(
+  env: NodeJS.ProcessEnv = process.env,
+  which: (cmd: string) => string | null = Bun.which,
+): string | null {
+  const configured = env.ENGINED_BWRAP;
+  if (configured !== undefined && configured !== "") {
+    return configured;
+  }
+  return which("bwrap");
+}
+
+/**
+ * Everything the agent needs pointed inside its own writable directory. A
+ * `--user` unit's HOME is the operator's, which the sandbox binds read-only,
+ * so an agent left pointing at it fails on its own state file rather than on
+ * anything to do with the workdir -- and that failure reads like a bug in the
+ * agent rather than the floor doing its job.
+ */
+export function sandboxEnv(home: string): Record<string, string> {
+  return {
+    HOME: home,
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_CONFIG_HOME: join(home, "config"),
+    XDG_STATE_HOME: join(home, "state"),
+    XDG_CACHE_HOME: join(home, "cache"),
+  };
 }

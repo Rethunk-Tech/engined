@@ -183,8 +183,9 @@ status = 200
 
 const CLAUDE_SPEC = `
 kind = "agentic-cli"
+agent = "claude"
 serves = ["/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
+command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 env = ["HOME"]
 `;
 
@@ -785,7 +786,7 @@ describe("the door: agentic and chain routing", () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     writeEngineSpec(root, id, CLAUDE_SPEC);
     const cfg = config({
-      engines: [engine({ id, egress: "remote", claude_version: "9.9.9" })],
+      engines: [engine({ id, egress: "remote", agent_version: "9.9.9" })],
     });
     const spawnCalls: unknown[] = [];
     const fakeSpawn: AgenticSpawn = (argv, opts) => {
@@ -823,7 +824,7 @@ describe("the door: agentic and chain routing", () => {
 describe("the door: chain skips an engine that fails its version proof", () => {
   /**
    * A chain skips an unavailable engine. An engine that
-   * cannot prove its claude_version pin is exactly "unavailable" -- the
+   * cannot prove its agent_version pin is exactly "unavailable" -- the
    * same 503 the secret-resolution path already produces (`resolveRedirect`,
    * plain 503, no `envelopeFailure`) and the chain advances past that one.
    * The version-proof 503 used to set `envelopeFailure: true`, which
@@ -839,8 +840,8 @@ describe("the door: chain skips an engine that fails its version proof", () => {
     clearVerifiedVersion("claude-b");
     const cfg = config({
       engines: [
-        engine({ id: "claude-unproved", egress: "remote", claude_version: "1.2.3" }),
-        engine({ id: "claude-b", egress: "remote", claude_version: "4.5.6" }),
+        engine({ id: "claude-unproved", egress: "remote", agent_version: "1.2.3" }),
+        engine({ id: "claude-b", egress: "remote", agent_version: "4.5.6" }),
       ],
       chains: { "chain-x": ["@/claude-unproved/x", "@/claude-b/y"] },
     });
@@ -904,7 +905,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
       // Well under bun's own per-test timeout, so a correct fix resolves
       // fast and a regression fails this test rather than hanging the suite.
       agent_timeout_seconds: 0.05,
-      engines: [engine({ id, egress: "remote", claude_version: "1.2.3" })],
+      engines: [engine({ id, egress: "remote", agent_version: "1.2.3" })],
     });
     const spawn: AgenticSpawn = (_argv, opts) =>
       new Promise((_resolve, reject) => {
@@ -947,8 +948,8 @@ describe("the door: chain routing", () => {
     // against the next hop's own log, not the response status.
     const cfg = config({
       engines: [
-        engine({ id: "claude-a", egress: "remote", claude_version: "1.2.3" }),
-        engine({ id: "claude-b", egress: "remote", claude_version: "4.5.6" }),
+        engine({ id: "claude-a", egress: "remote", agent_version: "1.2.3" }),
+        engine({ id: "claude-b", egress: "remote", agent_version: "4.5.6" }),
       ],
       chains: { "chain-x": ["@/claude-a/x", "@/claude-b/y"] },
     });
@@ -1222,7 +1223,7 @@ function kimiEngine(): EngineEntry {
     kind: "agentic-cli",
     base_url: "https://api.kimi.com/coding/",
     secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-    claude_version: "1.2.3",
+    agent_version: "1.2.3",
   });
 }
 

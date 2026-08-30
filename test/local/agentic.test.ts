@@ -44,7 +44,7 @@ function requireEnv(name: string, value: string | undefined): string {
   return value;
 }
 const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
-const claudeVersion = (): string => requireEnv("ENGINED_TEST_CLAUDE_VERSION", CLAUDE_VERSION);
+const agentVersion = (): string => requireEnv("ENGINED_TEST_CLAUDE_VERSION", CLAUDE_VERSION);
 
 const MISSING_ENV_VARS = [
   CLAUDE_VERSION === undefined ? "ENGINED_TEST_CLAUDE_VERSION" : undefined,
@@ -71,7 +71,8 @@ function scratchWorktree(): string {
 
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
   return runAgentic({
-    claudeVersion: claudeVersion(),
+    agent: "claude",
+    agentVersion: agentVersion(),
     args: {},
     envAllowlist: [...PROBE_ENV_ALLOWLIST],
     workdir,
@@ -176,7 +177,7 @@ function buildProbeGateConfig(): Config {
   const engine: EngineEntry = {
     id: PROBE_GATE_ENGINE_ID,
     egress: "remote",
-    claude_version: claudeVersion(),
+    agent_version: agentVersion(),
     spec_dir: join(PROBE_GATE_ENGINES_ROOT, "claude"),
     args: {},
   };
@@ -230,7 +231,7 @@ describe.skipIf(!AGENTIC_READY)(
           join(PROBE_GATE_VERIFIED_DIR, "verified_version"),
           "utf8",
         ).trim();
-        expect(recorded).toBe(claudeVersion());
+        expect(recorded).toBe(agentVersion());
       },
       PROBE_GATE_TIMEOUT_MS,
     );

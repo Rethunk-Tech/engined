@@ -8,10 +8,12 @@ import {
   buildArgv,
   buildChildEnv,
   defaultAgenticSpawn,
-  parseEnvelope,
   renderEmptyMcpConfig,
   runAgentic,
 } from "./agentic.ts";
+// The envelope parser moved to agents.ts with the rest of what varies per
+// agent; these cases stay here because they are about the launch path.
+import { parseClaudeEnvelope as parseEnvelope } from "./agents.ts";
 // Read-only import: proves the real reachable path (config parse), not just
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from "./config.ts";
@@ -44,7 +46,8 @@ const MANY_OTHER_ARGS: Record<string, unknown> = {
 test("buildArgv: the floor's three flags all survive a long list of other args, and none of the four forbidden flags appear", () => {
   const argv = buildArgv({
     bunx: BUNX,
-    claudeVersion: PIN,
+    agent: "claude",
+    agentVersion: PIN,
     args: MANY_OTHER_ARGS,
     mcpConfigPath: MCP_CONFIG_PATH,
   });
@@ -99,7 +102,7 @@ test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected 
 [[engine]]
 id = "claude"
 egress = "remote"
-claude_version = "1.2.3"
+agent_version = "1.2.3"
 
   [engine.args]
   tools = "Bash,Write"
@@ -112,7 +115,8 @@ claude_version = "1.2.3"
 test("buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest", () => {
   const argv = buildArgv({
     bunx: BUNX,
-    claudeVersion: PIN,
+    agent: "claude",
+    agentVersion: PIN,
     args: {},
     mcpConfigPath: MCP_CONFIG_PATH,
   });
@@ -125,7 +129,8 @@ test("buildArgv: command[0] is the given bunx path, and the pin appears literall
 test("buildArgv: --strict-mcp-config is followed literally by the rendered config path, not left bare", () => {
   const argv = buildArgv({
     bunx: BUNX,
-    claudeVersion: PIN,
+    agent: "claude",
+    agentVersion: PIN,
     args: {},
     mcpConfigPath: MCP_CONFIG_PATH,
   });
@@ -229,7 +234,8 @@ function runAgenticFixture(
   overrides: Partial<Parameters<typeof runAgentic>[0]> = {},
 ) {
   return runAgentic({
-    claudeVersion: PIN,
+    agent: "claude",
+    agentVersion: PIN,
     args: {},
     envAllowlist: ["HOME"],
     workdir: "/tmp/scratch-workdir",
@@ -378,7 +384,7 @@ function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 /** Every probe test below wires the same engine and pin through buildAgenticProbeRunner, varying only the injected spawn. */
 function runProbe(spawn: AgenticSpawn) {
   const runner = buildAgenticProbeRunner(BUNX, { spawn });
-  return runner(PROBE_ENGINE, PIN);
+  return runner(PROBE_ENGINE, PIN, "claude");
 }
 
 test("buildAgenticProbeRunner: a clean completion under both probes yields ok -- no real spawn, only the injected fake", async () => {

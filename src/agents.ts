@@ -79,6 +79,28 @@ function opencodeErrorMessage(error: unknown): string {
   return typeof error.name === "string" ? error.name : "error";
 }
 
+/** One NDJSON line as an event, or `null` for a blank or unparseable one -- neither of which counts as an event. */
+function eventOf(line: string): Record<string, unknown> | null {
+  if (line.trim() === "") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  return isRecord(parsed) ? parsed : null;
+}
+
+/** The answer an event carries, which is the empty string for every event that is not a text part. */
+function answerTextOf(event: Record<string, unknown>): string {
+  if (event.type !== "text" || !isRecord(event.part) || typeof event.part.text !== "string") {
+    return "";
+  }
+  return event.part.text;
+}
+
 /**
  * `opencode run --format json` prints one JSON object per line, not an
  * envelope: `step_start`, then a `text` event per chunk of answer, then
@@ -95,28 +117,16 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
   let failure: string | undefined;
   let events = 0;
   for (const line of stdout.split("\n")) {
-    if (line.trim() === "") {
-      continue;
-    }
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isRecord(event)) {
+    const event = eventOf(line);
+    if (event === null) {
       continue;
     }
     events += 1;
     if (event.type === "error") {
       // The first error is the cause; the ones after it are usually its wake.
       failure ??= opencodeErrorMessage(event.error);
-    } else if (
-      event.type === "text" &&
-      isRecord(event.part) &&
-      typeof event.part.text === "string"
-    ) {
-      text += event.part.text;
+    } else {
+      text += answerTextOf(event);
     }
   }
   if (events === 0) {

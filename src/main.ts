@@ -74,6 +74,7 @@ import {
   errMessage,
   FatalError,
   findModelOnEngine,
+  isContainerSpec,
   isRecord,
   MS_PER_SECOND,
 } from "./types.ts";
@@ -681,6 +682,33 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
 }
 
 /** The `agentic-cli` case. `runAgentic` itself enforces the workdir-required-400 rule. */
+/**
+ * The pin proof, and only once a workdir is in hand: the workdir-required 400
+ * is a request-shape rejection the caller owns, and it fires before an
+ * engine-availability check the server owns. `null` means nothing is wrong.
+ */
+async function proveAgenticPin(
+  ctx: DoorContext,
+  engineId: string,
+  workdir: string | undefined,
+): Promise<HopResult | null> {
+  if (workdir === undefined || workdir === "") {
+    return null;
+  }
+  const proof = await ctx.registry.start(engineId);
+  if (proof.state === "installed") {
+    return null;
+  }
+  // A plain 503, matching resolveRedirect's own secret-resolution failure: an
+  // engine that cannot prove its pin is unavailable, not a proven envelope
+  // failure, so a chain skips it (the same rule) rather than treating it as
+  // terminal.
+  return {
+    status: STATUS_UNAVAILABLE,
+    body: jsonErrorBody(proof.fix ?? `engine "${engineId}" is not installed`),
+  };
+}
+
 async function execAgentic(
   ctx: DoorContext,
   engineId: string,
@@ -693,10 +721,10 @@ async function execAgentic(
   if (!engineEntry) {
     return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(`unknown engine "${engineId}"`) };
   }
-  if (engineEntry.claude_version === undefined) {
+  if (engineEntry.agent_version === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineId}" has no claude_version configured`),
+      body: jsonErrorBody(`engine "${engineId}" has no agent_version configured`),
     };
   }
 
@@ -710,24 +738,23 @@ async function execAgentic(
   }
 
   const loaded = loadAgenticSpec(ctx, engineEntry);
+  if (isContainerSpec(loaded.spec)) {
+    // Only reachable if an engine routed here carries a container spec, which
+    // the kind check upstream already rules out -- but `agent` is what decides
+    // the floor, so it is never read off a spec that has not proven it has one.
+    return {
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),
+    };
+  }
   const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
-  // The workdir-required 400 is a request-shape rejection the caller owns;
-  // it fires before an engine-availability check the server owns.
-  if (workdir !== undefined && workdir !== "") {
-    const proof = await ctx.registry.start(engineId);
-    if (proof.state !== "installed") {
-      // A plain 503, matching resolveRedirect's own secret-resolution
-      // failure above: an engine that cannot prove its pin is unavailable,
-      // not a proven envelope failure, so a chain skips it (the same
-      // rule) rather than treating it as terminal.
-      return {
-        status: STATUS_UNAVAILABLE,
-        body: jsonErrorBody(proof.fix ?? `engine "${engineId}" is not installed`),
-      };
-    }
+  const unproved = await proveAgenticPin(ctx, engineId, workdir);
+  if (unproved !== null) {
+    return unproved;
   }
   const outcome = await runAgentic({
-    claudeVersion: engineEntry.claude_version,
+    agent: loaded.spec.agent,
+    agentVersion: engineEntry.agent_version,
     args: engineEntry.args,
     envAllowlist: loaded.spec.env,
     workdir,

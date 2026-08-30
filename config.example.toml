@@ -3,7 +3,7 @@
 # Copy this to $XDG_CONFIG_HOME/engined/config.toml (~/.config/engined/config.toml
 # on a box with no XDG_CONFIG_HOME set) and edit it for your machine: which
 # engines you actually have images for, which GGUFs you actually downloaded,
-# and which claude_version you've actually proved. A config naming a file
+# and which agent_version you've actually proved. A config naming a file
 # that isn't on disk, or an engine whose spec directory isn't installed,
 # fails loudly at parse rather than starting broken -- see src/config.ts for
 # the exact rules this file is validated against, and src/config-example.test.ts
@@ -167,8 +167,8 @@ egress         = "remote"   # required: local process, remote bytes.
 # pin before it will serve requests through it. Do not copy this value
 # assuming it's still current; it's whatever was proved on this box when
 # this example was written.
-claude_version = "2.1.247"
-# No [engine.args] output-format here: agentic.ts's OUTPUT_FORMAT_FLAGS sets
+agent_version = "2.1.247"
+# No [engine.args] output-format here: this agent's launch in agents.ts sets
 # --output-format json unconditionally in code on every launch, so this key
 # is never a real tunable -- and a config value that disagreed with it would
 # silently break every parseEnvelope call, which is the same last-wins
@@ -183,7 +183,7 @@ claude_version = "2.1.247"
 [[engine]]
 id             = "claude-kimi"
 egress         = "remote"
-claude_version = "2.1.247"
+agent_version = "2.1.247"
 base_url       = "https://api.kimi.com/coding/"
 secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
 

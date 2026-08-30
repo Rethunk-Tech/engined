@@ -84,13 +84,15 @@ obtain = "docker run --rm -v engined-kokoro-models:/models curlimages/curl -fL -
 
 const AGENTIC = `
 kind = "agentic-cli"
+agent = "claude"
 serves = ["/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@{claude_version}", "-p"]
+command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 `;
 
-/** No `{claude_version}` placeholder: loads even when the engine configures none, unlike the shipped spec. */
+/** No `{agent_version}` placeholder: loads even when the engine configures none, unlike the shipped spec. */
 const AGENTIC_NO_VERSION_PLACEHOLDER = `
 kind = "agentic-cli"
+agent = "claude"
 serves = ["/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `;
@@ -366,7 +368,7 @@ describe("installed engines", () => {
   });
 });
 
-/** A remote address that is merely a proxy: it launches nothing, so it carries no `claude_version` and is never routed through the agentic gate. */
+/** A remote address that is merely a proxy: it launches nothing, so it carries no `agent_version` and is never routed through the agentic gate. */
 const REMOTE_ENGINE = engine({
   id: "remote-proxy",
   egress: "remote",
@@ -444,14 +446,14 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
   });
 });
 
-function remoteAgenticEngine(id: string, claudeVersion?: string): EngineEntry {
+function remoteAgenticEngine(id: string, agentVersion?: string): EngineEntry {
   return engine({
     id,
     egress: "remote",
     kind: "agentic-cli",
     base_url: `https://example.com/${id}`,
     secret: { service: id, username: "u", header: "x-api-key" },
-    claude_version: claudeVersion,
+    agent_version: agentVersion,
   });
 }
 
@@ -490,7 +492,7 @@ describe("remote-address agentic engines: unavailable paths never reach a real s
     });
     const listed = (await reg.list()).engines.find((e) => e.id === id);
     expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toContain("claude_version");
+    expect(listed?.fix).toContain("agent_version");
     expect(calls).toHaveLength(0);
   });
 
@@ -560,7 +562,7 @@ describe("GET /v1/models", () => {
     writeEngineSpec(root, "comfy", COMFY_CONTAINER);
     const cfg = config({
       engines: [
-        engine({ id: "claude", egress: "remote", claude_version: "1.2.3" }),
+        engine({ id: "claude", egress: "remote", agent_version: "1.2.3" }),
         engine({ id: "kokoro" }),
         engine({ id: "comfy" }),
       ],
@@ -579,17 +581,17 @@ describe("GET /v1/models", () => {
 });
 
 function agenticEngine(id: string, version: string): EngineEntry {
-  return engine({ id, egress: "remote", claude_version: version });
+  return engine({ id, egress: "remote", agent_version: version });
 }
 
 describe("agentic engines: unproved by default", () => {
-  test("no claude_version configured is unavailable, naming the engine", async () => {
+  test("no agent_version configured is unavailable, naming the engine", async () => {
     const root = newEnginesRoot();
     writeEngineSpec(root, "agentic-verify-noversion", AGENTIC_NO_VERSION_PLACEHOLDER);
     const reg = registry(config({ engines: [engine({ id: "agentic-verify-noversion" })] }), root);
     const listed = (await reg.list()).engines.find((e) => e.id === "agentic-verify-noversion");
     expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toContain("claude_version");
+    expect(listed?.fix).toContain("agent_version");
   });
 
   test("an unproved pin with no probe runner injected is unavailable, never installed on faith", async () => {

@@ -155,7 +155,7 @@ idle_stop_seconds = 900
 [[engine]]
 id             = "claude"
 egress         = "remote"
-claude_version = "2.1.247"
+agent_version = "2.1.247"
 
   [engine.args]
   output-format = "json"
@@ -163,7 +163,7 @@ claude_version = "2.1.247"
 [[engine]]
 id             = "claude-kimi"
 egress         = "remote"
-claude_version = "2.1.247"
+agent_version = "2.1.247"
 base_url       = "https://api.kimi.com/coding/"
 secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
 

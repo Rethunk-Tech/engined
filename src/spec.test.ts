@@ -45,7 +45,7 @@ path = "/models"
 
 describe("shipped specs", () => {
   test("claude resolves clean", () => {
-    const loaded = loadSpec(engine({ claude_version: "1.2.3" }), {
+    const loaded = loadSpec(engine({ agent_version: "1.2.3" }), {
       enginesRoot: ENGINES_ROOT,
       bunx: BUNX,
     });
@@ -230,9 +230,12 @@ test("missing spec directory is fatal, naming the file", () => {
 });
 
 test("an unresolved placeholder is fatal, naming it", () => {
-  const root = specDir("x", `kind = "agentic-cli"\nserves = []\ncommand = ["{bunx}", "{nope}"]\n`);
+  const root = specDir(
+    "x",
+    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "{nope}"]\n`,
+  );
   expect(() =>
-    loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow("{nope}");
 });
 
@@ -254,30 +257,30 @@ test("spec_dir override replaces wholesale: an omitted field is absent, not inhe
 test("a port key anywhere in a spec is fatal, naming it", () => {
   const root = specDir(
     "x",
-    `kind = "agentic-cli"\nserves = []\ncommand = ["{bunx}"]\nport = 8080\n`,
+    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}"]\nport = 8080\n`,
   );
   expect(() =>
-    loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow("port");
 });
 
 test("a forbidden flag reintroduced by a spec_dir override is fatal", () => {
   const root = specDir(
     "x",
-    `kind = "agentic-cli"\nserves = []\ncommand = ["{bunx}", "--dangerously-skip-permissions"]\n`,
+    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "--dangerously-skip-permissions"]\n`,
   );
   expect(() =>
-    loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow("dissolves the read-only floor");
 });
 
 test("an agentic spec carrying a container-only key is fatal, naming the key", () => {
   const root = specDir(
     "x",
-    `kind = "agentic-cli"\nserves = []\ncommand = ["{bunx}"]\nimage = "nope"\n`,
+    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}"]\nimage = "nope"\n`,
   );
   expect(() =>
-    loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow('"image"');
 });
 
@@ -292,14 +295,17 @@ test("streaming on a kind with no chunk contract is fatal, naming the kind", () 
 });
 
 test("command[0] redirected away from {bunx} is fatal", () => {
-  const root = specDir("x", `kind = "agentic-cli"\nserves = []\ncommand = ["/usr/bin/evil"]\n`);
+  const root = specDir(
+    "x",
+    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["/usr/bin/evil"]\n`,
+  );
   expect(() =>
-    loadSpec(engine({ id: "x", claude_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow("{bunx}");
 });
 
-test("claude_version resolving to latest is fatal", () => {
+test("agent_version resolving to latest is fatal", () => {
   expect(() =>
-    loadSpec(engine({ claude_version: "latest" }), { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
+    loadSpec(engine({ agent_version: "latest" }), { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
   ).toThrow("latest");
 });
