@@ -327,3 +327,45 @@ test("a client disconnecting mid-stream still emits the call's provenance line",
   expect(record.attempts[0].ok).toBe(false);
   expect(record.attempts[0].failure).toBe("client disconnected");
 });
+
+test("a client abort stops the chain instead of advancing and billing the next provider", async () => {
+  const up = startBehaviorUpstream({
+    slow: { status: 502, delayMs: 500 },
+    second: { status: 200, body: "answer" },
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 20);
+
+  const result = await runChain(
+    ["@/slow/m", "@/second/m"],
+    baseOpts({
+      exec: makeExec({ slow: up.base, second: up.base }),
+      signal: controller.signal,
+    }),
+  );
+
+  expect(result.status).toBe(499);
+  // The whole point: a 502 normally advances, so `second` would have been
+  // called. requestLog is the only proof it was not.
+  expect(up.requestLog).toEqual(["/slow"]);
+  up.stop();
+});
+
+test("an unaborted signal leaves chain walking untouched", async () => {
+  const up = startBehaviorUpstream({
+    first: { status: 502 },
+    second: { status: 200, body: "answer" },
+  });
+
+  const result = await runChain(
+    ["@/first/m", "@/second/m"],
+    baseOpts({
+      exec: makeExec({ first: up.base, second: up.base }),
+      signal: new AbortController().signal,
+    }),
+  );
+
+  expect(result.status).toBe(200);
+  expect(up.requestLog).toEqual(["/first", "/second"]);
+  up.stop();
+});

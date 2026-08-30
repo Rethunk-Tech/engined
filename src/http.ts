@@ -10,6 +10,8 @@ export const STATUS_BAD_REQUEST = 400;
 export const STATUS_FORBIDDEN = 403;
 export const STATUS_NOT_FOUND = 404;
 export const STATUS_PAYLOAD_TOO_LARGE = 413;
+/** The client hung up before an answer. Nobody reads this body; it exists so the provenance line and the chain's own return value agree on why it stopped. */
+export const STATUS_CLIENT_CLOSED = 499;
 export const STATUS_BAD_GATEWAY = 502;
 export const STATUS_UNAVAILABLE = 503;
 

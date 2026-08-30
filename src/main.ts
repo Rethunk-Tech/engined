@@ -869,6 +869,8 @@ interface ContentRequest {
   pathname: string;
   rawModel: string;
   body: Record<string, unknown>;
+  /** The client's signal, carried this far so an abandoned chat stops the chain instead of running every hop to its full budget. */
+  signal: AbortSignal;
 }
 
 /** Chat and embeddings: `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
@@ -877,7 +879,7 @@ async function handleChatOrEmbeddings(
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
 ): Promise<Response> {
-  const { pathname, rawModel, body } = content;
+  const { pathname, rawModel, body, signal } = content;
   const hops = resolved.kind === "chain" ? [...resolved.hops] : [hopFromDispatch(resolved)];
   const chainName = resolved.kind === "chain" ? resolved.chain : null;
 
@@ -889,6 +891,7 @@ async function handleChatOrEmbeddings(
     egressOf: (seg) => egressOf(ctx, seg),
     resolveEngine: (seg) => resolveEngineSegment(seg, ctx.getConfig()) ?? seg,
     timeoutMs: chatTimeoutMs(ctx),
+    signal,
     exec: buildHopExec(ctx, {
       pathname,
       rawBody: body,
@@ -1173,7 +1176,12 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
-  return handleChatOrEmbeddings(ctx, resolved, { pathname, rawModel: rawModel ?? "", body });
+  return handleChatOrEmbeddings(ctx, resolved, {
+    pathname,
+    rawModel: rawModel ?? "",
+    body,
+    signal: req.signal,
+  });
 }
 
 /**

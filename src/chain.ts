@@ -10,6 +10,7 @@ import {
   HTTP_SERVER_ERROR_MIN,
   jsonErrorBody,
   STATUS_BAD_REQUEST,
+  STATUS_CLIENT_CLOSED,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
@@ -55,6 +56,8 @@ export interface RunChainOptions {
    * it is about to attempt.
    */
   timeoutMs: (hop: string) => number;
+  /** The client's own signal. Distinct from the per-hop timeout: when this fires there is no one left to answer, so the chain stops instead of advancing and billing the next provider. */
+  signal?: AbortSignal;
   exec: HopExec;
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void;
@@ -178,9 +181,13 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
   const engine = opts.resolveEngine(rawEngine);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs(hop));
+  // The hop dies on whichever comes first: its own budget, or the client leaving.
+  const signal = opts.signal
+    ? AbortSignal.any([controller.signal, opts.signal])
+    : controller.signal;
   const start = Date.now();
   try {
-    const result = await opts.exec(hop, controller.signal);
+    const result = await opts.exec(hop, signal);
     clearTimeout(timer);
     const outcome = classifyResult(result);
     return {
@@ -199,7 +206,12 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
     };
   } catch (err) {
     clearTimeout(timer);
-    const failure = controller.signal.aborted ? "timeout" : `connection failed: ${errMessage(err)}`;
+    // Checked before the timeout: a client abort leaves `controller` untouched, so the timeout arm would otherwise claim it.
+    const failure = opts.signal?.aborted
+      ? "client disconnected"
+      : controller.signal.aborted
+        ? "timeout"
+        : `connection failed: ${errMessage(err)}`;
     return {
       attempt: { engine, model, ok: false, failure, duration_ms: Date.now() - start },
       advance: true,
@@ -242,6 +254,9 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
 
   const attempts: Attempt[] = [];
   for (const hop of truncated) {
+    if (opts.signal?.aborted) {
+      return abandoned(attempts, opts);
+    }
     const outcome = await runOneHop(hop, opts);
     attempts.push(outcome.attempt);
     if (outcome.advance) {
@@ -250,10 +265,24 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     return finalizeTerminal(outcome.attempt, outcome.result as HopResult, attempts, opts);
   }
 
+  if (opts.signal?.aborted) {
+    return abandoned(attempts, opts);
+  }
+
   emit(opts, attempts, null);
   return {
     status: STATUS_UNAVAILABLE,
     body: { ...jsonErrorBody("every engine in this chain failed"), attempts },
+    engineUsed: null,
+  };
+}
+
+/** The client left mid-chain. Advancing would bill the next provider for an answer nobody is waiting for, so the walk stops here and the attempts so far are still recorded. */
+function abandoned(attempts: Attempt[], opts: RunChainOptions): ChainResult {
+  emit(opts, attempts, null);
+  return {
+    status: STATUS_CLIENT_CLOSED,
+    body: { ...jsonErrorBody("client disconnected"), attempts },
     engineUsed: null,
   };
 }
