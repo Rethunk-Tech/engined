@@ -33,8 +33,8 @@ const LOCAL = process.env.ENGINED_LOCAL === "1";
 
 /** A warm round trip measured ~11s; a cold one also resolves the npm package. */
 const ROUND_TRIP_TIMEOUT_MS = 240_000;
-/** The probe gate makes two real round trips in sequence. */
-const PROBE_GATE_TIMEOUT_MS = 480_000;
+/** The sandbox probe is a mount and a failed write: milliseconds, no model. */
+const PROBE_GATE_TIMEOUT_MS = 10_000;
 
 const MISSING = [
   VERSION === undefined ? "ENGINED_TEST_OPENCODE_VERSION" : undefined,
@@ -123,11 +123,15 @@ describe(title("opencode, through this door, under the sandbox"), () => {
   );
 
   test.skipIf(!READY)(
-    "the version-proof gate's own probes pass against this pin",
+    "the version-proof gate passes, and does it without a model round trip",
     async () => {
       const runner = buildAgenticProbeRunner(BUNX as string, DOOR);
       const engine = { id: "opencode", agent_model: MODEL } as EngineEntry;
+      const startedAt = Date.now();
       expect(await runner(engine, VERSION as string, "opencode")).toEqual({ ok: true });
+      // The point of the sandbox probe, not incidental: an agentic status poll
+      // waits on this, and an LLM in it made the gate take minutes.
+      expect(Date.now() - startedAt).toBeLessThan(PROBE_GATE_TIMEOUT_MS);
     },
     PROBE_GATE_TIMEOUT_MS,
   );

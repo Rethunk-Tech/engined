@@ -131,8 +131,16 @@ directory, so the exposure is not even bounded to the workdir. Its own
 configuration therefore cannot be a floor. Under `bwrap` it can be shown
 instead, and was: with that permissive config planted in the workdir and its
 parent, opencode ran its `write` tool and then fell back to `printf >`, and
-both returned `Read-only file system` with the tree unchanged. That is the
-`permissive-config-ignored` probe, and it runs against every new pin.
+both returned `Read-only file system` with the tree unchanged. That run is
+kept as `test/local/opencode.test.ts`.
+
+The gate itself does not repeat that round trip. A sandbox floor does not come
+from the pin, so a pin bump cannot drop it; what a bump must re-check is that
+this box still has a working `bwrap`. The `sandbox-refuses-writes` probe binds
+a scratch directory the way a real launch binds a workdir and requires a plain
+`sh` write into it to fail — the kernel does not care which binary is writing,
+so that proves what an agent round trip would, in milliseconds and with no LLM
+in the loop to be nondeterministic about.
 
 `cursor-agent` does not ship. Its read-only mode could not be demonstrated: it
 refuses to run at all in an untrusted directory, and with `--plan --trust` it
