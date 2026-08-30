@@ -1465,7 +1465,10 @@ if (import.meta.main) {
       // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
       // from firing per request or per status poll -- it only ever invokes
       // the runner when the configured pin differs from the one last proved.
-      agenticProbeRunner: buildAgenticProbeRunner(bunx),
+      agenticProbeRunner: buildAgenticProbeRunner(
+        bunx,
+        `http://127.0.0.1:${startupConfig.listen_port}/v1`,
+      ),
     });
   } catch (err) {
     process.stderr.write(`${errMessage(err)}\n`);

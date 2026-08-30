@@ -34,7 +34,8 @@ design rather than a silent no-op.
 | `models_max` | llama occupancy floor; fatal below the number of distinct roles configured |
 | `idle_stop_seconds` | how long an engine may sit unheld before it stops |
 | `ready_timeout_s` | how long a start may take to pass its readiness probe |
-| `claude_version` | agentic engines; substituted as `{claude_version}`, never `@latest` |
+| `agent_version` | agentic engines; substituted as `{agent_version}`, never `@latest` |
+| `agent_model` | agentic engines whose CLI engined configures (opencode); the model id this door serves, e.g. `ornith` |
 | `kind`, `base_url`, `secret` | an engine that is only a remote address |
 
 On a `[[model]]`, `keep_resident = true` asks for that GGUF to be the one its

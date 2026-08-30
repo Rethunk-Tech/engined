@@ -383,7 +383,7 @@ function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 
 /** Every probe test below wires the same engine and pin through buildAgenticProbeRunner, varying only the injected spawn. */
 function runProbe(spawn: AgenticSpawn) {
-  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+  const runner = buildAgenticProbeRunner(BUNX, "http://127.0.0.1:29200/v1", { spawn });
   return runner(PROBE_ENGINE, PIN, "claude");
 }
 

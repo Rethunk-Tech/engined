@@ -41,7 +41,7 @@ mounted files). `config.toml` names it and supplies install-specific values.
 Remote-only engines stay wholly in config: `base_url`, `secret`, `egress`.
 
 Spec-shipped details that fail silently when dropped (Comfy preview method,
-kokoro entrypoint, whisper `--inference-path`, agentic read-only flags) belong
+kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
 in spec, not operator config. Tunables go in `[engine.args]` / `[model.args]`;
 engined's closed key set is `ENGINE_KEYS` in `src/config.ts`. Precedence:
 **model beats engine, config beats spec, floor beats everything.** On remotes,
@@ -64,6 +64,12 @@ remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.
 
 **Agentic guarantee is integrity, not confidentiality.** An agentic call cannot
 change a worktree; it can read anything this uid can open.
+
+**Where the floor comes from is per-agent** (`src/agents.ts`): argv flags for
+claude, a `bwrap` sandbox for opencode, which has no such flag and whose own
+config is overridable from any ancestor of the workdir. An agent declared
+`sandbox` never launches without one. Adding an agent means adding its launch,
+its stdout parser and the probe that re-proves its floor on every new pin.
 
 **No door logs a prompt.** The provenance line is the only per-call record and
 carries no request content; an agentic child's stderr is dropped, never

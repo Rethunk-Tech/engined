@@ -59,8 +59,10 @@ export interface SandboxInput {
  * read-only after it -- explicit rather than merely inherited, because the
  * workdir is the one path this floor exists to protect.
  *
- * `/tmp` and `/var/tmp` are tmpfs rather than read-only: an agent that cannot
- * write a temporary file fails in ways that look like a bug in the agent.
+ * `/tmp` is a tmpfs rather than read-only, because an agent that cannot write a
+ * temporary file fails in ways that look like a bug in the agent. It is the
+ * only one: `sandboxEnv` points TMPDIR at it, and every additional tmpfs is
+ * another path that could mask a workdir mounted underneath it.
  */
 export function sandboxArgv(input: SandboxInput): string[] {
   return [
@@ -74,8 +76,6 @@ export function sandboxArgv(input: SandboxInput): string[] {
     "/dev",
     "--tmpfs",
     "/tmp",
-    "--tmpfs",
-    "/var/tmp",
     "--bind",
     input.home,
     input.home,
@@ -122,5 +122,14 @@ export function sandboxEnv(home: string): Record<string, string> {
     XDG_CONFIG_HOME: join(home, "config"),
     XDG_STATE_HOME: join(home, "state"),
     XDG_CACHE_HOME: join(home, "cache"),
+    // The child's environment is an allowlist, so it has no TMPDIR unless one
+    // is put there. Without it `bunx` refuses to run at all, with an error
+    // about a temporary directory that says nothing about a sandbox --
+    // measured, and the reason this is not left to the ambient environment.
+    TMPDIR: "/tmp",
+    BUN_TMPDIR: "/tmp",
+    // Inside the writable home rather than the tmpfs, so a fetched agent
+    // package survives to the next launch instead of being downloaded again.
+    BUN_INSTALL: join(home, "bun"),
   };
 }

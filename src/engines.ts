@@ -532,7 +532,7 @@ export class EngineRegistry {
    * (the existing behaviour every other remote engine gets), and only once
    * it resolves does the version-proof gate in `agenticStatus` run. An
    * engine that is merely a remote address and launches nothing carries no
-   * `claude_version` and is never routed there.
+   * `agent_version` and is never routed there.
    */
   private async remoteStatus(entry: Entry): Promise<EngineStatus> {
     const { engine } = entry;

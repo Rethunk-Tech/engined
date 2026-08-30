@@ -29,7 +29,9 @@ Edit the config, then `curl -s localhost:29200/v1/engines` — runbook: **[HUMAN
 - **Start on demand, stop when idle** — leases counted; idle 35B returns ~27 GiB.
 - **One resident model per role** — occupancy is engined's job.
 - **Chains with provenance** — fallback lists record which engine answered.
-- **Agentic CLIs as an engine kind** — `claude` with writing disabled.
+- **Agentic CLIs as an engine kind** — `claude` and `opencode`, both with
+  writing disabled: claude by its own flags, opencode by a `bwrap` sandbox,
+  because it has no flag that would do it.
 - **Failures name their own fix** — literal `docker build` or `secret-tool store`.
 
 ## Documentation

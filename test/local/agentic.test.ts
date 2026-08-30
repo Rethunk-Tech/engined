@@ -220,7 +220,7 @@ describe.skipIf(!AGENTIC_READY)(
         const proven = new EngineRegistry(buildProbeGateConfig(), {
           enginesRoot: PROBE_GATE_ENGINES_ROOT,
           bunx: bunx(),
-          agenticProbeRunner: buildAgenticProbeRunner(bunx()),
+          agenticProbeRunner: buildAgenticProbeRunner(bunx(), "http://127.0.0.1:29200/v1"),
         });
         const afterStatus = await proven.start(PROBE_GATE_ENGINE_ID);
         expect(afterStatus.state).toBe("installed");

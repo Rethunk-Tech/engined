@@ -9,6 +9,13 @@ Agentic CLIs are an engine *kind*, not a separate API. They are launched with
 writing structurally disabled, so they read a repository and return text like
 any other completion, and engined never writes to a caller's worktree.
 
+**Where that floor comes from is per-agent**, and `src/agents.ts` says which.
+`claude` honours one passed in argv (`--safe-mode --tools Read,Grep,Glob
+--strict-mcp-config`), and `assertNoForbiddenFlags` stops a config unsaying
+it. `opencode` exposes no such flag at all, so engined runs it under `bwrap`
+with the workdir bound read-only. An agent declared `sandbox` never launches
+without it: a missing `bwrap` refuses the call rather than running loose.
+
 The guarantee is **integrity, not confidentiality.** `workdir` says where an
 agent begins, not what it may read. Measured: under the full read-only floor,
 an agent asked for `/etc/hostname` returns it, with no permission denial.
@@ -24,8 +31,18 @@ files directly; what engined adds is convenience and an egress path.
 acceptable.**
 
 The read-only floor is version-specific, so a proved version is only proof for
-that version. Bumping `claude_version` re-runs the probe before engined will
-serve requests through the new pin.
+that version. Bumping `agent_version` re-runs that agent's probes before
+engined will serve requests through the new pin — and which probes those are
+is per-agent too, because what could give an agent its tools back differs: a
+planted settings hook for claude, a permissive `opencode.json` for opencode.
+
+**The two floors are not equally shaped.** claude's also restricts which
+*tools* it has, so it cannot run shell or fetch a URL. The sandbox restricts
+writing only: it shares the host network namespace, because the agent has to
+reach this door to reach a model at all. That costs no guarantee this document
+makes — confidentiality was never one, per the paragraphs above — but it does
+remove an incidental protection claude happened to provide. An agent pointed
+at a private repository is trusted with its contents under either floor.
 
 ## The browser is a caller too
 
@@ -97,10 +114,29 @@ request content. An agentic child's stderr is dropped rather than forwarded to
 journald: it is the one stream that can echo the prompt or the worktree the
 child read, and a stream cannot be told apart from a diagnostic.
 
-## Why cursor-agent was not shipped
+## Which agents ship, and why
 
-Only `claude` ships. `cursor-agent`'s read-only mode could not be
-demonstrated: it refuses to run at all in an untrusted directory, and with
-`--plan --trust` it wrote nothing but produced no output either, so "the mode
-held" and "it never ran" are indistinguishable. A kind whose read-only
-enforcement has not been *shown* is not shipped.
+The rule is the same for all of them: **an agent whose read-only enforcement
+has not been *shown* is not shipped.** What differs is how each one was shown.
+
+`claude` ships on its own flags. The floor is argv, and the probes re-prove it
+against every new pin.
+
+`opencode` ships on the sandbox, and only on the sandbox. Measured against
+1.18.25: it has no tool or permission flag; an `OPENCODE_CONFIG` floor denying
+`edit`, `bash` and `write` was overridden by a project `opencode.json`; the
+built-in read-only `plan` agent was redefined the same way, because its rules
+are last-wins; and config is discovered by walking *up* from the working
+directory, so the exposure is not even bounded to the workdir. Its own
+configuration therefore cannot be a floor. Under `bwrap` it can be shown
+instead, and was: with that permissive config planted in the workdir and its
+parent, opencode ran its `write` tool and then fell back to `printf >`, and
+both returned `Read-only file system` with the tree unchanged. That is the
+`permissive-config-ignored` probe, and it runs against every new pin.
+
+`cursor-agent` does not ship. Its read-only mode could not be demonstrated: it
+refuses to run at all in an untrusted directory, and with `--plan --trust` it
+wrote nothing but produced no output either, so "the mode held" and "it never
+ran" are indistinguishable. The sandbox would floor it as well as it floors
+opencode; what is missing is a demonstration that it does anything useful
+under one.

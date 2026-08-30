@@ -91,7 +91,8 @@ curl -s -X POST localhost:29200/v1/engines/local-llama/start | jq
 | engine stuck `unavailable` | read its `fix` field and run that command |
 | a 400 listing qualified forms | bare model id served by two engines — use `@/<engine>/<model>` |
 | config change had no effect on a running engine | takes effect at the engine's next start |
-| an agentic engine refuses to serve | `claude_version` bumped; re-prove the read-only floor |
+| an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
+| `opencode` refuses to serve | no `bwrap` on the box, or no `agent_model` on the engine — the `fix` field says which |
 
 ## Uninstall
 

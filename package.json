@@ -8,7 +8,7 @@
     "format": "biome check --write .",
     "test": "bun test src",
     "build": "bun build src/main.ts --target=bun --outfile=dist/main.js",
-    "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} ENGINED_TEST_CLAUDE_VERSION=${ENGINED_TEST_CLAUDE_VERSION:-$(grep -m1 '^claude_version' config.example.toml | tr -cd '0-9.')} bun test test/local",
+    "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} ENGINED_TEST_CLAUDE_VERSION=${ENGINED_TEST_CLAUDE_VERSION:-$(awk '/^id *= *\"claude\"/{f=1} f && /^agent_version/{print; exit}' config.example.toml | tr -cd '0-9.')} ENGINED_TEST_OPENCODE_VERSION=${ENGINED_TEST_OPENCODE_VERSION:-$(awk '/^id *= *\"opencode\"/{f=1} f && /^agent_version/{print; exit}' config.example.toml | tr -cd '0-9.')} bun test test/local",
     "ci": "turbo run typecheck lint test build"
   },
   "devDependencies": {
