@@ -33,6 +33,7 @@ const EXPECTED_ENGINE_IDS = [
   "kokoro",
   "local-llama",
   "openai",
+  "opencode",
   "piper",
   "whisper",
   "whisper-fast",
@@ -42,7 +43,7 @@ const EXPECTED_ENGINE_IDS = [
 // models are dropped: nothing here can be dispatched to.
 const EXPECTED_DISABLED_IDS = ["claude", "claude-kimi", "elevenlabs", "openai"];
 
-const EXPECTED_MODEL_IDS = ["embed", "ornith", "vision"];
+const EXPECTED_MODEL_IDS = ["code", "embed", "ornith", "vision"];
 
 /** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
 function placeExampleModels(modelsDir: string): void {
@@ -87,10 +88,10 @@ test("config.example.toml parses through the real loadConfig()", () => {
       .sort(byName),
   ).toEqual(EXPECTED_DISABLED_IDS);
 
-  expect(config.chains["chain-private"]).toEqual(["@/local/ornith"]);
+  expect(config.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);
   // Written with three remote hops after the local one; all three engines are
   // disabled, so what survives parse is the local hop alone.
-  expect(config.chains["chain-public"]).toEqual(["@/local/ornith"]);
+  expect(config.chains["chain-public"]).toEqual(["@/local-llama/ornith"]);
 
   // whisper's spec needs models_dir on the wire (its bind mount and
   // artifact-fetch commands both use it) -- the exact gap the operator's

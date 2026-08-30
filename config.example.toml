@@ -187,6 +187,29 @@ agent_version = "2.1.247"
 base_url       = "https://api.kimi.com/coding/"
 secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
 
+# opencode is a local agentic CLI pointed back at THIS door, so a turn taken
+# through it runs on the box's own GPU and is dispatched, chained and
+# accounted for like every other call here. egress is "none" for that reason:
+# the prompt does not leave the machine.
+#
+# agent_model is required for this agent and meaningless for claude. It is the
+# model id this door serves, resolved back through listen_port -- engined
+# writes opencode's provider config naming it, because opencode is configured
+# by file rather than by flags.
+#
+# The floor: opencode exposes NO flag that restricts its tools, and its config
+# floor is overridable by an opencode.json in the workdir or any ancestor of
+# it (measured -- config is discovered by walking up, and rules are
+# last-wins). So engined runs it under bwrap with the workdir bound read-only,
+# and refuses the launch outright if bwrap is missing. That floor stops
+# writing; it does not stop reading, because the sandbox shares the host
+# network namespace in order to reach this door at all.
+[[engine]]
+id            = "opencode"
+egress        = "none"
+agent_version = "1.18.25"
+agent_model   = "ornith"
+
 # Agentic models carry no filename and no role: nothing is resident: llama's
 # occupancy rule doesn't apply here. A model's id is passed to the CLI
 # verbatim as the upstream model to run -- it has to be the name the
@@ -198,6 +221,10 @@ engine = "claude"
 [[model]]
 id     = "k3"
 engine = "claude-kimi"
+
+[[model]]
+id     = "code"
+engine = "opencode"
 
 # ---------------------------------------------------------------------------
 # Media engines: no [[model]] entries -- each serves a fixed job, selected by
@@ -340,6 +367,13 @@ engine = "openai"
 # consumer points at to say "this prompt does not leave the box". Keeping it
 # a chain (rather than a bare model alias) means adding a second local
 # engine later is a config edit, not a consumer change.
+#
+# These hops name their engine outright rather than using the `local`
+# shorthand, and that stopped being optional the moment `opencode` was added:
+# `local` means "the one engine with egress none that serves a model", and
+# with two of them it resolves to nothing and says so. The qualified form is
+# canonical anyway (docs/http-api.md), and it is what a config gains a second
+# local engine by writing.
 [chain]
-chain-private = ["@/local/ornith"]
-chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5", "@/openai/gpt-5.4-mini"]
+chain-private = ["@/local-llama/ornith"]
+chain-public  = ["@/local-llama/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5", "@/openai/gpt-5.4-mini"]

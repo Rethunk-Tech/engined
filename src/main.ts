@@ -755,6 +755,15 @@ async function execAgentic(
   const outcome = await runAgentic({
     agent: loaded.spec.agent,
     agentVersion: engineEntry.agent_version,
+    // An agent CLI reaches its model back through engined's own door, so an
+    // opencode turn is dispatched, chained and accounted for like any other.
+    upstream:
+      engineEntry.agent_model === undefined
+        ? undefined
+        : {
+            baseUrl: `http://127.0.0.1:${config.listen_port}/v1`,
+            model: engineEntry.agent_model,
+          },
     args: engineEntry.args,
     envAllowlist: loaded.spec.env,
     workdir,

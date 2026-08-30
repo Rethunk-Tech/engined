@@ -105,6 +105,12 @@ export interface EngineEntry {
   idle_stop_seconds?: number;
   ready_timeout_s?: number;
   agent_version?: string;
+  /**
+   * The model the agent CLI itself talks to, resolved against engined's own
+   * door. Required by an agent engined has to configure (opencode); unused by
+   * one that carries its upstream in the environment (claude).
+   */
+  agent_model?: string;
   /** An engine that is only a remote address launches nothing. */
   kind?: EngineKind;
   base_url?: string;

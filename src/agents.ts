@@ -11,6 +11,9 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, isRecord } from "./types.ts";
 
 export interface AgenticOutcome {
@@ -39,6 +42,20 @@ export interface AgentCli {
   launch: (mcpConfigPath: string) => string[];
   /** The only place this agent's success is decided. */
   parse: (stdout: string) => AgenticOutcome;
+  /**
+   * Renders whatever this agent needs in order to be pointed at a model, and
+   * returns the environment naming it. Absent for an agent that takes its
+   * upstream some other way -- claude's is a base URL and a key in the env,
+   * already handled as a remote redirect.
+   */
+  configure?: (upstream: Upstream) => Record<string, string>;
+}
+
+export interface Upstream {
+  /** An OpenAI-compatible base, normally engined's own door. */
+  baseUrl: string;
+  /** The model id at that base, e.g. `ornith`. */
+  model: string;
 }
 
 /**
@@ -145,6 +162,44 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
   return { ok: true, result: text };
 }
 
+/**
+ * opencode is configured by file, not by flags, so engined writes the file.
+ * It names an openai-compatible provider at the given base -- normally
+ * engined's own door, which is what lets an opencode turn reach a local model
+ * and still be accounted for like every other call through it.
+ *
+ * The `permission` and `tools` blocks are defence in depth and NOTHING MORE.
+ * Measured: a project `opencode.json` in the workdir or any ancestor of it
+ * overrides every one of them, because opencode's rules are last-wins. The
+ * floor is `sandbox.ts`; this only closes the ordinary case where no such
+ * file exists, and must never be described as what makes opencode safe.
+ */
+function renderOpencodeConfig(upstream: Upstream): Record<string, string> {
+  const path = join(stateDir(), "agentic-opencode.json");
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        engined: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "engined",
+          // The door does not check a key on loopback, but the provider
+          // package requires the field to be present at all.
+          options: { baseURL: upstream.baseUrl, apiKey: "unused" },
+          models: { [upstream.model]: { name: upstream.model } },
+        },
+      },
+      model: `engined/${upstream.model}`,
+      permission: { "*": "deny", edit: "deny", bash: "deny", webfetch: "deny" },
+      tools: { write: false, edit: false, patch: false, bash: false },
+    }),
+    "utf8",
+  );
+  return { OPENCODE_CONFIG: path };
+}
+
 const AGENTS: Record<string, AgentCli> = {
   claude: {
     id: "claude",
@@ -160,6 +215,7 @@ const AGENTS: Record<string, AgentCli> = {
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
     launch: () => ["run", "--format", "json"],
     parse: parseOpencodeEvents,
+    configure: renderOpencodeConfig,
   },
 };
 

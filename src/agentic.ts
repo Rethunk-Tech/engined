@@ -35,7 +35,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { type AgenticOutcome, agentCli, type FloorKind } from "./agents.ts";
+import { type AgenticOutcome, agentCli, type FloorKind, type Upstream } from "./agents.ts";
 import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
@@ -212,6 +212,8 @@ interface RunAgenticInput {
   bunx: string;
   /** Overrides `resolveBwrap` for a test. Only ever consulted for a `sandbox` agent. */
   bwrap?: string | null;
+  /** Where this agent's own model lives. Required by an agent with a `configure`; ignored by one without. */
+  upstream?: Upstream;
   ambientEnv?: NodeJS.ProcessEnv;
   /**
    * Set on the child unconditionally, after the allowlist — a different
@@ -271,6 +273,17 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   const env: Record<string, string> = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
   };
+  if (agent.configure !== undefined) {
+    if (input.upstream === undefined) {
+      return {
+        status: STATUS_BAD_REQUEST,
+        ok: false,
+        failure: `agent "${agent.id}" has to be pointed at a model; set agent_model on the engine`,
+        envelopeFailure: false,
+      };
+    }
+    Object.assign(env, agent.configure(input.upstream));
+  }
   if (agent.floor === "sandbox") {
     const bwrap = input.bwrap === undefined ? resolveBwrap() : input.bwrap;
     if (bwrap === null || bwrap === "") {
