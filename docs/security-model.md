@@ -142,9 +142,26 @@ a scratch directory the way a real launch binds a workdir and requires a plain
 so that proves what an agent round trip would, in milliseconds and with no LLM
 in the loop to be nondeterministic about.
 
-`cursor-agent` does not ship. Its read-only mode could not be demonstrated: it
-refuses to run at all in an untrusted directory, and with `--plan --trust` it
-wrote nothing but produced no output either, so "the mode held" and "it never
-ran" are indistinguishable. The sandbox would floor it as well as it floors
-opencode; what is missing is a demonstration that it does anything useful
-under one.
+`cursor-agent`'s floor is **argv, like claude's** — measured against
+2026.08.28-50f0823, and it does not yet ship only because its `AGENTS` entry is
+still to be written.
+
+Under `--mode plan --trust` it answered a question about a file in the workspace
+with the file's actual contents, so it demonstrably ran; asked to create a file
+in the same mode it wrote nothing, said *"Plan mode blocks file writes"*, and
+reached for its plan tool instead of a write tool. A permissive
+`.cursor/cli-config.json` allowing `Write` and `Shell(*)`, planted in the
+workdir and its parent the way opencode's was, did not move it. The control is
+what makes those refusals mean anything: the same request under plain `-p`
+created the file, so writes were available in that directory throughout.
+
+**Read it with `--output-format stream-json`, never `text`.** A refused write
+emits an empty `text` stream — which is exactly the ambiguity that sank the
+first attempt. The tool calls and the refusal are visible only in the JSON
+stream, so the format is part of the floor's evidence, not a preference.
+
+Two things this does not settle. Whether `--force`/`--yolo` or
+`--sandbox disabled` override `--mode plan` was not tested, so all three belong
+in the forbidden-flag assertion regardless of what they turn out to do. And a
+config planted at those two paths is the repo-borne threat, not proof that no
+config anywhere can unsay the flag.
