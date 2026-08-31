@@ -14,14 +14,14 @@ import {
 import {
   BUNX,
   engine as baseEngine,
-  model as baseModel,
+  route as baseRoute,
   ENGINES_ROOT,
   inspectSinglePort,
   makeTestRoot,
   portResult,
   tempPresetPath,
 } from "./test-support.ts";
-import type { EngineEntry, ModelEntry } from "./types.ts";
+import type { EngineEntry, ResolvedRoute } from "./types.ts";
 
 const CONTAINER_PORT = 8080;
 const HOST_PORT = 55_123;
@@ -36,13 +36,17 @@ function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return baseEngine({ id: "local-llama", models_dir: "/models-host", models_max: 3, ...overrides });
 }
 
-function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return baseModel({
-    id: "a",
+/** `id` names the route's `model` field -- kept as `id` here so every fixture below still reads as naming a GGUF, not a route. */
+function model(
+  overrides: { id?: string } & Omit<Partial<ResolvedRoute>, "model"> = {},
+): ResolvedRoute {
+  const { id, ...rest } = overrides;
+  return baseRoute({
     engine: "local-llama",
+    model: id ?? "a",
     filename: "a.gguf",
     role: "chat",
-    ...overrides,
+    ...rest,
   });
 }
 
@@ -165,7 +169,7 @@ function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
 /** Wires the given models to a router talking to `httpClient` over a fresh lifecycle. */
 function routerWithClient(
   e: EngineEntry,
-  models: ModelEntry[],
+  models: ResolvedRoute[],
   httpClient: HttpClient,
 ): LlamaRouter {
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe);
@@ -175,14 +179,14 @@ function routerWithClient(
 /** Wires the given models to a router with the default `fakeLlama()` client. */
 function routerFor(
   e: EngineEntry,
-  models: ModelEntry[],
+  models: ResolvedRoute[],
 ): { calls: RecordedCall[]; router: LlamaRouter } {
   const { client, calls } = fakeLlama();
   return { calls, router: routerWithClient(e, models, client) };
 }
 
 /** A single "a" model wired to a router with the default `fakeLlama()` client. */
-function singleModelRouter(): { e: EngineEntry; a: ModelEntry; router: LlamaRouter } {
+function singleModelRouter(): { e: EngineEntry; a: ResolvedRoute; router: LlamaRouter } {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const { router } = routerFor(e, [a]);
@@ -192,7 +196,7 @@ function singleModelRouter(): { e: EngineEntry; a: ModelEntry; router: LlamaRout
 /** Sends one warm-up chat so "a" is resident, then reports how many loads that took. */
 async function warmUpAndCountLoads(
   router: LlamaRouter,
-  a: ModelEntry,
+  a: ResolvedRoute,
   calls: RecordedCall[],
 ): Promise<number> {
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
@@ -234,8 +238,8 @@ function gatedFirstChat(): {
  * before it can issue its own, distinguishing second request. */
 async function startGatedChat(
   e: EngineEntry,
-  models: ModelEntry[],
-  a: ModelEntry,
+  models: ResolvedRoute[],
+  a: ResolvedRoute,
 ): Promise<{
   router: LlamaRouter;
   calls: RecordedCall[];
