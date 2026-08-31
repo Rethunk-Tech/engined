@@ -20,7 +20,7 @@ import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from ".
 
 import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
 
-/** Exported so the local tier asserts against the real prefix rather than a hand-built copy. */
+/** The prefix on every container engined starts, so a stray one is identifiable by name alone. */
 export const NAME_PREFIX = "engined-";
 const READY_POLL_INTERVAL_MS = 250;
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
@@ -32,7 +32,6 @@ const NO_SUCH_CONTAINER = /no such container/i;
 /**
  * Carries `specDigest` on every container engined starts, so a container
  * found running after an unclean exit can say what it was launched from.
- * Exported for the local tier, which reads it off real docker.
  */
 export const SPEC_LABEL = "engined.spec";
 
