@@ -422,3 +422,42 @@ test("a buffered speech request is unchanged and never asks for chunks", async (
   expect(res.contentType).toBe("audio/wav");
   expect(Buffer.from(res.bytes ?? new Uint8Array()).toString()).toBe("wav");
 });
+
+test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry', async () => {
+  const frames = [
+    JSON.stringify({ phase: "synthesizing", step: 1, step_limit: 1000 }),
+    JSON.stringify({ phase: "synthesizing", step: 500, step_limit: 1000 }),
+    JSON.stringify({
+      phase: "chunk",
+      pcm: Buffer.from([1, 2, 3, 4]).toString("base64"),
+      rate: 24_000,
+    }),
+    // The terminal frame's whole-utterance WAV is not forwarded: the caller
+    // already has those samples, and an unvetted field is not a contract.
+    JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
+  ].join("\n");
+  let asked: unknown;
+  const res = await handleSpeech(
+    { model: "chatterbox", input: "hi", stream: "ndjson" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    (_url, init) => {
+      asked = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response(frames));
+    },
+  );
+
+  expect((asked as { chunks?: boolean }).chunks).toBe(true);
+  expect(res.contentType).toBe("application/x-ndjson");
+  const text = await new Response(res.stream).text();
+  const out = text
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+  expect(out).toEqual([
+    { phase: "synthesizing", step: 1, step_limit: 1000 },
+    { phase: "synthesizing", step: 500, step_limit: 1000 },
+    { phase: "chunk", pcm: Buffer.from([1, 2, 3, 4]).toString("base64"), rate: 24_000 },
+    { phase: "done" },
+  ]);
+});

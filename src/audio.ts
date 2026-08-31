@@ -30,6 +30,7 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonErrorBody,
+  NDJSON_CONTENT_TYPE,
   pcmContentType,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -59,8 +60,13 @@ export interface SpeechRequestBody {
    * Deliver audio as it is synthesized instead of after all of it is. Opt-in
    * because it changes what comes back: PCM rather than a WAV, since a WAV's
    * header carries a length nothing knows until the end.
+   *
+   * `"ndjson"` streams the engine's own frames instead of raw bytes, so a
+   * caller gets synthesis progress as well as audio. A progress bar is the
+   * whole reason a consumer would otherwise reach past the door to the
+   * container, and reaching past the door skips recording and egress.
    */
-  stream?: boolean;
+  stream?: boolean | "ndjson";
 }
 
 export interface DoorResponse {
@@ -136,6 +142,8 @@ interface Frame {
   pcm?: unknown;
   rate?: unknown;
   detail?: unknown;
+  step?: unknown;
+  step_limit?: unknown;
 }
 
 /** Every parseable NDJSON line, including a last one the engine did not newline-terminate. */
@@ -225,6 +233,70 @@ async function streamedSpeech(
 }
 
 /**
+ * Forwards the engine's own frames rather than raw samples: `synthesizing` with
+ * `step`/`step_limit` where the engine reports them, `chunk` with base64 `pcm`
+ * and its rate, and `error` with its detail.
+ *
+ * Re-serialized rather than passed through byte for byte, for the same reason
+ * `streamedSpeech` drops the terminal frame: it carries a whole-utterance WAV
+ * the caller already has as chunks, and doubling the payload to forward a
+ * field nobody reads is not passthrough, it is waste. Every field here is one
+ * the door has vetted, so an engine gaining a new one does not silently become
+ * part of this contract.
+ *
+ * No leading status decision to make: unlike the PCM path there is no content
+ * type that depends on a rate only the first chunk knows, so the response
+ * commits immediately and a synthesis that never produces audio ends as a
+ * final `error` frame instead of a 502.
+ */
+function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
+  const frames = ndjsonFrames(body);
+  const encoder = new TextEncoder();
+  return {
+    status: STATUS_OK,
+    contentType: NDJSON_CONTENT_TYPE,
+    stream: new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await frames.next();
+        if (done) {
+          controller.close();
+          return;
+        }
+        const out = vettedFrame(value);
+        if (out !== undefined) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(out)}\n`));
+        }
+      },
+      async cancel() {
+        await frames.return(undefined);
+      },
+    }),
+  };
+}
+
+/** The fields the door forwards, and nothing an engine invents beside them. */
+function vettedFrame(frame: Frame): Record<string, unknown> | undefined {
+  if (typeof frame.phase !== "string") {
+    return undefined;
+  }
+  const out: Record<string, unknown> = { phase: frame.phase };
+  if (typeof frame.step === "number") {
+    out.step = frame.step;
+  }
+  if (typeof frame.step_limit === "number") {
+    out.step_limit = frame.step_limit;
+  }
+  if (typeof frame.detail === "string") {
+    out.detail = frame.detail;
+  }
+  if (frame.phase === "chunk" && typeof frame.pcm === "string" && typeof frame.rate === "number") {
+    out.pcm = frame.pcm;
+    out.rate = frame.rate;
+  }
+  return out;
+}
+
+/**
  * A frame-level failure cannot become a status code once bytes are committed,
  * so a mid-stream error frame ends the stream. The caller sees short audio,
  * which is the honest signal available at that point.
@@ -292,7 +364,8 @@ export async function handleSpeech(
     return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
   }
 
-  const streaming = req.stream === true;
+  const ndjson = req.stream === "ndjson";
+  const streaming = req.stream === true || ndjson;
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
     method: "POST",
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
@@ -307,7 +380,7 @@ export async function handleSpeech(
     if (body === null) {
       return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts streamed no body`);
     }
-    return await streamedSpeech(req.model, body);
+    return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.model, body);
   }
 
   const audio = extractAudioFromNdjson(await res.text());

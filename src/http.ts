@@ -27,6 +27,8 @@ export const JSON_CONTENT_TYPE = "application/json";
 export const SSE_CONTENT_TYPE = "text/event-stream";
 export const TEXT_CONTENT_TYPE = "text/plain";
 export const WAV_CONTENT_TYPE = "audio/wav";
+/** Frame-per-line, so a caller reads progress as it lands rather than after the body ends. */
+export const NDJSON_CONTENT_TYPE = "application/x-ndjson";
 /**
  * Streamed speech. The rate and encoding ride in the type because there is no
  * container to carry them: signed 16-bit little-endian mono, at whatever the

@@ -17,7 +17,7 @@ treated as a caller.
 | --- | --- | --- |
 | `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
 | `/openai/v1/embeddings` | POST | `openai-http` |
-| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized |
+| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/models` | GET | every dispatchable `model` string |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
