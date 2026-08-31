@@ -18,6 +18,7 @@ import {
   type EngineStart,
   handleSpeech,
   handleTranscription,
+  SPEECH_DOOR_KEYS,
   type SpeechRequestBody,
   type TranscriptionRequestBody,
 } from "./audio.ts";
@@ -1055,11 +1056,18 @@ async function handleAudioSpeech(
   }
   const { engineId } = audio;
   const start = audioStart(ctx);
+  const extra = Object.fromEntries(
+    Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
+  );
   const speechReq: SpeechRequestBody = {
     model: engineId,
     input: typeof body.input === "string" ? body.input : "",
     response_format: typeof body.response_format === "string" ? body.response_format : undefined,
     stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
+    voice: typeof body.voice === "string" ? body.voice : undefined,
+    speed: typeof body.speed === "number" ? body.speed : undefined,
+    instructions: typeof body.instructions === "string" ? body.instructions : undefined,
+    ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);

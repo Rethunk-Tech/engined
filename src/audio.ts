@@ -67,7 +67,36 @@ export interface SpeechRequestBody {
    * container, and reaching past the door skips recording and egress.
    */
   stream?: boolean | "ndjson";
+  /** OpenAI's own speech fields, forwarded under the engine's names for them. */
+  voice?: string;
+  speed?: number;
+  instructions?: string;
+  /**
+   * Every other body field, forwarded to the engine untouched.
+   *
+   * The OpenAI SDKs ship `extra_body` precisely so a compatible server can be
+   * handed parameters the standard shape has no room for, and engined's TTS
+   * engines have several: chatterbox takes a reference-voice path and a
+   * language, and a new one will take something nobody has thought of yet.
+   * A closed set here would mean a door edit per engine capability, which is
+   * the friction the spec table exists to avoid.
+   *
+   * Door-only fields are stripped before this is built, so nothing engined
+   * interprets is also forwarded.
+   */
+  extra?: Record<string, unknown>;
 }
+
+/** Fields the door reads itself, and so never passes on as engine parameters. */
+export const SPEECH_DOOR_KEYS = new Set([
+  "model",
+  "input",
+  "response_format",
+  "stream",
+  "voice",
+  "speed",
+  "instructions",
+]);
 
 export interface DoorResponse {
   status: number;
@@ -379,7 +408,17 @@ export async function handleSpeech(
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
     method: "POST",
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify({ text: req.input, chunks: streaming }),
+    body: JSON.stringify({
+      text: req.input,
+      chunks: streaming,
+      // The engine's spellings: `prompt` is what chatterbox calls what OpenAI
+      // calls `instructions`. Undefined values are dropped by JSON.stringify,
+      // so an unasked-for field is absent rather than null.
+      voice: req.voice,
+      speed: req.speed,
+      prompt: req.instructions,
+      ...req.extra,
+    }),
   });
   if (!res.ok) {
     return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts returned ${res.status}`);

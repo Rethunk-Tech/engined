@@ -843,3 +843,57 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
   const lines = (await res.text()).split("\n").filter((l) => l.length > 0);
   expect(JSON.parse(lines[0] ?? "{}")).toEqual({ phase: "synthesizing", step: 3, step_limit: 9 });
 });
+
+test("speech forwards OpenAI's own fields under the engine's names, and carries unknown ones through", async () => {
+  // The OpenAI SDKs ship extra_body so a compatible server can be handed
+  // parameters the standard shape has no room for. chatterbox has several --
+  // a reference-voice path, a language -- and a closed set here would cost a
+  // door edit per engine capability.
+  let sent: Record<string, unknown> = {};
+  const fake = startFakeUpstream(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (pathname === "/v1/tts") {
+      sent = (await request.json()) as Record<string, unknown>;
+      const audio = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
+      return new Response(`${JSON.stringify({ phase: "done", audio })}\n`);
+    }
+    return new Response("", { status: 404 });
+  });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const door = createDoor(baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] }), {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec,
+  });
+
+  const res = await door.fetch(
+    req("POST", "/openai/v1/audio/speech", {
+      body: {
+        model: "chatterbox",
+        input: "hi",
+        voice: "af_heart",
+        speed: 1.25,
+        instructions: "Speak with controlled rage.",
+        language: "en",
+        reference_voice_path: "/voices/a.wav",
+      },
+    }),
+  );
+  expect(res.status).toBe(200);
+
+  // OpenAI's names map to the engine's: `instructions` is what chatterbox calls `prompt`.
+  expect(sent.voice).toBe("af_heart");
+  expect(sent.speed).toBe(1.25);
+  expect(sent.prompt).toBe("Speak with controlled rage.");
+  // Unknown fields ride through untouched.
+  expect(sent.language).toBe("en");
+  expect(sent.reference_voice_path).toBe("/voices/a.wav");
+  // Door-only fields are never passed on as engine parameters.
+  expect(sent).not.toHaveProperty("model");
+  expect(sent).not.toHaveProperty("input");
+  expect(sent).not.toHaveProperty("stream");
+  expect(sent).not.toHaveProperty("instructions");
+});
