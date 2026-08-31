@@ -10,10 +10,19 @@
 # for the test that keeps this file itself honest.
 #
 # Every first-class key below is one of a closed set (src/config.ts's
-# ENGINE_KEYS / MODEL_KEYS) -- a typo'd key fails parse by design rather than
-# doing nothing silently. Whatever isn't first-class for a given engine
-# belongs in that engine's [engine.args] table and reaches its process argv
-# verbatim.
+# ENGINE_KEYS / MODEL_KEYS / UPSTREAM_KEYS / ROUTE_KEYS / CHAIN_KEYS) -- a
+# typo'd key fails parse by design rather than doing nothing silently.
+# Whatever isn't first-class for a given engine belongs in that engine's
+# [engine.args] table; whatever isn't first-class for a given route belongs
+# in that route's [route.args] table. Both reach the process argv verbatim.
+#
+# Five tables describe a machine. An [[upstream]] is where the bytes for a
+# request come from. An [[engine]] is a way to execute a request. A [[model]]
+# (optional -- declare one only where there's a capability worth recording)
+# is a name with capabilities. A [[route]] pairs an engine with an upstream
+# and, where one applies, a model, and carries everything specific to that
+# pairing: filename, role, keep_resident, args. A [[chain]] is an ordered
+# fallback list of route addresses. None of the four owns another.
 
 listen_port           = 29200 # IANA-unassigned.
 chat_timeout_seconds  = 1200  # covers a cold load of a 25 GB-class GGUF plus prefill.
@@ -23,18 +32,53 @@ chat_timeout_seconds  = 1200  # covers a cold load of a 25 GB-class GGUF plus pr
                               # request plus generation can approach the old ceiling.
 agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, not seconds.
 
-# Engines and chains that are configured below but not served. An engine named
-# here is not startable and not dispatchable: it is reported by
-# /engined/v1/engines as `disabled` with `state = "unavailable"` and nothing else
-# probed, its [[model]] entries resolve to nothing, and any chain hop
-# onto it drops out of that chain (a chain left with no hops drops too). A
-# name here that is neither an engine nor a chain is fatal, so a typo cannot
-# quietly leave something running.
+# `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]
+# takes it out of service without deleting it. A disabled engine stays
+# reported by /engined/v1/engines as `disabled` with `state = "unavailable"`
+# and its routes drop; a disabled upstream drops every route naming it; a
+# disabled route drops just that pairing, siblings survive; a disabled chain
+# is not served at all. A chain hop whose engine, upstream or route is
+# disabled drops silently out of that chain rather than failing it -- a chain
+# left with no hops drops too.
 #
-# This box answers locally: every engine below that would send a prompt, or a
-# recording, to someone else's GPU stays declared -- for the day that changes
-# -- and off.
-disabled = ["claude", "claude-kimi", "openai", "elevenlabs"]
+# This box answers locally: claude, elevenlabs and openai would each send a
+# prompt or a recording to someone else's GPU, so they stay declared below --
+# for the day that changes -- and disabled.
+
+# ---------------------------------------------------------------------------
+# Upstreams: where the bytes for a route actually come from.
+# ---------------------------------------------------------------------------
+
+# Reserved: this box. Every route that runs here names it explicitly.
+[[upstream]]
+id     = "local"
+egress = "none"
+
+# Moonshot serves an Anthropic-shaped endpoint, so an agentic engine built for
+# Claude can be pointed at it with no protocol change. `wire = "anthropic"` is
+# the whole reason the route pairing below works.
+[[upstream]]
+id       = "moonshot"
+base_url = "https://api.kimi.com/coding/"
+secret   = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+egress   = "remote"
+wire     = "anthropic"
+
+#   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
+[[upstream]]
+id       = "elevenlabs"
+base_url = "https://api.elevenlabs.io/v1"
+secret   = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key" }
+egress   = "remote"
+
+# Reports unavailable, naming its own fix, until:
+#   secret-tool store --label='openai-api' service openai-api username default
+[[upstream]]
+id       = "openai"
+base_url = "https://api.openai.com/v1"
+secret   = { service = "openai-api", username = "default", header = "authorization" }
+egress   = "remote"
+wire     = "openai"
 
 # ---------------------------------------------------------------------------
 # local-llama: the one local openai-http engine, router mode over llama.cpp.
@@ -45,7 +89,6 @@ disabled = ["claude", "claude-kimi", "openai", "elevenlabs"]
 # -- image, devices and the container command live in the spec, not here.
 [[engine]]
 id                = "local-llama"
-egress            = "none"
 # engined expands the tilde to an absolute path for the bind mount, routing
 # `~/.local/share/` through the same XDG_DATA_HOME-aware base its own install
 # directory uses -- so this tree stays that directory's sibling, never inside
@@ -62,26 +105,26 @@ ready_timeout_s   = 180
 idle_stop_seconds = 900
 
   # llama-server's own process flags. Whatever isn't first-class above lands
-  # here untouched; a [[model]]'s own [model.args] wins over the same key.
+  # here untouched; a route's own [route.args] wins over the same key.
   [engine.args]
   parallel     = -1      # llama.cpp's auto: 4 slots sharing ONE unified ctx pool,
                           # not 4 windows of ctx-size. Fine as an engine-level
                           # default for the small roles; ornith overrides it below
                           # to buy real context. Full reasoning: spec.toml.
-  ctx-size     = 32768    # floor for any model whose own [model.args] omits it.
+  ctx-size     = 32768    # floor for any route whose own [route.args] omits it.
   cache-type-k = "q8_0"
   cache-type-v = "q8_0"
   # --no-models-autoload is NOT a config knob: router mode + per-role
   # occupancy is what this engine kind IS, and it's structural in the spec.
 
-# `engine` binds a model to the engine that serves it -- required, because
-# once a second openai-http engine exists which llama-server holds a given
-# id is no longer inferable. `filename` must sit under that engine's
-# models_dir and must actually exist on disk; both are checked at parse, not
-# deferred to a 400 on first request.
-[[model]]
-id       = "ornith"
+# `upstream` is `local` here since this engine only ever serves this box's
+# own llama.cpp. `filename` must sit under the engine's models_dir and must
+# actually exist on disk; both are checked at parse, not deferred to a 400 on
+# first request.
+[[route]]
 engine   = "local-llama"
+upstream = "local"
+model    = "ornith"
 filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
 role     = "chat"  # chat | vision | embedding. Required: occupancy is one
                     # resident GGUF per role, so without a role models_max is
@@ -93,12 +136,12 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
                          # idle-stop stops the container rather than a model,
                          # so the engine's share of the pool is never returned.
 
-  # A model's [model.args] section is the rendered llama-server preset INI
-  # for that model, passed through verbatim -- the channel proven to reach
+  # A route's [route.args] section is the rendered llama-server preset INI
+  # for that route, passed through verbatim -- the channel proven to reach
   # argv (POST /models/load's own args array is not). Omit spec-* entirely
   # on a headless (non-draft) GGUF: naming them there is llama-server exiting
   # 1 at load, and that failure isn't checkable at config parse time.
-  [model.args]
+  [route.args]
   spec-type        = "draft-mtp"
   spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
   spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
@@ -117,9 +160,10 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
 # Embeddings live under the same per-role occupancy as chat/vision. Picked
 # for native 32768 context -- a header that declares a shorter window needs
 # RoPE scaling to stretch, which is one more thing to get wrong.
-[[model]]
-id       = "embed"
+[[route]]
 engine   = "local-llama"
+upstream = "local"
+model    = "embed"
 filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 role     = "embedding"
 
@@ -130,21 +174,22 @@ role     = "embedding"
   # /proc/<pid>/cmdline on the embed child: this key renders as `--embeddings`
   # in its real argv, and a request through the door then returns a
   # 1024-length vector instead of 501.
-  [model.args]
+  [route.args]
   embedding = true
 
 # Vision: the GGUF and its mmproj both sit under models_dir, so the role is
-# registered like any other. mmproj is an ordinary [model.args] key, not
+# registered like any other. mmproj is an ordinary [route.args] key, not
 # first-class -- check output fidelity against a known image before treating
 # vision as working; a broken mmproj build can return the wrong content
 # silently rather than erroring.
-[[model]]
-id       = "vision"
+[[route]]
 engine   = "local-llama"
+upstream = "local"
+model    = "vision"
 filename = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf"
 role     = "vision"
 
-  [model.args]
+  [route.args]
   # Passed through verbatim, so this is the path as the CONTAINER sees it --
   # models_dir is bind-mounted at /models, and llama does not resolve
   # mmproj relative to the model file.
@@ -160,8 +205,8 @@ role     = "vision"
 # prepended by engined in code, never written here -- a file is a place it
 # could be removed from. Everything else about the invocation is yours.
 [[engine]]
-id             = "claude"
-egress         = "remote"   # required: local process, remote bytes.
+id            = "claude"
+disable       = true   # sends every prompt to Anthropic; leave off until that's wanted.
 # bunx fetches exactly this pin. Whatever you put here must be a version
 # YOU have proved -- engined re-runs the read-only-floor probe against a new
 # pin before it will serve requests through it. Do not copy this value
@@ -175,27 +220,31 @@ agent_version = "2.1.247"
 # duplication class as the read-only floor. [engine.args] still applies to
 # whatever claude flags actually ARE yours to set (max-turns, model, ...).
 
-# A remote address launches nothing, so it has no spec directory and its
-# whole shape lives here. This is also the only place a port literal is
-# legitimate, because it's someone else's port, not one Docker assigns.
+# No upstream: ambient means the CLI's own subscription login rather than an
+# API token, and an ambient route's egress is always "remote".
+[[route]]
+engine = "claude"
+model  = "sonnet-5"
+
 # Moonshot serves an Anthropic-shaped endpoint, so this is the same agentic
-# kind as `claude` with a different upstream and key, not a second protocol.
-[[engine]]
-id             = "claude-kimi"
-egress         = "remote"
-agent_version = "2.1.247"
-base_url       = "https://api.kimi.com/coding/"
-secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+# kind as the route above with a different upstream and a different model id
+# -- not a second protocol. `k3` is passed to the CLI verbatim as the
+# upstream model to run, so it has to be the name Moonshot actually serves,
+# not a prettier local alias.
+[[route]]
+engine   = "claude"
+upstream = "moonshot"
+model    = "k3"
 
 # opencode is a local agentic CLI pointed back at THIS door, so a turn taken
 # through it runs on the box's own GPU and is dispatched, chained and
-# accounted for like every other call here. egress is "none" for that reason:
-# the prompt does not leave the machine.
+# accounted for like every other call here. Its route names the `local`
+# upstream for that reason: the prompt does not leave the machine.
 #
-# agent_model is required for this agent and meaningless for claude. It is the
-# model id this door serves, resolved back through listen_port -- engined
-# writes opencode's provider config naming it, because opencode is configured
-# by file rather than by flags.
+# agent_model is required for this agent and meaningless for claude. It is
+# the model id this door serves, resolved back through listen_port --
+# engined writes opencode's provider config naming it, because opencode is
+# configured by file rather than by flags.
 #
 # The floor: opencode exposes NO flag that restricts its tools, and its config
 # floor is overridable by an opencode.json in the workdir or any ancestor of
@@ -206,38 +255,31 @@ secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header
 # network namespace in order to reach this door at all.
 [[engine]]
 id            = "opencode"
-egress        = "none"
 agent_version = "1.18.25"
 agent_model   = "ornith"
 
-# Agentic models carry no filename and no role: nothing is resident: llama's
-# occupancy rule doesn't apply here. A model's id is passed to the CLI
-# verbatim as the upstream model to run -- it has to be the name the
-# upstream actually serves ("k3"), not a prettier local alias.
-[[model]]
-id     = "sonnet-5"
-engine = "claude"
-
-[[model]]
-id     = "k3"
-engine = "claude-kimi"
-
-[[model]]
-id     = "code"
-engine = "opencode"
+# The model a caller names to run an opencode task -- passed through like any
+# other agentic model id, not tied to agent_model above.
+[[route]]
+engine   = "opencode"
+upstream = "local"
+model    = "code"
 
 # ---------------------------------------------------------------------------
-# Media engines: no [[model]] entries -- each serves a fixed job, selected by
-# engine id rather than a GGUF choice. They idle longer than llama.cpp: a
-# media model reload is cheap next to a 25 GB GGUF swap, and jobs arrive in
-# bursts rather than back-to-back.
+# Media engines: each serves a fixed job via a modelless route
+# (@/engine/upstream), selected by engine id rather than a choice of files.
+# They idle longer than llama.cpp: a media model reload is cheap next to a
+# 25 GB GGUF swap, and jobs arrive in bursts rather than back-to-back.
 # ---------------------------------------------------------------------------
 
 [[engine]]
 id                = "chatterbox"
-egress            = "none"
 idle_stop_seconds = 1800
 # No models_dir: chatterbox's weights are baked into its image at build time.
+
+[[route]]
+engine   = "chatterbox"
+upstream = "local"
 
 # Chatterbox Turbo, kept alongside the one above rather than replacing it: a
 # different checkpoint with a one-step diffusion decoder, English-only, and
@@ -247,14 +289,20 @@ idle_stop_seconds = 1800
 # MIOPEN_FIND_MODE=FAST, baked into this image; the rest is the model.
 [[engine]]
 id                = "chatterbox-fast"
-egress            = "none"
 idle_stop_seconds = 1800
+
+[[route]]
+engine   = "chatterbox-fast"
+upstream = "local"
 
 [[engine]]
 id                = "kokoro"
-egress            = "none"
 idle_stop_seconds = 1800
 # Same posture as chatterbox: weights are image-baked, nothing to mount.
+
+[[route]]
+engine   = "kokoro"
+upstream = "local"
 
 # The CPU voice. Same image-baked posture as the two above, and the only
 # engine here that asks for no GPU at all -- which is the reason to pick it
@@ -262,12 +310,14 @@ idle_stop_seconds = 1800
 # stays resident, instead of contending with it.
 [[engine]]
 id                = "piper"
-egress            = "none"
 idle_stop_seconds = 1800
+
+[[route]]
+engine   = "piper"
+upstream = "local"
 
 [[engine]]
 id                = "whisper"
-egress            = "none"
 # Required here, unlike chatterbox/kokoro: whisper's spec.toml bind-mounts
 # this path read-only and its own artifact-fetch commands write into it. An
 # engine that omits models_dir while its spec needs one fails loudly at spec
@@ -275,6 +325,10 @@ egress            = "none"
 models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
+
+[[route]]
+engine   = "whisper"
+upstream = "local"
 
 # The same image and the same models_dir as the engine above, carrying a
 # smaller model file: engines/whisper-fast/spec.toml is where that difference
@@ -286,58 +340,60 @@ ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a contain
 # English-only.
 [[engine]]
 id                = "whisper-fast"
-egress            = "none"
 models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s   = 300
 
-# The remote STT engine, and the only one that is not a container. A remote
-# address launches nothing, so it declares no spec_dir, no models_dir and no
-# idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
-# the engine id it names on /openai/v1/audio/transcriptions: "whisper" and
-# "whisper-fast" stay on this box, "elevenlabs" does not, and `egress` is
-# what says so.
-#
-#   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
-[[engine]]
-id       = "elevenlabs"
-kind     = "stt"       # required: with no spec directory there is nothing else to read it from.
-egress   = "remote"
-base_url = "https://api.elevenlabs.io/v1"
-secret   = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key" }
+[[route]]
+engine   = "whisper-fast"
+upstream = "local"
 
-# On a remote engine these are wire parameters rather than process flags --
-# nothing is launched. `model_id` is deliberately NOT the door's `model`: on
-# this door `model` names the engine, so ElevenLabs' own model id can only
-# come from here. Forwarding the door's value verbatim would send the string
-# "elevenlabs" as a model id and earn a 422.
+# The remote STT engine, and the only one that is not a container. A remote
+# address launches nothing, so its engine declares no models_dir and no
+# idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
+# the route it names on /openai/v1/audio/transcriptions: "whisper" and
+# "whisper-fast" stay on this box, "elevenlabs" does not, and the upstream is
+# what says so.
+[[engine]]
+id      = "elevenlabs"
+kind    = "stt"       # required: with no spec directory there is nothing else to read it from.
+disable = true         # sends every recording to ElevenLabs; leave off until that's wanted.
+
+  # On a remote engine these are wire parameters rather than process flags --
+  # nothing is launched. model_id is deliberately NOT the door's model
+  # segment: this route carries no model, so ElevenLabs' own model id can
+  # only come from here. Forwarding the door's engine id verbatim would send
+  # the string "elevenlabs" as a model id and earn a 422.
   [engine.args]
   model_id = "scribe_v1"
 
+[[route]]
+engine   = "elevenlabs"
+upstream = "elevenlabs"
+
 [[engine]]
 id                = "comfy"
-egress            = "none"
 # Comfy's model tree is a host directory like local-llama's, not baked into
 # the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
-# it's reached via POST /engined/v1/engines/comfy/start and the private_url that
-# returns, never dispatched to by model id.
+# it's reached via POST /engined/v1/engines/comfy/start and the private_url
+# that returns, or addressed directly as @/comfy/local -- never dispatched to
+# by a model id.
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 
+[[route]]
+engine   = "comfy"
+upstream = "local"
+
 # A remote OpenAI-shaped engine: no spec directory, no container, nothing to
-# start -- `base_url` is the whole shape, the same as the remote STT engine
-# above. This is what lets a consumer stop carrying its own provider key and
-# its own primary/fallback ordering: put the key here, name the engine in a
-# chain, and engined owns both.
-#
-# Reports unavailable, naming its own fix, until:
-#   secret-tool store --label='openai-api' service openai-api username default
+# start -- its upstream's base_url is the whole shape, the same as the remote
+# STT upstream above. This is what lets a consumer stop carrying its own
+# provider key and its own primary/fallback ordering: put the key on the
+# upstream, name the route in a chain, and engined owns both.
 [[engine]]
-id       = "openai"
-kind     = "openai-http"
-egress   = "remote"
-base_url = "https://api.openai.com/v1"
-secret   = { service = "openai-api", username = "default", header = "authorization" }
+id      = "openai"
+kind    = "openai-http"
+disable = true   # sends every prompt to OpenAI; leave off until that's wanted.
 
   # Wire defaults for every request through this engine. A caller that sets
   # the same key in its own body wins; these only fill what it left out, and a
@@ -345,19 +401,20 @@ secret   = { service = "openai-api", username = "default", header = "authorizati
   [engine.args]
   reasoning_effort = "medium"
 
-# Remote models carry no filename and no role -- nothing is resident, so
-# llama's occupancy rule does not apply. The id is passed upstream verbatim,
-# so it must be the name the provider actually serves.
-[[model]]
-id     = "gpt-5.4-mini"
-engine = "openai"
+# Remote routes carry no filename and no role -- nothing is resident, so
+# llama's occupancy rule does not apply. The model id is passed upstream
+# verbatim, so it must be the name the provider actually serves.
+[[route]]
+engine   = "openai"
+upstream = "openai"
+model    = "gpt-5.4-mini"
 
 # A second hosted id on the same engine: a consumer that needs vision through
-# this door names it the way it names any other model, and engined resolves
-# the key. Remote models carry no role -- occupancy is a llama concern.
-[[model]]
-id     = "gpt-5.4"
-engine = "openai"
+# this door names it the way it names any other model.
+[[route]]
+engine   = "openai"
+upstream = "openai"
+model    = "gpt-5.4"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
@@ -367,13 +424,15 @@ engine = "openai"
 # consumer points at to say "this prompt does not leave the box". Keeping it
 # a chain (rather than a bare model alias) means adding a second local
 # engine later is a config edit, not a consumer change.
-#
-# These hops name their engine outright rather than using the `local`
-# shorthand, and that stopped being optional the moment `opencode` was added:
-# `local` means "the one engine with egress none that serves a model", and
-# with two of them it resolves to nothing and says so. The qualified form is
-# canonical anyway (docs/http-api.md), and it is what a config gains a second
-# local engine by writing.
-[chain]
-chain-private = ["@/local-llama/ornith"]
-chain-public  = ["@/local-llama/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5", "@/openai/gpt-5.4-mini"]
+[[chain]]
+id   = "chain-private"
+hops = ["@/local-llama/ornith"]
+
+[[chain]]
+id   = "chain-public"
+hops = [
+  "@/local-llama/ornith",
+  "@/claude/moonshot/k3",
+  "@/claude/sonnet-5",
+  "@/openai/gpt-5.4-mini",
+]
