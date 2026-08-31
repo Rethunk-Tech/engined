@@ -1,5 +1,5 @@
 /**
- * `POST /v1/audio/speech`: translates a TTS engine's native NDJSON
+ * `POST /openai/v1/audio/speech`: translates a TTS engine's native NDJSON
  * `{audio: base64 WAV, alignment}` at `POST /v1/tts` into OpenAI audio bytes.
  * `response_format` is honoured by rejection, not translation: the only
  * format any TTS engine emits is WAV, so a request for anything else is a 400
@@ -11,7 +11,7 @@
  * straight from the engine's `private_url`; that path is accepted, not
  * something this module needs to guard against.
  *
- * `POST /v1/audio/transcriptions`: whisper's own `--inference-path` is the
+ * `POST /openai/v1/audio/transcriptions`: whisper's own `--inference-path` is the
  * OpenAI path itself, so the request needs no translation — only
  * `response_format` decides whether the reply is unwrapped to bare text or
  * passed through as JSON. `language` is a per-request field that reaches the

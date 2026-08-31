@@ -93,7 +93,7 @@ export interface EngineEntry {
   egress: Egress;
   /**
    * Configured but not served: named in the top-level `disabled` list. Kept
-   * on the entry rather than filtered out of `Config` so `GET /v1/engines`
+   * on the entry rather than filtered out of `Config` so `GET /engined/v1/engines`
    * can report it as off — which is the difference an operator needs between
    * "turned off here" and "gone from the config".
    */
@@ -226,7 +226,7 @@ export interface ContainerSpec extends SpecCommon {
   /**
    * This engine's `/v1/tts` emits per-chunk NDJSON frames, so the door can
    * forward audio as it is synthesized. A `tts` key only: it is what makes
-   * `"stream": true` on `POST /v1/audio/speech` servable, and no other route
+   * `"stream": true` on `POST /openai/v1/audio/speech` servable, and no other route
    * has a chunk contract to honour. Off unless the engine's app says
    * otherwise — an engine that cannot chunk and claims it can hands the
    * caller a 502 on every streamed request.
@@ -295,7 +295,7 @@ export interface EngineStatus {
    */
   roles?: RoleContention[];
   /**
-   * Whether `"stream": true` on `POST /v1/audio/speech` is servable by this
+   * Whether `"stream": true` on `POST /openai/v1/audio/speech` is servable by this
    * engine. Reported only on the kind that serves that route at all: `false`
    * elsewhere would read as "streaming is turned off here" rather than "there
    * is no streaming to have". Without it a consumer's only way to learn that

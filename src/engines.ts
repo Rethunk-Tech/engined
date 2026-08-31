@@ -1,7 +1,7 @@
 /**
  * The one consumer and operator surface: composes config, spec loading and
- * the container lifecycle into `GET /v1/engines`, `GET /v1/models` and
- * `POST /v1/engines/:id/start`. Nothing here talks to docker or parses TOML
+ * the container lifecycle into `GET /engined/v1/engines`, `GET /openai/v1/models` and
+ * `POST /engined/v1/engines/:id/start`. Nothing here talks to docker or parses TOML
  * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
@@ -122,7 +122,7 @@ function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
  * login keyring unlocks (lingering is enabled here specifically so engined
  * starts before any graphical login), and a cached failure would need a
  * reload to clear once the operator signs in rather than just recovering
- * on the next `GET /v1/engines`.
+ * on the next `GET /engined/v1/engines`.
  */
 function defaultSecretResolves(secret: SecretRef): Promise<SecretOutcome> {
   return resolveSecret(secret);
@@ -259,7 +259,7 @@ function buildEntries(
 }
 
 /**
- * Whether a chunked `stream: true` on `/v1/audio/speech` is servable here.
+ * Whether a chunked `stream: true` on `/openai/v1/audio/speech` is servable here.
  * Only `tts` serves that route, so every other kind reports nothing at all
  * rather than a `false` that reads as "streaming is turned off". A remote
  * address has no spec to declare it and engined ships no remote TTS dialect,
@@ -522,7 +522,7 @@ export class EngineRegistry {
    * The keyring round trip a remote-address engine's status needs: resolved
    * fresh on every call (never cached — see `defaultSecretResolves`), so an
    * operator who signs in and unlocks their keyring sees it recover on the
-   * next `GET /v1/engines`, no reload required. Distinguishes `missing` from
+   * next `GET /engined/v1/engines`, no reload required. Distinguishes `missing` from
    * `locked` rather than collapsing both into one `fix`, because a `locked`
    * engine already has a correctly-stored secret — telling the operator to
    * `secret-tool store` it again is the wrong diagnosis.
@@ -564,7 +564,7 @@ export class EngineRegistry {
    * `syncStatus` for a container engine's non-running case is superseded by
    * `lifecycle.probe`, which checks image *and* artifact presence read-only
    * (never starts a container) so a never-started engine with either missing
-   * reports `unavailable` on the very first `GET /v1/engines` rather than
+   * reports `unavailable` on the very first `GET /engined/v1/engines` rather than
    * waiting for a start attempt to notice.
    */
   private async statusFor(entry: Entry): Promise<EngineStatus> {
@@ -698,7 +698,7 @@ export class EngineRegistry {
       }
     }
     for (const entry of this.entries) {
-      // A disabled engine is reported by /v1/engines, never advertised here:
+      // A disabled engine is reported by /engined/v1/engines, never advertised here:
       // this list is what a caller may put in `model`, and dispatch refuses it.
       if (entry.engine.disabled) {
         continue;
@@ -748,7 +748,7 @@ export class EngineRegistry {
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
     }
-    // Listed by `GET /v1/engines` and startable are different things: an
+    // Listed by `GET /engined/v1/engines` and startable are different things: an
     // operator can see it is off, and starting it is still the config edit.
     if (entry.engine.disabled) {
       throw new Error(`engine "${id}" is disabled in config`);

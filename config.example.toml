@@ -25,7 +25,7 @@ agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, n
 
 # Engines and chains that are configured below but not served. An engine named
 # here is not startable and not dispatchable: it is reported by
-# /v1/engines as `disabled` with `state = "unavailable"` and nothing else
+# /engined/v1/engines as `disabled` with `state = "unavailable"` and nothing else
 # probed, its [[model]] entries resolve to nothing, and any chain hop
 # onto it drops out of that chain (a chain left with no hops drops too). A
 # name here that is neither an engine nor a chain is fatal, so a typo cannot
@@ -294,7 +294,7 @@ ready_timeout_s   = 300
 # The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so it declares no spec_dir, no models_dir and no
 # idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
-# the engine id it names on /v1/audio/transcriptions: "whisper" and
+# the engine id it names on /openai/v1/audio/transcriptions: "whisper" and
 # "whisper-fast" stay on this box, "elevenlabs" does not, and `egress` is
 # what says so.
 #
@@ -319,7 +319,7 @@ id                = "comfy"
 egress            = "none"
 # Comfy's model tree is a host directory like local-llama's, not baked into
 # the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
-# it's reached via POST /v1/engines/comfy/start and the private_url that
+# it's reached via POST /engined/v1/engines/comfy/start and the private_url that
 # returns, never dispatched to by model id.
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800

@@ -3,7 +3,7 @@ image = "engined-kokoro:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
 # KPipeline yields per segment, and app.py forwards each as an NDJSON chunk
-# frame, so `"stream": true` on /v1/audio/speech has boundaries to forward.
+# frame, so `"stream": true` on /openai/v1/audio/speech has boundaries to forward.
 # It splits on newlines rather than sentences -- see docs/http-api.md for
 # what that costs a caller that sends one long paragraph.
 streaming = true

@@ -46,7 +46,7 @@ export interface RunChainOptions {
   localOnly: boolean;
   /** The only input `local_only` reads. */
   egressOf: (engine: string) => Egress;
-  /** Resolves a hop's raw `@/<segment>/…` engine to the id `GET /v1/engines` reports (e.g. the `local` alias), falling back to the segment unchanged. Provenance must record the resolved id, never the alias, to stay reconcilable. */
+  /** Resolves a hop's raw `@/<segment>/…` engine to the id `GET /engined/v1/engines` reports (e.g. the `local` alias), falling back to the segment unchanged. Provenance must record the resolved id, never the alias, to stay reconcilable. */
   resolveEngine: (engine: string) => string;
   /**
    * Per hop, not per request or per chain — a two-engine chain bounded per

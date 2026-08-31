@@ -1218,7 +1218,7 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
 /**
  * The state stream. engined idle-stops engines on its own, so without this a
  * consumer only discovers an engine went away when a call against it fails --
- * and the alternative to being told is polling `GET /v1/engines` forever.
+ * and the alternative to being told is polling `GET /engined/v1/engines` forever.
  *
  * A snapshot goes out before the live frames, because a client that connects
  * between two transitions would otherwise sit blind until the next one and
