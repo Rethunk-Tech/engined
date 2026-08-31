@@ -223,7 +223,13 @@ export interface ResolvedRoute extends ModelCapabilities {
 
 export interface EngineEntry {
   id: string;
-  egress: Egress;
+  /**
+   * Dead weight: egress now belongs to the upstream a route pairs this
+   * engine with, never to the engine itself. Nothing new reads this field;
+   * it stays only because deleting it here would red every one of its old
+   * readers at once instead of in the single edit that also removes them.
+   */
+  egress?: Egress;
   /**
    * Configured but not served: this engine's own `[[engine]]` table carries
    * `disable = true`. Kept on the entry rather than filtered out of `Config`
