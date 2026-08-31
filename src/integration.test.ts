@@ -15,7 +15,7 @@ import {
   buildExec,
   deadPort,
   makeTestRoot,
-  model,
+  route,
   config as sharedConfig,
   tempPresetPath as sharedTempPresetPath,
   startFakeUpstream,
@@ -70,6 +70,7 @@ function tempPresetPath(): string {
 
 const OPENAI_SPEC = `
 kind = "openai-http"
+upstream = "self"
 image = "test-openai:local"
 obtain = "pull"
 serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
@@ -82,6 +83,7 @@ status = 200
 
 const AGENTIC_SPEC = `
 kind = "agentic-cli"
+upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@1.0.0", "-p"]
@@ -89,6 +91,7 @@ command = ["{bunx}", "@anthropic-ai/claude-code@1.0.0", "-p"]
 
 const COMFY_SPEC = `
 kind = "comfy"
+upstream = "self"
 image = "test-comfy:local"
 obtain = "pull"
 serves = []
@@ -122,7 +125,9 @@ function containerEngine(
 
 test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
   const config = baseConfig({
-    models: [model({ id: "ornith", engine: "local", aliases: ["default-chat"] })],
+    routes: [
+      route({ engine: "local", model: "ornith", aliases: ["default-chat"], upstream: "local" }),
+    ],
     engines: [
       containerEngine("local", OPENAI_SPEC),
       containerEngine("claude", AGENTIC_SPEC, { egress: "remote" }),
@@ -226,6 +231,7 @@ test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
 function openaiSpec(image = "test-openai:local"): string {
   return `
 kind = "openai-http"
+upstream = "self"
 image = "${image}"
 obtain = "pull"
 serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
@@ -240,6 +246,7 @@ status = 200
 function ttsSpec(): string {
   return `
 kind = "tts"
+upstream = "self"
 image = "test-tts:local"
 obtain = "pull"
 serves = ["/openai/v1/audio/speech"]
@@ -343,7 +350,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
   const lines: string[] = [];
   await withChatDoor(
     {
-      models: [model({ engine: "dead", role: "chat" }), model({ engine: "good", role: "chat" })],
+      routes: [route({ engine: "dead", role: "chat" }), route({ engine: "good", role: "chat" })],
       engines: [
         // Short readiness timeout: nothing listens on `dead`, so the poll
         // must give up fast rather than spend the 60s default finding out.
@@ -395,7 +402,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
   const lines: string[] = [];
   await withChatDoor(
     {
-      models: [model({ engine: "dead", role: "chat" }), model({ engine: "good", role: "chat" })],
+      routes: [route({ engine: "dead", role: "chat" }), route({ engine: "good", role: "chat" })],
       engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
@@ -433,7 +440,7 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      models: [model({ id: "ornith", engine: "good", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
@@ -460,7 +467,7 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      models: [model({ id: "ornith", engine: "good", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
@@ -491,7 +498,7 @@ test("a direct (non-chain) model request still forwards its own model id unchang
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      models: [model({ id: "ornith", engine: "good", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
       engines: [containerEngine("good", openaiSpec())],
     },
     { exec, stoppables: [good] },
@@ -516,7 +523,10 @@ test("local_only: true against a public chain never reaches a remote hop, even w
   const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
   await withChatDoor(
     {
-      models: [model({ engine: "local", role: "chat" }), model({ engine: "remote", role: "chat" })],
+      routes: [
+        route({ engine: "local", role: "chat" }),
+        route({ engine: "remote", role: "chat", upstream: "remote" }),
+      ],
       engines: [
         containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
         containerEngine("remote", openaiSpec(), { egress: "remote" }),
@@ -552,7 +562,7 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
   const exec = buildExec({ missingImages: new Set(["missing-e1:local", "missing-e2:local"]) });
   await withChatDoor(
     {
-      models: [model({ engine: "e1", role: "chat" }), model({ engine: "e2", role: "chat" })],
+      routes: [route({ engine: "e1", role: "chat" }), route({ engine: "e2", role: "chat" })],
       engines: [
         containerEngine("e1", openaiSpec("missing-e1:local")),
         containerEngine("e2", openaiSpec("missing-e2:local")),
