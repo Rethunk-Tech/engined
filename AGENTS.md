@@ -18,8 +18,12 @@ Three tiers:
 - `src/*.test.ts` — CI: parse, dispatch, chain-advance, provenance against a
   fake upstream. Nothing installed.
 - `test/local/*.test.ts` — `ENGINED_LOCAL=1`, serial against real containers.
-  Never in CI. **Stop the unit first:** `systemctl --user stop engined.service`.
-  Run as `bun run test:local` (not by pointing `bun` at the directory).
+  Never in CI. **No engined container may be holding the GPU** —
+  `requireNoResidentEngine` (`test/local/exclusive.ts`) reads `docker ps`, not
+  systemd, so a unit that is merely active with every engine idle-stopped is no
+  obstacle. `systemctl --user stop engined.service` is one way to clear it, not
+  the requirement. Run as `bun run test:local` (not by pointing `bun` at the
+  directory).
 - No mocks — traps are tool behaviour; substitutes are injected functions with
   real defaults and recorded output.
 
