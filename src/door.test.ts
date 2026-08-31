@@ -40,7 +40,7 @@ const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true });
 
 /** Every door test that posts a chat completion sends the same request shape; only the JSON body differs. */
 function chatRequest(body: unknown): Request {
-  return new Request("http://engined/v1/chat/completions", {
+  return new Request("http://engined/openai/v1/chat/completions", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -108,7 +108,7 @@ describe("the door: Origin/Host check", () => {
   test("a Host outside the loopback set is refused, on a GET", async () => {
     const port = ephemeralPort();
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const res = await rawRequest(port, "/v1/models", { Host: `evil.example:${port}` });
+      const res = await rawRequest(port, "/openai/v1/models", { Host: `evil.example:${port}` });
       expect(res.status).toBe(403);
     });
   });
@@ -118,8 +118,8 @@ describe("the door: dual-family bind", () => {
   test("both 127.0.0.1 and [::1] answer on the same configured port", async () => {
     const port = ephemeralPort();
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const v4 = await fetch(`http://127.0.0.1:${port}/v1/models`);
-      const v6 = await fetch(`http://[::1]:${port}/v1/models`);
+      const v4 = await fetch(`http://127.0.0.1:${port}/openai/v1/models`);
+      const v6 = await fetch(`http://[::1]:${port}/openai/v1/models`);
       expect(v4.status).toBe(200);
       expect(v6.status).toBe(200);
     });
@@ -149,7 +149,9 @@ base_url = "https://api.anthropic.com"
       bunx: BUNX,
       secretResolves: fakeSecretResolves("reload-secret"),
     });
-    const before = (await (await door.fetch(new Request("http://engined/v1/engines"))).json()) as {
+    const before = (await (
+      await door.fetch(new Request("http://engined/engined/v1/engines"))
+    ).json()) as {
       engines: { id: string }[];
     };
     expect(before.engines.map((e) => e.id)).toEqual(["claude"]);
@@ -158,7 +160,9 @@ base_url = "https://api.anthropic.com"
     door.reload(path);
 
     expect(door.configError()).toBeDefined();
-    const after = (await (await door.fetch(new Request("http://engined/v1/engines"))).json()) as {
+    const after = (await (
+      await door.fetch(new Request("http://engined/engined/v1/engines"))
+    ).json()) as {
       engines: { id: string }[];
       config_error: string;
     };
@@ -173,7 +177,7 @@ const LOCAL_LLAMA_SPEC = `
 kind = "openai-http"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/chat/completions", "/v1/embeddings"]
+serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
 command = []
 
 [ready]
@@ -184,7 +188,7 @@ status = 200
 const CLAUDE_SPEC = `
 kind = "agentic-cli"
 agent = "claude"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 env = ["HOME"]
 `;
@@ -237,7 +241,7 @@ function createLlamaDoor(
 
 /** `/models/load` and `/models/unload` answer immediately; every other call is recorded.
  * Real b10354 contract, probed live: `/models/load` accepts with `{success:true}` and
- * readiness is confirmed via `GET /v1/models`'s per-model `status.value` reaching
+ * readiness is confirmed via `GET /openai/v1/models`'s per-model `status.value` reaching
  * "loaded" -- an already-resident model's 400 "already running" fires before the
  * child is actually able to serve, so it is not the signal `loadAndWait` trusts. */
 function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
@@ -292,7 +296,7 @@ function setupReloadRaceConfig(): { root: string; configFilePath: string } {
 }
 
 /**
- * Answers the real b10354 load/unload/`/v1/models` contract by replaying
+ * Answers the real b10354 load/unload/`/openai/v1/models` contract by replaying
  * `calls`'s own load history, and gates the "ornith" chat call on `gate` so
  * the reload race has a window to land while that lease is still held.
  */
@@ -595,7 +599,7 @@ describe("the door: content routing", () => {
 });
 
 /**
- * `/models/load` and `/models/unload` always succeed; `/v1/models` reports whichever id last
+ * `/models/load` and `/models/unload` always succeed; `/openai/v1/models` reports whichever id last
  * loaded: "ornith" while `loadAndWait` is still polling, so the proxy can
  * proceed, and "ornith-real" once the chat has answered -- standing in for the
  * GGUF that actually served it, read fresh per attempt rather than copied from
@@ -694,7 +698,7 @@ const WARMING_COMMENT = ": warming\n\n";
 function fetchStreamChat(cfg: Config, root: string, doorOpts: DoorOptions): Promise<Response> {
   return Promise.resolve(
     createLlamaDoor(cfg, root, doorOpts).fetch(
-      new Request("http://engined/v1/chat/completions", {
+      new Request("http://engined/openai/v1/chat/completions", {
         method: "POST",
         body: STREAM_REQUEST_BODY,
       }),
@@ -1011,7 +1015,7 @@ function twoEngineExec(): Exec {
 }
 
 /** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each
- * records its own calls. `/models/load` and `/v1/models` mirror the real b10354
+ * records its own calls. `/models/load` and `/openai/v1/models` mirror the real b10354
  * contract, probed live: accept, then report "loaded" -- the ready signal
  * `loadAndWait` actually polls for. */
 function makeSplitHttpClient(
@@ -1147,7 +1151,7 @@ describe("the door: extras injects the resident model for the right role", () =>
     ).text();
 
     await door.fetch(
-      new Request("http://engined/tokenize", {
+      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
         method: "POST",
         body: JSON.stringify({ content: "hello" }),
       }),
@@ -1159,15 +1163,14 @@ describe("the door: extras injects the resident model for the right role", () =>
   });
 });
 
-describe("the door: extras resolution is not confused by a comfy-shaped models_dir engine", () => {
+describe("the door: extras address one named engine, and refuse any other", () => {
   /**
-   * `POST /tokenize` with no `model` in the body.
-   * A comfy-shaped engine alongside local-llama (models_dir, zero
-   * `[[model]]` rows -- the worked shape) must not turn "local"
-   * ambiguous: extras always resolves "local", so an ambiguous resolution
-   * 400s every extras call, not just a chain hop.
+   * `:id` is a raw engine id, so a comfy-shaped engine carrying `models_dir`
+   * alongside local-llama is no longer an ambiguity -- it is simply a
+   * different id. What matters is that naming it is refused rather than
+   * starting that container and posting a chat body into it.
    */
-  test("POST /tokenize reaches the local llama engine even with a comfy-shaped engine also carrying models_dir", async () => {
+  test("tokenize against the named llama engine reaches it, and against a comfy-shaped engine 400s", async () => {
     const { cfg, root } = llamaDoorConfigWithComfy();
     const recorded: { body: string }[] = [];
     const extrasCalls: string[] = [];
@@ -1182,16 +1185,22 @@ describe("the door: extras resolution is not confused by a comfy-shaped models_d
     });
 
     const res = await door.fetch(
-      new Request("http://engined/tokenize", {
+      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
         method: "POST",
         body: JSON.stringify({ content: "hello" }),
       }),
     );
-
-    // Reachability is the point here: with "local" ambiguous
-    // this 400s before ever calling `extrasClient`. Which resident model (if
-    // any) gets injected with nothing warmed yet is the other test's concern.
     expect(res.status).toBe(200);
+    expect(extrasCalls).toHaveLength(1);
+
+    // Naming the comfy-shaped engine is refused before its container is touched.
+    const wrong = await door.fetch(
+      new Request("http://engined/engined/v1/engines/comfy/tokenize", {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+      }),
+    );
+    expect(wrong.status).toBe(400);
     expect(extrasCalls).toHaveLength(1);
   });
 });

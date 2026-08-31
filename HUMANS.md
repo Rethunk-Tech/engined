@@ -46,14 +46,14 @@ Full schema: [docs/configuration.md](docs/configuration.md).
 ## Verify
 
 ```sh
-curl -s localhost:29200/v1/engines | jq '.engines[] | {id, state, fix}'
+curl -s localhost:29200/engined/v1/engines | jq '.engines[] | {id, state, fix}'
 ```
 
 Every engine should be `installed`, `running`, or `unavailable` **with a `fix`**
 naming the literal command to resolve it. Then one real request:
 
 ```sh
-curl -s localhost:29200/v1/chat/completions \
+curl -s localhost:29200/openai/v1/chat/completions \
   -H 'content-type: application/json' \
   -d '{"model":"chain-private","messages":[{"role":"user","content":"say OK"}],"max_tokens":16}'
 ```
@@ -63,23 +63,23 @@ The first call to a stopped engine starts its container and waits for readiness.
 ## Operate
 
 ```sh
-curl -s localhost:29200/v1/engines | jq     # state and fix for unavailable
+curl -s localhost:29200/engined/v1/engines | jq     # state and fix for unavailable
 journalctl --user -u engined -f             # one JSON line per call
 systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
 ```
 
-`GET /v1/engines` is the operator surface — no `/v1/health`, no web UI.
+`GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 `systemctl --user reload` re-reads `config.toml`; in-flight requests finish on
 the old engine list. A running container keeps its old shape until next start
-(idle-stop or `POST /v1/engines/:id/start`) — llama-server reads presets INI
+(idle-stop or `POST /engined/v1/engines/:id/start`) — llama-server reads presets INI
 once at startup. See [docs/configuration.md](docs/configuration.md).
 
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
 ```sh
-curl -s -X POST localhost:29200/v1/engines/local-llama/start | jq
+curl -s -X POST localhost:29200/engined/v1/engines/local-llama/start | jq
 ```
 
 ## Troubleshoot

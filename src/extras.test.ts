@@ -22,7 +22,7 @@ test("POST /tokenize with no model in the body gets the resident injected", asyn
     method: "POST",
     body: JSON.stringify({ content: "hi" }),
   });
-  const res = await proxyExtras(req, BASE, "ornith", client);
+  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: "/tokenize" }, "ornith", client);
 
   expect(res.status).toBe(200);
   const sentBody = calls[0]?.init?.body;
@@ -38,7 +38,7 @@ test("a model already present in the body is never overridden", async () => {
     method: "POST",
     body: JSON.stringify({ messages: [], model: "explicit" }),
   });
-  await proxyExtras(req, BASE, "ornith", client);
+  await proxyExtras(req, { baseUrl: BASE, enginePath: "/apply-template" }, "ornith", client);
 
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string };
   expect(parsed.model).toBe("explicit");
@@ -53,7 +53,12 @@ test("the upstream response body passes through unmodified, SSE included", async
     method: "POST",
     body: JSON.stringify({ messages: [] }),
   });
-  const res = await proxyExtras(req, BASE, "ornith", client);
+  const res = await proxyExtras(
+    req,
+    { baseUrl: BASE, enginePath: "/apply-template" },
+    "ornith",
+    client,
+  );
 
   expect(res.headers.get("content-type")).toBe("text/event-stream");
   expect(await res.text()).toBe(sseBody);
@@ -65,7 +70,7 @@ test("no resident model: injectable endpoints are forwarded without a model, let
     method: "POST",
     body: JSON.stringify({ content: "hi" }),
   });
-  const res = await proxyExtras(req, BASE, null, client);
+  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: "/tokenize" }, null, client);
 
   expect(res.status).toBe(400);
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string };

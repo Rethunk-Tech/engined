@@ -72,7 +72,7 @@ const OPENAI_SPEC = `
 kind = "openai-http"
 image = "test-openai:local"
 obtain = "pull"
-serves = ["/v1/chat/completions", "/v1/embeddings"]
+serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
 command = []
 
 [ready]
@@ -83,7 +83,7 @@ status = 200
 const AGENTIC_SPEC = `
 kind = "agentic-cli"
 agent = "claude"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@1.0.0", "-p"]
 `;
 
@@ -120,7 +120,7 @@ function containerEngine(
   };
 }
 
-test("GET /v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
+test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
   const config = baseConfig({
     models: [model({ id: "ornith", engine: "local", aliases: ["default-chat"] })],
     engines: [
@@ -133,7 +133,7 @@ test("GET /v1/models is an OpenAI list envelope whose data[].id is the menu: GGU
   const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
 
   try {
-    const res = await door.fetch(req("GET", "/v1/models"));
+    const res = await door.fetch(req("GET", "/openai/v1/models"));
     // `data` optional, because that is the shape a consumer must survive: the
     // `?? []` below is only a real fallback if the type admits its absence.
     const body = (await res.json()) as { object: string; data?: Array<{ id: string }> };
@@ -154,7 +154,7 @@ test("GET /v1/models is an OpenAI list envelope whose data[].id is the menu: GGU
   }
 });
 
-test("GET /v1/engines carries top-level contract and commit", async () => {
+test("GET /engined/v1/engines carries top-level contract and commit", async () => {
   const config = baseConfig({ engines: [containerEngine("local", OPENAI_SPEC)] });
   const exec: Exec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
   const door = createDoor(config, {
@@ -164,7 +164,7 @@ test("GET /v1/engines carries top-level contract and commit", async () => {
   });
 
   try {
-    const res = await door.fetch(req("GET", "/v1/engines"));
+    const res = await door.fetch(req("GET", "/engined/v1/engines"));
     const body = (await res.json()) as { contract: unknown; commit: unknown };
 
     expect(typeof body.contract).toBe("number");
@@ -174,7 +174,7 @@ test("GET /v1/engines carries top-level contract and commit", async () => {
   }
 });
 
-test("GET /v1/engines answers 200 even when every engine is unavailable", async () => {
+test("GET /engined/v1/engines answers 200 even when every engine is unavailable", async () => {
   const config = baseConfig({ engines: [containerEngine("local", OPENAI_SPEC)] });
   // Every "image inspect" fails: no image ever resolves on this box.
   const exec: Exec = async (): Promise<ExecResult> => ({ stdout: "", stderr: "", exitCode: 1 });
@@ -185,7 +185,7 @@ test("GET /v1/engines answers 200 even when every engine is unavailable", async 
   });
 
   try {
-    const res = await door.fetch(req("GET", "/v1/engines"));
+    const res = await door.fetch(req("GET", "/engined/v1/engines"));
     const body = (await res.json()) as { engines: Array<{ id: string; state: string }> };
 
     expect(res.status).toBe(200);
@@ -202,23 +202,25 @@ test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
   });
 
   try {
-    const foreign = await door.fetch(req("GET", "/v1/models", { origin: "https://evil.example" }));
+    const foreign = await door.fetch(
+      req("GET", "/openai/v1/models", { origin: "https://evil.example" }),
+    );
     expect(foreign.status).toBe(403);
 
-    const nullOrigin = await door.fetch(req("GET", "/v1/models", { origin: "null" }));
+    const nullOrigin = await door.fetch(req("GET", "/openai/v1/models", { origin: "null" }));
     expect(nullOrigin.status).toBe(403);
 
-    const badHost = await door.fetch(req("GET", "/v1/models", { host: "evil.example" }));
+    const badHost = await door.fetch(req("GET", "/openai/v1/models", { host: "evil.example" }));
     expect(badHost.status).toBe(403);
 
-    const clean = await door.fetch(req("GET", "/v1/models"));
+    const clean = await door.fetch(req("GET", "/openai/v1/models"));
     expect(clean.status).toBe(200);
   } finally {
     await door.registry.shutdown();
   }
 });
 
-// --- POST /v1/chat/completions, actually proxied: chain failover,
+// --- POST /openai/v1/chat/completions, actually proxied: chain failover,
 // local_only truncation, chain exhaustion, and the agentic workdir rule.
 
 function openaiSpec(image = "test-openai:local"): string {
@@ -226,7 +228,7 @@ function openaiSpec(image = "test-openai:local"): string {
 kind = "openai-http"
 image = "${image}"
 obtain = "pull"
-serves = ["/v1/chat/completions", "/v1/embeddings"]
+serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
 command = []
 
 [ready]
@@ -240,7 +242,7 @@ function ttsSpec(): string {
 kind = "tts"
 image = "test-tts:local"
 obtain = "pull"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 command = []
 
 [ready]
@@ -253,14 +255,14 @@ status = 200
  * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
  * triggers via `/models/load` (real b10354 contract, probed live: answers
  * `{success:true}`, never a "loaded" status) and confirms readiness via
- * `GET /v1/models`'s per-model `status.value` -- any other shape here loops
+ * `GET /openai/v1/models`'s per-model `status.value` -- any other shape here loops
  * `loadAndWait` forever. `content` is the chat body returned once resident;
  * `chatStatus` lets a hop stand up cleanly (load/unload/readiness all real)
  * while still answering the actual chat call with a failure, which is what
  * distinguishes "upstream never reachable" from "upstream reachable but bad"
  * for a regression that must exercise `classifyResult`'s real status check.
  * `chatBodies`, when given, collects the parsed JSON body of every actual
- * `/v1/chat/completions`-style call -- the only way to prove what `model`
+ * `/openai/v1/chat/completions`-style call -- the only way to prove what `model`
  * field engined forwarded upstream, as opposed to merely what it responded.
  */
 function fakeLlamaUpstream(
@@ -347,7 +349,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
     { exec, stoppables: [good], doorOpts: { write: (line) => lines.push(line) } },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: { model: "chain-x", messages: [{ role: "user", content: "hi" }] },
         }),
       );
@@ -394,7 +396,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
     { exec, stoppables: [dead, good], doorOpts: { write: (line) => lines.push(line) } },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: { model: "chain-x", stream: true, messages: [{ role: "user", content: "hi" }] },
         }),
       );
@@ -432,7 +434,7 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
     { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: { model: "chain-private", messages: [{ role: "user", content: "hi" }] },
         }),
       );
@@ -459,7 +461,7 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
     { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: {
             model: "chain-private",
             stream: true,
@@ -489,7 +491,7 @@ test("a direct (non-chain) model request still forwards its own model id unchang
     { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: { model: "ornith", messages: [{ role: "user", content: "hi" }] },
         }),
       );
@@ -518,7 +520,7 @@ test("local_only: true against a public chain never reaches a remote hop, even w
     { exec, stoppables: [remote] },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: {
             model: "chain-public",
             local_only: true,
@@ -554,7 +556,7 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
     { exec },
     async (door) => {
       const res = await door.fetch(
-        req("POST", "/v1/chat/completions", {
+        req("POST", "/openai/v1/chat/completions", {
           body: { model: "chain-z", messages: [{ role: "user", content: "hi" }] },
         }),
       );
@@ -579,7 +581,7 @@ test("an agentic attempt with no workdir returns 400", async () => {
 
   try {
     const res = await door.fetch(
-      req("POST", "/v1/chat/completions", {
+      req("POST", "/openai/v1/chat/completions", {
         body: { model: "claude", messages: [{ role: "user", content: "hi" }] },
       }),
     );
@@ -621,7 +623,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
 
   try {
     const speech = await door.fetch(
-      req("POST", "/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+      req("POST", "/openai/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
     );
     expect(speech.status).toBe(200);
 
@@ -630,7 +632,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     // not just that the container started.
     await new Promise((resolve) => setTimeout(resolve, 60));
 
-    const engines = await door.fetch(req("GET", "/v1/engines"));
+    const engines = await door.fetch(req("GET", "/engined/v1/engines"));
     const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> };
     expect(body.engines.find((e) => e.id === "chatterbox")?.state).toBe("installed");
   } finally {
@@ -663,7 +665,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
 
   try {
     await door.fetch(
-      req("POST", "/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+      req("POST", "/openai/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
     );
     expect(lines).toHaveLength(1);
     const record = JSON.parse(lines[0] ?? "{}") as {
@@ -681,7 +683,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
 
 /**
  * Two 4-byte PCM chunks over the engine's own NDJSON, which is what a streamed
- * `/v1/audio/speech` forwards: the door buffers none of it, so provenance can
+ * `/openai/v1/audio/speech` forwards: the door buffers none of it, so provenance can
  * only learn the size from the stream itself.
  */
 function fakeStreamingTts(): (request: Request) => Response {
@@ -740,7 +742,7 @@ const STREAM_SPEECH = { model: "chatterbox", input: "hi", stream: true };
 test("a streamed audio call that forwards its whole body records a success, not an empty body", async () => {
   const { door, lines, stop } = streamingSpeechDoor();
   try {
-    const res = await door.fetch(req("POST", "/v1/audio/speech", { body: STREAM_SPEECH }));
+    const res = await door.fetch(req("POST", "/openai/v1/audio/speech", { body: STREAM_SPEECH }));
     expect(res.status).toBe(200);
     // Nothing is recorded until the caller has the bytes: the line is the
     // stream's outcome, not the response header's.
@@ -760,7 +762,7 @@ test("a streamed audio call that forwards its whole body records a success, not 
 test("a streamed audio call abandoned mid-body still records a failure", async () => {
   const { door, lines, stop } = streamingSpeechDoor();
   try {
-    const res = await door.fetch(req("POST", "/v1/audio/speech", { body: STREAM_SPEECH }));
+    const res = await door.fetch(req("POST", "/openai/v1/audio/speech", { body: STREAM_SPEECH }));
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     // Bytes did reach the caller, so this is not the empty-body case -- only
     // the abandonment separates it from the success above.
@@ -788,7 +790,7 @@ test("an oversized transcription upload is refused before it is read", async () 
     // Declared, not sent: the point is that the size is refused on the header
     // rather than after the body has been read into memory.
     const res = await door.fetch(
-      new Request("http://engined/v1/audio/transcriptions", {
+      new Request("http://engined/openai/v1/audio/transcriptions", {
         method: "POST",
         headers: { "content-length": String(512 * 1024 * 1024) },
         body: "x",

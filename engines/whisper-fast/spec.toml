@@ -7,7 +7,7 @@ kind = "stt"
 # with the digest it pins, at engines/whisper/Dockerfile.
 image = "engined-whisper:local"
 obtain = "build" # pull | build; the build is engines/whisper's, see above
-serves = ["/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions"]
 devices = ["/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]

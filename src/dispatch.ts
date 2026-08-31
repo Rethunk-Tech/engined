@@ -10,7 +10,7 @@ import type { Config } from "./types.ts";
 import { findModelOnEngine, MODEL_LESS_KINDS, QUALIFIED_MODEL_RE } from "./types.ts";
 
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
-const CHAIN_ENDPOINT = "/v1/chat/completions";
+const CHAIN_ENDPOINT = "/openai/v1/chat/completions";
 
 export type Dispatch =
   | { ok: true; kind: "engine"; engine: string }

@@ -3,6 +3,10 @@
  * `/apply-template` 400 with "model name is missing from the request" unless a
  * model is named — sagaforge's own consumers of these endpoints send none, so
  * the injection is the entire feature, not a passthrough.
+ *
+ * The door addresses these as `/engined/v1/engines/:id/<verb>`; llama-server
+ * serves them bare. The caller passes the engine-side path, because forwarding
+ * the door's own would ask llama.cpp for a route only this door knows.
  */
 import {
   CONTENT_TYPE,
@@ -12,8 +16,6 @@ import {
   STATUS_BAD_REQUEST,
 } from "./http.ts";
 import { errMessage, isRecord } from "./types.ts";
-
-const BODY_INJECT_PATHS = new Set(["/tokenize", "/apply-template"]);
 
 /** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {
@@ -38,16 +40,22 @@ function injectModel(bodyText: string | undefined, model: string): string {
  * exactly as the upstream sent it -- no buffering, no reparsing -- so an SSE
  * body's `timings`/`timings_per_token` fields reach the caller unmodified.
  */
+/** Where the request goes: the engine's own base URL, and its own path for this verb. */
+export interface ExtrasTarget {
+  baseUrl: string;
+  enginePath: string;
+}
+
 export async function proxyExtras(
   req: Request,
-  baseUrl: string,
+  target: ExtrasTarget,
   residentModel: string | null,
   httpClient: HttpClient = fetch,
 ): Promise<Response> {
   const url = new URL(req.url);
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   let body = hasBody ? await req.text() : undefined;
-  if (residentModel !== null && hasBody && BODY_INJECT_PATHS.has(url.pathname)) {
+  if (residentModel !== null && hasBody) {
     try {
       body = injectModel(body, residentModel);
     } catch (err) {
@@ -55,8 +63,8 @@ export async function proxyExtras(
     }
   }
 
-  const target = new URL(url.pathname + url.search, baseUrl);
-  return httpClient(target.toString(), {
+  const upstream = new URL(target.enginePath + url.search, target.baseUrl);
+  return httpClient(upstream.toString(), {
     method: req.method,
     headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body,

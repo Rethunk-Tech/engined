@@ -5,7 +5,7 @@ kind = "openai-http"
 # silently swaps the image underneath it.
 image = "engined-llama-cpp:local"
 obtain = "build"
-serves = ["/v1/chat/completions", "/v1/embeddings"]
+serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
 # Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
 # --group-add video) is for the ROCm/PyTorch engines -- comfy, chatterbox,
 # kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three

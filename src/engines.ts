@@ -86,10 +86,10 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
  * this map's callers rather than mapped to `[]` here.
  */
 const KIND_SERVES: Record<EngineKind, string[]> = {
-  "openai-http": ["/v1/chat/completions", "/v1/embeddings"],
-  "agentic-cli": ["/v1/chat/completions"],
-  tts: ["/v1/audio/speech"],
-  stt: ["/v1/audio/transcriptions"],
+  "openai-http": ["/openai/v1/chat/completions", "/openai/v1/embeddings"],
+  "agentic-cli": ["/openai/v1/chat/completions"],
+  tts: ["/openai/v1/audio/speech"],
+  stt: ["/openai/v1/audio/transcriptions"],
   comfy: [],
 };
 
@@ -712,6 +712,12 @@ export class EngineRegistry {
       out.add(name);
     }
     return [...out];
+  }
+
+  /** Whether an id names the local llama, which is the only engine the extras routes can address. */
+  isLocalLlama(id: string): boolean {
+    const entry = this.byId.get(id);
+    return entry !== undefined && isLocalLlama(entry.engine, this.kindOf(entry));
   }
 
   /** Endpoints a given *engine* id serves, for the door's model/endpoint mismatch check. */

@@ -114,7 +114,7 @@ main() {
   BUILD_DIR="$(mktemp -d)"
   trap 'rm -rf "$BUILD_DIR"' EXIT
 
-  # The install dir is deliberately not a git tree, so GET /v1/engines can
+  # The install dir is deliberately not a git tree, so GET /engined/v1/engines can
   # only report the revision it was built from if it's baked in now.
   # ENGINED_COMMIT is a bare global; unset (no --define) it falls through to
   # "unknown" at the call site rather than throwing.

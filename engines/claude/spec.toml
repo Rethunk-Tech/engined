@@ -1,6 +1,6 @@
 kind = "agentic-cli"
 agent = "claude"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]
 # must be the {bunx} placeholder, command[1] must be exactly this agent's
 # package at {agent_version}, and assertNoForbiddenFlags runs over it too)

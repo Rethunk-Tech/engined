@@ -46,7 +46,7 @@ type SecretResolution =
 const TRAILING_SLASHES = /\/+$/;
 const LEADING_SLASHES = /^\/+/;
 /** Anchored on the segment boundary so `/v1beta/...` is left alone. */
-const DOOR_VERSION_PREFIX = /^\/v1(?=\/)/;
+const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/;
 
 /** `base_url` is the whole test: an engine that has one launches nothing. */
 export function isRemote(engine: EngineEntry): boolean {

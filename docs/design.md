@@ -61,7 +61,7 @@ literal command. engined's own install is a script, never a route: nothing
 reachable over HTTP writes to the install directory.
 
 No `/v1/complete`, no `/v1/agent`, no `/v1/health` — contract version, parse
-state and reachability all live in `GET /v1/engines`, and a `Type=simple` unit
+state and reachability all live in `GET /engined/v1/engines`, and a `Type=simple` unit
 needs no liveness probe. No `GET /v1/runs/:id` — a file read on a client-supplied id with no named
 consumer, where `journalctl --user -u engined` is the whole feature.
 
@@ -75,7 +75,7 @@ it, so three resident engines still sit inside the pool. It stays unbuilt
 until a measured peak actually approaches that ceiling.
 
 No multi-machine, auth, tenancy or web UI — the operator surface is
-`GET /v1/engines`. No stub adapter, for the same reason the tests carry no
+`GET /engined/v1/engines`. No stub adapter, for the same reason the tests carry no
 mocks: every trap here was tool behaviour rather than logic, and a fake
 reproduces the logic and none of the behaviour.
 

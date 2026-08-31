@@ -6,8 +6,8 @@ import { EngineRegistry } from "./engines.ts";
 import { BUNX, config, engine, makeTestRoot, model, writeEngineSpec } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
-const CHAT = "/v1/chat/completions";
-const SPEECH = "/v1/audio/speech";
+const CHAT = "/openai/v1/chat/completions";
+const SPEECH = "/openai/v1/audio/speech";
 
 const TEST_ROOT = makeTestRoot("engined-dispatch-test-");
 

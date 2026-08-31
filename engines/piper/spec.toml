@@ -1,7 +1,7 @@
 kind = "tts"
 image = "engined-piper:local"
 obtain = "build"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 # app.py splits on sentences and emits one NDJSON chunk frame per sentence,
 # so `"stream": true` on /v1/audio/speech has boundaries to forward.
 streaming = true

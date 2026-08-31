@@ -74,7 +74,7 @@ managed containers on a docker network and reaching them from engined alone,
 which the port read-back already makes possible.
 
 One consumer is a browser: sagaforge's `/settings/engines` is a read-mostly
-client of `GET /v1/engines`, and a page served from sagaforge's own origin
+client of `GET /engined/v1/engines`, and a page served from sagaforge's own origin
 sends one. It is refused, and reaches engined through the sagaforge daemon it
 is already talking to. Allowlisting a consumer's origin would reopen the hole
 this check exists to close.

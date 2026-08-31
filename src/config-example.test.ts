@@ -21,7 +21,7 @@ const LOCAL_LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
-// A disabled engine keeps its entry -- that is what lets GET /v1/engines
+// A disabled engine keeps its entry -- that is what lets GET /engined/v1/engines
 // report it as off -- so the list here is every engine the file declares.
 const EXPECTED_ENGINE_IDS = [
   "chatterbox",

@@ -31,7 +31,7 @@ const VALID_CONTAINER = `
 kind = "stt"
 image = "ghcr.io/example/whisper@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions"]
 command = ["-m", "{models_dir}/model.bin"]
 
 [ready]
@@ -124,7 +124,7 @@ describe("shipped specs", () => {
 
   /**
    * The four shipped TTS engines, against the real spec files: this is what
-   * `GET /v1/engines` advertises, and a wrong answer either costs a consumer
+   * `GET /engined/v1/engines` advertises, and a wrong answer either costs a consumer
    * a 502 per streamed request or costs it streaming it could have had.
    */
   test.each([
@@ -160,7 +160,7 @@ test("volume.name and artifact.obtain placeholders resolve to the supplied value
 kind = "stt"
 image = "ghcr.io/example/whisper@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions"]
 command = ["-m", "{models_dir}/model.bin"]
 
 [ready]
@@ -242,7 +242,7 @@ test("an unresolved placeholder is fatal, naming it", () => {
 test("spec_dir override replaces wholesale: an omitted field is absent, not inherited", () => {
   const overrideRoot = specDir(
     "whisper",
-    `kind = "stt"\nobtain = "pull"\nserves = ["/v1/audio/transcriptions"]\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n`,
+    `kind = "stt"\nobtain = "pull"\nserves = ["/openai/v1/audio/transcriptions"]\ncommand = ["-m", "x"]\n\n[ready]\npath = "/health"\nstatus = 200\n`,
   );
   // The override omits "image", which the shipped spec carries; it must not
   // fall back to it.

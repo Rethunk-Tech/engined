@@ -15,21 +15,27 @@ treated as a caller.
 
 | Route | Method | Answered by |
 | --- | --- | --- |
-| `/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
-| `/v1/embeddings` | POST | `openai-http` |
-| `/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized |
-| `/v1/audio/transcriptions` | POST | `stt` |
-| `/v1/models` | GET | every dispatchable `model` string |
-| `/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
-| `/v1/engines/:id/start` | POST | warms one engine, and the model named in the body if there is one |
-| `/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
-| `/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
-| `/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
-| `/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
-| `/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
+| `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
+| `/openai/v1/embeddings` | POST | `openai-http` |
+| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized |
+| `/openai/v1/audio/transcriptions` | POST | `stt` |
+| `/openai/v1/models` | GET | every dispatchable `model` string |
+| `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
+| `/engined/v1/engines/:id/start` | POST | warms one engine, and the model named in the body if there is one |
+| `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
+| `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
+| `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
+| `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
+| `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
 
-`/tokenize` and `/apply-template` proxy through to the one local llama engine,
-with the resident chat model injected where the body omits one.
+`/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
+proxy through to the named llama engine, with the resident chat model injected
+where the body omits one. Any other engine id is refused — they are llama.cpp
+routes, not a general engine surface.
+
+`/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
+door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
+serves nothing today: an unclaimed prefix 404s like any other unmatched path.
 
 ## Choosing a model
 
@@ -64,7 +70,7 @@ unauditable egress is not one this design accepts.
 
 ## Engine state
 
-`GET /v1/engines` is the whole operator surface. Each engine reports its
+`GET /engined/v1/engines` is the whole operator surface. Each engine reports its
 `state`, its `private_url` when running, and — when it cannot run —
 `unavailable` plus the literal command that fixes it: `docker pull …`,
 `docker build …`, or a `secret-tool store` line for a missing key.
@@ -81,15 +87,15 @@ Nothing was probed to establish that state -- no docker call, no keyring
 lookup, no version proof -- and its `fix` is the config edit that turns it
 back on. It is listed rather than omitted because "turned off here" and "gone
 from the config" are different answers to an operator staring at this route.
-`POST /v1/engines/:id/start` on one is a 404 saying so, no `model` string
-resolves to it, and `GET /v1/models` does not advertise it.
+`POST /engined/v1/engines/:id/start` on one is a 404 saying so, no `model` string
+resolves to it, and `GET /openai/v1/models` does not advertise it.
 
 A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside.
 
-`POST /v1/audio/speech` buffers by default and returns a complete `audio/wav`.
+`POST /openai/v1/audio/speech` buffers by default and returns a complete `audio/wav`.
 With `"stream": true` it returns `audio/L16; rate=<engine's own rate>;
 channels=1` — signed 16-bit little-endian mono, forwarded as each piece is
 synthesized. PCM rather than a WAV because a WAV header carries a length
@@ -107,11 +113,11 @@ gets a 502 saying the engine streamed no audio, sent before any header is
 committed, rather than a 200 whose body never arrives.
 
 **Ask, rather than hardcoding that list.** Every `tts` engine in
-`GET /v1/engines` carries `streaming`, a boolean saying whether it can serve a
+`GET /engined/v1/engines` carries `streaming`, a boolean saying whether it can serve a
 chunked request, declared in the engine's own `spec.toml` — see
 [engines.md](engines.md). A consumer carrying its own list of streaming engine
 ids is stale the moment engined gains one. Kinds that do not serve
-`/v1/audio/speech` at all omit the field rather than reporting `false`: there
+`/openai/v1/audio/speech` at all omit the field rather than reporting `false`: there
 is no streaming to have, which is a different answer from "streaming is turned
 off here". A remote-address TTS engine reports `false` — engined ships no
 remote TTS dialect to chunk through.
@@ -126,7 +132,7 @@ sentence boundaries, so it is not done here. Piper splits on sentences itself,
 so its chunk boundaries follow the text's punctuation and need nothing from
 the caller.
 
-`POST /v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
+`POST /engined/v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
 no body it warms the container, which is what it has always done. With one it
 also loads that GGUF, so the first real request does not pay the cold load --
 measured at 13.84s cold against 2.09s warm for a TTS round trip on this box.
@@ -154,7 +160,7 @@ Every call writes one structured JSON line to journald:
 ```
 
 `model_reported` is the id the engine echoed in its body; `model_resident` is
-read from that engine's own `GET /v1/models`. They answer different questions
+read from that engine's own `GET /openai/v1/models`. They answer different questions
 — one proves the request reached the engine, the other names the GGUF that
 actually served it — and one silently standing in for the other defeats the
 point.

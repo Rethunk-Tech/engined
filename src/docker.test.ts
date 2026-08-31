@@ -291,7 +291,7 @@ test("an engine warmed by start and never dispatched to still idle-stops", async
   const stopLog: string[][] = [];
   const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
 
-  // POST /v1/engines/:id/start with no request behind it: nothing will ever
+  // POST /engined/v1/engines/:id/start with no request behind it: nothing will ever
   // call endLease, so before the countdown was armed here too this container
   // stayed resident -- holding its GPU -- until the process died.
   await lifecycle.start("warm-only", SPEC, {
@@ -593,7 +593,7 @@ test("the digest stamped on a container is the one adoption compares against", (
   expect(specDigest({ ...SPEC, command: ["--verbose"] })).not.toBe(specDigest(SPEC));
 });
 
-test("probe: the image check is cached across repeated polls, not re-shelled on every GET /v1/engines", async () => {
+test("probe: the image check is cached across repeated polls, not re-shelled on every GET /engined/v1/engines", async () => {
   const inspectCalls = { count: 0 };
   const lifecycle = new DockerLifecycle(
     inspectCountingExec(inspectCalls, inspectFound),
@@ -695,7 +695,7 @@ test("readiness honours a POST probe and an accept range, not just an exact GET 
   const postSpec = {
     ...SPEC,
     ready: {
-      path: "/v1/audio/transcriptions",
+      path: "/openai/v1/audio/transcriptions",
       status: READY_STATUS,
       method: "POST" as const,
       accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },
@@ -815,7 +815,7 @@ test("a 404 never counts as ready, even inside the accept range", async () => {
   const notFoundSpec = {
     ...SPEC,
     ready: {
-      path: "/v1/audio/transcriptions",
+      path: "/openai/v1/audio/transcriptions",
       status: READY_STATUS,
       method: "POST" as const,
       accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },

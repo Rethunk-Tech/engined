@@ -1,7 +1,7 @@
 kind = "tts"
 image = "engined-kokoro:local"
 obtain = "build"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 # KPipeline yields per segment, and app.py forwards each as an NDJSON chunk
 # frame, so `"stream": true` on /v1/audio/speech has boundaries to forward.
 # It splits on newlines rather than sentences -- see docs/http-api.md for

@@ -58,7 +58,7 @@ const PULLED_CONTAINER = `
 kind = "openai-http"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = ["--model", "x"]
 
 [ready]
@@ -70,7 +70,7 @@ const BUILT_CONTAINER = `
 kind = "tts"
 image = "engined/kokoro:local"
 obtain = "build"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 command = ["--serve"]
 
 [ready]
@@ -85,7 +85,7 @@ obtain = "docker run --rm -v engined-kokoro-models:/models curlimages/curl -fL -
 const AGENTIC = `
 kind = "agentic-cli"
 agent = "claude"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 `;
 
@@ -93,7 +93,7 @@ command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 const AGENTIC_NO_VERSION_PLACEHOLDER = `
 kind = "agentic-cli"
 agent = "claude"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `;
 
@@ -114,7 +114,7 @@ const TTS_EMPTY_COMMAND = `
 kind = "tts"
 image = "engined/faketts:local"
 obtain = "build"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 command = []
 
 [ready]
@@ -127,7 +127,7 @@ const STT_REAL_COMMAND = `
 kind = "stt"
 image = "engined/fakestt:local"
 obtain = "build"
-serves = ["/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions"]
 command = ["--host", "0.0.0.0"]
 
 [ready]
@@ -229,7 +229,7 @@ describe("disabled engines", () => {
     expect(listed?.state).toBe("unavailable");
     // Its real spec, not a guess: the engine is off, not unknown.
     expect(listed?.kind).toBe("openai-http");
-    expect(listed?.serves).toEqual(["/v1/chat/completions"]);
+    expect(listed?.serves).toEqual(["/openai/v1/chat/completions"]);
     expect(listed?.fix).toBe('remove "llama" from "disabled" in config.toml');
     // list() probes docker for every engine it does not short-circuit.
     expect(execLog).toEqual([]);
@@ -318,7 +318,7 @@ describe("streaming capability", () => {
 kind = "tts"
 image = "ghcr.io/example/tts@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 command = []
 ${streaming ? "streaming = true" : ""}
 
@@ -344,7 +344,7 @@ status = 200
     const streamingOf = (id: string) => listed.engines.find((e) => e.id === id)?.streaming;
     expect(streamingOf("chunker")).toBe(true);
     expect(streamingOf("blocker")).toBe(false);
-    // Not `false`: an openai-http engine has no /v1/audio/speech to stream on,
+    // Not `false`: an openai-http engine has no /openai/v1/audio/speech to stream on,
     // which is a different answer from "streaming is turned off here".
     expect(streamingOf("llama")).toBeUndefined();
   });
@@ -408,8 +408,8 @@ describe("remote-address engines: get() stays optimistic", () => {
   });
 });
 
-describe("remote-address engines: GET /v1/engines resolves the keyring per request", () => {
-  test("GET /v1/engines: installed when the secret resolves", async () => {
+describe("remote-address engines: GET /engined/v1/engines resolves the keyring per request", () => {
+  test("GET /engined/v1/engines: installed when the secret resolves", async () => {
     const { proxy: status } = await listRemoteProxy(() =>
       Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
     );
@@ -417,7 +417,7 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
     expect(status?.private_url).toBeNull();
   });
 
-  test("GET /v1/engines: a missing outcome is unavailable, fix names secret-tool store", async () => {
+  test("GET /engined/v1/engines: a missing outcome is unavailable, fix names secret-tool store", async () => {
     const { proxy: kimi, other } = await listRemoteProxy(() =>
       Promise.resolve({
         ok: false,
@@ -430,7 +430,7 @@ describe("remote-address engines: GET /v1/engines resolves the keyring per reque
     expect(other?.state).toBe("installed");
   });
 
-  test("GET /v1/engines: a locked outcome is unavailable but offers no store command", async () => {
+  test("GET /engined/v1/engines: a locked outcome is unavailable but offers no store command", async () => {
     const { proxy: kimi, other } = await listRemoteProxy(() =>
       Promise.resolve({
         ok: false,
@@ -554,7 +554,7 @@ describe("remote-address agentic engines: gated the same as a local one once pro
   });
 });
 
-describe("GET /v1/models", () => {
+describe("GET /openai/v1/models", () => {
   test("includes chain names, GGUF ids and aliases, agentic and audio engine ids; excludes comfy", () => {
     const root = newEnginesRoot();
     writeEngineSpec(root, "claude", AGENTIC);
@@ -729,7 +729,7 @@ describe("agentic engines: a failed probe is cached, not retried, until the pin 
 describe("serves()", () => {
   test("returns the loaded spec's serves list for a container engine", () => {
     const { reg } = setupLlama();
-    expect(reg.serves("llama")).toEqual(["/v1/chat/completions"]);
+    expect(reg.serves("llama")).toEqual(["/openai/v1/chat/completions"]);
   });
 
   test("falls back to the kind-serves table for a remote-address engine with no spec", () => {
@@ -741,7 +741,7 @@ describe("serves()", () => {
       secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
     });
     const reg = registry(config({ engines: [remoteEngine] }), newEnginesRoot());
-    expect(reg.serves("claude-kimi")).toEqual(["/v1/chat/completions"]);
+    expect(reg.serves("claude-kimi")).toEqual(["/openai/v1/chat/completions"]);
   });
 
   test("unknown id serves nothing rather than throwing", () => {

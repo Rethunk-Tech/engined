@@ -27,8 +27,8 @@ const CONTAINER_PORT = 8080;
 const HOST_PORT = 55_123;
 const LOAD_PATH = "/models/load";
 const UNLOAD_PATH = "/models/unload";
-const CHAT_PATH = "/v1/chat/completions";
-const EMBED_PATH = "/v1/embeddings";
+const CHAT_PATH = "/openai/v1/chat/completions";
+const EMBED_PATH = "/openai/v1/embeddings";
 const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
 

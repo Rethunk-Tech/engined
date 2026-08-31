@@ -21,7 +21,7 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 bash scripts/install.sh && cp config.example.toml ~/.config/engined/config.toml
 ```
 
-Edit the config, then `curl -s localhost:29200/v1/engines` — runbook: **[HUMANS.md](HUMANS.md)**.
+Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: **[HUMANS.md](HUMANS.md)**.
 
 ## Highlights
 

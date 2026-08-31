@@ -331,7 +331,7 @@ export interface EnginesResponse {
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 1;
+export const CONTRACT = 2;
 
 /**
  * Anything a restart cannot fix. The unit carries

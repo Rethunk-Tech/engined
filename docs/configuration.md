@@ -69,7 +69,7 @@ hop alone. A chain left with no hops is dropped with them rather than resolving
 to an empty list. A chain name in `disabled` drops that chain only; the engines
 it hopped through stay served.
 
-The engine entry itself survives, marked, and `GET /v1/engines` reports it with
+The engine entry itself survives, marked, and `GET /engined/v1/engines` reports it with
 `disabled: true` and `state: "unavailable"` — see
 [http-api.md](http-api.md#engine-state). What drops is everything that would
 *validate* it: its models are not checked against a `models_dir`, its secret is

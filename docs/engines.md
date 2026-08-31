@@ -150,20 +150,20 @@ is one file on disk, not two.
 ## `streaming`, a tts-only spec key
 
 Whether an engine's `/v1/tts` emits per-chunk NDJSON frames, and so whether
-`"stream": true` on `POST /v1/audio/speech` is servable by it. `piper` and
+`"stream": true` on `POST /openai/v1/audio/speech` is servable by it. `piper` and
 `kokoro` set `streaming = true`; `chatterbox` and `chatterbox-fast` omit it,
 because a single blocking `generate()` has no piece to forward before the
 last one.
 
 It lives in `spec.toml` because it is a property of the engine's own app, not
 of an install — the same reason `serves` does. It is fatal at parse on any
-other kind: only `/v1/audio/speech` has a chunk contract, so anywhere else
+other kind: only `/openai/v1/audio/speech` has a chunk contract, so anywhere else
 the key would be read, reported and honoured by nothing. Off unless a spec
 says otherwise, which is the safe direction: an engine that under-declares
 costs a caller the early audio it could have had, while one that
 over-declares costs it a 502 on every request.
 
-`GET /v1/engines` reports it per engine, so no consumer has to carry its own
+`GET /engined/v1/engines` reports it per engine, so no consumer has to carry its own
 list of which engines can stream — see [http-api.md](http-api.md).
 
 ## Three specs carry a detail that fails silently

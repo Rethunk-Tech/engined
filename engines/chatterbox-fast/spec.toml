@@ -1,7 +1,7 @@
 kind   = "tts"
 image  = "engined-chatterbox-fast:local"
 obtain = "build"
-serves = ["/v1/audio/speech"]
+serves = ["/openai/v1/audio/speech"]
 # No `streaming` key, for the same reason as engines/chatterbox: one
 # blocking generate() call, no chunk boundary to forward.
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.

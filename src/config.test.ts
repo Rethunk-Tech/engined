@@ -214,7 +214,7 @@ function withDisabled(...names: string[]): string {
 
 test("a disabled engine keeps its entry, marked, and loses its models and chain hops", () => {
   const cfg = loadConfig(writeConfig(withDisabled("claude", "claude-kimi")));
-  // The entry survives so GET /v1/engines can report it as off.
+  // The entry survives so GET /engined/v1/engines can report it as off.
   expect(cfg.engines.find((e) => e.id === "claude")?.disabled).toBe(true);
   expect(cfg.engines.find((e) => e.id === "local-llama")?.disabled).toBeUndefined();
   expect(cfg.models.map((m) => m.id)).not.toContain("sonnet-5");

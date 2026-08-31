@@ -31,7 +31,7 @@ const CONTAINER_SPEC = `
 kind = "openai-http"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
-serves = ["/v1/chat/completions"]
+serves = ["/openai/v1/chat/completions"]
 command = []
 
 [ready]
@@ -86,7 +86,7 @@ test("logs pass the asked-for tail through to docker", async () => {
     args[0] === "logs" ? { stdout: "line one\nline two\n" } : {},
   );
   const res = await doorWith(exec).fetch(
-    new Request("http://engined/v1/engines/local-llama/logs?tail=42"),
+    new Request("http://engined/engined/v1/engines/local-llama/logs?tail=42"),
   );
 
   expect(res.status).toBe(200);
@@ -104,7 +104,7 @@ test("logs pass the asked-for tail through to docker", async () => {
 test("an absurd tail is clamped, not refused", async () => {
   const { exec, calls } = recordingExec(() => ({}));
   const res = await doorWith(exec).fetch(
-    new Request("http://engined/v1/engines/local-llama/logs?tail=999999"),
+    new Request("http://engined/engined/v1/engines/local-llama/logs?tail=999999"),
   );
 
   expect(res.status).toBe(200);
@@ -118,7 +118,9 @@ test("a container logging only to stderr is not reported as silent", async () =>
   const { exec } = recordingExec((args) =>
     args[0] === "logs" ? { stderr: "ggml: using Vulkan\n" } : {},
   );
-  const res = await doorWith(exec).fetch(new Request("http://engined/v1/engines/local-llama/logs"));
+  const res = await doorWith(exec).fetch(
+    new Request("http://engined/engined/v1/engines/local-llama/logs"),
+  );
 
   expect(await res.json()).toEqual({ lines: ["ggml: using Vulkan"] });
 });
@@ -129,7 +131,7 @@ test("logs and resources refuse an engine that runs no container", async () => {
   const door = doorWith(exec);
 
   for (const path of ["logs", "resources"]) {
-    const res = await door.fetch(new Request(`http://engined/v1/engines/hosted/${path}`));
+    const res = await door.fetch(new Request(`http://engined/engined/v1/engines/hosted/${path}`));
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toContain("runs no container");
   }
@@ -140,7 +142,7 @@ test("logs and resources refuse an engine that runs no container", async () => {
 test("resources on a stopped container says it is not running", async () => {
   const { exec } = recordingExec(() => ({}));
   const res = await doorWith(exec).fetch(
-    new Request("http://engined/v1/engines/local-llama/resources"),
+    new Request("http://engined/engined/v1/engines/local-llama/resources"),
   );
 
   expect(res.status).toBe(404);
@@ -152,7 +154,7 @@ test("resources on a stopped container says it is not running", async () => {
 test("stop on an idle engine is a no-op that reports its state", async () => {
   const { exec, calls } = recordingExec(() => ({}));
   const res = await doorWith(exec).fetch(
-    new Request("http://engined/v1/engines/local-llama/stop", { method: "POST" }),
+    new Request("http://engined/engined/v1/engines/local-llama/stop", { method: "POST" }),
   );
 
   expect(res.status).toBe(200);
@@ -165,9 +167,9 @@ test("an unknown engine is a 404 on every new route", async () => {
   const door = doorWith(exec);
 
   for (const req of [
-    new Request("http://engined/v1/engines/nope/logs"),
-    new Request("http://engined/v1/engines/nope/resources"),
-    new Request("http://engined/v1/engines/nope/stop", { method: "POST" }),
+    new Request("http://engined/engined/v1/engines/nope/logs"),
+    new Request("http://engined/engined/v1/engines/nope/resources"),
+    new Request("http://engined/engined/v1/engines/nope/stop", { method: "POST" }),
   ]) {
     expect((await door.fetch(req)).status).toBe(404);
   }
@@ -178,7 +180,7 @@ test("an unknown engine is a 404 on every new route", async () => {
 test("release refuses a kind that has no such endpoint", async () => {
   const { exec } = recordingExec(() => ({}));
   const res = await doorWith(exec).fetch(
-    new Request("http://engined/v1/engines/local-llama/release", { method: "POST" }),
+    new Request("http://engined/engined/v1/engines/local-llama/release", { method: "POST" }),
   );
 
   expect(res.status).toBe(400);
@@ -202,7 +204,7 @@ test("release on a stopped engine succeeds without reaching the endpoint", async
     },
   );
   const res = await door.fetch(
-    new Request("http://engined/v1/engines/comfy/release", { method: "POST" }),
+    new Request("http://engined/engined/v1/engines/comfy/release", { method: "POST" }),
   );
 
   // Not running, so nothing is held and the caller's intent already holds --
@@ -236,7 +238,7 @@ async function readFrames(res: Response, want: number, timeoutMs = 5000): Promis
 // the next one, and have to poll once anyway to learn where it stands.
 test("the stream opens with a snapshot before any live frame", async () => {
   const { exec } = recordingExec(() => ({}));
-  const res = await doorWith(exec).fetch(new Request("http://engined/v1/engines/events"));
+  const res = await doorWith(exec).fetch(new Request("http://engined/engined/v1/engines/events"));
 
   expect(res.headers.get("content-type")).toBe("text/event-stream");
   const [first] = await readFrames(res, 1);
@@ -251,10 +253,12 @@ test("a state change reaches a subscriber as a live frame", async () => {
     args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
   );
   const door = doorWith(exec);
-  const res = await door.fetch(new Request("http://engined/v1/engines/events"));
+  const res = await door.fetch(new Request("http://engined/engined/v1/engines/events"));
   const frames = readFrames(res, 2);
 
-  await door.fetch(new Request("http://engined/v1/engines/local-llama/start", { method: "POST" }));
+  await door.fetch(
+    new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
+  );
 
   const live = (await frames).filter((f) => f.startsWith("event: engine"));
   expect(live.length).toBeGreaterThan(0);
@@ -267,7 +271,7 @@ test("start with a model names an unknown one rather than warming silently", asy
   );
   const door = doorWith(exec);
   const res = await door.fetch(
-    new Request("http://engined/v1/engines/local-llama/start", {
+    new Request("http://engined/engined/v1/engines/local-llama/start", {
       method: "POST",
       body: JSON.stringify({ model: "nope" }),
     }),
@@ -282,7 +286,7 @@ test("start with no body still warms only the container", async () => {
   );
   const door = doorWith(exec);
   const res = await door.fetch(
-    new Request("http://engined/v1/engines/local-llama/start", { method: "POST" }),
+    new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
   );
   expect(res.status).toBe(200);
 });

@@ -80,17 +80,27 @@ import {
 } from "./types.ts";
 
 const CONTENT_ENDPOINTS = new Set([
-  "/v1/chat/completions",
-  "/v1/embeddings",
-  "/v1/audio/speech",
-  "/v1/audio/transcriptions",
+  "/openai/v1/chat/completions",
+  "/openai/v1/embeddings",
+  "/openai/v1/audio/speech",
+  "/openai/v1/audio/transcriptions",
 ]);
 
-const START_RE = /^\/v1\/engines\/([^/]+)\/start$/;
-const STOP_RE = /^\/v1\/engines\/([^/]+)\/stop$/;
-const LOGS_RE = /^\/v1\/engines\/([^/]+)\/logs$/;
-const RESOURCES_RE = /^\/v1\/engines\/([^/]+)\/resources$/;
-const RELEASE_RE = /^\/v1\/engines\/([^/]+)\/release$/;
+/**
+ * The door's OpenAI surface is prefixed; llama-server and every remote provider
+ * serve those same paths unprefixed. Strip ours before forwarding, or the
+ * upstream is asked for a path only this door knows about.
+ */
+const OPENAI_PREFIX = "/openai";
+export function enginePath(doorPath: string): string {
+  return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath;
+}
+
+const START_RE = /^\/engined\/v1\/engines\/([^/]+)\/start$/;
+const STOP_RE = /^\/engined\/v1\/engines\/([^/]+)\/stop$/;
+const LOGS_RE = /^\/engined\/v1\/engines\/([^/]+)\/logs$/;
+const RESOURCES_RE = /^\/engined\/v1\/engines\/([^/]+)\/resources$/;
+const RELEASE_RE = /^\/engined\/v1\/engines\/([^/]+)\/release$/;
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
 const SSE_KEEPALIVE_MS = 30_000;
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
@@ -224,11 +234,7 @@ async function handleResources(registry: EngineRegistry, id: string): Promise<Re
 }
 
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
-const EXTRAS_EXACT = new Set(["/tokenize", "/apply-template"]);
-
-function isExtrasPath(pathname: string): boolean {
-  return EXTRAS_EXACT.has(pathname);
-}
+const EXTRAS_RE = /^\/engined\/v1\/engines\/([^/]+)\/(tokenize|apply-template)$/;
 
 /** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. A chain never arrives here: it carries its own hops. */
 function hopFromDispatch(
@@ -430,7 +436,7 @@ async function execLlama(
   // the engine's own /v1/models — never the router's cached command
   // bookkeeping, and never model_reported: the two answer different questions
   // and one silently standing in for the other defeats provenance.
-  const { response, modelResident } = await router.proxy(model, req.pathname, init);
+  const { response, modelResident } = await router.proxy(model, enginePath(req.pathname), init);
   const { stream, modelReported } = await readHopBody(response, req.setContentType);
   return {
     status: response.status,
@@ -753,7 +759,7 @@ async function execAgentic(
       engineEntry.agent_model === undefined
         ? undefined
         : {
-            baseUrl: `http://127.0.0.1:${config.listen_port}/v1`,
+            baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`,
             model: engineEntry.agent_model,
           },
     args: engineEntry.args,
@@ -1043,7 +1049,7 @@ async function handleAudioSpeech(
   body: Record<string, unknown>,
 ): Promise<Response> {
   const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const audio = resolveAudioEngine(ctx, rawModel, "/v1/audio/speech");
+  const audio = resolveAudioEngine(ctx, rawModel, "/openai/v1/audio/speech");
   if (!audio.ok) {
     return audio.response;
   }
@@ -1107,7 +1113,11 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
       `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
     );
   }
-  const audio = resolveAudioEngine(ctx, form.rawModel ?? undefined, "/v1/audio/transcriptions");
+  const audio = resolveAudioEngine(
+    ctx,
+    form.rawModel ?? undefined,
+    "/openai/v1/audio/transcriptions",
+  );
   if (!audio.ok) {
     return audio.response;
   }
@@ -1130,12 +1140,19 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
 /** Tokenize and apply-template are chat tools; asking the router for any other role would inject the wrong model. */
 const EXTRAS_ROLE = "chat";
 
-async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
-  const config = ctx.getConfig();
-  const engineId = resolveEngineSegment("local", config);
-  const engineEntry = engineId === undefined ? undefined : ctx.registry.entry(engineId);
-  if (engineId === undefined || !engineEntry) {
-    return jsonError(STATUS_BAD_REQUEST, "no local llama engine configured");
+async function handleExtras(
+  ctx: DoorContext,
+  req: Request,
+  engineId: string,
+  verb: string,
+): Promise<Response> {
+  const engineEntry = ctx.registry.entry(engineId);
+  if (!engineEntry) {
+    return jsonError(STATUS_BAD_REQUEST, `unknown engine "${engineId}"`);
+  }
+  // Without this the router would happily start whisper and post a chat body into it.
+  if (!ctx.registry.isLocalLlama(engineId)) {
+    return jsonError(STATUS_BAD_REQUEST, `engine "${engineId}" does not serve ${verb}`);
   }
   const status = await ctx.registry.start(engineId);
   if (status.private_url === null) {
@@ -1144,14 +1161,14 @@ async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
   const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
   return proxyExtras(
     req,
-    `http://${status.private_url}`,
+    { baseUrl: `http://${status.private_url}`, enginePath: `/${verb}` },
     residentModel,
     ctx.doorOpts.extrasHttpClient,
   );
 }
 
 async function handleContent(ctx: DoorContext, req: Request, pathname: string): Promise<Response> {
-  if (pathname === "/v1/audio/transcriptions") {
+  if (pathname === "/openai/v1/audio/transcriptions") {
     return handleAudioTranscription(ctx, req);
   }
   let body: Record<string, unknown>;
@@ -1160,7 +1177,7 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
   } catch {
     return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
   }
-  if (pathname === "/v1/audio/speech") {
+  if (pathname === "/openai/v1/audio/speech") {
     return handleAudioSpeech(ctx, body);
   }
   const rawModel = typeof body.model === "string" ? body.model : undefined;
@@ -1255,13 +1272,13 @@ function routeGet(
   signal: AbortSignal,
 ): Response | Promise<Response> | undefined {
   const { pathname } = url;
-  if (pathname === "/v1/models") {
+  if (pathname === "/openai/v1/models") {
     return modelsMenu(ctx.registry.models());
   }
-  if (pathname === "/v1/engines") {
+  if (pathname === "/engined/v1/engines") {
     return handleEngines(ctx, configErr);
   }
-  if (pathname === "/v1/engines/events") {
+  if (pathname === "/engined/v1/engines/events") {
     return handleEngineEvents(ctx, signal);
   }
   const logsMatch = LOGS_RE.exec(pathname)?.[1];
@@ -1316,6 +1333,10 @@ function routePost(
   if (CONTENT_ENDPOINTS.has(pathname)) {
     return handleContent(ctx, req, pathname);
   }
+  const extras = EXTRAS_RE.exec(pathname);
+  if (extras?.[1] !== undefined && extras[2] !== undefined) {
+    return handleExtras(ctx, req, extras[1], extras[2]);
+  }
 }
 
 function routeRequest(
@@ -1325,9 +1346,6 @@ function routeRequest(
 ): Response | Promise<Response> {
   const url = new URL(req.url);
   const { pathname } = url;
-  if (isExtrasPath(pathname)) {
-    return handleExtras(ctx, req);
-  }
   let matched: Response | Promise<Response> | undefined;
   if (req.method === "GET") {
     matched = routeGet(ctx, url, configErr, req.signal);
@@ -1467,7 +1485,7 @@ if (import.meta.main) {
       // the runner when the configured pin differs from the one last proved.
       agenticProbeRunner: buildAgenticProbeRunner(
         bunx,
-        `http://127.0.0.1:${startupConfig.listen_port}/v1`,
+        `http://127.0.0.1:${startupConfig.listen_port}/openai/v1`,
       ),
     });
   } catch (err) {

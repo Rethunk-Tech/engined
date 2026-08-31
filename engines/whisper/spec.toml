@@ -9,7 +9,7 @@ kind = "stt"
 # only that missing metadata on top of the same pinned base.
 image = "engined-whisper:local"
 obtain = "build" # pull | build; build reads ./Dockerfile here
-serves = ["/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions"]
 devices = ["/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]

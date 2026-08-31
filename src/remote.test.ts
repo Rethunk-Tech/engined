@@ -44,14 +44,14 @@ test("remoteUrl keeps the base URL's own path, which new URL() would discard", (
   expect(remoteUrl("https://api.elevenlabs.io/v1", "/speech-to-text")).toBe(
     "https://api.elevenlabs.io/v1/speech-to-text",
   );
-  expect(remoteUrl("https://api.kimi.com/coding/", "/v1/chat/completions")).toBe(
-    "https://api.kimi.com/coding/v1/chat/completions",
+  expect(remoteUrl("https://api.kimi.com/coding/", "/openai/v1/chat/completions")).toBe(
+    "https://api.kimi.com/coding/openai/v1/chat/completions",
   );
 });
 
 test("upstreamPath drops the door's own /v1, which every base_url already carries", () => {
-  expect(upstreamPath("/v1/chat/completions")).toBe("/chat/completions");
-  expect(upstreamPath("/v1/embeddings")).toBe("/embeddings");
+  expect(upstreamPath("/openai/v1/chat/completions")).toBe("/chat/completions");
+  expect(upstreamPath("/openai/v1/embeddings")).toBe("/embeddings");
   // Not a prefix match on the string: an upstream path that merely starts
   // with those two characters keeps them.
   expect(upstreamPath("/v1beta/models")).toBe("/v1beta/models");
@@ -263,7 +263,7 @@ function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}
 }
 
 function chatRequest(body: unknown): Request {
-  return new Request(`http://127.0.0.1:${TEST_LISTEN_PORT}/v1/chat/completions`, {
+  return new Request(`http://127.0.0.1:${TEST_LISTEN_PORT}/openai/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

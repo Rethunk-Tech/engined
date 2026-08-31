@@ -231,7 +231,7 @@ test("a per-request language reaches the engine, asserted against the fake upstr
   expect(fake.requests[0]?.language).toBe("fr");
 });
 
-test("with no whisper image built, transcriptions returns 503 naming it and GET /v1/engines' status reports the docker build command", async () => {
+test("with no whisper image built, transcriptions returns 503 naming it and GET /engined/v1/engines' status reports the docker build command", async () => {
   const spec = loadSpecFor("whisper", "/data/whisper-models");
   const realContainerRuns: string[][] = [];
 

@@ -16,7 +16,7 @@ const OPENCODE_OK = [
 
 /** Captured verbatim against a port nothing was listening on. opencode also exited 1, which is not consulted. */
 const OPENCODE_ERR =
-  '{"type":"error","timestamp":1788076739979,"sessionID":"ses_y","error":{"name":"APIError","data":{"message":"Cannot connect to API: Unable to connect. Is the computer able to access the url?","isRetryable":true,"metadata":{"url":"http://127.0.0.1:29999/v1/chat/completions"}}}}';
+  '{"type":"error","timestamp":1788076739979,"sessionID":"ses_y","error":{"name":"APIError","data":{"message":"Cannot connect to API: Unable to connect. Is the computer able to access the url?","isRetryable":true,"metadata":{"url":"http://127.0.0.1:29999/openai/v1/chat/completions"}}}}';
 
 it("reads opencode's answer out of the text events, which arrive one per chunk", () => {
   expect(parseOpencodeEvents(OPENCODE_OK)).toEqual({ ok: true, result: "pong" });
