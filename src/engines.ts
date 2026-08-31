@@ -13,9 +13,7 @@ import type { Exec } from "./exec.ts";
 import { CONTENT_TYPE, JSON_CONTENT_TYPE } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { localLlamaPresetPath, stateDir } from "./paths.ts";
-import { isRemote, noSecretConfiguredFix } from "./remote.ts";
 import type { EngineResources } from "./resources.ts";
-import { resolveSecret, type SecretOutcome } from "./secrets.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   type AgenticSpec,
@@ -25,10 +23,12 @@ import {
   type EngineKind,
   type EngineStatus,
   type EnginesResponse,
+  FatalError,
   isContainerSpec,
+  KIND_UPSTREAM_TRAIT,
   type LoadedSpec,
   MODEL_LESS_KINDS,
-  type SecretRef,
+  type ReadyProbe,
   type Spec,
 } from "./types.ts";
 
@@ -80,8 +80,8 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
 }
 
 /**
- * A remote-address-only engine (`base_url` set) has no spec directory, so its
- * `serves` list cannot come from a spec file. Mirrors the route table in
+ * A spec-less engine's built-in spec has no spec directory, so its `serves`
+ * list cannot come from a spec file. Mirrors the route table in
  * docs/http-api.md. Comfy is never reached this way, so it is absent from
  * this map's callers rather than mapped to `[]` here.
  */
@@ -93,39 +93,45 @@ const KIND_SERVES: Record<EngineKind, string[]> = {
   comfy: [],
 };
 
-/** No spec directory exists for a remote-address engine; named as such rather than left blank. */
-const REMOTE_SPEC_SOURCE = "(none: remote address)";
+/** No spec directory exists for a spec-less engine; named as such rather than left blank. */
+const BUILTIN_SPEC_SOURCE = "(none: spec-less engine)";
+
+/** Never read: `isContainerSpec` is false for a spec-less engine's built-in spec, so no probe ever reaches `docker inspect` with this. */
+const BUILTIN_READY_PROBE: ReadyProbe = { path: "/", status: 200 };
 
 /**
- * A remote-address `agentic-cli` engine (e.g. `claude-kimi`) launches the
- * identical binary under the identical floor as a local one — only its
- * upstream differs — so it is gated through the same `agenticStatus` proof.
- * Only `kind`/`serves` are read by that gate; `env`/`command` are never used
- * for a remote engine, which has no spec directory to load either from.
+ * The spec a spec-less engine takes when its own config declares `kind`.
+ * `agentic-cli` has no built-in launch to fall back to -- there is no
+ * package, no CLI, no floor to invent -- so it is refused here rather than
+ * silently constructed wrong; every agentic engine ships a real spec.
  */
-const REMOTE_AGENTIC_SPEC: AgenticSpec = {
-  kind: "agentic-cli",
-  // A remote address has no spec directory to declare one, and every remote
-  // agentic engine shipped so far is a claude upstream behind a different door.
-  agent: "claude",
-  serves: KIND_SERVES["agentic-cli"],
-  env: [],
-  command: [],
-};
+function builtInSpec(engine: EngineEntry, kind: EngineKind): Spec {
+  if (kind === "agentic-cli") {
+    throw new FatalError(
+      `engine "${engine.id}": a spec-less agentic-cli engine has no built-in launch -- ship engines/${engine.id}/spec.toml`,
+    );
+  }
+  return {
+    kind,
+    image: undefined,
+    obtain: "pull",
+    serves: KIND_SERVES[kind],
+    env: [],
+    command: [],
+    upstream: KIND_UPSTREAM_TRAIT[kind],
+    devices: [],
+    group_add: [],
+    security_opt: [],
+    init: false,
+    streaming: false,
+    volumes: [],
+    artifacts: [],
+    ready: BUILTIN_READY_PROBE,
+  };
+}
 
 function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
   return kind === "openai-http" && engine.models_dir !== undefined;
-}
-
-/**
- * Resolved per request, never cached — a `--user` unit boots before the
- * login keyring unlocks (lingering is enabled here specifically so engined
- * starts before any graphical login), and a cached failure would need a
- * reload to clear once the operator signs in rather than just recovering
- * on the next `GET /engined/v1/engines`.
- */
-function defaultSecretResolves(secret: SecretRef): Promise<SecretOutcome> {
-  return resolveSecret(secret);
 }
 
 /**
@@ -191,8 +197,6 @@ export interface RegistryOptions {
   exec?: Exec;
   probe?: Probe;
   lifecycle?: DockerLifecycle;
-  /** Defaults to real `secret-tool` access via secrets.ts; a test injects a fake outcome directly, without simulating a subprocess. */
-  secretResolves?: (secret: SecretRef) => Promise<SecretOutcome>;
   /** Overridable for tests: a fast interval against a fake `/queue` response. */
   queueFetch?: QueueFetch;
   releaseFetch?: ReleaseFetch;
@@ -205,8 +209,7 @@ export interface RegistryOptions {
 
 interface Entry {
   engine: EngineEntry;
-  /** `null` for a remote-address-only engine: it has no spec directory to load. */
-  spec: LoadedSpec | null;
+  spec: LoadedSpec;
 }
 
 /**
@@ -224,13 +227,18 @@ const PEEK_PRESET_INI = "/unused";
  * its models mount. `buildLlamaSpec`/`buildComfySpec` each call `loadSpec`
  * themselves; the first call here only exists to learn `kind` cheaply,
  * before ever running or proxying anything.
+ *
+ * An engine declaring `kind` in config is spec-less and takes the built-in
+ * spec for that kind; everything else loads `engines/<id>/spec.toml`.
  */
-
 function loadEngineSpec(
   engine: EngineEntry,
   specOptions: SpecLoadOptions,
   presetHostPath: string,
 ): LoadedSpec {
+  if (engine.kind !== undefined) {
+    return { spec: builtInSpec(engine, engine.kind), source: BUILTIN_SPEC_SOURCE };
+  }
   // The peek's own resolved spec is discarded whenever a builder below takes
   // over -- each calls loadSpec again with the substitution `{preset_ini}`
   // actually needs.
@@ -254,22 +262,19 @@ function buildEntries(
 ): Entry[] {
   return config.engines.map((engine) => ({
     engine,
-    spec: isRemote(engine) ? null : loadEngineSpec(engine, specOptions, presetHostPath),
+    spec: loadEngineSpec(engine, specOptions, presetHostPath),
   }));
 }
 
 /**
- * Whether a chunked `stream: true` on `/openai/v1/audio/speech` is servable here.
- * Only `tts` serves that route, so every other kind reports nothing at all
- * rather than a `false` that reads as "streaming is turned off". A remote
- * address has no spec to declare it and engined ships no remote TTS dialect,
- * so it is a truthful `false` there rather than an unknown.
+ * Whether `"stream": true` is servable here. Every kind can now declare it
+ * (`spec.ts`'s `streaming` key is no longer tts-only), so a container spec's
+ * own boolean is the honest answer, and an agentic-cli or spec-less-proxy
+ * spec -- neither of which can declare it at all -- is truthfully `false`
+ * rather than unknown.
  */
-function streamingOf(kind: EngineKind, spec: Spec | null): boolean | undefined {
-  if (kind !== "tts") {
-    return undefined;
-  }
-  return spec !== null && isContainerSpec(spec) ? spec.streaming : false;
+function streamingOf(spec: Spec): boolean {
+  return isContainerSpec(spec) ? spec.streaming : false;
 }
 
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
@@ -284,7 +289,7 @@ function statusFrom(
     kind: spec.kind,
     egress: engine.egress,
     serves: spec.serves,
-    streaming: streamingOf(spec.kind, spec),
+    streaming: streamingOf(spec),
     state: runtime.state,
     fix: runtime.fix,
     private_url: runtime.private_url,
@@ -297,7 +302,6 @@ function statusFrom(
 export class EngineRegistry {
   private readonly exec: Exec;
   private readonly lifecycle: DockerLifecycle;
-  private readonly secretResolves: (secret: SecretRef) => Promise<SecretOutcome>;
   private readonly specOptions: SpecLoadOptions;
   private readonly queueFetch: QueueFetch;
   private readonly releaseFetch: ReleaseFetch;
@@ -324,7 +328,6 @@ export class EngineRegistry {
   constructor(config: Config, opts: RegistryOptions) {
     this.exec = opts.exec ?? dockerExec;
     this.lifecycle = opts.lifecycle ?? new DockerLifecycle(this.exec, opts.probe);
-    this.secretResolves = opts.secretResolves ?? defaultSecretResolves;
     this.specOptions = {
       enginesRoot: opts.enginesRoot,
       bunx: opts.bunx,
@@ -387,7 +390,7 @@ export class EngineRegistry {
   /** One poll timer per `comfy`-kind engine; idleness for it comes from nowhere else. */
   private startComfyWatches(entries: Entry[]): ReturnType<typeof setInterval>[] {
     return entries
-      .filter((e) => !e.engine.disabled && this.kindOf(e) === "comfy")
+      .filter((e) => !e.engine.disabled && e.spec.spec.kind === "comfy")
       .map((entry) =>
         setInterval(() => {
           this.pollComfyQueue(entry).catch(() => undefined);
@@ -405,7 +408,7 @@ export class EngineRegistry {
    * poll while the queue stays empty would defer the stop forever.
    */
   private async pollComfyQueue(entry: Entry): Promise<void> {
-    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+    if (!isContainerSpec(entry.spec.spec)) {
       return;
     }
     const { engine } = entry;
@@ -446,37 +449,16 @@ export class EngineRegistry {
     }
   }
 
-  private kindOf(entry: Entry): EngineKind {
-    if (entry.spec === null) {
-      return entry.engine.kind ?? "agentic-cli";
-    }
-    return entry.spec.spec.kind;
-  }
-
   /**
    * Everything `getStatus`/spec loading already know, with no docker round
-   * trip and — for a remote-address engine — no keyring round trip either:
-   * optimistic `installed`, the same resting assumption a container gets
-   * before its first probe. `statusFor` is the authoritative, async check.
+   * trip and no version proof: optimistic `installed`, the same resting
+   * assumption a container gets before its first probe. `statusFor` is the
+   * authoritative, async check.
    */
   private syncStatus(entry: Entry): EngineStatus {
     const { engine } = entry;
     if (engine.disabled) {
       return this.disabledStatus(entry);
-    }
-
-    if (entry.spec === null) {
-      const kind = this.kindOf(entry);
-      return {
-        id: engine.id,
-        kind,
-        egress: engine.egress,
-        serves: KIND_SERVES[kind],
-        streaming: streamingOf(kind, null),
-        state: "installed",
-        private_url: null,
-        spec_source: REMOTE_SPEC_SOURCE,
-      };
     }
 
     const { spec, source } = entry.spec;
@@ -486,6 +468,7 @@ export class EngineRegistry {
         kind: spec.kind,
         egress: engine.egress,
         serves: spec.serves,
+        streaming: streamingOf(spec),
         state: "installed",
         private_url: null,
         spec_source: source,
@@ -496,68 +479,26 @@ export class EngineRegistry {
   }
 
   /**
-   * Reported, not inspected: no docker probe, no keyring round trip, no
-   * version proof. `unavailable` is the honest state -- nothing here is
-   * servable -- and `disabled` is what separates it from an engine that is
-   * unavailable for a reason the operator would have to go fix. `fix` names
-   * the edit that undoes it, the same as every other unavailable engine.
+   * Reported, not inspected: no docker probe, no version proof. `unavailable`
+   * is the honest state -- nothing here is servable -- and `disabled` is what
+   * separates it from an engine that is unavailable for a reason the operator
+   * would have to go fix. `fix` names the edit that undoes it, the same as
+   * every other unavailable engine.
    */
   private disabledStatus(entry: Entry): EngineStatus {
     const { engine, spec } = entry;
     return {
       id: engine.id,
-      kind: this.kindOf(entry),
+      kind: spec.spec.kind,
       egress: engine.egress,
       serves: this.serves(engine.id),
-      streaming: streamingOf(this.kindOf(entry), spec?.spec ?? null),
+      streaming: streamingOf(spec.spec),
       state: "unavailable",
       disabled: true,
-      fix: `remove "${engine.id}" from "disabled" in config.toml`,
+      fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
       private_url: null,
-      spec_source: spec === null ? REMOTE_SPEC_SOURCE : spec.source,
+      spec_source: spec.source,
     };
-  }
-
-  /**
-   * The keyring round trip a remote-address engine's status needs: resolved
-   * fresh on every call (never cached — see `defaultSecretResolves`), so an
-   * operator who signs in and unlocks their keyring sees it recover on the
-   * next `GET /engined/v1/engines`, no reload required. Distinguishes `missing` from
-   * `locked` rather than collapsing both into one `fix`, because a `locked`
-   * engine already has a correctly-stored secret — telling the operator to
-   * `secret-tool store` it again is the wrong diagnosis.
-   *
-   * A `kind: "agentic-cli"` remote address launches the same binary as a
-   * local one and so is gated the same way: the secret is checked first
-   * (the existing behaviour every other remote engine gets), and only once
-   * it resolves does the version-proof gate in `agenticStatus` run. An
-   * engine that is merely a remote address and launches nothing carries no
-   * `agent_version` and is never routed there.
-   */
-  private async remoteStatus(entry: Entry): Promise<EngineStatus> {
-    const { engine } = entry;
-    const kind = this.kindOf(entry);
-    const base = {
-      id: engine.id,
-      kind,
-      egress: engine.egress,
-      serves: KIND_SERVES[kind],
-      streaming: streamingOf(kind, null),
-      private_url: null,
-      spec_source: REMOTE_SPEC_SOURCE,
-    } as const;
-    const { secret } = engine;
-    if (secret === undefined) {
-      return { ...base, state: "unavailable", fix: noSecretConfiguredFix(engine.id) };
-    }
-    const outcome = await this.secretResolves(secret);
-    if (!outcome.ok) {
-      return { ...base, state: "unavailable", fix: outcome.fix };
-    }
-    if (kind === "agentic-cli") {
-      return this.agenticStatus(engine, REMOTE_AGENTIC_SPEC, REMOTE_SPEC_SOURCE);
-    }
-    return { ...base, state: "installed" };
   }
 
   /**
@@ -571,14 +512,17 @@ export class EngineRegistry {
     if (entry.engine.disabled) {
       return this.disabledStatus(entry);
     }
-    if (entry.spec === null) {
-      return this.remoteStatus(entry);
-    }
-    if (!isContainerSpec(entry.spec.spec)) {
-      return this.agenticStatus(entry.engine, entry.spec.spec, entry.spec.source);
+    const { spec, source } = entry.spec;
+    if (!isContainerSpec(spec)) {
+      if (spec.kind === "agentic-cli") {
+        return this.agenticStatus(entry.engine, spec, source);
+      }
+      // A spec-less proxy: nothing to probe and nothing resident -- an
+      // address is either configured or it is not, and syncStatus's
+      // optimistic `installed` already says as much.
+      return this.syncStatus(entry);
     }
     const { engine } = entry;
-    const { spec, source } = entry.spec;
     return statusFrom(engine, spec, source, await this.lifecycle.probe(engine.id, spec, source));
   }
 
@@ -603,6 +547,7 @@ export class EngineRegistry {
       kind: spec.kind,
       egress: engine.egress,
       serves: spec.serves,
+      streaming: streamingOf(spec),
       private_url: null,
       spec_source: source,
     } as const;
@@ -681,19 +626,22 @@ export class EngineRegistry {
   }
 
   /**
-   * Every selectable `model` string: GGUF ids and their aliases, engine ids
-   * of engines that answer without being told which model (`agentic-cli`,
-   * `tts`, `stt` — each serves a fixed job with no GGUF to name), and chain
-   * names (already `chain-*` in `config.chains`'s keys). `openai-http`
-   * engines are excluded here because a router needs the GGUF id, not the
-   * engine id. `comfy` is excluded structurally, never by name: it has no
-   * OpenAI shape and owns no `[[model]]` entry, so it never enters the set.
+   * Every selectable `model` string: route model ids and their aliases,
+   * engine ids of engines that answer without being told which model
+   * (`agentic-cli`, `tts`, `stt` — each serves a fixed job with no GGUF to
+   * name), and chain names (already `chain-*` in `config.chains`'s keys).
+   * `openai-http` engines are excluded here because a router needs the GGUF
+   * id, not the engine id. `comfy` is excluded structurally, never by name:
+   * it has no OpenAI shape and owns no model-bearing route, so it never
+   * enters the set.
    */
   models(): string[] {
     const out = new Set<string>();
-    for (const m of this.config.models) {
-      out.add(m.id);
-      for (const alias of m.aliases) {
+    for (const r of this.config.routes) {
+      if (r.model !== undefined) {
+        out.add(r.model);
+      }
+      for (const alias of r.aliases) {
         out.add(alias);
       }
     }
@@ -703,8 +651,7 @@ export class EngineRegistry {
       if (entry.engine.disabled) {
         continue;
       }
-      const kind = this.kindOf(entry);
-      if (MODEL_LESS_KINDS.has(kind)) {
+      if (MODEL_LESS_KINDS.has(entry.spec.spec.kind)) {
         out.add(entry.engine.id);
       }
     }
@@ -717,19 +664,12 @@ export class EngineRegistry {
   /** Whether an id names the local llama, which is the only engine the extras routes can address. */
   isLocalLlama(id: string): boolean {
     const entry = this.byId.get(id);
-    return entry !== undefined && isLocalLlama(entry.engine, this.kindOf(entry));
+    return entry !== undefined && isLocalLlama(entry.engine, entry.spec.spec.kind);
   }
 
   /** Endpoints a given *engine* id serves, for the door's model/endpoint mismatch check. */
   serves(id: string): string[] {
-    const entry = this.byId.get(id);
-    if (!entry) {
-      return [];
-    }
-    if (entry.spec === null) {
-      return KIND_SERVES[this.kindOf(entry)];
-    }
-    return entry.spec.spec.serves;
+    return this.byId.get(id)?.spec.spec.serves ?? [];
   }
 
   /** The configured engine itself — secret, base_url, args, timeouts — as distinct from `get`'s runtime status. */
@@ -753,9 +693,9 @@ export class EngineRegistry {
     if (entry.engine.disabled) {
       throw new Error(`engine "${id}" is disabled in config`);
     }
-    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
-      // Nothing to warm up: a remote address or an agentic-cli local engine
-      // has no standing container.
+    if (!isContainerSpec(entry.spec.spec)) {
+      // Nothing to warm up: a spec-less proxy or an agentic-cli engine has
+      // no standing container.
       return this.statusFor(entry);
     }
     // A fresh start's first queue observation must be a real transition, not
@@ -774,18 +714,22 @@ export class EngineRegistry {
 
   /**
    * The bind-mounted INI llama-server reads once at startup, re-rendered on
-   * every start so a config edit to `[[model]]`/`[engine.args]` reaches the
-   * container the next time it actually starts, per the reload rule.
+   * every start so a config edit to `[[route]]`/`[engine.args]` reaches the
+   * container the next time it actually starts, per the reload rule. Filtered
+   * on `(engine, upstream === "local")`: a route proxied to a peer's llama
+   * has nothing resident on this box to render a section for.
    */
   private renderLocalLlamaPreset(engine: EngineEntry): void {
-    const models = this.config.models.filter((m) => m.engine === engine.id);
+    const routes = this.config.routes.filter(
+      (r) => r.engine === engine.id && r.upstream === "local",
+    );
     mkdirSync(dirname(this.presetHostPath), { recursive: true });
-    writeFileSync(this.presetHostPath, renderPresetIni(engine, models), "utf8");
+    writeFileSync(this.presetHostPath, renderPresetIni(engine, routes), "utf8");
   }
 
   /**
    * Why a per-container read cannot answer for this engine, or `undefined` if
-   * it can. A remote address or an agentic-cli engine has no container, and
+   * it can. A spec-less proxy or an agentic-cli engine has no container, and
    * says so rather than returning an empty result that reads like a quiet one.
    */
   private containerRefusal(id: string): { error: string } | undefined {
@@ -793,7 +737,7 @@ export class EngineRegistry {
     if (!entry) {
       return { error: `unknown engine "${id}"` };
     }
-    if (entry.spec === null || !isContainerSpec(entry.spec.spec)) {
+    if (!isContainerSpec(entry.spec.spec)) {
       return { error: `"${id}" runs no container of its own` };
     }
     return undefined;
@@ -829,7 +773,7 @@ export class EngineRegistry {
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
     }
-    if (entry.spec !== null && isContainerSpec(entry.spec.spec)) {
+    if (isContainerSpec(entry.spec.spec)) {
       this.comfyQueueEmpty.delete(id);
       await this.lifecycle.stop(id);
     }
@@ -854,7 +798,7 @@ export class EngineRegistry {
     if (!entry) {
       return { error: `unknown engine "${id}"` };
     }
-    const kind = this.kindOf(entry);
+    const kind = entry.spec.spec.kind;
     if (kind !== "comfy") {
       return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` };
     }

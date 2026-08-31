@@ -359,7 +359,13 @@ interface SpecCommon {
 
 export interface ContainerSpec extends SpecCommon {
   kind: Exclude<EngineKind, "agentic-cli">;
-  image: string;
+  /**
+   * Absent on the built-in spec a spec-less engine takes (one declaring
+   * `kind` in config, e.g. a pure `openai-http` proxy) -- it launches
+   * nothing, so it has no image to declare. `isContainerSpec` is what a
+   * caller checks before ever reading this.
+   */
+  image?: string;
   obtain: "pull" | "build";
   devices: string[];
   group_add: string[];
@@ -403,8 +409,14 @@ export interface AgenticSpec extends SpecCommon {
 
 export type Spec = ContainerSpec | AgenticSpec;
 
-export function isContainerSpec(s: Spec): s is ContainerSpec {
-  return s.kind !== "agentic-cli";
+/**
+ * A declared `image`, not `kind !== "agentic-cli"`: a spec-less engine's
+ * built-in spec is container-SHAPED (its `kind` is e.g. `"openai-http"`) but
+ * launches nothing, so it must not read as a container here -- otherwise
+ * starting it would `docker run` a proxy with no image.
+ */
+export function isContainerSpec(s: Spec): s is ContainerSpec & { image: string } {
+  return s.kind !== "agentic-cli" && s.image !== undefined;
 }
 
 /** A spec paired with where it was read from, because status reports which won. */
@@ -428,7 +440,8 @@ export interface RoleContention {
 export interface EngineStatus {
   id: string;
   kind: EngineKind;
-  egress: Egress;
+  /** Dead weight, mirroring `EngineEntry.egress` -- absent on every engine, since egress now belongs to the upstream a route pairs it with. */
+  egress?: Egress;
   serves: string[];
   state: EngineState;
   /**
