@@ -144,6 +144,7 @@ interface Frame {
   detail?: unknown;
   step?: unknown;
   step_limit?: unknown;
+  audio?: unknown;
 }
 
 /** Every parseable NDJSON line, including a last one the engine did not newline-terminate. */
@@ -237,12 +238,14 @@ async function streamedSpeech(
  * `step`/`step_limit` where the engine reports them, `chunk` with base64 `pcm`
  * and its rate, and `error` with its detail.
  *
- * Re-serialized rather than passed through byte for byte, for the same reason
- * `streamedSpeech` drops the terminal frame: it carries a whole-utterance WAV
- * the caller already has as chunks, and doubling the payload to forward a
- * field nobody reads is not passthrough, it is waste. Every field here is one
- * the door has vetted, so an engine gaining a new one does not silently become
- * part of this contract.
+ * Re-serialized through a vetted field list, so an engine gaining a field does
+ * not silently become part of this contract.
+ *
+ * The terminal frame's whole-utterance `audio` is forwarded only when no chunk
+ * carried samples. A chunking engine (kokoro, piper) has already sent them and
+ * repeating the whole utterance doubles the payload; a non-chunking one
+ * (chatterbox, which streams step counts and then one final WAV) has sent
+ * nothing else, and dropping it would hand a caller progress and no audio.
  *
  * No leading status decision to make: unlike the PCM path there is no content
  * type that depends on a rate only the first chunk knows, so the response
@@ -252,6 +255,7 @@ async function streamedSpeech(
 function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
   const frames = ndjsonFrames(body);
   const encoder = new TextEncoder();
+  let sentChunk = false;
   return {
     status: STATUS_OK,
     contentType: NDJSON_CONTENT_TYPE,
@@ -262,8 +266,11 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
           controller.close();
           return;
         }
-        const out = vettedFrame(value);
+        const out = vettedFrame(value, sentChunk);
         if (out !== undefined) {
+          if (out.phase === "chunk") {
+            sentChunk = true;
+          }
           controller.enqueue(encoder.encode(`${JSON.stringify(out)}\n`));
         }
       },
@@ -275,7 +282,7 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
 }
 
 /** The fields the door forwards, and nothing an engine invents beside them. */
-function vettedFrame(frame: Frame): Record<string, unknown> | undefined {
+function vettedFrame(frame: Frame, sentChunk: boolean): Record<string, unknown> | undefined {
   if (typeof frame.phase !== "string") {
     return undefined;
   }
@@ -292,6 +299,9 @@ function vettedFrame(frame: Frame): Record<string, unknown> | undefined {
   if (frame.phase === "chunk" && typeof frame.pcm === "string" && typeof frame.rate === "number") {
     out.pcm = frame.pcm;
     out.rate = frame.rate;
+  }
+  if (frame.phase === "done" && !sentChunk && typeof frame.audio === "string") {
+    out.audio = frame.audio;
   }
   return out;
 }

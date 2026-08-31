@@ -461,3 +461,31 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
     { phase: "done" },
   ]);
 });
+
+test('stream: "ndjson" keeps the terminal audio when the engine never chunked', async () => {
+  // chatterbox streams step counts and then one whole-utterance WAV: it emits
+  // no chunk frames at all, so dropping `audio` on `done` -- correct for a
+  // chunking engine that already sent the samples -- hands this caller
+  // progress and silence.
+  const frames = [
+    JSON.stringify({ phase: "synthesizing", step: 7, step_limit: 1000 }),
+    JSON.stringify({ phase: "vocoding" }),
+    JSON.stringify({ phase: "done", audio: SAMPLE_WAV_BASE64, alignment: null }),
+  ].join("\n");
+  const res = await handleSpeech(
+    { model: "chatterbox", input: "hi", stream: "ndjson" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+
+  const out = (await new Response(res.stream).text())
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+  expect(out).toEqual([
+    { phase: "synthesizing", step: 7, step_limit: 1000 },
+    { phase: "vocoding" },
+    { phase: "done", audio: SAMPLE_WAV_BASE64 },
+  ]);
+});
