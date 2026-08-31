@@ -148,22 +148,28 @@ interface StartedEngine {
  * to concatenate rather than return early, and would be silently truncated
  * to its first chunk until it does.
  */
-function extractAudioFromNdjson(body: string): string | undefined {
+function extractAudioFromNdjson(body: string): { audio?: string; error?: string } {
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.length === 0) {
       continue;
     }
-    let frame: { audio?: unknown };
+    let frame: { audio?: unknown; phase?: unknown; detail?: unknown };
     try {
       frame = JSON.parse(trimmed);
     } catch {
       continue;
     }
+    // The engine says why it refused -- an unknown voice, say. Reporting
+    // "carried no audio" instead sends the caller looking at the door.
+    if (frame.phase === "error" && typeof frame.detail === "string") {
+      return { error: frame.detail };
+    }
     if (typeof frame.audio === "string" && frame.audio.length > 0) {
-      return frame.audio;
+      return { audio: frame.audio };
     }
   }
+  return {};
 }
 
 interface Frame {
@@ -432,7 +438,10 @@ export async function handleSpeech(
     return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.model, body);
   }
 
-  const audio = extractAudioFromNdjson(await res.text());
+  const { audio, error } = extractAudioFromNdjson(await res.text());
+  if (error !== undefined) {
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts failed: ${error}`);
+  }
   if (audio === undefined) {
     return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts response carried no audio`);
   }

@@ -489,3 +489,23 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
     { phase: "done", audio: SAMPLE_WAV_BASE64 },
   ]);
 });
+
+test("a buffered speech failure reports the engine's own reason, not just missing audio", async () => {
+  // kokoro refuses an unknown voice with {phase:"error", detail}. Reporting
+  // "carried no audio" sends the caller looking at the door instead.
+  const res = await handleSpeech(
+    { model: "kokoro", input: "hi", voice: "not_a_real_voice" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () =>
+      Promise.resolve(
+        new Response(
+          `${JSON.stringify({ phase: "error", detail: 'unknown Kokoro voice "not_a_real_voice"' })}\n`,
+        ),
+      ),
+  );
+
+  expect(res.status).toBe(502);
+  expect((res.body as { error: string }).error).toContain(
+    'unknown Kokoro voice "not_a_real_voice"',
+  );
+});
