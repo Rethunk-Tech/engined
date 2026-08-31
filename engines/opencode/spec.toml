@@ -1,4 +1,7 @@
 kind = "agentic-cli"
+# A route naming no upstream is ambient: opencode's own provider config
+# carries the login, not an engined-configured address or secret.
+upstream = "optional"
 agent = "opencode"
 serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]

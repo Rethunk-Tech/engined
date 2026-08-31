@@ -1,4 +1,5 @@
 kind = "tts"
+upstream = "self"
 image = "engined-kokoro:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]

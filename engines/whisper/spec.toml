@@ -1,4 +1,5 @@
 kind = "stt"
+upstream = "self"
 # The bare upstream image (pinned digest, still the base layer of ./Dockerfile
 # below) declares no EXPOSE, and engined's port discovery has exactly one
 # source: the image's own ExposedPorts. Confirmed live -- `docker image

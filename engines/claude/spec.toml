@@ -1,4 +1,7 @@
 kind = "agentic-cli"
+# A route naming no upstream is ambient: claude carries its own login, not a
+# configured address or secret.
+upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]
@@ -17,4 +20,4 @@ serves = ["/openai/v1/chat/completions"]
 # is not an interactive shell's, and nothing that ships names a user.
 # {agent_version} comes from config, because which version runs is a tunable.
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
-env = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"]                              # allowlist, not inheritance
+env = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"]                             # allowlist, not inheritance

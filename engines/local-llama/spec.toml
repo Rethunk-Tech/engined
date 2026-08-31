@@ -1,4 +1,12 @@
 kind = "openai-http"
+# self, not the openai-http default of "required": this engine IS the
+# upstream. A route naming none defaults to "local", never ambient or a
+# configured address.
+upstream = "self"
+# llama.cpp has streamed on the wire all along; this simply says so. The
+# door already forwards a stream for any kind (readHopBody / main.ts) --
+# only the schema forbade declaring it outside tts before every kind could.
+streaming = true
 # engined-* tag, matching every other engine here: this engine builds from its
 # own Dockerfile in this directory, so the tag has to be one no other project
 # builds into. Sharing a tag with an outside workload means a rebuild here

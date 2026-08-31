@@ -21,6 +21,7 @@ import {
   ParseError,
   type ReadyProbe,
   type Spec,
+  type UpstreamTrait,
   type Volume,
 } from "./types.ts";
 
@@ -164,6 +165,18 @@ function requireStringArray(v: unknown, field: string, file: string): string[] {
   return v as string[];
 }
 
+/**
+ * Every spec must declare its own trait: a spec-full engine has no other
+ * source of truth for how it gets an upstream when a route names none.
+ */
+function requireUpstreamTrait(raw: Record<string, unknown>, file: string): UpstreamTrait {
+  const { upstream } = raw;
+  if (upstream !== "self" && upstream !== "optional" && upstream !== "required") {
+    throw new ParseError('spec needs "upstream", one of: "self", "optional", "required"', file);
+  }
+  return upstream;
+}
+
 function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
   for (const key of CONTAINER_ONLY_KEYS) {
     if (key in raw) {
@@ -206,6 +219,7 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
     serves: requireStringArray(raw.serves, "serves", file),
     env: raw.env === undefined ? [] : requireStringArray(raw.env, "env", file),
     command,
+    upstream: requireUpstreamTrait(raw, file),
   };
 }
 
@@ -219,11 +233,6 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
   if (raw.obtain !== "pull" && raw.obtain !== "build") {
     throw new ParseError('"obtain" must be "pull" or "build"', file);
   }
-  // Only `/v1/audio/speech` has a chunk contract, so on any other kind this
-  // key would be read, reported, and honoured by nothing.
-  if (raw.streaming !== undefined && kind !== "tts") {
-    throw new ParseError(`"streaming" is a tts-only key, invalid on a ${kind} spec`, file);
-  }
   return {
     kind: kind as ContainerSpec["kind"],
     image: raw.image,
@@ -231,6 +240,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
     serves: requireStringArray(raw.serves, "serves", file),
     env: raw.env === undefined ? [] : requireStringArray(raw.env, "env", file),
     command: requireStringArray(raw.command, "command", file),
+    upstream: requireUpstreamTrait(raw, file),
     devices: raw.devices === undefined ? [] : requireStringArray(raw.devices, "devices", file),
     group_add:
       raw.group_add === undefined ? [] : requireStringArray(raw.group_add, "group_add", file),

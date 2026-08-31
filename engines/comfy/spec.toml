@@ -1,4 +1,7 @@
 kind = "comfy"
+# comfy runs here, or on some peer's `local`, and never against a foreign
+# provider -- it has no dialect to speak to one.
+upstream = "self"
 image = "engined-comfyui:local"
 obtain = "build"
 # Comfy has no OpenAI shape: a consumer reaches it through POST

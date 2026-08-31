@@ -1,4 +1,5 @@
 kind = "stt"
+upstream = "self"
 # The same image engines/whisper runs, by tag: this engine differs from that
 # one by its model file and nothing else, so a second Dockerfile here would be
 # a second copy of the same pinned upstream digest to keep in step. There is
