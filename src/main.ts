@@ -730,9 +730,21 @@ async function execAgentic(
     };
   }
 
+  // A route naming a real upstream (not ambient, not this box's own `local`)
+  // redirects to it: the engine's own launch is identical either way, only
+  // its upstream differs, so the upstream's base_url/secret substitute for
+  // the engine's own dead-but-standing fields rather than replacing them.
   let extraEnv: Record<string, string> | undefined;
-  if (isRemote(engineEntry)) {
-    const redirect = await resolveRedirect(engineEntry, modelSeg, config, ctx.doorOpts.secretExec);
+  const route = findModelOnEngine(config.routes, engineId, modelSeg);
+  const upstreamId = route?.upstream ?? null;
+  if (upstreamId !== null && upstreamId !== "local") {
+    const upstream = config.upstreams.find((u) => u.id === upstreamId);
+    const redirect = await resolveRedirect(
+      { ...engineEntry, base_url: upstream?.base_url, secret: upstream?.secret },
+      modelSeg,
+      config,
+      ctx.doorOpts.secretExec,
+    );
     if (!redirect.ok) {
       return redirect.result;
     }
@@ -797,11 +809,23 @@ async function execRemoteHttp(
   modelSeg: string,
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
-  const resolution = await resolveRemote(engineEntry, ctx.doorOpts.secretExec);
+  const config = ctx.getConfig();
+  // The route's own upstream carries the address and secret now, not the
+  // engine -- substituted onto a shim so `resolveRemote` (which still reads
+  // the dead-but-standing EngineEntry fields) resolves the right one.
+  const route = findModelOnEngine(config.routes, engineEntry.id, modelSeg);
+  const upstream =
+    route?.upstream === undefined || route.upstream === null
+      ? undefined
+      : config.upstreams.find((u) => u.id === route.upstream);
+  const resolution = await resolveRemote(
+    { ...engineEntry, base_url: upstream?.base_url, secret: upstream?.secret },
+    ctx.doorOpts.secretExec,
+  );
   if (!resolution.ok) {
     return { status: resolution.status, body: jsonErrorBody(resolution.error) };
   }
-  const modelId = resolveUpstreamModelId(ctx.getConfig(), engineEntry.id, modelSeg);
+  const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
   if (modelId === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
@@ -834,7 +858,16 @@ function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
       return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
     const engineEntry = ctx.registry.entry(engineId);
-    if (kind === "openai-http" && engineEntry && isRemote(engineEntry)) {
+    // Which of the two openai-http proxies applies is the resolved route's
+    // question, not the engine's: `upstream === "local"` is this box's own
+    // llama-server, anything else is proxied elsewhere with no local router.
+    const route = findModelOnEngine(ctx.getConfig().routes, engineId, modelSeg);
+    if (
+      kind === "openai-http" &&
+      engineEntry &&
+      route !== undefined &&
+      route.upstream !== "local"
+    ) {
       return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
     }
     if (kind === "openai-http" && engineEntry) {
@@ -1036,8 +1069,17 @@ function resolveAudioEngine(
 function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string) => {
     const engine = ctx.registry.entry(id);
-    if (engine && isRemote(engine)) {
-      const resolution = await resolveRemote(engine, ctx.doorOpts.secretExec);
+    const config = ctx.getConfig();
+    // A modelless route: audio engines carry no model segment to look one up
+    // by, so it is found by engine id alone.
+    const route = config.routes.find((r) => r.engine === id && r.model === undefined);
+    const upstreamId = route?.upstream ?? null;
+    if (engine && upstreamId !== null && upstreamId !== "local") {
+      const upstream = config.upstreams.find((u) => u.id === upstreamId);
+      const resolution = await resolveRemote(
+        { ...engine, base_url: upstream?.base_url, secret: upstream?.secret },
+        ctx.doorOpts.secretExec,
+      );
       return resolution.ok
         ? { private_url: null, remote: resolution.endpoint }
         : { private_url: null, unavailable: resolution.error };

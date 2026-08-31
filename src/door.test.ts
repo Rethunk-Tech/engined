@@ -27,12 +27,12 @@ import {
   inspectSinglePort,
   llamaControlPlane,
   makeTestRoot,
-  model,
   portResult,
+  route,
   tempPresetPath,
   writeEngineSpec,
 } from "./test-support.ts";
-import type { Config, EngineEntry } from "./types.ts";
+import type { Config, EngineEntry, Upstream } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-door-test-");
 
@@ -127,16 +127,22 @@ describe("the door: dual-family bind", () => {
 });
 
 describe("the door: SIGHUP reload", () => {
+  // A spec-less kind (never reads a spec file, so "/nonexistent" below is
+  // fine) with a modelless route: the parse-tier split already forbids
+  // filename/role on it, so there is nothing left for the kind-dependent
+  // registry check to gate.
   const GOOD_CONFIG = `
+[[upstream]]
+id = "local"
+egress = "none"
+
 [[engine]]
 id = "claude"
-egress = "remote"
-kind = "agentic-cli"
-base_url = "https://api.anthropic.com"
-  [engine.secret]
-  service = "s"
-  username = "u"
-  header = "x-api-key"
+kind = "stt"
+
+[[route]]
+engine = "claude"
+upstream = "local"
 `;
 
   test("broken TOML on reload keeps the previous config serving and names the parse error", async () => {
@@ -147,7 +153,6 @@ base_url = "https://api.anthropic.com"
     const door = createDoor(loadConfig(path), {
       enginesRoot: "/nonexistent",
       bunx: BUNX,
-      secretResolves: fakeSecretResolves("reload-secret"),
     });
     const before = (await (
       await door.fetch(new Request("http://engined/engined/v1/engines"))
@@ -175,6 +180,7 @@ base_url = "https://api.anthropic.com"
 
 const LOCAL_LLAMA_SPEC = `
 kind = "openai-http"
+upstream = "self"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
 serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
@@ -187,6 +193,7 @@ status = 200
 
 const CLAUDE_SPEC = `
 kind = "agentic-cli"
+upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
@@ -196,6 +203,7 @@ env = ["HOME"]
 /** models_dir for its own bind mount, zero `[[model]]` rows. */
 const COMFY_SPEC = `
 kind = "comfy"
+upstream = "self"
 image = "ghcr.io/example/comfy@sha256:bbbb"
 obtain = "pull"
 serves = []
@@ -481,7 +489,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
       engines: [
         engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
       ],
-      models: [model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" })],
+      routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
       chains: { "chain-x": ["@/local-llama/ornith"] },
     });
     const client: HttpClient = (url, init) => {
@@ -534,7 +542,7 @@ function llamaDoorConfig(): { cfg: Config; root: string } {
     engines: [
       engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
     ],
-    models: [model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" })],
+    routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
   });
   return { cfg, root };
 }
@@ -672,11 +680,11 @@ function streamingDoorConfig(): { cfg: Config; root: string } {
     engines: [
       engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
     ],
-    models: [
-      model({ id: "ornith", engine: "local-llama", filename: "ornith.gguf", role: "chat" }),
-      model({
-        id: "ornith-real",
+    routes: [
+      route({ engine: "local-llama", model: "ornith", filename: "ornith.gguf", role: "chat" }),
+      route({
         engine: "local-llama",
+        model: "ornith-real",
         filename: "ornith-real.gguf",
         role: "chat",
       }),
@@ -1051,9 +1059,9 @@ function twoEngineDoorConfig(): { cfg: Config; root: string } {
       engine({ id: "llama-dead", egress: "none", models_dir: "/data/dead", models_max: 1 }),
       engine({ id: "llama-live", egress: "none", models_dir: "/data/live", models_max: 1 }),
     ],
-    models: [
-      model({ id: "dead-model", engine: "llama-dead", filename: "d.gguf", role: "chat" }),
-      model({ id: "live-model", engine: "llama-live", filename: "l.gguf", role: "chat" }),
+    routes: [
+      route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
+      route({ engine: "llama-live", model: "live-model", filename: "l.gguf", role: "chat" }),
     ],
     chains: { "chain-failover": ["@/llama-dead/dead-model", "@/llama-live/live-model"] },
   });
@@ -1118,9 +1126,9 @@ describe("the door: extras injects the resident model for the right role", () =>
     const { cfg, root } = llamaDoorConfig();
     const cfgWithVision: Config = {
       ...cfg,
-      models: [
-        ...cfg.models,
-        model({ id: "vision-a", engine: "local-llama", filename: "v.gguf", role: "vision" }),
+      routes: [
+        ...cfg.routes,
+        route({ engine: "local-llama", model: "vision-a", filename: "v.gguf", role: "vision" }),
       ],
     };
     const recorded: { body: string }[] = [];
@@ -1225,33 +1233,38 @@ function fakeExec(value: string | undefined): Exec {
   };
 }
 
-function kimiEngine(): EngineEntry {
-  return engine({
-    id: "claude-kimi",
-    egress: "remote",
-    kind: "agentic-cli",
+/** Moonshot serves an Anthropic-shaped endpoint, so claude's own launch redirects to it unchanged -- only its upstream differs. */
+function moonshotUpstream(): Upstream {
+  return {
+    id: "moonshot",
     base_url: "https://api.kimi.com/coding/",
     secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-    agent_version: "1.2.3",
-  });
+    egress: "remote",
+    wire: "anthropic",
+  };
 }
 
-/** The redirected engine has no spec of its own; it reuses the shipped claude directory. */
+function claudeEngine(): EngineEntry {
+  return engine({ id: "claude", agent_version: "1.2.3" });
+}
+
+/** claude's real shipped spec, since the moonshot redirect is a route naming a different upstream on the same real agentic engine -- not a second, spec-less one. */
 function redirectDoorRoot(): string {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   writeEngineSpec(root, "claude", CLAUDE_SPEC);
   return root;
 }
 
-/** A real door over one remote-agentic kimi engine, its resolved secret and every spawned argv/env recorded rather than actually launched. */
+/** A real door over claude, routed to moonshot for one model, its resolved secret and every spawned argv/env recorded rather than actually launched. */
 function createKimiDoor(): {
   door: Door;
   spawnCalls: { argv: string[]; env: Record<string, string> }[];
 } {
   const root = redirectDoorRoot();
   const cfg = config({
-    engines: [kimiEngine()],
-    models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
+    engines: [claudeEngine()],
+    upstreams: [moonshotUpstream()],
+    routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
   });
   const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
   const spawn: AgenticSpawn = (spawnArgv, opts) => {
@@ -1268,7 +1281,6 @@ function createKimiDoor(): {
       enginesRoot: root,
       bunx: BUNX,
       agenticProbeRunner: PASSING_PROBE,
-      secretResolves: fakeSecretResolves("kimi-secret-value"),
     },
     {
       agenticSpawn: spawn,
@@ -1280,9 +1292,9 @@ function createKimiDoor(): {
   return { door, spawnCalls };
 }
 
-describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => {
+describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
   test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
-    clearVerifiedVersion("claude-kimi");
+    clearVerifiedVersion("claude");
     const { door, spawnCalls } = createKimiDoor();
     const res = await door.fetch(
       chatRequest({
@@ -1314,17 +1326,18 @@ describe("the door: remote-agentic redirect (claude-kimi-shaped engine)", () => 
 
     // The resolved secret appears nowhere in argv.
     expect(argv.some((a) => a.includes("kimi-secret-value"))).toBe(false);
-    clearVerifiedVersion("claude-kimi");
+    clearVerifiedVersion("claude");
   });
 });
 
 describe("the door: remote-agentic redirect, unproved pin never reaches a spawn", () => {
   test("no agenticProbeRunner configured: the request is refused 503 and the spawn count stays zero", async () => {
-    clearVerifiedVersion("claude-kimi");
+    clearVerifiedVersion("claude");
     const root = redirectDoorRoot();
     const cfg = config({
-      engines: [kimiEngine()],
-      models: [model({ id: "kimi-k3", engine: "claude-kimi" })],
+      engines: [claudeEngine()],
+      upstreams: [moonshotUpstream()],
+      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
     });
     const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
     const spawn: AgenticSpawn = (spawnArgv, opts) => {
@@ -1342,7 +1355,6 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
       {
         enginesRoot: root,
         bunx: BUNX,
-        secretResolves: fakeSecretResolves("kimi-secret-value"),
       },
       {
         agenticSpawn: spawn,
@@ -1360,7 +1372,7 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
 
     expect(res.status).toBe(503);
     expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude-kimi");
+    clearVerifiedVersion("claude");
   });
 });
 
@@ -1371,7 +1383,20 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // a 5xx as advance-and-nothing-left-to-advance-to (chain.ts is not this
     // worker's file to change), so the fix text is only observable on the
     // HopResult resolveRedirect itself produces, before runChain ever sees it.
-    const redirect = await resolveRedirect(kimiEngine(), "kimi-k3", config(), fakeExec(undefined));
+    // resolveRedirect itself still takes a bare EngineEntry with base_url/secret
+    // on it -- execAgentic is what substitutes the resolved upstream's fields
+    // onto one before calling it; this test exercises resolveRedirect alone.
+    const kimiShapedEngine: EngineEntry = {
+      ...claudeEngine(),
+      base_url: moonshotUpstream().base_url,
+      secret: moonshotUpstream().secret,
+    };
+    const redirect = await resolveRedirect(
+      kimiShapedEngine,
+      "kimi-k3",
+      config(),
+      fakeExec(undefined),
+    );
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
       throw new Error("expected resolveRedirect to fail for a missing secret");
@@ -1386,7 +1411,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // Config requires a base_url alongside a secret but not the converse, so
     // this shape is legal and must not reach the child as an undefined
     // upstream.
-    const { base_url: _dropped, ...addressless } = kimiEngine();
+    const addressless: EngineEntry = { ...claudeEngine(), secret: moonshotUpstream().secret };
     const redirect = await resolveRedirect(addressless, "kimi-k3", config(), fakeExec("k"));
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
@@ -1403,12 +1428,13 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
     writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
     const cfg = config({
       engines: [
-        kimiEngine(),
+        claudeEngine(),
         engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
       ],
-      models: [
-        model({ id: "kimi-k3", engine: "claude-kimi" }),
-        model({ id: "ornith", engine: "local-llama", filename: "x.gguf", role: "chat" }),
+      upstreams: [moonshotUpstream()],
+      routes: [
+        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
+        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
       ],
     });
     const recorded: { body: string }[] = [];
@@ -1446,10 +1472,10 @@ describe("the door: a chain hop naming a local model by alias", () => {
       engines: [
         engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
       ],
-      models: [
-        model({
-          id: "ornith",
+      routes: [
+        route({
           engine: "local-llama",
+          model: "ornith",
           filename: "ornith.gguf",
           role: "chat",
           aliases: ["nickname"],
