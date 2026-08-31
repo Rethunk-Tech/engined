@@ -28,9 +28,8 @@ treated as a caller.
 | `/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
 | `/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
 
-`/tokenize`, `/detokenize`, `/apply-template`, `/slots`, `/slots/:id`,
-`/models/load` and `/models/unload` proxy through to the one local llama
-engine, with the resident chat model injected where the body omits one.
+`/tokenize` and `/apply-template` proxy through to the one local llama engine,
+with the resident chat model injected where the body omits one.
 
 ## Choosing a model
 

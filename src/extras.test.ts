@@ -34,47 +34,14 @@ test("POST /tokenize with no model in the body gets the resident injected", asyn
 
 test("a model already present in the body is never overridden", async () => {
   const { client, calls } = recordingClient(() => Response.json({ tokens: [] }));
-  const req = new Request(`${BASE}/detokenize`, {
+  const req = new Request(`${BASE}/apply-template`, {
     method: "POST",
-    body: JSON.stringify({ tokens: [1], model: "explicit" }),
+    body: JSON.stringify({ messages: [], model: "explicit" }),
   });
   await proxyExtras(req, BASE, "ornith", client);
 
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string };
   expect(parsed.model).toBe("explicit");
-});
-
-test("GET /slots with no model query param gets the resident injected", async () => {
-  const { client, calls } = recordingClient(() => Response.json([]));
-  const req = new Request(`${BASE}/slots`, { method: "GET" });
-  await proxyExtras(req, BASE, "ornith", client);
-
-  const sentUrl = new URL(calls[0]?.url ?? "");
-  expect(sentUrl.pathname).toBe("/slots");
-  expect(sentUrl.searchParams.get("model")).toBe("ornith");
-});
-
-test("GET /slots/:id passes through untouched -- no model added", async () => {
-  const { client, calls } = recordingClient(() => Response.json({ id: 3 }));
-  const req = new Request(`${BASE}/slots/3`, { method: "GET" });
-  await proxyExtras(req, BASE, "ornith", client);
-
-  const sentUrl = new URL(calls[0]?.url ?? "");
-  expect(sentUrl.pathname).toBe("/slots/3");
-  expect(sentUrl.searchParams.has("model")).toBe(false);
-});
-
-test("POST /models/load passes its body through unmodified", async () => {
-  const { client, calls } = recordingClient(() => Response.json({ status: "loading" }));
-  const req = new Request(`${BASE}/models/load`, {
-    method: "POST",
-    body: JSON.stringify({ model: "ornith" }),
-  });
-  await proxyExtras(req, BASE, "ornith", client);
-
-  const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string };
-  expect(parsed.model).toBe("ornith");
-  expect(Object.keys(parsed)).toEqual(["model"]);
 });
 
 test("the upstream response body passes through unmodified, SSE included", async () => {

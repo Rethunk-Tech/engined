@@ -224,18 +224,10 @@ async function handleResources(registry: EngineRegistry, id: string): Promise<Re
 }
 
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
-const EXTRAS_EXACT = new Set([
-  "/tokenize",
-  "/detokenize",
-  "/apply-template",
-  "/slots",
-  "/models/load",
-  "/models/unload",
-]);
-const SLOTS_ID_RE = /^\/slots\/[^/]+$/;
+const EXTRAS_EXACT = new Set(["/tokenize", "/apply-template"]);
 
 function isExtrasPath(pathname: string): boolean {
-  return EXTRAS_EXACT.has(pathname) || SLOTS_ID_RE.test(pathname);
+  return EXTRAS_EXACT.has(pathname);
 }
 
 /** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. A chain never arrives here: it carries its own hops. */
@@ -1135,7 +1127,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   );
 }
 
-/** Tokenize/apply-template/slots are chat tools; asking the router for any other role would inject the wrong model. */
+/** Tokenize and apply-template are chat tools; asking the router for any other role would inject the wrong model. */
 const EXTRAS_ROLE = "chat";
 
 async function handleExtras(ctx: DoorContext, req: Request): Promise<Response> {
