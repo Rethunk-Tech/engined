@@ -100,6 +100,7 @@ const SPEC: ContainerSpec = {
   serves: ["chat"],
   env: [],
   command: [],
+  upstream: "self",
   image: "redis:alpine",
   obtain: "pull",
   devices: [],

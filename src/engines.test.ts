@@ -21,11 +21,17 @@ import {
   engine,
   inspectSinglePort,
   makeTestRoot,
-  model,
   portResult,
+  route,
   writeEngineSpec,
 } from "./test-support.ts";
-import { type Config, type EngineEntry, type EngineStatus, isContainerSpec } from "./types.ts";
+import {
+  type Config,
+  type EngineEntry,
+  type EngineStatus,
+  FatalError,
+  isContainerSpec,
+} from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-engines-test-");
 
@@ -56,6 +62,7 @@ function newEnginesRoot(): string {
 
 const PULLED_CONTAINER = `
 kind = "openai-http"
+upstream = "self"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
 serves = ["/openai/v1/chat/completions"]
@@ -68,6 +75,7 @@ status = 200
 
 const BUILT_CONTAINER = `
 kind = "tts"
+upstream = "self"
 image = "engined/kokoro:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
@@ -84,6 +92,7 @@ obtain = "docker run --rm -v engined-kokoro-models:/models curlimages/curl -fL -
 
 const AGENTIC = `
 kind = "agentic-cli"
+upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
@@ -92,6 +101,7 @@ command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 /** No `{agent_version}` placeholder: loads even when the engine configures none, unlike the shipped spec. */
 const AGENTIC_NO_VERSION_PLACEHOLDER = `
 kind = "agentic-cli"
+upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
@@ -99,6 +109,7 @@ command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 
 const COMFY_CONTAINER = `
 kind = "comfy"
+upstream = "self"
 image = "engined/comfy:local"
 obtain = "build"
 serves = []
@@ -112,6 +123,7 @@ status = 200
 /** Mirrors engines/chatterbox and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */
 const TTS_EMPTY_COMMAND = `
 kind = "tts"
+upstream = "self"
 image = "engined/faketts:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
@@ -125,6 +137,7 @@ status = 200
 /** Mirrors engines/whisper's real shape: a real command that flags can extend. */
 const STT_REAL_COMMAND = `
 kind = "stt"
+upstream = "self"
 image = "engined/fakestt:local"
 obtain = "build"
 serves = ["/openai/v1/audio/transcriptions"]
@@ -230,7 +243,7 @@ describe("disabled engines", () => {
     // Its real spec, not a guess: the engine is off, not unknown.
     expect(listed?.kind).toBe("openai-http");
     expect(listed?.serves).toEqual(["/openai/v1/chat/completions"]);
-    expect(listed?.fix).toBe('remove "llama" from "disabled" in config.toml');
+    expect(listed?.fix).toBe('set "disable = false" on engine "llama" in config.toml');
     // list() probes docker for every engine it does not short-circuit.
     expect(execLog).toEqual([]);
 
@@ -316,6 +329,7 @@ describe("streaming capability", () => {
   function ttsSpec(streaming: boolean): string {
     return `
 kind = "tts"
+upstream = "self"
 image = "ghcr.io/example/tts@sha256:aaaa"
 obtain = "pull"
 serves = ["/openai/v1/audio/speech"]
@@ -328,7 +342,7 @@ status = 200
 `;
   }
 
-  test("reported per tts engine, and absent on a kind with no chunk contract at all", async () => {
+  test("reported per tts engine, and a real false on a kind with no chunk contract to declare", async () => {
     const root = newEnginesRoot();
     writeEngineSpec(root, "chunker", ttsSpec(true));
     writeEngineSpec(root, "blocker", ttsSpec(false));
@@ -344,9 +358,10 @@ status = 200
     const streamingOf = (id: string) => listed.engines.find((e) => e.id === id)?.streaming;
     expect(streamingOf("chunker")).toBe(true);
     expect(streamingOf("blocker")).toBe(false);
-    // Not `false`: an openai-http engine has no /openai/v1/audio/speech to stream on,
-    // which is a different answer from "streaming is turned off here".
-    expect(streamingOf("llama")).toBeUndefined();
+    // An openai-http engine has no /openai/v1/audio/speech to stream on,
+    // and now that every kind can answer the question, its truthful answer
+    // is a real `false` rather than an `undefined` that reads as "unknown".
+    expect(streamingOf("llama")).toBe(false);
   });
 });
 
@@ -368,95 +383,6 @@ describe("installed engines", () => {
   });
 });
 
-/** A remote address that is merely a proxy: it launches nothing, so it carries no `agent_version` and is never routed through the agentic gate. */
-const REMOTE_ENGINE = engine({
-  id: "remote-proxy",
-  egress: "remote",
-  kind: "openai-http",
-  base_url: "https://api.kimi.com/coding/",
-  secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-});
-
-/** A second, ordinary engine in the same config, so "does the rest of the inventory still work" is provable in the same response. */
-function withAnotherEngine(root: string): Config {
-  writeEngineSpec(root, "other", PULLED_CONTAINER);
-  return config({ engines: [REMOTE_ENGINE, engine({ id: "other" })] });
-}
-
-/** Lists the remote-proxy engine (plus its ordinary sibling) under a given keyring outcome. */
-async function listRemoteProxy(
-  secretResolves: () => Promise<SecretOutcome>,
-): Promise<{ proxy: EngineStatus | undefined; other: EngineStatus | undefined }> {
-  const root = newEnginesRoot();
-  const reg = registry(withAnotherEngine(root), root, { secretResolves });
-  const listed = await reg.list();
-  return {
-    proxy: listed.engines.find((e) => e.id === "remote-proxy"),
-    other: listed.engines.find((e) => e.id === "other"),
-  };
-}
-
-describe("remote-address engines: get() stays optimistic", () => {
-  test("get() does not itself resolve the keyring", () => {
-    const reg = registry(config({ engines: [REMOTE_ENGINE] }), newEnginesRoot(), {
-      secretResolves: () => Promise.resolve({ ok: false, reason: "missing", fix: "unused" }),
-    });
-    // No image/keyring round trip happens synchronously; get() reports the
-    // same resting "installed" a never-probed container would.
-    expect(reg.get("remote-proxy")?.state).toBe("installed");
-    expect(reg.get("remote-proxy")?.private_url).toBeNull();
-  });
-});
-
-describe("remote-address engines: GET /engined/v1/engines resolves the keyring per request", () => {
-  test("GET /engined/v1/engines: installed when the secret resolves", async () => {
-    const { proxy: status } = await listRemoteProxy(() =>
-      Promise.resolve({ ok: true, value: "kimi-secret" } as SecretOutcome),
-    );
-    expect(status?.state).toBe("installed");
-    expect(status?.private_url).toBeNull();
-  });
-
-  test("GET /engined/v1/engines: a missing outcome is unavailable, fix names secret-tool store", async () => {
-    const { proxy: kimi, other } = await listRemoteProxy(() =>
-      Promise.resolve({
-        ok: false,
-        reason: "missing",
-        fix: "secret-tool store --label='moonshot-api' service moonshot-api username kimi-k2.7-code",
-      } satisfies SecretOutcome),
-    );
-    expect(kimi?.state).toBe("unavailable");
-    expect(kimi?.fix).toContain("secret-tool store");
-    expect(other?.state).toBe("installed");
-  });
-
-  test("GET /engined/v1/engines: a locked outcome is unavailable but offers no store command", async () => {
-    const { proxy: kimi, other } = await listRemoteProxy(() =>
-      Promise.resolve({
-        ok: false,
-        reason: "locked",
-        fix: "keyring is locked; resolves automatically once the operator signs in",
-      } satisfies SecretOutcome),
-    );
-    expect(kimi?.state).toBe("unavailable");
-    expect(kimi?.fix).not.toContain("secret-tool store");
-    expect(kimi?.fix).toContain("locked");
-
-    expect(other?.state).toBe("installed");
-  });
-});
-
-function remoteAgenticEngine(id: string, agentVersion?: string): EngineEntry {
-  return engine({
-    id,
-    egress: "remote",
-    kind: "agentic-cli",
-    base_url: `https://example.com/${id}`,
-    secret: { service: id, username: "u", header: "x-api-key" },
-    agent_version: agentVersion,
-  });
-}
-
 function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
   runner: AgenticProbeRunner;
   calls: Array<{ engineId: string; version: string }>;
@@ -469,88 +395,30 @@ function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
   return { runner, calls };
 }
 
-function secretResolvesOk(): Promise<SecretOutcome> {
-  return Promise.resolve({ ok: true, value: "secret" } as SecretOutcome);
+/** A spec-less engine (declares `kind` in config) with no upstream secret gate any more -- that lives on the upstream table now, not wired into status reporting this phase. */
+function specLessProxyEngine(id: string): EngineEntry {
+  return engine({ id, kind: "stt" });
 }
 
-function secretResolvesMissing(): Promise<SecretOutcome> {
-  return Promise.resolve({
-    ok: false,
-    reason: "missing",
-    fix: "secret-tool store ...",
-  } as SecretOutcome);
-}
-
-describe("remote-address agentic engines: unavailable paths never reach a real spawn", () => {
-  test("an unproved pin is unavailable even once the secret resolves, and the probe runner is never called", async () => {
-    const id = "remote-agentic-unproved";
-    clearVerifiedVersion(id);
-    const { runner, calls } = trackingRunner({ ok: true });
-    const reg = registry(config({ engines: [remoteAgenticEngine(id)] }), newEnginesRoot(), {
-      secretResolves: secretResolvesOk,
-      agenticProbeRunner: runner,
-    });
+describe("spec-less engines: no secret gate, just an optimistic installed", () => {
+  test("get() and list() both report installed with no keyring round trip at all", async () => {
+    const id = "spec-less-proxy";
+    const reg = registry(config({ engines: [specLessProxyEngine(id)] }), newEnginesRoot());
+    expect(reg.get(id)?.state).toBe("installed");
+    expect(reg.get(id)?.private_url).toBeNull();
     const listed = (await reg.list()).engines.find((e) => e.id === id);
-    expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toContain("agent_version");
-    expect(calls).toHaveLength(0);
+    expect(listed?.state).toBe("installed");
+    expect(listed?.private_url).toBeNull();
   });
 
-  test("a secret that fails to resolve is unavailable before the agentic gate is ever consulted", async () => {
-    const id = "remote-agentic-nosecret";
-    clearVerifiedVersion(id);
-    const { runner, calls } = trackingRunner({ ok: true });
-    const reg = registry(
-      config({ engines: [remoteAgenticEngine(id, "2.0.0")] }),
-      newEnginesRoot(),
-      { secretResolves: secretResolvesMissing, agenticProbeRunner: runner },
-    );
-    const listed = (await reg.list()).engines.find((e) => e.id === id);
-    expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toContain("secret-tool store");
-    expect(calls).toHaveLength(0);
-  });
-
-  test("a resolved secret and an unproved version pin is unavailable -- no real spawn occurs", async () => {
-    const id = "remote-agentic-pin-unproved";
-    clearVerifiedVersion(id);
-    const { runner, calls } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
-    const reg = registry(
-      config({ engines: [remoteAgenticEngine(id, "1.0.0")] }),
-      newEnginesRoot(),
-      { secretResolves: secretResolvesOk, agenticProbeRunner: runner },
-    );
-    const listed = (await reg.list()).engines.find((e) => e.id === id);
-    expect(listed?.state).toBe("unavailable");
-    expect(listed?.fix).toContain("byte-identical");
-    expect(calls).toEqual([{ engineId: id, version: "1.0.0" }]);
-    clearVerifiedVersion(id);
-  });
-});
-
-describe("remote-address agentic engines: gated the same as a local one once proved", () => {
-  test("the secret resolving and the probes passing together yield installed; a later list skips the runner", async () => {
-    const id = "remote-agentic-proved";
-    clearVerifiedVersion(id);
-    const { runner, calls } = trackingRunner({ ok: true });
-    const opts: Partial<RegistryOptions> = {
-      secretResolves: secretResolvesOk,
-      agenticProbeRunner: runner,
-    };
-    const cfg = config({ engines: [remoteAgenticEngine(id, "3.0.0")] });
-    const first = (await registry(cfg, newEnginesRoot(), opts).list()).engines.find(
-      (e) => e.id === id,
-    );
-    expect(first?.state).toBe("installed");
-    expect(calls).toHaveLength(1);
-
-    const second = (await registry(cfg, newEnginesRoot(), opts).list()).engines.find(
-      (e) => e.id === id,
-    );
-    expect(second?.state).toBe("installed");
-    expect(calls).toHaveLength(1);
-
-    clearVerifiedVersion(id);
+  test("a spec-less agentic-cli engine has no built-in launch to fall back to, and refuses at construction", () => {
+    expect(
+      () =>
+        new EngineRegistry(config({ engines: [engine({ id: "no-spec", kind: "agentic-cli" })] }), {
+          enginesRoot: newEnginesRoot(),
+          bunx: BUNX,
+        }),
+    ).toThrow(FatalError);
   });
 });
 
@@ -566,7 +434,7 @@ describe("GET /openai/v1/models", () => {
         engine({ id: "kokoro" }),
         engine({ id: "comfy" }),
       ],
-      models: [model({ id: "ornith", engine: "claude", aliases: ["bird"] })],
+      routes: [route({ engine: "claude", model: "ornith", aliases: ["bird"], upstream: null })],
       chains: { "chain-private": ["@/local/ornith"] },
     });
     const reg = registry(cfg, root);
@@ -732,16 +600,9 @@ describe("serves()", () => {
     expect(reg.serves("llama")).toEqual(["/openai/v1/chat/completions"]);
   });
 
-  test("falls back to the kind-serves table for a remote-address engine with no spec", () => {
-    const remoteEngine = engine({
-      id: "claude-kimi",
-      egress: "remote",
-      kind: "agentic-cli",
-      base_url: "https://api.kimi.com/coding/",
-      secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-    });
-    const reg = registry(config({ engines: [remoteEngine] }), newEnginesRoot());
-    expect(reg.serves("claude-kimi")).toEqual(["/openai/v1/chat/completions"]);
+  test("falls back to the kind-serves table for a spec-less proxy engine", () => {
+    const reg = registry(config({ engines: [specLessProxyEngine("scribe")] }), newEnginesRoot());
+    expect(reg.serves("scribe")).toEqual(["/openai/v1/audio/transcriptions"]);
   });
 
   test("unknown id serves nothing rather than throwing", () => {

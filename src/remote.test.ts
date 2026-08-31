@@ -10,6 +10,7 @@ import { handleSpeech, handleTranscription } from "./audio.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
 import { isRemote, remoteUrl, resolveRemote, upstreamPath } from "./remote.ts";
+import { config as baseConfigFixture, route } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
 const TEST_LISTEN_PORT = 39_218;
@@ -207,15 +208,12 @@ test("the speech door says so rather than pretending a remote engine failed to s
 });
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
-  return {
+  return baseConfigFixture({
     listen_port: TEST_LISTEN_PORT,
     chat_timeout_seconds: 30,
     agent_timeout_seconds: 60,
-    models: [],
-    engines: [],
-    chains: {},
     ...overrides,
-  };
+  });
 }
 
 interface RecordedChat {
@@ -247,7 +245,7 @@ function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop
 
 function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {
   return baseConfig({
-    models: [{ id: "upstream-model-7", engine: "hosted", aliases: [], args: {} }],
+    routes: [route({ engine: "hosted", model: "upstream-model-7", upstream: "hosted" })],
     engines: [
       {
         id: "hosted",
