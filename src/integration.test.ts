@@ -801,3 +801,45 @@ test("an oversized transcription upload is refused before it is read", async () 
     await door.registry.shutdown();
   }
 });
+
+test('a speech request survives the door boundary with stream: "ndjson", not coerced to a bool', async () => {
+  // handleAudioSpeech builds SpeechRequestBody by hand, so a widened type on
+  // the far side proves nothing: the boundary is where "ndjson" was dropped,
+  // and dropping it silently returns a WAV to a caller expecting frames.
+  const fake = startFakeUpstream((request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (pathname === "/v1/tts") {
+      return new Response(
+        [
+          JSON.stringify({ phase: "synthesizing", step: 3, step_limit: 9 }),
+          JSON.stringify({
+            phase: "chunk",
+            pcm: Buffer.from([7, 7]).toString("base64"),
+            rate: 24_000,
+          }),
+        ].join("\n"),
+      );
+    }
+    return new Response("", { status: 404 });
+  });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const config = baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] });
+  const door = createDoor(config, {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec,
+  });
+
+  const res = await door.fetch(
+    req("POST", "/openai/v1/audio/speech", {
+      body: { model: "chatterbox", input: "hi", stream: "ndjson" },
+    }),
+  );
+
+  expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+  const lines = (await res.text()).split("\n").filter((l) => l.length > 0);
+  expect(JSON.parse(lines[0] ?? "{}")).toEqual({ phase: "synthesizing", step: 3, step_limit: 9 });
+});

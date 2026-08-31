@@ -1059,7 +1059,7 @@ async function handleAudioSpeech(
     model: engineId,
     input: typeof body.input === "string" ? body.input : "",
     response_format: typeof body.response_format === "string" ? body.response_format : undefined,
-    stream: body.stream === true,
+    stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);
