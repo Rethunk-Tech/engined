@@ -11,10 +11,48 @@ import { STATUS_NOT_FOUND } from "./http.ts";
 /** Occupancy is one resident GGUF per role, so the set is closed. */
 export type Role = "chat" | "vision" | "embedding";
 
-/** The only input `local_only` reads. Required on every engine of every kind. */
-export type Egress = "none" | "remote";
+/**
+ * Where an upstream's bytes travel, ordered least to most exposed. Lives on
+ * `Upstream` now, not on an engine -- an engine has no address of its own
+ * to leak from, only the upstream it is paired with does. An ambient route
+ * (no upstream at all) is `"remote"`: the CLI's own login leaves the box the
+ * same as any other network call.
+ */
+export type Egress = "none" | "lan" | "remote";
+
+/** The only legal ordering on `Egress`. Index into this, never compare the strings themselves. */
+export const EGRESS_RANK: Record<Egress, number> = { none: 0, lan: 1, remote: 2 };
+
+/**
+ * The ONLY legal comparison on `Egress`. Bare `<`/`<=` is banned: alphabetically
+ * `"lan" < "none" < "remote"`, so the natural spelling admits a `lan` hop under a
+ * `none` ceiling -- it typechecks, lints clean, and is wrong on the one boundary
+ * that is a safety property.
+ */
+export function withinCeiling(value: Egress, ceiling: Egress | undefined): boolean {
+  if (ceiling === undefined) {
+    return true;
+  }
+  return EGRESS_RANK[value] <= EGRESS_RANK[ceiling];
+}
 
 export type EngineKind = "openai-http" | "agentic-cli" | "tts" | "stt" | "comfy";
+
+/** The two request/response shapes an upstream can speak. An agent CLI speaks one; pairing it with the other is a parse error. */
+export type Wire = "openai" | "anthropic";
+
+/** How an engine gets an upstream when a route names none: itself (`self`), the ambient CLI login (`optional`), or its one declared upstream (`required`). */
+export type UpstreamTrait = "self" | "optional" | "required";
+
+/** Whether a route field is mandatory, forbidden, or takes either -- the split predicate's answer once `kind` is known. */
+export type Disposition = "required" | "forbidden" | "allowed";
+
+/** `filename`/`role`/`args` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
+export interface RouteFieldRules {
+  filename: Disposition;
+  role: Disposition;
+  args: Disposition;
+}
 
 /**
  * One table, whose value says what each kind is. Typed as a complete record
@@ -22,19 +60,50 @@ export type EngineKind = "openai-http" | "agentic-cli" | "tts" | "stt" | "comfy"
  * this file gives the new one an explicit answer -- which is the whole point:
  * an inline `kind === "a" || kind === "b"` elsewhere silently omits it.
  */
-const KIND_TRAITS: Record<EngineKind, { container: boolean; modelLess: boolean }> = {
-  "openai-http": { container: true, modelLess: false },
+const KIND_TRAITS: Record<
+  EngineKind,
+  { container: boolean; modelLess: boolean; upstream: UpstreamTrait; localFile: RouteFieldRules }
+> = {
+  "openai-http": {
+    container: true,
+    modelLess: false,
+    // A spec-less openai-http engine (openrouter) is a pure proxy: it must
+    // name the one upstream it proxies to, there being no "self" to default to.
+    upstream: "required",
+    localFile: { filename: "required", role: "required", args: "allowed" },
+  },
   // The only kind that runs no container at all.
-  "agentic-cli": { container: false, modelLess: true },
+  "agentic-cli": {
+    container: false,
+    modelLess: true,
+    upstream: "optional",
+    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+  },
   // tts/stt have no model id of their own; agentic-cli picks its own.
-  tts: { container: true, modelLess: true },
-  stt: { container: true, modelLess: true },
-  comfy: { container: true, modelLess: false },
+  tts: {
+    container: true,
+    modelLess: true,
+    upstream: "self",
+    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+  },
+  stt: {
+    container: true,
+    modelLess: true,
+    upstream: "self",
+    localFile: { filename: "required", role: "forbidden", args: "allowed" },
+  },
+  comfy: {
+    container: true,
+    modelLess: false,
+    // comfy runs here or on some peer's `local`, never against a foreign provider.
+    upstream: "self",
+    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+  },
 };
 
 const KIND_ENTRIES = Object.entries(KIND_TRAITS) as [
   EngineKind,
-  { container: boolean; modelLess: boolean },
+  (typeof KIND_TRAITS)[EngineKind],
 ][];
 
 /** The complete kind list `parseKind` accepts; config.ts's source of truth. */
@@ -50,6 +119,16 @@ export const MODEL_LESS_KINDS: ReadonlySet<EngineKind> = new Set(
   KIND_ENTRIES.filter(([, t]) => t.modelLess).map(([kind]) => kind),
 );
 
+/** A spec-less engine's upstream trait, keyed by its declared `kind`. A spec-full engine's trait comes from its own spec instead -- see `spec.ts`'s `upstream` key. */
+export const KIND_UPSTREAM_TRAIT: Record<EngineKind, UpstreamTrait> = Object.fromEntries(
+  KIND_ENTRIES.map(([kind, t]) => [kind, t.upstream]),
+) as Record<EngineKind, UpstreamTrait>;
+
+/** A spec-less engine's filename/role/args disposition, keyed by its declared `kind`. */
+export const KIND_LOCAL_FILE_RULES: Record<EngineKind, RouteFieldRules> = Object.fromEntries(
+  KIND_ENTRIES.map(([kind, t]) => [kind, t.localFile]),
+) as Record<EngineKind, RouteFieldRules>;
+
 /**
  * There is no `idle`: idle-stop leaves an engine `installed` with nothing
  * running, which reads identically to one that has never started because
@@ -64,15 +143,60 @@ export interface SecretRef {
   header: string;
 }
 
-export interface ModelEntry {
+/**
+ * Fields shared by a `[[model]]` capability row and a `[[route]]`'s own
+ * overrides of it -- a route may state a capability a provider tier
+ * genuinely differs on without needing a whole second `[[model]]` row.
+ */
+export interface ModelCapabilities {
+  input?: string[];
+  output?: string[];
+  context_in?: number;
+  context_out?: number;
+  reasoning?: string[];
+}
+
+/**
+ * A name and what it can do, unrelated to any engine or upstream -- a model
+ * is a name with capabilities; which engines and upstreams can reach it is
+ * entirely `[[route]]`'s business. Optional: a route may name a model with
+ * no row here at all, and `/openai/v1/models` reports empty capabilities for it.
+ */
+export interface ModelEntry extends ModelCapabilities {
   id: string;
+}
+
+/** Names a keyring pair, an address and the wire it speaks -- *where* the bytes for a route come from, never *how* they are produced. */
+export interface Upstream {
+  id: string;
+  base_url?: string;
+  secret?: SecretRef;
+  egress: Egress;
+  wire?: Wire;
+  disabled?: boolean;
+}
+
+/**
+ * One engine paired with one upstream, resolved out of a `[[route]]` table
+ * plus whatever `[[model]]` row (if any) its `model` names. `engine`,
+ * `upstream` and `model` are three independent things related many-to-many:
+ * none owns another, and a route is the only place that says which pairing
+ * actually exists.
+ *
+ * `aliases` is kept alongside `model` so `findModelOnEngine` can still
+ * resolve either -- currently always empty, since no `[[route]]` key
+ * populates it yet.
+ */
+export interface ResolvedRoute extends ModelCapabilities {
   engine: string;
-  /** Absent by construction on an agentic model: nothing is resident. */
+  /** Absent on a MODELLESS route (comfy): this engine runs on this upstream and nothing more. */
+  model?: string;
+  aliases: string[];
+  /** `null` === ambient: no upstream, the CLI's own login. Egress is `"remote"`. */
+  upstream: string | null;
+  /** Absent by construction whenever `upstream` is not `"local"`: a route proxied elsewhere has no local file to describe. */
   filename?: string;
   role?: Role;
-  aliases: string[];
-  /** Rendered into this model's section of the presets INI, verbatim. */
-  args: Record<string, unknown>;
   /**
    * Load this GGUF when its engine starts, and reload it whenever its role
    * falls idle again — warmth guaranteed against idleness, never against
@@ -83,19 +207,29 @@ export interface ModelEntry {
    * It necessarily pins the container up too: idle-stop stops the whole
    * container, so an engine with one of these never idle-stops and holds its
    * share of the pool until engined is reloaded. That is the cost, and it is
-   * why this is opt-in per model rather than a default.
+   * why this is opt-in per route rather than a default.
    */
   keep_resident?: boolean;
+  /** Rendered into this model's section of the presets INI, verbatim. */
+  args: Record<string, unknown>;
+  /**
+   * Configured but not served: this route, its engine, or its upstream
+   * carries `disable = true`. Kept on the entry rather than dropped from
+   * `Config` so a caller asking why a route is unreachable gets a real
+   * answer.
+   */
+  disabled?: boolean;
 }
 
 export interface EngineEntry {
   id: string;
   egress: Egress;
   /**
-   * Configured but not served: named in the top-level `disabled` list. Kept
-   * on the entry rather than filtered out of `Config` so `GET /engined/v1/engines`
-   * can report it as off — which is the difference an operator needs between
-   * "turned off here" and "gone from the config".
+   * Configured but not served: this engine's own `[[engine]]` table carries
+   * `disable = true`. Kept on the entry rather than filtered out of `Config`
+   * so `GET /engined/v1/engines` can report it as off — which is the
+   * difference an operator needs between "turned off here" and "gone from
+   * the config".
    */
   disabled?: boolean;
   /** Replaces a shipped spec wholesale, never field by field. */
@@ -123,8 +257,12 @@ export interface Config {
   listen_port: number;
   chat_timeout_seconds: number;
   agent_timeout_seconds: number;
+  /** `[[model]]` capability rows -- optional, and unrelated to which engines or upstreams can reach any of them. */
   models: ModelEntry[];
   engines: EngineEntry[];
+  upstreams: Upstream[];
+  /** The route table. Replaces every former `models.filter(m => m.engine === X)` consumer -- named separately from `models` so the two tables never read as one. */
+  routes: ResolvedRoute[];
   /** Every hop is a fully-qualified `@/<engine>/<model>`. */
   chains: Record<string, string[]>;
 }
@@ -173,16 +311,18 @@ export interface ReadyProbe {
 export const QUALIFIED_MODEL_RE = /^@\/([^/]+)\/([^/]+)$/;
 
 /**
- * A model on one engine, by id or by alias. The alias half is why this is
- * shared: a caller that compares only `id` silently stops resolving aliases.
+ * A route on one engine, by model id or by alias. The alias half is why this
+ * is shared: a caller that compares only `model` silently stops resolving
+ * aliases. A modelless route (`model` absent) never matches -- `idOrAlias` is
+ * always a real string, and `undefined === idOrAlias` is never true.
  */
-export function findModelOnEngine<T extends { engine: string; id: string; aliases: string[] }>(
-  models: readonly T[],
+export function findModelOnEngine<T extends { engine: string; model?: string; aliases: string[] }>(
+  routes: readonly T[],
   engineId: string,
   idOrAlias: string,
 ): T | undefined {
-  return models.find(
-    (m) => m.engine === engineId && (m.id === idOrAlias || m.aliases.includes(idOrAlias)),
+  return routes.find(
+    (r) => r.engine === engineId && (r.model === idOrAlias || r.aliases.includes(idOrAlias)),
   );
 }
 
@@ -279,10 +419,11 @@ export interface EngineStatus {
   serves: string[];
   state: EngineState;
   /**
-   * Named in the config's `disabled` list. Always reported with
-   * `state: "unavailable"` — nothing was probed to establish that, so the two
-   * are not independent readings — and `fix` names the config edit that
-   * undoes it. Absent on every engine that is actually served.
+   * This engine's own `[[engine]]` table carries `disable = true`. Always
+   * reported with `state: "unavailable"` — nothing was probed to establish
+   * that, so the two are not independent readings — and `fix` names the
+   * config edit that undoes it. Absent on every engine that is actually
+   * served.
    */
   disabled?: boolean;
   /** The literal `docker pull` / `docker build` / `secret-tool store` that fixes it. */
@@ -295,14 +436,15 @@ export interface EngineStatus {
    */
   roles?: RoleContention[];
   /**
-   * Whether `"stream": true` on `POST /openai/v1/audio/speech` is servable by this
-   * engine. Reported only on the kind that serves that route at all: `false`
-   * elsewhere would read as "streaming is turned off here" rather than "there
-   * is no streaming to have". Without it a consumer's only way to learn that
-   * an engine cannot chunk is a 502 per request, or a hardcoded engine list
-   * that goes stale the moment engined gains an engine.
+   * Whether `"stream": true` is servable by this engine, on whichever route
+   * it serves that admits streaming at all. Every kind can now declare it
+   * (`spec.ts`'s `streaming` key is no longer tts-only), so a real boolean is
+   * the honest answer everywhere: `false` means "this engine does not
+   * stream", not "unknown". Without it a consumer's only way to learn that an
+   * engine cannot chunk is a 502 per request, or a hardcoded engine list that
+   * goes stale the moment engined gains an engine.
    */
-  streaming?: boolean;
+  streaming: boolean;
   /** Docker reassigns the host port every start, so this is a per-job read. */
   private_url: string | null;
   spec_source: string;
@@ -331,7 +473,7 @@ export interface EnginesResponse {
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 2;
+export const CONTRACT = 3;
 
 /**
  * Anything a restart cannot fix. The unit carries
