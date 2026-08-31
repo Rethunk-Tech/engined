@@ -291,6 +291,12 @@ function fakeLlamaUpstream(
     if (pathname === "/models/unload") {
       return Response.json({ ok: true });
     }
+    // Answer ONLY llama-server's own paths. A fallthrough here is what let the
+    // door forward its own `/openai/v1/...` and still get a 200: the whole
+    // local chat strip passed green while every real call would have 404'd.
+    if (pathname !== "/v1/chat/completions" && pathname !== "/v1/embeddings") {
+      return Response.json({ error: `fake llama: unexpected path ${pathname}` }, { status: 404 });
+    }
     chatBodies?.push((await request.json()) as Record<string, unknown>);
     return chatStatus >= 400
       ? Response.json({ error: content }, { status: chatStatus })
