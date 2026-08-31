@@ -70,6 +70,7 @@ import {
 import { loadSpec } from "./spec.ts";
 import {
   type Config,
+  type Egress,
   type EngineEntry,
   type EngineKind,
   errMessage,
@@ -190,13 +191,13 @@ async function handleStart(ctx: DoorContext, id: string, req: Request): Promise<
     return Response.json(started);
   }
   const engineEntry = ctx.registry.entry(id);
-  const model =
-    engineEntry === undefined ? undefined : findModelOnEngine(ctx.getConfig().models, id, modelSeg);
-  if (engineEntry === undefined || model === undefined) {
+  const route =
+    engineEntry === undefined ? undefined : findModelOnEngine(ctx.getConfig().routes, id, modelSeg);
+  if (engineEntry === undefined || route === undefined) {
     return jsonError(STATUS_BAD_GATEWAY, `model "${modelSeg}" not found on "${id}"`);
   }
   try {
-    await getLlamaRouter(ctx, engineEntry).warm(model);
+    await getLlamaRouter(ctx, engineEntry).warm(route);
   } catch (err) {
     return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
   }
@@ -377,8 +378,10 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
     return cached;
   }
   ctx.staleLlamaRouters.delete(engine.id);
-  const models = ctx.getConfig().models.filter((m) => m.engine === engine.id);
-  const router = new LlamaRouter(engine, models, ctx.lifecycle, {
+  const routes = ctx
+    .getConfig()
+    .routes.filter((r) => r.engine === engine.id && r.upstream === "local");
+  const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,
     idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
@@ -398,7 +401,7 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
  * segment to an id first is the door's own addressing rule, not the
  * registry's.
  */
-function egressOf(ctx: DoorContext, seg: string): "none" | "remote" {
+function egressOf(ctx: DoorContext, seg: string): Egress {
   const config = ctx.getConfig();
   const id = resolveEngineSegment(seg, config) ?? seg;
   return ctx.registry.entry(id)?.egress ?? "remote";
@@ -422,8 +425,8 @@ async function execLlama(
   modelSeg: string,
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
-  const model = findModelOnEngine(ctx.getConfig().models, engineEntry.id, modelSeg);
-  if (!model) {
+  const route = findModelOnEngine(ctx.getConfig().routes, engineEntry.id, modelSeg);
+  if (!route) {
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`model "${modelSeg}" not found on "${engineEntry.id}"`),
@@ -432,12 +435,12 @@ async function execLlama(
   const router = getLlamaRouter(ctx, engineEntry);
   // Both fetchBuffered and fetchStreamed take this same `init`, so
   // rewriting `model` once here fixes both proxy paths.
-  const init = openAiRequestInit(req.rawBody, model.id, req.signal);
+  const init = openAiRequestInit(req.rawBody, route.model ?? modelSeg, req.signal);
   // `modelResident` comes back with the hop, read under the same lease: from
   // the engine's own /v1/models — never the router's cached command
   // bookkeeping, and never model_reported: the two answer different questions
   // and one silently standing in for the other defeats provenance.
-  const { response, modelResident } = await router.proxy(model, enginePath(req.pathname), init);
+  const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init);
   const { stream, modelReported } = await readHopBody(response, req.setContentType);
   return {
     status: response.status,
@@ -620,7 +623,7 @@ function resolveUpstreamModelId(
   if (modelSeg === "") {
     return;
   }
-  return findModelOnEngine(config.models, engineId, modelSeg)?.id ?? modelSeg;
+  return findModelOnEngine(config.routes, engineId, modelSeg)?.model ?? modelSeg;
 }
 
 type RedirectResolution =
@@ -737,10 +740,11 @@ async function execAgentic(
   }
 
   const loaded = loadAgenticSpec(ctx, engineEntry);
-  if (isContainerSpec(loaded.spec)) {
-    // Only reachable if an engine routed here carries a container spec, which
-    // the kind check upstream already rules out -- but `agent` is what decides
-    // the floor, so it is never read off a spec that has not proven it has one.
+  if (loaded.spec.kind !== "agentic-cli") {
+    // Only reachable if an engine routed here carries a non-agentic spec,
+    // which the kind check upstream already rules out -- but `agent` is what
+    // decides the floor, so it is never read off a spec that has not proven
+    // it has one.
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),

@@ -16,7 +16,7 @@ import type { DockerLifecycle } from "./docker.ts";
 import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
 import { localLlamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { ContainerSpec, EngineEntry, ModelEntry, Role, RoleContention } from "./types.ts";
+import type { ContainerSpec, EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
 import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
@@ -69,22 +69,22 @@ export function reportedModelFrom(body: unknown): string | undefined {
 }
 
 /**
- * One `[id]` section per model on this engine. A model's section starts from
- * the engine's process-flag defaults and layers the model's own on top —
- * a model key beats the engine key naming it — then passes the merged table
- * through as INI keys verbatim. A headless GGUF's `[model.args]` simply omits
- * `spec-*`, so MTP never applies process-wide by construction.
+ * One `[model]` section per route on this engine. A route's section starts
+ * from the engine's process-flag defaults and layers the route's own on top
+ * — a route key beats the engine key naming it — then passes the merged
+ * table through as INI keys verbatim. A headless GGUF's `[route.args]` simply
+ * omits `spec-*`, so MTP never applies process-wide by construction.
  */
-export function renderPresetIni(engine: EngineEntry, models: readonly ModelEntry[]): string {
-  return models
+export function renderPresetIni(engine: EngineEntry, routes: readonly ResolvedRoute[]): string {
+  return routes
     .filter(
-      (m): m is ModelEntry & { filename: string } =>
-        m.engine === engine.id && m.filename !== undefined,
+      (r): r is ResolvedRoute & { filename: string; model: string } =>
+        r.engine === engine.id && r.filename !== undefined && r.model !== undefined,
     )
-    .map((m) => {
-      const args = { ...engine.args, ...m.args };
-      const lines = [`model = ${MODELS_CONTAINER_PATH}/${m.filename}`, ...iniLines(args)];
-      return `[${m.id}]\n${lines.join("\n")}`;
+    .map((r) => {
+      const args = { ...engine.args, ...r.args };
+      const lines = [`model = ${MODELS_CONTAINER_PATH}/${r.filename}`, ...iniLines(args)];
+      return `[${r.model}]\n${lines.join("\n")}`;
     })
     .join("\n\n");
 }
@@ -246,7 +246,7 @@ export class LlamaRouter {
 
   constructor(
     private readonly engine: EngineEntry,
-    private readonly models: readonly ModelEntry[],
+    private readonly routes: readonly ResolvedRoute[],
     private readonly lifecycle: DockerLifecycle,
     private readonly opts: LlamaRouterOptions,
   ) {
@@ -276,20 +276,23 @@ export class LlamaRouter {
     if (this.containerLease === "held") {
       return;
     }
-    if (!this.models.some((m) => m.keep_resident === true)) {
+    if (!this.routes.some((r) => r.keep_resident === true)) {
       return;
     }
     this.containerLease = "held";
     this.lifecycle.beginLease(this.engine.id);
   }
 
-  /** The model this role returns to when nothing is waiting, if config pinned one. */
-  private pinnedFor(role: Role): ModelEntry | undefined {
-    return this.models.find((m) => m.role === role && m.keep_resident === true);
+  /** The route this role returns to when nothing is waiting, if config pinned one. */
+  private pinnedFor(role: Role): (ResolvedRoute & { model: string }) | undefined {
+    return this.routes.find(
+      (r): r is ResolvedRoute & { model: string } =>
+        r.role === role && r.keep_resident === true && r.model !== undefined,
+    );
   }
 
   /**
-   * Makes `model` the resident one for its role and then lets go, so the next
+   * Makes `route` the resident one for its role and then lets go, so the next
    * real request finds it already loaded instead of paying the cold load.
    *
    * Deliberately routed through the ordinary lease rather than calling the
@@ -299,12 +302,12 @@ export class LlamaRouter {
    * armed as usual and this buys a head start rather than permanent
    * residency -- `keep_resident` is what makes residency survive.
    */
-  async warm(model: ModelEntry, signal?: AbortSignal | null): Promise<void> {
-    const { role } = model;
-    if (role === undefined) {
-      throw new Error(`model "${model.id}" has no role`);
+  async warm(route: ResolvedRoute, signal?: AbortSignal | null): Promise<void> {
+    const { role, model } = route;
+    if (role === undefined || model === undefined) {
+      throw new Error(`route on engine "${route.engine}" has no role or model to warm`);
     }
-    await this.beginLease(role, model.id, signal);
+    await this.beginLease(role, model, signal);
     this.finishLease(role);
   }
 
@@ -368,7 +371,7 @@ export class LlamaRouter {
    * A container that was not already running has nothing loaded by
    * construction (`--no-models-autoload`), so a fresh start is the common
    * case below. The other case a config reload creates: a NEW router (a new
-   * `this.engine`/`this.models`, per `main.ts`'s stale-router swap) whose
+   * `this.engine`/`this.routes`, per `main.ts`'s stale-router swap) whose
    * container is nonetheless still running the OLD one's preset -- router-
    * mode llama-server was proven live to parse `--models-preset` exactly
    * once, at its own process start, and never again. Rewriting the mounted
@@ -385,7 +388,7 @@ export class LlamaRouter {
    * in-flight lease exists on the container for this engine when this fires.
    */
   private async doEnsureStarted(): Promise<void> {
-    const nextPreset = renderPresetIni(this.engine, this.models);
+    const nextPreset = renderPresetIni(this.engine, this.routes);
     const wasRunning = this.lifecycle.getStatus(this.engine.id).state === "running";
     if (wasRunning) {
       if (readIfExists(this.presetHostPath) === nextPreset) {
@@ -472,15 +475,15 @@ export class LlamaRouter {
    */
   private async rewarmPinned(role: Role, state: RoleState): Promise<boolean> {
     const pinned = this.pinnedFor(role);
-    if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned.id) {
+    if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned.model) {
       return false;
     }
     try {
-      await this.swapResident(role, pinned.id);
+      await this.swapResident(role, pinned.model);
     } catch {
       return false;
     }
-    state.activeModelId = pinned.id;
+    state.activeModelId = pinned.model;
     return true;
   }
 
@@ -634,7 +637,9 @@ export class LlamaRouter {
    */
   async residentModelId(role: Role): Promise<string | undefined> {
     const listed = await this.listedModels(this.baseUrl());
-    const roleIds = new Set(this.models.filter((m) => m.role === role).map((m) => m.id));
+    const roleIds = new Set(
+      this.routes.filter((r) => r.role === role && r.model !== undefined).map((r) => r.model),
+    );
     return listed.find((m) => roleIds.has(m.id) && m.status?.value === "loaded")?.id;
   }
 
@@ -652,14 +657,14 @@ export class LlamaRouter {
    * `Response`, piping the already-open upstream body through rather than
    * buffering it.
    */
-  proxy(model: ModelEntry, path: string, init: RequestInit): Promise<LlamaHop> {
-    const { role } = model;
-    if (role === undefined) {
-      throw new Error(`model "${model.id}" has no role`);
+  proxy(route: ResolvedRoute, path: string, init: RequestInit): Promise<LlamaHop> {
+    const { role, model } = route;
+    if (role === undefined || model === undefined) {
+      throw new Error(`route on engine "${route.engine}" has no role or model to proxy`);
     }
     return wantsStream(init)
-      ? this.fetchStreamed(role, model.id, path, init)
-      : this.fetchBuffered(role, model.id, path, init);
+      ? this.fetchStreamed(role, model, path, init)
+      : this.fetchBuffered(role, model, path, init);
   }
 
   /** The acquire half of a lease. Paired with `finishLease`, which every path must call exactly once however it ends. */

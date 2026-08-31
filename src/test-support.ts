@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
-import type { Config, EngineEntry, ModelEntry } from "./types.ts";
+import type { Config, EngineEntry, ModelEntry, ResolvedRoute } from "./types.ts";
 
 /** The bunx path every test spec is built against; never resolved from a real PATH. */
 export const BUNX = "/home/x/.bun/bin/bunx";
@@ -34,8 +34,14 @@ export function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return { id: "e", egress: "none", args: {}, ...overrides };
 }
 
+/** A `[[model]]` capability row -- unrelated to any engine or upstream. See `route()` for the engine/upstream/model pairing. */
 export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return { id: "m", engine: "e", aliases: [], args: {}, ...overrides };
+  return { id: "m", ...overrides };
+}
+
+/** One `[[route]]`, resolved: an engine paired with an upstream and, where one applies, a model. Defaults to the local llama shape most suites build against. */
+export function route(overrides: Partial<ResolvedRoute> = {}): ResolvedRoute {
+  return { engine: "e", model: "m", aliases: [], upstream: "local", args: {}, ...overrides };
 }
 
 export function config(overrides: Partial<Config> = {}): Config {
@@ -45,6 +51,8 @@ export function config(overrides: Partial<Config> = {}): Config {
     agent_timeout_seconds: 3600,
     models: [],
     engines: [],
+    upstreams: [],
+    routes: [],
     chains: {},
     ...overrides,
   };
