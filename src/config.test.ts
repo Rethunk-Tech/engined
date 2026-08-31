@@ -16,7 +16,7 @@ function writeConfig(toml: string): string {
 }
 
 /** Every malformed/unresolvable-hop rule is a ParseError; this captures the message for a substring check the regex-only `.toThrow()` calls elsewhere can't do. */
-function chainHopMessage(toml: string): string {
+function parseMessage(toml: string): string {
   try {
     loadConfig(writeConfig(toml));
     throw new Error("expected loadConfig to throw");
@@ -39,38 +39,54 @@ function tempModelsDir(...files: string[]): string {
   return dir;
 }
 
-/** A minimal llama engine + one chat model whose GGUF actually exists. */
-function llamaEngineAndModel(): string {
+/**
+ * A minimal llama-shaped engine + one chat route whose GGUF actually exists.
+ * `kind = "openai-http"` makes the engine spec-less, so `loadConfig` never
+ * reads a spec file off disk to learn its upstream trait -- these tests are
+ * about the five tables, not about what happens to be installed.
+ */
+function llamaEngineAndRoute(): string {
   const dir = tempModelsDir("ornith.gguf");
   return `
+[[upstream]]
+id = "local"
+egress = "none"
+
 [[engine]]
 id = "local-llama"
+kind = "openai-http"
 egress = "none"
 models_dir = "${dir}"
 
-[[model]]
-id = "ornith"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "ornith"
 filename = "ornith.gguf"
 role = "chat"
 `;
 }
 
+const LOCAL_UPSTREAM = `
+[[upstream]]
+id = "local"
+egress = "none"
+`;
+
 const LLAMA_ENGINE = `
+${LOCAL_UPSTREAM}
 [[engine]]
 id = "local-llama"
-egress = "none"
+kind = "openai-http"
 models_dir = "~/llm-models"
 `;
 
-const EXPECTED_ENGINE_COUNT = 7;
-const EXPECTED_MODEL_COUNT = 5;
+const EXPECTED_ENGINE_COUNT = 6;
+const EXPECTED_ROUTE_COUNT = 9;
 const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
-const RX_COLLISION =
-  /"ornith" is declared twice: engine "ornith" and model "chat-model" alias "ornith"/;
 const RX_NOT_QUALIFIED = /not a fully-qualified/;
 const RX_NON_SCALAR_ARG = /must be a string, number or boolean/;
 const RX_TWO_PINNED = /only one model per role can be resident/;
@@ -79,23 +95,28 @@ const RX_UNKNOWN_ENGINE = /engine "nope" does not exist/;
 const RX_UNKNOWN_MODEL = /model "nope" does not exist/;
 const RX_NO_LOCAL_CANDIDATE = /candidates: none/;
 const RX_TWO_LOCAL_CANDIDATES = /candidates: local-llama, other-local/;
-const RX_MISSING_FILENAME = /is missing required "filename"/;
+const RX_MISSING_FILENAME_UNDER_DIR = /"filename" does not exist at/;
 const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
 const RX_MISSING_EGRESS = /is missing required "egress"/;
-const RX_MISSING_SECRET = /missing required "secret"/;
-const RX_MUST_NOT_MODELS_DIR = /must not declare "models_dir"/;
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/;
-const RX_UNRECOGNISED_MODEL_KEY = /unrecognised key "rolee"/;
+const RX_UNRECOGNISED_ROUTE_KEY = /unrecognised key "rolee"/;
 const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/;
-const RX_FILENAME_MISSING = /does not exist at/;
 const RX_MODELS_MAX_ROLES = /below its 2 distinct configured roles/;
 const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/;
 const RX_INVALID_TOML = /invalid TOML/;
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
+const RX_UNKNOWN_UPSTREAM = /names unknown upstream "nope"/;
+const RX_MIXED_MODELLESS = /carries both a modelless route and a model-bearing route/;
+const RX_NO_UPSTREAM_TRAIT = /spec is missing required "upstream"/;
+const RX_REQUIRED_NO_DEFAULT = /is "required" to have exactly one across its routes/;
 
-// The worked config from config.example.toml, with models_dir swapped for a temp dir whose
-// files are pre-created -- the acceptance-level integration case.
+/**
+ * The worked config, five tables: an [[upstream]] a route names explicitly
+ * ("local"), a second upstream a route redirects to ("moonshot"), every
+ * shipped-shape engine given `kind` so parsing never reads a spec file off
+ * disk, and both chains config.example.toml carries.
+ */
 function workedConfig(): string {
   const ornithFile = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf";
   const embedFile = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf";
@@ -106,138 +127,239 @@ listen_port           = 29200
 chat_timeout_seconds  = 600
 agent_timeout_seconds = 3600
 
-[[model]]
-id       = "ornith"
-engine   = "local-llama"
-filename = "${ornithFile}"
-role     = "chat"
+[[upstream]]
+id     = "local"
+egress = "none"
 
-  [model.args]
-  spec-type        = "draft-mtp"
-  spec-draft-p-min = 0.1
-  spec-draft-n-max = 1
-  ctx-size         = 32768
-
-[[model]]
-engine   = "local-llama"
-id       = "embed"
-filename = "${embedFile}"
-role     = "embedding"
+[[upstream]]
+id       = "moonshot"
+base_url = "https://api.kimi.com/coding/"
+secret   = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+egress   = "remote"
+wire     = "anthropic"
 
 [[model]]
-engine   = "local-llama"
-id       = "vision"
-filename = "${visionFile}"
-role     = "vision"
-
-[[model]]
-engine = "claude"
-id     = "sonnet-5"
-
-[[model]]
-engine = "claude-kimi"
-id     = "k3"
+id     = "ornith"
+input  = ["text"]
+output = ["text"]
 
 [[engine]]
 id                = "local-llama"
-egress            = "none"
+kind              = "openai-http"
 models_dir        = "${dir}"
 models_max        = 3
 ready_timeout_s   = 180
 idle_stop_seconds = 900
 
   [engine.args]
-  parallel      = -1
-  ctx-size      = 32768
-  cache-type-k  = "q8_0"
-  cache-type-v  = "q8_0"
+  parallel     = -1
+  ctx-size     = 32768
+  cache-type-k = "q8_0"
+  cache-type-v = "q8_0"
+
+[[route]]
+engine   = "local-llama"
+upstream = "local"
+model    = "ornith"
+filename = "${ornithFile}"
+role     = "chat"
+
+  [route.args]
+  spec-type        = "draft-mtp"
+  spec-draft-p-min = 0.1
+  spec-draft-n-max = 1
+  ctx-size         = 32768
+
+[[route]]
+engine   = "local-llama"
+upstream = "local"
+model    = "embed"
+filename = "${embedFile}"
+role     = "embedding"
+
+[[route]]
+engine   = "local-llama"
+upstream = "local"
+model    = "vision"
+filename = "${visionFile}"
+role     = "vision"
 
 [[engine]]
-id             = "claude"
-egress         = "remote"
+id            = "claude"
+kind          = "agentic-cli"
 agent_version = "2.1.247"
 
   [engine.args]
   output-format = "json"
 
-[[engine]]
-id             = "claude-kimi"
-egress         = "remote"
-agent_version = "2.1.247"
-base_url       = "https://api.kimi.com/coding/"
-secret         = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+[[route]]
+engine = "claude"
+model  = "sonnet-5"
+
+[[route]]
+engine   = "claude"
+upstream = "moonshot"
+model    = "k3"
 
 [[engine]]
 id                = "comfy"
-egress            = "none"
+kind              = "comfy"
 idle_stop_seconds = 1800
+
+[[route]]
+engine   = "comfy"
+upstream = "local"
 
 [[engine]]
 id                = "chatterbox"
-egress            = "none"
+kind              = "tts"
 idle_stop_seconds = 1800
+
+[[route]]
+engine   = "chatterbox"
+upstream = "local"
 
 [[engine]]
 id                = "kokoro"
-egress            = "none"
+kind              = "tts"
 idle_stop_seconds = 1800
+
+[[route]]
+engine   = "kokoro"
+upstream = "local"
 
 [[engine]]
 id                = "whisper"
-egress            = "none"
+kind              = "stt"
 idle_stop_seconds = 1800
 
-[chain]
-chain-private = ["@/local/ornith"]
-chain-public  = ["@/local/ornith", "@/claude-kimi/k3", "@/claude/sonnet-5"]
+[[route]]
+engine   = "whisper"
+upstream = "local"
+
+[[chain]]
+id   = "chain-private"
+hops = ["@/local-llama/ornith"]
+
+[[chain]]
+id   = "chain-public"
+hops = ["@/local-llama/ornith", "@/claude/k3", "@/claude/sonnet-5"]
 `;
 }
 
 test("the worked config parses clean", () => {
   const cfg = loadConfig(writeConfig(workedConfig()));
   expect(cfg.engines).toHaveLength(EXPECTED_ENGINE_COUNT);
-  expect(cfg.models).toHaveLength(EXPECTED_MODEL_COUNT);
+  expect(cfg.routes).toHaveLength(EXPECTED_ROUTE_COUNT);
+  expect(cfg.upstreams.map((u) => u.id)).toEqual(["local", "moonshot"]);
+  expect(cfg.models).toHaveLength(1);
   expect(cfg.chains["chain-public"]).toEqual([
-    "@/local/ornith",
-    "@/claude-kimi/k3",
+    "@/local-llama/ornith",
+    "@/claude/k3",
     "@/claude/sonnet-5",
   ]);
 });
 
-const RX_LOCAL_AMBIGUOUS = /"local" must resolve to exactly one engine/;
-const RX_DISABLED_UNKNOWN = /no engine or chain here/;
-
-/** Top-level, so it must lead the file: a TOML key after the first table belongs to that table. */
-function withDisabled(...names: string[]): string {
-  return `disabled = [${names.map((n) => `"${n}"`).join(", ")}]\n${workedConfig()}`;
-}
-
-test("a disabled engine keeps its entry, marked, and loses its models and chain hops", () => {
-  const cfg = loadConfig(writeConfig(withDisabled("claude", "claude-kimi")));
-  // The entry survives so GET /engined/v1/engines can report it as off.
-  expect(cfg.engines.find((e) => e.id === "claude")?.disabled).toBe(true);
-  expect(cfg.engines.find((e) => e.id === "local-llama")?.disabled).toBeUndefined();
-  expect(cfg.models.map((m) => m.id)).not.toContain("sonnet-5");
-  expect(cfg.chains["chain-public"]).toEqual(["@/local/ornith"]);
+test("a route's own capability declaration overrides the [[model]] row it names", () => {
+  const toml = `
+${workedConfig()}
+`;
+  const cfg = loadConfig(writeConfig(toml));
+  const ornithRoute = cfg.routes.find((r) => r.model === "ornith");
+  // The route names no capability fields of its own, so it inherits the
+  // [[model]] row's.
+  expect(ornithRoute?.input).toEqual(["text"]);
+  expect(ornithRoute?.output).toEqual(["text"]);
 });
 
-test("disabling a chain drops it while its engines stay served", () => {
-  const cfg = loadConfig(writeConfig(withDisabled("chain-public")));
+test("a disabled engine keeps its entry, marked, and its routes drop", () => {
+  const toml = workedConfig().replace(
+    'id            = "claude"\nkind          = "agentic-cli"',
+    'id            = "claude"\nkind          = "agentic-cli"\ndisable       = true',
+  );
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.engines.find((e) => e.id === "claude")?.disabled).toBe(true);
+  expect(cfg.engines.find((e) => e.id === "local-llama")?.disabled).toBeUndefined();
+  expect(cfg.routes.find((r) => r.model === "sonnet-5")?.disabled).toBe(true);
+  expect(cfg.chains["chain-public"]).toEqual(["@/local-llama/ornith"]);
+});
+
+test("a disabled upstream drops every route naming it, and only those", () => {
+  const toml = workedConfig().replace(
+    'id       = "moonshot"',
+    'id       = "moonshot"\ndisable  = true',
+  );
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.upstreams.find((u) => u.id === "moonshot")?.disabled).toBe(true);
+  expect(cfg.routes.find((r) => r.model === "k3")?.disabled).toBe(true);
+  expect(cfg.routes.find((r) => r.model === "sonnet-5")?.disabled).toBeUndefined();
+});
+
+test("a disabled route drops just that pairing; siblings on the same engine survive", () => {
+  const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${tempModelsDir("a.gguf", "b.gguf")}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "a"
+filename = "a.gguf"
+role = "chat"
+disable = true
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "b"
+filename = "b.gguf"
+role = "vision"
+`;
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.routes.find((r) => r.model === "a")?.disabled).toBe(true);
+  expect(cfg.routes.find((r) => r.model === "b")?.disabled).toBeUndefined();
+});
+
+test("a disabled chain drops it while its engines and routes stay served", () => {
+  const toml = workedConfig().replace(
+    'id   = "chain-public"',
+    'id      = "chain-public"\ndisable = true',
+  );
+  const cfg = loadConfig(writeConfig(toml));
   expect(cfg.chains["chain-public"]).toBeUndefined();
-  expect(cfg.chains["chain-private"]).toEqual(["@/local/ornith"]);
+  expect(cfg.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);
   expect(cfg.engines.find((e) => e.id === "claude")?.disabled).toBeUndefined();
 });
 
-test('disabling the local engine makes a chain\'s "local" hop fatal, not silently remote', () => {
-  expect(() => loadConfig(writeConfig(withDisabled("local-llama")))).toThrow(RX_LOCAL_AMBIGUOUS);
+test('disabling the only local-egress engine makes a chain\'s "local" hop fatal, not silently remote', () => {
+  const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+egress = "none"
+disable = true
+models_dir = "${tempModelsDir("ornith.gguf")}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "ornith"
+filename = "ornith.gguf"
+role = "chat"
+
+[[chain]]
+id = "c"
+hops = ["@/local/ornith"]
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
 });
 
-test("disabled naming nothing that exists is fatal", () => {
-  expect(() => loadConfig(writeConfig(withDisabled("claud")))).toThrow(RX_DISABLED_UNKNOWN);
-});
-
-test("tilde in models_dir is expanded to an absolute path", () => {
-  const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "y.gguf"\nrole = "chat"\n`;
+test("tilde in a route's filename is expanded to an absolute path", () => {
+  const toml = `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "y.gguf"\nrole = "chat"\n`;
   // No file on disk -- the escape check passes (tilde expanded, still under
   // the dir) and the existence check is what should fire, naming an absolute
   // path rather than the literal "~".
@@ -251,7 +373,7 @@ test("~/.local/share/ in models_dir resolves through XDG_DATA_HOME, not a bare h
     const toml = `
 [[engine]]
 id = "local-llama"
-egress = "none"
+kind = "openai-http"
 models_dir = "~/.local/share/engined-models/llm"
 `;
     const cfg = loadConfig(writeConfig(toml));
@@ -266,212 +388,478 @@ models_dir = "~/.local/share/engined-models/llm"
 });
 
 test("defaults apply when listen_port/chat_timeout/agent_timeout are absent", () => {
-  const cfg = loadConfig(writeConfig(llamaEngineAndModel()));
+  const cfg = loadConfig(writeConfig(llamaEngineAndRoute()));
   expect(cfg.listen_port).toBe(DEFAULT_LISTEN_PORT);
   expect(cfg.chat_timeout_seconds).toBe(DEFAULT_CHAT_TIMEOUT_SECONDS);
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS);
 });
 
-describe("namespace collisions", () => {
-  test("an alias colliding with an engine id is fatal, naming both sites", () => {
+describe("namespace collisions: four separate maps", () => {
+  test("two engines sharing an id is fatal, naming both sites", () => {
     const toml = `
-${LLAMA_ENGINE}
+${LOCAL_UPSTREAM}
 [[engine]]
-id = "ornith"
+id = "dup"
+kind = "comfy"
+
+[[engine]]
+id = "dup"
+kind = "tts"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+  });
+
+  test("two upstreams sharing an id is fatal", () => {
+    const toml = `
+[[upstream]]
+id = "dup"
 egress = "none"
 
-[[model]]
-id = "chat-model"
-engine = "local-llama"
-filename = "f.gguf"
-role = "chat"
-aliases = ["ornith"]
+[[upstream]]
+id = "dup"
+egress = "remote"
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_COLLISION);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+  });
+
+  test("two [[model]] rows sharing an id is fatal", () => {
+    const toml = `
+[[model]]
+id = "dup"
+
+[[model]]
+id = "dup"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+  });
+
+  test("two [[chain]] rows sharing an id is fatal", () => {
+    const toml = `
+${llamaEngineAndRoute()}
+[[chain]]
+id = "dup"
+hops = ["@/local-llama/ornith"]
+
+[[chain]]
+id = "dup"
+hops = ["@/local-llama/ornith"]
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+  });
+
+  test('an engine and an upstream sharing the id "local" is not a collision -- separate namespaces', () => {
+    const toml = `
+[[upstream]]
+id = "local"
+egress = "none"
+
+[[engine]]
+id = "local"
+kind = "comfy"
+
+[[route]]
+engine = "local"
+upstream = "local"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.engines.map((e) => e.id)).toEqual(["local"]);
+    expect(cfg.upstreams.map((u) => u.id)).toEqual(["local"]);
   });
 });
 
 describe("chain hops", () => {
   test.each([
-    ["a bare model id", `${llamaEngineAndModel()}\n[chain]\nc = ["ornith"]\n`, "ornith"],
-    ["a bare engine id", `${llamaEngineAndModel()}\n[chain]\nc = ["local-llama"]\n`, "local-llama"],
+    [
+      "a bare model id",
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["ornith"]\n`,
+      "ornith",
+    ],
+    [
+      "a bare engine id",
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["local-llama"]\n`,
+      "local-llama",
+    ],
     [
       "another chain's name",
-      `${llamaEngineAndModel()}\n[chain]\nc = ["other"]\nother = ["@/local/ornith"]\n`,
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["other"]\n[[chain]]\nid = "other"\nhops = ["@/local-llama/ornith"]\n`,
       "other",
     ],
   ])("%s is not a fully-qualified hop, naming it", (_label, toml, hop) => {
-    const message = chainHopMessage(toml);
+    const message = parseMessage(toml);
     expect(message).toMatch(RX_NOT_QUALIFIED);
     expect(message).toContain(`"${hop}"`);
   });
 
   test("a qualified hop naming an unknown engine fails, naming the engine half and the hop", () => {
-    const message = chainHopMessage(`${llamaEngineAndModel()}\n[chain]\nc = ["@/nope/ornith"]\n`);
+    const message = parseMessage(
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/nope/ornith"]\n`,
+    );
     expect(message).toMatch(RX_UNKNOWN_ENGINE);
     expect(message).toContain('"@/nope/ornith"');
   });
 
   test("a qualified hop naming an unknown model fails, naming the model half and the hop", () => {
-    const message = chainHopMessage(
-      `${llamaEngineAndModel()}\n[chain]\nc = ["@/local-llama/nope"]\n`,
+    const message = parseMessage(
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/local-llama/nope"]\n`,
     );
     expect(message).toMatch(RX_UNKNOWN_MODEL);
     expect(message).toContain('"@/local-llama/nope"');
   });
 
-  test('"local" with zero candidate engines is fatal, listing none', () => {
+  test("a three-segment hop resolves by (engine, upstream, model), not just the last two", () => {
     const toml = `
-[[engine]]
-id = "claude"
+${LOCAL_UPSTREAM}
+[[upstream]]
+id = "moonshot"
 egress = "remote"
 
-[[model]]
-id = "sonnet-5"
-engine = "claude"
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
 
-[chain]
-c = ["@/local/sonnet-5"]
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+
+[[route]]
+engine = "claude"
+upstream = "moonshot"
+model = "k3"
+
+[[chain]]
+id = "c"
+hops = ["@/claude/moonshot/k3"]
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.chains.c).toEqual(["@/claude/moonshot/k3"]);
+  });
+
+  test('"local" with zero candidate engines is fatal, listing none', () => {
+    const toml = `
+[[upstream]]
+id = "anthropic"
+egress = "remote"
+
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+
+[[chain]]
+id = "c"
+hops = ["@/local/sonnet-5"]
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
   });
 
-  test('an engine with egress "none" and a models_dir but no models does not shadow the real "local" candidate', () => {
-    const toml = `${llamaEngineAndModel()}\n[[engine]]\nid = "comfy"\negress = "none"\nmodels_dir = "/no/model/names/this"\n\n[chain]\nc = ["@/local/ornith"]\n`;
+  test('an engine with egress "none" and a models_dir but no routes does not shadow the real "local" candidate', () => {
+    const toml = `${llamaEngineAndRoute()}\n[[engine]]\nid = "comfy"\nkind = "comfy"\negress = "none"\nmodels_dir = "/no/route/names/this"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
     const cfg = loadConfig(writeConfig(toml));
     expect(cfg.chains.c).toEqual(["@/local/ornith"]);
   });
 
-  test('two engines that both serve models and are both "local" candidates is fatal, listing both', () => {
+  test('two engines that both serve routes and are both "local" candidates is fatal, listing both', () => {
     const otherDir = tempModelsDir("other.gguf");
-    const toml = `${llamaEngineAndModel()}\n[[engine]]\nid = "other-local"\negress = "none"\nmodels_dir = "${otherDir}"\n\n[[model]]\nid = "y"\nengine = "other-local"\nfilename = "other.gguf"\nrole = "chat"\n\n[chain]\nc = ["@/local/ornith"]\n`;
+    const toml = `${llamaEngineAndRoute()}\n[[engine]]\nid = "other-local"\nkind = "openai-http"\negress = "none"\nmodels_dir = "${otherDir}"\n\n[[route]]\nengine = "other-local"\nupstream = "local"\nmodel = "y"\nfilename = "other.gguf"\nrole = "chat"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_TWO_LOCAL_CANDIDATES);
   });
 
-  test('an engine with egress "none" and a models_dir but no models is not a "local" candidate on its own', () => {
-    const toml = `\n[[engine]]\nid = "comfy"\negress = "none"\nmodels_dir = "/no/model/names/this"\n\n[chain]\nc = ["@/local/ornith"]\n`;
+  test('an engine with egress "none" and a models_dir but no routes is not a "local" candidate on its own', () => {
+    const toml = `${LOCAL_UPSTREAM}\n[[engine]]\nid = "comfy"\nkind = "comfy"\negress = "none"\nmodels_dir = "/no/route/names/this"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
   });
 });
 
-describe("model required/forbidden fields", () => {
-  test("a llama model missing filename is fatal", () => {
-    const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nrole = "chat"\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_FILENAME);
-  });
-
-  test("an agentic model must not declare filename", () => {
+describe("route required/forbidden fields (parse tier)", () => {
+  test("a modelless route must not declare filename", () => {
     const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
-id = "claude"
-egress = "remote"
+id = "comfy"
+kind = "comfy"
 
-[[model]]
-id = "x"
-engine = "claude"
+[[route]]
+engine = "comfy"
+upstream = "local"
 filename = "should-not-be-here.gguf"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_FILENAME);
   });
 
-  test("an agentic model must not declare role", () => {
+  test("a route on an engine with no models_dir must not declare filename", () => {
     const toml = `
 [[engine]]
 id = "claude"
-egress = "remote"
+kind = "agentic-cli"
 
-[[model]]
-id = "x"
+[[route]]
 engine = "claude"
+model = "x"
+filename = "should-not-be-here.gguf"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_FILENAME);
+  });
+
+  test("a route on an engine with no models_dir must not declare role", () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "x"
 role = "chat"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_ROLE);
   });
 
-  // A remote openai-http engine can never carry a models_dir (checkRemoteAddress
-  // forbids it structurally), so it still has no local file to check a
-  // filename against -- but it is not agentic-cli, and the message must not
-  // say it is. requiresFilenameAndRole used to key on models_dir alone, which
-  // conflated "no local file" with "agentic" for every engine kind that
-  // lacks one, comfy included.
-  test("a remote openai-http model must not declare filename, and the message does not call it agentic", () => {
-    const message = chainHopMessage(`
-[[engine]]
-id = "hosted-llama"
-egress = "remote"
-kind = "openai-http"
+  // A route proxied to a real upstream (not this box's "local") has no local
+  // file to describe, whatever kind its engine is -- the message must not
+  // guess at a reason that assumes agentic.
+  test("a route proxied to a real upstream must not declare filename, and the message does not call it agentic", () => {
+    const message = parseMessage(`
+[[upstream]]
+id = "hosted"
 base_url = "https://x"
 secret = { service = "s", username = "u", header = "h" }
+egress = "remote"
 
-[[model]]
-id = "x"
+[[engine]]
+id = "hosted-llama"
+kind = "openai-http"
+
+[[route]]
 engine = "hosted-llama"
+upstream = "hosted"
+model = "x"
 filename = "should-not-be-here.gguf"
 `);
     expect(message).toMatch(RX_MUST_NOT_FILENAME);
     expect(message).not.toContain("agentic");
   });
 
-  // `[model.args]` reaches argv only via llama.ts's own preset-INI renderer
-  // (engine.args under m.args), gated on the same
-  // `requiresFilenameAndRole` boundary as filename/role. An agentic model's
-  // args were parsed and forbidden-flag-checked but then simply never read
-  // again anywhere -- the same accept-and-drop failure the closed key sets
-  // exist to prevent.
-  test("an agentic model's [model.args] is rejected -- nothing ever reads a non-llama model's own args", () => {
-    const message = chainHopMessage(`
+  // [route.args] reaches argv only via llama.ts's preset-INI renderer, gated
+  // on the same parse-tier boundary as filename/role. A route on an engine
+  // with no local model store had its args parsed and forbidden-flag-checked
+  // but then simply never read again -- the same accept-and-drop failure the
+  // closed key sets exist to prevent.
+  test("[route.args] on an engine with no models_dir is rejected -- nothing ever reads it", () => {
+    const message = parseMessage(`
 [[engine]]
 id = "claude"
-egress = "remote"
+kind = "agentic-cli"
 
-[[model]]
-id = "x"
+[[route]]
 engine = "claude"
+model = "x"
 
-  [model.args]
+  [route.args]
   max-turns = 5
 `);
-    expect(message).toContain('model "x" on engine "claude"');
+    expect(message).toContain('route[0] on engine "claude" model "x"');
     expect(message).toContain("args");
+  });
+
+  test("an engine may not carry both a modelless route and a model-bearing route", () => {
+    const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "mixed"
+kind = "comfy"
+
+[[route]]
+engine = "mixed"
+upstream = "local"
+
+[[route]]
+engine = "mixed"
+upstream = "local"
+model = "x"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MIXED_MODELLESS);
   });
 });
 
-describe("engine required/forbidden fields", () => {
-  test("every engine requires egress", () => {
-    const toml = `[[engine]]\nid = "local-llama"\n`;
+describe("upstream defaulting by trait", () => {
+  test('a route naming no upstream on an "optional"-trait (agentic-cli) engine is ambient', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.routes[0]?.upstream).toBeNull();
+  });
+
+  test('a route naming no upstream on a "self"-trait engine defaults to "local"', () => {
+    const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "comfy"
+kind = "comfy"
+
+[[route]]
+engine = "comfy"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.routes[0]?.upstream).toBe("local");
+  });
+
+  test('a route naming no upstream on a "required"-trait engine defaults to its one sibling-declared upstream', () => {
+    const toml = `
+[[upstream]]
+id = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+egress = "remote"
+
+[[engine]]
+id = "proxy"
+kind = "openai-http"
+
+[[route]]
+engine = "proxy"
+upstream = "openrouter"
+model = "a"
+
+[[route]]
+engine = "proxy"
+model = "b"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.routes.find((r) => r.model === "b")?.upstream).toBe("openrouter");
+  });
+
+  test('a "required"-trait engine with no upstream anywhere on it is fatal', () => {
+    const toml = `
+[[engine]]
+id = "proxy"
+kind = "openai-http"
+
+[[route]]
+engine = "proxy"
+model = "a"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_REQUIRED_NO_DEFAULT);
+  });
+
+  test('a "required"-trait engine whose sibling routes disagree on upstream is fatal', () => {
+    const toml = `
+[[upstream]]
+id = "a-up"
+egress = "remote"
+
+[[upstream]]
+id = "b-up"
+egress = "remote"
+
+[[engine]]
+id = "proxy"
+kind = "openai-http"
+
+[[route]]
+engine = "proxy"
+upstream = "a-up"
+model = "a"
+
+[[route]]
+engine = "proxy"
+upstream = "b-up"
+model = "b"
+
+[[route]]
+engine = "proxy"
+model = "c"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_REQUIRED_NO_DEFAULT);
+  });
+
+  test("a route naming an unknown upstream is fatal", () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+upstream = "nope"
+model = "x"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_UPSTREAM);
+  });
+
+  test("a spec-full engine's trait is read from its own spec.toml", () => {
+    const specDir = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
+    writeFileSync(
+      join(specDir, "spec.toml"),
+      [
+        'kind = "comfy"',
+        'upstream = "self"',
+        'image = "x"',
+        'obtain = "pull"',
+        "serves = []",
+        "command = []",
+        "",
+        "[ready]",
+        'path = "/queue"',
+        "status = 200",
+      ].join("\n"),
+    );
+    const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "comfy"
+spec_dir = "${specDir}"
+
+[[route]]
+engine = "comfy"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    expect(cfg.routes[0]?.upstream).toBe("local");
+  });
+
+  test("a spec-full engine whose spec omits upstream is fatal", () => {
+    const specDir = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
+    writeFileSync(
+      join(specDir, "spec.toml"),
+      ['kind = "comfy"', 'image = "x"', 'obtain = "pull"', "serves = []", "command = []"].join(
+        "\n",
+      ),
+    );
+    const toml = `
+[[engine]]
+id = "comfy"
+spec_dir = "${specDir}"
+
+[[route]]
+engine = "comfy"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_UPSTREAM_TRAIT);
+  });
+});
+
+describe("engine/upstream required/forbidden fields", () => {
+  test("every upstream requires egress", () => {
+    const toml = `[[upstream]]\nid = "x"\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_EGRESS);
   });
 
-  test("a remote-address engine requires secret", () => {
-    const toml = `[[engine]]\nid = "claude-kimi"\negress = "remote"\nbase_url = "https://x"\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_SECRET);
-  });
-
-  test("a remote-address engine must not declare models_dir", () => {
-    const toml = `
-[[engine]]
-id = "claude-kimi"
-egress = "remote"
-base_url = "https://x"
-models_dir = "~/models"
-secret = { service = "s", username = "u", header = "h" }
-`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_MODELS_DIR);
-  });
-
-  // A remote, non-agentic engine launches no process, so its [engine.args]
-  // are wire parameters rather than process flags -- `remote.ts` hands them
-  // to whichever dialect the door is speaking (ElevenLabs' `model_id` is the
-  // first). They were rejected while nothing read them; the moment something
-  // does, rejecting them would be the bug.
-  test("a remote, non-agentic engine's [engine.args] parse and survive to the entry", () => {
+  // A remote, non-agentic engine's [engine.args] are wire parameters rather
+  // than process flags -- remote.ts hands them to whichever dialect the door
+  // is speaking (ElevenLabs' model_id is the first). They parse and survive
+  // regardless of whether the engine's own routes proxy anywhere.
+  test("an engine's [engine.args] parse and survive to the entry", () => {
     const toml = `
 [[engine]]
 id = "hosted-thing"
-egress = "remote"
 kind = "stt"
-base_url = "https://x"
-secret = { service = "s", username = "u", header = "h" }
 
   [engine.args]
   model_id = "scribe_v1"
@@ -482,45 +870,48 @@ secret = { service = "s", username = "u", header = "h" }
   });
 
   test("an unrecognised top-level engine key is fatal", () => {
-    const toml = `[[engine]]\nid = "local-llama"\negress = "none"\nmodels_dirs = "~/x"\n`;
+    const toml = `[[engine]]\nid = "local-llama"\nkind = "openai-http"\nmodels_dirs = "~/x"\n`;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_ENGINE_KEY);
   });
 
-  test("an unrecognised top-level model key is fatal", () => {
-    const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "f.gguf"\nrole = "chat"\nrolee = "chat"\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_MODEL_KEY);
+  test("an unrecognised top-level route key is fatal", () => {
+    const toml = `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "f.gguf"\nrole = "chat"\nrolee = "chat"\n`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_ROUTE_KEY);
   });
 });
 
 test("a filename escaping the engine's models_dir is fatal", () => {
-  const toml = `${LLAMA_ENGINE}\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "../../etc/passwd"\nrole = "chat"\n`;
+  const toml = `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "../../etc/passwd"\nrole = "chat"\n`;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_ESCAPE);
 });
 
 test("a filename not present on disk under models_dir is fatal", () => {
   const dir = tempModelsDir();
-  const toml = `[[engine]]\nid = "local-llama"\negress = "none"\nmodels_dir = "${dir}"\n\n[[model]]\nid = "x"\nengine = "local-llama"\nfilename = "missing.gguf"\nrole = "chat"\n`;
-  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_MISSING);
+  const toml = `${LOCAL_UPSTREAM}\n[[engine]]\nid = "local-llama"\nkind = "openai-http"\nmodels_dir = "${dir}"\n\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "missing.gguf"\nrole = "chat"\n`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_FILENAME_UNDER_DIR);
 });
 
-test("models_max below the distinct configured roles is fatal", () => {
+test("models_max below the distinct local roles is fatal", () => {
   const dir = tempModelsDir("ornith.gguf", "vis.gguf");
   const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
 id = "local-llama"
-egress = "none"
+kind = "openai-http"
 models_dir = "${dir}"
 models_max = 1
 
-[[model]]
-id = "ornith"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "ornith"
 filename = "ornith.gguf"
 role = "chat"
 
-[[model]]
-id = "vis"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "vis"
 filename = "vis.gguf"
 role = "vision"
 `;
@@ -531,7 +922,7 @@ test("a forbidden agentic flag in [engine.args] is fatal wherever it appears", (
   const toml = `
 [[engine]]
 id = "claude"
-egress = "remote"
+kind = "agentic-cli"
 
   [engine.args]
   add-dir = "/etc"
@@ -539,24 +930,24 @@ egress = "remote"
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
 });
 
-test("a forbidden agentic flag in [model.args] is fatal, on an agentic model", () => {
+test("a forbidden agentic flag in [route.args] is fatal, on an ambient agentic route", () => {
   const toml = `
 [[engine]]
 id = "claude"
-egress = "remote"
+kind = "agentic-cli"
 
-[[model]]
-id = "sonnet-5"
+[[route]]
 engine = "claude"
+model = "sonnet-5"
 
-  [model.args]
+  [route.args]
   add-dir = "/etc"
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
 });
 
 test("loadConfig throws ParseError, not a bare Error, on a fatal rule", () => {
-  const toml = `[[engine]]\nid = "x"\n`;
+  const toml = `[[upstream]]\nid = "x"\n`;
   expect(() => loadConfig(writeConfig(toml))).toThrow(ParseError);
 });
 
@@ -575,7 +966,7 @@ test("malformed TOML is a ParseError naming the file, with the syntax error as c
 });
 
 const RX_ENGINE_NOT_ARRAY = /"engine" must be an array of tables/;
-const RX_MODEL_NOT_ARRAY = /"model" must be an array of tables/;
+const RX_ROUTE_NOT_ARRAY = /"route" must be an array of tables/;
 
 describe("a scalar where an array of tables belongs", () => {
   // A daemon that starts with zero engines is worse than one that refuses to
@@ -584,12 +975,12 @@ describe("a scalar where an array of tables belongs", () => {
     expect(() => loadConfig(writeConfig('engine = "oops"\n'))).toThrow(RX_ENGINE_NOT_ARRAY);
   });
 
-  test("model as a scalar is fatal", () => {
-    expect(() => loadConfig(writeConfig("model = 3\n"))).toThrow(RX_MODEL_NOT_ARRAY);
+  test("route as a scalar is fatal", () => {
+    expect(() => loadConfig(writeConfig("route = 3\n"))).toThrow(RX_ROUTE_NOT_ARRAY);
   });
 
   test("an absent table is still an empty list", () => {
-    const cfg = loadConfig(writeConfig(llamaEngineAndModel()));
+    const cfg = loadConfig(writeConfig(llamaEngineAndRoute()));
     expect(cfg.engines.length).toBeGreaterThan(0);
   });
 });
@@ -606,7 +997,6 @@ describe("the read-only floor is checked by key, not by rendered value", () => {
       "",
       "[[engine]]",
       'id     = "claude"',
-      'egress = "remote"',
       'kind   = "agentic-cli"',
       "",
       "[engine.args]",
@@ -619,14 +1009,16 @@ describe("the read-only floor is checked by key, not by rendered value", () => {
 test("a nested table under [engine.args] is fatal, not stringified into the argv", () => {
   const dir = tempModelsDir("ornith.gguf");
   const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
 id = "local-llama"
-egress = "none"
+kind = "openai-http"
 models_dir = "${dir}"
 
-[[model]]
-id = "ornith"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "ornith"
 filename = "ornith.gguf"
 role = "chat"
 
@@ -636,24 +1028,27 @@ role = "chat"
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NON_SCALAR_ARG);
 });
 
-test("two keep_resident models on one role is fatal: only one can be resident", () => {
+test("two keep_resident routes on one role is fatal: only one can be resident", () => {
   const dir = tempModelsDir("a.gguf", "b.gguf");
   const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
 id = "local-llama"
-egress = "none"
+kind = "openai-http"
 models_dir = "${dir}"
 
-[[model]]
-id = "a"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "a"
 filename = "a.gguf"
 role = "chat"
 keep_resident = true
 
-[[model]]
-id = "b"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "b"
 filename = "b.gguf"
 role = "chat"
 keep_resident = true
@@ -661,21 +1056,17 @@ keep_resident = true
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_TWO_PINNED);
 });
 
-test("keep_resident on a roleless model is fatal: nothing would hold it", () => {
+test("keep_resident on a roleless route is fatal: nothing would hold it resident", () => {
   const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
 id = "claude"
-egress = "remote"
-base_url = "https://api.anthropic.com"
+kind = "agentic-cli"
 
-  [engine.secret]
-  service = "s"
-  username = "u"
-  header = "x-api-key"
-
-[[model]]
-id = "sonnet"
+[[route]]
 engine = "claude"
+upstream = "local"
+model = "sonnet"
 keep_resident = true
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_PINNED_NO_ROLE);
