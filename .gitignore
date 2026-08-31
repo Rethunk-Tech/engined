@@ -8,3 +8,5 @@ __pycache__/
 # Rendered by the local tier's router fixtures; regenerated every run.
 test/local/.scratch-preset*.ini
 FINDINGS.jsonl
+# Source for the published Four Doors artifact; docs/specs/ stays canonical.
+docs/four-doors/
