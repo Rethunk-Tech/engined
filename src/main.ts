@@ -1084,8 +1084,14 @@ interface TranscriptionForm {
   responseFormat: string | undefined;
 }
 
-async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm> {
-  const form = await req.formData();
+/** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
+async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm | undefined> {
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return undefined;
+  }
   const rawModel = form.get("model");
   const file = form.get("file");
   const language = form.get("language");
@@ -1115,6 +1121,14 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
     );
   }
   const form = await parseTranscriptionForm(req);
+  if (form === undefined) {
+    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
+  }
+  // Zero bytes reaches whisper as a valid-looking empty upload and comes back
+  // as an empty transcript, which reads like silence rather than a bad request.
+  if (form.file.byteLength === 0) {
+    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
+  }
   if (form.file.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
     return jsonError(
       STATUS_PAYLOAD_TOO_LARGE,

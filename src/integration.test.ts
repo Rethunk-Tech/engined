@@ -903,3 +903,33 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
   expect(sent).not.toHaveProperty("stream");
   expect(sent).not.toHaveProperty("instructions");
 });
+
+test("a transcription request with no multipart body is a JSON 400, not Bun's HTML 500", async () => {
+  // req.formData() throws on an empty POST. Uncaught, that surfaced as Bun's
+  // own HTML error page -- the one door response a JSON client cannot read.
+  // No engines needed: both guards fire before the engine is ever resolved.
+  const door = createDoor(baseConfig(), {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+  });
+
+  const empty = await door.fetch(
+    new Request("http://engined/openai/v1/audio/transcriptions", { method: "POST" }),
+  );
+  expect(empty.status).toBe(400);
+  expect(empty.headers.get("content-type")).toContain("application/json");
+  expect(((await empty.json()) as { error: string }).error).toContain("multipart");
+
+  // A well-formed form with no file is the same class: refuse it rather than
+  // hand whisper zero bytes and return an empty transcript that reads as silence.
+  const noFile = new FormData();
+  noFile.append("model", "whisper");
+  const missing = await door.fetch(
+    new Request("http://engined/openai/v1/audio/transcriptions", {
+      method: "POST",
+      body: noFile,
+    }),
+  );
+  expect(missing.status).toBe(400);
+  expect(((await missing.json()) as { error: string }).error).toContain("`file`");
+});
