@@ -79,6 +79,7 @@ import {
   isContainerSpec,
   isRecord,
   MS_PER_SECOND,
+  type Upstream,
 } from "./types.ts";
 
 const CONTENT_ENDPOINTS = new Set([
@@ -626,6 +627,23 @@ function resolveUpstreamModelId(
   return findModelOnEngine(config.routes, engineId, modelSeg)?.model ?? modelSeg;
 }
 
+/**
+ * The engine entry a remote call actually resolves against. Unchanged when
+ * no upstream matched -- a route's `upstream` naming an id absent from
+ * `config.upstreams` is a real loadConfig()'d config's impossibility
+ * (config.ts refuses it at parse), but never blanks the engine's own
+ * dead-but-standing base_url/secret over a lookup that simply found
+ * nothing; only a *found* upstream's fields ever substitute in.
+ */
+function withUpstreamAddress(
+  engineEntry: EngineEntry,
+  upstream: Upstream | undefined,
+): EngineEntry {
+  return upstream === undefined
+    ? engineEntry
+    : { ...engineEntry, base_url: upstream.base_url, secret: upstream.secret };
+}
+
 type RedirectResolution =
   | { ok: true; env: Record<string, string> }
   | { ok: false; result: HopResult };
@@ -740,7 +758,7 @@ async function execAgentic(
   if (upstreamId !== null && upstreamId !== "local") {
     const upstream = config.upstreams.find((u) => u.id === upstreamId);
     const redirect = await resolveRedirect(
-      { ...engineEntry, base_url: upstream?.base_url, secret: upstream?.secret },
+      withUpstreamAddress(engineEntry, upstream),
       modelSeg,
       config,
       ctx.doorOpts.secretExec,
@@ -819,7 +837,7 @@ async function execRemoteHttp(
       ? undefined
       : config.upstreams.find((u) => u.id === route.upstream);
   const resolution = await resolveRemote(
-    { ...engineEntry, base_url: upstream?.base_url, secret: upstream?.secret },
+    withUpstreamAddress(engineEntry, upstream),
     ctx.doorOpts.secretExec,
   );
   if (!resolution.ok) {
@@ -1077,7 +1095,7 @@ function audioStart(ctx: DoorContext): EngineStart {
     if (engine && upstreamId !== null && upstreamId !== "local") {
       const upstream = config.upstreams.find((u) => u.id === upstreamId);
       const resolution = await resolveRemote(
-        { ...engine, base_url: upstream?.base_url, secret: upstream?.secret },
+        withUpstreamAddress(engine, upstream),
         ctx.doorOpts.secretExec,
       );
       return resolution.ok

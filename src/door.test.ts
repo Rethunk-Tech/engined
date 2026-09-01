@@ -271,20 +271,25 @@ function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
 /** A real `config.toml` on disk, for a test that must go through `door.reload(path)` -- not the in-memory `Config` shortcut `llamaDoorConfig` uses. */
 function llamaTomlConfig(modelsDir: string): string {
   return `
+[[upstream]]
+id = "local"
+egress = "none"
+
 [[engine]]
 id = "local-llama"
-egress = "none"
 models_dir = "${modelsDir}"
 
-[[model]]
-id = "ornith"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "ornith"
 filename = "x.gguf"
 role = "chat"
 
-[[model]]
-id = "other"
+[[route]]
 engine = "local-llama"
+upstream = "local"
+model = "other"
 filename = "y.gguf"
 role = "chat"
 `;
