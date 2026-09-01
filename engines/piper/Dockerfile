@@ -38,6 +38,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # attributes to a dependency bump.
 RUN pip install --no-cache-dir \
       piper-tts==1.7.0 \
+      onnx==1.20.1 \
       fastapi==0.141.1 \
       "uvicorn[standard]==0.52.4"
 
@@ -53,7 +54,12 @@ ARG PIPER_VOICE=en_US-lessac-medium
 ARG PIPER_VOICE_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium
 RUN mkdir -p /app/voices \
     && curl -fsSL -o "/app/voices/${PIPER_VOICE}.onnx" "${PIPER_VOICE_BASE}/${PIPER_VOICE}.onnx" \
-    && curl -fsSL -o "/app/voices/${PIPER_VOICE}.onnx.json" "${PIPER_VOICE_BASE}/${PIPER_VOICE}.onnx.json"
+    && curl -fsSL -o "/app/voices/${PIPER_VOICE}.onnx.json" "${PIPER_VOICE_BASE}/${PIPER_VOICE}.onnx.json" \
+    # Published voices export audio only. Marking the model's phoneme-duration
+    # tensor as a second output is what lets synthesize() report per-phoneme
+    # sample counts, which /v1/tts turns into word timings. onnx is here for this
+    # one step; the runtime never imports it.
+    && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
 FROM python:3.14.7-slim
 

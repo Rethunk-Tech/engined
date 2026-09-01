@@ -334,7 +334,7 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
   };
 }
 
-/** A spoken word and where it sits in the utterance, in seconds. Kokoro reports these; piper does not. */
+/** A spoken word and where it sits in the utterance, in seconds, when the engine can tell. */
 function isWord(value: unknown): value is { text: string; start: number; end: number } {
   return (
     typeof value === "object" &&

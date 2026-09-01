@@ -50,6 +50,54 @@ class TtsRequest(BaseModel):
     chunks: bool = False
 
 
+# Piper's phoneme string marks a word gap with a space and a sentence with ^ and $.
+_GAPS = {" ", "^", "$"}
+
+
+def _phoneme_counts(texts: list[str]) -> list[int]:
+    """How many phonemes each of the caller's words is, phonemized alone. The
+    sentence's own phoneme string is no use for this: espeak drops the gap
+    between some pairs ("from the" is one run) and expands "1980" to several,
+    so runs and words do not line up -- but the phonemes themselves do."""
+    return [
+        sum(
+            len([p for p in sentence if p not in _GAPS])
+            for sentence in voice.phonemize(text)
+        )
+        for text in texts
+    ]
+
+
+def _words(chunk, offset: int, texts: list[str], counts: list[int]) -> list[dict]:
+    """Each word's start and end in seconds from the start of the utterance: the
+    per-phoneme sample counts the patched voice reports, walked in the caller's
+    words by `counts`. Nothing when the counts do not add up to the sentence's
+    phonemes, because a guess would put a caller's mark in the wrong place."""
+    phones: list[tuple[int, int]] = []
+    at = offset
+    for alignment in chunk.phoneme_alignments or []:
+        end = at + int(alignment.num_samples)
+        if alignment.phoneme not in _GAPS:
+            phones.append((at, end))
+        at = end
+    if sum(counts) != len(phones):
+        return []
+    rate = chunk.sample_rate
+    words = []
+    i = 0
+    for text, n in zip(texts, counts):
+        if n > 0:
+            words.append(
+                {
+                    "text": text,
+                    "start": phones[i][0] / rate,
+                    "end": phones[i + n - 1][1] / rate,
+                }
+            )
+        i += n
+    return words
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -66,10 +114,13 @@ def synthesize(req: TtsRequest):
             # follows.
             pcm = bytearray()
             fmt = None
+            # Words are only attributable when the whole request is one sentence:
+            # piper's chunks carry no text of their own to split the caller's against.
+            texts = req.text.split() if len(voice.phonemize(req.text)) == 1 else []
+            counts = _phoneme_counts(texts)
             with _model_lock:
-                for chunk in voice.synthesize(req.text):
+                for chunk in voice.synthesize(req.text, include_alignments=True):
                     fmt = (chunk.sample_channels, chunk.sample_width, chunk.sample_rate)
-                    pcm += chunk.audio_int16_bytes
                     if req.chunks:
                         yield (
                             json.dumps(
@@ -79,10 +130,14 @@ def synthesize(req: TtsRequest):
                                         chunk.audio_int16_bytes
                                     ).decode("ascii"),
                                     "rate": chunk.sample_rate,
+                                    "words": _words(
+                                        chunk, len(pcm) // 2, texts, counts
+                                    ),
                                 }
                             )
                             + "\n"
                         )
+                    pcm += chunk.audio_int16_bytes
             if fmt is None:
                 # Text that phonemizes to nothing -- punctuation alone, say. There is no
                 # format to write a WAV header with, and a zero-length WAV would read to
