@@ -169,18 +169,23 @@ interface BuildArgvInput {
  * never what runs — it exists only so a spec that tried to redirect the
  * binary fails at parse. A `flags` agent's floor is prepended here and no
  * config entry or `spec_dir` override can reach it.
+ *
+ * The pinned-package prefix is only for an agent `bunx` actually fetches:
+ * one with `resolveBinary` (agents.ts) instead resolves its own already-
+ * installed binary here, on every call, so a self-update between launches
+ * is picked up rather than cached stale — and throws rather than falling
+ * through to a bare command name a spawned child's own PATH might not carry.
  */
 export function buildArgv(input: BuildArgvInput): string[] {
   const agent = agentCli(input.agent);
   if (agent === undefined) {
     throw new Error(`unknown agent "${input.agent}"`);
   }
-  return [
-    input.bunx,
-    `${agent.pkg}@${input.agentVersion}`,
-    ...agent.launch(input.mcpConfigPath),
-    ...argvFromArgs(input.args),
-  ];
+  const command =
+    agent.resolveBinary === undefined
+      ? [input.bunx, `${agent.pkg}@${input.agentVersion}`]
+      : [agent.resolveBinary()];
+  return [...command, ...agent.launch(input.mcpConfigPath), ...argvFromArgs(input.args)];
 }
 
 /** Spawned processes get an allowlist, never the ambient environment — a `--user` unit hands every child the manager's environment otherwise, secrets included. */

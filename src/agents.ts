@@ -11,7 +11,8 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
 import { AGENTIC_FLOOR, isRecord, type Wire } from "./types.ts";
@@ -32,7 +33,12 @@ export type FloorKind = "flags" | "sandbox";
 
 export interface AgentCli {
   id: string;
-  /** The npm package, without a version -- the pin is config, never code. */
+  /**
+   * The npm package, without a version -- the pin is config, never code.
+   * For an agent declaring `resolveBinary` below, this is nominal only: kept
+   * so `spec.ts`'s parse-time `command[1]` check still has a name to match
+   * against, never used to build a real launch.
+   */
   pkg: string;
   floor: FloorKind;
   /**
@@ -57,6 +63,17 @@ export interface AgentCli {
    * already handled as a remote redirect.
    */
   configure?: (upstream: AgentTarget) => Record<string, string>;
+  /**
+   * Present only for an agent with no npm distribution at all -- absent
+   * means today's path is unchanged: `bunx <pkg>@<agentVersion>` both
+   * fetches and pins the binary in one step. Present, `bunx` never runs for
+   * this agent; this returns the absolute path to invoke instead, resolved
+   * fresh on every call so a self-update between launches is picked up
+   * rather than cached stale. Throws, naming what it looked for and where,
+   * rather than ever falling back to a bare command name a spawned child's
+   * own (possibly narrower) PATH might fail to find.
+   */
+  resolveBinary?: () => string;
 }
 
 export interface AgentTarget {
@@ -256,6 +273,46 @@ function renderOpencodeConfig(upstream: AgentTarget): Record<string, string> {
   return { OPENCODE_CONFIG: path };
 }
 
+/** Where cursor's own installer and self-updater keep every version it has ever unpacked, newest last once sorted by name: `YYYY.MM.DD-hash`. */
+function cursorVersionsDir(): string {
+  return join(homedir(), ".local/share/cursor-agent/versions");
+}
+
+/**
+ * The two places cursor's own installer and self-updater ever put its
+ * binary -- `agent` on PATH is what an operator's own shell already uses
+ * (`~/.local/bin/agent`, a symlink into the versions directory below), and
+ * the versions directory itself is the fallback for a shell whose PATH does
+ * not carry that (a `--user` systemd unit, say). Never a third guess: an
+ * absent binary throws, naming both places this looked, rather than
+ * returning a bare "agent" a spawned child's own PATH might resolve to
+ * nothing, or worse, to some other program.
+ */
+export function resolveCursorBinary(
+  which: (cmd: string) => string | null = Bun.which,
+  versionsDir: string = cursorVersionsDir(),
+): string {
+  const onPath = which("agent");
+  if (onPath !== null) {
+    return onPath;
+  }
+  let versions: string[] = [];
+  try {
+    versions = readdirSync(versionsDir).sort();
+  } catch {
+    // No installer directory either -- versions stays empty, and the
+    // throw below reports both lookups failed.
+  }
+  const newest = versions.at(-1);
+  const binary = newest === undefined ? undefined : join(versionsDir, newest, "cursor-agent");
+  if (binary !== undefined && existsSync(binary)) {
+    return binary;
+  }
+  throw new Error(
+    `cursor's "agent" binary was not found on PATH or under ${versionsDir} -- install it with "curl https://cursor.com/install | bash"`,
+  );
+}
+
 const AGENTS: Record<string, AgentCli> = {
   claude: {
     id: "claude",
@@ -277,17 +334,14 @@ const AGENTS: Record<string, AgentCli> = {
   },
   cursor: {
     id: "cursor",
-    // Not yet fetchable this way: `bunx cursor-agent@<pin>` resolves to an
-    // unrelated third-party npm package ("Task sequence creator for Cursor
-    // AI agents", zalab-inc, versions 1.0.0-1.0.3 only) -- measured, and no
-    // `@anysphere/cursor-agent` or `@cursor/cli` package exists either. The
-    // real CLI ships only via Cursor's own installer into
-    // `~/.local/share/cursor-agent/versions/<version>/`, self-updating with
-    // no version-pinning subcommand. `buildArgv`'s shared launch has no path
-    // that resolves this yet, so a real launch of this engine fails today --
-    // this id is the target for whatever that resolution turns out to be.
+    // Nominal, for spec.ts's parse-time check only: `bunx cursor-agent@<pin>`
+    // resolves to an unrelated third-party npm package ("Task sequence
+    // creator for Cursor AI agents", zalab-inc, versions 1.0.0-1.0.3 only) --
+    // measured, and no `@anysphere/cursor-agent` or `@cursor/cli` package
+    // exists either. `resolveBinary` below is the real launch path.
     pkg: "cursor-agent",
     floor: "flags",
+    resolveBinary: resolveCursorBinary,
     // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself
     // as normalizing cursor's own request shape "into the standard OpenAI
     // Chat Completions format" before it reaches a model -- the closest

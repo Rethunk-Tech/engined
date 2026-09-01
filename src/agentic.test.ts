@@ -13,7 +13,7 @@ import {
 } from "./agentic.ts";
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
-import { parseClaudeEnvelope as parseEnvelope } from "./agents.ts";
+import { agentCli, parseClaudeEnvelope as parseEnvelope } from "./agents.ts";
 // Read-only import: proves the real reachable path (config parse), not just
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from "./config.ts";
@@ -155,6 +155,48 @@ test("buildArgv: --strict-mcp-config is followed literally by the rendered confi
   const flagIndex = argv.indexOf("--strict-mcp-config");
   expect(flagIndex).toBeGreaterThan(-1);
   expect(argv[flagIndex + 1]).toBe(MCP_CONFIG_PATH);
+});
+
+test("buildArgv: an agent with resolveBinary skips bunx and the pin entirely, using the resolved path as argv[0]", () => {
+  const cursor = agentCli("cursor");
+  expect(cursor?.resolveBinary).toBeDefined();
+  let resolved: string | undefined;
+  let resolveError: unknown;
+  try {
+    resolved = cursor?.resolveBinary?.();
+  } catch (err) {
+    resolveError = err;
+  }
+  if (resolved === undefined) {
+    // No cursor installed on whatever box is running this suite: the failure
+    // must still be loud and specific, at the same buildArgv call site a
+    // real launch would hit -- never a silent fallback to a bare "agent".
+    expect(resolveError).toBeInstanceOf(Error);
+    expect(() =>
+      buildArgv({
+        bunx: BUNX,
+        agent: "cursor",
+        agentVersion: PIN,
+        args: {},
+        mcpConfigPath: MCP_CONFIG_PATH,
+      }),
+    ).toThrow();
+  } else {
+    // This box has cursor installed (test/local/cursor.test.ts's own real
+    // round trip relies on the same fact): buildArgv must actually route
+    // through it rather than bunx, and the configured pin -- unused by a
+    // self-updating binary with no pin mechanism -- must never appear.
+    const argv = buildArgv({
+      bunx: BUNX,
+      agent: "cursor",
+      agentVersion: PIN,
+      args: {},
+      mcpConfigPath: MCP_CONFIG_PATH,
+    });
+    expect(argv[0]).toBe(resolved);
+    expect(argv[0]).not.toBe(BUNX);
+    expect(argv.some((token) => token.includes(PIN))).toBe(false);
+  }
 });
 
 test("renderEmptyMcpConfig: the file it names exists and holds an empty MCP configuration", () => {

@@ -4,12 +4,16 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   AGENT_IDS,
   agentCli,
   parseClaudeEnvelope,
   parseCursorEvents,
   parseOpencodeEvents,
+  resolveCursorBinary,
 } from "./agents.ts";
 import { AGENTIC_FLOOR } from "./types.ts";
 
@@ -151,4 +155,46 @@ it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist 
   // No `configure`: see src/agents.ts for why redirecting cursor's own
   // inference through engined's door is worse than leaving it alone.
   expect(cursor?.configure).toBeUndefined();
+});
+
+it("cursor declares a binary resolution strategy; claude and opencode -- both npm-fetched by bunx -- declare none", () => {
+  expect(agentCli("cursor")?.resolveBinary).toBeDefined();
+  expect(agentCli("claude")?.resolveBinary).toBeUndefined();
+  expect(agentCli("opencode")?.resolveBinary).toBeUndefined();
+});
+
+it("resolveCursorBinary: agent on PATH wins outright, the versions directory never consulted", () => {
+  const resolved = resolveCursorBinary(
+    (cmd) => (cmd === "agent" ? "/home/x/.local/bin/agent" : null),
+    "/nonexistent/versions/dir/never/read",
+  );
+  expect(resolved).toBe("/home/x/.local/bin/agent");
+});
+
+it("resolveCursorBinary: falls back to the newest versions directory by name when PATH has nothing", () => {
+  const root = mkdtempSync(join(tmpdir(), "engined-cursor-versions-"));
+  try {
+    for (const version of ["2026.01.01-aaa", "2026.02.15-bbb", "2026.02.01-ccc"]) {
+      const dir = join(root, version);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "cursor-agent"), "");
+    }
+    const resolved = resolveCursorBinary(() => null, root);
+    expect(resolved).toBe(join(root, "2026.02.15-bbb", "cursor-agent"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("resolveCursorBinary: neither PATH nor a versions directory has it -- throws naming both", () => {
+  const root = mkdtempSync(join(tmpdir(), "engined-cursor-versions-empty-"));
+  try {
+    expect(() => resolveCursorBinary(() => null, root)).toThrow(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("resolveCursorBinary: a versions directory that does not exist at all is treated the same as an empty one", () => {
+  expect(() => resolveCursorBinary(() => null, "/nonexistent/engined-cursor-test")).toThrow("PATH");
 });
