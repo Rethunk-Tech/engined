@@ -46,8 +46,6 @@ export interface RunChainOptions {
   localOnly: boolean;
   /** The only input `local_only` reads. */
   egressOf: (engine: string) => Egress;
-  /** Resolves a hop's raw `@/<segment>/…` engine to the id `GET /engined/v1/engines` reports (e.g. the `local` alias), falling back to the segment unchanged. Provenance must record the resolved id, never the alias, to stay reconcilable. */
-  resolveEngine: (engine: string) => string;
   /**
    * Per hop, not per request or per chain — a two-engine chain bounded per
    * request could run twice as long as intended, and a chain that merely
@@ -72,9 +70,19 @@ interface ChainResult {
 
 const HOP_PREFIX = /^@\//;
 
-export function parseHop(hop: string): { engine: string; model: string } {
-  const [engine, ...rest] = hop.replace(HOP_PREFIX, "").split("/");
-  return { engine: engine ?? hop, model: rest.join("/") };
+/**
+ * A hop is always the two- or three-segment qualified form: `@/<engine>/<model>`
+ * or `@/<engine>/<upstream>/<model>`. Reads exactly three segments -- the
+ * third only when present -- rather than joining every segment past the
+ * first into `model`, which is how a three-segment hop used to silently
+ * become a model id containing a slash.
+ */
+export function parseHop(hop: string): { engine: string; upstream?: string; model: string } {
+  const [engine, second, third] = hop.replace(HOP_PREFIX, "").split("/");
+  if (third !== undefined) {
+    return { engine: engine ?? hop, upstream: second, model: third };
+  }
+  return { engine: engine ?? hop, model: second ?? "" };
 }
 
 function bodyIsEmpty(body: unknown): boolean {
@@ -177,8 +185,7 @@ interface HopOutcome {
 
 /** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
-  const { engine: rawEngine, model } = parseHop(hop);
-  const engine = opts.resolveEngine(rawEngine);
+  const { engine, model } = parseHop(hop);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs(hop));
   // The hop dies on whichever comes first: its own budget, or the client leaving.

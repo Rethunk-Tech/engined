@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type HopExec, type RunChainOptions, runChain } from "./chain.ts";
+import { type HopExec, parseHop, type RunChainOptions, runChain } from "./chain.ts";
 import { collectLines, deadPort, startFakeUpstream } from "./test-support.ts";
 import type { Egress } from "./types.ts";
 
@@ -92,7 +92,6 @@ function baseOpts(
     requested: "chain-test-chain",
     localOnly: false,
     egressOf: () => "remote",
-    resolveEngine: (engine) => engine,
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
     // Without this every runChain here writes its provenance line to the real
     // stdout; a test that asserts on the line passes its own collector.
@@ -108,20 +107,27 @@ function baseOpts(
 // provenance.test.ts (recordCall's serialization of both fields and of
 // version) and dispatch.test.ts (the door's end-to-end provenance line).
 
-test("an alias hop's provenance records the resolved engine id, not the raw alias", async () => {
+test("parseHop reads the parsed shape by segment count, not a slash-joined model", () => {
+  expect(parseHop("@/llama/ornith")).toEqual({ engine: "llama", model: "ornith" });
+  expect(parseHop("@/cursor/openrouter/sonnet-5")).toEqual({
+    engine: "cursor",
+    upstream: "openrouter",
+    model: "sonnet-5",
+  });
+});
+
+test("a three-segment hop's attempt records the bare model, never the upstream folded into it", async () => {
   const { lines, write } = collectLines();
   const exec: HopExec = () => Promise.resolve({ status: 200, body: "answer" });
 
-  const result = await runChain(
-    ["@/local/model"],
-    baseOpts({ exec, write, resolveEngine: (engine) => (engine === "local" ? "llama" : engine) }),
-  );
+  const result = await runChain(["@/cursor/openrouter/sonnet-5"], baseOpts({ exec, write }));
 
   expect(result.status).toBe(200);
-  expect(result.engineUsed).toBe("llama");
+  expect(result.engineUsed).toBe("cursor");
   const record = JSON.parse(lines[0] ?? "");
-  expect(record.engine_used).toBe("llama");
-  expect(record.attempts[0].engine).toBe("llama");
+  expect(record.engine_used).toBe("cursor");
+  expect(record.attempts[0].engine).toBe("cursor");
+  expect(record.attempts[0].model).toBe("sonnet-5");
 });
 
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
