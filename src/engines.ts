@@ -259,13 +259,21 @@ function noProbeRunnerConfiguredFix(
   return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`;
 }
 
-function probeFailedFix(
-  engineId: string,
-  observed: string,
-  proved: string | undefined,
-  failedProbe: string,
-  detail: string | undefined,
-): string {
+interface ProbeFailedFixOptions {
+  engineId: string;
+  observed: string;
+  proved: string | undefined;
+  failedProbe: string;
+  detail: string | undefined;
+}
+
+function probeFailedFix({
+  engineId,
+  observed,
+  proved,
+  failedProbe,
+  detail,
+}: ProbeFailedFixOptions): string {
   const why = detail === undefined ? "" : `: ${detail}`;
   if (proved === undefined) {
     return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`;
@@ -887,7 +895,7 @@ export class EngineRegistry {
         fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? "unknown"),
       };
     }
-    const version = observed.version;
+    const { version } = observed;
     if (version === undefined) {
       return {
         ...base,
@@ -916,13 +924,13 @@ export class EngineRegistry {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix(
-          engine.id,
-          version,
+        fix: probeFailedFix({
+          engineId: engine.id,
+          observed: version,
           proved,
-          outcome.failedProbe ?? "unknown",
-          outcome.detail,
-        ),
+          failedProbe: outcome.failedProbe ?? "unknown",
+          detail: outcome.detail,
+        }),
       };
     }
     writeVerifiedVersion(engine.id, version);

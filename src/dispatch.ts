@@ -32,14 +32,22 @@ export function resolveEngineSegment(seg: string, config: Config): string | unde
   return config.engines.some((e) => e.id === seg) ? seg : undefined;
 }
 
+interface EndpointCheckOptions {
+  engineId: string;
+  model?: string;
+  upstream?: string;
+  ctx: ResolveCtx;
+  role?: Role;
+}
+
 /** `engine.serves(endpoint)`, or the model-less form when `model` is `undefined`. The one funnel every resolved dispatch passes through, so the disabled check lives here rather than in each resolver. */
-function withEndpointCheck(
-  engineId: string,
-  model: string | undefined,
-  upstream: string | undefined,
-  ctx: ResolveCtx,
-  role?: Role,
-): Dispatch {
+function withEndpointCheck({
+  engineId,
+  model,
+  upstream,
+  ctx,
+  role,
+}: EndpointCheckOptions): Dispatch {
   if (ctx.registry.entry(engineId)?.disabled) {
     return fail(`engine "${engineId}" is disabled in config`);
   }
@@ -74,7 +82,13 @@ function resolveOneSegment(model: string, ctx: ResolveCtx): Dispatch {
     (a, b) => routeEgressRank(a, ctx.config) - routeEgressRank(b, ctx.config),
   );
   const route = winner as ResolvedRoute;
-  return withEndpointCheck(route.engine, model, route.upstream ?? undefined, ctx, route.role);
+  return withEndpointCheck({
+    engineId: route.engine,
+    model,
+    upstream: route.upstream ?? undefined,
+    ctx,
+    role: route.role,
+  });
 }
 
 /** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
@@ -105,7 +119,7 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Di
     if (!route) {
       return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`);
     }
-    return withEndpointCheck(engineSeg, undefined, seg, ctx);
+    return withEndpointCheck({ engineId: engineSeg, upstream: seg, ctx });
   }
   const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
   if (matches.length === 0) {
@@ -116,7 +130,13 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Di
     const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
     return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
   }
-  return withEndpointCheck(engineSeg, seg, route.upstream ?? undefined, ctx, route.role);
+  return withEndpointCheck({
+    engineId: engineSeg,
+    model: seg,
+    upstream: route.upstream ?? undefined,
+    ctx,
+    role: route.role,
+  });
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -143,7 +163,13 @@ function resolveThreeSegments(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
     );
   }
-  return withEndpointCheck(engineSeg, modelSeg, upstreamSeg, ctx, route.role);
+  return withEndpointCheck({
+    engineId: engineSeg,
+    model: modelSeg,
+    upstream: upstreamSeg,
+    ctx,
+    role: route.role,
+  });
 }
 
 function resolveQualified(segments: readonly string[], ctx: ResolveCtx): Dispatch {
