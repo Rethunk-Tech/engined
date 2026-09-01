@@ -10,6 +10,7 @@ import {
   engine,
   inspectSinglePort,
   makeTestRoot,
+  route,
   writeEngineSpec,
 } from "./test-support.ts";
 
@@ -67,6 +68,7 @@ function doorWith(exec: Exec, releaseFetch?: ReleaseFetch) {
   return createDoor(
     config({
       engines: [engine({ id: "local-llama" }), engine({ id: "hosted", kind: "openai-http" })],
+      routes: [route({ engine: "local-llama", model: "chat-model", upstream: "local" })],
     }),
     {
       enginesRoot: root,
@@ -253,7 +255,10 @@ test("a state change reaches a subscriber as a live frame", async () => {
   const frames = readFrames(res, 2);
 
   await door.fetch(
-    new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
+    new Request("http://engined/engined/v1/start", {
+      method: "POST",
+      body: JSON.stringify({ model: "@/local-llama/chat-model" }),
+    }),
   );
 
   const live = (await frames).filter((f) => f.startsWith("event: engine"));
@@ -261,33 +266,13 @@ test("a state change reaches a subscriber as a live frame", async () => {
   expect(live.join("\n")).toContain("local-llama");
 });
 
-// An engine id cannot say which machine an engine is on, so narrowing a
-// start by model is POST /engined/v1/start's job (a later route), not this
-// engine-keyed one's. A body naming a model is ignored silently -- the field
-// is gone, not renamed -- rather than inventing a 400 or a 502 on a route
-// already scheduled for deletion.
-test("start with a model in the body still just warms the container", async () => {
-  const { exec } = recordingExec((args) =>
-    args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
-  );
-  const door = doorWith(exec);
-  const res = await door.fetch(
-    new Request("http://engined/engined/v1/engines/local-llama/start", {
-      method: "POST",
-      body: JSON.stringify({ model: "nope" }),
-    }),
-  );
-  expect(res.status).toBe(200);
-  expect(((await res.json()) as { state: string }).state).not.toBe("unavailable");
-});
-
-test("start with no body still warms only the container", async () => {
-  const { exec } = recordingExec((args) =>
-    args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
-  );
+// An engine id names a thing, never a location: POST /engined/v1/start,
+// keyed by address, replaces the per-engine route outright.
+test("the old engine-keyed start route is a 404", async () => {
+  const { exec } = recordingExec(() => ({}));
   const door = doorWith(exec);
   const res = await door.fetch(
     new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
   );
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(404);
 });

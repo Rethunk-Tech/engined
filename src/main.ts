@@ -51,6 +51,7 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_CONFLICT,
   STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
@@ -77,7 +78,10 @@ import {
   type ModelRow,
   type ModelsResponse,
   MS_PER_SECOND,
+  qualifiedSegments,
   type ResolvedRoute,
+  type StartResponse,
+  type StartRow,
   type Upstream,
 } from "./types.ts";
 import {
@@ -120,7 +124,8 @@ function mintLaunchNonce(): string {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
-const START_RE = /^\/engined\/v1\/engines\/([^/]+)\/start$/;
+/** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
+const START_PATH = "/engined/v1/start";
 const STOP_RE = /^\/engined\/v1\/engines\/([^/]+)\/stop$/;
 const LOGS_RE = /^\/engined\/v1\/engines\/([^/]+)\/logs$/;
 const RESOURCES_RE = /^\/engined\/v1\/engines\/([^/]+)\/resources$/;
@@ -186,20 +191,192 @@ async function handleEngines(ctx: DoorContext, configErr: string | undefined): P
 }
 
 /**
- * Warms the container only -- an engine id cannot say which machine an
- * engine is on, so narrowing a warm by model is `POST /engined/v1/start`'s job,
- * not this engine-keyed route's. A request body naming a model is ignored
- * silently: the field is gone, not renamed, and this route itself is a
- * three-phase transient.
- *
- * The warm is a head start, not a pin: the lease is released immediately and
- * idle-stop is armed as usual. `keep_resident` in config is what survives.
+ * Among routes sharing one `(engine, model)`, the upstream `/engined/v1/start`'s
+ * two-segment form defaults to: ambient first, then this box's own `local`.
+ * Duplicated from `dispatch.ts`'s own default-upstream pick rather than
+ * shared: that resolver is endpoint-gated (`serves(engineId).includes(...)`,
+ * a question about which door PATH an engine answers), and starting a
+ * container has nothing to do with that -- comfy serves no content endpoint
+ * at all and must still resolve here.
  */
-async function handleStart(ctx: DoorContext, id: string): Promise<Response> {
+function pickDefaultUpstream(matches: readonly ResolvedRoute[]): ResolvedRoute | undefined {
+  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
+}
+
+/** The two- or three-segment qualified form, resolved to exactly the one route it names. Mirrors `dispatch.ts`'s `resolveTwoSegments`/`resolveThreeSegments`, minus the endpoint check neither applies here. */
+function resolveQualifiedStartRoute(
+  segments: readonly string[],
+  config: Config,
+): { ok: true; route: ResolvedRoute } | { ok: false; error: string } {
+  const [engineSeg, second, third] = segments;
+  const engine = engineSeg as string;
+  const engineEntry = config.engines.find((e) => e.id === engine);
+  if (engineEntry === undefined) {
+    return { ok: false, error: `engine "${engine}" does not exist` };
+  }
+  if (engineEntry.disabled) {
+    return { ok: false, error: `engine "${engine}" is disabled in config` };
+  }
+  if (third !== undefined) {
+    const upstream = second as string;
+    const model = third;
+    const route = findModelOnEngine(config.routes, engine, model, upstream);
+    return route
+      ? { ok: true, route }
+      : { ok: false, error: `model "${model}" does not exist on "${engine}"/"${upstream}"` };
+  }
+  const seg = second as string;
+  const engineRoutes = config.routes.filter((r) => r.engine === engine);
+  const modelless = engineRoutes.some((r) => r.model === undefined);
+  if (modelless) {
+    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg);
+    return route
+      ? { ok: true, route }
+      : { ok: false, error: `no route on "${engine}" with upstream "${seg}"` };
+  }
+  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
+  if (matches.length === 0) {
+    return { ok: false, error: `model "${seg}" does not exist on "${engine}"` };
+  }
+  const route = matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
+  if (route === undefined) {
+    const qualified = matches.map((r) => `@/${engine}/${r.upstream}/${seg}`).join(", ");
+    return {
+      ok: false,
+      error: `"@/${engine}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`,
+    };
+  }
+  return { ok: true, route };
+}
+
+/**
+ * `/engined/v1/start`'s target: a chain name resolves to its FIRST hop only
+ * (warming exists to avoid a cold first turn; starting every hop spins up
+ * containers for requests the first hop will answer), a bare `@/<model>`
+ * resolves to every route offering it -- one address can name more than one
+ * engine, unlike the single-winner pick a chat dispatch makes -- and the
+ * two/three-segment forms are already engine-specific.
+ */
+function resolveStartRoutes(
+  model: string,
+  config: Config,
+): { ok: true; routes: readonly ResolvedRoute[] } | { ok: false; error: string } {
+  const chainHops = config.chains[model];
+  if (chainHops !== undefined) {
+    const [first] = chainHops;
+    if (first === undefined) {
+      return { ok: false, error: `chain "${model}" has no hops` };
+    }
+    const hop = parseHop(first);
+    const engineId = resolveEngineSegment(hop.engine, config) ?? hop.engine;
+    const route = findModelOnEngine(config.routes, engineId, hop.model, hop.upstream);
+    return route === undefined
+      ? { ok: false, error: `chain "${model}"'s first hop "${first}" does not resolve to a route` }
+      : { ok: true, routes: [route] };
+  }
+  const segments = qualifiedSegments(model);
+  if (segments === undefined) {
+    return { ok: false, error: `unknown model "${model}"` };
+  }
+  if (segments.length === 1) {
+    const modelId = segments[0] as string;
+    const candidates = config.routes.filter((r) => !r.disabled && r.model === modelId);
+    return candidates.length === 0
+      ? { ok: false, error: `model "${modelId}" does not exist` }
+      : { ok: true, routes: candidates };
+  }
+  const resolved = resolveQualifiedStartRoute(segments, config);
+  return resolved.ok ? { ok: true, routes: [resolved.route] } : resolved;
+}
+
+/** The canonical `@/...` this row answers for -- always the fully explicit form, never a URL. */
+function startRowAddress(route: ResolvedRoute): string {
+  const upstreamPart = route.upstream === null ? "" : `/${route.upstream}`;
+  const modelPart = route.model === undefined ? "" : `/${route.model}`;
+  return `@/${route.engine}${upstreamPart}${modelPart}`;
+}
+
+/**
+ * One resolved route's action, by engine class:
+ *  - the local llama router: `warm`, the only start path there is now.
+ *  - a container engine with a per-model route (whisper): the stop-and-restart
+ *    already in `EngineRegistry.start`, `model` carried through so its own
+ *    409-on-held-leases applies.
+ *  - anything else local (comfy, a container-less agentic-cli route): the
+ *    same `EngineRegistry.start` call, which is already a plain availability
+ *    check with nothing to start for a spec that runs no container.
+ *  - a route whose upstream is not `"local"` at all: a no-op that says so,
+ *    never an error -- warming a peer or provider is not this delivery's job.
+ * Never routes a non-llama engine through `getLlamaRouter`: a whisper route
+ * carries `filename` and no `role`, and `warm` throws on a roleless model.
+ */
+async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<StartRow> {
+  const address = startRowAddress(route);
+  const { engine: engineId, upstream } = route;
+  if (upstream !== "local") {
+    const status = ctx.registry.get(engineId);
+    return {
+      address,
+      engine: engineId,
+      upstream,
+      state: status?.state ?? "unavailable",
+      fix: `upstream "${upstream ?? "ambient"}" is not local; nothing to start here`,
+    };
+  }
+  if (ctx.registry.isLocalLlama(engineId)) {
+    const engineEntry = ctx.registry.entry(engineId);
+    if (engineEntry === undefined) {
+      return {
+        address,
+        engine: engineId,
+        upstream,
+        state: "unavailable",
+        fix: `unknown engine "${engineId}"`,
+      };
+    }
+    await getLlamaRouter(ctx, engineEntry).warm(route);
+    const status = ctx.registry.get(engineId);
+    return {
+      address,
+      engine: engineId,
+      upstream,
+      state: status?.state ?? "unavailable",
+      fix: status?.fix,
+    };
+  }
+  const status = await ctx.registry.start(engineId, route.model);
+  return { address, engine: engineId, upstream, state: status.state, fix: status.fix };
+}
+
+/**
+ * `POST /engined/v1/start`: a model address or a chain name, resolved to the
+ * route(s) it names and started where "started" means something. Never hands
+ * back a `url` -- reaching the engine is a separate request, to the door, by
+ * address; this verb only answers what state it is in.
+ */
+async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
+  let body: Record<string, unknown>;
   try {
-    return Response.json(await ctx.registry.start(id));
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  }
+  const model = typeof body.model === "string" ? body.model : "";
+  if (model === "") {
+    return jsonError(STATUS_BAD_REQUEST, "model is required");
+  }
+  const resolved = resolveStartRoutes(model, ctx.getConfig());
+  if (!resolved.ok) {
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+  }
+  try {
+    const data = await Promise.all(resolved.routes.map((route) => startRoute(ctx, route)));
+    return Response.json({ object: "list", data } satisfies StartResponse);
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+    if (err instanceof EngineBusyError) {
+      return jsonError(STATUS_CONFLICT, err.message);
+    }
+    return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
   }
 }
 
@@ -1633,9 +1810,8 @@ function routePost(
   pathname: string,
   launchScoped: boolean,
 ): Response | Promise<Response> | undefined {
-  const startMatch = START_RE.exec(pathname)?.[1];
-  if (startMatch !== undefined) {
-    return handleStart(ctx, startMatch);
+  if (pathname === START_PATH) {
+    return handleStart(ctx, req);
   }
   const stopMatch = STOP_RE.exec(pathname)?.[1];
   if (stopMatch !== undefined) {

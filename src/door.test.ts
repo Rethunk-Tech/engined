@@ -5,7 +5,7 @@ import { join } from "node:path";
 import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
-import type { Probe } from "./docker.ts";
+import { DockerLifecycle, type Probe } from "./docker.ts";
 import type { AgenticProbeRunner } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
@@ -1866,5 +1866,187 @@ describe("GET /openai/v1/models: an agentic engine's per-route state factors in 
     expect(ambient?.state).toBe("installed");
     expect(keyed?.state).toBe("unavailable");
     clearVerifiedVersion("claude");
+  });
+});
+
+/** Mirrors engines/whisper's real shape: a real "-m <path>" pair for `withModelFile` to rewrite. */
+const STT_SPEC = `
+kind = "stt"
+upstream = "self"
+image = "engined/fakestt:local"
+obtain = "build"
+serves = ["/openai/v1/audio/transcriptions"]
+command = ["--host", "0.0.0.0", "-m", "/models/default.bin"]
+
+[ready]
+path = "/health"
+status = 200
+`;
+
+/** Tracks `run -d` and `stop` separately, so a test can assert a container start happened -- or did not -- without conflating it with a docker `start` reconcile. */
+function sttExec(runLog: string[][], stopLog: string[][]): Exec {
+  let port = 52_000;
+  return (args) => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(inspectSinglePort(8080));
+    }
+    if (argv[0] === "run" && argv[1] === "-d") {
+      runLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "stop") {
+      stopLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve(portResult(++port));
+    }
+    if (argv[0] === "inspect") {
+      return Promise.resolve(containerRunning());
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+}
+
+/** Every URL the llama router's own HTTP client was asked to hit, alongside the real load/unload/models control-plane replies -- `urls` is what proves a warm actually reached llama-server rather than merely returning without error. */
+function makeRecordingLlamaClient(): { client: HttpClient; urls: string[] } {
+  const control = llamaControlPlane();
+  const urls: string[] = [];
+  const client: HttpClient = (url, init) => {
+    urls.push(url);
+    const controlled = control(url, init);
+    if (controlled) {
+      return Promise.resolve(controlled);
+    }
+    return Promise.resolve(
+      Response.json({ id: "resp-1", choices: [{ message: { content: "hi" } }] }),
+    );
+  };
+  return { client, urls };
+}
+
+function startRequest(model: string): Request {
+  return new Request("http://engined/engined/v1/start", {
+    method: "POST",
+    body: JSON.stringify({ model }),
+  });
+}
+
+describe("POST /engined/v1/start", () => {
+  test("an engine id is not a place: the old per-engine route is a 404", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const door = createLlamaDoor(cfg, root);
+    const res = await door.fetch(
+      new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("a chain name warms only its first hop's local engine, with no url in the response", async () => {
+    const { root } = llamaDoorConfig();
+    writeEngineSpec(root, "whisper-like", STT_SPEC);
+    const cfg = config({
+      engines: [
+        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+        engine({ id: "whisper-like", models_dir: "/data/whisper" }),
+      ],
+      routes: [
+        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
+      ],
+      chains: { "chain-x": ["@/local-llama/ornith", "@/whisper-like/small"] },
+    });
+    const { client, urls } = makeRecordingLlamaClient();
+    const runLog: string[][] = [];
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
+    const res = await door.fetch(startRequest("chain-x"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { object: string; data: Record<string, unknown>[] };
+    expect(body.data).toHaveLength(1);
+    const [row] = body.data;
+    expect(row?.engine).toBe("local-llama");
+    expect(row?.state).toBe("running");
+    expect(row).not.toHaveProperty("private_url");
+    expect(row).not.toHaveProperty("url");
+    expect(urls.some((u) => u.endsWith("/models/load"))).toBe(true);
+    // The chain's second hop is whisper -- fan-out is the first hop's local
+    // route only, so its container must never have been started.
+    expect(runLog.some((argv) => argv.some((a) => a.includes("whisper-like")))).toBe(false);
+  });
+
+  test("an address whose upstream is not local is a no-op that reports state, not an error", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    const cfg = config({
+      upstreams: [
+        { id: "openrouter", egress: "remote", base_url: "https://openrouter.example/v1" },
+      ],
+      engines: [engine({ id: "hosted", kind: "openai-http" })],
+      routes: [route({ engine: "hosted", model: "gpt-x", upstream: "openrouter" })],
+    });
+    const door = createLlamaDoor(cfg, root);
+    const res = await door.fetch(startRequest("@/hosted/gpt-x"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    const [row] = body.data;
+    expect(row?.upstream).toBe("openrouter");
+    expect(String(row?.fix)).toContain("not local");
+    expect(row).not.toHaveProperty("private_url");
+  });
+
+  test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    writeEngineSpec(root, "whisper-like", STT_SPEC);
+    const cfg = config({
+      engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
+      routes: [
+        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
+      ],
+    });
+    const { client, urls } = makeRecordingLlamaClient();
+    const runLog: string[][] = [];
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
+    const res = await door.fetch(startRequest("@/whisper-like/small"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    expect(body.data[0]?.state).toBe("running");
+    expect(runLog).toHaveLength(1);
+    const argv = runLog[0] as string[];
+    expect(argv[argv.indexOf("-m") + 1]).toBe("/models/small.bin");
+    // The llama router's own HTTP client is never touched by an stt start.
+    expect(urls).toHaveLength(0);
+  });
+
+  test("held leases return 409 and do not restart", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    writeEngineSpec(root, "whisper-like", STT_SPEC);
+    const cfg = config({
+      engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
+      routes: [
+        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
+        route({ engine: "whisper-like", upstream: "local", model: "big", filename: "big.bin" }),
+      ],
+    });
+    const runLog: string[][] = [];
+    const stopLog: string[][] = [];
+    const lifecycle = new DockerLifecycle(sttExec(runLog, stopLog), READY_200);
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, lifecycle },
+      { llamaPresetHostPath: tempPresetPath(TEST_ROOT) },
+    );
+
+    const started = await door.fetch(startRequest("@/whisper-like/small"));
+    expect(started.status).toBe(200);
+    expect(runLog).toHaveLength(1);
+    lifecycle.beginLease("whisper-like");
+
+    const res = await door.fetch(startRequest("@/whisper-like/big"));
+    expect(res.status).toBe(409);
+    expect(runLog).toHaveLength(1);
+    expect(stopLog).toHaveLength(0);
   });
 });

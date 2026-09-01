@@ -509,6 +509,26 @@ export interface ModelsResponse {
   data: ModelRow[];
 }
 
+/**
+ * One `POST /engined/v1/start` row: the route this call acted on and what
+ * became of it. No `url` — an engine sits behind the door, and where its
+ * container happens to listen is the door's own business, never the
+ * caller's. Byte-identical to a peer-forwarded answer, so nothing about this
+ * shape changes when a later delivery has a peer answer instead of this box.
+ */
+export interface StartRow {
+  address: string;
+  engine: string;
+  upstream: string | null;
+  state: EngineState;
+  fix?: string;
+}
+
+export interface StartResponse {
+  object: "list";
+  data: StartRow[];
+}
+
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
 export const CONTRACT = 4;
 
