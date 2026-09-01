@@ -274,10 +274,15 @@ context_out = 64000
 reasoning   = ["none", "low", "high"]
 
 # No upstream: ambient means the CLI's own subscription login rather than an
-# API token, and an ambient route's egress is always "remote".
+# API token, and an ambient route's egress is always "remote". The model still
+# reaches the CLI verbatim (it is what makes @/claude/sonnet-5 and
+# @/claude/opus-5 launch different processes), so "wire_model" carries the id
+# Anthropic actually serves -- measured: the CLI refuses "sonnet-5" and
+# "sonnet" outright, and answers on "claude-sonnet-5".
 [[route]]
-engine = "claude"
-model  = "sonnet-5"
+engine     = "claude"
+model      = "sonnet-5"
+wire_model = "claude-sonnet-5"
 
 # Moonshot serves an Anthropic-shaped endpoint, so this is the same agentic
 # kind as the route above with a different upstream and a different model id

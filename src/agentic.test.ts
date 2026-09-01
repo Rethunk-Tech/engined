@@ -465,7 +465,11 @@ test("buildAgenticProbeRunner: a completion that writes into the scratch worktre
 
   const outcome = await runProbe(spawn);
 
-  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
+  expect(outcome).toMatchObject({
+    ok: false,
+    failedProbe: "byte-identical",
+    detail: expect.stringContaining("worktree changed: proof.txt"),
+  });
   expect(calls).toHaveLength(1);
 });
 
@@ -489,7 +493,11 @@ test("buildAgenticProbeRunner: an envelope failure fails byte-identical even wit
 
   const outcome = await runProbe(spawn);
 
-  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
+  expect(outcome).toMatchObject({
+    ok: false,
+    failedProbe: "byte-identical",
+    detail: expect.stringContaining("launch answered 502"),
+  });
 });
 
 /** Reads the witness path back out of the hook `plantCursorPromptHook` planted -- cursor's own `.cursor/hooks.json`, never claude's `.claude/settings.json`. */
@@ -549,7 +557,11 @@ test("buildAgenticProbeRunner: cursor writing into the scratch worktree fails by
 
   const outcome = await runCursorProbe(spawn);
 
-  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
+  expect(outcome).toMatchObject({
+    ok: false,
+    failedProbe: "byte-identical",
+    detail: expect.stringContaining("worktree changed"),
+  });
 });
 
 /**

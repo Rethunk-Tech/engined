@@ -748,6 +748,17 @@ model = "x"
   });
 });
 
+describe("a role implies modalities", () => {
+  test("vision takes text and image, chat takes text, an embedding route says nothing", () => {
+    const cfg = loadConfig(writeConfig(workedConfig()));
+    const byModel = (model: string) => cfg.routes.find((r) => r.model === model);
+    expect(byModel("vision")?.input).toEqual(["text", "image"]);
+    expect(byModel("vision")?.output).toEqual(["text"]);
+    expect(byModel("ornith")?.input).toEqual(["text"]);
+    expect(byModel("embed")?.input).toBeUndefined();
+  });
+});
+
 describe("streaming on a route overrides the engine's own", () => {
   test("a boolean parses and survives; anything else is a parse error", () => {
     const base = `

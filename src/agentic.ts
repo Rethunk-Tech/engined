@@ -601,17 +601,40 @@ function floorOf(agent: string): FloorKind {
   return agentCli(agent)?.floor ?? "flags";
 }
 
-async function runByteIdenticalProbe(input: ProbeInput): Promise<{ ok: boolean }> {
+async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
   const workdir = scratchWorktree();
   try {
     const before = hashTree(workdir);
     const outcome = await probeLaunch(input, workdir, WRITE_INSTRUCTION);
+    const unchanged = hashTree(workdir) === before;
+    if (wroteNothing(outcome, floorOf(input.agent), unchanged)) {
+      return { ok: true };
+    }
+    // Which of the two conditions failed is the whole diagnosis: a launch
+    // that never answered is a different fault from a floor that let a write
+    // through, and the engine's `fix` line is the only place it surfaces.
     return {
-      ok: wroteNothing(outcome, floorOf(input.agent), hashTree(workdir) === before),
+      ok: false,
+      detail: unchanged
+        ? `launch answered ${outcome.status}: ${outcome.failure ?? outcome.result ?? "no result"}`
+        : `worktree changed: ${listTree(workdir).join(", ")}`,
     };
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }
+}
+
+/** Every path under `root`, relative, sorted -- what a failed byte-identical probe names. */
+function listTree(root: string, dir: string = root): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    out.push(full.slice(root.length + 1));
+    if (statSync(full).isDirectory()) {
+      out.push(...listTree(root, full));
+    }
+  }
+  return out;
 }
 
 /** Shared by every `flags` agent's hook-silence probe -- only which hook file gets planted differs. */
@@ -716,10 +739,16 @@ async function runModelRoundTripProbe(input: ProbeInput): Promise<{ ok: boolean 
   }
 }
 
+interface ProbeResult {
+  ok: boolean;
+  /** Why, when `!ok` and the probe can say -- appended to the engine's `fix`. */
+  detail?: string;
+}
+
 interface Probe {
   /** Reported verbatim in the engine's `fix` string when it fails. */
   name: string;
-  run: (input: ProbeInput) => Promise<{ ok: boolean }>;
+  run: (input: ProbeInput) => Promise<ProbeResult>;
 }
 
 /**
@@ -763,7 +792,7 @@ export function buildAgenticProbeRunner(
     for (const probe of AGENT_PROBES[agent] ?? []) {
       const outcome = await probe.run({ agent, agentVersion, bunx, deps, roundTrip });
       if (!outcome.ok) {
-        return { ok: false, failedProbe: probe.name };
+        return { ok: false, failedProbe: probe.name, detail: outcome.detail };
       }
     }
     return { ok: true };
@@ -774,4 +803,5 @@ export function buildAgenticProbeRunner(
 interface AgenticProbeOutcome {
   ok: boolean;
   failedProbe?: string;
+  detail?: string;
 }

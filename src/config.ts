@@ -283,15 +283,15 @@ function parseCapabilities(
 }
 
 /** A route's own declared capability wins field by field; an undeclared field falls through to the `[[model]]` row's. */
-function mergeCapabilities(
-  base: ModelCapabilities,
-  override: ModelCapabilities,
-): ModelCapabilities {
+/** Later layers win field by field: the `[[model]]` row, then what the role implies, then the route's own declaration. */
+function mergeCapabilities(...layers: readonly ModelCapabilities[]): ModelCapabilities {
   const merged: ModelCapabilities = {};
   for (const key of CAPABILITY_FIELDS) {
-    const v = override[key] ?? base[key];
-    if (v !== undefined) {
-      (merged as Record<string, unknown>)[key] = v;
+    for (const layer of layers) {
+      const v = layer[key];
+      if (v !== undefined) {
+        (merged as Record<string, unknown>)[key] = v;
+      }
     }
   }
   return merged;
@@ -524,8 +524,24 @@ function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
     streaming: raw.streaming,
     args: raw.args,
     disabled,
-    ...mergeCapabilities(baseCaps, raw.capabilities),
+    ...mergeCapabilities(baseCaps, roleCapabilities(raw.role), raw.capabilities),
   };
+}
+
+/**
+ * What a role already says about a route's modalities, so a consumer reading
+ * the door sees it without a hand-written `[[model]]` row: a `vision` route
+ * takes images, a `chat` route takes text, both answer in text. An embedding
+ * route says nothing here -- its output is not a modality a caller sends.
+ */
+function roleCapabilities(role: Role | undefined): ModelCapabilities {
+  if (role === "vision") {
+    return { input: ["text", "image"], output: ["text"] };
+  }
+  if (role === "chat") {
+    return { input: ["text"], output: ["text"] };
+  }
+  return {};
 }
 
 /** The one rule that keeps a two-segment address single-valued: an engine is modelless routes or model-bearing ones, never both. */

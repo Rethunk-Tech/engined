@@ -182,6 +182,8 @@ interface AgenticProbeOutcome {
   ok: boolean;
   /** Which probe failed -- e.g. "byte-identical" or "no-hook-fires". Present only when `ok` is false. */
   failedProbe?: string;
+  /** Why that probe failed, when it can say. */
+  detail?: string;
 }
 
 /**
@@ -262,11 +264,13 @@ function probeFailedFix(
   observed: string,
   proved: string | undefined,
   failedProbe: string,
+  detail: string | undefined,
 ): string {
+  const why = detail === undefined ? "" : `: ${detail}`;
   if (proved === undefined) {
-    return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe`;
+    return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`;
   }
-  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- re-proving for ${observed} failed the "${failedProbe}" probe`;
+  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- re-proving for ${observed} failed the "${failedProbe}" probe${why}`;
 }
 
 export interface RegistryOptions {
@@ -912,7 +916,13 @@ export class EngineRegistry {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix(engine.id, version, proved, outcome.failedProbe ?? "unknown"),
+        fix: probeFailedFix(
+          engine.id,
+          version,
+          proved,
+          outcome.failedProbe ?? "unknown",
+          outcome.detail,
+        ),
       };
     }
     writeVerifiedVersion(engine.id, version);
