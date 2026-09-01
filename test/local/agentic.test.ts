@@ -187,6 +187,8 @@ function buildProbeGateConfig(): Config {
     agent_timeout_seconds: 3600,
     engines: [engine],
     models: [],
+    upstreams: [],
+    routes: [],
     chains: {},
   };
 }

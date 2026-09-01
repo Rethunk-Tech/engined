@@ -11,9 +11,11 @@ import {
   type Config,
   type EngineEntry,
   isContainerSpec,
-  type ModelEntry,
+  type ResolvedRoute,
 } from "../../src/types.ts";
 import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
+
+type ChatRoute = ResolvedRoute & { model: string };
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -97,7 +99,7 @@ function specImage(engine: EngineEntry): string | undefined {
 interface Fixture {
   config: Config;
   llamaEngine: EngineEntry;
-  chatModel: ModelEntry;
+  chatRoute: ChatRoute;
   llamaImage?: string;
   comfyImage?: string;
   comfyModelsDir?: string;
@@ -109,23 +111,29 @@ function loadFixture(): Fixture | undefined {
     return;
   }
   try {
-    const loaded = loadConfig(CONFIG_EXAMPLE);
+    const loaded = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
     const llamaEngine = loaded.engines.find((e) => e.id === "local-llama");
     const comfyEngine = loaded.engines.find((e) => e.id === "comfy");
-    const chatModel = loaded.models.find((m) => m.engine === "local-llama" && m.role === "chat");
-    if (!(llamaEngine && comfyEngine && chatModel)) {
+    const chatRoute = loaded.routes.find(
+      (r): r is ChatRoute =>
+        r.engine === "local-llama" &&
+        r.upstream === "local" &&
+        r.role === "chat" &&
+        r.model !== undefined,
+    );
+    if (!(llamaEngine && comfyEngine && chatRoute)) {
       return;
     }
     const config: Config = {
       ...loaded,
       engines: [llamaEngine, { ...comfyEngine, idle_stop_seconds: COMFY_IDLE_STOP_SECONDS }],
-      models: [chatModel],
+      routes: [chatRoute],
       chains: {},
     };
     return {
       config,
       llamaEngine,
-      chatModel,
+      chatRoute,
       llamaImage: specImage(llamaEngine),
       comfyImage: specImage(comfyEngine),
       comfyModelsDir: comfyEngine.models_dir,
@@ -318,12 +326,12 @@ function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
-async function chatCompletes(router: LlamaRouter, model: ModelEntry): Promise<boolean> {
-  const { response: res } = await router.proxy(model, "/v1/chat/completions", {
+async function chatCompletes(router: LlamaRouter, route: ChatRoute): Promise<boolean> {
+  const { response: res } = await router.proxy(route, "/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model: model.id,
+      model: route.model,
       messages: [{ role: "user", content: "Reply with the single word: hi" }],
       max_tokens: 4,
     }),
@@ -369,7 +377,7 @@ function buildRig(fixture: Fixture): Rig {
     lifecycle,
     comfyPollIntervalMs: COMFY_POLL_INTERVAL_MS,
   });
-  const router = new LlamaRouter(fixture.llamaEngine, [fixture.chatModel], lifecycle, {
+  const router = new LlamaRouter(fixture.llamaEngine, [fixture.chatRoute], lifecycle, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
     idleStopSeconds: LLAMA_IDLE_STOP_SECONDS,
@@ -402,9 +410,9 @@ describe.skipIf(!READY)(
           throw new Error("beforeAll did not run -- rig is unset");
         }
         const { registry, router } = rig;
-        const { chatModel } = FIXTURE as Fixture;
+        const { chatRoute } = FIXTURE as Fixture;
 
-        expect(await chatCompletes(router, chatModel)).toBe(true);
+        expect(await chatCompletes(router, chatRoute)).toBe(true);
         const comfyStatus = await registry.start("comfy");
         expect(comfyStatus.state).toBe("running");
         expect(await comfyQueueReachable(comfyStatus.private_url)).toBe(true);
@@ -412,7 +420,7 @@ describe.skipIf(!READY)(
         // Co-residency, not a reload: the SAME chat completion still answers
         // with comfy now also running, through the identical router instance
         // -- a reload would have needed a fresh container.
-        expect(await chatCompletes(router, chatModel)).toBe(true);
+        expect(await chatCompletes(router, chatRoute)).toBe(true);
         expect(registry.get("local-llama")?.state).toBe("running");
 
         // Nothing submits a comfy job, so its own /queue poll should observe
@@ -463,9 +471,9 @@ describe.skipIf(!READY)(
           throw new Error("beforeAll did not run -- rig is unset");
         }
         const { registry, router } = rig;
-        const { chatModel } = FIXTURE as Fixture;
+        const { chatRoute } = FIXTURE as Fixture;
 
-        expect(await chatCompletes(router, chatModel)).toBe(true);
+        expect(await chatCompletes(router, chatRoute)).toBe(true);
         const before = registry.get("local-llama")?.private_url;
 
         const comfy = await registry.start("comfy");
@@ -480,7 +488,7 @@ describe.skipIf(!READY)(
         // Same container, same published port: a reload would have replaced
         // both, and engined proxied none of the job -- it went straight to the
         // private_url above.
-        expect(await chatCompletes(router, chatModel)).toBe(true);
+        expect(await chatCompletes(router, chatRoute)).toBe(true);
         expect(registry.get("local-llama")?.state).toBe("running");
         expect(registry.get("local-llama")?.private_url).toBe(before);
       },

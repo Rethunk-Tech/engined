@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import process from "node:process";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
-import type { ContainerSpec } from "../../src/types.ts";
+import type { RunnableContainerSpec } from "../../src/types.ts";
 import { TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
@@ -13,11 +13,12 @@ import { TEST_NAME_PREFIX } from "./exclusive.ts";
 const ID = "local-smoke";
 const CONTAINER_NAME = `${TEST_NAME_PREFIX}${ID}`;
 
-const SPEC: ContainerSpec = {
+const SPEC: RunnableContainerSpec = {
   kind: "openai-http",
   serves: ["chat"],
   env: [],
   command: [],
+  upstream: "self",
   image: "nginx:alpine",
   obtain: "pull",
   devices: [],

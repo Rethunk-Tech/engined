@@ -5,7 +5,12 @@ import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
-import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
+import {
+  type EngineEntry,
+  isContainerSpec,
+  type ResolvedRoute,
+  type Role,
+} from "../../src/types.ts";
 import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
@@ -46,7 +51,7 @@ function imageBuilt(image: string): boolean {
 
 interface Fixture {
   engine: EngineEntry;
-  models: ModelEntry[];
+  routes: ResolvedRoute[];
   image?: string;
   error?: string;
 }
@@ -80,24 +85,26 @@ function specImage(engine: EngineEntry): string | undefined {
  */
 function loadFixture(): Fixture {
   if (!LOCAL) {
-    return { engine: EMPTY_ENGINE, models: [] };
+    return { engine: EMPTY_ENGINE, routes: [] };
   }
   try {
-    const config = loadConfig(CONFIG_EXAMPLE);
+    const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
     const engine = config.engines.find((e) => e.id === "local-llama");
-    const models = config.models.filter((m) => m.engine === "local-llama");
+    const routes = config.routes.filter(
+      (r) => r.engine === "local-llama" && r.upstream === "local",
+    );
     if (!engine) {
       return {
         engine: EMPTY_ENGINE,
-        models: [],
+        routes: [],
         error: "config.example.toml has no local-llama engine",
       };
     }
-    return { engine, models, image: specImage(engine) };
+    return { engine, routes, image: specImage(engine) };
   } catch (err) {
     return {
       engine: EMPTY_ENGINE,
-      models: [],
+      routes: [],
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -106,7 +113,7 @@ function loadFixture(): Fixture {
 const FIXTURE = loadFixture();
 const CONTAINER_NAME = `${TEST_NAME_PREFIX}${FIXTURE.engine.id}`;
 const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
-const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.models.length === 3;
+const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.routes.length === 3;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 
 // Module scope, guarded by READY: it must fire only when these tests would
@@ -125,20 +132,30 @@ function skipReason(): string {
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
-  return `expected exactly 3 local-llama models (chat, vision, embedding) in config.example.toml, found ${FIXTURE.models.length}`;
+  return `expected exactly 3 local-llama routes (chat, vision, embedding) in config.example.toml, found ${FIXTURE.routes.length}`;
 }
 
 function describeTitle(base: string): string {
   return READY ? base : `${base}: SKIPPED -- ${skipReason()}`;
 }
 
-const CHAT = FIXTURE.models.find((m) => m.role === "chat");
-const VISION = FIXTURE.models.find((m) => m.role === "vision");
-const EMBED = FIXTURE.models.find((m) => m.role === "embedding");
+/** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
+function findRoleRoute(
+  routes: readonly ResolvedRoute[],
+  role: Role,
+): (ResolvedRoute & { model: string }) | undefined {
+  return routes.find(
+    (r): r is ResolvedRoute & { model: string } => r.role === role && r.model !== undefined,
+  );
+}
+
+const CHAT = findRoleRoute(FIXTURE.routes, "chat");
+const VISION = findRoleRoute(FIXTURE.routes, "vision");
+const EMBED = findRoleRoute(FIXTURE.routes, "embedding");
 
 function buildRouter(
   engine: EngineEntry,
-  models: ModelEntry[],
+  routes: ResolvedRoute[],
   presetFile: string,
   lifecycle: DockerLifecycle,
 ): LlamaRouter {
@@ -150,7 +167,7 @@ function buildRouter(
     presetHostPath: join(import.meta.dir, presetFile),
     pollIntervalMs: POLL_INTERVAL_MS,
   };
-  return new LlamaRouter(engine, models, lifecycle, opts);
+  return new LlamaRouter(engine, routes, lifecycle, opts);
 }
 
 async function containerCmdlines(): Promise<string[]> {
@@ -218,11 +235,11 @@ function chatCompletionBody(modelId: string): string {
 
 async function proxyStatus(
   router: LlamaRouter,
-  model: ModelEntry,
+  route: ResolvedRoute,
   path: string,
   body: string,
 ): Promise<number> {
-  const { response: res } = await router.proxy(model, path, {
+  const { response: res } = await router.proxy(route, path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
@@ -235,18 +252,21 @@ interface EmbeddingResponse {
   body: { data?: { embedding?: number[] }[] };
 }
 
-async function proxyEmbedding(router: LlamaRouter, model: ModelEntry): Promise<EmbeddingResponse> {
-  const { response: res } = await router.proxy(model, "/v1/embeddings", {
+async function proxyEmbedding(
+  router: LlamaRouter,
+  route: ResolvedRoute & { model: string },
+): Promise<EmbeddingResponse> {
+  const { response: res } = await router.proxy(route, "/v1/embeddings", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: model.id, input: "hello world" }),
+    body: JSON.stringify({ model: route.model, input: "hello world" }),
   });
   return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
 }
 
 describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-  const router = buildRouter(FIXTURE.engine, FIXTURE.models, ".scratch-preset.ini", lifecycle);
+  const router = buildRouter(FIXTURE.engine, FIXTURE.routes, ".scratch-preset.ini", lifecycle);
 
   afterAll(async () => {
     await lifecycle.shutdown();
@@ -264,10 +284,10 @@ describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
       const { result, samples } = await sampleContainerCountDuring(
         Promise.all([
           timed(() =>
-            proxyStatus(router, CHAT, "/v1/chat/completions", chatCompletionBody(CHAT.id)),
+            proxyStatus(router, CHAT, "/v1/chat/completions", chatCompletionBody(CHAT.model)),
           ),
           timed(() =>
-            proxyStatus(router, VISION, "/v1/chat/completions", chatCompletionBody(VISION.id)),
+            proxyStatus(router, VISION, "/v1/chat/completions", chatCompletionBody(VISION.model)),
           ),
           timed(() => proxyEmbedding(router, EMBED)),
         ]),
@@ -310,15 +330,18 @@ describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
 const SWAP_PMIN_A = 0.15;
 const SWAP_PMIN_B = 0.35;
 
-function swapModels(): [ModelEntry, ModelEntry] | undefined {
+type SwapRoute = ResolvedRoute & { model: string; filename: string };
+
+function swapModels(): [SwapRoute, SwapRoute] | undefined {
   if (!CHAT || CHAT.filename === undefined) {
     return;
   }
   const base = {
     engine: "local-llama",
+    upstream: "local" as const,
     filename: CHAT.filename,
     role: "chat" as const,
-    aliases: [],
+    aliases: [] as string[],
   };
   const specArgs = (pMin: number) => ({
     "spec-type": "draft-mtp",
@@ -326,8 +349,8 @@ function swapModels(): [ModelEntry, ModelEntry] | undefined {
     "spec-draft-n-max": 1,
   });
   return [
-    { ...base, id: "engined-local-test-swap-a", args: specArgs(SWAP_PMIN_A) },
-    { ...base, id: "engined-local-test-swap-b", args: specArgs(SWAP_PMIN_B) },
+    { ...base, model: "engined-local-test-swap-a", args: specArgs(SWAP_PMIN_A) },
+    { ...base, model: "engined-local-test-swap-b", args: specArgs(SWAP_PMIN_B) },
   ];
 }
 
@@ -361,21 +384,21 @@ describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local
       }
 
       expect(
-        await proxyStatus(router, modelA, "/v1/chat/completions", chatCompletionBody(modelA.id)),
+        await proxyStatus(router, modelA, "/v1/chat/completions", chatCompletionBody(modelA.model)),
       ).toBe(200);
-      expect(router.residentModel("chat")).toBe(modelA.id);
+      expect(router.residentModel("chat")).toBe(modelA.model);
       expect(argvHasSpecPMin(await containerCmdlines(), SWAP_PMIN_A)).toBe(true);
 
       expect(
-        await proxyStatus(router, modelB, "/v1/chat/completions", chatCompletionBody(modelB.id)),
+        await proxyStatus(router, modelB, "/v1/chat/completions", chatCompletionBody(modelB.model)),
       ).toBe(200);
-      expect(router.residentModel("chat")).toBe(modelB.id);
+      expect(router.residentModel("chat")).toBe(modelB.model);
 
       // Independent of the router's own bookkeeping: the engine's own
       // /v1/models listing, read fresh, shows the new one loaded and the old
       // one NOT loaded -- "at most one GGUF per role", not "the router
       // thinks it swapped".
-      expect(await router.residentModelId("chat")).toBe(modelB.id);
+      expect(await router.residentModelId("chat")).toBe(modelB.model);
 
       // The rendered preset file is not proof, the real
       // child's argv is. Re-read after the swap -- a relabelled bookkeeping

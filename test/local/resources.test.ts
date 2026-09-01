@@ -6,7 +6,10 @@ import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter } from "../../src/llama.ts";
 import { loadSpec } from "../../src/spec.ts";
-import { type EngineEntry, isContainerSpec, type ModelEntry } from "../../src/types.ts";
+import { type EngineEntry, isContainerSpec, type ResolvedRoute } from "../../src/types.ts";
+
+type ChatRoute = ResolvedRoute & { model: string };
+
 import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
@@ -68,7 +71,7 @@ const EMPTY_ENGINE: EngineEntry = { id: "local-llama", egress: "none", args: {} 
 
 interface Fixture {
   engine: EngineEntry;
-  chat?: ModelEntry;
+  chat?: ChatRoute;
   image?: string;
   error?: string;
 }
@@ -95,14 +98,20 @@ function loadFixture(): Fixture {
     return { engine: EMPTY_ENGINE };
   }
   try {
-    const config = loadConfig(CONFIG_EXAMPLE);
+    const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
     const engine = config.engines.find((e) => e.id === "local-llama");
     if (!engine) {
       return { engine: EMPTY_ENGINE, error: "config.example.toml has no local-llama engine" };
     }
     return {
       engine,
-      chat: config.models.find((m) => m.engine === "local-llama" && m.role === "chat"),
+      chat: config.routes.find(
+        (r): r is ChatRoute =>
+          r.engine === "local-llama" &&
+          r.upstream === "local" &&
+          r.role === "chat" &&
+          r.model !== undefined,
+      ),
       image: specImage(engine),
     };
   } catch (err) {
@@ -158,7 +167,7 @@ function describeTitle(base: string): string {
 }
 
 /** Drives one real completion, which is what makes the GGUF resident for the reading below. */
-async function loadChatModel(lifecycle: DockerLifecycle, chat: ModelEntry): Promise<void> {
+async function loadChatModel(lifecycle: DockerLifecycle, chat: ChatRoute): Promise<void> {
   const router = new LlamaRouter(FIXTURE.engine, [chat], lifecycle, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
@@ -171,7 +180,7 @@ async function loadChatModel(lifecycle: DockerLifecycle, chat: ModelEntry): Prom
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model: chat.id,
+      model: chat.model,
       messages: [{ role: "user", content: "Reply with the single word: hi" }],
       max_tokens: 4,
     }),
