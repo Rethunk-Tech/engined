@@ -27,7 +27,7 @@ import type { EngineEntry } from "../../src/types.ts";
  */
 const VERSION = process.env.ENGINED_TEST_OPENCODE_VERSION;
 const BUNX = process.env.ENGINED_BUNX;
-const DOOR = process.env.ENGINED_TEST_DOOR ?? "http://127.0.0.1:29200/v1";
+const DOOR = process.env.ENGINED_TEST_DOOR ?? "http://127.0.0.1:29200/openai/v1";
 const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? "ornith";
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 
