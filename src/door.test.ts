@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
@@ -18,7 +18,6 @@ import {
   resolveRedirect,
   timeoutSecondsForKind,
 } from "./main.ts";
-import { stateDir } from "./paths.ts";
 import {
   assertReportedAndResident,
   BUNX,
@@ -1811,8 +1810,15 @@ describe("the launch-scoped door", () => {
    * not this box has a real `bwrap` at all. `ENGINED_BWRAP` is pointed at
    * `/bin/true`, present on every POSIX box, purely so the spawn (faked
    * regardless) is reached deterministically in CI.
+   *
+   * The path itself is read from `OPENCODE_CONFIG` rather than a fixed
+   * `stateDir()` filename -- `renderOpencodeConfig` now `mkdtemp`s a fresh
+   * directory per call, precisely so two launches in flight together never
+   * share one file. The read happens from inside the fake spawn, before
+   * `runAgentic`'s `finally` deletes it -- that deletion is asserted
+   * separately, once `door.fetch` has returned.
    */
-  test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL", async () => {
+  test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL, and is gone once the call ends", async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
     const previousStateHome = process.env.XDG_STATE_HOME;
     const previousBwrap = process.env.ENGINED_BWRAP;
@@ -1825,16 +1831,24 @@ describe("the launch-scoped door", () => {
         engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
         routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
       });
+      let renderedPath = "";
+      let capturedBaseUrl = "";
       const door = createDoor(
         cfg,
         { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
         {
-          agenticSpawn: () =>
-            Promise.resolve({
+          agenticSpawn: (_argv, opts) => {
+            renderedPath = opts.env.OPENCODE_CONFIG ?? "";
+            const rendered = JSON.parse(readFileSync(renderedPath, "utf8")) as {
+              provider: { engined: { options: { baseURL: string } } };
+            };
+            capturedBaseUrl = rendered.provider.engined.options.baseURL;
+            return Promise.resolve({
               stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
               stderr: "",
               exitCode: 0,
-            }),
+            });
+          },
           write: () => undefined,
         },
       );
@@ -1847,13 +1861,94 @@ describe("the launch-scoped door", () => {
         }),
       );
       expect(res.status).toBe(200);
+      expect(capturedBaseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/);
+      // `runAgentic`'s `finally` already ran by the time `door.fetch` above
+      // resolved: neither the file nor its `mkdtemp` directory survive it.
+      expect(existsSync(renderedPath)).toBe(false);
+      expect(existsSync(dirname(renderedPath))).toBe(false);
+      clearVerifiedVersion("opencode");
+    } finally {
+      if (previousStateHome === undefined) {
+        delete process.env.XDG_STATE_HOME;
+      } else {
+        process.env.XDG_STATE_HOME = previousStateHome;
+      }
+      if (previousBwrap === undefined) {
+        delete process.env.ENGINED_BWRAP;
+      } else {
+        process.env.ENGINED_BWRAP = previousBwrap;
+      }
+    }
+  });
 
-      const rendered = JSON.parse(
-        readFileSync(join(stateDir(), "agentic-opencode.json"), "utf8"),
-      ) as { provider: { engined: { options: { baseURL: string } } } };
-      expect(rendered.provider.engined.options.baseURL).toMatch(
-        /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/,
+  /**
+   * Before `renderOpencodeConfig` keyed its rendered file per launch, two
+   * opencode calls in flight together shared one fixed `stateDir()` path --
+   * last writer wins, so whichever spawn read the file after the other
+   * launch's own write would run against a door URL that was never minted
+   * for it. Both fake spawns here overlap on purpose (each awaits a beat
+   * before reading its file) so that race window is actually exercised, not
+   * just assumed closed.
+   */
+  test("two concurrent opencode launches never read each other's rendered config", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
+    const previousStateHome = process.env.XDG_STATE_HOME;
+    const previousBwrap = process.env.ENGINED_BWRAP;
+    process.env.XDG_STATE_HOME = stateHome;
+    process.env.ENGINED_BWRAP = "/bin/true";
+    try {
+      const root = redirectDoorRoot();
+      writeEngineSpec(root, "opencode", OPENCODE_SPEC);
+      const cfg = config({
+        engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
+        routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
+      });
+      const paths: string[] = [];
+      const baseUrls: string[] = [];
+      const spawn: AgenticSpawn = async (_argv, opts) => {
+        const path = opts.env.OPENCODE_CONFIG ?? "";
+        paths.push(path);
+        // Overlaps the other launch's own write-then-read window rather
+        // than racing to read immediately, which would pass by luck alone.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const rendered = JSON.parse(readFileSync(path, "utf8")) as {
+          provider: { engined: { options: { baseURL: string } } };
+        };
+        baseUrls.push(rendered.provider.engined.options.baseURL);
+        return {
+          stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
+          stderr: "",
+          exitCode: 0,
+        };
+      };
+      const door = createDoor(
+        cfg,
+        { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+        { agenticSpawn: spawn, write: () => undefined },
       );
+      clearVerifiedVersion("opencode");
+      const results = await Promise.all(
+        [1, 2].map((n) =>
+          door.fetch(
+            chatRequest({
+              model: "@/opencode/code",
+              messages: [{ role: "user", content: `hi ${n}` }],
+              workdir: "/tmp/scratch",
+            }),
+          ),
+        ),
+      );
+      for (const res of results) {
+        expect(res.status).toBe(200);
+      }
+      // Each launch minted its own nonce, so a fixed shared file would have
+      // shown the same door URL read back for both -- whichever write lost
+      // the race. Two distinct paths and two distinct URLs is the proof
+      // neither launch ever read the other's file.
+      expect(paths[0]).not.toBe(paths[1]);
+      expect(baseUrls[0]).not.toBe(baseUrls[1]);
+      expect(existsSync(paths[0] as string)).toBe(false);
+      expect(existsSync(paths[1] as string)).toBe(false);
       clearVerifiedVersion("opencode");
     } finally {
       if (previousStateHome === undefined) {

@@ -35,7 +35,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { type AgenticOutcome, type AgentTarget, agentCli, type FloorKind } from "./agents.ts";
+import {
+  type AgentCli,
+  type AgenticOutcome,
+  type AgentTarget,
+  agentCli,
+  type FloorKind,
+} from "./agents.ts";
 import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
@@ -299,6 +305,101 @@ export interface RunAgenticResult {
   version?: string;
 }
 
+/**
+ * `agent.configure`'s env, merged into `env` in place, plus its `cleanup` --
+ * or a 400 for an agent that has one but was given no `upstream` to render
+ * it against. `undefined` `cleanup` for an agent with no `configure` at all
+ * (claude, cursor) is deliberate: nothing was written, so nothing needs
+ * removing once the spawn it belongs to returns.
+ */
+function configureUpstream(
+  agent: AgentCli,
+  upstream: AgentTarget | undefined,
+  env: Record<string, string>,
+): { cleanup?: () => void; error?: RunAgenticResult } {
+  if (agent.configure === undefined) {
+    return {};
+  }
+  if (upstream === undefined) {
+    return {
+      error: {
+        status: STATUS_BAD_REQUEST,
+        ok: false,
+        failure: `agent "${agent.id}" has to be pointed at a model; dispatch through a route that names one`,
+        envelopeFailure: false,
+      },
+    };
+  }
+  const configured = agent.configure(upstream);
+  Object.assign(env, configured.env);
+  return { cleanup: configured.cleanup };
+}
+
+interface SandboxFloorInput {
+  workdir: string;
+  argv: string[];
+  env: Record<string, string>;
+  /** Overrides `resolveBwrap()`; only ever set by a test. */
+  bwrapOverride: string | null | undefined;
+}
+
+/** `argv` wrapped under bwrap for a `sandbox`-floor agent, `home`'s env merged into `env` in place -- unchanged for a `flags` agent, or a 503 when this box has no bwrap to wrap it with. */
+function applySandboxFloor(
+  agent: AgentCli,
+  input: SandboxFloorInput,
+): { argv: string[]; error?: RunAgenticResult } {
+  const { workdir, argv, env, bwrapOverride } = input;
+  if (agent.floor !== "sandbox") {
+    return { argv };
+  }
+  const bwrap = bwrapOverride === undefined ? resolveBwrap() : bwrapOverride;
+  if (bwrap === null || bwrap === "") {
+    // Never a fallback to an unsandboxed launch: this agent's whole floor is
+    // the mount table, so without it there is no floor to run under at all.
+    return {
+      argv,
+      error: {
+        status: STATUS_UNAVAILABLE,
+        ok: false,
+        failure: `agent "${agent.id}" needs bwrap for its read-only floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
+        envelopeFailure: false,
+      },
+    };
+  }
+  const home = sandboxHome(agent.id);
+  Object.assign(env, sandboxEnv(home));
+  return { argv: sandboxArgv({ bwrap, home, workdir, argv }) };
+}
+
+interface LaunchInput {
+  argv: string[];
+  env: Record<string, string>;
+  workdir: string;
+}
+
+/** The actual launch, once every gate above has cleared: spawn `argv`, then hand the raw stdout to this agent's own envelope parser -- the one place a run's success is decided. */
+async function spawnAndParse(
+  agent: AgentCli,
+  launch: LaunchInput,
+  input: RunAgenticInput,
+): Promise<RunAgenticResult> {
+  const spawned = await input.spawn(launch.argv, {
+    cwd: launch.workdir,
+    env: launch.env,
+    input: input.prompt,
+    signal: input.signal,
+  });
+  const outcome: AgenticOutcome = agent.parse(spawned.stdout);
+  return {
+    status: outcome.ok ? STATUS_OK : STATUS_BAD_GATEWAY,
+    ok: outcome.ok,
+    result: outcome.result,
+    failure: outcome.failure,
+    envelopeFailure: !outcome.ok,
+    version: input.agentVersion,
+  };
+}
+
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
   if (input.workdir === undefined || input.workdir === "") {
     return {
@@ -317,7 +418,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     };
   }
-  let argv = buildArgv({
+  let argv: string[] = buildArgv({
     bunx: input.bunx,
     agent: agent.id,
     agentVersion: input.agentVersion,
@@ -327,50 +428,30 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   const env: Record<string, string> = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
   };
-  if (agent.configure !== undefined) {
-    if (input.upstream === undefined) {
-      return {
-        status: STATUS_BAD_REQUEST,
-        ok: false,
-        failure: `agent "${agent.id}" has to be pointed at a model; dispatch through a route that names one`,
-        envelopeFailure: false,
-      };
-    }
-    Object.assign(env, agent.configure(input.upstream));
+  // Whatever `configure` wrote (opencode's per-launch config file) outlives
+  // this call only until the spawn it was rendered for returns -- the
+  // `try` below covers the bwrap-missing and spawn-throws paths too, since
+  // the file is already on disk by the time either can happen.
+  const configured = configureUpstream(agent, input.upstream, env);
+  if (configured.error) {
+    return configured.error;
   }
-  if (agent.floor === "sandbox") {
-    const bwrap = input.bwrap === undefined ? resolveBwrap() : input.bwrap;
-    if (bwrap === null || bwrap === "") {
-      // Never a fallback to an unsandboxed launch: this agent's whole floor is
-      // the mount table, so without it there is no floor to run under at all.
-      return {
-        status: STATUS_UNAVAILABLE,
-        ok: false,
-        failure: `agent "${agent.id}" needs bwrap for its read-only floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
-        envelopeFailure: false,
-      };
+  try {
+    const sandboxed = applySandboxFloor(agent, {
+      workdir: input.workdir,
+      argv,
+      env,
+      bwrapOverride: input.bwrap,
+    });
+    if (sandboxed.error) {
+      return sandboxed.error;
     }
-    const home = sandboxHome(agent.id);
-    Object.assign(env, sandboxEnv(home));
-    argv = sandboxArgv({ bwrap, home, workdir: input.workdir, argv });
+    ({ argv } = sandboxed);
+    Object.assign(env, input.extraEnv);
+    return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input);
+  } finally {
+    configured.cleanup?.();
   }
-  Object.assign(env, input.extraEnv);
-  const spawned = await input.spawn(argv, {
-    cwd: input.workdir,
-    env,
-    input: input.prompt,
-    signal: input.signal,
-  });
-
-  const outcome: AgenticOutcome = agent.parse(spawned.stdout);
-  return {
-    status: outcome.ok ? STATUS_OK : STATUS_BAD_GATEWAY,
-    ok: outcome.ok,
-    result: outcome.result,
-    failure: outcome.failure,
-    envelopeFailure: !outcome.ok,
-    version: input.agentVersion,
-  };
 }
 
 /** Everything else is stripped from a probe's environment, so a probe proves the floor rather than the operator's shell. */
@@ -442,6 +523,8 @@ interface ProbeInput {
   agentVersion: string;
   bunx: string;
   deps: AgenticProbeRunnerDeps;
+  /** Where a real model-answer probe dials, when this engine has a free local one to run. See `runModelRoundTripProbe`. */
+  roundTrip?: AgentTarget;
 }
 
 /**
@@ -479,6 +562,7 @@ function probeLaunch(
     spawn: input.deps.spawn ?? defaultAgenticSpawn,
     bunx: input.bunx,
     ambientEnv: input.deps.ambientEnv,
+    upstream: input.roundTrip,
   });
 }
 
@@ -570,6 +654,37 @@ async function runSandboxFloorProbe(input: ProbeInput): Promise<{ ok: boolean }>
   }
 }
 
+const ROUND_TRIP_PROMPT = "Reply with exactly the word: pong";
+
+/**
+ * The one probe in this file that asks the model anything: `roundTrip` is
+ * only ever set (by `engines.ts`'s `roundTripTargetFor`) for a route whose
+ * upstream is `local` -- this box's own GPU -- so unlike `claude`'s probes
+ * above, which spawn a real billed call to Anthropic on every pin bump, this
+ * one never reaches a network this box does not own. `undefined` here means
+ * this engine has no such route to dial, which is a config-shape question,
+ * not a floor failure -- `ok: true` leaves it to the caller to notice a
+ * route is missing, the same way `AGENT_PROBES` never asks the sandbox probe
+ * about anything the sandbox floor does not cover either.
+ *
+ * A real `runAgentic` call, sandboxed exactly like production traffic
+ * (`agent.floor === "sandbox"` applies inside `runAgentic` regardless of who
+ * called it) -- this is `test/local/opencode.test.ts`'s own round trip,
+ * just run from a status poll instead of a test file.
+ */
+async function runModelRoundTripProbe(input: ProbeInput): Promise<{ ok: boolean }> {
+  if (input.roundTrip === undefined) {
+    return { ok: true };
+  }
+  const workdir = scratchWorktree();
+  try {
+    const outcome = await probeLaunch(input, workdir, ROUND_TRIP_PROMPT);
+    return { ok: outcome.ok };
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+}
+
 interface Probe {
   /** Reported verbatim in the engine's `fix` string when it fails. */
   name: string;
@@ -587,9 +702,12 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
     { name: "byte-identical", run: runByteIdenticalProbe },
     { name: "no-hook-fires", run: runHookSilenceProbe },
   ],
-  // No model round trip: see runSandboxFloorProbe for why the kernel is the
-  // whole proof for an agent floored this way.
-  opencode: [{ name: "sandbox-refuses-writes", run: runSandboxFloorProbe }],
+  opencode: [
+    { name: "sandbox-refuses-writes", run: runSandboxFloorProbe },
+    // Cheap-first: the sandbox probe above costs milliseconds and no LLM, so
+    // a broken floor is caught before this one ever pays for a real spawn.
+    { name: "answers-a-real-prompt", run: runModelRoundTripProbe },
+  ],
   // Same shape as claude's: both floors live in argv, re-proved against
   // every new pin rather than the kernel. cursor's own hook file differs
   // from claude's, so only that probe's plant function does.
@@ -602,12 +720,17 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
 export function buildAgenticProbeRunner(
   bunx: string,
   deps: AgenticProbeRunnerDeps = {},
-): (engine: EngineEntry, agentVersion: string, agent: string) => Promise<AgenticProbeOutcome> {
-  return async (_engine, agentVersion, agent) => {
+): (
+  engine: EngineEntry,
+  agentVersion: string,
+  agent: string,
+  roundTrip?: AgentTarget,
+) => Promise<AgenticProbeOutcome> {
+  return async (_engine, agentVersion, agent, roundTrip) => {
     // Ordered, and stopped at the first failure: each run is a real billed
     // call, and a pin already proven broken should not pay for the next one.
     for (const probe of AGENT_PROBES[agent] ?? []) {
-      const outcome = await probe.run({ agent, agentVersion, bunx, deps });
+      const outcome = await probe.run({ agent, agentVersion, bunx, deps, roundTrip });
       if (!outcome.ok) {
         return { ok: false, failedProbe: probe.name };
       }

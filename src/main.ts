@@ -2469,9 +2469,11 @@ if (import.meta.main) {
       enginesRoot: `${installDir()}/engines`,
       bunx,
       // Only production wiring: a real probe run is a real billed call to
-      // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
-      // from firing per request or per status poll -- it only ever invokes
-      // the runner when the configured pin differs from the one last proved.
+      // Anthropic for claude, and a real spawn (free -- this box's own GPU)
+      // for opencode. `agenticStatus`'s version-proof gate is what keeps
+      // this from firing per request or per status poll -- it only ever
+      // invokes the runner when the configured pin differs from the one
+      // last proved.
       agenticProbeRunner: buildAgenticProbeRunner(bunx),
     });
   } catch (err) {

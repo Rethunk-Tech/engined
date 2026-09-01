@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type ObservedVersion, observeAgentVersion } from "./agentic.ts";
-import { agentCli } from "./agents.ts";
+import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
@@ -196,7 +196,36 @@ export type AgenticProbeRunner = (
   agentVersion: string,
   /** From the spec, never the engine entry: the floor is a property of the agent. */
   agent: string,
+  /**
+   * Where a real model-answer probe would dial, if this agent has one to
+   * run and doing so is free -- `roundTripTargetFor`'s own output. Absent
+   * whenever this engine's route leaves the box (claude, cursor): a round
+   * trip through either is a billed call to a third party, and nothing here
+   * should make a status poll pay for one. Present for opencode, whose
+   * route names the `local` upstream -- its round trip runs on this box's
+   * own GPU, so proving it costs nothing but time.
+   */
+  roundTrip?: AgentTarget,
 ) => Promise<AgenticProbeOutcome>;
+
+/**
+ * The one route on `engineId` that both names a model and keeps its prompt
+ * on this box -- what a real round-trip probe would dial, or `undefined`
+ * when no such route exists (a remote-only agent, or one with no route at
+ * all). `local` is the same egress this box's own opencode route already
+ * uses to say "does not leave the machine" -- reused here rather than
+ * re-deriving egress from `[[upstream]]`, since a modelless engine or a
+ * remote-upstream route has nothing this probe could answer for free anyway.
+ */
+function roundTripTargetFor(engineId: string, config: Config): AgentTarget | undefined {
+  const route = config.routes.find(
+    (r) => !r.disabled && r.engine === engineId && r.upstream === "local" && r.model !== undefined,
+  );
+  if (route?.model === undefined) {
+    return undefined;
+  }
+  return { baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`, model: route.model };
+}
 
 function noAgentVersionConfiguredFix(engineId: string): string {
   return `engine "${engineId}" is agentic-cli with no agent_version configured`;
@@ -911,13 +940,15 @@ export class EngineRegistry {
         return Promise.resolve(cached.outcome);
       }
     }
-    const promise = runner(engine, version, agent).then((outcome) => {
-      this.agenticProbeState.set(engine.id, {
-        version,
-        outcome: outcome.ok ? undefined : outcome,
-      });
-      return outcome;
-    });
+    const promise = runner(engine, version, agent, roundTripTargetFor(engine.id, this.config)).then(
+      (outcome) => {
+        this.agenticProbeState.set(engine.id, {
+          version,
+          outcome: outcome.ok ? undefined : outcome,
+        });
+        return outcome;
+      },
+    );
     this.agenticProbeState.set(engine.id, { version, promise });
     return promise;
   }

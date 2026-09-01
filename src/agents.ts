@@ -11,7 +11,7 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
@@ -58,11 +58,13 @@ export interface AgentCli {
   parse: (stdout: string) => AgenticOutcome;
   /**
    * Renders whatever this agent needs in order to be pointed at a model, and
-   * returns the environment naming it. Absent for an agent that takes its
-   * upstream some other way -- claude's is a base URL and a key in the env,
-   * already handled as a remote redirect.
+   * returns the environment naming it plus a `cleanup` for whatever it wrote
+   * — called once this launch's spawn has returned, win or lose, so a
+   * per-launch file never outlives the process it was rendered for. Absent
+   * for an agent that takes its upstream some other way -- claude's is a
+   * base URL and a key in the env, already handled as a remote redirect.
    */
-  configure?: (upstream: AgentTarget) => Record<string, string>;
+  configure?: (upstream: AgentTarget) => { env: Record<string, string>; cleanup: () => void };
   /**
    * Present only for an agent with no npm distribution at all -- absent
    * means today's path is unchanged: `bunx <pkg>@<agentVersion>` both
@@ -246,10 +248,22 @@ export function parseCursorEvents(stdout: string): AgenticOutcome {
  * overrides every one of them, because opencode's rules are last-wins. The
  * floor is `sandbox.ts`; this only closes the ordinary case where no such
  * file exists, and must never be described as what makes opencode safe.
+ *
+ * One `mkdtemp` directory per call, never a fixed filename: `upstream` carries
+ * a launch-scoped door URL and model that differ on every call, and two
+ * opencode launches in flight at once would otherwise share one file --
+ * last write wins, so the loser's spawn reads a door URL or model that was
+ * never its own. `cleanup` removes the directory once this launch's spawn
+ * has returned, so a long-running daemon does not accumulate one directory
+ * per call forever.
  */
-function renderOpencodeConfig(upstream: AgentTarget): Record<string, string> {
-  const path = join(stateDir(), "agentic-opencode.json");
+function renderOpencodeConfig(upstream: AgentTarget): {
+  env: Record<string, string>;
+  cleanup: () => void;
+} {
   mkdirSync(stateDir(), { recursive: true });
+  const dir = mkdtempSync(join(stateDir(), "agentic-opencode-"));
+  const path = join(dir, "config.json");
   writeFileSync(
     path,
     JSON.stringify({
@@ -270,7 +284,10 @@ function renderOpencodeConfig(upstream: AgentTarget): Record<string, string> {
     }),
     "utf8",
   );
-  return { OPENCODE_CONFIG: path };
+  return {
+    env: { OPENCODE_CONFIG: path },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
 }
 
 /** Where cursor's own installer and self-updater keep every version it has ever unpacked, newest last once sorted by name: `YYYY.MM.DD-hash`. */

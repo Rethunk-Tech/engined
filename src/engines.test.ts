@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import type { AgentTarget } from "./agents.ts";
 import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
 import {
   type AgenticProbeRunner,
@@ -673,6 +674,50 @@ describe("agentic engines: the verified_version gate", () => {
     expect(calls).toHaveLength(1);
 
     clearVerifiedVersion(id);
+  });
+});
+
+describe("agentic engines: the round-trip probe target follows the route's own egress", () => {
+  test("a route naming the local upstream hands the runner a doorUrl+model to dial; an ambient one hands it nothing", async () => {
+    const localId = "agentic-verify-roundtrip-local";
+    const ambientId = "agentic-verify-roundtrip-ambient";
+    clearVerifiedVersion(localId);
+    clearVerifiedVersion(ambientId);
+    const root = newEnginesRoot();
+    writeEngineSpec(root, localId, AGENTIC);
+    writeEngineSpec(root, ambientId, AGENTIC);
+    const calls: Array<{ engineId: string; roundTrip: AgentTarget | undefined }> = [];
+    const runner: AgenticProbeRunner = (eng, _version, _agent, roundTrip) => {
+      calls.push({ engineId: eng.id, roundTrip });
+      return Promise.resolve({ ok: true });
+    };
+    const cfg = config({
+      listen_port: 39_200,
+      engines: [agenticEngine(localId, "1.0.0"), agenticEngine(ambientId, "1.0.0")],
+      // AGENTIC's fixture agent is "claude" (anthropic wire) regardless of
+      // engine id, so "local" needs a matching wire here or registry
+      // construction's own wire check refuses the pairing before this
+      // test ever reaches the probe it is actually about.
+      upstreams: [upstream({ id: "local", wire: "anthropic" })],
+      routes: [
+        route({ engine: localId, model: "code", upstream: "local" }),
+        route({ engine: ambientId, model: "sonnet-5", upstream: null }),
+      ],
+    });
+    const reg = registry(cfg, root, { agenticProbeRunner: runner });
+
+    await reg.list();
+
+    expect(calls.find((c) => c.engineId === localId)?.roundTrip).toEqual({
+      baseUrl: "http://127.0.0.1:39200/openai/v1",
+      model: "code",
+    });
+    // A billed/remote route (claude's ambient shape here) never gets a
+    // dial target -- a status poll must never pay for one.
+    expect(calls.find((c) => c.engineId === ambientId)?.roundTrip).toBeUndefined();
+
+    clearVerifiedVersion(localId);
+    clearVerifiedVersion(ambientId);
   });
 });
 
