@@ -605,6 +605,18 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
   "--dangerously-skip-permissions",
   "--allow-dangerously-skip-permissions",
   "--permission-mode",
+  // cursor's own two spellings of "run everything without asking" --
+  // `--yolo` is documented as a bare alias for `--force`. Whether either
+  // actually overrides `--mode plan` was never tested; the assertion costs
+  // nothing either way, and cursor exposes more ways to say yes than claude
+  // does.
+  "--force",
+  "--yolo",
+  // cursor's own floor flag. `AGENTIC_FLOOR_FLAG_NAMES` below only knows
+  // claude's flag names, so without this a config `[engine.args]` entry
+  // could set `--mode ask` and, by last-wins argument parsing, silently
+  // replace the `--mode plan` cursor's own launch already prepended.
+  "--mode",
 ] as const;
 
 /**
@@ -639,7 +651,8 @@ function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
 }
 
 /**
- * `--permission-mode` is forbidden only with `bypassPermissions`; the rest are
+ * `--permission-mode` and `--sandbox` are forbidden only with the one value
+ * that dissolves the floor (`bypassPermissions`, `disabled`); the rest are
  * forbidden outright, as is any flag that duplicates one the floor itself
  * sets. Throws `ParseError` naming the flag and the file.
  */
@@ -656,6 +669,16 @@ export function assertNoForbiddenFlags(argv: readonly string[], file: string): v
           "--permission-mode bypassPermissions dissolves the read-only floor",
           file,
         );
+      }
+      continue;
+    }
+    // cursor's own escape hatch: `enabled` is the default posture and
+    // harmless, so only `disabled` is refused. Whether it actually
+    // overrides `--mode plan` was never tested -- the assertion costs
+    // nothing either way, the same reasoning `--force`/`--yolo` above rest on.
+    if (bare === "--sandbox") {
+      if (permissionModeValue(arg, argv[i + 1]) === "disabled") {
+        throw new ParseError("--sandbox disabled dissolves the read-only floor", file);
       }
       continue;
     }

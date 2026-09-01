@@ -93,6 +93,24 @@ test("assertNoForbiddenFlags: a long list of ordinary args that name none of the
   expect(() => assertNoForbiddenFlags(argv, "config.toml")).not.toThrow();
 });
 
+test("assertNoForbiddenFlags: cursor's own ways to say yes are all refused by name", () => {
+  expect(() => assertNoForbiddenFlags(["--force"], "config.toml")).toThrow("--force");
+  expect(() => assertNoForbiddenFlags(["--yolo"], "config.toml")).toThrow("--yolo");
+  // --mode is cursor's own floor flag, not covered by AGENTIC_FLOOR_FLAG_NAMES
+  // (claude's flag names only), so it needs its own bare-forbid entry.
+  expect(() => assertNoForbiddenFlags(["--mode", "ask"], "config.toml")).toThrow("--mode");
+});
+
+test("assertNoForbiddenFlags: --sandbox disabled dissolves the floor in either spelling, --sandbox enabled does not", () => {
+  expect(() => assertNoForbiddenFlags(["--sandbox", "disabled"], "config.toml")).toThrow(
+    "--sandbox disabled",
+  );
+  expect(() => assertNoForbiddenFlags(["--sandbox=disabled"], "config.toml")).toThrow(
+    "--sandbox disabled",
+  );
+  expect(() => assertNoForbiddenFlags(["--sandbox", "enabled"], "config.toml")).not.toThrow();
+});
+
 test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected at real config parse", () => {
   const dir = mkdtempSync(join(TEST_ROOT, "engined-agentic-floor-"));
   const configPath = join(dir, "config.toml");
