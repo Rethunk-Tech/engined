@@ -3,14 +3,27 @@ upstream = "self"
 # The bare upstream image (pinned digest, still the base layer of ./Dockerfile
 # below) declares no EXPOSE, and engined's port discovery has exactly one
 # source: the image's own ExposedPorts. Confirmed live -- `docker image
-# inspect ghcr.io/ggml-org/whisper.cpp@sha256:793c6ca...` prints
-# `Config.ExposedPorts: null`, and `docker history` carries no EXPOSE layer --
-# so `obtain = "pull"` against that image directly leaves every start
-# refusing before `docker run` with "exposes no ports". `./Dockerfile` adds
-# only that missing metadata on top of the same pinned base.
+# inspect` on the pinned digest prints `Config.ExposedPorts: null`, and
+# `docker history` carries no EXPOSE layer -- so `obtain = "pull"` against
+# that image directly leaves every start refusing before `docker run` with
+# "exposes no ports". `./Dockerfile` adds only that missing metadata on top
+# of the same pinned base.
 image = "engined-whisper:local"
-obtain = "build" # pull | build; build reads ./Dockerfile here
+obtain = "build"                             # pull | build; build reads ./Dockerfile here
 serves = ["/openai/v1/audio/transcriptions"]
+# GPU, load-bearing: ./Dockerfile now pins ghcr.io/ggml-org/whisper.cpp's
+# published main-vulkan tag (see its own comment for how that was found and
+# verified), so these are what the Vulkan/RADV backend actually opens at
+# startup -- not the dead grant they were against the CPU-only image this
+# spec ran before. Measured on this box (gfx1151), same probe table as the
+# CPU baseline, GPU-lock serialized: 3.9-7.2x faster at every clip
+# length/model pair (181-846ms vs 625-5098ms CPU at the same -t 16), and the
+# transcripts match byte-for-byte on 5 of 6 probes -- the sixth (medium.en,
+# the 33.8s clip) differs by one filler word ("...communities through\n
+# rising..." on GPU vs "...communities\n rising..." on CPU), consistent with
+# Vulkan and CPU ggml kernels taking different floating-point paths rather
+# than either backend being wrong. Watch for that class of drift on other
+# clips if it matters for a given consumer; nothing here bounds it further.
 devices = ["/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]
@@ -37,8 +50,18 @@ command = [
   "--inference-path",
   "/v1/audio/transcriptions",
   "-fa",
+  # 16, the box's physical core count, not 32 (SMT2 total) and not the 8 this
+  # was pinned at with no comment before. A/B'd against the same probe
+  # table, -t 4/8/16, GPU-lock held for the CPU image so nothing else on the
+  # box was contending: -t 4 lost badly everywhere (1.9-10.0s), -t 8 and -t
+  # 16 landed within a few percent of each other on 5 of 6 probes, and -t 16
+  # won all but the longest medium.en clip, where -t 8 measured faster by
+  # ~17% -- inside the range this box's shared-GPU sibling load can swing a
+  # single sample, not a reason to prefer fewer threads. Encode now runs on
+  # the GPU (see devices/group_add above), so this mostly governs VAD and
+  # request-handling threads rather than the dominant cost.
   "-t",
-  "8",
+  "16",
   "--no-timestamps",
 ]
 # No -l: language is a per-request field, so pinning one here would make

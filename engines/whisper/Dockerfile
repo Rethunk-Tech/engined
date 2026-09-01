@@ -7,5 +7,22 @@
 # `docker run` against the bare upstream image. 8080 is whisper-server's own
 # documented default (`whisper-server --help`), matching the command's own
 # `--host 0.0.0.0` with no `--port` override below.
-FROM ghcr.io/ggml-org/whisper.cpp@sha256:793c6caae47b63c4f76d7a533e368c31cc32c2fe341feee103e76f5f7d12e889
+#
+# main-vulkan, not main: `docker manifest inspect` against
+# ghcr.io/ggml-org/whisper.cpp confirms main-vulkan is a real, published,
+# multi-arch tag -- upstream's own .devops/main-vulkan.Dockerfile builds it
+# from ubuntu:24.04 with `-DGGML_VULKAN=1` and ships `mesa-vulkan-drivers` in
+# the runtime layer, so RADV comes bundled rather than depending on the
+# host's userspace driver. No from-source build needed here: same flags
+# engines/llama's Dockerfile builds from source, already built and signed
+# upstream. Confirmed live on this box, GPU passed through: startup log
+# reads "ggml_vulkan: Found 1 Vulkan devices: 0 = Radeon 8060S Graphics
+# (RADV GFX1151) (radv)" and "whisper_backend_init_gpu: using Vulkan0
+# backend" -- genuinely offloaded, not a driver that loaded and silently
+# fell back to CPU. Measured faster than the CPU image at every probed
+# clip length/model pair; see spec.toml for the numbers. Same CLI surface
+# too: `whisper-server --help` on this image lists every flag the command
+# below already passes (--vad, -vm, --request-path, --inference-path, -fa,
+# -t, --no-timestamps) -- this is a backend swap, not a flag migration.
+FROM ghcr.io/ggml-org/whisper.cpp@sha256:76aed25bba617d6956098bcb7be57594d01d2a3c5d326dfa426b2481553b28de
 EXPOSE 8080
