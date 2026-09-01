@@ -54,10 +54,12 @@ fed to it produces 15.76s of degenerate babble against 2.76s of correct audio
 from the multilingual model on the same input. Kept alongside Chatterbox
 Multilingual rather than replacing it; both images ship.
 
-It is the fastest of the three GPU TTS engines, and the only one of them that
-is faster than realtime on this box. Piper is faster than all of them and is
-not in this comparison: it runs on the CPU, so it measures a different thing.
-Measured, median of three runs after warm-up, on the same input:
+It is the faster of the two chatterbox engines, and the only chatterbox that
+runs faster than realtime here. It is not the fastest TTS engine on this box:
+kokoro is an order of magnitude ahead of it (see the cross-engine table below),
+and piper further still.
+
+`MIOPEN_FIND_MODE` measured, median of three runs after warm-up, same input:
 
 | engine | `MIOPEN_FIND_MODE` | RTF | realtime |
 | ------ | ------ | ------ | ------ |
@@ -65,6 +67,31 @@ Measured, median of three runs after warm-up, on the same input:
 | chatterbox-multi | FAST | 1.06 | 0.94x |
 | chatterbox-en | default | 1.29 | 0.78x |
 | chatterbox-en | FAST | 0.62 | 1.52-1.60x |
+
+### Every TTS engine, same input, measured in isolation
+
+One 123-character phrase, warm, with every other engine container stopped so
+nothing shares the GPU:
+
+| engine | x realtime | reps |
+| ------ | ------ | ------ |
+| piper | 26.7-34.9x | 4 |
+| kokoro | 21.1x (+/-0.5%) | 8 |
+| chatterbox-en | 1.5-1.6x | 4 |
+| chatterbox-multi | 0.8-0.9x | 4 |
+
+**kokoro is the second-fastest engine here, not a slow one.** Its reputation
+for latency came from a 1.24s time to first byte that was per-shape kernel
+compilation, not throughput -- see `engines/kokoro/app.py`. Nothing recorded
+its actual rate until this table.
+
+**These are isolated-engine ceilings.** Idle co-residency is free -- kokoro
+measures 21x alone and 20-21x with chatterbox resident -- but a second engine
+actively synthesizing costs 10-30%. A ratio quoted without saying what else was
+running is not reproducible.
+
+Piper's ~46x elsewhere in this document is its long-input figure; the 123-char
+phrase above puts it near 32x, and a one-line reply lower again.
 
 **These ratios are a ceiling, not a budget.** They were taken on input long
 enough to amortize a fixed per-request cost; on a short reply the same engine
