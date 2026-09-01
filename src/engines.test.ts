@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
@@ -11,6 +11,7 @@ import {
   type RegistryOptions,
 } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
+import { stateDir } from "./paths.ts";
 import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import {
@@ -677,6 +678,130 @@ describe("agentic engines: the verified_version gate", () => {
     const second = (await reg2.list()).engines.find((e) => e.id === id);
     expect(second?.state).toBe("installed");
     expect(calls).toHaveLength(1);
+
+    clearVerifiedVersion(id);
+  });
+});
+
+/** Always resolves to the given version, real subprocess never touched -- for a hermetic stand-in of a self-updating binary's `--version`. */
+function fixedObservedVersion(
+  version: string,
+): (agent: string, configuredVersion: string) => Promise<{ ok: true; version: string }> {
+  return () => Promise.resolve({ ok: true, version });
+}
+
+describe("agentic engines: the observed-version gate (a self-updating binary drifting from its proof)", () => {
+  test("a proved version, then a simulated drift with no probe runner, flips the engine unavailable and the fix names both versions", async () => {
+    const id = "agentic-verify-drift-noRunner";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeEngineSpec(root, id, AGENTIC);
+    const { runner: passingRunner } = trackingRunner({ ok: true });
+
+    // Proves "1.0.0" first, same as any ordinary first proof.
+    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+      observeAgentVersion: fixedObservedVersion("1.0.0"),
+    });
+    const firstStatus = (await first.list()).engines.find((e) => e.id === id);
+    expect(firstStatus?.state).toBe("installed");
+
+    // The binary self-updated to "1.0.1" underneath it -- readVerifiedVersion
+    // still says "1.0.0", so this is a real mismatch, and with no probe
+    // runner to re-prove it engined must refuse to serve rather than trust
+    // a floor that was never actually checked for this binary.
+    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      observeAgentVersion: fixedObservedVersion("1.0.1"),
+    });
+    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
+
+    expect(driftedStatus?.state).toBe("unavailable");
+    expect(driftedStatus?.fix).toContain("1.0.0");
+    expect(driftedStatus?.fix).toContain("1.0.1");
+
+    clearVerifiedVersion(id);
+  });
+
+  test("a proved version, then a simulated drift with a probe runner that fails, stays unavailable and names both versions and the failed probe", async () => {
+    const id = "agentic-verify-drift-failRunner";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeEngineSpec(root, id, AGENTIC);
+    const { runner: passingRunner } = trackingRunner({ ok: true });
+
+    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+      observeAgentVersion: fixedObservedVersion("1.0.0"),
+    });
+    await first.list();
+
+    const { runner: failingRunner } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
+    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: failingRunner,
+      observeAgentVersion: fixedObservedVersion("1.0.1"),
+    });
+    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
+
+    expect(driftedStatus?.state).toBe("unavailable");
+    expect(driftedStatus?.fix).toContain("1.0.0");
+    expect(driftedStatus?.fix).toContain("1.0.1");
+    expect(driftedStatus?.fix).toContain("byte-identical");
+
+    clearVerifiedVersion(id);
+  });
+
+  test("a proved version, then a simulated drift with a probe runner that passes, re-proves and persists the NEW observed version, not the configured pin", async () => {
+    const id = "agentic-verify-drift-reproves";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeEngineSpec(root, id, AGENTIC);
+    const { runner: passingRunner, calls } = trackingRunner({ ok: true });
+
+    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+      observeAgentVersion: fixedObservedVersion("1.0.0"),
+    });
+    await first.list();
+    expect(calls).toEqual([{ engineId: id, version: "1.0.0" }]);
+
+    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: passingRunner,
+      observeAgentVersion: fixedObservedVersion("1.0.1"),
+    });
+    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
+
+    expect(driftedStatus?.state).toBe("installed");
+    expect(calls).toEqual([
+      { engineId: id, version: "1.0.0" },
+      { engineId: id, version: "1.0.1" },
+    ]);
+
+    const recorded = readFileSync(
+      join(stateDir(), "agentic", id, "verified_version"),
+      "utf8",
+    ).trim();
+    expect(recorded).toBe("1.0.1");
+
+    clearVerifiedVersion(id);
+  });
+
+  test("a binary that cannot be resolved at all is unavailable, names the reason, and never calls the probe runner", async () => {
+    const id = "agentic-verify-unresolved-binary";
+    clearVerifiedVersion(id);
+    const root = newEnginesRoot();
+    writeEngineSpec(root, id, AGENTIC);
+    const { runner, calls } = trackingRunner({ ok: true });
+
+    const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+      agenticProbeRunner: runner,
+      observeAgentVersion: () =>
+        Promise.resolve({ ok: false, error: 'cursor\'s "agent" binary was not found on PATH' }),
+    });
+    const status = (await reg.list()).engines.find((e) => e.id === id);
+
+    expect(status?.state).toBe("unavailable");
+    expect(status?.fix).toContain("not found on PATH");
+    expect(calls).toHaveLength(0);
 
     clearVerifiedVersion(id);
   });

@@ -7,6 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { type ObservedVersion, observeAgentVersion } from "./agentic.ts";
 import { agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
@@ -201,12 +202,41 @@ function noAgentVersionConfiguredFix(engineId: string): string {
   return `engine "${engineId}" is agentic-cli with no agent_version configured`;
 }
 
-function noProbeRunnerConfiguredFix(engineId: string, version: string): string {
-  return `engine "${engineId}" pin ${version} has not been proved and no agentic probe runner is configured`;
+/** The binary itself could not be identified at all -- `resolveBinary` threw, or `--version` printed nothing. Distinct from a version mismatch: there is no "observed" version to compare here. */
+function agentBinaryUnresolvedFix(engineId: string, reason: string): string {
+  return `engine "${engineId}" agent binary could not be resolved: ${reason}`;
 }
 
-function probeFailedFix(engineId: string, version: string, failedProbe: string): string {
-  return `engine "${engineId}" pin ${version} failed the "${failedProbe}" probe`;
+/**
+ * `proved` is `readVerifiedVersion`'s own return -- `undefined` for an
+ * engine that has never passed a probe at all, some other string for one
+ * whose binary has since drifted out from under it (a self-update, for an
+ * agent with no pin mechanism of its own). Both name `observed`, the
+ * version any fresh probe run would actually be proving; only the drifted
+ * case also names what the stale proof was for, since that is the fact an
+ * operator needs to understand *why* a box that worked yesterday stopped.
+ */
+function noProbeRunnerConfiguredFix(
+  engineId: string,
+  observed: string,
+  proved: string | undefined,
+): string {
+  if (proved === undefined) {
+    return `engine "${engineId}" pin ${observed} has not been proved and no agentic probe runner is configured`;
+  }
+  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`;
+}
+
+function probeFailedFix(
+  engineId: string,
+  observed: string,
+  proved: string | undefined,
+  failedProbe: string,
+): string {
+  if (proved === undefined) {
+    return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe`;
+  }
+  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- re-proving for ${observed} failed the "${failedProbe}" probe`;
 }
 
 export interface RegistryOptions {
@@ -223,6 +253,15 @@ export interface RegistryOptions {
   comfyPollIntervalMs?: number;
   /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
   agenticProbeRunner?: AgenticProbeRunner;
+  /**
+   * Overridable for tests: what `agenticStatus` treats as an agent's actual
+   * running version, checked against the proved one on every status poll.
+   * Defaults to `observeAgentVersion` (agentic.ts), which is a real
+   * subprocess call only for an agent that resolves its own binary (cursor)
+   * -- an npm-pinned agent (claude, opencode) never spawns anything here,
+   * since its `bunx` pin already IS the observed version.
+   */
+  observeAgentVersion?: (agent: string, configuredVersion: string) => Promise<ObservedVersion>;
   /** Defaults under the one writable state dir; tests always override this. Must be the same path the door hands `LlamaRouter`, since one writes the file the other mounts. */
   presetHostPath?: string;
 }
@@ -539,6 +578,10 @@ export class EngineRegistry {
   private readonly releaseFetch: ReleaseFetch;
   private readonly comfyPollIntervalMs: number;
   private readonly agenticProbeRunner?: AgenticProbeRunner;
+  private readonly observeAgentVersion: (
+    agent: string,
+    configuredVersion: string,
+  ) => Promise<ObservedVersion>;
   private readonly presetHostPath: string;
   private config: Config;
   private entries: Entry[];
@@ -577,6 +620,7 @@ export class EngineRegistry {
     this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.agenticProbeRunner = opts.agenticProbeRunner;
+    this.observeAgentVersion = opts.observeAgentVersion ?? observeAgentVersion;
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
     this.config = config;
     this.entries = buildEntries(config, this.specOptions, this.presetHostPath);
@@ -769,15 +813,24 @@ export class EngineRegistry {
   }
 
   /**
-   * The version-proof gate: an engine whose configured pin has never been
-   * proved reports `unavailable` rather than serving on faith. Verification
-   * only runs when the configured pin differs from the one last proved —
-   * bumping the pin is what re-arms it, per the design's own reasoning for
-   * why the pin exists at all. A pin that FAILS is cached the same way: the
-   * failed outcome for that exact pin is remembered so every later poll
-   * reports it for free until the pin changes, and two polls racing on the
-   * same unproved pin share one in-flight probe instead of each billing
-   * their own — see `runAgenticProbe`.
+   * The version-proof gate: an engine whose binary has never been proved
+   * reports `unavailable` rather than serving on faith. The floor is
+   * version-scoped, so what has to match the last-proved version is what the
+   * binary reports RIGHT NOW (`this.observeAgentVersion`), never the
+   * configured pin on its own -- for an npm-pinned agent those are always
+   * the same value (`bunx` fetches and pins in one step), but a self-updating
+   * agent with no pin mechanism of its own (cursor) can drift away from its
+   * configured pin between one status poll and the next, and a proof for a
+   * binary that no longer exists is not a proof of anything running now.
+   *
+   * Re-verification only runs when the observed version differs from the one
+   * last proved — the same re-arm rule as before, just re-keyed off what is
+   * actually installed rather than what config says it should be. A pin that
+   * FAILS is cached the same way: the failed outcome for that exact version
+   * is remembered so every later poll reports it for free until the version
+   * changes again, and two polls racing on the same unproved version share
+   * one in-flight probe instead of each billing their own — see
+   * `runAgenticProbe`.
    */
   private async agenticStatus(engine: EngineEntry, spec: AgenticSpec): Promise<EngineStatus> {
     const base = {
@@ -790,19 +843,36 @@ export class EngineRegistry {
     if (engine.agent_version === undefined) {
       return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };
     }
-    if (readVerifiedVersion(engine.id) === engine.agent_version) {
+    const observed = await this.observeAgentVersion(spec.agent, engine.agent_version);
+    if (!observed.ok) {
+      return {
+        ...base,
+        state: "unavailable",
+        fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? "unknown"),
+      };
+    }
+    const version = observed.version;
+    if (version === undefined) {
+      return {
+        ...base,
+        state: "unavailable",
+        fix: agentBinaryUnresolvedFix(engine.id, "no version reported"),
+      };
+    }
+    const proved = readVerifiedVersion(engine.id);
+    if (proved === version) {
       return { ...base, state: "installed" };
     }
     if (this.agenticProbeRunner === undefined) {
       return {
         ...base,
         state: "unavailable",
-        fix: noProbeRunnerConfiguredFix(engine.id, engine.agent_version),
+        fix: noProbeRunnerConfiguredFix(engine.id, version, proved),
       };
     }
     const outcome = await this.runAgenticProbe(
       engine,
-      engine.agent_version,
+      version,
       spec.agent,
       this.agenticProbeRunner,
     );
@@ -810,10 +880,10 @@ export class EngineRegistry {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix(engine.id, engine.agent_version, outcome.failedProbe ?? "unknown"),
+        fix: probeFailedFix(engine.id, version, proved, outcome.failedProbe ?? "unknown"),
       };
     }
-    writeVerifiedVersion(engine.id, engine.agent_version);
+    writeVerifiedVersion(engine.id, version);
     this.agenticProbeState.delete(engine.id);
     return { ...base, state: "installed" };
   }
