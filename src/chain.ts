@@ -11,6 +11,7 @@ import {
   jsonErrorBody,
   STATUS_BAD_REQUEST,
   STATUS_CLIENT_CLOSED,
+  STATUS_FORBIDDEN,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
@@ -99,7 +100,15 @@ function bodyIsEmpty(body: unknown): boolean {
  * not. The rest of 4xx still terminates: a caller's own malformed request
  * is not something a different upstream can fix either.
  */
-const ADVANCING_CLIENT_ERRORS = new Set([401, 402, 403, 429]);
+const STATUS_UNAUTHORIZED = 401;
+const STATUS_PAYMENT_REQUIRED = 402;
+const STATUS_TOO_MANY_REQUESTS = 429;
+const ADVANCING_CLIENT_ERRORS = new Set([
+  STATUS_UNAUTHORIZED,
+  STATUS_PAYMENT_REQUIRED,
+  STATUS_FORBIDDEN,
+  STATUS_TOO_MANY_REQUESTS,
+]);
 
 /** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body -- except the credential-shaped ones above -- and 5xx and empty body always do, except an envelope failure, which never advances regardless of status. */
 export function classifyResult(result: HopResult): {
@@ -236,11 +245,12 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
   } catch (err) {
     clearTimeout(timer);
     // Checked before the timeout: a client abort leaves `controller` untouched, so the timeout arm would otherwise claim it.
-    const failure = opts.signal?.aborted
-      ? "client disconnected"
-      : controller.signal.aborted
-        ? "timeout"
-        : `connection failed: ${errMessage(err)}`;
+    let failure = `connection failed: ${errMessage(err)}`;
+    if (opts.signal?.aborted) {
+      failure = "client disconnected";
+    } else if (controller.signal.aborted) {
+      failure = "timeout";
+    }
     return {
       attempt: { engine, model, ok: false, failure, duration_ms: Date.now() - start },
       advance: true,

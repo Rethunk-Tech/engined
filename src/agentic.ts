@@ -186,7 +186,7 @@ export interface ObservedVersion {
 export async function observeAgentVersion(
   agent: string,
   configuredVersion: string,
-  spawn: AgenticSpawn = defaultAgenticSpawn,
+  agenticSpawn: AgenticSpawn = defaultAgenticSpawn,
 ): Promise<ObservedVersion> {
   const cli = agentCli(agent);
   if (cli?.resolveBinary === undefined) {
@@ -200,7 +200,7 @@ export async function observeAgentVersion(
   }
   let spawned: ExecResult;
   try {
-    spawned = await spawn([binary, "--version"], { cwd: tmpdir(), env: {}, input: "" });
+    spawned = await agenticSpawn([binary, "--version"], { cwd: tmpdir(), env: {}, input: "" });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
