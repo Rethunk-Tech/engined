@@ -81,6 +81,10 @@ _load = torch.load; \
 torch.load = lambda *a, **k: _load(*a, **{**k, 'map_location': 'cpu'}); \
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS; \
 ChatterboxMultilingualTTS.from_pretrained(device='cpu')"
+# The forced aligner app.py places words with, baked beside the voice under
+# the same cache so the runtime downloads nothing.
+ENV TORCH_HOME=/app/hf_cache/torch
+RUN python3 -c "from torchaudio.pipelines import MMS_FA; MMS_FA.get_model()"
 
 FROM rocm/dev-ubuntu-24.04:7.2.4
 
@@ -91,6 +95,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/hf_cache
+ENV TORCH_HOME=/app/hf_cache/torch
 # Same reason as engines/chatterbox-en: MIOpen's default search picks a
 # GemmFwdRest fallback for the vocoder's convolutions with no workspace, and
 # skipping it roughly halves RTF. Vocoding dominates this model's wall time,

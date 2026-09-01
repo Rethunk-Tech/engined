@@ -25,22 +25,24 @@ exit early via an internal `break` on EOS.
 
 import base64
 import io
-import numpy as np
-import re
 import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 
+import chatterbox.models.t3.t3 as t3_module
+import numpy as np
 import soundfile as sf
 import torch
+import torchaudio
 from chatterbox.tts_turbo import ChatterboxTurboTTS
-import chatterbox.models.t3.t3 as t3_module
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from torchaudio.pipelines import MMS_FA
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -58,6 +60,46 @@ model = ChatterboxTurboTTS.from_pretrained(device=device)
 # GPU with no multi-lease concept upstream (unlike LlamaRouter's roles); the lock guards only
 # the blocking generate() call, not the NDJSON streaming, so progress lines still flow.
 _model_lock = threading.Lock()
+
+# Chatterbox exposes no alignment of its own, so the words are placed by forced
+# alignment of the audio against the text that asked for it. The aligner's
+# acoustic model runs on the GPU beside the voice; its alignment op is CPU-only
+# in this torchaudio build, which for a sentence of audio is under 100ms.
+_fa_model = MMS_FA.get_model().to(device)
+_fa_tokenizer = MMS_FA.get_tokenizer()
+_fa_align = MMS_FA.get_aligner()
+_NOT_A_LABEL = re.compile(r"[^a-z']")
+
+
+def _words(samples: np.ndarray, text: str, offset: float) -> list[dict]:
+    """Each word's start and end in seconds from the start of the utterance. A
+    character the aligner has no label for -- a digit, an accented letter --
+    becomes its wildcard, so the word is still placed rather than dropped."""
+    words = text.split()
+    if not words:
+        return []
+    wav = torchaudio.functional.resample(
+        torch.from_numpy(samples.astype(np.float32)).unsqueeze(0),
+        model.sr,
+        MMS_FA.sample_rate,
+    ).to(device)
+    with torch.inference_mode():
+        emission, _ = _fa_model(wav)
+    keys = [_NOT_A_LABEL.sub("*", w.lower()) for w in words]
+    try:
+        spans = _fa_align(emission[0].cpu(), _fa_tokenizer(keys))
+    except (RuntimeError, ValueError):
+        return []
+    seconds_per_frame = wav.shape[1] / emission.shape[1] / MMS_FA.sample_rate
+    return [
+        {
+            "text": word,
+            "start": offset + span[0].start * seconds_per_frame,
+            "end": offset + span[-1].end * seconds_per_frame,
+        }
+        for word, span in zip(words, spans)
+    ]
+
 
 _progress_local = threading.local()
 _SENTINEL = object()
@@ -82,10 +124,8 @@ class ProgressTqdm:
     def __iter__(self):
         q = getattr(_progress_local, "queue", None)
         last_emit = 0.0
-        n = 0
-        for item in self.iterable:
+        for n, item in enumerate(self.iterable, start=1):
             yield item
-            n += 1
             if q is not None:
                 now = time.monotonic()
                 if now - last_emit >= _PROGRESS_MIN_INTERVAL_S or n == self.total:
@@ -110,7 +150,6 @@ def _s3gen_inference_with_progress(*args, **kwargs):
 model.s3gen.inference = _s3gen_inference_with_progress
 
 
-
 _SENTENCE_END = re.compile(r"(?<=[.!?\u2026])\s+")
 
 
@@ -129,6 +168,7 @@ def _pcm16(samples: np.ndarray) -> bytes:
     hot sample from wrapping to the opposite sign instead of saturating."""
     return (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
 
+
 class TtsRequest(BaseModel):
     text: str
     voice: str | None = None
@@ -144,7 +184,7 @@ def health():
 
 @app.post("/v1/tts")
 def synthesize(req: TtsRequest):
-    q: "queue.Queue" = queue.Queue()
+    q: queue.Queue = queue.Queue()
 
     def worker():
         _progress_local.queue = q
@@ -158,17 +198,27 @@ def synthesize(req: TtsRequest):
                 for text in pieces:
                     wav = model.generate(text, audio_prompt_path=audio_prompt)
                     samples = wav.squeeze(0).cpu().numpy()
-                    wavs.append(samples)
                     if req.chunks:
                         q.put(
                             {
                                 "phase": "chunk",
-                                "pcm": base64.b64encode(_pcm16(samples)).decode("ascii"),
+                                "pcm": base64.b64encode(_pcm16(samples)).decode(
+                                    "ascii"
+                                ),
                                 "rate": model.sr,
+                                "words": _words(
+                                    samples, text, sum(len(w) for w in wavs) / model.sr
+                                ),
                             }
                         )
+                    wavs.append(samples)
             buf = io.BytesIO()
-            sf.write(buf, np.concatenate(wavs) if len(wavs) > 1 else wavs[0], model.sr, format="WAV")
+            sf.write(
+                buf,
+                np.concatenate(wavs) if len(wavs) > 1 else wavs[0],
+                model.sr,
+                format="WAV",
+            )
             q.put(
                 {
                     "phase": "done",

@@ -17,7 +17,7 @@ treated as a caller.
 | --- | --- | --- |
 | `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
 | `/openai/v1/embeddings` | POST | `openai-http` |
-| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; kokoro and piper report them). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
+| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
