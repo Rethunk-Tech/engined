@@ -77,6 +77,18 @@ function writePatchedExampleConfig(raw: string, modelsDir: string): string {
   return configPath;
 }
 
+function byName(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
+/** `pick` may return `undefined` (a modelless route's `model`) -- those drop rather than sorting in as a literal "undefined". */
+function sortedIds<T>(items: readonly T[], pick: (item: T) => string | undefined): string[] {
+  return items
+    .map(pick)
+    .filter((v): v is string => v !== undefined)
+    .sort(byName);
+}
+
 test("config.example.toml parses through the real loadConfig()", () => {
   const repoRoot = join(import.meta.dir, "..");
   const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
@@ -88,20 +100,14 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const configPath = writePatchedExampleConfig(raw, modelsDir);
   const config = loadConfig(configPath, ENGINES_ROOT);
 
-  const byName = (a: string, b: string) => a.localeCompare(b);
-  expect(config.engines.map((e) => e.id).sort(byName)).toEqual(EXPECTED_ENGINE_IDS);
+  expect(sortedIds(config.engines, (e) => e.id)).toEqual(EXPECTED_ENGINE_IDS);
   expect(config.models).toEqual([]);
+  expect(sortedIds(config.routes, (r) => r.model)).toEqual(EXPECTED_ROUTE_MODEL_IDS);
   expect(
-    config.routes
-      .map((r) => r.model)
-      .filter((m): m is string => m !== undefined)
-      .sort(byName),
-  ).toEqual(EXPECTED_ROUTE_MODEL_IDS);
-  expect(
-    config.engines
-      .filter((e) => e.disabled)
-      .map((e) => e.id)
-      .sort(byName),
+    sortedIds(
+      config.engines.filter((e) => e.disabled),
+      (e) => e.id,
+    ),
   ).toEqual(EXPECTED_DISABLED_IDS);
 
   expect(config.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);

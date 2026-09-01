@@ -418,9 +418,8 @@ function distinctDeclaredUpstreams(engineId: string, raws: readonly RawRoute[]):
 function defaultUpstreamFor(
   engineId: string,
   trait: UpstreamTrait,
-  raws: readonly RawRoute[],
   site: string,
-  file: string,
+  ctx: Pick<RouteResolveCtx, "allRaws" | "file">,
 ): string | null {
   if (trait === "optional") {
     return null;
@@ -428,12 +427,12 @@ function defaultUpstreamFor(
   if (trait === "self") {
     return "local";
   }
-  const distinct = distinctDeclaredUpstreams(engineId, raws);
+  const distinct = distinctDeclaredUpstreams(engineId, ctx.allRaws);
   if (distinct.size !== 1) {
     const names = [...distinct].join(", ") || "none";
     throw new ParseError(
       `${site} names no "upstream" and engine "${engineId}" is "required" to have exactly one across its routes; found: ${names}`,
-      file,
+      ctx.file,
     );
   }
   return [...distinct][0] as string;
@@ -463,19 +462,22 @@ function localFileForbiddenReason(
   return undefined;
 }
 
-function resolveRoute(
-  raw: RawRoute,
-  allRaws: readonly RawRoute[],
-  engines: Map<string, EngineEntry>,
-  upstreams: Map<string, Upstream>,
-  models: Map<string, ModelEntry>,
-  traitFor: (engine: EngineEntry) => UpstreamTrait,
-  file: string,
-): ResolvedRoute {
+/** Everything route resolution reads beyond the raw route itself; one object so neither function above runs past the parameter budget. */
+interface RouteResolveCtx {
+  allRaws: readonly RawRoute[];
+  engines: Map<string, EngineEntry>;
+  upstreams: Map<string, Upstream>;
+  models: Map<string, ModelEntry>;
+  traitFor: (engine: EngineEntry) => UpstreamTrait;
+  file: string;
+}
+
+function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
+  const { engines, upstreams, models, traitFor, file } = ctx;
   const engine = engines.get(raw.engine) as EngineEntry;
   const upstreamId =
     raw.declaredUpstream === undefined
-      ? defaultUpstreamFor(raw.engine, traitFor(engine), allRaws, raw.site, file)
+      ? defaultUpstreamFor(raw.engine, traitFor(engine), raw.site, ctx)
       : raw.declaredUpstream;
   if (upstreamId !== null && !upstreams.has(upstreamId)) {
     throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, file);
@@ -868,9 +870,15 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     return t;
   };
 
-  const routes = rawRoutes.map((r) =>
-    resolveRoute(r, rawRoutes, engineMap, upstreamMap, modelMap, traitFor, file),
-  );
+  const routeCtx: RouteResolveCtx = {
+    allRaws: rawRoutes,
+    engines: engineMap,
+    upstreams: upstreamMap,
+    models: modelMap,
+    traitFor,
+    file,
+  };
+  const routes = rawRoutes.map((r) => resolveRoute(r, routeCtx));
 
   checkModellessMixing(routes, file);
   validateFilenameUnderModelsDir(routes, engineMap, file);

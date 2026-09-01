@@ -107,6 +107,7 @@ const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/;
 const RX_INVALID_TOML = /invalid TOML/;
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 const RX_UNKNOWN_UPSTREAM = /names unknown upstream "nope"/;
+const RX_DUP_DECLARED_TWICE = /"dup" is declared twice/;
 const RX_MIXED_MODELLESS = /carries both a modelless route and a model-bearing route/;
 const RX_NO_UPSTREAM_TRAIT = /spec is missing required "upstream"/;
 const RX_REQUIRED_NO_DEFAULT = /is "required" to have exactly one across its routes/;
@@ -406,7 +407,7 @@ kind = "comfy"
 id = "dup"
 kind = "tts"
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_DUP_DECLARED_TWICE);
   });
 
   test("two upstreams sharing an id is fatal", () => {
@@ -419,7 +420,7 @@ egress = "none"
 id = "dup"
 egress = "remote"
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_DUP_DECLARED_TWICE);
   });
 
   test("two [[model]] rows sharing an id is fatal", () => {
@@ -430,7 +431,7 @@ id = "dup"
 [[model]]
 id = "dup"
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_DUP_DECLARED_TWICE);
   });
 
   test("two [[chain]] rows sharing an id is fatal", () => {
@@ -444,7 +445,7 @@ hops = ["@/local-llama/ornith"]
 id = "dup"
 hops = ["@/local-llama/ornith"]
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(/"dup" is declared twice/);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_DUP_DECLARED_TWICE);
   });
 
   test('an engine and an upstream sharing the id "local" is not a collision -- separate namespaces', () => {

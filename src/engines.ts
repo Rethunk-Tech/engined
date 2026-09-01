@@ -263,10 +263,8 @@ function assertFieldDisposition(
   disposition: Disposition,
   present: boolean,
   field: string,
-  engineId: string,
-  model: string | undefined,
+  site: string,
 ): void {
-  const site = `route on engine "${engineId}" model "${model ?? ""}"`;
   if (disposition === "required" && !present) {
     throw new FatalError(`${site} is missing required "${field}"`);
   }
@@ -299,18 +297,11 @@ function checkLocalFileDisposition(
     ) {
       continue;
     }
-    assertFieldDisposition(
-      rules.filename,
-      r.filename !== undefined,
-      "filename",
-      engine.id,
-      r.model,
-    );
-    assertFieldDisposition(rules.role, r.role !== undefined, "role", engine.id, r.model);
+    const site = `route on engine "${engine.id}" model "${r.model}"`;
+    assertFieldDisposition(rules.filename, r.filename !== undefined, "filename", site);
+    assertFieldDisposition(rules.role, r.role !== undefined, "role", site);
     if (rules.args === "forbidden" && Object.keys(r.args).length > 0) {
-      throw new FatalError(
-        `route on engine "${engine.id}" model "${r.model}" must not declare "args"`,
-      );
+      throw new FatalError(`${site} must not declare "args"`);
     }
   }
 }
@@ -859,7 +850,7 @@ export class EngineRegistry {
     if (!entry) {
       return { error: `unknown engine "${id}"` };
     }
-    const kind = entry.spec.spec.kind;
+    const { kind } = entry.spec.spec;
     if (kind !== "comfy") {
       return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` };
     }
