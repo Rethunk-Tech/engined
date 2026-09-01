@@ -19,7 +19,12 @@ command = [
   "--host",
   "0.0.0.0",
   "-m",
-  "/models/ggml-medium.en-q8_0.bin", # see [[artifact]] below for citation
+  # medium.en by default; EngineRegistry.start rewrites this pair's second
+  # token to name whichever of the two artifacts below a route's own
+  # "filename" selects, and stops-and-restarts the container when the
+  # running model differs from the one just requested. See [[artifact]]
+  # below for both models' citation.
+  "/models/ggml-medium.en-q8_0.bin",
   # --vad/-vm flag support confirmed present in the pinned digest's
   # actual whisper-server binary (strings extracted via `docker
   # create` + `docker cp`, no container ever started) -- see
@@ -89,10 +94,11 @@ read_only = true
 #   small.en-q8_0         13.5% WER    929 ms
 #
 # So the larger multilingual model is beaten on accuracy AND speed, and the
-# English-only pair is the whole useful frontier: this engine takes the
-# accurate end, engines/whisper-fast takes the fast one. Load time is
-# 41-196ms for all three -- encode is the entire cost, so model size does not
-# buy back its own load.
+# English-only pair is the whole useful frontier: "@/whisper/medium.en" takes
+# the accurate end, "@/whisper/small.en" the fast one -- two routes on this
+# one engine, not two engines, since the image, models_dir and VAD file are
+# all shared. Load time is 41-196ms for all three -- encode is the entire
+# cost, so model size does not buy back its own load.
 #
 # q8_0 rather than a smaller quantisation: a CPU sweep
 # (github.com/ggml-org/whisper.cpp discussions/3752) shows q5_0 running
@@ -101,6 +107,13 @@ read_only = true
 [[artifact]]
 path = "/models/ggml-medium.en-q8_0.bin"
 obtain = "curl -fL -o {models_dir}/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin"
+
+# The fast end of the same frontier, above: 13.5% WER at 929ms against
+# medium.en's 11.5% at 2715ms -- a consumer waiting on a transcript in a loop
+# names "@/whisper/small.en", and one that is not names "@/whisper/medium.en".
+[[artifact]]
+path = "/models/ggml-small.en-q8_0.bin"
+obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin"
 
 # Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
 # Filename and URL confirmed against whisper.cpp's own

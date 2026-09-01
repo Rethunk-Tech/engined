@@ -339,27 +339,34 @@ models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
 
+# Two model-bearing routes on the one engine rather than two engines: same
+# image, same models_dir, differing only by which weights file starts the
+# container -- "filename" and no "role" is stt's own disposition, checked
+# once the engine's spec has loaded (engines.ts). whisper.cpp loads its model
+# at container start and only one container runs per engine, so switching
+# between these two is a stop-and-restart (EngineRegistry.start), refused
+# with 409 while a transcription is in flight.
+#
+# Word error rate over 8 recorded speech clips (4.3-8.7s, known transcripts),
+# median encode per clip on this box:
+#
+#   medium.en-q8_0   11.5% WER   2715 ms
+#   small.en-q8_0    13.5% WER    929 ms
+#
+# so a consumer waiting on a transcript in a loop names small.en and one that
+# is not names medium.en. Both are English-only; q8_0's quantisation
+# reasoning is in engines/whisper/spec.toml.
 [[route]]
 engine   = "whisper"
 upstream = "local"
-
-# The same image and the same models_dir as the engine above, carrying a
-# smaller model file: engines/whisper-fast/spec.toml is where that difference
-# lives, because the model a container runs is a property of the engine, not
-# of the install. Measured on this box, the two are a real frontier rather
-# than a big/small pair -- 11.5% word error rate at 2715 ms per clip above
-# against 13.5% at 929 ms here -- so a consumer waiting on a transcript in a
-# loop names this one and a consumer that is not names "whisper". Both are
-# English-only.
-[[engine]]
-id                = "whisper-fast"
-models_dir        = "~/.local/share/engined-models/whisper"
-idle_stop_seconds = 1800
-ready_timeout_s   = 300
+model    = "medium.en"
+filename = "ggml-medium.en-q8_0.bin"
 
 [[route]]
-engine   = "whisper-fast"
+engine   = "whisper"
 upstream = "local"
+model    = "small.en"
+filename = "ggml-small.en-q8_0.bin"
 
 # The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so its engine declares no models_dir and no
@@ -372,17 +379,12 @@ id      = "elevenlabs"
 kind    = "stt"       # required: with no spec directory there is nothing else to read it from.
 disable = true         # sends every recording to ElevenLabs; leave off until that's wanted.
 
-  # On a remote engine these are wire parameters rather than process flags --
-  # nothing is launched. model_id is deliberately NOT the door's model
-  # segment: this route carries no model, so ElevenLabs' own model id can
-  # only come from here. Forwarding the door's engine id verbatim would send
-  # the string "elevenlabs" as a model id and earn a 422.
-  [engine.args]
-  model_id = "scribe_v1"
-
 [[route]]
 engine   = "elevenlabs"
 upstream = "elevenlabs"
+model    = "scribe_v1" # ElevenLabs' own model id, sent on the wire verbatim: the
+                        # door's model segment names it directly now, so nothing
+                        # forwards the engine id "elevenlabs" as a model.
 
 [[engine]]
 id                = "comfy"

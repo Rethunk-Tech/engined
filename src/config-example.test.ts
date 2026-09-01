@@ -35,7 +35,6 @@ const EXPECTED_ENGINE_IDS = [
   "opencode",
   "piper",
   "whisper",
-  "whisper-fast",
 ];
 
 // The example ships every off-box engine disabled, and a disabled engine's
@@ -50,7 +49,10 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "gpt-5.4",
   "gpt-5.4-mini",
   "k3",
+  "medium.en",
   "ornith",
+  "scribe_v1",
+  "small.en",
   "sonnet-5",
   "vision",
 ];
@@ -136,14 +138,15 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // never a plain $HOME expansion of the example's tilde text.
   expect(whisper?.models_dir).toBe(join(dataHome(), "engined-models/whisper"));
 
-  // The remote STT engine's whole shape now spans an engine and an upstream,
-  // neither of which has a spec directory to carry any of it. A `kind` lost
-  // to an edit would make it an engine of no kind, a lost `model_id` would
-  // send the door's own engine id upstream as a model, and a lost secret
-  // would leave the upstream unable to authenticate at all.
+  // The remote STT engine's whole shape now spans an engine, an upstream and
+  // a route, none of which has a spec directory to carry any of it. A `kind`
+  // lost to an edit would make it an engine of no kind, a lost route "model"
+  // would send the door's own engine id upstream as a model, and a lost
+  // secret would leave the upstream unable to authenticate at all.
   const elevenlabs = config.engines.find((e) => e.id === "elevenlabs");
   expect(elevenlabs?.kind).toBe("stt");
-  expect(elevenlabs?.args.model_id).toBe("scribe_v1");
+  const elevenlabsRoute = config.routes.find((r) => r.engine === "elevenlabs");
+  expect(elevenlabsRoute?.model).toBe("scribe_v1");
   const elevenlabsUpstream = config.upstreams.find((u) => u.id === "elevenlabs");
   expect(elevenlabsUpstream?.egress).toBe("remote");
   expect(elevenlabsUpstream?.secret?.header).toBe("xi-api-key");
