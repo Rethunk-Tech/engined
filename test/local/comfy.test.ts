@@ -25,8 +25,8 @@ type ChatRoute = ResolvedRoute & { model: string };
  * comfy at all rather than arming its lease from proxied requests the way
  * every other engine does.
  *
- * Image tags are read from the real engines/local-llama and engines/comfy
- * spec.toml via `loadSpec`, not hardcoded -- local-llama's tag already
+ * Image tags are read from the real engines/llama and engines/comfy
+ * spec.toml via `loadSpec`, not hardcoded -- llama's tag already
  * drifted once within this session (sagaforge-llama-cpp:local ->
  * engined-llama-cpp:local), and the old tag is still a real image on this
  * box, so a hardcoded copy would run green against the wrong artifact
@@ -112,11 +112,11 @@ function loadFixture(): Fixture | undefined {
   }
   try {
     const loaded = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const llamaEngine = loaded.engines.find((e) => e.id === "local-llama");
+    const llamaEngine = loaded.engines.find((e) => e.id === "llama");
     const comfyEngine = loaded.engines.find((e) => e.id === "comfy");
     const chatRoute = loaded.routes.find(
       (r): r is ChatRoute =>
-        r.engine === "local-llama" &&
+        r.engine === "llama" &&
         r.upstream === "local" &&
         r.role === "chat" &&
         r.model !== undefined,
@@ -159,10 +159,10 @@ if (READY) {
 
 function skipReason(): string {
   if (FIXTURE === undefined) {
-    return "config.example.toml is missing local-llama, comfy, or a local-llama chat model";
+    return "config.example.toml is missing llama, comfy, or a llama chat model";
   }
   if (FIXTURE.llamaImage === undefined || FIXTURE.comfyImage === undefined) {
-    return "a spec did not resolve an image -- check engines/local-llama and engines/comfy spec.toml";
+    return "a spec did not resolve an image -- check engines/llama and engines/comfy spec.toml";
   }
   return `${FIXTURE.llamaImage} and/or ${FIXTURE.comfyImage} are not built`;
 }
@@ -389,8 +389,8 @@ function buildRig(fixture: Fixture): Rig {
 
 describe.skipIf(!READY)(
   READY
-    ? "comfy + local-llama co-residency (local)"
-    : `comfy + local-llama co-residency (local): SKIPPED -- ${skipReason()}`,
+    ? "comfy + llama co-residency (local)"
+    : `comfy + llama co-residency (local): SKIPPED -- ${skipReason()}`,
   () => {
     let rig: Rig | undefined;
 
@@ -421,7 +421,7 @@ describe.skipIf(!READY)(
         // with comfy now also running, through the identical router instance
         // -- a reload would have needed a fresh container.
         expect(await chatCompletes(router, chatRoute)).toBe(true);
-        expect(registry.get("local-llama")?.state).toBe("running");
+        expect(registry.get("llama")?.state).toBe("running");
 
         // Nothing submits a comfy job, so its own /queue poll should observe
         // emptiness and arm idle-stop -- request traffic to llama never
@@ -436,7 +436,7 @@ describe.skipIf(!READY)(
 
         // llama's own idle-stop (900s) never fired in this ~30s window, and
         // comfy idling never touched it.
-        expect(registry.get("local-llama")?.state).toBe("running");
+        expect(registry.get("llama")?.state).toBe("running");
       },
       TEST_TIMEOUT_MS,
     );
@@ -474,7 +474,7 @@ describe.skipIf(!READY)(
         const { chatRoute } = FIXTURE as Fixture;
 
         expect(await chatCompletes(router, chatRoute)).toBe(true);
-        const before = lifecycle.getStatus("local-llama").private_url;
+        const before = lifecycle.getStatus("llama").private_url;
 
         const comfy = await registry.start("comfy");
         expect(comfy.state).toBe("running");
@@ -489,8 +489,8 @@ describe.skipIf(!READY)(
         // both, and engined proxied none of the job -- it went straight to the
         // private_url above.
         expect(await chatCompletes(router, chatRoute)).toBe(true);
-        expect(registry.get("local-llama")?.state).toBe("running");
-        expect(lifecycle.getStatus("local-llama").private_url).toBe(before);
+        expect(registry.get("llama")?.state).toBe("running");
+        expect(lifecycle.getStatus("llama").private_url).toBe(before);
       },
       TEST_TIMEOUT_MS,
     );

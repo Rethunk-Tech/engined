@@ -14,16 +14,16 @@ import {
 import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
- * Drives the real `LlamaRouter` against local-llama's real container and
+ * Drives the real `LlamaRouter` against llama's real container and
  * the real GGUFs under its `models_dir` -- `config.example.toml` is loaded
  * as-is (no path swap) precisely because it is this operator's own real
  * config, so a clean parse here is also a live proof the example still
  * matches the real model tree.
  *
- * The image tag is read from the real `engines/local-llama/spec.toml` via
+ * The image tag is read from the real `engines/llama/spec.toml` via
  * `loadSpec`, not hardcoded: that tag already drifted once within this
  * session (sagaforge-llama-cpp:local -> engined-llama-cpp:local, when
- * local-llama got its own vendored Dockerfile), and the old tag is STILL a
+ * llama got its own vendored Dockerfile), and the old tag is STILL a
  * real image on this box -- a hardcoded copy here would not fail loudly on
  * a rename, it would quietly run green against the wrong artifact.
  *
@@ -36,7 +36,7 @@ import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
 const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
-// {bunx} never appears in local-llama's own command; only agentic specs
+// {bunx} never appears in llama's own command; only agentic specs
 // substitute it, so any non-empty string satisfies LlamaBuildOptions here.
 const BUNX = process.env.ENGINED_BUNX ?? "bunx";
 const READY_TIMEOUT_S = 240;
@@ -56,7 +56,7 @@ interface Fixture {
   error?: string;
 }
 
-const EMPTY_ENGINE: EngineEntry = { id: "local-llama", args: {} };
+const EMPTY_ENGINE: EngineEntry = { id: "llama", args: {} };
 
 /**
  * `loadSpec` needs `{models_max}` and `{preset_ini}` resolved to substitute
@@ -89,15 +89,15 @@ function loadFixture(): Fixture {
   }
   try {
     const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const engine = config.engines.find((e) => e.id === "local-llama");
+    const engine = config.engines.find((e) => e.id === "llama");
     const routes = config.routes.filter(
-      (r) => r.engine === "local-llama" && r.upstream === "local",
+      (r) => r.engine === "llama" && r.upstream === "local",
     );
     if (!engine) {
       return {
         engine: EMPTY_ENGINE,
         routes: [],
-        error: "config.example.toml has no local-llama engine",
+        error: "config.example.toml has no llama engine",
       };
     }
     return { engine, routes, image: specImage(engine) };
@@ -124,15 +124,15 @@ if (READY) {
 
 function skipReason(): string {
   if (FIXTURE.image === undefined) {
-    return `local-llama's spec.toml did not resolve an image -- ${FIXTURE.error ?? "check engines/local-llama/spec.toml"}`;
+    return `llama's spec.toml did not resolve an image -- ${FIXTURE.error ?? "check engines/llama/spec.toml"}`;
   }
   if (!HAVE_IMAGE) {
-    return `${FIXTURE.image} is not built -- see engines/local-llama for the build command`;
+    return `${FIXTURE.image} is not built -- see engines/llama for the build command`;
   }
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
-  return `expected exactly 3 local-llama routes (chat, vision, embedding) in config.example.toml, found ${FIXTURE.routes.length}`;
+  return `expected exactly 3 llama routes (chat, vision, embedding) in config.example.toml, found ${FIXTURE.routes.length}`;
 }
 
 function describeTitle(base: string): string {
@@ -264,7 +264,7 @@ async function proxyEmbedding(
   return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
 }
 
-describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
+describe.skipIf(!READY)(describeTitle("llama router (local)"), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const router = buildRouter(FIXTURE.engine, FIXTURE.routes, ".scratch-preset.ini", lifecycle);
 
@@ -299,7 +299,7 @@ describe.skipIf(!READY)(describeTitle("local-llama router (local)"), () => {
       expect(embedResult.value.status).toBe(200);
       // Two role-independent leases genuinely overlapped in wall-clock time.
       expect(overlaps(chatResult, visionResult)).toBe(true);
-      // No second `engined-local-llama` container ever existed transiently
+      // No second `engined-llama` container ever existed transiently
       // under concurrent cross-role load, not just that none exists after.
       expect(Math.max(...samples)).toBe(1);
 
@@ -337,7 +337,7 @@ function swapModels(): SwapRoute[] {
     return [];
   }
   const base = {
-    engine: "local-llama",
+    engine: "llama",
     upstream: "local" as const,
     filename: CHAT.filename,
     role: "chat" as const,
@@ -365,7 +365,7 @@ function argvHasSpecPMin(lines: string[], value: number): boolean {
   return lines.some((line) => line.includes("--draft-p-min") && line.includes(String(value)));
 }
 
-describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local)"), () => {
+describe.skipIf(!READY)(describeTitle("llama router: same-role swap (local)"), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const models = swapModels();
   const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);

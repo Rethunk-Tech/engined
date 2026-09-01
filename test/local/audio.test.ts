@@ -55,7 +55,7 @@ function imageBuilt(image: string): boolean {
 }
 
 /**
- * Read from the real spec.toml rather than hardcoded -- local-llama's own
+ * Read from the real spec.toml rather than hardcoded -- llama's own
  * image tag drifted mid-session (see llama.test.ts), and a hardcoded copy
  * here would be exactly the same risk for chatterbox/whisper the next time
  * either gets its own vendored Dockerfile and a fresh tag. `models_dir:

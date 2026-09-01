@@ -14,12 +14,12 @@ const TEST_ROOT = makeTestRoot("engined-example-");
  * how to configure this daemon -- this file is the only copy that is
  * pruning, not a promise it still parses. The real GGUFs it names are tens
  * of gigabytes each and live only on the box that downloaded them, so this
- * swaps local-llama's models_dir for a temp dir carrying empty placeholders
+ * swaps llama's models_dir for a temp dir carrying empty placeholders
  * at the same relative paths (same pattern as config.test.ts's
  * `tempModelsDir`), rather than requiring a fresh clone to have real
  * weights on disk just to run the suite.
  */
-const LOCAL_LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
+const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
@@ -32,7 +32,7 @@ const EXPECTED_ENGINE_IDS = [
   "comfy",
   "elevenlabs",
   "kokoro",
-  "local-llama",
+  "llama",
   "openai",
   "opencode",
   "openrouter",
@@ -80,9 +80,9 @@ function placeExampleModels(modelsDir: string): void {
   }
 }
 
-/** `raw` with local-llama's real models_dir swapped for the scratch one, written to a fresh config.toml. */
+/** `raw` with llama's real models_dir swapped for the scratch one, written to a fresh config.toml. */
 function writePatchedExampleConfig(raw: string, modelsDir: string): string {
-  const patched = raw.replace(LOCAL_LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
+  const patched = raw.replace(LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
   const configDir = mkdtempSync(join(TEST_ROOT, "config-"));
   const configPath = join(configDir, "config.toml");
   writeFileSync(configPath, patched);
@@ -104,7 +104,7 @@ function sortedIds<T>(items: readonly T[], pick: (item: T) => string | undefined
 test("config.example.toml parses through the real loadConfig()", () => {
   const repoRoot = join(import.meta.dir, "..");
   const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
-  expect(raw).toMatch(LOCAL_LLAMA_MODELS_DIR_RE);
+  expect(raw).toMatch(LLAMA_MODELS_DIR_RE);
 
   const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
   placeExampleModels(modelsDir);
@@ -126,17 +126,17 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const sonnet5 = config.routes.find((r) => r.engine === "claude" && r.model === "sonnet-5");
   expect(sonnet5?.context_in).toBe(200_000);
   expect(sonnet5?.reasoning).toEqual(["none", "low", "high"]);
-  // ...and inserting that [[model]] row ahead of local-llama's own routes did
+  // ...and inserting that [[model]] row ahead of llama's own routes did
   // not silently migrate [route.args] onto the wrong one: TOML attaches a
   // bare [route.args] to whichever [[route]] was declared most recently, so
   // ornith's own draft-MTP args must still be ornith's.
-  const ornith = config.routes.find((r) => r.engine === "local-llama" && r.model === "ornith");
+  const ornith = config.routes.find((r) => r.engine === "llama" && r.model === "ornith");
   expect(ornith?.args["spec-type"]).toBe("draft-mtp");
 
-  expect(config.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);
+  expect(config.chains["chain-private"]).toEqual(["@/llama/ornith"]);
   // Written with three remote/agentic hops after the local one; claude and
   // openai are both disabled, so what survives parse is the local hop alone.
-  expect(config.chains["chain-public"]).toEqual(["@/local-llama/ornith"]);
+  expect(config.chains["chain-public"]).toEqual(["@/llama/ornith"]);
 
   // whisper's spec needs models_dir on the wire (its bind mount and
   // artifact-fetch commands both use it) -- the exact gap the operator's

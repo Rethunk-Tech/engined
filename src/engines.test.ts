@@ -41,7 +41,7 @@ const TEST_ROOT = makeTestRoot("engined-engines-test-");
  * Redirects `stateDir()` under `TEST_ROOT` for whatever the caller does next,
  * returning a restore function for its `finally`. Needed wherever the code
  * under test resolves a path via `stateDir()` (paths.ts) directly rather than
- * through an injectable option -- `local-llama`'s preset path is one such
+ * through an injectable option -- `llama`'s preset path is one such
  * case, and writes there land on the real operator's state directory
  * otherwise, not a sandbox.
  */
@@ -340,7 +340,7 @@ describe("unavailable engines", () => {
   });
 
   test("missing image with NO Dockerfile in its spec dir does not invent a build command", async () => {
-    // local-llama's real shape: obtain = "build", no Dockerfile shipped here
+    // llama's real shape: obtain = "build", no Dockerfile shipped here
     // because the image is built from a different repository entirely.
     const { reg } = setupKokoro(NO_IMAGE_EXEC);
     const listed = (await reg.list()).engines.find((e) => e.id === "kokoro");
@@ -939,15 +939,15 @@ describe("spec construction is routed through the per-engine builder", () => {
     }
   });
 
-  test("local-llama started through the registry carries --models-preset and its :ro mounts", async () => {
-    // start() on an id shaped like local-llama renders the preset to
-    // stateDir()/local-llama/preset.ini unconditionally (engines.ts's own
-    // LOCAL_LLAMA_PRESET_PATH, not overridable via RegistryOptions) -- the
+  test("llama started through the registry carries --models-preset and its :ro mounts", async () => {
+    // start() on an openai-http engine with a models_dir renders the preset
+    // to stateDir()/llama/preset.ini unconditionally (paths.ts's own
+    // llamaPresetPath, not overridable via RegistryOptions) -- the
     // same path the real running engine has bind-mounted.
     const restoreStateHome = redirectStateHome();
     const { reg, runArgvCalls } = capturingRegistry(
       engine({
-        id: "local-llama",
+        id: "llama",
         models_dir: "/data/gguf",
         models_max: 3,
         ready_timeout_s: 5,
@@ -955,12 +955,12 @@ describe("spec construction is routed through the per-engine builder", () => {
       8080,
     );
     try {
-      await reg.start("local-llama");
+      await reg.start("llama");
       expect(runArgvCalls).toHaveLength(1);
       const [argv] = runArgvCalls;
       expect(argv).toContain("--models-preset");
       expect(argv?.some((a) => a === "/data/gguf:/models:ro")).toBe(true);
-      expect(argv?.some((a) => a.includes("local-llama/preset.ini:/preset.ini:ro"))).toBe(true);
+      expect(argv?.some((a) => a.includes("llama/preset.ini:/preset.ini:ro"))).toBe(true);
     } finally {
       await reg.shutdown();
       restoreStateHome();

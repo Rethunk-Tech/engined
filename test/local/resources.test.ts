@@ -67,7 +67,7 @@ const MIN_LOADED_GRAPHICS_BYTES = GIB;
  */
 const RECONCILE_TOLERANCE = GIB;
 
-const EMPTY_ENGINE: EngineEntry = { id: "local-llama", args: {} };
+const EMPTY_ENGINE: EngineEntry = { id: "llama", args: {} };
 
 interface Fixture {
   engine: EngineEntry;
@@ -99,15 +99,15 @@ function loadFixture(): Fixture {
   }
   try {
     const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const engine = config.engines.find((e) => e.id === "local-llama");
+    const engine = config.engines.find((e) => e.id === "llama");
     if (!engine) {
-      return { engine: EMPTY_ENGINE, error: "config.example.toml has no local-llama engine" };
+      return { engine: EMPTY_ENGINE, error: "config.example.toml has no llama engine" };
     }
     return {
       engine,
       chat: config.routes.find(
         (r): r is ChatRoute =>
-          r.engine === "local-llama" &&
+          r.engine === "llama" &&
           r.upstream === "local" &&
           r.role === "chat" &&
           r.model !== undefined,
@@ -154,10 +154,10 @@ function skipReason(): string {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
   if (!HAVE_IMAGE) {
-    return `${FIXTURE.image ?? "local-llama's image"} is not built -- see engines/local-llama`;
+    return `${FIXTURE.image ?? "llama's image"} is not built -- see engines/llama`;
   }
   if (FIXTURE.chat === undefined) {
-    return "config.example.toml has no local-llama model in the chat role";
+    return "config.example.toml has no llama model in the chat role";
   }
   return "no amdgpu mem_info counters under /sys/class/drm -- nothing to reconcile against";
 }
