@@ -30,6 +30,7 @@ const EXPECTED_ENGINE_IDS = [
   "chatterbox-fast",
   "claude",
   "comfy",
+  "cursor",
   "elevenlabs",
   "kokoro",
   "llama",
@@ -42,7 +43,7 @@ const EXPECTED_ENGINE_IDS = [
 
 // The example ships every off-box engine disabled, and a disabled engine's
 // routes are dropped: nothing here can be dispatched to.
-const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
+const EXPECTED_DISABLED_IDS = ["claude", "cursor", "elevenlabs", "openai"];
 
 // The example declares no [[model]] capability rows -- every model id below
 // comes from a route naming one, disabled or not. Every id here is the
@@ -53,6 +54,7 @@ const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
 // addresses a different model ("north-mini-code:free") than either.
 const EXPECTED_ROUTE_MODEL_IDS = [
   "code",
+  "composer-2.5",
   "embed",
   "gpt-5.4",
   "gpt-5.4-mini",

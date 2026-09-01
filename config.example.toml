@@ -326,6 +326,29 @@ engine   = "opencode"
 upstream = "local"
 model    = "code"
 
+# cursor's floor is a mode (--mode plan), not a tool allowlist -- measured
+# clean against 2026.08.28-50f0823 in docs/security-model.md. Ambient only:
+# `CURSOR_API_KEY` is checked against Cursor's own key format client-side
+# before any network attempt, so no third-party upstream key can ever pass
+# it (see engines/cursor/spec.toml and src/agents.ts's cursor entry) --
+# every launch uses this box's own logged-in Cursor account and sends its
+# prompt to Cursor's cloud, the same posture as claude, elevenlabs and
+# openai above, and disabled for the same reason.
+[[engine]]
+id            = "cursor"
+disable       = true
+# Whatever pin you've actually proved on this box -- see claude's own
+# comment above for what "proved" means here. This one was proved 2026-08-31.
+agent_version = "2026.08.28-50f0823"
+# No [engine.args] output-format or mode here: cursor's launch in agents.ts
+# sets --output-format stream-json and --mode plan unconditionally in code,
+# so both keys are never real tunables -- assertNoForbiddenFlags refuses a
+# config that tries either.
+
+[[route]]
+engine = "cursor"
+model  = "composer-2.5"
+
 # ---------------------------------------------------------------------------
 # Media engines: each serves a fixed job via a modelless route
 # (@/engine/upstream), selected by engine id rather than a choice of files.

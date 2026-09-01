@@ -277,6 +277,15 @@ const AGENTS: Record<string, AgentCli> = {
   },
   cursor: {
     id: "cursor",
+    // Not yet fetchable this way: `bunx cursor-agent@<pin>` resolves to an
+    // unrelated third-party npm package ("Task sequence creator for Cursor
+    // AI agents", zalab-inc, versions 1.0.0-1.0.3 only) -- measured, and no
+    // `@anysphere/cursor-agent` or `@cursor/cli` package exists either. The
+    // real CLI ships only via Cursor's own installer into
+    // `~/.local/share/cursor-agent/versions/<version>/`, self-updating with
+    // no version-pinning subcommand. `buildArgv`'s shared launch has no path
+    // that resolves this yet, so a real launch of this engine fails today --
+    // this id is the target for whatever that resolution turns out to be.
     pkg: "cursor-agent",
     floor: "flags",
     // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself
