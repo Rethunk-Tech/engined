@@ -176,7 +176,6 @@ const PROBE_GATE_VERIFIED_DIR = join(stateDir(), "agentic", PROBE_GATE_ENGINE_ID
 function buildProbeGateConfig(): Config {
   const engine: EngineEntry = {
     id: PROBE_GATE_ENGINE_ID,
-    egress: "remote",
     agent_version: agentVersion(),
     spec_dir: join(PROBE_GATE_ENGINES_ROOT, "claude"),
     args: {},
@@ -222,7 +221,7 @@ describe.skipIf(!AGENTIC_READY)(
         const proven = new EngineRegistry(buildProbeGateConfig(), {
           enginesRoot: PROBE_GATE_ENGINES_ROOT,
           bunx: bunx(),
-          agenticProbeRunner: buildAgenticProbeRunner(bunx(), "http://127.0.0.1:29200/v1"),
+          agenticProbeRunner: buildAgenticProbeRunner(bunx()),
         });
         const afterStatus = await proven.start(PROBE_GATE_ENGINE_ID);
         expect(afterStatus.state).toBe("installed");

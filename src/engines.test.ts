@@ -391,7 +391,7 @@ describe("spec-less engines: no secret gate, just an optimistic installed", () =
 });
 
 function agenticEngine(id: string, version: string): EngineEntry {
-  return engine({ id, egress: "remote", agent_version: version });
+  return engine({ id, agent_version: version });
 }
 
 describe("agentic engines: unproved by default", () => {
@@ -646,7 +646,7 @@ const BUSY_QUEUE: QueueSnapshot = { queue_running: [{ id: "job-1" }], queue_pend
 
 function comfyConfig(): Config {
   return config({
-    engines: [engine({ id: "comfy", egress: "none", idle_stop_seconds: 0.05, ready_timeout_s: 5 })],
+    engines: [engine({ id: "comfy", idle_stop_seconds: 0.05, ready_timeout_s: 5 })],
   });
 }
 
@@ -783,7 +783,7 @@ function capturingRegistry(
 describe("spec construction is routed through the per-engine builder", () => {
   test("comfy started through the registry carries its models bind mount in the run argv", async () => {
     const { reg, runArgvCalls } = capturingRegistry(
-      engine({ id: "comfy", egress: "none", models_dir: "/data/comfy-models", ready_timeout_s: 5 }),
+      engine({ id: "comfy", models_dir: "/data/comfy-models", ready_timeout_s: 5 }),
       8188,
     );
     try {
@@ -806,7 +806,6 @@ describe("spec construction is routed through the per-engine builder", () => {
     const { reg, runArgvCalls } = capturingRegistry(
       engine({
         id: "local-llama",
-        egress: "none",
         models_dir: "/data/gguf",
         models_max: 3,
         ready_timeout_s: 5,
@@ -840,9 +839,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
     const runArgvCalls: string[][] = [];
     const reg = new EngineRegistry(
       config({
-        engines: [
-          engine({ id: "whisper-like", egress: "none", args: { threads: 4 }, ready_timeout_s: 5 }),
-        ],
+        engines: [engine({ id: "whisper-like", args: { threads: 4 }, ready_timeout_s: 5 })],
       }),
       {
         enginesRoot: root,
@@ -880,7 +877,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
       () =>
         new EngineRegistry(
           config({
-            engines: [engine({ id: "kokoro-like", egress: "none", args: { foo: "bar" } })],
+            engines: [engine({ id: "kokoro-like", args: { foo: "bar" } })],
           }),
           { enginesRoot: root, bunx: BUNX },
         ),
@@ -892,7 +889,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
     writeEngineSpec(root, "kokoro-like", TTS_EMPTY_COMMAND);
     const runArgvCalls: string[][] = [];
     const reg = new EngineRegistry(
-      config({ engines: [engine({ id: "kokoro-like", egress: "none", ready_timeout_s: 5 })] }),
+      config({ engines: [engine({ id: "kokoro-like", ready_timeout_s: 5 })] }),
       {
         enginesRoot: root,
         bunx: BUNX,
@@ -925,7 +922,7 @@ function comfyExecLiveness(live: { alive: boolean }): Exec {
 
 function comfyLongIdleConfig(): Config {
   return config({
-    engines: [engine({ id: "comfy", egress: "none", idle_stop_seconds: 60, ready_timeout_s: 5 })],
+    engines: [engine({ id: "comfy", idle_stop_seconds: 60, ready_timeout_s: 5 })],
   });
 }
 
@@ -1030,7 +1027,7 @@ function sttSwitchRegistry(): {
   const lifecycle = new DockerLifecycle(sttSwitchExec(runLog, stopLog), READY_PROBE);
   const reg = new EngineRegistry(
     config({
-      engines: [engine({ id: "whisper-like", egress: "none", models_dir: "/data/whisper" })],
+      engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
       routes: [
         route({
           engine: "whisper-like",

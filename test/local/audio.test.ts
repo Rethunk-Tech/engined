@@ -65,7 +65,7 @@ function imageBuilt(image: string): boolean {
 function specImage(id: string): string | undefined {
   try {
     const loaded = loadSpec(
-      { id, egress: "none", args: {}, models_dir: "/unused" },
+      { id, args: {}, models_dir: "/unused" },
       { enginesRoot: ENGINES_ROOT, bunx: BUNX },
     );
     return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
@@ -102,7 +102,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
   ),
   () => {
     const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-    const engine: EngineEntry = { id: "chatterbox", egress: "none", args: {} };
+    const engine: EngineEntry = { id: "chatterbox", args: {} };
     const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
     if (!isContainerSpec(loaded.spec)) {
       throw new Error("chatterbox spec.toml did not parse as a container spec");
@@ -171,7 +171,6 @@ describe.skipIf(!HAVE_WHISPER)(
         const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
         const engine: EngineEntry = {
           id: "whisper",
-          egress: "none",
           args: {},
           models_dir: scratchModelsDir,
         };
@@ -224,7 +223,6 @@ for (const tts of TTS_ROUND_TRIPS) {
       function startFor(id: string) {
         const engine: EngineEntry = {
           id,
-          egress: "none",
           args: {},
           models_dir: WHISPER_MODELS_DIR,
         };

@@ -67,7 +67,7 @@ const MIN_LOADED_GRAPHICS_BYTES = GIB;
  */
 const RECONCILE_TOLERANCE = GIB;
 
-const EMPTY_ENGINE: EngineEntry = { id: "local-llama", egress: "none", args: {} };
+const EMPTY_ENGINE: EngineEntry = { id: "local-llama", args: {} };
 
 interface Fixture {
   engine: EngineEntry;

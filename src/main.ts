@@ -63,6 +63,7 @@ import { recordCall } from "./provenance.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type Config,
+  EGRESS_RANK,
   type Egress,
   type EngineEntry,
   type EngineKind,
@@ -80,7 +81,6 @@ import {
   type Upstream,
 } from "./types.ts";
 import {
-  isRemote,
   noBaseUrlFix,
   resolveUpstream,
   resolveUpstreamSecret,
@@ -378,17 +378,28 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
 }
 
 /**
- * `EngineRegistry.get()` answers a different question — an `EngineStatus`
- * (whether it's running, its private_url) — never the configured
- * `EngineEntry` a caller here wants (secret, base_url, args), which is what
- * `EngineRegistry.entry` hands back. Local to this door because resolving the
- * segment to an id first is the door's own addressing rule, not the
- * registry's.
+ * An engine has no address of its own, so its egress is the upstream a route
+ * pairs it with -- never the engine entry, which carries no such field. A
+ * bare engine segment (not a full hop) can name more than one route across
+ * different upstreams, so this reports the lowest-egress one: the same
+ * "can this engine reach a local upstream at all" question `local_only`
+ * actually asks. Fail-closed `"remote"` when the segment resolves to no
+ * route at all, matching every other unresolvable-address case.
  */
 function egressOf(ctx: DoorContext, seg: string): Egress {
   const config = ctx.getConfig();
   const id = resolveEngineSegment(seg, config) ?? seg;
-  return ctx.registry.entry(id)?.egress ?? "remote";
+  let best: Egress = "remote";
+  for (const route of config.routes) {
+    if (route.engine !== id || route.disabled) {
+      continue;
+    }
+    const rank = routeEgress(route, config.upstreams);
+    if (EGRESS_RANK[rank] < EGRESS_RANK[best]) {
+      best = rank;
+    }
+  }
+  return best;
 }
 
 interface HopRequest {
@@ -530,25 +541,15 @@ async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<st
 }
 
 /**
- * A remote-address agentic engine has no spec directory of its own by
- * design (wave-1 rule: "a remote address launches nothing"). It launches
- * the identical shipped claude spec — same floor, same env allowlist —
- * per the operator ruling: Moonshot is "the same agentic kind as claude
- * with a different upstream and key, not a second protocol."
+ * An engine has no address of its own -- claude routed at Moonshot is still
+ * the engine "claude", loading `engines/claude/spec.toml` exactly like the
+ * ambient route does. Only its resolved upstream differs.
  */
-const SHIPPED_CLAUDE_ID = "claude";
-
 function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
-  const id = isRemote(engineEntry) ? SHIPPED_CLAUDE_ID : engineEntry.id;
-  // spec_dir is not touched: config.ts's checkRemoteAddress already forbids
-  // it wherever base_url is set, so it is undefined there by construction —
-  // forcing it would only ever discard a *local* agentic engine's own
-  // legitimate spec_dir override, which is a real per-engine feature and
-  // not specific to the redirect case at all.
-  return loadSpec(
-    { ...engineEntry, id },
-    { enginesRoot: ctx.registryOpts.enginesRoot, bunx: ctx.registryOpts.bunx },
-  );
+  return loadSpec(engineEntry, {
+    enginesRoot: ctx.registryOpts.enginesRoot,
+    bunx: ctx.registryOpts.bunx,
+  });
 }
 
 /**
@@ -610,23 +611,6 @@ function resolveUpstreamModelId(
   return findModelOnEngine(config.routes, engineId, modelSeg)?.model ?? modelSeg;
 }
 
-/**
- * The engine entry a remote call actually resolves against. Unchanged when
- * no upstream matched -- a route's `upstream` naming an id absent from
- * `config.upstreams` is a real loadConfig()'d config's impossibility
- * (config.ts refuses it at parse), but never blanks the engine's own
- * dead-but-standing base_url/secret over a lookup that simply found
- * nothing; only a *found* upstream's fields ever substitute in.
- */
-function withUpstreamAddress(
-  engineEntry: EngineEntry,
-  upstream: Upstream | undefined,
-): EngineEntry {
-  return upstream === undefined
-    ? engineEntry
-    : { ...engineEntry, base_url: upstream.base_url, secret: upstream.secret };
-}
-
 type RedirectResolution =
   | { ok: true; env: Record<string, string> }
   | { ok: false; result: HopResult };
@@ -637,33 +621,29 @@ type RedirectResolution =
  * and a lone request to just this engine surfaces the fix command directly.
  * The resolved value only ever reaches the child's environment below --
  * never a log line, an error body, or anything this function returns.
- *
- * `engineEntry.id` doubles as the engine id everywhere here (`config.engines`
- * is keyed on it), so this needs no separate `ctx` — a `DoorContext` would
- * only ever contribute `secretExec`, and taking it directly makes this
- * testable without constructing one.
  */
 export async function resolveRedirect(
-  engineEntry: EngineEntry,
+  upstream: Upstream,
+  engineId: string,
   modelSeg: string,
   config: Config,
   secretExec?: SecretExec,
 ): Promise<RedirectResolution> {
-  const { base_url } = engineEntry;
+  const { base_url } = upstream;
   if (base_url === undefined) {
     // Config requires a secret alongside a base_url but not the converse, so
-    // an address-less remote reaches here and must refuse rather than hand
+    // an address-less upstream reaches here and must refuse rather than hand
     // the child an undefined upstream.
     return {
       ok: false,
-      result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(noBaseUrlFix(engineEntry.id)) },
+      result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(noBaseUrlFix(upstream.id)) },
     };
   }
-  const resolved = await resolveUpstreamSecret(engineEntry, secretExec);
+  const resolved = await resolveUpstreamSecret(upstream, secretExec);
   if (!resolved.ok) {
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
-  const model = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
+  const model = resolveUpstreamModelId(config, engineId, modelSeg);
   return { ok: true, env: redirectEnv(base_url, resolved.value, model) };
 }
 
@@ -733,15 +713,21 @@ async function execAgentic(
 
   // A route naming a real upstream (not ambient, not this box's own `local`)
   // redirects to it: the engine's own launch is identical either way, only
-  // its upstream differs, so the upstream's base_url/secret substitute for
-  // the engine's own dead-but-standing fields rather than replacing them.
+  // its resolved upstream differs.
   let extraEnv: Record<string, string> | undefined;
   const route = findModelOnEngine(config.routes, engineId, modelSeg);
   const upstreamId = route?.upstream ?? null;
   if (upstreamId !== null && upstreamId !== "local") {
     const upstream = config.upstreams.find((u) => u.id === upstreamId);
+    if (upstream === undefined) {
+      return {
+        status: STATUS_BAD_GATEWAY,
+        body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
+      };
+    }
     const redirect = await resolveRedirect(
-      withUpstreamAddress(engineEntry, upstream),
+      upstream,
+      engineId,
       modelSeg,
       config,
       ctx.doorOpts.secretExec,
@@ -773,13 +759,9 @@ async function execAgentic(
     agentVersion: engineEntry.agent_version,
     // An agent CLI reaches its model back through engined's own door, so an
     // opencode turn is dispatched, chained and accounted for like any other.
-    upstream:
-      engineEntry.agent_model === undefined
-        ? undefined
-        : {
-            baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`,
-            model: engineEntry.agent_model,
-          },
+    // The model is always the one this request itself resolved -- an agent
+    // with no `configure` (claude) simply never reads this.
+    upstream: { baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`, model: modelSeg },
     args: engineEntry.args,
     envAllowlist: loaded.spec.env,
     workdir,
@@ -811,18 +793,20 @@ async function execRemoteHttp(
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
   const config = ctx.getConfig();
-  // The route's own upstream carries the address and secret now, not the
-  // engine -- substituted onto a shim so `resolveUpstream` (which still reads
-  // the dead-but-standing EngineEntry fields) resolves the right one.
+  // The route's own upstream carries the address and secret; the engine
+  // itself has none of its own.
   const route = findModelOnEngine(config.routes, engineEntry.id, modelSeg);
   const upstream =
     route?.upstream === undefined || route.upstream === null
       ? undefined
       : config.upstreams.find((u) => u.id === route.upstream);
-  const resolution = await resolveUpstream(
-    withUpstreamAddress(engineEntry, upstream),
-    ctx.doorOpts.secretExec,
-  );
+  if (upstream === undefined) {
+    return {
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineEntry.id}" has no resolvable upstream`),
+    };
+  }
+  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
   if (!resolution.ok) {
     return { status: resolution.status, body: jsonErrorBody(resolution.error) };
   }
@@ -837,7 +821,7 @@ async function execRemoteHttp(
   // whatever else this upstream takes) -- the caller's own body wins, the same
   // way a [model.args] key wins over [engine.args] one layer down.
   const callerBody = stripField(req.rawBody, "local_only");
-  const body = withoutCallerNulls({ ...resolution.endpoint.args, ...callerBody }, callerBody);
+  const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody);
   const init = openAiRequestInit(body, modelId, req.signal);
   const response = await fetch(
     upstreamUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
@@ -1088,10 +1072,10 @@ function audioStart(ctx: DoorContext): EngineStart {
     const upstreamId = route?.upstream ?? null;
     if (engine && upstreamId !== null && upstreamId !== "local") {
       const upstream = config.upstreams.find((u) => u.id === upstreamId);
-      const resolution = await resolveUpstream(
-        withUpstreamAddress(engine, upstream),
-        ctx.doorOpts.secretExec,
-      );
+      if (upstream === undefined) {
+        return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` };
+      }
+      const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
       return resolution.ok
         ? { private_url: null, remote: resolution.endpoint }
         : { private_url: null, unavailable: resolution.error };
@@ -1670,10 +1654,7 @@ if (import.meta.main) {
       // Anthropic. `agenticStatus`'s version-proof gate is what keeps this
       // from firing per request or per status poll -- it only ever invokes
       // the runner when the configured pin differs from the one last proved.
-      agenticProbeRunner: buildAgenticProbeRunner(
-        bunx,
-        `http://127.0.0.1:${startupConfig.listen_port}/openai/v1`,
-      ),
+      agenticProbeRunner: buildAgenticProbeRunner(bunx),
     });
   } catch (err) {
     process.stderr.write(`${errMessage(err)}\n`);

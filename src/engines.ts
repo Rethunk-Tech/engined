@@ -366,7 +366,6 @@ function statusFrom(engine: EngineEntry, spec: Spec, runtime: RuntimeStatus): En
   return {
     id: engine.id,
     kind: spec.kind,
-    egress: engine.egress,
     serves: spec.serves,
     streaming: streamingOf(spec),
     state: runtime.state,
@@ -553,7 +552,6 @@ export class EngineRegistry {
       return {
         id: engine.id,
         kind: spec.kind,
-        egress: engine.egress,
         serves: spec.serves,
         streaming: streamingOf(spec),
         state: "installed",
@@ -576,7 +574,6 @@ export class EngineRegistry {
     return {
       id: engine.id,
       kind: spec.spec.kind,
-      egress: engine.egress,
       serves: this.serves(engine.id),
       streaming: streamingOf(spec.spec),
       state: "unavailable",
@@ -626,7 +623,6 @@ export class EngineRegistry {
     const base = {
       id: engine.id,
       kind: spec.kind,
-      egress: engine.egress,
       serves: spec.serves,
       streaming: streamingOf(spec),
       private_url: null,

@@ -491,9 +491,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
     const cfg = config({
       chat_timeout_seconds: 0.05,
       agent_timeout_seconds: 10,
-      engines: [
-        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
-      ],
+      engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
       routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
       chains: { "chain-x": ["@/local-llama/ornith"] },
     });
@@ -544,9 +542,7 @@ function llamaDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
   const cfg = config({
-    engines: [
-      engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
-    ],
+    engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
     routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
   });
   return { cfg, root };
@@ -559,7 +555,7 @@ function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
   return {
     cfg: {
       ...cfg,
-      engines: [...cfg.engines, engine({ id: "comfy", egress: "none", models_dir: "/data/comfy" })],
+      engines: [...cfg.engines, engine({ id: "comfy", models_dir: "/data/comfy" })],
     },
     root,
   };
@@ -682,9 +678,7 @@ function streamingDoorConfig(): { cfg: Config; root: string } {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
   const cfg = config({
-    engines: [
-      engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
-    ],
+    engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
     routes: [
       route({ engine: "local-llama", model: "ornith", filename: "ornith.gguf", role: "chat" }),
       route({
@@ -804,7 +798,7 @@ describe("the door: agentic and chain routing", () => {
     writeEngineSpec(root, id, CLAUDE_SPEC);
     const cfg = config({
       routes: [route({ engine: id, model: "assistant", upstream: null })],
-      engines: [engine({ id, egress: "remote", agent_version: "9.9.9" })],
+      engines: [engine({ id, agent_version: "9.9.9" })],
     });
     const spawnCalls: unknown[] = [];
     const fakeSpawn: AgenticSpawn = (argv, opts) => {
@@ -858,8 +852,8 @@ describe("the door: chain skips an engine that fails its version proof", () => {
     clearVerifiedVersion("claude-b");
     const cfg = config({
       engines: [
-        engine({ id: "claude-unproved", egress: "remote", agent_version: "1.2.3" }),
-        engine({ id: "claude-b", egress: "remote", agent_version: "4.5.6" }),
+        engine({ id: "claude-unproved", agent_version: "1.2.3" }),
+        engine({ id: "claude-b", agent_version: "4.5.6" }),
       ],
       chains: { "chain-x": ["@/claude-unproved/x", "@/claude-b/y"] },
     });
@@ -924,7 +918,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
       // Well under bun's own per-test timeout, so a correct fix resolves
       // fast and a regression fails this test rather than hanging the suite.
       agent_timeout_seconds: 0.05,
-      engines: [engine({ id, egress: "remote", agent_version: "1.2.3" })],
+      engines: [engine({ id, agent_version: "1.2.3" })],
     });
     const spawn: AgenticSpawn = (_argv, opts) =>
       new Promise((_resolve, reject) => {
@@ -967,8 +961,8 @@ describe("the door: chain routing", () => {
     // against the next hop's own log, not the response status.
     const cfg = config({
       engines: [
-        engine({ id: "claude-a", egress: "remote", agent_version: "1.2.3" }),
-        engine({ id: "claude-b", egress: "remote", agent_version: "4.5.6" }),
+        engine({ id: "claude-a", agent_version: "1.2.3" }),
+        engine({ id: "claude-b", agent_version: "4.5.6" }),
       ],
       chains: { "chain-x": ["@/claude-a/x", "@/claude-b/y"] },
     });
@@ -1063,8 +1057,8 @@ function twoEngineDoorConfig(): { cfg: Config; root: string } {
   }
   const cfg = config({
     engines: [
-      engine({ id: "llama-dead", egress: "none", models_dir: "/data/dead", models_max: 1 }),
-      engine({ id: "llama-live", egress: "none", models_dir: "/data/live", models_max: 1 }),
+      engine({ id: "llama-dead", models_dir: "/data/dead", models_max: 1 }),
+      engine({ id: "llama-live", models_dir: "/data/live", models_max: 1 }),
     ],
     routes: [
       route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
@@ -1393,16 +1387,11 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // a 5xx as advance-and-nothing-left-to-advance-to (chain.ts is not this
     // worker's file to change), so the fix text is only observable on the
     // HopResult resolveRedirect itself produces, before runChain ever sees it.
-    // resolveRedirect itself still takes a bare EngineEntry with base_url/secret
-    // on it -- execAgentic is what substitutes the resolved upstream's fields
-    // onto one before calling it; this test exercises resolveRedirect alone.
-    const kimiShapedEngine: EngineEntry = {
-      ...claudeEngine(),
-      base_url: moonshotUpstream().base_url,
-      secret: moonshotUpstream().secret,
-    };
+    // resolveRedirect takes the upstream directly now -- an engine has no
+    // address of its own to substitute onto; this test exercises it alone.
     const redirect = await resolveRedirect(
-      kimiShapedEngine,
+      moonshotUpstream(),
+      "claude",
       "kimi-k3",
       config(),
       fakeExec(undefined),
@@ -1417,12 +1406,18 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     expect(failBody.error).toContain("moonshot-api");
   });
 
-  test("a remote engine with a secret but no base_url refuses instead of redirecting nowhere", async () => {
+  test("an upstream with a secret but no base_url refuses instead of redirecting nowhere", async () => {
     // Config requires a base_url alongside a secret but not the converse, so
     // this shape is legal and must not reach the child as an undefined
     // upstream.
-    const addressless: EngineEntry = { ...claudeEngine(), secret: moonshotUpstream().secret };
-    const redirect = await resolveRedirect(addressless, "kimi-k3", config(), fakeExec("k"));
+    const addressless: Upstream = { ...moonshotUpstream(), base_url: undefined };
+    const redirect = await resolveRedirect(
+      addressless,
+      "claude",
+      "kimi-k3",
+      config(),
+      fakeExec("k"),
+    );
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
       throw new Error("expected resolveRedirect to fail without a base_url");
@@ -1439,7 +1434,7 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
     const cfg = config({
       engines: [
         claudeEngine(),
-        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
+        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
       ],
       upstreams: [moonshotUpstream()],
       routes: [

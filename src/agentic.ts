@@ -374,8 +374,6 @@ interface ProbeInput {
   agent: string;
   agentVersion: string;
   bunx: string;
-  /** An agent engined has to configure cannot be probed without one: it would be refused before it launched. */
-  upstream?: AgentTarget;
   deps: AgenticProbeRunnerDeps;
 }
 
@@ -413,7 +411,6 @@ function probeLaunch(
     prompt,
     spawn: input.deps.spawn ?? defaultAgenticSpawn,
     bunx: input.bunx,
-    upstream: input.upstream,
     ambientEnv: input.deps.ambientEnv,
   });
 }
@@ -518,23 +515,13 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
 
 export function buildAgenticProbeRunner(
   bunx: string,
-  /** This door's own base, for an agent whose upstream engined configures. */
-  doorBaseUrl: string,
   deps: AgenticProbeRunnerDeps = {},
 ): (engine: EngineEntry, agentVersion: string, agent: string) => Promise<AgenticProbeOutcome> {
-  return async (engine, agentVersion, agent) => {
-    // A probe launches the agent exactly the way a request does, so it needs
-    // the same upstream a request would get -- without it, an agent engined
-    // configures is refused before it spawns and the probe fails having
-    // proved nothing.
-    const upstream =
-      engine.agent_model === undefined
-        ? undefined
-        : { baseUrl: doorBaseUrl, model: engine.agent_model };
+  return async (_engine, agentVersion, agent) => {
     // Ordered, and stopped at the first failure: each run is a real billed
     // call, and a pin already proven broken should not pay for the next one.
     for (const probe of AGENT_PROBES[agent] ?? []) {
-      const outcome = await probe.run({ agent, agentVersion, bunx, upstream, deps });
+      const outcome = await probe.run({ agent, agentVersion, bunx, deps });
       if (!outcome.ok) {
         return { ok: false, failedProbe: probe.name };
       }

@@ -66,15 +66,7 @@ function doorWith(exec: Exec, releaseFetch?: ReleaseFetch) {
   writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
   return createDoor(
     config({
-      engines: [
-        engine({ id: "local-llama", egress: "none" }),
-        engine({
-          id: "hosted",
-          egress: "remote",
-          kind: "openai-http",
-          base_url: "https://api.example.com/v1",
-        }),
-      ],
+      engines: [engine({ id: "local-llama" }), engine({ id: "hosted", kind: "openai-http" })],
     }),
     {
       enginesRoot: root,
@@ -200,16 +192,13 @@ test("release refuses a kind that has no such endpoint", async () => {
 test("release on a stopped engine succeeds without reaching the endpoint", async () => {
   const root = mkdtempSync(join(TEST_ROOT, "door-"));
   writeEngineSpec(root, "comfy", COMFY_SPEC);
-  const door = createDoor(
-    config({ engines: [engine({ id: "comfy", egress: "none", models_dir: "/models" })] }),
-    {
-      enginesRoot: root,
-      bunx: BUNX,
-      exec: () => Promise.resolve({ stdout: "", stderr: "", exitCode: 0 }),
-      releaseFetch: () => Promise.resolve({ ok: false, status: 500 }),
-      comfyPollIntervalMs: 1_000_000,
-    },
-  );
+  const door = createDoor(config({ engines: [engine({ id: "comfy", models_dir: "/models" })] }), {
+    enginesRoot: root,
+    bunx: BUNX,
+    exec: () => Promise.resolve({ stdout: "", stderr: "", exitCode: 0 }),
+    releaseFetch: () => Promise.resolve({ ok: false, status: 500 }),
+    comfyPollIntervalMs: 1_000_000,
+  });
   const res = await door.fetch(
     new Request("http://engined/engined/v1/engines/comfy/release", { method: "POST" }),
   );

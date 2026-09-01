@@ -101,7 +101,6 @@ test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected 
     `
 [[engine]]
 id = "claude"
-egress = "remote"
 agent_version = "1.2.3"
 
   [engine.args]
@@ -355,7 +354,7 @@ test("runAgentic: a successful result's version is the pin that was launched, no
   expect(result.version).toBe(PIN);
 });
 
-const PROBE_ENGINE: EngineEntry = { id: "probe-engine", egress: "remote", args: {} };
+const PROBE_ENGINE: EngineEntry = { id: "probe-engine", args: {} };
 
 /** Reads the witness path back out of the hook the hook-silence probe planted, the way a hook that actually fired would target it. */
 function witnessPathFromCwd(cwd: string): string | undefined {
@@ -383,7 +382,7 @@ function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 
 /** Every probe test below wires the same engine and pin through buildAgenticProbeRunner, varying only the injected spawn. */
 function runProbe(spawn: AgenticSpawn) {
-  const runner = buildAgenticProbeRunner(BUNX, "http://127.0.0.1:29200/v1", { spawn });
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
   return runner(PROBE_ENGINE, PIN, "claude");
 }
 

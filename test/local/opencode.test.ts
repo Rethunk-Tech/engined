@@ -125,8 +125,8 @@ describe(title("opencode, through this door, under the sandbox"), () => {
   test.skipIf(!READY)(
     "the version-proof gate passes, and does it without a model round trip",
     async () => {
-      const runner = buildAgenticProbeRunner(BUNX as string, DOOR);
-      const engine = { id: "opencode", agent_model: MODEL } as EngineEntry;
+      const runner = buildAgenticProbeRunner(BUNX as string);
+      const engine = { id: "opencode", args: {} } as EngineEntry;
       const startedAt = Date.now();
       expect(await runner(engine, VERSION as string, "opencode")).toEqual({ ok: true });
       // The point of the sandbox probe, not incidental: an agentic status poll

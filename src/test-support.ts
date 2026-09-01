@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
-import type { Config, EngineEntry, ModelEntry, ResolvedRoute } from "./types.ts";
+import type { Config, EngineEntry, ModelEntry, ResolvedRoute, Upstream } from "./types.ts";
 
 /** The bunx path every test spec is built against; never resolved from a real PATH. */
 export const BUNX = "/home/x/.bun/bin/bunx";
@@ -31,12 +31,22 @@ export function makeTestRoot(prefix: string): string {
 }
 
 export function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return { id: "e", egress: "none", args: {}, ...overrides };
+  return { id: "e", args: {}, ...overrides };
 }
 
 /** A `[[model]]` capability row -- unrelated to any engine or upstream. See `route()` for the engine/upstream/model pairing. */
 export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
   return { id: "m", ...overrides };
+}
+
+/**
+ * One `[[upstream]]`, resolved: where a route's bytes actually come from.
+ * Egress is expressible only here (and on `route()`'s own `upstream` id,
+ * which this is what it resolves against) -- `loadConfig()` can no longer
+ * produce an engine carrying its own egress, so no fixture may either.
+ */
+export function upstream(overrides: Partial<Upstream> = {}): Upstream {
+  return { id: "local", egress: "none", ...overrides };
 }
 
 /** One `[[route]]`, resolved: an engine paired with an upstream and, where one applies, a model. Defaults to the local llama shape most suites build against. */

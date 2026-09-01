@@ -1,5 +1,5 @@
 /**
- * The remote proxy: a configured address plus one keyring header, and the
+ * The upstream proxy: a configured address plus one keyring header, and the
  * two doors that speak through it. Every upstream here is a real
  * `Bun.serve`, and each one records the requests it actually received —
  * a status code alone never proves the wire shape was right.
@@ -10,8 +10,8 @@ import { handleSpeech, handleTranscription } from "./audio.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
 import { config as baseConfigFixture, route } from "./test-support.ts";
-import type { Config, EngineEntry } from "./types.ts";
-import { isRemote, resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
+import type { Config, Upstream } from "./types.ts";
+import { resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
 
 const TEST_LISTEN_PORT = 39_218;
 const SAMPLE_WAV = new Uint8Array(Buffer.from("RIFF____WAVEfmt ", "utf8"));
@@ -29,14 +29,12 @@ const foundSecret: SecretExec = async () => ({
 /** A clean "no such item": `secret-tool` prints nothing on either stream. */
 const missingSecret: SecretExec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
 
-function remoteEngine(overrides: Partial<EngineEntry> = {}): EngineEntry {
+function elevenlabsUpstream(overrides: Partial<Upstream> = {}): Upstream {
   return {
     id: "elevenlabs",
-    egress: "remote",
-    kind: "stt",
     base_url: "https://api.elevenlabs.io/v1",
     secret: { ...SECRET_REF },
-    args: {},
+    egress: "remote",
     ...overrides,
   };
 }
@@ -58,13 +56,8 @@ test("upstreamPath drops the door's own /v1, which every base_url already carrie
   expect(upstreamPath("/v1beta/models")).toBe("/v1beta/models");
 });
 
-test("isRemote is base_url and nothing else", () => {
-  expect(isRemote(remoteEngine())).toBe(true);
-  expect(isRemote({ id: "local-llama", egress: "none", args: {} })).toBe(false);
-});
-
 test("resolveUpstream projects the secret into exactly the header config named", async () => {
-  const resolution = await resolveUpstream(remoteEngine(), foundSecret);
+  const resolution = await resolveUpstream(elevenlabsUpstream(), foundSecret);
   expect(resolution.ok).toBe(true);
   if (!resolution.ok) {
     return;
@@ -73,8 +66,8 @@ test("resolveUpstream projects the secret into exactly the header config named",
   expect(resolution.endpoint.base_url).toBe("https://api.elevenlabs.io/v1");
 });
 
-test("a remote engine with no secret is a 502 -- misconfigured, not merely unavailable", async () => {
-  const resolution = await resolveUpstream(remoteEngine({ secret: undefined }), foundSecret);
+test("an upstream with no secret is a 502 -- misconfigured, not merely unavailable", async () => {
+  const resolution = await resolveUpstream(elevenlabsUpstream({ secret: undefined }), foundSecret);
   expect(resolution.ok).toBe(false);
   if (resolution.ok) {
     return;
@@ -83,7 +76,7 @@ test("a remote engine with no secret is a 502 -- misconfigured, not merely unava
 });
 
 test("a missing keyring entry is a 503 carrying the runnable secret-tool fix", async () => {
-  const resolution = await resolveUpstream(remoteEngine(), missingSecret);
+  const resolution = await resolveUpstream(elevenlabsUpstream(), missingSecret);
   expect(resolution.ok).toBe(false);
   if (resolution.ok) {
     return;
@@ -133,7 +126,10 @@ test("a remote STT engine posts the door's own model, not an engine-config defau
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
-    const resolution = await resolveUpstream(remoteEngine({ base_url: fake.base }), foundSecret);
+    const resolution = await resolveUpstream(
+      elevenlabsUpstream({ base_url: fake.base }),
+      foundSecret,
+    );
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) {
       return;
@@ -171,7 +167,10 @@ test("a remote STT engine with no model resolved is a 502, not a silent default"
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
-    const resolution = await resolveUpstream(remoteEngine({ base_url: fake.base }), foundSecret);
+    const resolution = await resolveUpstream(
+      elevenlabsUpstream({ base_url: fake.base }),
+      foundSecret,
+    );
     if (!resolution.ok) {
       throw new Error("expected the fake secret to resolve");
     }
@@ -191,9 +190,9 @@ test("a remote STT engine with no model resolved is a 502, not a silent default"
   }
 });
 
-test("a remote engine whose secret will not resolve reports the fix, not 'not available'", async () => {
+test("an upstream whose secret will not resolve reports the fix, not 'not available'", async () => {
   const result = await handleTranscription({ engine: "elevenlabs", file: SAMPLE_WAV }, async () => {
-    const resolution = await resolveUpstream(remoteEngine(), missingSecret);
+    const resolution = await resolveUpstream(elevenlabsUpstream(), missingSecret);
     return resolution.ok
       ? { private_url: null, remote: resolution.endpoint }
       : { private_url: null, unavailable: resolution.error };
@@ -205,7 +204,7 @@ test("a remote engine whose secret will not resolve reports the fix, not 'not av
 test("the speech door says so rather than pretending a remote engine failed to start", async () => {
   const result = await handleSpeech({ engine: "elevenlabs", input: "hello" }, async () => ({
     private_url: null,
-    remote: { base_url: "https://x", headers: {}, args: {} },
+    remote: { base_url: "https://x", headers: {} },
   }));
   expect(result.status).toBe(502);
   expect(JSON.stringify(result.body)).toContain("no remote speech dialect ships");
@@ -250,14 +249,13 @@ function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop
 function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {
   return baseConfig({
     routes: [route({ engine: "hosted", model: "upstream-model-7", upstream: "hosted" })],
-    engines: [
+    engines: [{ id: "hosted", kind: "openai-http", args: engineArgs }],
+    upstreams: [
       {
         id: "hosted",
-        egress: "remote",
-        kind: "openai-http",
         base_url: `${base}/v1`,
         secret: { service: "svc", username: "user", header: "x-api-key" },
-        args: engineArgs,
+        egress: "remote",
       },
     ],
     chains: { "chain-private": ["@/hosted/upstream-model-7"] },

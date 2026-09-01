@@ -62,7 +62,7 @@ test("an unresolved spec placeholder exits 78 rather than crashing", async () =>
       'path   = "/health"',
       "status = 200",
     ].join("\n"),
-    ["listen_port = 39218", "", "[[engine]]", 'id     = "probe"', 'egress = "none"'].join("\n"),
+    ["listen_port = 39218", "", "[[engine]]", 'id     = "probe"'].join("\n"),
   );
   const { code, stderr } = await runDaemon(env);
   expect(code).toBe(FatalError.EXIT_CODE);
@@ -102,7 +102,7 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
         'path   = "/health"',
         "status = 200",
       ].join("\n"),
-      [`listen_port = ${port}`, "", "[[engine]]", 'id     = "probe"', 'egress = "none"'].join("\n"),
+      [`listen_port = ${port}`, "", "[[engine]]", 'id     = "probe"'].join("\n"),
     );
     const { code, stderr } = await runDaemon(env);
     expect(code).toBe(FatalError.EXIT_CODE);

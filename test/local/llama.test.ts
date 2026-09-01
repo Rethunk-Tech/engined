@@ -56,7 +56,7 @@ interface Fixture {
   error?: string;
 }
 
-const EMPTY_ENGINE: EngineEntry = { id: "local-llama", egress: "none", args: {} };
+const EMPTY_ENGINE: EngineEntry = { id: "local-llama", args: {} };
 
 /**
  * `loadSpec` needs `{models_max}` and `{preset_ini}` resolved to substitute

@@ -254,10 +254,10 @@ model    = "k3"
 # accounted for like every other call here. Its route names the `local`
 # upstream for that reason: the prompt does not leave the machine.
 #
-# agent_model is required for this agent and meaningless for claude. It is
-# the model id this door serves, resolved back through listen_port --
-# engined writes opencode's provider config naming it, because opencode is
-# configured by file rather than by flags.
+# opencode is configured by file rather than by flags: engined resolves the
+# request's own model (below, "code") back through listen_port and writes
+# opencode's provider config naming it -- there is no separate agent_model to
+# set, the model a caller asked for IS the model opencode is pointed at.
 #
 # The floor: opencode exposes NO flag that restricts its tools, and its config
 # floor is overridable by an opencode.json in the workdir or any ancestor of
@@ -269,10 +269,8 @@ model    = "k3"
 [[engine]]
 id            = "opencode"
 agent_version = "1.18.25"
-agent_model   = "ornith"
 
-# The model a caller names to run an opencode task -- passed through like any
-# other agentic model id, not tied to agent_model above.
+# The model a caller names to run an opencode task.
 [[route]]
 engine   = "opencode"
 upstream = "local"
@@ -371,9 +369,9 @@ filename = "ggml-small.en-q8_0.bin"
 # The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so its engine declares no models_dir and no
 # idle_stop_seconds -- there is nothing to stop. Which one a caller gets is
-# the route it names on /openai/v1/audio/transcriptions: "whisper" and
-# "whisper-fast" stay on this box, "elevenlabs" does not, and the upstream is
-# what says so.
+# the route it names on /openai/v1/audio/transcriptions: "whisper" (either of
+# its two models above) stays on this box, "elevenlabs" does not, and the
+# upstream is what says so.
 [[engine]]
 id      = "elevenlabs"
 kind    = "stt"       # required: with no spec directory there is nothing else to read it from.

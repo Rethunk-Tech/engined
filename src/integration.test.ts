@@ -19,6 +19,7 @@ import {
   config as sharedConfig,
   tempPresetPath as sharedTempPresetPath,
   startFakeUpstream,
+  upstream,
 } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
@@ -130,7 +131,6 @@ function containerEngine(
   // of it on kind === "openai-http" too.
   return {
     id,
-    egress: "none",
     args: {},
     spec_dir: specDirFor(toml),
     models_dir: "/models-host",
@@ -153,7 +153,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC_STREAMING),
-      containerEngine("claude", AGENTIC_SPEC, { egress: "remote" }),
+      containerEngine("claude", AGENTIC_SPEC),
       containerEngine("comfy", COMFY_SPEC),
       containerEngine("chatterbox", ttsSpec()),
     ],
@@ -579,7 +579,11 @@ test("local_only: true against a public chain never reaches a remote hop, even w
       ],
       engines: [
         containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
-        containerEngine("remote", openaiSpec(), { egress: "remote" }),
+        containerEngine("remote", openaiSpec()),
+      ],
+      upstreams: [
+        upstream({ id: "local", egress: "none" }),
+        upstream({ id: "remote", egress: "remote" }),
       ],
       chains: { "chain-public": ["@/local/m", "@/remote/m"] },
     },
@@ -643,9 +647,7 @@ test("an agentic attempt with no workdir returns 400", async () => {
     // agent_version drives buildArgv directly (not the loaded spec's own
     // command array, which agentic.ts never reads) -- required for
     // execAgentic to reach the workdir check at all.
-    engines: [
-      containerEngine("claude", AGENTIC_SPEC, { egress: "remote", agent_version: "1.0.0" }),
-    ],
+    engines: [containerEngine("claude", AGENTIC_SPEC, { agent_version: "1.0.0" })],
   });
   const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
 

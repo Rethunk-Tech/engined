@@ -1,5 +1,5 @@
 /**
- * The half every remote-addressed engine shares: an address, and a keyring
+ * The half every upstream-addressed engine shares: an address, and a keyring
  * secret projected into exactly one header. Nothing is launched, nothing is
  * resident, and no occupancy applies — which is why this sits beside the
  * lifecycle rather than inside it.
@@ -18,7 +18,7 @@
 import type { Exec as SecretExec } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_UNAVAILABLE } from "./http.ts";
 import { resolveSecret } from "./secrets.ts";
-import type { EngineEntry } from "./types.ts";
+import type { Upstream } from "./types.ts";
 
 /** Where an upstream actually is, and what proves we may talk to it. */
 export interface UpstreamEndpoint {
@@ -26,19 +26,13 @@ export interface UpstreamEndpoint {
   base_url: string;
   /** `{ [secret.header]: <resolved value> }`. One header, named by config. */
   headers: Record<string, string>;
-  /**
-   * The engine's `[engine.args]`, which for an upstream-addressed engine are
-   * wire parameters rather than process flags — there is no process. Each
-   * dialect reads the keys it needs and ignores the rest.
-   */
-  args: Record<string, unknown>;
 }
 
 type UpstreamResolution =
   | { ok: true; endpoint: UpstreamEndpoint }
   | { ok: false; status: number; error: string };
 
-/** `header` rides along so a caller never has to reach back into `engine.secret` the resolver already validated. */
+/** `header` rides along so a caller never has to reach back into `upstream.secret` the resolver already validated. */
 type SecretResolution =
   | { ok: true; value: string; header: string }
   | { ok: false; status: number; error: string };
@@ -48,14 +42,9 @@ const LEADING_SLASHES = /^\/+/;
 /** Anchored on the segment boundary so `/v1beta/...` is left alone. */
 const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/;
 
-/** `base_url` is the whole test: an engine that has one launches nothing. */
-export function isRemote(engine: EngineEntry): boolean {
-  return engine.base_url !== undefined;
-}
-
 /** One wording for the missing-secret refusal, shared by the resolver and by `GET /v1/engines`'s `fix`. */
-export function noSecretConfiguredFix(engineId: string): string {
-  return `engine "${engineId}" has no configured secret`;
+export function noSecretConfiguredFix(upstreamId: string): string {
+  return `upstream "${upstreamId}" has no configured secret`;
 }
 
 /**
@@ -69,10 +58,10 @@ export function noSecretConfiguredFix(engineId: string): string {
  * operator's next sign-in without a reload.
  */
 export async function resolveUpstreamSecret(
-  engine: EngineEntry,
+  upstream: Upstream,
   secretExec?: SecretExec,
 ): Promise<SecretResolution> {
-  if (!engine.secret) {
+  if (!upstream.secret) {
     return {
       ok: false,
       // 502, not 503: a missing configured secret is misconfiguration, and
@@ -80,39 +69,38 @@ export async function resolveUpstreamSecret(
       // keyring entry earns below, which resolves at the operator's next
       // sign-in.
       status: STATUS_BAD_GATEWAY,
-      error: noSecretConfiguredFix(engine.id),
+      error: noSecretConfiguredFix(upstream.id),
     };
   }
-  const outcome = await resolveSecret(engine.secret, secretExec);
+  const outcome = await resolveSecret(upstream.secret, secretExec);
   return outcome.ok
-    ? { ok: true, value: outcome.value, header: engine.secret.header }
+    ? { ok: true, value: outcome.value, header: upstream.secret.header }
     : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix };
 }
 
 /** One wording for the missing-address refusal, shared by every caller that has to have one. */
-export function noBaseUrlFix(engineId: string): string {
-  return `engine "${engineId}" has no configured base_url`;
+export function noBaseUrlFix(upstreamId: string): string {
+  return `upstream "${upstreamId}" has no configured base_url`;
 }
 
 /** The address and the one header, for every caller that speaks HTTP straight to an upstream. */
 export async function resolveUpstream(
-  engine: EngineEntry,
+  upstream: Upstream,
   secretExec?: SecretExec,
 ): Promise<UpstreamResolution> {
-  if (engine.base_url === undefined) {
+  if (upstream.base_url === undefined) {
     // 502, not 503: misconfiguration, which no amount of waiting fixes.
-    return { ok: false, status: STATUS_BAD_GATEWAY, error: noBaseUrlFix(engine.id) };
+    return { ok: false, status: STATUS_BAD_GATEWAY, error: noBaseUrlFix(upstream.id) };
   }
-  const resolved = await resolveUpstreamSecret(engine, secretExec);
+  const resolved = await resolveUpstreamSecret(upstream, secretExec);
   if (!resolved.ok) {
     return resolved;
   }
   return {
     ok: true,
     endpoint: {
-      base_url: engine.base_url,
+      base_url: upstream.base_url,
       headers: { [resolved.header]: resolved.value },
-      args: engine.args,
     },
   };
 }

@@ -55,7 +55,6 @@ egress = "none"
 [[engine]]
 id = "local-llama"
 kind = "openai-http"
-egress = "none"
 models_dir = "${dir}"
 
 [[route]]

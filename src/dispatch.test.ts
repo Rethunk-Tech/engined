@@ -15,23 +15,11 @@ const SPEECH = "/openai/v1/audio/speech";
  * to fall back to and refuses at registry construction).
  */
 function remoteOpenaiHttp(id: string): EngineEntry {
-  return engine({
-    id,
-    egress: "remote",
-    kind: "openai-http",
-    base_url: `https://example.com/${id}`,
-    secret: { service: id, username: "u", header: "x-api-key" },
-  });
+  return engine({ id, kind: "openai-http" });
 }
 
 function remoteTts(id: string): EngineEntry {
-  return engine({
-    id,
-    egress: "remote",
-    kind: "tts",
-    base_url: `https://example.com/${id}`,
-    secret: { service: id, username: "u", header: "x-api-key" },
-  });
+  return engine({ id, kind: "tts" });
 }
 
 /** No engine in these fixtures is a container, so no docker exec is ever invoked. */
@@ -188,7 +176,7 @@ describe("modelless engine addressing", () => {
 
   test("comfy's serves=[] means its route resolves but no endpoint accepts it", () => {
     const cfg = config({
-      engines: [engine({ id: "comfy", egress: "none" })],
+      engines: [engine({ id: "comfy" })],
       routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
     });
     const reg = registry(cfg, ENGINES_ROOT);
@@ -202,7 +190,7 @@ describe("modelless engine addressing", () => {
 
   test("@/comfy/local/x is refused: comfy has no model to name", () => {
     const cfg = config({
-      engines: [engine({ id: "comfy", egress: "none" })],
+      engines: [engine({ id: "comfy" })],
       routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
     });
     const reg = registry(cfg, ENGINES_ROOT);
@@ -273,7 +261,7 @@ describe("segment count decides the reading", () => {
     // resolver commits to it and reports the endpoint mismatch rather than
     // falling through to "far", which does serve it.
     const cfg = config({
-      engines: [{ ...remoteOpenaiHttp("far") }, { ...remoteTts("near"), egress: "none" }],
+      engines: [{ ...remoteOpenaiHttp("far") }, { ...remoteTts("near") }],
       upstreams: [
         { id: "far-up", egress: "remote" },
         { id: "near-up", egress: "none" },

@@ -208,13 +208,6 @@ export interface ResolvedRoute extends ModelCapabilities {
 export interface EngineEntry {
   id: string;
   /**
-   * Dead weight: egress now belongs to the upstream a route pairs this
-   * engine with, never to the engine itself. Nothing new reads this field;
-   * it stays only because deleting it here would red every one of its old
-   * readers at once instead of in the single edit that also removes them.
-   */
-  egress?: Egress;
-  /**
    * Configured but not served: this engine's own `[[engine]]` table carries
    * `disable = true`. Kept on the entry rather than filtered out of `Config`
    * so `GET /engined/v1/engines` can report it as off — which is the
@@ -229,16 +222,8 @@ export interface EngineEntry {
   idle_stop_seconds?: number;
   ready_timeout_s?: number;
   agent_version?: string;
-  /**
-   * The model the agent CLI itself talks to, resolved against engined's own
-   * door. Required by an agent engined has to configure (opencode); unused by
-   * one that carries its upstream in the environment (claude).
-   */
-  agent_model?: string;
-  /** An engine that is only a remote address launches nothing. */
+  /** An engine has no address of its own; every dialect it speaks comes from `kind` or a real shipped spec. */
   kind?: EngineKind;
-  base_url?: string;
-  secret?: SecretRef;
   /** The engine's own process flags. A model's args win over the same key. */
   args: Record<string, unknown>;
 }
@@ -442,7 +427,7 @@ export interface RoleContention {
 export interface EngineStatus {
   id: string;
   kind: EngineKind;
-  /** Dead weight, mirroring `EngineEntry.egress` -- absent on every engine, since egress now belongs to the upstream a route pairs it with. */
+  /** Dead weight -- absent on every engine, since egress now belongs to the upstream a route pairs it with. */
   egress?: Egress;
   serves: string[];
   state: EngineState;
