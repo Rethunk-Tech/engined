@@ -82,7 +82,7 @@ path = "/health"
 status = 200
 `;
 
-/** Mirrors engines/local-llama/spec.toml's own `streaming = true` -- llama has streamed all along, and this is what proves a row can finally say so. */
+/** Mirrors engines/llama/spec.toml's own `streaming = true` -- llama has streamed all along, and this is what proves a row can finally say so. */
 const OPENAI_SPEC_STREAMING = `
 kind = "openai-http"
 upstream = "self"
@@ -110,7 +110,7 @@ kind = "comfy"
 upstream = "self"
 image = "test-comfy:local"
 obtain = "pull"
-serves = []
+serves = ["/engined/v1/comfy/:engine/:upstream/prompt"]
 command = []
 
 [ready]
@@ -138,7 +138,7 @@ function containerEngine(
   };
 }
 
-test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy stays out, every modelless audio engine stays in", async () => {
+test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy's modelless route lists like any other engine's", async () => {
   const config = baseConfig({
     routes: [
       route({
@@ -150,6 +150,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
       }),
       route({ engine: "claude", model: "sonnet-5", upstream: null }),
       route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
+      route({ engine: "comfy", model: undefined, upstream: "local" }),
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC_STREAMING),
@@ -187,10 +188,15 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(ids).not.toHaveLength(0);
 
     expect(new Set(ids)).toEqual(
-      new Set(["@/local/ornith", "@/claude/sonnet-5", "@/chatterbox-multi/local", "chain-x"]),
+      new Set([
+        "@/local/ornith",
+        "@/claude/sonnet-5",
+        "@/chatterbox-multi/local",
+        "@/comfy/local",
+        "chain-x",
+      ]),
     );
     expect(ids).not.toContain("comfy");
-    expect(ids).not.toContain("@/comfy/local");
     // llama has streamed on the wire all along with no way to declare it;
     // this is the first place a caller can ask and get a real answer.
     expect(rows.find((r) => r.id === "@/local/ornith")?.streaming).toBe(true);

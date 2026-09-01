@@ -1272,7 +1272,7 @@ function redirectDoorRoot(): string {
 }
 
 /** A real door over claude, routed to moonshot for one model, its resolved secret and every spawned argv/env recorded rather than actually launched. */
-function createKimiDoor(): {
+function createKimiDoor(ambientSibling = false): {
   door: Door;
   spawnCalls: { argv: string[]; env: Record<string, string> }[];
 } {
@@ -1280,7 +1280,10 @@ function createKimiDoor(): {
   const cfg = config({
     engines: [claudeEngine()],
     upstreams: [moonshotUpstream()],
-    routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
+    routes: [
+      route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
+      ...(ambientSibling ? [route({ engine: "claude", upstream: null, model: "kimi-k3" })] : []),
+    ],
   });
   const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
   const spawn: AgenticSpawn = (spawnArgv, opts) => {
@@ -1309,6 +1312,26 @@ function createKimiDoor(): {
 }
 
 describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
+  test("the upstream segment picks the route: beside an ambient route on the same model, the three-segment address still redirects and the two-segment one runs ambient with the model in its env", async () => {
+    clearVerifiedVersion("claude");
+    const { door, spawnCalls } = createKimiDoor(true);
+    const messages = [{ role: "user", content: "hi" }];
+    const workdir = "/tmp/scratch";
+
+    const redirected = await door.fetch(
+      chatRequest({ model: "@/claude/moonshot/kimi-k3", messages, workdir }),
+    );
+    expect(redirected.status).toBe(200);
+    expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+
+    const ambient = await door.fetch(chatRequest({ model: "@/claude/kimi-k3", messages, workdir }));
+    expect(ambient.status).toBe(200);
+    const env = spawnCalls[1]?.env ?? {};
+    expect("ANTHROPIC_BASE_URL" in env).toBe(false);
+    expect("ANTHROPIC_API_KEY" in env).toBe(false);
+    expect(env.ANTHROPIC_MODEL).toBe("kimi-k3");
+  });
+
   test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
     clearVerifiedVersion("claude");
     const { door, spawnCalls } = createKimiDoor();

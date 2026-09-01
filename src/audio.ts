@@ -133,10 +133,10 @@ export interface TranscriptionRequestBody {
  * "small.en"/"medium.en"); absent for a modelless engine, which is every
  * TTS route and most STT ones.
  *
- * A remote engine lands nowhere: it has no container and so no
- * `private_url`, and `remote` carries its address and header instead. The
- * two are mutually exclusive by construction, not by convention — a
- * `base_url` engine is never handed to the lifecycle at all.
+ * A route on a non-local upstream lands nowhere: there is no container and
+ * so no `private_url`, and `remote` carries the upstream's address and
+ * header instead. The two are mutually exclusive by construction, not by
+ * convention — such a route is never handed to the lifecycle at all.
  */
 export type EngineStart = (id: string, model?: string) => Promise<StartedEngine>;
 

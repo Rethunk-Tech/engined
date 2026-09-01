@@ -80,6 +80,7 @@ import {
   MS_PER_SECOND,
   qualifiedSegments,
   type ResolvedRoute,
+  routeForHop,
   type StartResponse,
   type StartRow,
   type Upstream,
@@ -1014,7 +1015,7 @@ function egressOf(ctx: DoorContext, hop: string): Egress {
   const config = ctx.getConfig();
   const { engine: seg, upstream: upstreamSeg, model } = parseHop(hop);
   const engineId = resolveEngineSegment(seg, config) ?? seg;
-  const route = findModelOnEngine(config.routes, engineId, model, upstreamSeg);
+  const route = routeForHop(config.routes, engineId, model, upstreamSeg);
   return route === undefined ? "remote" : routeEgress(route, config.upstreams);
 }
 
@@ -1034,9 +1035,9 @@ async function execLlama(
   ctx: DoorContext,
   engineEntry: EngineEntry,
   modelSeg: string,
+  route: ResolvedRoute | undefined,
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
-  const route = findModelOnEngine(ctx.getConfig().routes, engineEntry.id, modelSeg);
   if (!route) {
     return {
       status: STATUS_BAD_GATEWAY,
@@ -1213,8 +1214,12 @@ function redirectEnv(
   if (model === undefined) {
     return env;
   }
+  return { ...env, ...claudeModelEnv(model) };
+}
+
+/** Every variable claude reads a model from, so the address segment wins over any tier default. */
+function claudeModelEnv(model: string): Record<string, string> {
   return {
-    ...env,
     ANTHROPIC_MODEL: model,
     ANTHROPIC_DEFAULT_OPUS_MODEL: model,
     ANTHROPIC_DEFAULT_SONNET_MODEL: model,
@@ -1235,11 +1240,12 @@ function resolveUpstreamModelId(
   config: Config,
   engineId: string,
   modelSeg: string,
+  upstream?: string,
 ): string | undefined {
   if (modelSeg === "") {
     return;
   }
-  const route = findModelOnEngine(config.routes, engineId, modelSeg);
+  const route = findModelOnEngine(config.routes, engineId, modelSeg, upstream);
   return route?.wire_model ?? route?.model ?? modelSeg;
 }
 
@@ -1276,7 +1282,7 @@ export async function resolveRedirect(
   if (!resolved.ok) {
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
-  const model = resolveUpstreamModelId(config, engineId, modelSeg);
+  const model = resolveUpstreamModelId(config, engineId, modelSeg, upstream.id);
   return { ok: true, env: redirectEnv(base_url, resolved.header, resolved.value, model, doorUrl) };
 }
 
@@ -1329,6 +1335,7 @@ async function execAgentic(
   ctx: DoorContext,
   engineId: string,
   modelSeg: string,
+  route: ResolvedRoute | undefined,
   req: { rawBody: Record<string, unknown>; signal: AbortSignal },
 ): Promise<HopResult> {
   const { rawBody, signal } = req;
@@ -1360,7 +1367,6 @@ async function execAgentic(
     // redirects to it: the engine's own launch is identical either way, only
     // its resolved upstream differs.
     let extraEnv: Record<string, string> | undefined;
-    const route = findModelOnEngine(config.routes, engineId, modelSeg);
     const upstreamId = route?.upstream ?? null;
     if (upstreamId !== null && upstreamId !== "local") {
       const upstream = config.upstreams.find((u) => u.id === upstreamId);
@@ -1394,6 +1400,14 @@ async function execAgentic(
         status: STATUS_BAD_GATEWAY,
         body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),
       };
+    }
+    // Ambient claude has no upstream to redirect to, but the model segment
+    // still has to reach the CLI -- otherwise `@/claude/sonnet-5` and
+    // `@/claude/opus-4` launch the same process.
+    const ambientModel =
+      route?.wire_model ?? route?.model ?? (modelSeg === "" ? undefined : modelSeg);
+    if (extraEnv === undefined && loaded.spec.agent === "claude" && ambientModel !== undefined) {
+      extraEnv = claudeModelEnv(ambientModel);
     }
     const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
     const unproved = await proveAgenticPin(ctx, engineId, workdir);
@@ -1440,12 +1454,12 @@ async function execRemoteHttp(
   ctx: DoorContext,
   engineEntry: EngineEntry,
   modelSeg: string,
+  route: ResolvedRoute | undefined,
   req: HopRequest & { signal: AbortSignal },
 ): Promise<HopResult> {
   const config = ctx.getConfig();
   // The route's own upstream carries the address and secret; the engine
   // itself has none of its own.
-  const route = findModelOnEngine(config.routes, engineEntry.id, modelSeg);
   const upstream =
     route?.upstream === undefined || route.upstream === null
       ? undefined
@@ -1460,7 +1474,7 @@ async function execRemoteHttp(
   if (!resolution.ok) {
     return { status: resolution.status, body: jsonErrorBody(resolution.error) };
   }
-  const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg);
+  const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg, upstream.id);
   if (modelId === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
@@ -1486,7 +1500,7 @@ async function execRemoteHttp(
 
 function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean): HopExec {
   return async (hop, signal) => {
-    const { engine: seg, model: modelSeg } = parseHop(hop);
+    const { engine: seg, upstream: upstreamSeg, model: modelSeg } = parseHop(hop);
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
     // Which of the two openai-http proxies applies is the resolved route's
@@ -1494,7 +1508,7 @@ function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean):
     // llama-server, anything else is proxied elsewhere with no local router.
     // Also this hop's provenance `upstream_used` -- absent for an ambient
     // route, which named no upstream at all.
-    const route = findModelOnEngine(ctx.getConfig().routes, engineId, modelSeg);
+    const route = routeForHop(ctx.getConfig().routes, engineId, modelSeg, upstreamSeg);
     const upstreamUsed = route?.upstream ?? undefined;
     const result = await execHop(ctx, req, {
       engineId,
@@ -1537,14 +1551,14 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
     };
   }
   if (kind === "agentic-cli") {
-    return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
+    return await execAgentic(ctx, engineId, modelSeg, route, { rawBody: req.rawBody, signal });
   }
   const engineEntry = ctx.registry.entry(engineId);
   if (kind === "openai-http" && engineEntry && route !== undefined && route.upstream !== "local") {
-    return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
+    return await execRemoteHttp(ctx, engineEntry, modelSeg, route, { ...req, signal });
   }
   if (kind === "openai-http" && engineEntry) {
-    return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
+    return await execLlama(ctx, engineEntry, modelSeg, route, { ...req, signal });
   }
   return {
     status: STATUS_BAD_GATEWAY,

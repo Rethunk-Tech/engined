@@ -32,6 +32,7 @@ import {
   isRecord,
   KIND_UPSTREAM_TRAIT,
   ParseError,
+  routeForHop,
 } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
@@ -690,13 +691,10 @@ function findRouteForHop(
   segs: readonly string[],
   routes: readonly ResolvedRoute[],
 ): ResolvedRoute | undefined {
-  const model = segs[segs.length - 1];
-  if (segs.length === 2) {
-    const engine = segs[0];
-    return routes.find((r) => r.engine === engine && r.model === model);
-  }
-  const [engine, upstream] = segs;
-  return routes.find((r) => r.engine === engine && r.upstream === upstream && r.model === model);
+  const [engine, second, third] = segs;
+  return third === undefined
+    ? routeForHop(routes, engine as string, second as string)
+    : routeForHop(routes, engine as string, third, second);
 }
 
 /**

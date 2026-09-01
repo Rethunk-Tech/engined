@@ -331,6 +331,28 @@ export function findModelOnEngine<
   );
 }
 
+/**
+ * The one route a resolved `@/engine/[upstream/]model` hop names. Two
+ * segments default the upstream the way the dispatcher does -- ambient, then
+ * this box's own `local` -- never whichever matching route was declared
+ * first, which is how an ambient dispatch used to run on a keyed upstream.
+ */
+export function routeForHop<T extends { engine: string; model?: string; upstream: string | null }>(
+  routes: readonly T[],
+  engineId: string,
+  model: string,
+  upstream?: string,
+): T | undefined {
+  if (upstream !== undefined) {
+    return findModelOnEngine(routes, engineId, model, upstream);
+  }
+  const matches = routes.filter((r) => r.engine === engineId && r.model === model);
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
+}
+
 /** Whether a probe response means the engine is ready to serve. */
 export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
   if (status === STATUS_NOT_FOUND) {
