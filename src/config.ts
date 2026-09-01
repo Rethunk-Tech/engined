@@ -81,6 +81,7 @@ const ROUTE_KEYS = new Set([
   "filename",
   "role",
   "keep_resident",
+  "streaming",
   "args",
   "disable",
   "input",
@@ -319,6 +320,7 @@ interface RawRoute {
   filename?: string;
   role?: Role;
   keep_resident?: boolean;
+  streaming?: boolean;
   args: Record<string, unknown>;
   disabledOwn: boolean;
   capabilities: ModelCapabilities;
@@ -368,6 +370,7 @@ function parseRouteRaw(
     filename: rawFilename === undefined ? undefined : expandConfigPath(rawFilename),
     role: roleStr as Role | undefined,
     keep_resident: optional(raw.keep_resident, "boolean", `${site} "keep_resident"`, file),
+    streaming: optional(raw.streaming, "boolean", `${site} "streaming"`, file),
     args,
     disabledOwn: parseDisable(raw, site, file) === true,
     capabilities: parseCapabilities(raw, site, file),
@@ -518,6 +521,7 @@ function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
     filename: raw.filename,
     role: raw.role,
     keep_resident: raw.keep_resident,
+    streaming: raw.streaming,
     args: raw.args,
     disabled,
     ...mergeCapabilities(baseCaps, raw.capabilities),

@@ -74,7 +74,8 @@ OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, egress, streaming, serves, state,
 capabilities}`; a chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming`, `state` and
-`capabilities` off its first hop instead.
+`capabilities` off its first hop instead. `streaming` is the engine spec's
+answer unless the route itself declares one.
 
 ## Chains
 

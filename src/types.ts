@@ -211,6 +211,8 @@ export interface ResolvedRoute extends ModelCapabilities {
    * why this is opt-in per route rather than a default.
    */
   keep_resident?: boolean;
+  /** Overrides the engine spec's `streaming` for this one route: a provider tier that cannot chunk what its siblings can. Absent means the engine's own answer. */
+  streaming?: boolean;
   /** Rendered into this model's section of the presets INI, verbatim. */
   args: Record<string, unknown>;
   /**

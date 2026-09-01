@@ -2182,7 +2182,7 @@ async function modelRow(
     upstream: route.upstream ?? undefined,
     model: route.model,
     egress: routeEgress(route, config.upstreams),
-    streaming: status?.streaming ?? false,
+    streaming: route.streaming ?? status?.streaming ?? false,
     serves: status?.serves ?? [],
     state,
     capabilities: routeCapabilities(route),
@@ -2210,7 +2210,7 @@ function chainRow(
   const status = route === undefined ? undefined : statuses.get(route.engine);
   return {
     id: chainId,
-    streaming: status?.streaming ?? false,
+    streaming: route?.streaming ?? status?.streaming ?? false,
     serves: [CONTENT_ENDPOINT_CHAT],
     state: status?.state ?? "unavailable",
     capabilities: route === undefined ? {} : routeCapabilities(route),

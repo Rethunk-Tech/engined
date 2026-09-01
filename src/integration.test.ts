@@ -148,6 +148,14 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
         filename: "ornith.gguf",
         role: "chat",
       }),
+      route({
+        engine: "local",
+        model: "quiet",
+        upstream: "local",
+        filename: "quiet.gguf",
+        role: "chat",
+        streaming: false,
+      }),
       route({ engine: "claude", model: "sonnet-5", upstream: null }),
       route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
       route({ engine: "comfy", model: undefined, upstream: "local" }),
@@ -190,6 +198,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(new Set(ids)).toEqual(
       new Set([
         "@/local/ornith",
+        "@/local/quiet",
         "@/claude/sonnet-5",
         "@/chatterbox-multi/local",
         "@/comfy/local",
@@ -200,6 +209,8 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     // llama has streamed on the wire all along with no way to declare it;
     // this is the first place a caller can ask and get a real answer.
     expect(rows.find((r) => r.id === "@/local/ornith")?.streaming).toBe(true);
+    // The route's own declaration beats the engine's spec, per row.
+    expect(rows.find((r) => r.id === "@/local/quiet")?.streaming).toBe(false);
   } finally {
     await door.registry.shutdown();
   }

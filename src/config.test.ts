@@ -97,6 +97,7 @@ const RX_UNKNOWN_ENGINE_LOCAL = /engine "local" does not exist/;
 const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
 const RX_MISSING_EGRESS = /is missing required "egress"/;
+const RX_STREAMING_KEY = /"streaming"/;
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/;
 const RX_UNRECOGNISED_ROUTE_KEY = /unrecognised key "rolee"/;
 const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/;
@@ -744,6 +745,24 @@ upstream = "local"
 model = "x"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MIXED_MODELLESS);
+  });
+});
+
+describe("streaming on a route overrides the engine's own", () => {
+  test("a boolean parses and survives; anything else is a parse error", () => {
+    const base = `
+[[engine]]
+id = "claude"
+agent_version = "1.0.0"
+
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+`;
+    const cfg = loadConfig(writeConfig(`${base}streaming = false\n`));
+    expect(cfg.routes[0]?.streaming).toBe(false);
+    expect(loadConfig(writeConfig(base)).routes[0]?.streaming).toBeUndefined();
+    expect(() => loadConfig(writeConfig(`${base}streaming = "yes"\n`))).toThrow(RX_STREAMING_KEY);
   });
 });
 

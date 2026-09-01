@@ -15,7 +15,7 @@ the bytes for a request come from and carries `base_url`, `secret` and
 execute a request. `[[model]]` is optional, declared only where there is a
 capability worth recording. `[[route]]` pairs an engine with an upstream and,
 where one applies, a model, and carries everything specific to that pairing:
-`filename`, `role`, `keep_resident`, `wire_model`, `args`. `[[chain]]` is an
+`filename`, `role`, `keep_resident`, `wire_model`, `streaming`, `args`. `[[chain]]` is an
 ordered fallback list of route addresses.
 
 ## Config versus spec, and why the split is not tidiness
@@ -49,7 +49,7 @@ error by design rather than a silent no-op.
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`) |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
-| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `keep_resident` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry |
+| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
 | `hops` | `[[chain]]` — an ordered list of route addresses |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
