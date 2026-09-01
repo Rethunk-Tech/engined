@@ -138,8 +138,9 @@ function containerEngine(
   };
 }
 
-test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy's modelless route lists like any other engine's", async () => {
-  const config = baseConfig({
+/** One route per engine kind, plus a chain, so the models list has every shape of row to prove. */
+function modelsListConfig(): Config {
+  return baseConfig({
     routes: [
       route({
         engine: "local",
@@ -175,16 +176,33 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     ],
     chains: { "chain-x": ["@/local/ornith"] },
   });
-  // GET /openai/v1/models is async and authoritative now, so it probes every
-  // engine's state through docker -- every image inspect failing keeps this
-  // test off the real docker binary without changing which addresses list.
+}
+
+/** A door whose every docker call fails: the models list probes engine state through docker, and this keeps the test off the real binary without changing which addresses list. */
+function offlineDoor(config: Config): Door {
   const exec: Exec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
-  const door = createDoor(config, {
+  return createDoor(config, {
     enginesRoot: "/nonexistent/engines",
     bunx: "/opt/test/bunx",
     exec,
   });
+}
 
+/** A chat call aimed at the embedding route, which a chat role must refuse. */
+function chatToEmbeddingRoute(door: Door): Response | Promise<Response> {
+  return door.fetch(
+    new Request("http://engined/openai/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "@/local/embed",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    }),
+  );
+}
+
+test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy's modelless route lists like any other engine's", async () => {
+  const door = offlineDoor(modelsListConfig());
   try {
     const res = await door.fetch(req("GET", "/openai/v1/models"));
     // `data` optional, because that is the shape a consumer must survive: the
@@ -225,15 +243,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(rows.find((r) => r.id === "@/local/ornith")?.serves).toEqual([
       "/openai/v1/chat/completions",
     ]);
-    const chatToEmbed = await door.fetch(
-      new Request("http://engined/openai/v1/chat/completions", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "@/local/embed",
-          messages: [{ role: "user", content: "hi" }],
-        }),
-      }),
-    );
+    const chatToEmbed = await chatToEmbeddingRoute(door);
     expect(chatToEmbed.status).toBe(400);
     expect(await chatToEmbed.text()).toContain("does not serve");
   } finally {
@@ -360,6 +370,14 @@ const CHATTERBOX_ROUTES = [
  * `/openai/v1/chat/completions`-style call -- the only way to prove what `model`
  * field engined forwarded upstream, as opposed to merely what it responded.
  */
+/** llama-server's `/v1/models`: empty until a load, then the one resident GGUF. */
+function loadedModelsResponse(lastLoadedModel: string | undefined): Response {
+  return Response.json({
+    data:
+      lastLoadedModel === undefined ? [] : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+  });
+}
+
 function fakeLlamaUpstream(
   content: string,
   chatStatus = 200,
@@ -376,12 +394,7 @@ function fakeLlamaUpstream(
       return Response.json({ success: true });
     }
     if (pathname === "/v1/models") {
-      return Response.json({
-        data:
-          lastLoadedModel === undefined
-            ? []
-            : [{ id: lastLoadedModel, status: { value: "loaded" } }],
-      });
+      return loadedModelsResponse(lastLoadedModel);
     }
     if (pathname === "/models/unload") {
       return Response.json({ ok: true });
@@ -610,15 +623,22 @@ test("a direct (non-chain) model request still forwards its own model id unchang
   );
 });
 
-test('max_egress: "none" against a public chain never reaches a remote hop, even when the local hop cannot serve', async () => {
-  // A genuinely reachable, genuinely successful remote upstream -- unlike a
-  // secretless or address-less fixture, whose own resolution failure would
-  // 502 the hop regardless of whether the ceiling ever filtered it out. Only
-  // a remote hop that WOULD answer 200 if reached makes the empty request
-  // log below a real proof of truncation, not a coincidence of a broken
-  // fixture -- exactly the class of bug that let this ceiling regress
-  // silently against the deployed door: a fixture that could not tell
-  // "refused" from "never attempted".
+/**
+ * A chain whose local hop cannot serve (its image never resolves) ahead of a
+ * genuinely reachable, genuinely successful remote upstream -- unlike a
+ * secretless or address-less fixture, whose own resolution failure would
+ * 502 the hop regardless of whether the ceiling ever filtered it out. Only
+ * a remote hop that WOULD answer 200 if reached makes an empty request log
+ * a real proof of truncation, not a coincidence of a broken fixture --
+ * exactly the class of bug that let this ceiling regress silently against
+ * the deployed door: a fixture that could not tell "refused" from "never
+ * attempted".
+ */
+function publicChainFixture(): {
+  remote: ReturnType<typeof startFakeUpstream>;
+  cfg: Partial<Config>;
+  setup: ChatDoorSetup;
+} {
   const remote = startFakeUpstream(() =>
     Response.json({
       model: "m",
@@ -628,10 +648,10 @@ test('max_egress: "none" against a public chain never reaches a remote hop, even
   const remoteSecretExec: Exec = () =>
     Promise.resolve({ stdout: "remote-key\n", stderr: "", exitCode: 0 });
   const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
-
   const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
-  await withChatDoor(
-    {
+  return {
+    remote,
+    cfg: {
       routes: [
         route({ engine: "local", role: "chat", filename: "m.gguf" }),
         route({ engine: "remote", role: "chat", upstream: "remote" }),
@@ -651,76 +671,47 @@ test('max_egress: "none" against a public chain never reaches a remote hop, even
       ],
       chains: { "chain-public": ["@/local/m", "@/remote/m"] },
     },
-    { exec, stoppables: [remote], doorOpts: { secretExec: remoteSecretExec } },
-    async (door) => {
-      const res = await door.fetch(
-        req("POST", "/openai/v1/chat/completions", {
-          body: {
-            model: "chain-public",
-            max_egress: "none",
-            messages: [{ role: "user", content: "hi" }],
-          },
-        }),
-      );
+    setup: { exec, stoppables: [remote], doorOpts: { secretExec: remoteSecretExec } },
+  };
+}
 
-      // Truncation removes the remote hop before it is ever attempted -- the
-      // empty request log is what proves that, not the response shape. The
-      // local hop was never started before this call either: the container
-      // adopt/start-on-demand path, not a stopped container, is what put it in
-      // this state, and the first request starts it (and fails) on its own.
-      // A single unavailable hop is the degenerate one-attempt case of "every
-      // engine in the chain failed" -- 503, never 200 and never left at 501.
-      expect(res.status).toBe(503);
-      expect(remote.requestLog).toEqual([]);
-    },
-  );
+test('max_egress: "none" against a public chain never reaches a remote hop, even when the local hop cannot serve', async () => {
+  const { remote, cfg, setup } = publicChainFixture();
+  await withChatDoor(cfg, setup, async (door) => {
+    const res = await door.fetch(
+      req("POST", "/openai/v1/chat/completions", {
+        body: {
+          model: "chain-public",
+          max_egress: "none",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      }),
+    );
+
+    // Truncation removes the remote hop before it is ever attempted -- the
+    // empty request log is what proves that, not the response shape. The
+    // local hop was never started before this call either: the container
+    // adopt/start-on-demand path, not a stopped container, is what put it in
+    // this state, and the first request starts it (and fails) on its own.
+    // A single unavailable hop is the degenerate one-attempt case of "every
+    // engine in the chain failed" -- 503, never 200 and never left at 501.
+    expect(res.status).toBe(503);
+    expect(remote.requestLog).toEqual([]);
+  });
 });
 
 test("an absent max_egress applies no ceiling: the same public chain DOES reach the remote hop, and answers 200", async () => {
-  const remote = startFakeUpstream(() =>
-    Response.json({
-      model: "m",
-      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
-    }),
-  );
-  const remoteSecretExec: Exec = () =>
-    Promise.resolve({ stdout: "remote-key\n", stderr: "", exitCode: 0 });
-  const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
+  const { remote, cfg, setup } = publicChainFixture();
+  await withChatDoor(cfg, setup, async (door) => {
+    const res = await door.fetch(
+      req("POST", "/openai/v1/chat/completions", {
+        body: { model: "chain-public", messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
 
-  const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
-  await withChatDoor(
-    {
-      routes: [
-        route({ engine: "local", role: "chat", filename: "m.gguf" }),
-        route({ engine: "remote", role: "chat", upstream: "remote" }),
-      ],
-      engines: [
-        containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
-        containerEngine("remote", openaiSpec()),
-      ],
-      upstreams: [
-        upstream({ id: "local", egress: "none" }),
-        upstream({
-          id: "remote",
-          egress: "remote",
-          base_url: remote.base,
-          secret: { service: "svc", username: "u", header: "x-api-key" },
-        }),
-      ],
-      chains: { "chain-public": ["@/local/m", "@/remote/m"] },
-    },
-    { exec, stoppables: [remote], doorOpts: { secretExec: remoteSecretExec } },
-    async (door) => {
-      const res = await door.fetch(
-        req("POST", "/openai/v1/chat/completions", {
-          body: { model: "chain-public", messages: [{ role: "user", content: "hi" }] },
-        }),
-      );
-
-      expect(res.status).toBe(200);
-      expect(remote.requestLog).toEqual(["/chat/completions"]);
-    },
-  );
+    expect(res.status).toBe(200);
+    expect(remote.requestLog).toEqual(["/chat/completions"]);
+  });
 });
 
 test("every engine in a chain unavailable returns 503 listing each attempt", async () => {
@@ -915,7 +906,6 @@ function speechAttempt(lines: string[]): {
   attempts: { ok: boolean; failure?: string }[];
   engine_used: string | null;
 } {
-  expect(lines).toHaveLength(1);
   return JSON.parse(lines[0] ?? "{}") as {
     attempts: { ok: boolean; failure?: string }[];
     engine_used: string | null;
@@ -934,6 +924,7 @@ test("a streamed audio call that forwards its whole body records a success, not 
     expect(lines).toHaveLength(0);
     expect((await res.arrayBuffer()).byteLength).toBe(8);
 
+    expect(lines).toHaveLength(1);
     const record = speechAttempt(lines);
     expect(record.attempts[0]?.ok).toBe(true);
     expect(record.attempts[0]?.failure).toBeUndefined();
@@ -954,6 +945,7 @@ test("a streamed audio call abandoned mid-body still records a failure", async (
     expect((await reader.read()).value?.byteLength).toBe(4);
     await reader.cancel();
 
+    expect(lines).toHaveLength(1);
     const record = speechAttempt(lines);
     expect(record.attempts[0]?.ok).toBe(false);
     expect(record.attempts[0]?.failure).toBe("client disconnected");
