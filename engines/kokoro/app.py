@@ -41,6 +41,29 @@ logger = logging.getLogger(__name__)
 # unbounded shape space to a fixed, enumerable set of frame counts so a
 # one-time warm-up (below) can pre-pay the compile for the whole practical
 # range, and any request's true frame count reuses whichever bucket covers it.
+# What this does NOT cover, measured rather than assumed: the modules ahead of
+# the vocoder -- bert, predictor.text_encoder, predictor.lstm, F0Ntrain -- key
+# their own compiled kernels on the INPUT phoneme count, which this wrapper
+# never touches. A never-before-seen input length costs ~1.1s over a repeat of
+# the same one (0.61s vs 0.20s at 36 chars, 1.61s vs 0.52s at 185), flat across
+# lengths, and it recurs once per container life.
+#
+# Two cheaper fixes were tried and do not work. The MIOpen cache volume below
+# does NOT amortize it: after a restart the same shape costs 1.585s again
+# against 0.527s warm, so the cost is per-process, not per-disk-cache. And a
+# startup sweep cannot cover the space -- roughly 400 distinct phoneme counts
+# at ~1.1s each is ~7 minutes on EVERY start, against a 120s ready timeout.
+#
+# The only fix that would work is padding each of those four modules the way
+# this one pads the decoder. It cannot be done by padding `input_ids` alone:
+# `KModel.forward_with_tokens` derives `input_lengths` from
+# `input_ids.shape[-1]`, so a padded tensor leaves `text_mask` masking nothing,
+# and the pad tokens then draw real durations from `duration_proj` (clamped
+# min=1) and generate audible frames. Four wrappers, each with its own mask and
+# trim semantics. Left undone deliberately: the practical cost is bounded by
+# the warm-up below, which covers the conversational range, and real turns land
+# near the warm number rather than the cold one.
+
 _DECODER_BUCKET_FRAMES = 32
 
 
