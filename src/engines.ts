@@ -7,6 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
@@ -34,6 +35,7 @@ import {
   type ResolvedRoute,
   type RunnableContainerSpec,
   type Spec,
+  type Upstream,
 } from "./types.ts";
 
 /** Set at build time by the install script; absent in a working-tree run. */
@@ -338,6 +340,77 @@ function checkLocalFileDisposition(
   }
 }
 
+/**
+ * Which shape an agentic-cli engine's own process speaks comes from its
+ * agent, never from config -- and the agent id comes from the spec
+ * (`AgenticSpec.agent` -> `agentCli`), so this can only run once specs have
+ * loaded, here in `buildEntries`, never at `config.ts` parse time. The door
+ * forwards an agent CLI's native wire straight to its resolved upstream
+ * without translating it (`main.ts`'s `resolveRedirect`), so a mismatch here
+ * is not a style complaint -- it is every request through that route
+ * arriving at the upstream in a shape it cannot parse. Ambient routes
+ * (`upstream === null`) name no upstream to mismatch against and are exempt;
+ * an upstream that declares no `wire` at all is treated as `"openai"`, the
+ * default shape a plain HTTP proxy speaks.
+ */
+function checkAgenticWire(
+  engine: EngineEntry,
+  spec: Spec,
+  routes: readonly ResolvedRoute[],
+  upstreams: readonly Upstream[],
+): void {
+  if (spec.kind !== "agentic-cli") {
+    return;
+  }
+  const agentWire = agentCli(spec.agent)?.wire ?? "openai";
+  for (const r of routes) {
+    if (r.engine !== engine.id || r.upstream === null) {
+      continue;
+    }
+    const upstreamWire = upstreams.find((u) => u.id === r.upstream)?.wire ?? "openai";
+    if (upstreamWire !== agentWire) {
+      throw new FatalError(
+        `route on engine "${engine.id}" names upstream "${r.upstream}" (wire "${upstreamWire}"), but agent "${spec.agent}" speaks "${agentWire}" -- the door forwards the agent's own wire unchanged, so a mismatched pairing can never actually work`,
+      );
+    }
+  }
+}
+
+/**
+ * A `self`-trait engine (comfy, every media kind) has no LLM-completions wire
+ * of its own to translate through, so the only upstream it can ever validly
+ * proxy to is another engined box's own `local` -- a peer speaking the exact
+ * same native API this engine does. `local` itself is always permitted (that
+ * is what `self` defaults to), and so is any upstream that declares no `wire`
+ * at all, on the theory that a `wire` is what marks an upstream as an
+ * LLM-completions provider -- ElevenLabs' STT upstream, for one, declares
+ * none, precisely because `Wire` (`"openai" | "anthropic"`) has no vocabulary
+ * for its dialect either. What this refuses is the nonsense case: a `self`
+ * engine pointed at an upstream that DOES declare a wire, which is always a
+ * foreign LLM provider no `self` kind could ever correctly speak to.
+ */
+function checkSelfUpstream(
+  engine: EngineEntry,
+  spec: Spec,
+  routes: readonly ResolvedRoute[],
+  upstreams: readonly Upstream[],
+): void {
+  if (spec.upstream !== "self") {
+    return;
+  }
+  for (const r of routes) {
+    if (r.engine !== engine.id || r.upstream === null || r.upstream === "local") {
+      continue;
+    }
+    const found = upstreams.find((u) => u.id === r.upstream);
+    if (found?.wire !== undefined) {
+      throw new FatalError(
+        `route on engine "${engine.id}" is "self" and cannot be pointed at upstream "${r.upstream}", which speaks "${found.wire}" -- a self engine only ever proxies to a peer's own "local", never a wire-shaped provider`,
+      );
+    }
+  }
+}
+
 function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
@@ -346,6 +419,8 @@ function buildEntries(
   return config.engines.map((engine) => {
     const spec = loadEngineSpec(engine, specOptions, presetHostPath);
     checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
+    checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
+    checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
     return { engine, spec };
   });
 }

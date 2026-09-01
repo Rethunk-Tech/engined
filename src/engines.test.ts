@@ -24,6 +24,7 @@ import {
   makeTestRoot,
   portResult,
   route,
+  upstream,
   writeEngineSpec,
 } from "./test-support.ts";
 import {
@@ -387,6 +388,77 @@ describe("spec-less engines: no secret gate, just an optimistic installed", () =
           bunx: BUNX,
         }),
     ).toThrow(FatalError);
+  });
+});
+
+/**
+ * Which shape an engine speaks comes from its agent, and the agent id comes
+ * from the spec -- specs load after `loadConfig()`, so a wrong pairing can
+ * only be caught here, at registry construction, never as a `config.test.ts`
+ * `ParseError`.
+ */
+describe("an agent's wire is checked against its route's upstream at registry construction", () => {
+  test("claude (anthropic) routed at an openai-wire upstream fails at startup, naming both wires", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "claude", AGENTIC);
+    const cfg = config({
+      engines: [agenticEngine("claude", "1.0.0")],
+      upstreams: [upstream({ id: "hosted", wire: "openai", egress: "remote" })],
+      routes: [route({ engine: "claude", model: "sonnet", upstream: "hosted" })],
+    });
+    expect(() => registry(cfg, root)).toThrow(FatalError);
+    expect(() => registry(cfg, root)).toThrow(/wire "openai".*speaks "anthropic"/);
+  });
+
+  test("claude routed at a matching anthropic-wire upstream constructs clean", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "claude", AGENTIC);
+    const cfg = config({
+      engines: [agenticEngine("claude", "1.0.0")],
+      upstreams: [upstream({ id: "hosted", wire: "anthropic", egress: "remote" })],
+      routes: [route({ engine: "claude", model: "sonnet", upstream: "hosted" })],
+    });
+    expect(() => registry(cfg, root)).not.toThrow();
+  });
+
+  test("an ambient route (no upstream) has nothing to mismatch against", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "claude", AGENTIC);
+    const cfg = config({
+      engines: [agenticEngine("claude", "1.0.0")],
+      routes: [route({ engine: "claude", model: "sonnet", upstream: null })],
+    });
+    expect(() => registry(cfg, root)).not.toThrow();
+  });
+});
+
+/**
+ * A `self`-trait engine has no LLM-completions wire of its own, so the only
+ * upstream it can validly proxy to besides `local` is a peer's own `local`
+ * -- never a `wire`-declaring, and therefore always-foreign, provider.
+ */
+describe("a self-trait engine may proxy to a peer, never to a wire-shaped provider", () => {
+  test("a self engine's route naming a wire-declaring upstream fails at startup", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "voice", TTS_EMPTY_COMMAND);
+    const cfg = config({
+      engines: [engine({ id: "voice" })],
+      upstreams: [upstream({ id: "openai", wire: "openai", egress: "remote" })],
+      routes: [route({ engine: "voice", model: undefined, upstream: "openai" })],
+    });
+    expect(() => registry(cfg, root)).toThrow(FatalError);
+    expect(() => registry(cfg, root)).toThrow(/is "self"/);
+  });
+
+  test("a self engine's route naming a wire-less peer upstream constructs clean -- bastet kokoro voice1, proxied", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "voice", TTS_EMPTY_COMMAND);
+    const cfg = config({
+      engines: [engine({ id: "voice" })],
+      upstreams: [upstream({ id: "voice1", egress: "lan" })],
+      routes: [route({ engine: "voice", model: undefined, upstream: "voice1" })],
+    });
+    expect(() => registry(cfg, root)).not.toThrow();
   });
 });
 

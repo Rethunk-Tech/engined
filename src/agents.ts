@@ -14,7 +14,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
-import { AGENTIC_FLOOR, isRecord } from "./types.ts";
+import { AGENTIC_FLOOR, isRecord, type Wire } from "./types.ts";
 
 export interface AgenticOutcome {
   ok: boolean;
@@ -35,6 +35,14 @@ export interface AgentCli {
   /** The npm package, without a version -- the pin is config, never code. */
   pkg: string;
   floor: FloorKind;
+  /**
+   * The wire shape this agent's own process speaks -- what a redirected
+   * upstream must also speak, since the door forwards it unchanged rather
+   * than translating. Checked against `[[upstream]].wire` at registry
+   * construction (`engines.ts`'s `checkAgenticWire`), never at config parse:
+   * the agent id, and so this value, is not known until the spec loads.
+   */
+  wire: Wire;
   /**
    * Argv between the pinned package and the operator's `[engine.args]`: the
    * print flag, the JSON format, and for a `flags` agent the floor itself.
@@ -205,6 +213,7 @@ const AGENTS: Record<string, AgentCli> = {
     id: "claude",
     pkg: "@anthropic-ai/claude-code",
     floor: "flags",
+    wire: "anthropic",
     launch: (mcpConfigPath) => ["-p", ...CLAUDE_OUTPUT_FORMAT, ...AGENTIC_FLOOR, mcpConfigPath],
     parse: parseClaudeEnvelope,
   },
@@ -212,6 +221,7 @@ const AGENTS: Record<string, AgentCli> = {
     id: "opencode",
     pkg: "opencode-ai",
     floor: "sandbox",
+    wire: "openai",
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
     launch: () => ["run", "--format", "json"],
     parse: parseOpencodeEvents,
