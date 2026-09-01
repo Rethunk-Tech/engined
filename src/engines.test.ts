@@ -463,6 +463,34 @@ describe("a route's capability fields reach GET /engined/v1/engines", () => {
   });
 });
 
+/**
+ * A capability is not a served endpoint: `serves` says what the door
+ * answers, and a route may declare capability fields on an engine whose
+ * spec serves nothing at all to ask them through. Checked at registry
+ * construction, the same tier as the wire and self-upstream checks above --
+ * `serves` comes from the loaded spec, which is not known until here.
+ */
+describe("a declared capability whose endpoint is unserved fails at startup", () => {
+  test("a route declaring a capability on a spec-less engine with an empty serves list fails, naming the engine and its kind", () => {
+    const cfg = config({
+      engines: [engine({ id: "img", kind: "comfy" })],
+      routes: [route({ engine: "img", model: undefined, upstream: "local", output: ["image"] })],
+    });
+    expect(() => registry(cfg, newEnginesRoot())).toThrow(FatalError);
+    expect(() => registry(cfg, newEnginesRoot())).toThrow(
+      /engine "img".*serves no endpoint to ask it through/,
+    );
+  });
+
+  test("the same engine with no capability-declaring route constructs clean", () => {
+    const cfg = config({
+      engines: [engine({ id: "img", kind: "comfy" })],
+      routes: [route({ engine: "img", model: undefined, upstream: "local" })],
+    });
+    expect(() => registry(cfg, newEnginesRoot())).not.toThrow();
+  });
+});
+
 function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
   runner: AgenticProbeRunner;
   calls: Array<{ engineId: string; version: string }>;

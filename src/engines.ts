@@ -428,6 +428,33 @@ function routeHasCapability(r: ResolvedRoute): boolean {
   );
 }
 
+/**
+ * `serves` says what the door answers; a capability says what the engine can
+ * do. A route may declare capability fields on an engine whose spec serves no
+ * endpoint at all to ask it through -- `GET /openai/v1/models` would simply
+ * drop that route (`modelsMenu`'s `servedEngines` filter), which turns a
+ * config mistake into a silently missing address rather than a loud one.
+ * Checked here rather than at parse (`config.ts`) because `serves` comes from
+ * the spec, and specs load after `loadConfig()`.
+ */
+function checkCapabilityServed(
+  engine: EngineEntry,
+  spec: Spec,
+  routes: readonly ResolvedRoute[],
+): void {
+  if (spec.serves.length > 0) {
+    return;
+  }
+  for (const r of routes) {
+    if (r.engine !== engine.id || !routeHasCapability(r)) {
+      continue;
+    }
+    throw new FatalError(
+      `route on engine "${engine.id}" model "${r.model ?? ""}" declares a capability, but engine "${engine.id}" (kind "${spec.kind}") serves no endpoint to ask it through`,
+    );
+  }
+}
+
 function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
@@ -438,6 +465,7 @@ function buildEntries(
     checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
     checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
     checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
+    checkCapabilityServed(engine, spec.spec, config.routes);
     return { engine, spec };
   });
 }
