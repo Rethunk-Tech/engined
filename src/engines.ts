@@ -13,7 +13,7 @@ import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./d
 import type { Exec } from "./exec.ts";
 import { CONTENT_TYPE, JSON_CONTENT_TYPE } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
-import { localLlamaPresetPath, stateDir } from "./paths.ts";
+import { llamaPresetPath, stateDir } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
@@ -501,7 +501,7 @@ export class EngineRegistry {
     this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.agenticProbeRunner = opts.agenticProbeRunner;
-    this.presetHostPath = opts.presetHostPath ?? localLlamaPresetPath();
+    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
     this.config = config;
     this.entries = buildEntries(config, this.specOptions, this.presetHostPath);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));

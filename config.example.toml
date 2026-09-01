@@ -102,14 +102,14 @@ egress   = "remote"
 wire     = "anthropic"
 
 # ---------------------------------------------------------------------------
-# local-llama: the one local openai-http engine, router mode over llama.cpp.
+# llama: the one local openai-http engine, router mode over llama.cpp.
 # ---------------------------------------------------------------------------
 
 # Each engine id below resolves to engines/<id>/spec.toml, shipped with this
 # repo. What's in THIS file is only what one install differs from another by
 # -- image, devices and the container command live in the spec, not here.
 [[engine]]
-id                = "local-llama"
+id                = "llama"
 # engined expands the tilde to an absolute path for the bind mount, routing
 # `~/.local/share/` through the same XDG_DATA_HOME-aware base its own install
 # directory uses -- so this tree stays that directory's sibling, never inside
@@ -143,7 +143,7 @@ idle_stop_seconds = 900
 # actually exist on disk; both are checked at parse, not deferred to a 400 on
 # first request.
 [[route]]
-engine   = "local-llama"
+engine   = "llama"
 upstream = "local"
 model    = "ornith"
 filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
@@ -169,7 +169,7 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
                            # acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
                            # 22.30 at n=16. Those are 32-token BURST figures --
                            # acceptance decays with length, so sustained is ~54 t/s.
-                           # Full reasoning: engines/local-llama/spec.toml.
+                           # Full reasoning: engines/llama/spec.toml.
   # 262144 split across 2 slots = two independent 131072 windows. -np 2 halves
   # ctx-size per slot, which is the lever that buys them; 262144 is also this
   # model's n_ctx_train, so no RoPE scaling is involved. Costs ~5.1 GiB of q8_0
@@ -182,7 +182,7 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
 # for native 32768 context -- a header that declares a shorter window needs
 # RoPE scaling to stretch, which is one more thing to get wrong.
 [[route]]
-engine   = "local-llama"
+engine   = "llama"
 upstream = "local"
 model    = "embed"
 filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
@@ -204,7 +204,7 @@ role     = "embedding"
 # vision as working; a broken mmproj build can return the wrong content
 # silently rather than erroring.
 [[route]]
-engine   = "local-llama"
+engine   = "llama"
 upstream = "local"
 model    = "vision"
 filename = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf"
@@ -224,7 +224,7 @@ role     = "vision"
 # both ways, no crash either way; that flag on the route above is specific to
 # Qwen3-VL's vision load on this GPU, not a general vision-route requirement.
 [[route]]
-engine   = "local-llama"
+engine   = "llama"
 upstream = "local"
 model    = "ocr"
 filename = "PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF.gguf"
@@ -436,7 +436,7 @@ model    = "scribe_v1" # ElevenLabs' own model id, sent on the wire verbatim: th
 
 [[engine]]
 id                = "comfy"
-# Comfy's model tree is a host directory like local-llama's, not baked into
+# Comfy's model tree is a host directory like llama's, not baked into
 # the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
 # it's reached via POST /engined/v1/engines/comfy/start and the private_url
 # that returns, or addressed directly as @/comfy/local -- never dispatched to
@@ -507,12 +507,12 @@ model    = "sonnet-5"  # sent upstream verbatim -- confirm OpenRouter's real
 # engine later is a config edit, not a consumer change.
 [[chain]]
 id   = "chain-private"
-hops = ["@/local-llama/ornith"]
+hops = ["@/llama/ornith"]
 
 [[chain]]
 id   = "chain-public"
 hops = [
-  "@/local-llama/ornith",
+  "@/llama/ornith",
   "@/claude/moonshot/k3",
   "@/claude/sonnet-5",
   "@/openai/gpt-5.4-mini",

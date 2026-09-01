@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DockerLifecycle } from "./docker.ts";
 import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
-import { localLlamaPresetPath } from "./paths.ts";
+import { llamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
 import { isContainerSpec, MS_PER_SECOND, ParseError, type RunnableContainerSpec } from "./types.ts";
@@ -113,15 +113,12 @@ export function buildLlamaSpec(
   });
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
-      `engine "${engine.id}": local-llama spec must be a container spec`,
+      `engine "${engine.id}": llama spec must be a container spec`,
       loaded.source,
     );
   }
   if (engine.models_dir === undefined) {
-    throw new ParseError(
-      `engine "${engine.id}": local-llama engine has no models_dir`,
-      loaded.source,
-    );
+    throw new ParseError(`engine "${engine.id}": llama engine has no models_dir`, loaded.source);
   }
   const { spec } = loaded;
   spec.volumes = [
@@ -252,7 +249,7 @@ export class LlamaRouter {
   ) {
     this.httpClient = opts.httpClient ?? fetch;
     this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.presetHostPath = opts.presetHostPath ?? localLlamaPresetPath();
+    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
   }
 
   /**

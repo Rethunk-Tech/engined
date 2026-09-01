@@ -52,10 +52,10 @@ export function expandTilde(p: string): string {
  * default — both take the path as an option and the door hands them the same
  * one, so a test can redirect the pair together and neither writes here.
  */
-function localLlamaPresetDir(): string {
-  return `${stateDir()}/local-llama`;
+function llamaPresetDir(): string {
+  return `${stateDir()}/llama`;
 }
 
-export function localLlamaPresetPath(): string {
-  return `${localLlamaPresetDir()}/preset.ini`;
+export function llamaPresetPath(): string {
+  return `${llamaPresetDir()}/preset.ini`;
 }
