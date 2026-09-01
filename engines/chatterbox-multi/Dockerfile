@@ -91,6 +91,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/hf_cache
+# Same reason as engines/chatterbox-en: MIOpen's default search picks a
+# GemmFwdRest fallback for the vocoder's convolutions with no workspace, and
+# skipping it roughly halves RTF. Vocoding dominates this model's wall time,
+# so it is the single largest lever on the engine. Figures: docs/engines.md.
 ENV MIOPEN_FIND_MODE=FAST
 ENV PATH="/opt/venv/bin:${PATH}"
 

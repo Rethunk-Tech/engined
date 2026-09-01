@@ -97,10 +97,9 @@ ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/hf_cache
 # MIOpen's default kernel search picks a GemmFwdRest fallback for this
 # vocoder's convolutions and warns that it was handed no workspace. FAST skips
-# that search. Measured on gfx1151, median of three runs after warm-up:
-# RTF 1.29 -> 0.62 with turbo, and 2.48 -> 1.06 on the multilingual model, so
-# it is worth more than the model change itself. NORMAL, HYBRID and
-# DYNAMIC_HYBRID all measured indistinguishable from the default.
+# that search and roughly halves RTF here; NORMAL, HYBRID and DYNAMIC_HYBRID
+# all measured indistinguishable from the default, so this one mode is the
+# whole win. Figures: docs/engines.md.
 ENV MIOPEN_FIND_MODE=FAST
 ENV PATH="/opt/venv/bin:${PATH}"
 

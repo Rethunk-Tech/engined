@@ -48,11 +48,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # faster; its generate() is English-only and takes no language_id at all, so
 # there is no language to plumb through here.
 #
-# Measured on gfx1151, median of three runs after warm-up, with
-# MIOPEN_FIND_MODE=FAST set in the Dockerfile: RTF 0.62 against the
-# multilingual model's 1.06 under the same setting, and 2.48 with neither.
-# Turbo's output is markedly quieter -- peak around 0.33-0.45 against 0.83-1.0
-# -- so a consumer switching between the two hears a level change.
+# Turbo sets norm_loudness=True where the multilingual model does not, so its
+# output is markedly quieter and a consumer switching between the two hears a
+# level change. Throughput and loudness figures: docs/engines.md.
 model = ChatterboxTurboTTS.from_pretrained(device=device)
 # One lock per process serializes concurrent TTS on this container. Correct for a single
 # GPU with no multi-lease concept upstream (unlike LlamaRouter's roles); the lock guards only

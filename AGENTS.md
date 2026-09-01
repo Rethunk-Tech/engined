@@ -51,7 +51,7 @@ in spec, not operator config. Tunables go in `[engine.args]` / `[route.args]`;
 engined's closed key sets are `ENGINE_KEYS`/`UPSTREAM_KEYS`/`MODEL_KEYS`/
 `ROUTE_KEYS`/`CHAIN_KEYS` in `src/config.ts`. Precedence: **route beats
 engine, config beats spec, floor beats everything.** On remotes,
-`[engine.args]` are wire parameters — see `src/remote.ts`.
+`[engine.args]` are wire parameters — see `src/upstream.ts`.
 
 `[[model]]` rows are optional capability declarations only; `filename`,
 `role` and `keep_resident` live on `[[route]]`, which pairs an engine with an

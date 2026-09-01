@@ -386,10 +386,10 @@ upstream = "local"
 
 # Chatterbox Turbo, kept alongside the one above rather than replacing it: a
 # different checkpoint with a one-step diffusion decoder, English-only, and
-# noticeably quieter output. Measured on this box, median of three runs after
-# warm-up: RTF 0.62 here against 2.48 for the engine above as it shipped --
-# faster than realtime, where that one is not. Roughly half that gain is
-# MIOPEN_FIND_MODE=FAST, baked into this image; the rest is the model.
+# noticeably quieter output. It runs faster than realtime where the
+# multilingual engine does not; roughly half that gain is MIOPEN_FIND_MODE=FAST
+# baked into this image and the rest is the model. Numbers live in one place,
+# docs/engines.md, rather than being restated wherever they are relevant.
 [[engine]]
 id                = "chatterbox-en"
 idle_stop_seconds = 1800

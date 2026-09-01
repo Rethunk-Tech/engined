@@ -1,0 +1,6 @@
+{
+  "skip_paths": [
+    "docs/specs/**"
+  ],
+  "_why": "docs/specs/ records what each delivery SPECIFIED, not what the code does now. Its stale flags, env vars and paths are the point: rewriting them to match today's tree would falsify the record of what was asked for. Drift in every other doc is a defect and stays reported."
+}
