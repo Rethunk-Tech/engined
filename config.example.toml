@@ -252,7 +252,7 @@ disable       = true   # sends every prompt to Anthropic; leave off until that's
 # pin before it will serve requests through it. Do not copy this value
 # assuming it's still current; it's whatever was proved on this box when
 # this example was written.
-agent_version = "2.1.247"
+agent_version = "2.1.258"
 # No [engine.args] output-format here: this agent's launch in agents.ts sets
 # --output-format json unconditionally in code on every launch, so this key
 # is never a real tunable -- and a config value that disagreed with it would
@@ -331,7 +331,7 @@ model    = "sonnet-5"
 # network namespace in order to reach this door at all.
 [[engine]]
 id            = "opencode"
-agent_version = "1.18.25"
+agent_version = "1.18.26"
 
 # The model a caller names to run an opencode task.
 [[route]]
