@@ -12,7 +12,7 @@ import {
 } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { containerRunning, makeTestRoot } from "./test-support.ts";
-import type { ContainerSpec, Volume } from "./types.ts";
+import type { RunnableContainerSpec, Volume } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-docker-");
 
@@ -95,7 +95,7 @@ describe("parseHostPort", () => {
 
 const READY_STATUS = 200;
 
-const SPEC: ContainerSpec = {
+const SPEC: RunnableContainerSpec = {
   kind: "openai-http",
   serves: ["chat"],
   env: [],
@@ -325,7 +325,7 @@ test("concurrent leases: the countdown starts only when the last one is released
 });
 
 test("start: a failed artifact check is not cached — a repaired condition re-runs it and succeeds", async () => {
-  const specWithArtifact: ContainerSpec = {
+  const specWithArtifact: RunnableContainerSpec = {
     ...SPEC,
     artifacts: [
       { path: "/models/x.gguf", obtain: "curl -o /models/x.gguf https://example/x.gguf" },
@@ -396,7 +396,7 @@ describe("hostPathFor", () => {
 test("start: a bind-mounted artifact is checked with a host stat, never a container", async () => {
   const dir = mkdtempSync(join(TEST_ROOT, "artifact-"));
   try {
-    const specWithBindMount: ContainerSpec = {
+    const specWithBindMount: RunnableContainerSpec = {
       ...SPEC,
       volumes: [{ name: dir, path: "/models" }],
       artifacts: [
@@ -717,7 +717,7 @@ test("readiness honours a POST probe and an accept range, not just an exact GET 
 test("start: a stale container by this name is removed and recreated from the current spec, never resumed with docker start", async () => {
   const calls: string[][] = [];
   const DISTINGUISHING_ARG = "--ctx-size=8192";
-  const currentSpec: ContainerSpec = { ...SPEC, command: [DISTINGUISHING_ARG] };
+  const currentSpec: RunnableContainerSpec = { ...SPEC, command: [DISTINGUISHING_ARG] };
   const hostPort = 40_020;
 
   const exec = recordingExec(calls, (argv) => {
