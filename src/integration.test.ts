@@ -123,7 +123,7 @@ function containerEngine(
   };
 }
 
-test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- never comfy, never an unregistered model", async () => {
+test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy stays out, every modelless audio engine stays in", async () => {
   const config = baseConfig({
     routes: [
       route({
@@ -134,11 +134,13 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
         role: "chat",
       }),
       route({ engine: "claude", model: "sonnet-5", upstream: null }),
+      route({ engine: "chatterbox", model: undefined, upstream: "local" }),
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC),
       containerEngine("claude", AGENTIC_SPEC, { egress: "remote" }),
       containerEngine("comfy", COMFY_SPEC),
+      containerEngine("chatterbox", ttsSpec()),
     ],
     chains: { "chain-x": ["@/local/ornith"] },
   });
@@ -165,7 +167,9 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(body.object).toBe("list");
     expect(ids).not.toHaveLength(0);
 
-    expect(new Set(ids)).toEqual(new Set(["@/local/ornith", "@/claude/sonnet-5", "chain-x"]));
+    expect(new Set(ids)).toEqual(
+      new Set(["@/local/ornith", "@/claude/sonnet-5", "@/chatterbox/local", "chain-x"]),
+    );
     expect(ids).not.toContain("comfy");
     expect(ids).not.toContain("@/comfy/local");
   } finally {
