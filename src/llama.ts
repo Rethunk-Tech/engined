@@ -380,7 +380,7 @@ export class LlamaRouter {
     const route = this.routes.find(
       (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
     );
-    const parallel = { ...this.engine.args, ...route?.args }.parallel;
+    const { parallel } = { ...this.engine.args, ...route?.args };
     return typeof parallel === "number" && Number.isInteger(parallel) && parallel > 0
       ? parallel
       : Number.POSITIVE_INFINITY;
@@ -584,20 +584,25 @@ export class LlamaRouter {
           return;
         }
         state.queue.shift();
-        try {
-          await this.swapResident(role, front.modelId);
-        } catch (err) {
-          front.reject(err);
-          continue;
-        }
-        state.activeModelId = front.modelId;
-        state.capacity = this.capacityFor(role, front.modelId);
-        state.activeCount++;
-        front.resolve();
+        await this.admitAfterSwap(role, state, front);
       }
     } finally {
       state.pumping = false;
     }
+  }
+
+  /** Swaps the resident to `front`'s GGUF and grants it the first slot; a failed swap rejects only `front`. */
+  private async admitAfterSwap(role: Role, state: RoleState, front: RoleWaiter): Promise<void> {
+    try {
+      await this.swapResident(role, front.modelId);
+    } catch (err) {
+      front.reject(err);
+      return;
+    }
+    state.activeModelId = front.modelId;
+    state.capacity = this.capacityFor(role, front.modelId);
+    state.activeCount++;
+    front.resolve();
   }
 
   private async swapResident(role: Role, modelId: string): Promise<void> {

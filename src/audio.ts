@@ -416,11 +416,8 @@ function conflictResponse(engine: StartedEngine): DoorResponse | undefined {
     : errorResponse(STATUS_CONFLICT, engine.conflict);
 }
 
-export async function handleSpeech(
-  req: SpeechRequestBody,
-  start: EngineStart,
-  fetchImpl: HttpClient = fetch,
-): Promise<DoorResponse> {
+/** `undefined` when the request body is well-formed; a 400 response otherwise. */
+function invalidSpeechRequest(req: SpeechRequestBody): DoorResponse | undefined {
   if (!req.engine) {
     return errorResponse(STATUS_BAD_REQUEST, "engine is required");
   }
@@ -433,8 +430,11 @@ export async function handleSpeech(
       `response_format must be one of: ${[...SPEECH_RESPONSE_FORMATS].join(", ")}`,
     );
   }
+  return undefined;
+}
 
-  const engine = await start(req.engine);
+/** `undefined` when `engine` is a running local container this door can speak to; the error response otherwise. */
+function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse | undefined {
   const conflict = conflictResponse(engine);
   if (conflict) {
     return conflict;
@@ -445,14 +445,28 @@ export async function handleSpeech(
     // read as a container that did not start.
     return errorResponse(
       STATUS_BAD_GATEWAY,
-      `${req.engine} is a remote address, and no remote speech dialect ships`,
+      `${name} is a remote address, and no remote speech dialect ships`,
     );
   }
   if (engine.private_url === null) {
-    return errorResponse(
-      STATUS_UNAVAILABLE,
-      engine.unavailable ?? `${req.engine} is not available`,
-    );
+    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${name} is not available`);
+  }
+  return undefined;
+}
+
+export async function handleSpeech(
+  req: SpeechRequestBody,
+  start: EngineStart,
+  fetchImpl: HttpClient = fetch,
+): Promise<DoorResponse> {
+  const invalid = invalidSpeechRequest(req);
+  if (invalid) {
+    return invalid;
+  }
+  const engine = await start(req.engine);
+  const unusable = unusableSpeechEngine(req.engine, engine);
+  if (unusable) {
+    return unusable;
   }
 
   const ndjson = req.stream === "ndjson";
