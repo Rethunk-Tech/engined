@@ -3,6 +3,8 @@ kind = "agentic-cli"
 # carries the login, not an engined-configured address or secret.
 upstream = "optional"
 agent = "opencode"
+# The door forwards this agent's answer as it prints: `text` events over `run --format json`.
+streaming = true
 serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]
 # must be the {bunx} placeholder, command[1] must be this agent's own

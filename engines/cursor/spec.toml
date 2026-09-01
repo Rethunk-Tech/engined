@@ -9,6 +9,8 @@ kind = "agentic-cli"
 # every launch.
 upstream = "optional"
 agent = "cursor"
+# The door forwards this agent's answer as it prints: `assistant` text parts over `--output-format stream-json`.
+streaming = true
 serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]
 # must be the {bunx} placeholder, command[1] must be exactly this agent's

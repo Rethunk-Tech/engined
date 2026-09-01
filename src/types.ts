@@ -367,6 +367,14 @@ export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
 }
 
 interface SpecCommon {
+  /**
+   * This engine can answer a streamed request: per-chunk NDJSON frames from a
+   * `tts` app, SSE from an `openai-http` server, deltas from an agent CLI's
+   * streamed output format. Off unless the engine's spec says otherwise -- an
+   * engine that cannot chunk and claims it can hands the caller a 502 on
+   * every streamed request.
+   */
+  streaming: boolean;
   serves: string[];
   /** Allowlist. A `--user` unit hands every child the manager's environment. */
   env: string[];
@@ -405,15 +413,6 @@ export interface ContainerSpec extends SpecCommon {
    * nothing.
    */
   init: boolean;
-  /**
-   * This engine's `/v1/tts` emits per-chunk NDJSON frames, so the door can
-   * forward audio as it is synthesized. A `tts` key only: it is what makes
-   * `"stream": true` on `POST /openai/v1/audio/speech` servable, and no other route
-   * has a chunk contract to honour. Off unless the engine's app says
-   * otherwise — an engine that cannot chunk and claims it can hands the
-   * caller a 502 on every streamed request.
-   */
-  streaming: boolean;
   entrypoint?: string[];
   volumes: Volume[];
   artifacts: Artifact[];

@@ -546,7 +546,7 @@ function buildEntries(
  * rather than unknown.
  */
 function streamingOf(spec: Spec): boolean {
-  return isContainerSpec(spec) ? spec.streaming : false;
+  return spec.streaming;
 }
 
 /**

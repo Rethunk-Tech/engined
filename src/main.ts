@@ -11,6 +11,7 @@ import {
   type AgenticSpawn,
   buildAgenticProbeRunner,
   defaultAgenticSpawn,
+  type RunAgenticResult,
   runAgentic,
 } from "./agentic.ts";
 import {
@@ -54,6 +55,7 @@ import {
   STATUS_CONFLICT,
   STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
+  STATUS_OK,
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
   TEXT_CONTENT_TYPE,
@@ -1336,7 +1338,11 @@ async function execAgentic(
   engineId: string,
   modelSeg: string,
   route: ResolvedRoute | undefined,
-  req: { rawBody: Record<string, unknown>; signal: AbortSignal },
+  req: {
+    rawBody: Record<string, unknown>;
+    signal: AbortSignal;
+    setContentType: (ct: string) => void;
+  },
 ): Promise<HopResult> {
   const { rawBody, signal } = req;
   const config = ctx.getConfig();
@@ -1360,6 +1366,9 @@ async function execAgentic(
   // widen the window where a real launch could be missing one.
   const nonce = mintLaunchNonce();
   ctx.launchNonces.add(nonce);
+  // A streamed launch outlives this call, so its nonce is released when the
+  // child exits rather than here.
+  let handedOff = false;
   try {
     const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`;
 
@@ -1414,7 +1423,14 @@ async function execAgentic(
     if (unproved !== null) {
       return unproved;
     }
-    const outcome = await runAgentic({
+    const wantsStream = rawBody.stream === true;
+    const deltas: string[] = [];
+    let pump: (() => void) | undefined;
+    let first: (arrived: "delta" | "done") => void = () => undefined;
+    const firstSignal = new Promise<"delta" | "done">((resolve) => {
+      first = resolve;
+    });
+    const run = runAgentic({
       agent: loaded.spec.agent,
       agentVersion: engineEntry.agent_version,
       // An agent CLI reaches its model back through engined's own door, so an
@@ -1432,11 +1448,87 @@ async function execAgentic(
       ambientEnv: ctx.doorOpts.agenticAmbientEnv,
       extraEnv,
       signal,
+      onDelta: wantsStream
+        ? (text) => {
+            deltas.push(text);
+            pump?.();
+            first("delta");
+          }
+        : undefined,
     });
-    return hopResultFromAgenticOutcome(outcome);
+    run.then(
+      () => first("done"),
+      () => first("done"),
+    );
+    // Commit to a stream only once the CLI has printed answer text: every
+    // pre-spawn refusal (400 workdir, floor, secret) and an envelope that
+    // fails before its first delta still land as a plain status.
+    if (wantsStream && (await firstSignal) === "delta") {
+      handedOff = true;
+      run.finally(() => ctx.launchNonces.delete(nonce));
+      req.setContentType(SSE_CONTENT_TYPE);
+      return {
+        status: STATUS_OK,
+        stream: agenticSse(run, deltas, (p) => {
+          pump = p;
+        }),
+        version: engineEntry.agent_version,
+      };
+    }
+    return hopResultFromAgenticOutcome(await run);
   } finally {
-    ctx.launchNonces.delete(nonce);
+    if (!handedOff) {
+      ctx.launchNonces.delete(nonce);
+    }
   }
+}
+
+/**
+ * OpenAI chunk framing for an answer the CLI is still producing: one
+ * `chat.completion.chunk` per text delta, a terminal stop chunk, then
+ * `[DONE]`. A CLI that fails after its first delta errors the stream, which
+ * `chain.ts` records as that attempt's failure rather than a success.
+ */
+function agenticSse(
+  run: Promise<RunAgenticResult>,
+  deltas: string[],
+  attach: (pump: () => void) => void,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  agenticCallSeq += 1;
+  const id = `agentic-${Date.now()}-${agenticCallSeq}`;
+  const chunk = (delta: Record<string, unknown>, finish: string | null): Uint8Array =>
+    encoder.encode(
+      `data: ${JSON.stringify({
+        id,
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      })}\n\n`,
+    );
+  return new ReadableStream({
+    start(controller) {
+      const pump = (): void => {
+        while (deltas.length > 0) {
+          controller.enqueue(chunk({ role: "assistant", content: deltas.shift() }, null));
+        }
+      };
+      attach(pump);
+      pump();
+      run.then(
+        (outcome) => {
+          pump();
+          if (!outcome.ok) {
+            controller.error(new Error(outcome.failure ?? "agentic call failed"));
+            return;
+          }
+          controller.enqueue(chunk({}, "stop"));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+        (err: unknown) => controller.error(err),
+      );
+    },
+  });
 }
 
 /**
@@ -1551,7 +1643,11 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
     };
   }
   if (kind === "agentic-cli") {
-    return await execAgentic(ctx, engineId, modelSeg, route, { rawBody: req.rawBody, signal });
+    return await execAgentic(ctx, engineId, modelSeg, route, {
+      rawBody: req.rawBody,
+      signal,
+      setContentType: req.setContentType,
+    });
   }
   const engineEntry = ctx.registry.entry(engineId);
   if (kind === "openai-http" && engineEntry && route !== undefined && route.upstream !== "local") {

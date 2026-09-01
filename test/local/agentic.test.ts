@@ -124,6 +124,34 @@ describe.skipIf(!AGENTIC_READY)(describeTitle("agentic probes (local)"), () => {
   );
 });
 
+describe.skipIf(!AGENTIC_READY)(describeTitle("agentic streaming (local)"), () => {
+  test(
+    "onDelta: the real CLI's stream-json deltas arrive before the verdict, and join into the result",
+    async () => {
+      const workdir = scratchWorktree();
+      const deltas: string[] = [];
+      const result = await runAgentic({
+        agent: "claude",
+        agentVersion: agentVersion(),
+        args: {},
+        envAllowlist: [...PROBE_ENV_ALLOWLIST],
+        workdir,
+        prompt: "Reply with exactly the word: pong",
+        spawn: defaultAgenticSpawn,
+        bunx: bunx(),
+        onDelta: (text) => deltas.push(text),
+      });
+      rmSync(workdir, { recursive: true, force: true });
+
+      expect(result.status).toBe(200);
+      expect(deltas.length).toBeGreaterThan(0);
+      expect(deltas.join("").toLowerCase()).toContain("pong");
+      expect(result.result?.toLowerCase()).toContain("pong");
+    },
+    REAL_ROUND_TRIP_TIMEOUT_MS,
+  );
+});
+
 describe.skipIf(!AGENTIC_READY)(describeTitle("agentic provenance and read scope (local)"), () => {
   test(
     "provenance: the result's version is the pin that was actually launched",

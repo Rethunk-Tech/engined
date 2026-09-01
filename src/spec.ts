@@ -220,6 +220,7 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
     env: raw.env === undefined ? [] : requireStringArray(raw.env, "env", file),
     command,
     upstream: requireUpstreamTrait(raw, file),
+    streaming: raw.streaming === true,
   };
 }
 

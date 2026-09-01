@@ -141,15 +141,24 @@ no piece to forward before the last one. A request that streams one of those
 gets a 502 saying the engine streamed no audio, sent before any header is
 committed, rather than a 200 whose body never arrives.
 
-**Ask, rather than hardcoding that list.** Every `tts` engine in
+**Ask, rather than hardcoding that list.** Every engine in
 `GET /engined/v1/engines` carries `streaming`, a boolean saying whether it can serve a
-chunked request, declared in the engine's own `spec.toml` — see
-[engines.md](engines.md). A consumer carrying its own list of streaming engine
-ids is stale the moment engined gains one. Kinds that do not serve
-`/openai/v1/audio/speech` at all omit the field rather than reporting `false`: there
-is no streaming to have, which is a different answer from "streaming is turned
-off here". A remote-address TTS engine reports `false` — engined ships no
-remote TTS dialect to chunk through.
+streamed request -- chunked audio from a `tts` app, SSE from an `openai-http`
+server, deltas from an agent CLI's streamed output format -- declared in the
+engine's own `spec.toml` (see [engines.md](engines.md)) and overridable per
+route. A consumer carrying its own list of streaming engine ids is stale the
+moment engined gains one. `whisper` and `comfy` report `false`: whisper.cpp
+answers a transcription whole, and comfy's proxy is not a content endpoint. A
+remote-address TTS engine reports `false` — engined ships no remote TTS dialect
+to chunk through.
+
+An agentic hop with `"stream": true` is one `chat.completion.chunk` per text
+delta the CLI prints, a terminal chunk with `finish_reason: "stop"`, then
+`data: [DONE]`. The stream is only committed to once the CLI has printed
+answer text: a refusal before that (missing `workdir`, a failed floor or
+secret, an envelope that fails before its first delta) is still a plain
+status, and a CLI that fails after its first delta ends the stream with an
+error rather than a stop.
 
 **How much this buys depends on the text.** Kokoro's pipeline splits on
 newlines, not sentences: measured here, four newline-separated lines produced

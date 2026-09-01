@@ -3,13 +3,14 @@
  * rather than invented -- opencode 1.18.25 pointed at engined's own door, and
  * the same launch against a dead upstream for the failure shape.
  */
-import { expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AGENT_IDS,
   agentCli,
+  agentDelta,
   parseClaudeEnvelope,
   parseCursorEvents,
   parseOpencodeEvents,
@@ -197,4 +198,32 @@ it("resolveCursorBinary: neither PATH nor a versions directory has it -- throws 
 
 it("resolveCursorBinary: a versions directory that does not exist at all is treated the same as an empty one", () => {
   expect(() => resolveCursorBinary(() => null, "/nonexistent/engined-cursor-test")).toThrow("PATH");
+});
+
+describe("streamed deltas, per agent", () => {
+  it("claude: partial-message text deltas are the answer as it prints; the result line still decides the verdict", () => {
+    const lines = [
+      '{"type":"system","subtype":"init"}',
+      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
+      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ng"}}}',
+      '{"type":"assistant","message":{"content":[{"type":"text","text":"pong"}]}}',
+      '{"type":"result","subtype":"success","is_error":false,"result":"pong"}',
+    ];
+    expect(lines.map((line) => agentDelta("claude", line)).join("")).toBe("pong");
+    expect(parseClaudeEnvelope(lines.join("\n"))).toEqual({ ok: true, result: "pong" });
+    expect(parseClaudeEnvelope('{"is_error":false,"result":"pong"}')).toEqual({
+      ok: true,
+      result: "pong",
+    });
+  });
+
+  it("cursor: assistant text parts; opencode: text events; progress lines add nothing", () => {
+    const cursor =
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pong"}]}}';
+    expect(agentDelta("cursor", cursor)).toBe("pong");
+    expect(agentDelta("cursor", '{"type":"tool_call","subtype":"started"}')).toBe("");
+    expect(agentDelta("opencode", '{"type":"text","part":{"text":"pong"}}')).toBe("pong");
+    expect(agentDelta("opencode", '{"type":"step_start"}')).toBe("");
+    expect(agentDelta("claude", "not json")).toBe("");
+  });
 });

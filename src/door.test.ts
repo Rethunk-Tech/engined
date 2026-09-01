@@ -1312,6 +1312,52 @@ function createKimiDoor(ambientSibling = false): {
 }
 
 describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
+  test("stream: true on an agentic hop is SSE chunks as the CLI prints them, launched in its streamed format", async () => {
+    clearVerifiedVersion("claude");
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      upstreams: [moonshotUpstream()],
+      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
+    });
+    const lines = [
+      '{"type":"system","subtype":"init"}',
+      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
+      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ng"}}}',
+      '{"type":"result","subtype":"success","is_error":false,"result":"pong"}',
+    ];
+    const argvSeen: string[][] = [];
+    const spawn: AgenticSpawn = (spawnArgv, opts) => {
+      argvSeen.push(spawnArgv);
+      for (const line of lines) {
+        opts.onStdout?.(`${line}\n`);
+      }
+      return Promise.resolve({ stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 });
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, secretExec: fakeExec("k"), write: () => undefined },
+    );
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/kimi-k3",
+        messages: [{ role: "user", content: "ping" }],
+        workdir: "/tmp/scratch",
+        stream: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const text = await res.text();
+    const contents = [...text.matchAll(/"content":"([^"]*)"/g)].map((m) => m[1]);
+    expect(contents).toEqual(["po", "ng"]);
+    expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
+    expect(argvSeen[0]).toContain("stream-json");
+    expect(argvSeen[0]).toContain("--include-partial-messages");
+    expect(argvSeen[0]).not.toContain("json");
+  });
+
   test("the upstream segment picks the route: beside an ambient route on the same model, the three-segment address still redirects and the two-segment one runs ambient with the model in its env", async () => {
     clearVerifiedVersion("claude");
     const { door, spawnCalls } = createKimiDoor(true);

@@ -53,9 +53,11 @@ export interface AgentCli {
    * Argv between the pinned package and the operator's `[engine.args]`: the
    * print flag, the JSON format, and for a `flags` agent the floor itself.
    */
-  launch: (mcpConfigPath: string) => string[];
+  launch: (mcpConfigPath: string, streaming?: boolean) => string[];
   /** The only place this agent's success is decided. */
   parse: (stdout: string) => AgenticOutcome;
+  /** The answer text one stdout event adds, for a caller streaming the answer as it is produced; `""` for anything that is not answer text. */
+  delta: (event: Record<string, unknown>) => string;
   /**
    * Renders whatever this agent needs in order to be pointed at a model, and
    * returns the environment naming it plus a `cleanup` for whatever it wrote
@@ -91,6 +93,13 @@ export interface AgentTarget {
  * write `output-format` into a `[engine.args]` table.
  */
 const CLAUDE_OUTPUT_FORMAT = ["--output-format", "json"] as const;
+/** The streamed form: `stream-json` needs `--verbose` in print mode, and partial messages are what make it a stream of deltas rather than one chunk per turn. */
+const CLAUDE_STREAM_FORMAT = [
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--include-partial-messages",
+] as const;
 
 /**
  * Failure lives in the envelope, never in the exit code. Verified: `claude -p
@@ -99,17 +108,75 @@ const CLAUDE_OUTPUT_FORMAT = ["--output-format", "json"] as const;
  * "api_error"` and a body reading "Not logged in".
  */
 export function parseClaudeEnvelope(stdout: string): AgenticOutcome {
-  let envelope: { is_error?: boolean; subtype?: string; terminal_reason?: string; result?: string };
-  try {
-    envelope = JSON.parse(stdout);
-  } catch {
+  // `--output-format json` prints the envelope alone; `stream-json` prints
+  // it as the last of many progress lines. Same fields either way.
+  const envelope = eventOf(stdout) ?? lastResultLine(stdout);
+  if (envelope === undefined) {
     return { ok: false, failure: "claude did not print a parseable JSON envelope on stdout" };
   }
+  return envelopeOutcome(envelope);
+}
+
+/** The verdict a claude-shaped `result` envelope carries; failure lives in `is_error`, never the exit code. */
+function envelopeOutcome(envelope: Record<string, unknown>): AgenticOutcome {
+  const result = typeof envelope.result === "string" ? envelope.result : undefined;
   if (envelope.is_error) {
-    const reason = envelope.terminal_reason ?? envelope.subtype ?? "is_error";
-    return { ok: false, failure: `agentic envelope failure: ${reason}`, result: envelope.result };
+    const reason =
+      (typeof envelope.terminal_reason === "string" ? envelope.terminal_reason : undefined) ??
+      (typeof envelope.subtype === "string" ? envelope.subtype : undefined) ??
+      "is_error";
+    return { ok: false, failure: `agentic envelope failure: ${reason}`, result };
   }
-  return { ok: true, result: envelope.result };
+  return { ok: true, result };
+}
+
+/** The last `{"type":"result",...}` line of a stream-json log -- every line before it is progress and carries no verdict. */
+function lastResultLine(stdout: string): Record<string, unknown> | undefined {
+  let outcome: Record<string, unknown> | undefined;
+  for (const line of stdout.split("\n")) {
+    const event = eventOf(line);
+    if (event !== null && event.type === "result") {
+      outcome = event;
+    }
+  }
+  return outcome;
+}
+
+/** Text a claude `stream-json` line adds to the answer: only partial-message content deltas, so a whole `assistant` message never repeats what its deltas already carried. */
+function claudeDelta(event: Record<string, unknown>): string {
+  if (event.type !== "stream_event" || !isRecord(event.event)) {
+    return "";
+  }
+  const inner = event.event;
+  if (inner.type !== "content_block_delta" || !isRecord(inner.delta)) {
+    return "";
+  }
+  return inner.delta.type === "text_delta" && typeof inner.delta.text === "string"
+    ? inner.delta.text
+    : "";
+}
+
+/** Text a cursor `stream-json` line adds to the answer: the text parts of each `assistant` message. */
+function cursorDelta(event: Record<string, unknown>): string {
+  if (
+    event.type !== "assistant" ||
+    !isRecord(event.message) ||
+    !Array.isArray(event.message.content)
+  ) {
+    return "";
+  }
+  return event.message.content
+    .map((part) =>
+      isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : "",
+    )
+    .join("");
+}
+
+/** What one line of `agentId`'s stdout adds to the streamed answer -- the empty string for progress, verdicts and noise. */
+export function agentDelta(agentId: string, line: string): string {
+  const event = eventOf(line);
+  const agent = AGENTS[agentId];
+  return event === null || agent === undefined ? "" : agent.delta(event);
 }
 
 /** `{"name":"APIError","data":{"message":"..."}}` -- the message where there is one, the name otherwise. */
@@ -217,24 +284,11 @@ const CURSOR_FLOOR = ["--mode", "plan", "--trust"] as const;
  * verdict, so only the last `result` line found is read.
  */
 export function parseCursorEvents(stdout: string): AgenticOutcome {
-  let outcome: { is_error?: boolean; subtype?: string; result?: string } | undefined;
-  for (const line of stdout.split("\n")) {
-    const event = eventOf(line);
-    if (event !== null && event.type === "result") {
-      outcome = event as { is_error?: boolean; subtype?: string; result?: string };
-    }
-  }
+  const outcome = lastResultLine(stdout);
   if (outcome === undefined) {
     return { ok: false, failure: "cursor did not print a parseable result on stdout" };
   }
-  if (outcome.is_error) {
-    return {
-      ok: false,
-      failure: `agentic envelope failure: ${outcome.subtype ?? "is_error"}`,
-      result: outcome.result,
-    };
-  }
-  return { ok: true, result: outcome.result };
+  return envelopeOutcome(outcome);
 }
 
 /**
@@ -336,8 +390,14 @@ const AGENTS: Record<string, AgentCli> = {
     pkg: "@anthropic-ai/claude-code",
     floor: "flags",
     wire: "anthropic",
-    launch: (mcpConfigPath) => ["-p", ...CLAUDE_OUTPUT_FORMAT, ...AGENTIC_FLOOR, mcpConfigPath],
+    launch: (mcpConfigPath, streaming) => [
+      "-p",
+      ...(streaming === true ? CLAUDE_STREAM_FORMAT : CLAUDE_OUTPUT_FORMAT),
+      ...AGENTIC_FLOOR,
+      mcpConfigPath,
+    ],
     parse: parseClaudeEnvelope,
+    delta: claudeDelta,
   },
   opencode: {
     id: "opencode",
@@ -347,6 +407,7 @@ const AGENTS: Record<string, AgentCli> = {
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
     launch: () => ["run", "--format", "json"],
     parse: parseOpencodeEvents,
+    delta: answerTextOf,
     configure: renderOpencodeConfig,
   },
   cursor: {
@@ -369,6 +430,7 @@ const AGENTS: Record<string, AgentCli> = {
     // of every agent's `launch` signature but unused here.
     launch: () => ["-p", ...CURSOR_OUTPUT_FORMAT, ...CURSOR_FLOOR],
     parse: parseCursorEvents,
+    delta: cursorDelta,
     // No `configure`: `CURSOR_API_KEY` is checked against Cursor's own key
     // format client-side before any network attempt -- measured against a
     // real OpenRouter key (rejected in ~0.4s, no connection made) and

@@ -3,6 +3,8 @@ kind = "agentic-cli"
 # configured address or secret.
 upstream = "optional"
 agent = "claude"
+# The door forwards this agent's answer as it prints: partial-message deltas over `--output-format stream-json`.
+streaming = true
 serves = ["/openai/v1/chat/completions"]
 # NOT the launch line -- src/spec.ts checks this array at parse (command[0]
 # must be the {bunx} placeholder, command[1] must be exactly this agent's

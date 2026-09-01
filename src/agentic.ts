@@ -40,6 +40,7 @@ import {
   type AgenticOutcome,
   type AgentTarget,
   agentCli,
+  agentDelta,
   type FloorKind,
 } from "./agents.ts";
 import type { ExecResult } from "./exec.ts";
@@ -83,6 +84,8 @@ interface AgenticSpawnOptions {
    * gives the child its own process group whose pgid equals its pid.
    */
   signal?: AbortSignal;
+  /** Each stdout chunk as it arrives, ahead of the buffered whole the promise resolves with. */
+  onStdout?: (chunk: string) => void;
 }
 
 export type AgenticSpawn = (argv: string[], opts: AgenticSpawnOptions) => Promise<ExecResult>;
@@ -128,7 +131,9 @@ export function defaultAgenticSpawn(
     }
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk;
+      const text = chunk.toString("utf8");
+      stdout += text;
+      opts.onStdout?.(text);
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk;
@@ -217,6 +222,8 @@ interface BuildArgvInput {
   args: Record<string, unknown>;
   /** The rendered empty MCP config claude's `--strict-mcp-config` must name — a bare flag closes nothing. Ignored by an agent that takes no such flag. */
   mcpConfigPath: string;
+  /** Launch in the agent's streamed output format, for a caller reading deltas as they print. */
+  streaming?: boolean;
 }
 
 /**
@@ -240,7 +247,11 @@ export function buildArgv(input: BuildArgvInput): string[] {
     agent.resolveBinary === undefined
       ? [input.bunx, `${agent.pkg}@${input.agentVersion}`]
       : [agent.resolveBinary()];
-  return [...command, ...agent.launch(input.mcpConfigPath), ...argvFromArgs(input.args)];
+  return [
+    ...command,
+    ...agent.launch(input.mcpConfigPath, input.streaming === true),
+    ...argvFromArgs(input.args),
+  ];
 }
 
 /** Spawned processes get an allowlist, never the ambient environment — a `--user` unit hands every child the manager's environment otherwise, secrets included. */
@@ -286,6 +297,8 @@ interface RunAgenticInput {
   extraEnv?: Record<string, string>;
   /** Forwarded to `spawn` verbatim; see `AgenticSpawnOptions.signal`. Absent for a probe run, which has no chain hop or timeout above it. */
   signal?: AbortSignal;
+  /** Answer text as the CLI prints it. Presence switches the launch to the agent's streamed output format; the verdict still comes from `parse` over the whole stdout. */
+  onDelta?: (text: string) => void;
 }
 
 export interface RunAgenticResult {
@@ -383,11 +396,28 @@ async function spawnAndParse(
   launch: LaunchInput,
   input: RunAgenticInput,
 ): Promise<RunAgenticResult> {
+  const { onDelta } = input;
+  let pending = "";
+  const onStdout =
+    onDelta === undefined
+      ? undefined
+      : (chunk: string): void => {
+          pending += chunk;
+          const lines = pending.split("\n");
+          pending = lines.pop() ?? "";
+          for (const line of lines) {
+            const text = agentDelta(agent.id, line);
+            if (text !== "") {
+              onDelta(text);
+            }
+          }
+        };
   const spawned = await input.spawn(launch.argv, {
     cwd: launch.workdir,
     env: launch.env,
     input: input.prompt,
     signal: input.signal,
+    onStdout,
   });
   const outcome: AgenticOutcome = agent.parse(spawned.stdout);
   return {
@@ -424,6 +454,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     agentVersion: input.agentVersion,
     args: input.args,
     mcpConfigPath: renderEmptyMcpConfig(),
+    streaming: input.onDelta !== undefined,
   });
   const env: Record<string, string> = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
