@@ -125,7 +125,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
           return { private_url: status.private_url };
         };
 
-        const result = await handleSpeech({ model: "chatterbox", input: "hello there" }, start);
+        const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, start);
 
         expect(result.status).toBe(200);
         expect(result.bytes).toBeDefined();
@@ -251,7 +251,7 @@ for (const tts of TTS_ROUND_TRIPS) {
         `${tts.id} speaks a phrase and whisper reads that same phrase back`,
         async () => {
           const spoken = await handleSpeech(
-            { model: tts.id, input: "The quick brown fox." },
+            { engine: tts.id, input: "The quick brown fox." },
             startFor(tts.id),
           );
           expect(spoken.status).toBe(200);
@@ -262,7 +262,8 @@ for (const tts of TTS_ROUND_TRIPS) {
 
           const heard = await handleTranscription(
             {
-              model: "whisper",
+              engine: "whisper",
+              model: "medium.en",
               file: wav as Uint8Array<ArrayBuffer>,
               response_format: "text",
             },
