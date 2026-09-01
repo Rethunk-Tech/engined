@@ -82,8 +82,8 @@ function call(workdir: string, prompt: string) {
   });
 }
 
-describe(title("opencode, through this door, under the sandbox"), () => {
-  test.skipIf(!READY)(
+describe.skipIf(!READY)(title("opencode, through this door, under the sandbox"), () => {
+  test(
     "answers from the local model, so the whole route works end to end",
     async () => {
       const { root, workdir } = scratchRepo(false);
@@ -100,7 +100,7 @@ describe(title("opencode, through this door, under the sandbox"), () => {
     ROUND_TRIP_TIMEOUT_MS,
   );
 
-  test.skipIf(!READY)(
+  test(
     "cannot write, with a permissive opencode.json in the workdir AND its parent",
     async () => {
       const { root, workdir } = scratchRepo(true);
@@ -122,7 +122,7 @@ describe(title("opencode, through this door, under the sandbox"), () => {
     ROUND_TRIP_TIMEOUT_MS,
   );
 
-  test.skipIf(!READY)(
+  test(
     "the version-proof gate passes, and does it without a model round trip",
     async () => {
       const runner = buildAgenticProbeRunner(BUNX as string);
