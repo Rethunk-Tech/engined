@@ -461,9 +461,9 @@ model    = "scribe_v1" # ElevenLabs' own model id, sent on the wire verbatim: th
 id                = "comfy"
 # Comfy's model tree is a host directory like llama's, not baked into
 # the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
-# it's reached via POST /engined/v1/engines/comfy/start and the private_url
-# that returns, or addressed directly as @/comfy/local -- never dispatched to
-# by a model id.
+# it's a modelless engine, addressed only as @/comfy/local, and reached
+# entirely through the mediated proxy under /engined/v1/comfy/:engine/:upstream/...
+# -- never at a raw container address, and never dispatched to by a model id.
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 

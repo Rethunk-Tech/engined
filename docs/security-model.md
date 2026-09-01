@@ -30,6 +30,42 @@ files directly; what engined adds is convenience and an egress path.
 **Adding a second, less-trusted caller is the moment this stops being
 acceptable.**
 
+## The launch-scoped door closes a recursion hazard
+
+An agentic engine reaches its own model back through this door, so its launch
+carries a door URL to call. Handing it the plain `http://127.0.0.1:<port>/openai/v1`
+would let a hop on that URL resolve to another agentic engine, which could in
+turn launch a further child — an unbounded recursion with nothing to stop it.
+
+Every agentic launch instead mints a single-use, 32-character lowercase hex
+nonce (`crypto.randomUUID()` with its dashes stripped) and hands the child
+`http://127.0.0.1:<port>/openai/v1/<nonce>/...` instead. A request on that
+path dispatches exactly like the plain surface, except a hop that resolves to
+an `agentic-cli` engine — keyed on the resolved engine, never the caller's
+literal `model` string, so a one-segment address that happens to resolve there
+is caught the same as naming it outright — is refused with a 403 rather than
+run. The nonce is live only for the launch's own window: minted at the call
+site, added to an in-memory set, and deleted the instant that call returns,
+whether it succeeded or not. It is never written anywhere durable, so a leaked
+or reused URL past that window is refused as unknown or expired, not treated
+as a standing key.
+
+**`cursor` is not covered by this, because nothing ever threads a door URL
+into its launch at all.** Where a channel exists it carries the nonce --
+opencode's provider config always names it as the base URL its own model
+calls go through, since opencode's one route stays local, and a claude route
+naming a real (non-ambient) upstream gets it alongside that upstream's own
+redirect, so a tool reaching back into engined lands on the scoped surface
+rather than the plain one. `cursor` declares no `configure`, and no route
+pairs it with a real upstream either: `CURSOR_API_KEY` is checked against
+Cursor's own key format client-side before any network attempt, and no key
+this box holds passes it, so redirecting cursor's own inference through
+engined's door would turn every launch into a guaranteed failure. A `cursor`
+launch reaches Cursor's cloud on this box's own login exactly as it would
+running outside engined, with nothing in its environment pointing back at
+this door at all -- not that the recursion control refuses cursor's reach-back,
+but that there is no reach-back channel there for it to bound.
+
 The read-only floor is version-specific, so a proved version is only proof for
 that version. Bumping `agent_version` re-runs that agent's probes before
 engined will serve requests through the new pin — and which probes those are

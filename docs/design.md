@@ -2,11 +2,12 @@
 
 ## The ownership line
 
-engined owns the engine list and its shape, secret resolution, aliases, chain
-ordering and fallback, OpenAI `model` dispatch, llama.cpp occupancy, container
-lifecycle for every managed engine, the spec directory that describes each
-one, invocation of every kind including `agentic-cli` and the read-only launch
-arguments that make it safe, and provenance.
+engined owns the engine, upstream, model, route and chain tables and their
+shape, secret resolution, address resolution, chain ordering and fallback,
+OpenAI `model` dispatch, llama.cpp occupancy, container lifecycle for every
+managed engine, the spec directory that describes each one, invocation of
+every kind including `agentic-cli` and the read-only launch arguments that
+make it safe, and provenance.
 
 Consumers own prompts, context assembly, output parsing, Comfy graphs, which
 chain or model string to send, and writing to disk whatever they keep from
@@ -79,10 +80,12 @@ No multi-machine, auth, tenancy or web UI — the operator surface is
 mocks: every trap here was tool behaviour rather than logic, and a fake
 reproduces the logic and none of the behaviour.
 
-**No proxy for Comfy, on purpose.** It is explicitly not the collision this
-project exists to end — it already loads on demand and unloads after its own
-jobs. engined manages only its container lifecycle; a consumer reaches a
-started job at its `private_url` directly.
+**Comfy is reached only through a mediated proxy**, never at a raw container
+address — see [http-api.md § Comfy](http-api.md#comfy). engined manages its
+container lifecycle and forwards every real call through the door by address;
+no `private_url` ever reaches a consumer, which is what keeps call recording,
+egress ceilings and a later budget in one place instead of letting a held
+address route around them.
 
 **No `Bun.serve` declarative routes.** Measured against bun 1.3.14, not
 assumed: all five engine-path regexes are expressible as `:id` routes, and SSE

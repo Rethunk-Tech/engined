@@ -19,9 +19,9 @@ treated as a caller.
 | `/openai/v1/embeddings` | POST | `openai-http` |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress. `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
-| `/openai/v1/models` | GET | every dispatchable `model` string |
+| `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
-| `/engined/v1/engines/:id/start` | POST | warms one engine, and the model named in the body if there is one |
+| `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
@@ -30,8 +30,9 @@ treated as a caller.
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
 proxy through to the named llama engine, with the resident chat model injected
-where the body omits one. Any other engine id is refused — they are llama.cpp
-routes, not a general engine surface.
+where the body omits one. Any other engine id is refused with a 400 naming it
+unknown — they are llama.cpp routes, not a general engine surface, and that is
+true of every kind that is not llama, not only ids that never existed.
 
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
@@ -39,26 +40,49 @@ serves nothing today: an unclaimed prefix 404s like any other unmatched path.
 
 ## Choosing a model
 
-The OpenAI `model` field accepts four spellings:
+An engine has no address of its own — `[[upstream]]` carries `base_url`,
+`secret` and `egress`, and an address always names a route, never a bare
+engine or a bare model id. A caller absent or empty on `model` is a 400 rather
+than defaulted, because a request that has not said where a prompt should run
+has not said whether it may leave the machine. The OpenAI `model` field takes
+one of four spellings:
 
-| Form | Example | Notes |
+| Form | Example | Meaning |
 | --- | --- | --- |
-| bare id or alias | `ornith` | only when exactly one engine serves it; two or more is a 400 listing the qualified forms |
-| engine id | `chatterbox` | for kinds that take no separate model (`agentic-cli`, `tts`, `stt`) |
+| `@/model` | `@/ornith` | the highest-preference route offering that model, ordered local → `lan` → `remote` → declaration. Does not walk on failure — a caller wanting fallback writes a chain |
+| `@/engine/model` | `@/llama/ornith` | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one) |
+| `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit — the only form a chain hop may use |
+| `@/engine/upstream` | `@/comfy/local` | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
 | chain name | `chain-private` | an ordered fallback list |
-| qualified | `@/local-llama/ornith` | canonical, and the only form a chain hop may use |
+
+A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
+an unqualified string resolves only as a chain name, and anything else is a
+400 naming it unknown.
 
 The `@/` prefix exists because the obvious spelling collides with reality: a
 Hugging Face id is already `org/model`, and a GGUF filename is the same
-shape, so a bare `engine/model` cannot be told apart from a repo name. `@/`
-is what makes the namespace unambiguous without banning slashes from either
-side.
+shape, so a bare `engine/model` cannot be told apart from a repo name — and a
+route's `wire_model` (the id its upstream actually knows, sent on the wire in
+`model`'s place, for exactly the case where that id itself contains a slash)
+makes this doubly true today: the address grammar and the wire id are
+deliberately different strings so one plain segment separator can serve both.
+`@/` is what makes the namespace unambiguous without banning slashes from
+either side.
+
+`GET /openai/v1/models` reports one row per address inside the surviving
+OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
+is `{id, engine, upstream, model, egress, streaming, serves, state,
+capabilities}`; a chain row omits `engine`/`upstream`/`model`/`egress` because
+no single one answers for every hop, and reports `streaming`, `state` and
+`capabilities` off its first hop instead.
 
 ## Chains
 
 A chain is an ordered list a consumer names instead of one model. It advances
-on a 5xx or an empty body and stops on a 4xx — a caller's own bad request is
-not something a second engine can fix.
+on a 5xx, an empty body, or a 401/402/403/429 — those four are credential- and
+rate-shaped, not the caller's fault, so a sibling engine gets a turn. Every
+other 4xx still stops the chain: a caller's own bad request is not something a
+second engine can fix.
 
 `chain-private` is one hop on purpose: it is the name a consumer points at to
 say *this prompt does not leave the box*, and keeping it a chain means adding
@@ -71,9 +95,12 @@ unauditable egress is not one this design accepts.
 ## Engine state
 
 `GET /engined/v1/engines` is the whole operator surface. Each engine reports its
-`state`, its `private_url` when running, and — when it cannot run —
-`unavailable` plus the literal command that fixes it: `docker pull …`,
-`docker build …`, or a `secret-tool store` line for a missing key.
+`state` and — when it cannot run — `unavailable` plus the literal command that
+fixes it: `docker pull …`, `docker build …`, or a `secret-tool store` line for
+a missing key. There is no `private_url` on this wire: where a managed
+container happens to listen is the door's own business, never a caller's —
+see [comfy](#comfy) below for what that means for the one engine a consumer
+used to reach directly.
 
 The response carries a `contract` number, bumped when a field is **removed**,
 a state renamed, or a route's meaning altered — never for a field added. A
@@ -81,14 +108,15 @@ consumer that ignores fields it does not know keeps working across an
 addition, so bumping for one would spend the signal that tells it when
 something it already reads has changed underneath it.
 
-An engine named in the config's [`disabled`](configuration.md#turning-something-off)
-list is listed here too, carrying `disabled: true` and `state: "unavailable"`.
-Nothing was probed to establish that state -- no docker call, no keyring
-lookup, no version proof -- and its `fix` is the config edit that turns it
-back on. It is listed rather than omitted because "turned off here" and "gone
-from the config" are different answers to an operator staring at this route.
-`POST /engined/v1/engines/:id/start` on one is a 404 saying so, no `model` string
-resolves to it, and `GET /openai/v1/models` does not advertise it.
+An engine, upstream, route or chain carrying `disable = true`
+([configuration.md](configuration.md#turning-something-off)) is listed here
+too, carrying `disabled: true` and `state: "unavailable"`. Nothing was probed
+to establish that state -- no docker call, no keyring lookup, no version proof
+-- and its `fix` is the config edit that turns it back on. It is listed rather
+than omitted because "turned off here" and "gone from the config" are
+different answers to an operator staring at this route. An address naming a
+disabled engine is a 400 on `POST /engined/v1/start` and on every dispatch
+endpoint, and `GET /openai/v1/models` does not advertise it.
 
 A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
@@ -132,14 +160,22 @@ sentence boundaries, so it is not done here. Piper splits on sentences itself,
 so its chunk boundaries follow the text's punctuation and need nothing from
 the caller.
 
-`POST /engined/v1/engines/:id/start` takes an optional `{ "model": "..." }` body. With
-no body it warms the container, which is what it has always done. With one it
-also loads that GGUF, so the first real request does not pay the cold load --
-measured at 13.84s cold against 2.09s warm for a TTS round trip on this box.
-The warm goes through the ordinary lease, so it cannot jump the queue or hold
-a role against anyone; it is released immediately and idle-stop is armed as
-usual. It is a head start, not a pin. `keep_resident` in
-[configuration.md](configuration.md) is what makes residency survive.
+`POST /engined/v1/start` takes `{ "model": "<address or chain name>" }` — an
+engine id is not a place, so there is no per-engine sibling of this route. A
+chain name warms its first hop only: warming exists to avoid a cold first
+turn, and starting every hop would spin up containers for requests the first
+hop is going to answer. A bare `@/<model>` address warms every route offering
+that model, since one address can name more than one engine there; the two-
+and three-segment forms are already engine-specific and warm exactly one.
+Response rows are `{address, engine, upstream, state, fix?}` — never a `url`:
+reaching an engine is a separate request to the door, by address, and this
+verb only answers what state it is in. On a llama route this loads the named
+GGUF, so the first real request does not pay the cold load -- measured at
+13.84s cold against 2.09s warm for a TTS round trip on this box. The warm goes
+through the ordinary lease, so it cannot jump the queue or hold a role against
+anyone; it is released immediately and idle-stop is armed as usual. It is a
+head start, not a pin. `keep_resident` in [configuration.md](configuration.md)
+is what makes residency survive.
 
 A llama engine additionally reports `roles`, one entry per role that is doing
 something: `{ role, active, waiting }`. These are not the same number as
@@ -151,12 +187,31 @@ theirs can load. It is the difference between "the model is still loading" and
 with nothing running and nothing queued is omitted rather than reported as
 zero, and a kind with no roles carries no `roles` at all.
 
+## Comfy
+
+Comfy is a **modelless** engine, addressed only as `@/comfy/local`, with no
+one-segment or three-segment form. It is reached entirely through a mediated
+proxy under `/engined/v1/comfy/:engine/:upstream/...`, never at a raw
+container address: every real caller's `object_info`, `prompt`, `upload/image`,
+`view`, `ws`, `history/:promptId` and `queue` calls forward through this door,
+by address, resolved to the running container's own host:port on the door's
+side only. This is what keeps every control this project has -- call
+recording, egress ceilings, and later a budget -- in one place: a consumer
+holding a raw container address routes around all of it, so none is ever
+handed out.
+
+`GET /view` and `POST /queue` are mediated against what this door has actually
+seen pass through the proxy -- the `prompt_id`s `POST /prompt` returned and the
+output filenames a completed `/history` read surfaced for them -- rather than
+against anything a caller merely claims, since Comfy's output directory is
+shared and a caller-supplied filename must never become a URL on its own say-so.
+
 ## Provenance
 
 Every call writes one structured JSON line to journald:
 
 ```json
-{"chain":"chain-private","requested":"chain-private","attempts":[{"engine":"local-llama","model":"ornith","ok":true,"duration_ms":9203,"model_reported":"ornith","model_resident":"ornith"}],"engine_used":"local-llama"}
+{"chain":"chain-private","requested":"chain-private","attempts":[{"engine":"llama","model":"ornith","ok":true,"duration_ms":9203,"model_reported":"ornith","model_resident":"ornith"}],"engine_used":"llama"}
 ```
 
 `model_reported` is the id the engine echoed in its body; `model_resident` is

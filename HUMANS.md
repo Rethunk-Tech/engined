@@ -73,13 +73,14 @@ systemctl --user restart engined            # full restart
 
 `systemctl --user reload` re-reads `config.toml`; in-flight requests finish on
 the old engine list. A running container keeps its old shape until next start
-(idle-stop or `POST /engined/v1/engines/:id/start`) — llama-server reads presets INI
+(idle-stop or `POST /engined/v1/start`) — llama-server reads presets INI
 once at startup. See [docs/configuration.md](docs/configuration.md).
 
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
 ```sh
-curl -s -X POST localhost:29200/engined/v1/engines/llama/start | jq
+curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/json' \
+  -d '{"model":"@/llama/ornith"}' | jq
 ```
 
 ## Troubleshoot
@@ -89,10 +90,11 @@ curl -s -X POST localhost:29200/engined/v1/engines/llama/start | jq
 | `ECONNREFUSED` on 29200 | unit not running — `systemctl --user status engined` |
 | exit 78 at startup | port already bound; error names the port |
 | engine stuck `unavailable` | read its `fix` field and run that command |
-| a 400 listing qualified forms | bare model id served by two engines — use `@/<engine>/<model>` |
+| a 400 saying `unknown model` | bare model or engine id — every address needs `@/`, e.g. `@/<engine>/<model>` |
+| a 400 listing qualified upstream forms | `@/<engine>/<model>` names a model two upstreams share on that engine — use `@/<engine>/<upstream>/<model>` |
 | config change had no effect on a running engine | takes effect at the engine's next start |
 | an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
-| `opencode` refuses to serve | no `bwrap` on the box, or no `agent_model` on the engine — the `fix` field says which |
+| `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
 
 ## Uninstall
 

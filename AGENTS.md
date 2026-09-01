@@ -42,21 +42,27 @@ change as `src/config.ts` or any `spec.toml` drift.
 
 An engine engined **launches** is `engines/<id>/` (`spec.toml`, Dockerfile,
 mounted files). `config.toml` names it and supplies install-specific values.
-Remote-only engines stay wholly in config: `base_url`, `secret`, `egress`.
+An engine has no address of its own — a remote-address engine names its
+`[[upstream]]` instead, which carries `base_url`, `secret`, `egress`.
 
 Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
-in spec, not operator config. Tunables go in `[engine.args]` / `[model.args]`;
-engined's closed key set is `ENGINE_KEYS` in `src/config.ts`. Precedence:
-**model beats engine, config beats spec, floor beats everything.** On remotes,
+in spec, not operator config. Tunables go in `[engine.args]` / `[route.args]`;
+engined's closed key sets are `ENGINE_KEYS`/`UPSTREAM_KEYS`/`MODEL_KEYS`/
+`ROUTE_KEYS`/`CHAIN_KEYS` in `src/config.ts`. Precedence: **route beats
+engine, config beats spec, floor beats everything.** On remotes,
 `[engine.args]` are wire parameters — see `src/remote.ts`.
+
+`[[model]]` rows are optional capability declarations only; `filename`,
+`role` and `keep_resident` live on `[[route]]`, which pairs an engine with an
+upstream and, where one applies, a model.
 
 | Entry | Required | Absent by construction |
 | ------ | ------ | ------ |
-| `[[model]]` on llama | `id`, `engine`, `filename`, `role` | — |
-| `[[model]]` on agentic | `id`, `engine` | `filename`, `role` |
-| `[[engine]]`, every kind | `id`, `egress` | — |
-| `[[engine]]`, remote only | `id`, `egress`, `base_url`, `secret` | `spec_dir`, `models_dir`, `models_max` |
+| `[[route]]` on llama | `engine`, `upstream`, `model`, `filename`, `role` | — |
+| `[[route]]` on agentic | `engine` | `filename`, `role` |
+| `[[engine]]`, every kind | `id` | — |
+| `[[upstream]]`, remote address | `id`, `egress`, `base_url`, `secret` | — |
 
 Origin/Host check, browser callers, and why `cursor-agent` did not ship:
 [docs/security-model.md](docs/security-model.md).
