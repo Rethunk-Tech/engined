@@ -62,6 +62,12 @@ Measured, median of three runs after warm-up, on the same input:
 | chatterbox-fast | default | 1.29 | 0.78x |
 | chatterbox-fast | FAST | 0.62 | 1.52-1.60x |
 
+**These ratios are a ceiling, not a budget.** They were taken on input long
+enough to amortize a fixed per-request cost; on a short reply the same engine
+measures well below them -- chatterbox-fast lands at 0.86-1.20x on a 12-char
+input and 1.11-1.16x on 41 chars. Still realtime or better, but do not size a
+short-reply latency budget from the headline figure.
+
 Roughly half the gain is the model and half is `MIOPEN_FIND_MODE=FAST`, set in
 this image's Dockerfile. MIOpen's default search picks a `GemmFwdRest`
 fallback for the vocoder's convolutions and warns that it was handed no
@@ -171,6 +177,12 @@ measured through the door, median of three runs, warm, on a three-sentence
 input, RTF 0.022 -- 8.64s of audio in 0.19s, about 46x realtime. That is a
 different measurement from the ROCm table above (no GPU contention, no MIOpen
 search), which is why it is quoted separately rather than added as a row.
+
+That 46x is the long-input figure and it climbs with length: measured 11.1x on
+12 characters, 13.5-18.7x on 41, and 23.5-31.6x on 155. **Cite ~11-20x for a
+one-line reply.** It changes no decision -- piper's absolute latency is
+65-390ms either way, which is nobody's bottleneck -- but the headline number
+overstates what a short reply actually costs.
 
 Its voice synthesizes at **22050 Hz**, not the 24000 kokoro uses. Nothing
 inside a WAV cares, but a streamed `audio/L16` reply has only the content type
