@@ -137,7 +137,7 @@ test("a remote STT engine posts ElevenLabs' own shape and unwraps its transcript
     }
     const result = await handleTranscription(
       {
-        model: "elevenlabs",
+        engine: "elevenlabs",
         file: SAMPLE_WAV,
         language: "en",
         response_format: "text",
@@ -169,7 +169,7 @@ test("a remote STT engine without a configured model_id still sends one", async 
       throw new Error("expected the fake secret to resolve");
     }
     const result = await handleTranscription(
-      { model: "elevenlabs", file: SAMPLE_WAV },
+      { engine: "elevenlabs", file: SAMPLE_WAV },
       async () => ({
         private_url: null,
         remote: resolution.endpoint,
@@ -188,7 +188,7 @@ test("a remote STT engine without a configured model_id still sends one", async 
 });
 
 test("a remote engine whose secret will not resolve reports the fix, not 'not available'", async () => {
-  const result = await handleTranscription({ model: "elevenlabs", file: SAMPLE_WAV }, async () => {
+  const result = await handleTranscription({ engine: "elevenlabs", file: SAMPLE_WAV }, async () => {
     const resolution = await resolveRemote(remoteEngine(), missingSecret);
     return resolution.ok
       ? { private_url: null, remote: resolution.endpoint }
@@ -199,7 +199,7 @@ test("a remote engine whose secret will not resolve reports the fix, not 'not av
 });
 
 test("the speech door says so rather than pretending a remote engine failed to start", async () => {
-  const result = await handleSpeech({ model: "elevenlabs", input: "hello" }, async () => ({
+  const result = await handleSpeech({ engine: "elevenlabs", input: "hello" }, async () => ({
     private_url: null,
     remote: { base_url: "https://x", headers: {}, args: {} },
   }));

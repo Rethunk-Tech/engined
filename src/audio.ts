@@ -34,6 +34,7 @@ import {
   pcmContentType,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_CONFLICT,
   STATUS_OK,
   STATUS_UNAVAILABLE,
   TEXT_CONTENT_TYPE,
@@ -52,8 +53,8 @@ const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
 const SPEECH_RESPONSE_FORMATS = new Set(["wav"]);
 
 export interface SpeechRequestBody {
-  /** The engine id: a TTS engine has no separate model concept to dispatch through. */
-  model: string;
+  /** The engine to dispatch through. Every TTS route stays modelless (voices are a request field, not an address segment), so there is no separate model to carry. */
+  engine: string;
   input: string;
   response_format?: string;
   /**
@@ -109,8 +110,15 @@ export interface DoorResponse {
 }
 
 export interface TranscriptionRequestBody {
-  /** The engine id: an STT engine has no separate model concept to dispatch through. */
-  model: string;
+  /** The engine to dispatch through. */
+  engine: string;
+  /**
+   * The model segment of the resolved address, when this engine's routes
+   * carry one -- whisper's "small.en"/"medium.en", or the wire model a
+   * remote STT dialect names (ElevenLabs' "scribe_v1"). Absent for a
+   * modelless engine.
+   */
+  model?: string;
   /** Raw audio bytes already read from the multipart upload. */
   file: Uint8Array<ArrayBuffer>;
   /** Reaches the engine on the wire, per request; never written into its spec. */
@@ -120,14 +128,17 @@ export interface TranscriptionRequestBody {
 
 /**
  * Whatever starts an engine on demand and reports where it landed —
- * `EngineRegistry.start`, in production.
+ * `EngineRegistry.start`, in production. `model` selects which of the
+ * engine's own model-bearing routes should be resident (whisper's
+ * "small.en"/"medium.en"); absent for a modelless engine, which is every
+ * TTS route and most STT ones.
  *
  * A remote engine lands nowhere: it has no container and so no
  * `private_url`, and `remote` carries its address and header instead. The
  * two are mutually exclusive by construction, not by convention — a
  * `base_url` engine is never handed to the lifecycle at all.
  */
-export type EngineStart = (id: string) => Promise<StartedEngine>;
+export type EngineStart = (id: string, model?: string) => Promise<StartedEngine>;
 
 interface StartedEngine {
   private_url: string | null;
@@ -139,6 +150,12 @@ interface StartedEngine {
    * actionable and always specific.
    */
   unavailable?: string;
+  /**
+   * Set instead of starting: switching the container to the requested model
+   * would stop a request already in flight. A warm is an optimization, and
+   * killing one to satisfy it is strictly worse than warming late.
+   */
+  conflict?: string;
 }
 
 /**
@@ -241,24 +258,24 @@ function parseFrame(line: string): Frame | undefined {
  * players disagree about or concatenated headers that are not a WAV at all.
  */
 async function streamedSpeech(
-  model: string,
+  engineId: string,
   body: ReadableStream<Uint8Array>,
 ): Promise<DoorResponse> {
   const frames = ndjsonFrames(body);
   for (;;) {
     const { done, value } = await frames.next();
     if (done) {
-      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts streamed no audio`);
+      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts streamed no audio`);
     }
     if (value.phase === "error") {
       const detail = typeof value.detail === "string" ? value.detail : "no detail";
-      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts failed: ${detail}`);
+      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts failed: ${detail}`);
     }
     if (value.phase !== "chunk" || typeof value.pcm !== "string") {
       continue;
     }
     if (typeof value.rate !== "number") {
-      return errorResponse(STATUS_BAD_GATEWAY, `${model}: /v1/tts chunk carried no sample rate`);
+      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts chunk carried no sample rate`);
     }
     return {
       status: STATUS_OK,
@@ -377,13 +394,20 @@ function errorResponse(status: number, message: string): DoorResponse {
   return { status, contentType: JSON_CONTENT_TYPE, body: jsonErrorBody(message) };
 }
 
+/** `undefined` when `start()` handed back a usable engine; a 409 response otherwise. */
+function conflictResponse(engine: StartedEngine): DoorResponse | undefined {
+  return engine.conflict === undefined
+    ? undefined
+    : errorResponse(STATUS_CONFLICT, engine.conflict);
+}
+
 export async function handleSpeech(
   req: SpeechRequestBody,
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
-  if (!req.model) {
-    return errorResponse(STATUS_BAD_REQUEST, "model is required");
+  if (!req.engine) {
+    return errorResponse(STATUS_BAD_REQUEST, "engine is required");
   }
   if (!req.input) {
     return errorResponse(STATUS_BAD_REQUEST, "input is required");
@@ -395,18 +419,25 @@ export async function handleSpeech(
     );
   }
 
-  const engine = await start(req.model);
+  const engine = await start(req.engine);
+  const conflict = conflictResponse(engine);
+  if (conflict) {
+    return conflict;
+  }
   if (engine.remote !== undefined) {
     // No remote TTS upstream is configured, so no remote TTS dialect ships.
     // Said out loud rather than left to fail as "not available", which would
     // read as a container that did not start.
     return errorResponse(
       STATUS_BAD_GATEWAY,
-      `${req.model} is a remote address, and no remote speech dialect ships`,
+      `${req.engine} is a remote address, and no remote speech dialect ships`,
     );
   }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
+    return errorResponse(
+      STATUS_UNAVAILABLE,
+      engine.unavailable ?? `${req.engine} is not available`,
+    );
   }
 
   const ndjson = req.stream === "ndjson";
@@ -427,23 +458,23 @@ export async function handleSpeech(
     }),
   });
   if (!res.ok) {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts returned ${res.status}`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts returned ${res.status}`);
   }
 
   if (streaming) {
     const { body } = res;
     if (body === null) {
-      return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts streamed no body`);
+      return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts streamed no body`);
     }
-    return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.model, body);
+    return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.engine, body);
   }
 
   const { audio, error } = extractAudioFromNdjson(await res.text());
   if (error !== undefined) {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts failed: ${error}`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts failed: ${error}`);
   }
   if (audio === undefined) {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /v1/tts response carried no audio`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts response carried no audio`);
   }
 
   return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: Buffer.from(audio, "base64") };
@@ -460,9 +491,9 @@ const ELEVENLABS_DEFAULT_MODEL_ID = "scribe_v1";
 const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
 
 /**
- * The ElevenLabs Scribe dialect. `model_id` is not the door's `model`: on
- * this door `model` names the *engine*, so the upstream's own model id can
- * only come from config — forwarding `model` verbatim would send the string
+ * The ElevenLabs Scribe dialect. `model_id` is not the door's `engine`: on
+ * this door `engine` names the engine, so the upstream's own model id can
+ * only come from config — forwarding `engine` verbatim would send the string
  * "elevenlabs" as a model id and earn a 422.
  */
 async function transcribeRemote(
@@ -474,7 +505,7 @@ async function transcribeRemote(
   if (format !== undefined && !REMOTE_TEXT_RESPONSE_FORMATS.has(format) && format !== "json") {
     return errorResponse(
       STATUS_BAD_REQUEST,
-      `${req.model}: response_format must be one of: text, json`,
+      `${req.engine}: response_format must be one of: text, json`,
     );
   }
 
@@ -493,13 +524,16 @@ async function transcribeRemote(
   if (!res.ok) {
     return errorResponse(
       STATUS_BAD_GATEWAY,
-      `${req.model}: /speech-to-text returned ${res.status}`,
+      `${req.engine}: /speech-to-text returned ${res.status}`,
     );
   }
 
   const parsed = (await res.json()) as { text?: unknown };
   if (typeof parsed.text !== "string") {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.model}: /speech-to-text carried no transcript`);
+    return errorResponse(
+      STATUS_BAD_GATEWAY,
+      `${req.engine}: /speech-to-text carried no transcript`,
+    );
   }
   if (format !== undefined && REMOTE_TEXT_RESPONSE_FORMATS.has(format)) {
     return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: parsed.text };
@@ -515,19 +549,26 @@ export async function handleTranscription(
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
-  if (!req.model) {
-    return errorResponse(STATUS_BAD_REQUEST, "model is required");
+  if (!req.engine) {
+    return errorResponse(STATUS_BAD_REQUEST, "engine is required");
   }
   if (req.file.length === 0) {
     return errorResponse(STATUS_BAD_REQUEST, "file is required");
   }
 
-  const engine = await start(req.model);
+  const engine = await start(req.engine, req.model);
+  const conflict = conflictResponse(engine);
+  if (conflict) {
+    return conflict;
+  }
   if (engine.remote !== undefined) {
     return await transcribeRemote(req, engine.remote, fetchImpl);
   }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.model} is not available`);
+    return errorResponse(
+      STATUS_UNAVAILABLE,
+      engine.unavailable ?? `${req.engine} is not available`,
+    );
   }
 
   const form = new FormData();
@@ -546,7 +587,7 @@ export async function handleTranscription(
   if (!res.ok) {
     return errorResponse(
       STATUS_BAD_GATEWAY,
-      `${req.model}: /v1/audio/transcriptions returned ${res.status}`,
+      `${req.engine}: /v1/audio/transcriptions returned ${res.status}`,
     );
   }
 

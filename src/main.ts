@@ -36,6 +36,7 @@ import { DockerLifecycle, dockerExec } from "./docker.ts";
 import {
   DEFAULT_IDLE_STOP_SECONDS,
   DEFAULT_READY_TIMEOUT_S,
+  EngineBusyError,
   EngineRegistry,
   type RegistryOptions,
 } from "./engines.ts";
@@ -967,6 +968,8 @@ async function handleChatOrEmbeddings(
 
 interface AudioCallInfo {
   engineId: string;
+  /** The model segment of the resolved address, when the engine's routes carry one. Absent for a modelless engine. */
+  model?: string;
   requested: string;
   result: DoorResponse;
   startedAt: number;
@@ -981,7 +984,7 @@ interface AudioCallInfo {
  * success, and one that died mid-body is not.
  */
 function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
-  const { engineId, requested, result, startedAt } = info;
+  const { engineId, model, requested, result, startedAt } = info;
   const emit = (audioBytes: number, streamFailure?: string): void => {
     const verdict = classifyResult({
       status: result.status,
@@ -996,7 +999,10 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
         attempts: [
           {
             engine: engineId,
-            model: engineId,
+            // A modelless engine (every TTS route, most STT ones) has no
+            // separate model id, so the engine id is the honest fill-in --
+            // the same convention the chat path's own Attempt.model follows.
+            model: model ?? engineId,
             ok,
             ...(failure === undefined ? {} : { failure }),
             duration_ms: Date.now() - startedAt,
@@ -1056,14 +1062,15 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
 }
 
 /**
- * Both audio endpoints take an engine, never a chain and never a model: the
- * door has no model concept here. Resolution and that refusal are one step.
+ * Both audio endpoints take an engine, and a model where the resolved
+ * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
+ * "scribe_v1" -- never a chain. Resolution and that refusal are one step.
  */
 function resolveAudioEngine(
   ctx: DoorContext,
   rawModel: string | undefined,
   endpoint: string,
-): { ok: true; engineId: string } | { ok: false; response: Response } {
+): { ok: true; engineId: string; model?: string } | { ok: false; response: Response } {
   const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry);
   if (!resolved.ok) {
     return { ok: false, response: jsonError(STATUS_BAD_REQUEST, resolved.error) };
@@ -1074,7 +1081,11 @@ function resolveAudioEngine(
       response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
     };
   }
-  return { ok: true, engineId: resolved.engine };
+  return {
+    ok: true,
+    engineId: resolved.engine,
+    model: resolved.kind === "model" ? resolved.model : undefined,
+  };
 }
 
 /**
@@ -1082,15 +1093,21 @@ function resolveAudioEngine(
  * and a header instead of started — there is no container to warm — and a
  * secret that will not resolve surfaces as a null `private_url` with no
  * `remote`, which the door reports as unavailable exactly like a container
- * that failed to come up.
+ * that failed to come up. `EngineBusyError` (a model switch that would kill
+ * a request in flight) surfaces as `conflict` rather than propagating, so
+ * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
+ * they already turn `unavailable` into a 503.
  */
 function audioStart(ctx: DoorContext): EngineStart {
-  return async (id: string) => {
+  return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
     const config = ctx.getConfig();
-    // A modelless route: audio engines carry no model segment to look one up
-    // by, so it is found by engine id alone.
-    const route = config.routes.find((r) => r.engine === id && r.model === undefined);
+    const route =
+      model === undefined
+        ? // A modelless route: no model segment to look one up by, so it is
+          // found by engine id alone.
+          config.routes.find((r) => r.engine === id && r.model === undefined)
+        : findModelOnEngine(config.routes, id, model);
     const upstreamId = route?.upstream ?? null;
     if (engine && upstreamId !== null && upstreamId !== "local") {
       const upstream = config.upstreams.find((u) => u.id === upstreamId);
@@ -1102,7 +1119,15 @@ function audioStart(ctx: DoorContext): EngineStart {
         ? { private_url: null, remote: resolution.endpoint }
         : { private_url: null, unavailable: resolution.error };
     }
-    const status = await ctx.registry.start(id);
+    let status: Awaited<ReturnType<EngineRegistry["start"]>>;
+    try {
+      status = await ctx.registry.start(id, model);
+    } catch (err) {
+      if (err instanceof EngineBusyError) {
+        return { private_url: null, conflict: err.message };
+      }
+      throw err;
+    }
     // Paired with the `armAudioIdleStop` every audio path runs on the way out.
     ctx.lifecycle.beginLease(id);
     return { private_url: status.private_url };
@@ -1124,7 +1149,7 @@ async function handleAudioSpeech(
     Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
   );
   const speechReq: SpeechRequestBody = {
-    model: engineId,
+    engine: engineId,
     input: typeof body.input === "string" ? body.input : "",
     response_format: typeof body.response_format === "string" ? body.response_format : undefined,
     stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
@@ -1207,10 +1232,11 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   if (!audio.ok) {
     return audio.response;
   }
-  const { engineId } = audio;
+  const { engineId, model } = audio;
   const start = audioStart(ctx);
   const transcriptionReq: TranscriptionRequestBody = {
-    model: engineId,
+    engine: engineId,
+    model,
     file: form.file,
     language: form.language,
     response_format: form.responseFormat,
@@ -1219,7 +1245,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   const result = await handleTranscription(transcriptionReq, start);
   armAudioIdleStop(ctx, engineId);
   return doorResponseToResponse(
-    recordAudioCall(ctx, { engineId, requested: form.rawModel ?? "", result, startedAt }),
+    recordAudioCall(ctx, { engineId, model, requested: form.rawModel ?? "", result, startedAt }),
   );
 }
 

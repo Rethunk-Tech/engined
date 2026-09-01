@@ -64,6 +64,10 @@ describe("shipped specs", () => {
     });
     expect(loaded.spec.kind).toBe("stt");
     if (loaded.spec.kind !== "agentic-cli") {
+      // medium.en by default; EngineRegistry.start (engines.ts) rewrites this
+      // pair's second token per the route a caller actually names.
+      const { command } = loaded.spec;
+      expect(command[command.indexOf("-m") + 1]).toBe("/models/ggml-medium.en-q8_0.bin");
       expect(loaded.spec.ready.path).toBe("/v1/audio/transcriptions");
       expect(loaded.spec.ready.method).toBe("POST");
       expect(loaded.spec.ready.accept).toEqual({ min: 200, max: 499 });
@@ -81,44 +85,15 @@ describe("shipped specs", () => {
             "curl -fL -o /data/models/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin",
         },
         {
+          path: "/models/ggml-small.en-q8_0.bin",
+          obtain:
+            "curl -fL -o /data/models/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin",
+        },
+        {
           path: "/models/ggml-silero-v6.2.0.bin",
           obtain:
             "curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
         },
-      ]);
-    }
-  });
-
-  // whisper-fast is whisper's spec with one model file changed, and every
-  // difference between them that matters is a detail that fails silently if
-  // it drifts: the two engines must differ in the model they load and in
-  // nothing else, and each must mount its OWN spec directory (the entrypoint
-  // is /spec/quiet.sh, which resolves out of that mount alone).
-  test("whisper-fast is whisper's shape with a different model, mounting its own spec dir", () => {
-    const opts = { enginesRoot: ENGINES_ROOT, bunx: BUNX };
-    const slow = loadSpec(engine({ id: "whisper", models_dir: "/data/models" }), opts);
-    const fast = loadSpec(engine({ id: "whisper-fast", models_dir: "/data/models" }), opts);
-
-    const modelOf = (command: string[]) => command[command.indexOf("-m") + 1];
-    expect(modelOf(slow.spec.command)).toBe("/models/ggml-medium.en-q8_0.bin");
-    expect(modelOf(fast.spec.command)).toBe("/models/ggml-small.en-q8_0.bin");
-    expect(fast.spec.command.filter((a) => a !== "/models/ggml-small.en-q8_0.bin")).toEqual(
-      slow.spec.command.filter((a) => a !== "/models/ggml-medium.en-q8_0.bin"),
-    );
-
-    if (fast.spec.kind !== "agentic-cli" && slow.spec.kind !== "agentic-cli") {
-      // One image, one build: a second Dockerfile carrying the same pinned
-      // digest is the drift this shares its way out of.
-      expect(fast.spec.image).toBe(slow.spec.image);
-      expect(fast.spec.entrypoint).toEqual(slow.spec.entrypoint);
-      expect(fast.spec.ready).toEqual(slow.spec.ready);
-      expect(fast.spec.volumes).toEqual([
-        { name: "/data/models", path: "/models", read_only: true },
-        { name: join(ENGINES_ROOT, "whisper-fast"), path: "/spec", read_only: true },
-      ]);
-      expect(fast.spec.artifacts.map((a) => a.path)).toEqual([
-        "/models/ggml-small.en-q8_0.bin",
-        "/models/ggml-silero-v6.2.0.bin",
       ]);
     }
   });
@@ -145,13 +120,10 @@ describe("shipped specs", () => {
   // leaks the operator's username into a file that ships. Assert against the
   // real committed files so a reintroduced literal fails here regardless of
   // what any loadSpec() call above happens to substitute.
-  test.each(["whisper", "whisper-fast"])(
-    "the shipped %s spec.toml contains no absolute host path",
-    (id) => {
-      const raw = readFileSync(join(ENGINES_ROOT, id, "spec.toml"), "utf8");
-      expect(raw).not.toMatch(RX_HOME_PATH);
-    },
-  );
+  test.each(["whisper"])("the shipped %s spec.toml contains no absolute host path", (id) => {
+    const raw = readFileSync(join(ENGINES_ROOT, id, "spec.toml"), "utf8");
+    expect(raw).not.toMatch(RX_HOME_PATH);
+  });
 });
 
 test("volume.name and artifact.obtain placeholders resolve to the supplied values", () => {

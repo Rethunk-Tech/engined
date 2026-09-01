@@ -78,7 +78,7 @@ function startFakeChatterbox(): { base: string; stop: () => void } {
 test("handleSpeech returns an OpenAI audio body, not the chatterbox NDJSON envelope", async () => {
   const fake = startFakeChatterbox();
 
-  const result = await handleSpeech({ model: "chatterbox", input: "hello there" }, async () => ({
+  const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, async () => ({
     private_url: fake.base,
   }));
   fake.stop();
@@ -94,7 +94,7 @@ test("response_format: wav returns bytes with a binary content type, not a JSON 
   const fake = startFakeChatterbox();
 
   const result = await handleSpeech(
-    { model: "chatterbox", input: "hello there", response_format: "wav" },
+    { engine: "chatterbox", input: "hello there", response_format: "wav" },
     async () => ({ private_url: fake.base }),
   );
   fake.stop();
@@ -107,7 +107,7 @@ test("response_format: wav returns bytes with a binary content type, not a JSON 
 
 test("response_format: mp3 on speech is rejected with 400 naming wav, not silently returned as wav bytes", async () => {
   const result = await handleSpeech(
-    { model: "chatterbox", input: "hello there", response_format: "mp3" },
+    { engine: "chatterbox", input: "hello there", response_format: "mp3" },
     () => {
       throw new Error("must not start an engine for a rejected response_format");
     },
@@ -150,7 +150,7 @@ test("a request against a stopped engine starts it on demand through the real do
   const lifecycle = makeLifecycle(exec);
   const spec = loadSpecFor("chatterbox");
 
-  const result = await handleSpeech({ model: "chatterbox", input: "hello there" }, (id) =>
+  const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, (id) =>
     lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
   );
   fake.stop();
@@ -208,7 +208,7 @@ test("response_format: text on transcriptions returns bare text, not a JSON enve
   const fake = startFakeWhisper();
 
   const result = await handleTranscription(
-    { model: "whisper", file: SAMPLE_AUDIO_BYTES, response_format: "text" },
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, response_format: "text" },
     async () => ({ private_url: fake.base }),
   );
   fake.stop();
@@ -222,7 +222,7 @@ test("a per-request language reaches the engine, asserted against the fake upstr
   const fake = startFakeWhisper();
 
   await handleTranscription(
-    { model: "whisper", file: SAMPLE_AUDIO_BYTES, language: "fr" },
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, language: "fr" },
     async () => ({ private_url: fake.base }),
   );
   fake.stop();
@@ -248,7 +248,7 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   // means to prove.
   const whisperSpecDir = join(import.meta.dir, "..", "engines", "whisper");
   const result = await handleTranscription(
-    { model: "whisper", file: SAMPLE_AUDIO_BYTES },
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES },
     (id) =>
       lifecycle.start(id, spec, {
         idleStopSeconds: 60,
@@ -287,7 +287,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
   const lifecycle = makeLifecycle(exec);
 
   const result = await handleTranscription(
-    { model: "whisper", file: SAMPLE_AUDIO_BYTES },
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES },
     (id) => lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
     unreachableFetch("must not fetch an engine that never started"),
   );
@@ -339,7 +339,7 @@ test("a streamed speech request forwards each chunk's PCM and drops the terminal
   ].join("\n");
   let asked: unknown;
   const res = await handleSpeech(
-    { model: "kokoro", input: "hi", stream: true },
+    { engine: "kokoro", input: "hi", stream: true },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     (_url, init) => {
       asked = JSON.parse(String(init?.body));
@@ -362,7 +362,7 @@ test("a streamed speech request advertises the rate the engine reported, not a c
     JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
   ].join("\n");
   const res = await handleSpeech(
-    { model: "piper", input: "hi", stream: true },
+    { engine: "piper", input: "hi", stream: true },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () => Promise.resolve(new Response(frames)),
   );
@@ -381,7 +381,7 @@ test("an engine that streams no chunk frames is a 502, not a caller waiting fore
     JSON.stringify({ phase: "done", audio: Buffer.from("a whole wav").toString("base64") }),
   ].join("\n");
   const res = await handleSpeech(
-    { model: "piper", input: "hi", stream: true },
+    { engine: "piper", input: "hi", stream: true },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () => Promise.resolve(new Response(frames)),
   );
@@ -397,7 +397,7 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
     JSON.stringify({ phase: "error", detail: "text produced no audio" }),
   ].join("\n");
   const res = await handleSpeech(
-    { model: "piper", input: ".", stream: true },
+    { engine: "piper", input: ".", stream: true },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () => Promise.resolve(new Response(frames)),
   );
@@ -409,7 +409,7 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
 test("a buffered speech request is unchanged and never asks for chunks", async () => {
   let asked: unknown;
   const res = await handleSpeech(
-    { model: "kokoro", input: "hi" },
+    { engine: "kokoro", input: "hi" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     (_url, init) => {
       asked = JSON.parse(String(init?.body));
@@ -438,7 +438,7 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
   ].join("\n");
   let asked: unknown;
   const res = await handleSpeech(
-    { model: "chatterbox", input: "hi", stream: "ndjson" },
+    { engine: "chatterbox", input: "hi", stream: "ndjson" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     (_url, init) => {
       asked = JSON.parse(String(init?.body));
@@ -473,7 +473,7 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
     JSON.stringify({ phase: "done", audio: SAMPLE_WAV_BASE64, alignment: null }),
   ].join("\n");
   const res = await handleSpeech(
-    { model: "chatterbox", input: "hi", stream: "ndjson" },
+    { engine: "chatterbox", input: "hi", stream: "ndjson" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () => Promise.resolve(new Response(frames)),
   );
@@ -494,7 +494,7 @@ test("a buffered speech failure reports the engine's own reason, not just missin
   // kokoro refuses an unknown voice with {phase:"error", detail}. Reporting
   // "carried no audio" sends the caller looking at the door instead.
   const res = await handleSpeech(
-    { model: "kokoro", input: "hi", voice: "not_a_real_voice" },
+    { engine: "kokoro", input: "hi", voice: "not_a_real_voice" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () =>
       Promise.resolve(
