@@ -508,6 +508,20 @@ idle_stop_seconds = 1800
 # `highvram` is kept for steady-state residency, not for that: it does NOT
 # stop the eviction above, which was measured with it enabled.
 #
+# A smaller cost survives both flags and is worth knowing before someone
+# chases it again. The FIRST image after a different workflow runs costs about
+# 28s extra (171s against a settled 143s +/- 1.6s baseline over eight runs);
+# the second is back to baseline and stays there. So it is one-time per
+# workflow switch, not per image, and a batch amortizes it.
+#
+# It is NOT kernel recompilation: the extra time is spread evenly across all 26
+# sampling steps (~1s each) rather than front-loaded, and comfy's logs mention
+# MIOpen nowhere. The shape fits weights being partially displaced -- comfy's
+# free_memory() can partially_unload a model without removing it from
+# current_loaded_models, which is why no "Requested to load" line appears --
+# so every step pays transfer until the next full run settles it. That last
+# part is a hypothesis; the timing above is measured.
+#
 # Keep an [engine.args] table LAST in its block: every bare key after it
 # belongs to the table, not to the engine, so a following idle_stop_seconds
 # silently becomes an argv flag for the child process instead.
