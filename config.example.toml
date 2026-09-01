@@ -217,6 +217,25 @@ role     = "vision"
   mmproj            = "/models/Qwen/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
   no-mmproj-offload = true  # this GPU crashes llama-server on vision load without it.
 
+# A second vision role: PaddleOCR reads a non-memorizable test string back
+# character for character -- real OCR, not a captioned guess. Loads in ~1.2s
+# and holds ~937 MiB in GTT (unified memory, not VRAM). ftype is BF16, so no
+# quantisation caveat, and no-mmproj-offload is not needed here -- measured
+# both ways, no crash either way; that flag on the route above is specific to
+# Qwen3-VL's vision load on this GPU, not a general vision-route requirement.
+[[route]]
+engine   = "local-llama"
+upstream = "local"
+model    = "ocr"
+filename = "PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF.gguf"
+role     = "vision"
+
+  [route.args]
+  # Passed through verbatim, so this is the path as the CONTAINER sees it --
+  # models_dir is bind-mounted at /models, and llama does not resolve
+  # mmproj relative to the model file.
+  mmproj = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
+
 # ---------------------------------------------------------------------------
 # Agentic engines: a CLI launched with writing structurally disabled, read
 # through the same openai-shaped door as everything else.

@@ -56,6 +56,7 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "gpt-5.4-mini",
   "k3",
   "medium.en",
+  "ocr",
   "ornith",
   "scribe_v1",
   "small.en",
@@ -71,6 +72,7 @@ function placeExampleModels(modelsDir: string): void {
     "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf",
     "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
     "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf",
+    "PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF.gguf",
   ]) {
     const full = join(modelsDir, rel);
     mkdirSync(dirname(full), { recursive: true });
