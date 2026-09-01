@@ -19,11 +19,16 @@ serves = ["/openai/v1/audio/transcriptions"]
 # CPU baseline, GPU-lock serialized: 3.9-7.2x faster at every clip
 # length/model pair (181-846ms vs 625-5098ms CPU at the same -t 16), and the
 # transcripts match byte-for-byte on 5 of 6 probes -- the sixth (medium.en,
-# the 33.8s clip) differs by one filler word ("...communities through\n
-# rising..." on GPU vs "...communities\n rising..." on CPU), consistent with
-# Vulkan and CPU ggml kernels taking different floating-point paths rather
-# than either backend being wrong. Watch for that class of drift on other
-# clips if it matters for a given consumer; nothing here bounds it further.
+# the 33.8s clip) differed by one filler word. That drift is now bounded
+# rather than merely noted: ~500 words across an 8-sentence corpus on both
+# models, plus four 26s concatenations, diverge on ONE word -- about 0.2%.
+#
+# The divergence is not a backend being wrong. It lands on a proper name that
+# both backends get equally wrong when the sentence is transcribed alone
+# ("Damen Blies"); only with a long clip's context do they split, and that once
+# went CPU's way. Three further long clips diverged on nothing at all. GPU
+# output is deterministic across repeats, so this is a coin flip on a token the
+# model is uncertain about either way, not an accuracy cost of the speedup.
 devices = ["/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]
