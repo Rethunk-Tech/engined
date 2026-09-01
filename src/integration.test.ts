@@ -150,6 +150,13 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
       }),
       route({
         engine: "local",
+        model: "embed",
+        upstream: "local",
+        filename: "embed.gguf",
+        role: "embedding",
+      }),
+      route({
+        engine: "local",
         model: "quiet",
         upstream: "local",
         filename: "quiet.gguf",
@@ -184,7 +191,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     // `?? []` below is only a real fallback if the type admits its absence.
     const body = (await res.json()) as {
       object: string;
-      data?: Array<{ id: string; streaming: boolean }>;
+      data?: Array<{ id: string; streaming: boolean; serves: string[] }>;
     };
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
@@ -198,6 +205,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(new Set(ids)).toEqual(
       new Set([
         "@/local/ornith",
+        "@/local/embed",
         "@/local/quiet",
         "@/claude/sonnet-5",
         "@/chatterbox-multi/local",
@@ -211,6 +219,23 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(rows.find((r) => r.id === "@/local/ornith")?.streaming).toBe(true);
     // The route's own declaration beats the engine's spec, per row.
     expect(rows.find((r) => r.id === "@/local/quiet")?.streaming).toBe(false);
+    // `serves` is the route's own: an embedding role answers embeddings only,
+    // and a chat role never answers embeddings, whatever the engine serves.
+    expect(rows.find((r) => r.id === "@/local/embed")?.serves).toEqual(["/openai/v1/embeddings"]);
+    expect(rows.find((r) => r.id === "@/local/ornith")?.serves).toEqual([
+      "/openai/v1/chat/completions",
+    ]);
+    const chatToEmbed = await door.fetch(
+      new Request("http://engined/openai/v1/chat/completions", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "@/local/embed",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      }),
+    );
+    expect(chatToEmbed.status).toBe(400);
+    expect(await chatToEmbed.text()).toContain("does not serve");
   } finally {
     await door.registry.shutdown();
   }

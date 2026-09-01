@@ -168,6 +168,25 @@ export interface ModelEntry extends ModelCapabilities {
  */
 export interface EngineCapability extends ModelCapabilities {
   model?: string;
+  /** The door paths this one route answers -- see `routeServes`. */
+  serves: string[];
+}
+
+export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
+
+/**
+ * The door paths one route answers, which its engine's own `serves` cannot
+ * say on its own: an `embedding` role answers only embeddings, any other role
+ * everything but embeddings, and a route with no role (agentic, proxied,
+ * media) whatever its engine serves.
+ */
+export function routeServes(role: Role | undefined, engineServes: readonly string[]): string[] {
+  if (role === undefined) {
+    return [...engineServes];
+  }
+  return engineServes.filter(
+    (path) => (path === CONTENT_ENDPOINT_EMBEDDINGS) === (role === "embedding"),
+  );
 }
 
 /** Names a keyring pair, an address and the wire it speaks -- *where* the bytes for a route come from, never *how* they are produced. */

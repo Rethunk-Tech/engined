@@ -445,10 +445,13 @@ describe("a route's capability fields reach GET /engined/v1/engines", () => {
     );
 
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
-    expect(listed?.capabilities).toEqual([
+    expect(listed?.capabilities).toMatchObject([
       { model: "ornith", input: ["text"], output: ["text"], context_in: 8192 },
       { model: "sonnet-5", output: ["text"] },
     ]);
+    // A roleless route serves whatever its engine serves, per entry.
+    const engineServes = listed?.serves ?? [];
+    expect(listed?.capabilities?.map((c) => c.serves)).toEqual([engineServes, engineServes]);
   });
 
   test("an engine with no model-bearing or capability-declaring routes reports no capabilities at all", async () => {

@@ -5,8 +5,8 @@
  */
 
 import type { EngineRegistry } from "./engines.ts";
-import type { Config, Egress, ResolvedRoute } from "./types.ts";
-import { EGRESS_RANK, qualifiedSegments } from "./types.ts";
+import type { Config, Egress, ResolvedRoute, Role } from "./types.ts";
+import { EGRESS_RANK, qualifiedSegments, routeServes } from "./types.ts";
 
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
 const CHAIN_ENDPOINT = "/openai/v1/chat/completions";
@@ -38,12 +38,14 @@ function withEndpointCheck(
   model: string | undefined,
   upstream: string | undefined,
   ctx: ResolveCtx,
+  role?: Role,
 ): Dispatch {
   if (ctx.registry.entry(engineId)?.disabled) {
     return fail(`engine "${engineId}" is disabled in config`);
   }
-  if (!ctx.registry.serves(engineId).includes(ctx.endpoint)) {
-    return fail(`engine "${engineId}" does not serve ${ctx.endpoint}`);
+  if (!routeServes(role, ctx.registry.serves(engineId)).includes(ctx.endpoint)) {
+    const what = model === undefined ? `engine "${engineId}"` : `"@/${engineId}/${model}"`;
+    return fail(`${what} does not serve ${ctx.endpoint}`);
   }
   return { ok: true, kind: "model", engine: engineId, model, upstream };
 }
@@ -72,7 +74,7 @@ function resolveOneSegment(model: string, ctx: ResolveCtx): Dispatch {
     (a, b) => routeEgressRank(a, ctx.config) - routeEgressRank(b, ctx.config),
   );
   const route = winner as ResolvedRoute;
-  return withEndpointCheck(route.engine, model, route.upstream ?? undefined, ctx);
+  return withEndpointCheck(route.engine, model, route.upstream ?? undefined, ctx, route.role);
 }
 
 /** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
@@ -114,7 +116,7 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Di
     const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
     return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
   }
-  return withEndpointCheck(engineSeg, seg, route.upstream ?? undefined, ctx);
+  return withEndpointCheck(engineSeg, seg, route.upstream ?? undefined, ctx, route.role);
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -141,7 +143,7 @@ function resolveThreeSegments(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
     );
   }
-  return withEndpointCheck(engineSeg, modelSeg, upstreamSeg, ctx);
+  return withEndpointCheck(engineSeg, modelSeg, upstreamSeg, ctx, route.role);
 }
 
 function resolveQualified(segments: readonly string[], ctx: ResolveCtx): Dispatch {

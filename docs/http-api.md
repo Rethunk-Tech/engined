@@ -72,7 +72,12 @@ either side.
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, egress, streaming, serves, state,
-capabilities}`; a chain row omits `engine`/`upstream`/`model`/`egress` because
+capabilities}`. `serves` is the route's own, not its engine's: an `embedding`
+role answers only `/openai/v1/embeddings`, any other role everything but that,
+and a route with no role whatever its engine serves -- so `@/llama/embed` is
+never offered as a chat model, and a chat request to it is a 400. The same
+per-route `serves` rides on each entry of an engine's `capabilities[]` in
+`GET /engined/v1/engines`. A chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming`, `state` and
 `capabilities` off its first hop instead. `streaming` is the engine spec's
 answer unless the route itself declares one.

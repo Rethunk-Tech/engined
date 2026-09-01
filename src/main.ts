@@ -83,6 +83,7 @@ import {
   qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
+  routeServes,
   type StartResponse,
   type StartRow,
   type Upstream,
@@ -2279,7 +2280,7 @@ async function modelRow(
     model: route.model,
     egress: routeEgress(route, config.upstreams),
     streaming: route.streaming ?? status?.streaming ?? false,
-    serves: status?.serves ?? [],
+    serves: routeServes(route.role, status?.serves ?? []),
     state,
     capabilities: routeCapabilities(route),
   };

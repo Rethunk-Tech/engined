@@ -36,6 +36,7 @@ import {
   type ReadyProbe,
   type ResolvedRoute,
   type RunnableContainerSpec,
+  routeServes,
   type Spec,
   type Upstream,
 } from "./types.ts";
@@ -562,6 +563,7 @@ function streamingOf(spec: Spec): boolean {
 function engineCapabilities(
   engineId: string,
   routes: readonly ResolvedRoute[],
+  engineServes: readonly string[],
 ): EngineCapability[] | undefined {
   const capabilities = routes
     .filter((r) => r.engine === engineId && r.disabled !== true)
@@ -569,6 +571,7 @@ function engineCapabilities(
     .map(
       (r): EngineCapability => ({
         model: r.model,
+        serves: routeServes(r.role, engineServes),
         input: r.input,
         output: r.output,
         context_in: r.context_in,
@@ -595,7 +598,7 @@ function statusFrom(
     fix: runtime.fix,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
-    capabilities: engineCapabilities(engine.id, routes),
+    capabilities: engineCapabilities(engine.id, routes, spec.serves),
   };
 }
 
@@ -783,7 +786,7 @@ export class EngineRegistry {
         serves: spec.serves,
         streaming: streamingOf(spec),
         state: "installed",
-        capabilities: engineCapabilities(engine.id, this.config.routes),
+        capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
       };
     }
 
@@ -807,7 +810,7 @@ export class EngineRegistry {
       state: "unavailable",
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
-      capabilities: engineCapabilities(engine.id, this.config.routes),
+      capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
     };
   }
 
@@ -867,7 +870,7 @@ export class EngineRegistry {
       kind: spec.kind,
       serves: spec.serves,
       streaming: streamingOf(spec),
-      capabilities: engineCapabilities(engine.id, this.config.routes),
+      capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
     };
     if (engine.agent_version === undefined) {
       return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };
