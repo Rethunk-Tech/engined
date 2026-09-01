@@ -47,6 +47,11 @@ Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 # run, is the only durable record of a check that has to stay manual.
 ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
+# cursor's CLI keeps per-project state under ~/.cursor/projects/<workdir> and
+# dies before answering when that mkdir fails -- measured under this unit:
+# "ENOENT: no such file or directory, mkdir '~/.cursor/projects/...'" on every
+# launch, so every probe failed. The one other home path left writable.
+ReadWritePaths=%h/.cursor
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
