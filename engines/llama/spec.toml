@@ -124,6 +124,50 @@ security_opt = ["label=disable"]
 # third waits. Concurrent generation is slower per request than solo
 # (3.27s vs 2.06s for the same 128 tokens) because the two slots share
 # memory bandwidth -- aggregate throughput still wins.
+#
+# engined's own door had no admission control against this: `activeCount`
+# was uncapped, so a burst past `parallel` forwarded straight through and
+# queued invisibly inside llama-server's own scheduler instead of at the
+# door. `LlamaRouter.acquireLease`/`pump` (src/llama.ts) now cap a role's
+# `activeCount` at this same merged `parallel`, resolved once per resident
+# model and queued past that exactly like a model swap already queues --
+# `parallel <= 0` (llama.cpp's `-1` auto, or the key simply unset) is left
+# uncapped rather than guessed at, since neither tells the door a real slot
+# count and capping tighter than the child actually admits idles a slot
+# instead of protecting it.
+#
+# Four confirmed non-findings from that audit, so they are not
+# re-investigated:
+#
+# Prefix caching is already on and already realized -- llama-server's
+# default `cache_prompt`, no engine tunable involved. Identical ~2226-token
+# system prompt: cold `cache_n=0`, prefill 1903.9ms, total 2.20s; warm
+# repeat `cache_n=2222`, prefill 64.3ms, total 0.32s -- an 85% end-to-end
+# cut. Live production logs confirm it running continuously ("selected slot
+# by LCP similarity, f_sim_best=0.83-1.00"). The only way to lose it is
+# consumer-side: a re-serialized message array not byte-identical to the
+# previous turn's tail breaks the LCP match.
+#
+# GPU offload is complete. `-ngl` is left at llama-server's `auto`, verified
+# from the live child's real argv via `docker top`, not from this spec.
+# GTT usage measured at 48.6 GB / 133 GB with ornith resident -- 24.8 GB
+# GGUF plus ~5.1 GiB q8_0 KV for the 262144-token window -- nothing on
+# CPU-only RAM. An explicit `-ngl 999` would add a line without changing
+# behavior.
+#
+# `-b`/`-ub`/`--threads` are at defaults (2048 / 512 / auto->32) and should
+# stay there. Prefill already runs 1169-1291 t/s on real prompts, so there
+# is no starved-prefill signal; raising ubatch would only cost KV and
+# compute-buffer memory for no measured gain.
+#
+# The honest throughput picture: sustained decode is ~55-63 t/s, not the
+# 62.94 t/s figure alone -- that is a real but cherry-picked 32-token burst
+# (see docs/tuning.md's own burst-vs-sustained note). At the ~2000-token
+# system prompts real consumers send, prefill dominates TTFT on any
+# non-cache-hot turn (1.9s cold vs 65ms warm, above). Draft acceptance
+# observed live at 72-92%. Do not force a model swap to measure swap cost --
+# it evicts the resident model every other consumer is using, for a number
+# already on record (8-16s, same build b10637-39817c476, above).
 # --host 0.0.0.0 is structural, not a tunable: llama-server's own default is
 # 127.0.0.1, which binds fine inside the container and passes nothing --
 # docker's -p forwards to the container's interface, not its loopback, so a

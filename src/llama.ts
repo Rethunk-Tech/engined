@@ -138,6 +138,16 @@ interface RoleWaiter {
 interface RoleState {
   activeModelId: string | null;
   activeCount: number;
+  /**
+   * The door's own admission ceiling while `activeModelId` is resident:
+   * `capacityFor`'s reading of that model's merged `parallel`, kept here
+   * as a real number rather than re-read from the loose args record at
+   * every admission check. Recomputed each time `activeModelId` changes,
+   * since a swap can move a role onto a differently-configured model.
+   * `Infinity` until the first model loads, and forever after for a role
+   * whose `parallel` never resolves to a positive integer.
+   */
+  capacity: number;
   queue: RoleWaiter[];
   pumping: boolean;
 }
@@ -339,10 +349,41 @@ export class LlamaRouter {
   private roleState(role: Role): RoleState {
     let state = this.roleStates.get(role);
     if (!state) {
-      state = { activeModelId: null, activeCount: 0, queue: [], pumping: false };
+      state = {
+        activeModelId: null,
+        activeCount: 0,
+        capacity: Number.POSITIVE_INFINITY,
+        queue: [],
+        pumping: false,
+      };
       this.roleStates.set(role, state);
     }
     return state;
+  }
+
+  /**
+   * The same `{...engine.args, ...route.args}` merge `renderPresetIni`
+   * builds for this model's INI section, read back for its `parallel` key
+   * rather than re-derived some other way -- the door and the child must
+   * agree on what one resident model can actually run at once.
+   *
+   * `parallel <= 0` covers both llama.cpp's own `-1` ("auto": some
+   * server-decided slot count this door was never told, measured at 4 for
+   * one config on this box and not a portable constant) and a role that
+   * never set the key at all. Neither tells the door a real ceiling, and
+   * guessing one risks capping tighter than the child actually admits --
+   * which idles slots rather than protecting them. Both fall through to
+   * "uncapped", the same behaviour every role had before this door could
+   * enforce `parallel` at all.
+   */
+  private capacityFor(role: Role, modelId: string): number {
+    const route = this.routes.find(
+      (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
+    );
+    const parallel = { ...this.engine.args, ...route?.args }.parallel;
+    return typeof parallel === "number" && Number.isInteger(parallel) && parallel > 0
+      ? parallel
+      : Number.POSITIVE_INFINITY;
   }
 
   /** `private_url` from `getStatus` carries no scheme -- `docker.ts`'s own readiness poll prepends one too. */
@@ -403,20 +444,28 @@ export class LlamaRouter {
     for (const state of this.roleStates.values()) {
       state.activeModelId = null;
       state.activeCount = 0;
+      state.capacity = Number.POSITIVE_INFINITY;
     }
   }
 
   /**
-   * Same-GGUF overlap bypasses the queue entirely; anything else joins the
-   * back, in arrival order. `signal` is the caller's own hop budget, not the
+   * Same-GGUF overlap bypasses the queue entirely, up to the role's
+   * `capacity` -- genuine overflow past that joins the back like a real
+   * model swap does, in arrival order, and waits for `pump()` to admit it
+   * once a slot frees. `signal` is the caller's own hop budget, not the
    * lease grant itself: a caller that aborts while still queued behind a
-   * swap must never receive that swap's `pump()` work on nobody's behalf, so
-   * an abort splices the waiter back out instead of letting it resolve late.
+   * swap (or behind capacity) must never receive that swap's `pump()` work
+   * on nobody's behalf, so an abort splices the waiter back out instead of
+   * letting it resolve late.
    */
   private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<void> {
     const state = this.roleState(role);
     return new Promise<void>((resolve, reject) => {
-      if (state.queue.length === 0 && state.activeModelId === modelId) {
+      if (
+        state.queue.length === 0 &&
+        state.activeModelId === modelId &&
+        state.activeCount < state.capacity
+      ) {
         state.activeCount++;
         resolve();
         return;
@@ -481,6 +530,7 @@ export class LlamaRouter {
       return false;
     }
     state.activeModelId = pinned.model;
+    state.capacity = this.capacityFor(role, pinned.model);
     return true;
   }
 
@@ -492,10 +542,13 @@ export class LlamaRouter {
   }
 
   /**
-   * Grants every queued entry matching the current resident immediately —
-   * they share its slots. The first entry naming a different GGUF stalls the
-   * pump until the resident's in-flight count drains, then swaps, so a
-   * steady stream of same-model traffic queued behind a swap cannot starve it.
+   * Grants queued entries matching the current resident up to its
+   * `capacity` — they share its slots, and the rest wait for a `release` to
+   * call `pump` again rather than being handed a lease the server would
+   * only queue internally with no visibility for this door. The first entry
+   * naming a different GGUF stalls the pump until the resident's in-flight
+   * count drains, then swaps, so a steady stream of same-model traffic
+   * queued behind a swap cannot starve it.
    */
   private async pump(role: Role): Promise<void> {
     const state = this.roleState(role);
@@ -516,6 +569,12 @@ export class LlamaRouter {
           return;
         }
         if (state.activeModelId === front.modelId) {
+          if (state.activeCount >= state.capacity) {
+            // At the door, not the queue: the front waiter stays put and the
+            // next `releaseLease` re-runs the pump, exactly as a swap stalls
+            // on `activeCount > 0` below.
+            return;
+          }
           state.queue.shift();
           state.activeCount++;
           front.resolve();
@@ -532,6 +591,7 @@ export class LlamaRouter {
           continue;
         }
         state.activeModelId = front.modelId;
+        state.capacity = this.capacityFor(role, front.modelId);
         state.activeCount++;
         front.resolve();
       }

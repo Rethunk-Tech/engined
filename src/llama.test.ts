@@ -233,6 +233,33 @@ function gatedFirstChat(): {
   return { client: gatedClient, calls, release, started: startedPromise };
 }
 
+/** Gates every CHAT_PATH call (not just the first) so a caller can hold
+ * several leases open at once and prove how many concurrently reached the
+ * upstream, for admission-control tests where more than one request must
+ * be genuinely in flight together. */
+function gatedAllChat(): {
+  client: HttpClient;
+  calls: RecordedCall[];
+  release: () => void;
+  inGate: () => number;
+} {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let waiting = 0;
+  const { client, calls } = fakeLlama();
+  const gatedClient: HttpClient = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === CHAT_PATH) {
+      waiting++;
+      await gate;
+    }
+    return client(input, init);
+  };
+  return { client: gatedClient, calls, release, inGate: () => waiting };
+}
+
 /** Wires `models` to a gated router, fires the first "a" chat, and waits
  * until it is in flight -- the shared opening every gated-lease test needs
  * before it can issue its own, distinguishing second request. */
@@ -1039,6 +1066,56 @@ test("contention reports the request holding a role's lease and the one queued b
 
   // Nothing running and nothing queued reports as no roles at all, not zeroes.
   expect(router.contention()).toEqual([]);
+});
+
+test("6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf", args: { parallel: 2 } });
+  const { client, calls, release, inGate } = gatedAllChat();
+  const router = routerWithClient(e, [a], client);
+
+  const send = () =>
+    router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  const r1 = send();
+  await waitFor(() => inGate() === 1);
+  const r2 = send();
+  await waitFor(() => inGate() === 2);
+  const rest = [send(), send(), send(), send()];
+
+  // The other 4 must sit queued behind the cap, never reaching the gated
+  // upstream call -- this is the acceptance test's own shape: 6 fired,
+  // /engined/v1/engines' roles[] (backed by contention()) shows active
+  // capped at the role's parallel and the remainder waiting.
+  await drainMicrotasks();
+  expect(inGate()).toBe(2);
+  expect(router.contention()).toEqual([{ role: "chat", active: 2, waiting: 4 }]);
+
+  release();
+  await Promise.all([text(r1), text(r2), ...rest.map(text)]);
+
+  // Same GGUF the whole time -- one load, no swap, no eviction.
+  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(1);
+  expect(router.contention()).toEqual([]);
+});
+
+test("parallel = -1 (llama.cpp's own auto) does not cap admission -- it is not a real slot count this door was told", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf", args: { parallel: -1 } });
+  const { client, release, inGate } = gatedAllChat();
+  const router = routerWithClient(e, [a], client);
+
+  const send = () =>
+    router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  const r1 = send();
+  await waitFor(() => inGate() === 1);
+  const r2 = send();
+  const r3 = send();
+  await waitFor(() => inGate() === 3);
+
+  expect(router.contention()).toEqual([{ role: "chat", active: 3, waiting: 0 }]);
+
+  release();
+  await Promise.all([text(r1), text(r2), text(r3)]);
 });
 
 test("a role nothing has touched is absent from contention rather than reported idle", () => {
