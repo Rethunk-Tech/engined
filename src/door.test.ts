@@ -383,7 +383,7 @@ describe("the door: reload mid in-flight request", () => {
     });
 
     const ornithReq = door.fetch(
-      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     await ornithStartedPromise;
 
@@ -392,7 +392,7 @@ describe("the door: reload mid in-flight request", () => {
     door.reload(configFilePath);
 
     const otherReq = door.fetch(
-      chatRequest({ model: "other", messages: [{ role: "user", content: "hi" }] }),
+      chatRequest({ model: "@/local-llama/other", messages: [{ role: "user", content: "hi" }] }),
     );
     // Let the pump run as far as it can while ornith's lease is still held.
     await Promise.resolve();
@@ -575,7 +575,7 @@ describe("the door: content routing", () => {
       write: (l) => lines.push(l),
     });
     const res = await door.fetch(
-      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
     expect(body.choices[0]?.message.content).toBe("hi");
@@ -594,7 +594,7 @@ describe("the door: content routing", () => {
     });
     const res = await door.fetch(
       chatRequest({
-        model: "ornith",
+        model: "@/local-llama/ornith",
         messages: [{ role: "user", content: "hi" }],
         workdir: "/should/not/reach/llama",
         reasoning_effort: "high",
@@ -699,7 +699,7 @@ function streamingDoorConfig(): { cfg: Config; root: string } {
 }
 
 const STREAM_REQUEST_BODY = JSON.stringify({
-  model: "ornith",
+  model: "@/local-llama/ornith",
   messages: [{ role: "user", content: "hi" }],
   stream: true,
 });
@@ -781,7 +781,7 @@ describe("the door: provenance model fields", () => {
       write: (l) => lines.push(l),
     });
     const res = await door.fetch(
-      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
@@ -803,6 +803,7 @@ describe("the door: agentic and chain routing", () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
     writeEngineSpec(root, id, CLAUDE_SPEC);
     const cfg = config({
+      routes: [route({ engine: id, model: "assistant", upstream: null })],
       engines: [engine({ id, egress: "remote", agent_version: "9.9.9" })],
     });
     const spawnCalls: unknown[] = [];
@@ -821,7 +822,7 @@ describe("the door: agentic and chain routing", () => {
     );
     const res = await door.fetch(
       chatRequest({
-        model: id,
+        model: `@/${id}/assistant`,
         messages: [{ role: "user", content: "hi" }],
         workdir: "/tmp",
       }),
@@ -919,6 +920,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
     writeEngineSpec(root, id, CLAUDE_SPEC);
     const workdir = mkdtempSync(join(TEST_ROOT, "engined-workdir-"));
     const cfg = config({
+      routes: [route({ engine: id, model: "assistant", upstream: null })],
       // Well under bun's own per-test timeout, so a correct fix resolves
       // fast and a regression fails this test rather than hanging the suite.
       agent_timeout_seconds: 0.05,
@@ -937,7 +939,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
 
     const res = await door.fetch(
       chatRequest({
-        model: id,
+        model: `@/${id}/assistant`,
         messages: [{ role: "user", content: "hi" }],
         workdir,
       }),
@@ -1154,12 +1156,15 @@ describe("the door: extras injects the resident model for the right role", () =>
     // the chat role specifically must still report the chat model.
     await (
       await door.fetch(
-        chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+        chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
       )
     ).text();
     await (
       await door.fetch(
-        chatRequest({ model: "vision-a", messages: [{ role: "user", content: "hi" }] }),
+        chatRequest({
+          model: "@/local-llama/vision-a",
+          messages: [{ role: "user", content: "hi" }],
+        }),
       )
     ).text();
 
@@ -1303,7 +1308,7 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
     const { door, spawnCalls } = createKimiDoor();
     const res = await door.fetch(
       chatRequest({
-        model: "kimi-k3",
+        model: "@/claude/kimi-k3",
         messages: [{ role: "user", content: "hi" }],
         workdir: "/tmp/scratch",
       }),
@@ -1369,7 +1374,7 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
     );
     const res = await door.fetch(
       chatRequest({
-        model: "kimi-k3",
+        model: "@/claude/kimi-k3",
         messages: [{ role: "user", content: "hi" }],
         workdir: "/tmp/scratch",
       }),
@@ -1451,7 +1456,7 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
 
     const kimiRes = await door.fetch(
       chatRequest({
-        model: "kimi-k3",
+        model: "@/claude/kimi-k3",
         messages: [{ role: "user", content: "hi" }],
         workdir: "/tmp/scratch",
       }),
@@ -1459,44 +1464,8 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
     expect(kimiRes.status).toBe(503);
 
     const llamaRes = await door.fetch(
-      chatRequest({ model: "ornith", messages: [{ role: "user", content: "hi" }] }),
+      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     expect(llamaRes.status).toBe(200);
-  });
-});
-
-describe("the door: a chain hop naming a local model by alias", () => {
-  // config.ts validates every chain hop against [id, ...aliases], so an alias
-  // is a config-valid hop. The hop executor passes the raw segment through, so
-  // the local path must resolve it the same way the remote one does -- or the
-  // identical hop works remote and 502s local.
-  test("a chain hop written as an alias reaches the model", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-    const cfg = config({
-      engines: [
-        engine({ id: "local-llama", egress: "none", models_dir: "/data/gguf", models_max: 1 }),
-      ],
-      routes: [
-        route({
-          engine: "local-llama",
-          model: "ornith",
-          filename: "ornith.gguf",
-          role: "chat",
-          aliases: ["nickname"],
-        }),
-      ],
-      chains: { "chain-alias": ["@/local-llama/nickname"] },
-    });
-    const door = createLlamaDoor(cfg, root, {
-      llamaHttpClient: makeStaleReportedHttpClient(),
-    });
-    const res = await door.fetch(
-      chatRequest({
-        model: "chain-alias",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    );
-    expect(res.status).toBe(200);
   });
 });

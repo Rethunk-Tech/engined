@@ -74,17 +74,24 @@ import {
   type Egress,
   type EngineEntry,
   type EngineKind,
+  type EngineStatus,
   errMessage,
   FatalError,
   findModelOnEngine,
   isContainerSpec,
   isRecord,
+  type ModelCapabilities,
+  type ModelRow,
+  type ModelsResponse,
   MS_PER_SECOND,
+  type ResolvedRoute,
   type Upstream,
 } from "./types.ts";
 
+const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
+
 const CONTENT_ENDPOINTS = new Set([
-  "/openai/v1/chat/completions",
+  CONTENT_ENDPOINT_CHAT,
   "/openai/v1/embeddings",
   "/openai/v1/audio/speech",
   "/openai/v1/audio/transcriptions",
@@ -217,13 +224,11 @@ async function handleResources(registry: EngineRegistry, id: string): Promise<Re
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
 const EXTRAS_RE = /^\/engined\/v1\/engines\/([^/]+)\/(tokenize|apply-template)$/;
 
-/** A modelless engine (agentic bare selector) becomes a hop with no model segment at all. A chain never arrives here: it carries its own hops. */
-function hopFromDispatch(
-  dispatch: Exclude<Extract<Dispatch, { ok: true }>, { kind: "chain" }>,
-): string {
-  return dispatch.kind === "model"
-    ? `@/${dispatch.engine}/${dispatch.model}`
-    : `@/${dispatch.engine}`;
+/** A resolved address, re-qualified into the two- or three-segment hop form `runChain` walks. A chain never arrives here: it carries its own hops. */
+function hopFromDispatch(dispatch: Extract<Dispatch, { ok: true; kind: "model" }>): string {
+  const upstreamPart = dispatch.upstream === undefined ? "" : `/${dispatch.upstream}`;
+  const modelPart = dispatch.model === undefined ? "" : `/${dispatch.model}`;
+  return `@/${dispatch.engine}${upstreamPart}${modelPart}`;
 }
 
 /**
@@ -921,7 +926,6 @@ async function handleChatOrEmbeddings(
     requested: rawModel,
     localOnly: body.local_only === true,
     egressOf: (seg) => egressOf(ctx, seg),
-    resolveEngine: (seg) => resolveEngineSegment(seg, ctx.getConfig()) ?? seg,
     timeoutMs: chatTimeoutMs(ctx),
     signal,
     exec: buildHopExec(ctx, {
@@ -1058,11 +1062,7 @@ function resolveAudioEngine(
       response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
     };
   }
-  return {
-    ok: true,
-    engineId: resolved.engine,
-    model: resolved.kind === "model" ? resolved.model : undefined,
-  };
+  return { ok: true, engineId: resolved.engine, model: resolved.model };
 }
 
 /**
@@ -1362,7 +1362,7 @@ function routeGet(
 ): Response | Promise<Response> | undefined {
   const { pathname } = url;
   if (pathname === "/openai/v1/models") {
-    return modelsMenu(ctx.registry.models());
+    return modelsMenu(ctx);
   }
   if (pathname === "/engined/v1/engines") {
     return handleEngines(ctx, configErr);
@@ -1380,26 +1380,124 @@ function routeGet(
   }
 }
 
+/** Where this route's bytes travel. Ambient (`upstream === null`) is always `"remote"`, matching `Upstream`'s own doc. */
+function routeEgress(route: ResolvedRoute, upstreams: readonly Upstream[]): Egress {
+  if (route.upstream === null) {
+    return "remote";
+  }
+  return upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote";
+}
+
+/** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
+function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
+  return {
+    input: route.input,
+    output: route.output,
+    context_in: route.context_in,
+    context_out: route.context_out,
+    reasoning: route.reasoning,
+  };
+}
+
 /**
- * OpenAI's list envelope, because a bare array does not fail loudly against
- * a consumer -- it fails silently. Anything parsing the documented shape
- * reads `body.data`, which on an array is `undefined` and degrades to an
- * empty model list with no throw and no bad status: a consumer doing
- * `(body.data ?? []).map((m) => m.id)` sees no models at all while every
- * other endpoint works for it.
- *
- * `data[].id` carries every dispatchable `model` string: GGUF ids, aliases,
- * chain names and agentic engine ids. Most of those name something other than
- * a GGUF, which is why the per-entry metadata stays minimal -- `created` and
- * `owned_by` are here because strict clients require the fields, not because
- * they carry meaning.
+ * The addressable string for this route: the two-segment form when it is
+ * the only route claiming this `(engine, model)` pair, else the fully
+ * explicit three-segment form -- two sibling routes on one engine sharing a
+ * model (different upstreams) would otherwise report the same `id` twice.
  */
-function modelsMenu(ids: readonly string[]): Response {
-  const created = Math.floor(Date.now() / MS_PER_SECOND);
-  return Response.json({
-    object: "list",
-    data: ids.map((id) => ({ id, object: "model", created, owned_by: "engined" })),
-  });
+function modelRowId(route: ResolvedRoute, siblingCount: number): string {
+  if (route.model === undefined) {
+    return `@/${route.engine}/${route.upstream}`;
+  }
+  if (siblingCount > 1 && route.upstream !== null) {
+    return `@/${route.engine}/${route.upstream}/${route.model}`;
+  }
+  return `@/${route.engine}/${route.model}`;
+}
+
+function modelRow(
+  route: ResolvedRoute,
+  siblingCount: number,
+  config: Config,
+  statuses: ReadonlyMap<string, EngineStatus>,
+): ModelRow {
+  const status = statuses.get(route.engine);
+  return {
+    id: modelRowId(route, siblingCount),
+    engine: route.engine,
+    upstream: route.upstream ?? undefined,
+    model: route.model,
+    egress: routeEgress(route, config.upstreams),
+    streaming: status?.streaming ?? false,
+    serves: status?.serves ?? [],
+    state: status?.state ?? "unavailable",
+    capabilities: routeCapabilities(route),
+  };
+}
+
+/**
+ * A chain is not any one engine's route, so it omits engine/upstream/model/
+ * egress entirely. `streaming`, `state` and `capabilities` come from its
+ * FIRST hop instead -- that is the hop that actually answers, the same rule
+ * `classifyResult` uses to decide whether a chain keeps walking.
+ */
+function chainRow(
+  chainId: string,
+  hops: readonly string[],
+  config: Config,
+  statuses: ReadonlyMap<string, EngineStatus>,
+): ModelRow {
+  const [firstHop] = hops;
+  const hop = firstHop === undefined ? undefined : parseHop(firstHop);
+  const route =
+    hop === undefined
+      ? undefined
+      : findModelOnEngine(config.routes, hop.engine, hop.model, hop.upstream);
+  const status = route === undefined ? undefined : statuses.get(route.engine);
+  return {
+    id: chainId,
+    streaming: status?.streaming ?? false,
+    serves: [CONTENT_ENDPOINT_CHAT],
+    state: status?.state ?? "unavailable",
+    capabilities: route === undefined ? {} : routeCapabilities(route),
+  };
+}
+
+/**
+ * `GET /openai/v1/models`: every dispatchable address, as a row carrying its
+ * own capabilities rather than a bare id -- async and authoritative, so
+ * `state` reflects a real probe rather than the sync lifecycle cache.
+ *
+ * `comfy` stays out structurally, never by name: its spec declares no
+ * `serves` at all, so filtering on an empty `serves` excludes it the same
+ * way `EngineRegistry.serves()` already does for the door's own endpoint
+ * check, with no special case for its kind. A modelless audio engine has a
+ * real `serves` (`/openai/v1/audio/speech`) and stays listed.
+ */
+async function modelsMenu(ctx: DoorContext): Promise<Response> {
+  const config = ctx.getConfig();
+  const { engines } = await ctx.registry.list();
+  const statuses = new Map(engines.map((e) => [e.id, e]));
+  const servedEngines = new Set(engines.filter((e) => e.serves.length > 0).map((e) => e.id));
+
+  const rows: ModelRow[] = [];
+  for (const route of config.routes) {
+    if (route.disabled || !servedEngines.has(route.engine)) {
+      continue;
+    }
+    const siblingCount =
+      route.model === undefined
+        ? 1
+        : config.routes.filter(
+            (r) => !r.disabled && r.engine === route.engine && r.model === route.model,
+          ).length;
+    rows.push(modelRow(route, siblingCount, config, statuses));
+  }
+  for (const [chainId, hops] of Object.entries(config.chains)) {
+    rows.push(chainRow(chainId, hops, config, statuses));
+  }
+
+  return Response.json({ object: "list", data: rows } satisfies ModelsResponse);
 }
 
 function routePost(

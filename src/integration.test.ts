@@ -123,17 +123,17 @@ function containerEngine(
   };
 }
 
-test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
+test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- never comfy, never an unregistered model", async () => {
   const config = baseConfig({
     routes: [
       route({
         engine: "local",
         model: "ornith",
-        aliases: ["default-chat"],
         upstream: "local",
         filename: "ornith.gguf",
         role: "chat",
       }),
+      route({ engine: "claude", model: "sonnet-5", upstream: null }),
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC),
@@ -142,7 +142,15 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the me
     ],
     chains: { "chain-x": ["@/local/ornith"] },
   });
-  const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
+  // GET /openai/v1/models is async and authoritative now, so it probes every
+  // engine's state through docker -- every image inspect failing keeps this
+  // test off the real docker binary without changing which addresses list.
+  const exec: Exec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
+  const door = createDoor(config, {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec,
+  });
 
   try {
     const res = await door.fetch(req("GET", "/openai/v1/models"));
@@ -157,10 +165,9 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the me
     expect(body.object).toBe("list");
     expect(ids).not.toHaveLength(0);
 
-    expect(new Set(ids)).toEqual(new Set(["ornith", "default-chat", "claude", "chain-x"]));
+    expect(new Set(ids)).toEqual(new Set(["@/local/ornith", "@/claude/sonnet-5", "chain-x"]));
     expect(ids).not.toContain("comfy");
-    expect(ids).not.toContain("vision");
-    expect(ids).not.toContain("embed");
+    expect(ids).not.toContain("@/comfy/local");
   } finally {
     await door.registry.shutdown();
   }
@@ -264,6 +271,10 @@ path = "/health"
 status = 200
 `;
 }
+
+/** chatterbox is modelless: its one route names an upstream, never a model, and its address is that route's engine+upstream form. */
+const CHATTERBOX = "@/chatterbox/local";
+const CHATTERBOX_ROUTES = [route({ engine: "chatterbox", model: undefined, upstream: "local" })];
 
 /**
  * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
@@ -518,7 +529,7 @@ test("a direct (non-chain) model request still forwards its own model id unchang
     async (door) => {
       const res = await door.fetch(
         req("POST", "/openai/v1/chat/completions", {
-          body: { model: "ornith", messages: [{ role: "user", content: "hi" }] },
+          body: { model: "@/good/ornith", messages: [{ role: "user", content: "hi" }] },
         }),
       );
 
@@ -602,6 +613,7 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
 
 test("an agentic attempt with no workdir returns 400", async () => {
   const config = baseConfig({
+    routes: [route({ engine: "claude", model: "assistant", upstream: null })],
     // agent_version drives buildArgv directly (not the loaded spec's own
     // command array, which agentic.ts never reads) -- required for
     // execAgentic to reach the workdir check at all.
@@ -614,16 +626,11 @@ test("an agentic attempt with no workdir returns 400", async () => {
   try {
     const res = await door.fetch(
       req("POST", "/openai/v1/chat/completions", {
-        body: { model: "claude", messages: [{ role: "user", content: "hi" }] },
+        body: { model: "@/claude/assistant", messages: [{ role: "user", content: "hi" }] },
       }),
     );
 
     expect(res.status).toBe(400);
-    // "and the chain does not advance": this request is a bare engine id, not
-    // a chain hop, so there is nothing here to advance to. Revisit once an
-    // agentic hop's @/<engine>/<model> form inside a chain is settled -- it
-    // needs a [[model]] row for the agentic engine (filename/role absent) to
-    // be addressable that way at all.
   } finally {
     await door.registry.shutdown();
   }
@@ -645,6 +652,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
   const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
   const IDLE_STOP_SECONDS = 0.03;
   const config = baseConfig({
+    routes: CHATTERBOX_ROUTES,
     engines: [containerEngine("chatterbox", ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS })],
   });
   const door = createDoor(config, {
@@ -655,7 +663,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
 
   try {
     const speech = await door.fetch(
-      req("POST", "/openai/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+      req("POST", "/openai/v1/audio/speech", { body: { model: CHATTERBOX, input: "hi" } }),
     );
     expect(speech.status).toBe(200);
 
@@ -686,6 +694,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
   const { port } = fake;
   const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
   const config = baseConfig({
+    routes: CHATTERBOX_ROUTES,
     engines: [containerEngine("chatterbox", ttsSpec())],
   });
   const lines: string[] = [];
@@ -697,7 +706,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
 
   try {
     await door.fetch(
-      req("POST", "/openai/v1/audio/speech", { body: { model: "chatterbox", input: "hi" } }),
+      req("POST", "/openai/v1/audio/speech", { body: { model: CHATTERBOX, input: "hi" } }),
     );
     expect(lines).toHaveLength(1);
     const record = JSON.parse(lines[0] ?? "{}") as {
@@ -745,7 +754,7 @@ function streamingSpeechDoor(): StreamingSpeechDoor {
   const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
   const lines: string[] = [];
   const door = createDoor(
-    baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] }),
+    baseConfig({ routes: CHATTERBOX_ROUTES, engines: [containerEngine("chatterbox", ttsSpec())] }),
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
     { write: (l) => lines.push(l) },
   );
@@ -769,7 +778,7 @@ function speechAttempt(lines: string[]): {
   };
 }
 
-const STREAM_SPEECH = { model: "chatterbox", input: "hi", stream: true };
+const STREAM_SPEECH = { model: CHATTERBOX, input: "hi", stream: true };
 
 test("a streamed audio call that forwards its whole body records a success, not an empty body", async () => {
   const { door, lines, stop } = streamingSpeechDoor();
@@ -858,7 +867,10 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
     return new Response("", { status: 404 });
   });
   const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
-  const config = baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] });
+  const config = baseConfig({
+    routes: CHATTERBOX_ROUTES,
+    engines: [containerEngine("chatterbox", ttsSpec())],
+  });
   const door = createDoor(config, {
     enginesRoot: "/nonexistent/engines",
     bunx: "/opt/test/bunx",
@@ -867,7 +879,7 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
 
   const res = await door.fetch(
     req("POST", "/openai/v1/audio/speech", {
-      body: { model: "chatterbox", input: "hi", stream: "ndjson" },
+      body: { model: CHATTERBOX, input: "hi", stream: "ndjson" },
     }),
   );
 
@@ -895,16 +907,19 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
     return new Response("", { status: 404 });
   });
   const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
-  const door = createDoor(baseConfig({ engines: [containerEngine("chatterbox", ttsSpec())] }), {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
-    exec,
-  });
+  const door = createDoor(
+    baseConfig({ routes: CHATTERBOX_ROUTES, engines: [containerEngine("chatterbox", ttsSpec())] }),
+    {
+      enginesRoot: "/nonexistent/engines",
+      bunx: "/opt/test/bunx",
+      exec,
+    },
+  );
 
   const res = await door.fetch(
     req("POST", "/openai/v1/audio/speech", {
       body: {
-        model: "chatterbox",
+        model: CHATTERBOX,
         input: "hi",
         voice: "af_heart",
         speed: 1.25,

@@ -296,7 +296,7 @@ test("a remote openai-http engine is proxied with its header, its model id, and 
   await withRemoteDoor(async (door, recorded) => {
     const res = await door.fetch(
       chatRequest({
-        model: "upstream-model-7",
+        model: "@/hosted/upstream-model-7",
         workdir: "/tmp/should-not-travel",
         messages: [{ role: "user", content: "hi" }],
       }),
@@ -333,7 +333,7 @@ test("a caller's explicit null unsets an [engine.args] wire default", async () =
     async (door, recorded) => {
       const res = await door.fetch(
         chatRequest({
-          model: "upstream-model-7",
+          model: "@/hosted/upstream-model-7",
           messages: [{ role: "user", content: "hi" }],
           reasoning_effort: null,
         }),
@@ -352,7 +352,10 @@ test("an [engine.args] default still fills a key the caller left out", async () 
   await withRemoteDoor(
     async (door, recorded) => {
       await door.fetch(
-        chatRequest({ model: "upstream-model-7", messages: [{ role: "user", content: "hi" }] }),
+        chatRequest({
+          model: "@/hosted/upstream-model-7",
+          messages: [{ role: "user", content: "hi" }],
+        }),
       );
       expect(recorded[0]?.body.reasoning_effort).toBe("medium");
     },

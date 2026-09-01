@@ -41,7 +41,7 @@ export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
 
 /** One `[[route]]`, resolved: an engine paired with an upstream and, where one applies, a model. Defaults to the local llama shape most suites build against. */
 export function route(overrides: Partial<ResolvedRoute> = {}): ResolvedRoute {
-  return { engine: "e", model: "m", aliases: [], upstream: "local", args: {}, ...overrides };
+  return { engine: "e", model: "m", upstream: "local", args: {}, ...overrides };
 }
 
 export function config(overrides: Partial<Config> = {}): Config {
