@@ -90,7 +90,6 @@ function baseOpts(
   return {
     chain: "test-chain",
     requested: "chain-test-chain",
-    localOnly: false,
     egressOf: () => "remote",
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
     // Without this every runChain here writes its provenance line to the real
@@ -144,6 +143,36 @@ test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
 
   expect(result.status).toBe(400);
   expect(up.requestLog).not.toContain("/unused");
+});
+
+// A key rejection is a property of THIS hop's credential, not of the
+// caller's request -- a second engine can plausibly still answer, where a
+// plain 400 (the caller's own malformed request) cannot be fixed by trying
+// a different upstream.
+test("a 401 on hop 1 advances to hop 2; a 400 on hop 1 does not", async () => {
+  const advancing = startBehaviorUpstream({
+    unauthed: { status: 401, body: "no key", contentType: "text/plain" },
+    success: { status: 200, body: "answer", contentType: "text/plain" },
+  });
+  const advanced = await runChain(
+    ["@/unauthed/model", "@/success/model"],
+    baseOpts({ exec: makeExec({ unauthed: advancing.base, success: advancing.base }) }),
+  );
+  advancing.stop();
+  expect(advanced.status).toBe(200);
+  expect(advanced.engineUsed).toBe("success");
+
+  const stopping = startBehaviorUpstream({
+    badreq: { status: 400, body: "bad request", contentType: "text/plain" },
+    success: { status: 200, body: "answer", contentType: "text/plain" },
+  });
+  const stopped = await runChain(
+    ["@/badreq/model", "@/success/model"],
+    baseOpts({ exec: makeExec({ badreq: stopping.base, success: stopping.base }) }),
+  );
+  stopping.stop();
+  expect(stopped.status).toBe(400);
+  expect(stopping.requestLog).not.toContain("/success");
 });
 
 test("an envelope failure on hop 1 does not advance, even carrying a 5xx status: hop 2's own call log stays empty", async () => {
@@ -242,7 +271,7 @@ test("every hop failing returns 503 listing each attempt", async () => {
   expect(body.attempts).toHaveLength(2);
 });
 
-test("local_only truncates after the last local hop: later remote hops are never invoked", async () => {
+test("max_egress: none drops every hop over the ceiling, wherever it sits in the list", async () => {
   const up = startBehaviorUpstream({
     localengine: { status: 200, body: "local answer", contentType: "text/plain" },
     remote1: { status: 200, body: "should never be seen" },
@@ -257,8 +286,8 @@ test("local_only truncates after the last local hop: later remote hops are never
   const result = await runChain(
     ["@/localengine/model", "@/remote1/model", "@/remote2/model"],
     baseOpts({
-      localOnly: true,
-      egressOf: (engine) => egress[engine] ?? "remote",
+      maxEgress: "none",
+      egressOf: (hop) => egress[engineOf(hop)] ?? "remote",
       exec: makeExec({ localengine: up.base, remote1: up.base, remote2: up.base }),
     }),
   );
@@ -270,19 +299,79 @@ test("local_only truncates after the last local hop: later remote hops are never
   expect(up.requestLog).not.toContain("/remote2");
 });
 
-test("a chain with no local hop and local_only true returns 400 without calling exec", async () => {
+// The boundary the bare-comparison trap gets wrong: alphabetically
+// "lan" < "none", so `egressOf(hop) <= maxEgress` as a plain string compare
+// would admit this hop under a "none" ceiling. Asserted by name, with a real
+// "lan" upstream, rather than folded into the "remote" case above -- a
+// remote-only test passes even with the broken comparator this guards
+// against.
+test('max_egress: "none" refuses a "lan" hop, not just a "remote" one', async () => {
   const result = await runChain(
-    ["@/remote1/model", "@/remote2/model"],
+    ["@/lanengine/model"],
     baseOpts({
-      localOnly: true,
-      egressOf: () => "remote",
+      maxEgress: "none",
+      egressOf: () => "lan",
       exec: () => {
-        throw new Error("exec must not be called when local_only has no local hop");
+        throw new Error("exec must not be called: the lan hop exceeds a none ceiling");
       },
     }),
   );
 
   expect(result.status).toBe(400);
+  expect(JSON.stringify(result.body)).toContain("max_egress");
+});
+
+// The failure actually seen against the deployed door: a chain whose only
+// hop resolves to a local upstream must be SERVED under a "none" ceiling,
+// not refused -- the fixture that let a broken egressOf always answer
+// "remote" is exactly what let this regress silently.
+test('max_egress: "none" serves a chain whose only hop is local', async () => {
+  const up = startBehaviorUpstream({
+    localengine: { status: 200, body: "local answer", contentType: "text/plain" },
+  });
+
+  const result = await runChain(
+    ["@/localengine/model"],
+    baseOpts({
+      maxEgress: "none",
+      egressOf: () => "none",
+      exec: makeExec({ localengine: up.base }),
+    }),
+  );
+  up.stop();
+
+  expect(result.status).toBe(200);
+  expect(result.engineUsed).toBe("localengine");
+});
+
+test("a chain with no hop inside the ceiling returns 400 without calling exec", async () => {
+  const result = await runChain(
+    ["@/remote1/model", "@/remote2/model"],
+    baseOpts({
+      maxEgress: "none",
+      egressOf: () => "remote",
+      exec: () => {
+        throw new Error("exec must not be called when nothing in the chain is within the ceiling");
+      },
+    }),
+  );
+
+  expect(result.status).toBe(400);
+});
+
+test("an absent max_egress applies no ceiling at all: every hop is attempted regardless of egress", async () => {
+  const up = startBehaviorUpstream({ remote1: { status: 200, body: "answer" } });
+
+  const result = await runChain(
+    ["@/remote1/model"],
+    baseOpts({
+      egressOf: () => "remote",
+      exec: makeExec({ remote1: up.base }),
+    }),
+  );
+  up.stop();
+
+  expect(result.status).toBe(200);
 });
 
 test("the per-attempt timeout is per hop, not per request: two hops each under the bound both run", async () => {

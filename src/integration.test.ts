@@ -266,7 +266,7 @@ test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
 });
 
 // --- POST /openai/v1/chat/completions, actually proxied: chain failover,
-// local_only truncation, chain exhaustion, and the agentic workdir rule.
+// max_egress truncation, chain exhaustion, and the agentic workdir rule.
 
 function openaiSpec(image = "test-openai:local"): string {
   return `
@@ -566,8 +566,23 @@ test("a direct (non-chain) model request still forwards its own model id unchang
   );
 });
 
-test("local_only: true against a public chain never reaches a remote hop, even when the local hop cannot serve", async () => {
-  const remote = startFakeUpstream(() => Response.json({ ok: true }));
+test('max_egress: "none" against a public chain never reaches a remote hop, even when the local hop cannot serve', async () => {
+  // A genuinely reachable, genuinely successful remote upstream -- unlike a
+  // secretless or address-less fixture, whose own resolution failure would
+  // 502 the hop regardless of whether the ceiling ever filtered it out. Only
+  // a remote hop that WOULD answer 200 if reached makes the empty request
+  // log below a real proof of truncation, not a coincidence of a broken
+  // fixture -- exactly the class of bug that let this ceiling regress
+  // silently against the deployed door: a fixture that could not tell
+  // "refused" from "never attempted".
+  const remote = startFakeUpstream(() =>
+    Response.json({
+      model: "m",
+      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
+    }),
+  );
+  const remoteSecretExec: Exec = () =>
+    Promise.resolve({ stdout: "remote-key\n", stderr: "", exitCode: 0 });
   const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
 
   const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
@@ -583,17 +598,22 @@ test("local_only: true against a public chain never reaches a remote hop, even w
       ],
       upstreams: [
         upstream({ id: "local", egress: "none" }),
-        upstream({ id: "remote", egress: "remote" }),
+        upstream({
+          id: "remote",
+          egress: "remote",
+          base_url: remote.base,
+          secret: { service: "svc", username: "u", header: "x-api-key" },
+        }),
       ],
       chains: { "chain-public": ["@/local/m", "@/remote/m"] },
     },
-    { exec, stoppables: [remote] },
+    { exec, stoppables: [remote], doorOpts: { secretExec: remoteSecretExec } },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/openai/v1/chat/completions", {
           body: {
             model: "chain-public",
-            local_only: true,
+            max_egress: "none",
             messages: [{ role: "user", content: "hi" }],
           },
         }),
@@ -608,6 +628,53 @@ test("local_only: true against a public chain never reaches a remote hop, even w
       // engine in the chain failed" -- 503, never 200 and never left at 501.
       expect(res.status).toBe(503);
       expect(remote.requestLog).toEqual([]);
+    },
+  );
+});
+
+test("an absent max_egress applies no ceiling: the same public chain DOES reach the remote hop, and answers 200", async () => {
+  const remote = startFakeUpstream(() =>
+    Response.json({
+      model: "m",
+      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
+    }),
+  );
+  const remoteSecretExec: Exec = () =>
+    Promise.resolve({ stdout: "remote-key\n", stderr: "", exitCode: 0 });
+  const MISSING_LOCAL_IMAGE = "local-image-that-does-not-resolve:local";
+
+  const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) });
+  await withChatDoor(
+    {
+      routes: [
+        route({ engine: "local", role: "chat", filename: "m.gguf" }),
+        route({ engine: "remote", role: "chat", upstream: "remote" }),
+      ],
+      engines: [
+        containerEngine("local", openaiSpec(MISSING_LOCAL_IMAGE)),
+        containerEngine("remote", openaiSpec()),
+      ],
+      upstreams: [
+        upstream({ id: "local", egress: "none" }),
+        upstream({
+          id: "remote",
+          egress: "remote",
+          base_url: remote.base,
+          secret: { service: "svc", username: "u", header: "x-api-key" },
+        }),
+      ],
+      chains: { "chain-public": ["@/local/m", "@/remote/m"] },
+    },
+    { exec, stoppables: [remote], doorOpts: { secretExec: remoteSecretExec } },
+    async (door) => {
+      const res = await door.fetch(
+        req("POST", "/openai/v1/chat/completions", {
+          body: { model: "chain-public", messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(remote.requestLog).toEqual(["/chat/completions"]);
     },
   );
 });

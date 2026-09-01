@@ -296,6 +296,7 @@ test("a remote openai-http engine is proxied with its header, its model id, and 
       chatRequest({
         model: "@/hosted/upstream-model-7",
         workdir: "/tmp/should-not-travel",
+        max_egress: "remote",
         messages: [{ role: "user", content: "hi" }],
       }),
     );
@@ -307,16 +308,16 @@ test("a remote openai-http engine is proxied with its header, its model id, and 
     expect(recorded[0]?.body.model).toBe("upstream-model-7");
     // engined's own door fields are not this provider's request fields.
     expect(recorded[0]?.body).not.toHaveProperty("workdir");
-    expect(recorded[0]?.body).not.toHaveProperty("local_only");
+    expect(recorded[0]?.body).not.toHaveProperty("max_egress");
   });
 });
 
-test("local_only never reaches a remote engine -- the upstream records no request at all", async () => {
+test("max_egress: none never reaches a remote engine -- the upstream records no request at all", async () => {
   await withRemoteDoor(async (door, recorded) => {
     const res = await door.fetch(
       chatRequest({
         model: "chain-private",
-        local_only: true,
+        max_egress: "none",
         messages: [{ role: "user", content: "hi" }],
       }),
     );

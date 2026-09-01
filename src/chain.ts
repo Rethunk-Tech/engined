@@ -15,7 +15,7 @@ import {
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
 import type { Egress } from "./types.ts";
-import { errMessage } from "./types.ts";
+import { errMessage, withinCeiling } from "./types.ts";
 
 export interface HopResult {
   status: number;
@@ -43,9 +43,10 @@ export interface RunChainOptions {
   chain: string | null;
   /** The model id the caller actually asked for — what provenance calls `requested`. */
   requested: string;
-  localOnly: boolean;
-  /** The only input `local_only` reads. */
-  egressOf: (engine: string) => Egress;
+  /** Absent means no ceiling: every hop is attempted regardless of its own egress. */
+  maxEgress?: Egress;
+  /** Per hop, not per engine — a two-engine hop can each resolve to a different upstream the engine id alone cannot distinguish. Fail-closed `"remote"` when a hop cannot be resolved to a route at all. */
+  egressOf: (hop: string) => Egress;
   /**
    * Per hop, not per request or per chain — a two-engine chain bounded per
    * request could run twice as long as intended, and a chain that merely
@@ -89,7 +90,16 @@ function bodyIsEmpty(body: unknown): boolean {
   return body === undefined || body === "";
 }
 
-/** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body; 5xx and empty body always do — except an envelope failure, which never advances regardless of status. */
+/**
+ * A 4xx naming a problem with THIS hop's own credential -- missing or bad
+ * auth, no balance, rate-limited -- is not a problem with the caller's
+ * request, and a second engine can plausibly answer where this one could
+ * not. The rest of 4xx still terminates: a caller's own malformed request
+ * is not something a different upstream can fix either.
+ */
+const ADVANCING_CLIENT_ERRORS = new Set([401, 402, 403, 429]);
+
+/** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body -- except the credential-shaped ones above -- and 5xx and empty body always do, except an envelope failure, which never advances regardless of status. */
 export function classifyResult(result: HopResult): {
   advance: boolean;
   ok: boolean;
@@ -99,6 +109,9 @@ export function classifyResult(result: HopResult): {
     return { advance: false, ok: false, failure: `http ${result.status}` };
   }
   if (result.status >= HTTP_SERVER_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MAX) {
+    return { advance: true, ok: false, failure: `http ${result.status}` };
+  }
+  if (ADVANCING_CLIENT_ERRORS.has(result.status)) {
     return { advance: true, ok: false, failure: `http ${result.status}` };
   }
   if (result.status >= HTTP_CLIENT_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MIN) {
@@ -153,18 +166,18 @@ export function wrapStream<T>(
   });
 }
 
-/** Truncates after the last local hop. A chain holding *a* local hop is not a local chain — everything past that point is never attempted. */
+/**
+ * Drops every hop whose own egress exceeds the ceiling, wherever it sits in
+ * the list -- a hop over the ceiling is a safety property, not a priority
+ * hint, so it is never attempted regardless of what comes after it. `null`
+ * means nothing in the chain survives the filter at all.
+ */
 function effectiveHops(hops: string[], opts: RunChainOptions): string[] | null {
-  if (!opts.localOnly) {
+  if (opts.maxEgress === undefined) {
     return hops;
   }
-  let lastLocal = -1;
-  for (const [i, hop] of hops.entries()) {
-    if (opts.egressOf(parseHop(hop).engine) === "none") {
-      lastLocal = i;
-    }
-  }
-  return lastLocal === -1 ? null : hops.slice(0, lastLocal + 1);
+  const kept = hops.filter((hop) => withinCeiling(opts.egressOf(hop), opts.maxEgress));
+  return kept.length === 0 ? null : kept;
 }
 
 function emit(opts: RunChainOptions, attempts: Attempt[], engineUsed: string | null): void {
@@ -254,7 +267,9 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     emit(opts, [], null);
     return {
       status: STATUS_BAD_REQUEST,
-      body: jsonErrorBody("local_only: true but no hop in this chain is local"),
+      body: jsonErrorBody(
+        `max_egress: "${opts.maxEgress}" leaves no hop in this chain within the ceiling`,
+      ),
       engineUsed: null,
     };
   }

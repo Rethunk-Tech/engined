@@ -63,7 +63,6 @@ import { recordCall } from "./provenance.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type Config,
-  EGRESS_RANK,
   type Egress,
   type EngineEntry,
   type EngineKind,
@@ -378,28 +377,19 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
 }
 
 /**
- * An engine has no address of its own, so its egress is the upstream a route
- * pairs it with -- never the engine entry, which carries no such field. A
- * bare engine segment (not a full hop) can name more than one route across
- * different upstreams, so this reports the lowest-egress one: the same
- * "can this engine reach a local upstream at all" question `local_only`
- * actually asks. Fail-closed `"remote"` when the segment resolves to no
- * route at all, matching every other unresolvable-address case.
+ * An engine has no address of its own, so a hop's egress is whichever
+ * upstream ITS OWN resolved route names -- never the engine id alone, which
+ * a two-upstream engine (`@/claude/anthropic/sonnet-5` and
+ * `@/claude/local/ornith`) cannot answer for on its own. Fail-closed
+ * `"remote"` when the hop cannot be resolved to a route at all, the same
+ * rule every other unresolvable-address case follows.
  */
-function egressOf(ctx: DoorContext, seg: string): Egress {
+function egressOf(ctx: DoorContext, hop: string): Egress {
   const config = ctx.getConfig();
-  const id = resolveEngineSegment(seg, config) ?? seg;
-  let best: Egress = "remote";
-  for (const route of config.routes) {
-    if (route.engine !== id || route.disabled) {
-      continue;
-    }
-    const rank = routeEgress(route, config.upstreams);
-    if (EGRESS_RANK[rank] < EGRESS_RANK[best]) {
-      best = rank;
-    }
-  }
-  return best;
+  const { engine: seg, upstream: upstreamSeg, model } = parseHop(hop);
+  const engineId = resolveEngineSegment(seg, config) ?? seg;
+  const route = findModelOnEngine(config.routes, engineId, model, upstreamSeg);
+  return route === undefined ? "remote" : routeEgress(route, config.upstreams);
 }
 
 interface HopRequest {
@@ -782,7 +772,7 @@ async function execAgentic(
  * no resident model to report, and inventing one would put a claim in the
  * provenance line that no read backs.
  *
- * `local_only` is stripped alongside `workdir`: both are engined's own door
+ * `max_egress` is stripped alongside `workdir`: both are engined's own door
  * fields, and a provider that validates its request body strictly rejects
  * the whole call over one it has never heard of.
  */
@@ -820,7 +810,7 @@ async function execRemoteHttp(
   // [engine.args] are engine-level wire defaults (reasoning_effort, and
   // whatever else this upstream takes) -- the caller's own body wins, the same
   // way a [model.args] key wins over [engine.args] one layer down.
-  const callerBody = stripField(req.rawBody, "local_only");
+  const callerBody = stripField(req.rawBody, "max_egress");
   const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody);
   const init = openAiRequestInit(body, modelId, req.signal);
   const response = await fetch(
@@ -894,6 +884,18 @@ interface ContentRequest {
   signal: AbortSignal;
 }
 
+const VALID_EGRESS: ReadonlySet<string> = new Set(["none", "lan", "remote"]);
+
+/** `undefined` when the caller left it out (no ceiling); a legal `Egress` string when it named one. A value that is neither is the caller's own mistake, not a silent no-ceiling. */
+function parseMaxEgress(raw: unknown): { ok: true; value: Egress | undefined } | { ok: false } {
+  if (raw === undefined) {
+    return { ok: true, value: undefined };
+  }
+  return typeof raw === "string" && VALID_EGRESS.has(raw)
+    ? { ok: true, value: raw as Egress }
+    : { ok: false };
+}
+
 /** Chat and embeddings: `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
 async function handleChatOrEmbeddings(
   ctx: DoorContext,
@@ -901,6 +903,10 @@ async function handleChatOrEmbeddings(
   content: ContentRequest,
 ): Promise<Response> {
   const { pathname, rawModel, body, signal } = content;
+  const maxEgress = parseMaxEgress(body.max_egress);
+  if (!maxEgress.ok) {
+    return jsonError(STATUS_BAD_REQUEST, 'max_egress must be "none", "lan" or "remote"');
+  }
   const hops = resolved.kind === "chain" ? [...resolved.hops] : [hopFromDispatch(resolved)];
   const chainName = resolved.kind === "chain" ? resolved.chain : null;
 
@@ -908,8 +914,8 @@ async function handleChatOrEmbeddings(
   const result = await runChain(hops, {
     chain: chainName,
     requested: rawModel,
-    localOnly: body.local_only === true,
-    egressOf: (seg) => egressOf(ctx, seg),
+    maxEgress: maxEgress.value,
+    egressOf: (hop) => egressOf(ctx, hop),
     timeoutMs: chatTimeoutMs(ctx),
     signal,
     exec: buildHopExec(ctx, {

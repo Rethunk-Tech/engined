@@ -427,8 +427,6 @@ export interface RoleContention {
 export interface EngineStatus {
   id: string;
   kind: EngineKind;
-  /** Dead weight -- absent on every engine, since egress now belongs to the upstream a route pairs it with. */
-  egress?: Egress;
   serves: string[];
   state: EngineState;
   /**
