@@ -332,7 +332,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       return {
         status: STATUS_BAD_REQUEST,
         ok: false,
-        failure: `agent "${agent.id}" has to be pointed at a model; set agent_model on the engine`,
+        failure: `agent "${agent.id}" has to be pointed at a model; dispatch through a route that names one`,
         envelopeFailure: false,
       };
     }
