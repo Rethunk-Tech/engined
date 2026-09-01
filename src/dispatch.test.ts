@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
-import { BUNX, config, engine, makeTestRoot, model, writeEngineSpec } from "./test-support.ts";
+import { BUNX, config, engine, makeTestRoot, route, writeEngineSpec } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
 
 const CHAT = "/openai/v1/chat/completions";
@@ -11,16 +11,13 @@ const SPEECH = "/openai/v1/audio/speech";
 
 const TEST_ROOT = makeTestRoot("engined-dispatch-test-");
 
-function remoteAgentic(id: string): EngineEntry {
-  return engine({
-    id,
-    egress: "remote",
-    kind: "agentic-cli",
-    base_url: `https://example.com/${id}`,
-    secret: { service: id, username: "u", header: "x-api-key" },
-  });
-}
-
+/**
+ * A spec-less, model-bearing engine that serves chat. Stands in wherever a
+ * test needs "some engine with a route on it" and does not care which kind
+ * -- `openai-http` because, unlike `agentic-cli`, a spec-less engine of this
+ * kind has a real built-in spec (an agentic-cli one has no built-in launch
+ * to fall back to and refuses at registry construction).
+ */
 function remoteOpenaiHttp(id: string): EngineEntry {
   return engine({
     id,
@@ -53,8 +50,8 @@ describe("disabled engines", () => {
   // missing.
   test("a qualified request onto one is refused as disabled, not as nonexistent", () => {
     const cfg = config({
-      engines: [remoteAgentic("engineA"), { ...remoteAgentic("off"), disabled: true }],
-      models: [model({ id: "m", engine: "engineA" }), model({ id: "gone", engine: "off" })],
+      engines: [remoteOpenaiHttp("engineA"), { ...remoteOpenaiHttp("off"), disabled: true }],
+      routes: [route({ engine: "engineA", model: "m" }), route({ engine: "off", model: "gone" })],
     });
     const result = resolveModel("@/off/gone", CHAT, cfg, registry(cfg));
     expect(result.ok).toBe(false);
@@ -63,7 +60,7 @@ describe("disabled engines", () => {
 
   test("its models are gone, so a qualified request must not read as a missing model", () => {
     const cfg = config({
-      engines: [{ ...remoteAgentic("off"), disabled: true }],
+      engines: [{ ...remoteOpenaiHttp("off"), disabled: true }],
       models: [],
     });
     const result = resolveModel("@/off/whatever", CHAT, cfg, registry(cfg));
@@ -81,10 +78,10 @@ describe("disabled engines", () => {
 describe("bare model ambiguity", () => {
   test("two engines serving the same bare id: 400 listing the qualified forms", () => {
     const cfg = config({
-      engines: [remoteAgentic("engineA"), remoteAgentic("engineB")],
-      models: [
-        model({ id: "shared", engine: "engineA" }),
-        model({ id: "shared", engine: "engineB" }),
+      engines: [remoteOpenaiHttp("engineA"), remoteOpenaiHttp("engineB")],
+      routes: [
+        route({ engine: "engineA", model: "shared" }),
+        route({ engine: "engineB", model: "shared" }),
       ],
     });
     const reg = registry(cfg);
@@ -96,10 +93,10 @@ describe("bare model ambiguity", () => {
 
   test("the same string qualified with @/ succeeds", () => {
     const cfg = config({
-      engines: [remoteAgentic("engineA"), remoteAgentic("engineB")],
-      models: [
-        model({ id: "shared", engine: "engineA" }),
-        model({ id: "shared", engine: "engineB" }),
+      engines: [remoteOpenaiHttp("engineA"), remoteOpenaiHttp("engineB")],
+      routes: [
+        route({ engine: "engineA", model: "shared" }),
+        route({ engine: "engineB", model: "shared" }),
       ],
     });
     const reg = registry(cfg);
@@ -109,8 +106,8 @@ describe("bare model ambiguity", () => {
 
   test("a lone match resolves bare, no qualification needed", () => {
     const cfg = config({
-      engines: [remoteAgentic("solo")],
-      models: [model({ id: "only", engine: "solo", aliases: ["nickname"] })],
+      engines: [remoteOpenaiHttp("solo")],
+      routes: [route({ engine: "solo", model: "only", aliases: ["nickname"] })],
     });
     const reg = registry(cfg);
     expect(resolveModel("only", CHAT, cfg, reg)).toEqual({
@@ -129,7 +126,7 @@ describe("bare model ambiguity", () => {
 });
 
 describe("absent, empty and unknown model", () => {
-  const cfg = config({ engines: [remoteAgentic("claude")] });
+  const cfg = config({ engines: [remoteOpenaiHttp("claude")] });
   const reg = registry(cfg);
 
   test("absent is 400", () => {
@@ -147,10 +144,23 @@ describe("absent, empty and unknown model", () => {
   });
 });
 
+const AGENTIC_SPEC = `
+kind = "agentic-cli"
+upstream = "optional"
+agent = "claude"
+serves = ["${CHAT}"]
+command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
+`;
+
 describe("engine-id bare selector", () => {
+  // A spec-less agentic-cli engine has no built-in launch and refuses at
+  // registry construction, so this is the one fixture in this file needing
+  // a real spec on disk rather than a `kind` in config.
   test("an agentic-cli engine resolves with no model", () => {
-    const cfg = config({ engines: [remoteAgentic("claude")] });
-    const reg = registry(cfg);
+    const root = mkdtempSync(join(TEST_ROOT, "engined-dispatch-"));
+    writeEngineSpec(root, "claude", AGENTIC_SPEC);
+    const cfg = config({ engines: [engine({ id: "claude", agent_version: "1.0.0" })] });
+    const reg = registry(cfg, root);
     expect(resolveModel("claude", CHAT, cfg, reg)).toEqual({
       ok: true,
       kind: "engine",
@@ -178,8 +188,8 @@ describe("engine-id bare selector", () => {
 describe("endpoint mismatch", () => {
   test("a chat-only engine's model posted to a different endpoint is 400", () => {
     const cfg = config({
-      engines: [remoteAgentic("claude")],
-      models: [model({ id: "sonnet", engine: "claude" })],
+      engines: [remoteOpenaiHttp("claude")],
+      routes: [route({ engine: "claude", model: "sonnet" })],
     });
     const reg = registry(cfg);
     const result = resolveModel("sonnet", SPEECH, cfg, reg);
@@ -191,7 +201,7 @@ describe("endpoint mismatch", () => {
 describe("chains", () => {
   test("chain-<name> resolves its hops for chat", () => {
     const cfg = config({
-      engines: [remoteAgentic("claude")],
+      engines: [remoteOpenaiHttp("claude")],
       chains: { "chain-private": ["@/claude/sonnet"] },
     });
     const reg = registry(cfg);
@@ -213,6 +223,7 @@ describe("chains", () => {
 describe("@/local/<model>", () => {
   const CONTAINER_SPEC = `
 kind = "openai-http"
+upstream = "self"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
 serves = ["${CHAT}"]
@@ -228,7 +239,9 @@ status = 200
     writeEngineSpec(root, "local-llama", CONTAINER_SPEC);
     const cfg = config({
       engines: [engine({ id: "local-llama", egress: "none", models_dir: "/models" })],
-      models: [model({ id: "ornith", engine: "local-llama" })],
+      routes: [
+        route({ engine: "local-llama", model: "ornith", filename: "ornith.gguf", role: "chat" }),
+      ],
     });
     const reg = registry(cfg, root);
     expect(resolveModel("@/local/ornith", CHAT, cfg, reg)).toEqual({
@@ -241,6 +254,7 @@ status = 200
 
   const COMFY_SPEC = `
 kind = "comfy"
+upstream = "self"
 image = "ghcr.io/example/comfy@sha256:bbbb"
 obtain = "pull"
 serves = []
@@ -253,7 +267,7 @@ status = 200
 
   /**
    * The worked config shape: comfy carries a `models_dir` for its
-   * own bind mount, egress "none", and zero `[[model]]` rows -- the exact
+   * own bind mount, egress "none", and no model-bearing route -- the exact
    * config `models_dir !== undefined` (dispatch.ts's old rule) treats as a
    * second "local" candidate, making resolution ambiguous even though only
    * one engine actually hosts a model.
@@ -267,7 +281,9 @@ status = 200
         engine({ id: "local-llama", egress: "none", models_dir: "/models" }),
         engine({ id: "comfy", egress: "none", models_dir: "/models-comfy" }),
       ],
-      models: [model({ id: "ornith", engine: "local-llama" })],
+      routes: [
+        route({ engine: "local-llama", model: "ornith", filename: "ornith.gguf", role: "chat" }),
+      ],
     });
     const reg = registry(cfg, root);
     expect(resolveModel("@/local/ornith", CHAT, cfg, reg)).toEqual({

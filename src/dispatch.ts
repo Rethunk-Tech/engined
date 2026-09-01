@@ -22,9 +22,9 @@ function fail(error: string): Dispatch {
   return { ok: false, error };
 }
 
-/** `local` is the one no-egress engine at least one `[[model]]` names -- config.ts's own rule, shared rather than re-derived so the two can never disagree. */
+/** `local` is the one no-egress engine at least one route names -- config.ts's own rule, shared rather than re-derived so the two can never disagree. */
 function resolveLocalEngine(config: Config): string | undefined {
-  const candidates = resolveLocalCandidates(config.engines, config.models);
+  const candidates = resolveLocalCandidates(config.engines, config.routes);
   return candidates.length === 1 ? candidates[0]?.id : undefined;
 }
 
@@ -76,35 +76,40 @@ function resolveQualified(
   if (registry.entry(engineId)?.disabled) {
     return fail(`engine "${engineId}" is disabled in config`);
   }
-  const found = findModelOnEngine(config.models, engineId, modelSeg);
-  if (!found) {
+  const found = findModelOnEngine(config.routes, engineId, modelSeg);
+  // A disabled route (its own disable, or its engine's or upstream's) is
+  // invisible to dispatch, same as a disabled engine's models used to be
+  // absent from config.models outright.
+  if (!found || found.disabled) {
     return fail(
       `"@/${engineSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineId}"`,
     );
   }
-  return withEndpointCheck(engineId, found.id, endpoint, registry);
+  return withEndpointCheck(engineId, found.model ?? modelSeg, endpoint, registry);
 }
 
-/** A bare id or alias, valid only when exactly one `[[model]]` row claims it. */
+/** A bare id or alias, valid only when exactly one route claims it. */
 function resolveBareModel(
   model: string,
   endpoint: string,
   config: Config,
   registry: EngineRegistry,
 ): Dispatch | undefined {
-  const matches = config.models.filter((m) => m.id === model || m.aliases.includes(model));
+  const matches = config.routes.filter(
+    (r) => !r.disabled && (r.model === model || r.aliases.includes(model)),
+  );
   if (matches.length === 0) {
     return;
   }
   if (matches.length > 1) {
-    const qualified = matches.map((m) => `@/${m.engine}/${m.id}`).join(", ");
+    const qualified = matches.map((r) => `@/${r.engine}/${r.model}`).join(", ");
     return fail(`"${model}" is ambiguous across engines; use one of: ${qualified}`);
   }
   const [only] = matches;
   if (!only) {
     return;
   }
-  return withEndpointCheck(only.engine, only.id, endpoint, registry);
+  return withEndpointCheck(only.engine, only.model ?? model, endpoint, registry);
 }
 
 /** An engine id bare, but only for a kind that answers without being told which model. */
