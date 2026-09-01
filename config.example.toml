@@ -80,6 +80,27 @@ secret   = { service = "openai-api", username = "default", header = "authorizati
 egress   = "remote"
 wire     = "openai"
 
+# OpenRouter serves both wire shapes from one account: an OpenAI-shaped API
+# at /api/v1, and an Anthropic-compatible gateway at /api that a Claude CLI
+# can point at with no protocol change. One provider, two wires, two rows --
+# both off below until a route through each is proven live end to end.
+[[upstream]]
+id       = "openrouter"
+disable  = true
+base_url = "https://openrouter.ai/api/v1"
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization" }
+egress   = "remote"
+wire     = "openai"
+
+# No trailing /v1 -- the claude CLI appends /v1/messages itself.
+[[upstream]]
+id       = "openrouter-anthropic"
+disable  = true
+base_url = "https://openrouter.ai/api"
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization" }
+egress   = "remote"
+wire     = "anthropic"
+
 # ---------------------------------------------------------------------------
 # local-llama: the one local openai-http engine, router mode over llama.cpp.
 # ---------------------------------------------------------------------------
@@ -248,6 +269,16 @@ model  = "sonnet-5"
 engine   = "claude"
 upstream = "moonshot"
 model    = "k3"
+
+# OpenRouter's Anthropic-compatible gateway: the same agentic kind as the two
+# routes above with a different upstream, the wire-compatible pairing rather
+# than a protocol translation. Off because openrouter-anthropic is -- pairing
+# "claude" with the OpenAI-wire "openrouter" upstream instead is a wire
+# mismatch and is refused at registry construction, not declared here at all.
+[[route]]
+engine   = "claude"
+upstream = "openrouter-anthropic"
+model    = "sonnet-5"
 
 # opencode is a local agentic CLI pointed back at THIS door, so a turn taken
 # through it runs on the box's own GPU and is dispatched, chained and
@@ -428,6 +459,24 @@ model    = "gpt-5.4-mini"
 engine   = "openai"
 upstream = "openai"
 model    = "gpt-5.4"
+
+# A second remote OpenAI-shaped engine, same posture as the one above: no
+# spec directory, no container. It shares its id "openrouter" with the
+# upstream of the same name on purpose -- engine ids and upstream ids are
+# separate namespaces, so one id can name both with no conflict.
+[[engine]]
+id   = "openrouter"
+kind = "openai-http"
+
+# This is the only route on "openrouter", so @/openrouter/sonnet-5 has
+# exactly one candidate and stays two-segment; a second upstream sharing this
+# engine's routes would force the three-segment form instead. Off because its
+# upstream above is off.
+[[route]]
+engine   = "openrouter"
+upstream = "openrouter"
+model    = "sonnet-5"  # sent upstream verbatim -- confirm OpenRouter's real
+                        # published slug before this ever leaves "disable = true".
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.

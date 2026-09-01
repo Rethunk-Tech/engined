@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
+import { EngineRegistry } from "./engines.ts";
 import { dataHome } from "./paths.ts";
-import { ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
+import { BUNX, ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
+import { FatalError } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-example-");
 
@@ -33,6 +35,7 @@ const EXPECTED_ENGINE_IDS = [
   "local-llama",
   "openai",
   "opencode",
+  "openrouter",
   "piper",
   "whisper",
 ];
@@ -43,6 +46,9 @@ const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
 
 // The example declares no [[model]] capability rows -- every model id below
 // comes from a route naming one, disabled or not.
+// "sonnet-5" appears three times: the ambient claude route, the claude route
+// onto openrouter-anthropic, and the openrouter engine's own openai-wire
+// route -- the same model id addressed through three different pairings.
 const EXPECTED_ROUTE_MODEL_IDS = [
   "code",
   "embed",
@@ -53,6 +59,8 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "ornith",
   "scribe_v1",
   "small.en",
+  "sonnet-5",
+  "sonnet-5",
   "sonnet-5",
   "vision",
 ];
@@ -150,4 +158,62 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const elevenlabsUpstream = config.upstreams.find((u) => u.id === "elevenlabs");
   expect(elevenlabsUpstream?.egress).toBe("remote");
   expect(elevenlabsUpstream?.secret?.header).toBe("xi-api-key");
+
+  // One provider, two wires, two upstreams -- both off until proven live,
+  // and the engine's own route stays two-segment because it is the only
+  // route on "openrouter" (see the config's own comment on that route).
+  const orOpenai = config.upstreams.find((u) => u.id === "openrouter");
+  const orAnthropic = config.upstreams.find((u) => u.id === "openrouter-anthropic");
+  expect(orOpenai?.disabled).toBe(true);
+  expect(orOpenai?.wire).toBe("openai");
+  expect(orOpenai?.base_url).toBe("https://openrouter.ai/api/v1");
+  expect(orAnthropic?.disabled).toBe(true);
+  expect(orAnthropic?.wire).toBe("anthropic");
+  expect(orAnthropic?.base_url).toBe("https://openrouter.ai/api");
+  const orEngine = config.engines.find((e) => e.id === "openrouter");
+  expect(orEngine?.kind).toBe("openai-http");
+  // Disabled through its own upstream, not the engine: "openrouter" (unlike
+  // "claude") carries no engine-level disable of its own, so this route
+  // dropping is entirely the upstream's doing.
+  expect(orEngine?.disabled).toBeUndefined();
+  const orDirectRoute = config.routes.find(
+    (r) => r.engine === "openrouter" && r.upstream === "openrouter",
+  );
+  expect(orDirectRoute?.disabled).toBe(true);
+  // "claude" itself is disabled (EXPECTED_DISABLED_IDS), so every route on
+  // it -- ambient, moonshot, and this one -- is disabled regardless of its
+  // own upstream's flag.
+  const orClaudeRoute = config.routes.find(
+    (r) => r.engine === "claude" && r.upstream === "openrouter-anthropic",
+  );
+  expect(orClaudeRoute?.disabled).toBe(true);
+});
+
+/**
+ * The pairing this example deliberately does NOT declare: "claude" speaks
+ * anthropic wire natively, and forwards it to whatever upstream a route
+ * names unchanged (no translation) -- pointed at "openrouter" (openai wire)
+ * that is a mismatch no request could ever survive. Caught at registry
+ * construction (engines.ts's checkAgenticWire), not at loadConfig() parse,
+ * because the agent's own wire comes from its spec, loaded a step later.
+ */
+test("claude routed at openrouter's openai wire is refused at registry construction", () => {
+  const repoRoot = join(import.meta.dir, "..");
+  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
+
+  const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
+  placeExampleModels(modelsDir);
+
+  const mismatched = `${raw}
+[[route]]
+engine   = "claude"
+upstream = "openrouter"
+model    = "openrouter-mismatch"
+`;
+  const configPath = writePatchedExampleConfig(mismatched, modelsDir);
+  const config = loadConfig(configPath, ENGINES_ROOT);
+
+  const build = () => new EngineRegistry(config, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+  expect(build).toThrow(FatalError);
+  expect(build).toThrow(/wire "openai".*speaks "anthropic"/);
 });
