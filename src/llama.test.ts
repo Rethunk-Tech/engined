@@ -33,7 +33,7 @@ const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return baseEngine({ id: "local-llama", models_dir: "/models-host", models_max: 3, ...overrides });
+  return baseEngine({ id: "llama", models_dir: "/models-host", models_max: 3, ...overrides });
 }
 
 /** `id` names the route's `model` field -- kept as `id` here so every fixture below still reads as naming a GGUF, not a route. */
@@ -42,7 +42,7 @@ function model(
 ): ResolvedRoute {
   const { id, ...rest } = overrides;
   return baseRoute({
-    engine: "local-llama",
+    engine: "llama",
     model: id ?? "a",
     filename: "a.gguf",
     role: "chat",
@@ -299,7 +299,7 @@ describe("renderPresetIni", () => {
     // path. Reading the child's real argv/`/slots` per flag needs a live
     // container and belongs to a smoke test under test/local/.
     const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
-    const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
+    const argv = buildRunArgs("engined-llama", spec, CONTAINER_PORT);
     const presetIdx = argv.indexOf("--models-preset");
     expect(presetIdx).toBeGreaterThan(-1);
     expect(argv[presetIdx + 1]).toBe("/preset.ini");
@@ -335,7 +335,7 @@ describe("buildLlamaSpec / buildRunArgs", () => {
   test("run argv pins models-max and sets no-models-autoload, never models-dir or /dev/kfd", () => {
     const e = engine({ models_max: 3 });
     const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
-    const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
+    const argv = buildRunArgs("engined-llama", spec, CONTAINER_PORT);
     expect(argv).toContain("--no-models-autoload");
     const maxIdx = argv.indexOf("--models-max");
     expect(maxIdx).toBeGreaterThan(-1);
@@ -350,7 +350,7 @@ describe("buildLlamaSpec / buildRunArgs", () => {
   test("engine args reach the preset, never the command line that would override it", () => {
     const e = engine({ models_max: 3, args: { "ctx-size": 32_768, parallel: -1 } });
     const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
-    const argv = buildRunArgs("engined-local-llama", spec, CONTAINER_PORT);
+    const argv = buildRunArgs("engined-llama", spec, CONTAINER_PORT);
 
     // llama-server lets a CLI flag beat the preset for every model it loads,
     // so an engine default here is a per-model `ctx-size` that can never win.
