@@ -166,44 +166,21 @@ async function handleEngines(ctx: DoorContext, configErr: string | undefined): P
 }
 
 /**
- * Warms the container, and — when the body names a model — that GGUF too, so
- * the first real request does not pay the cold load. An absent or empty body
- * is the original container-only behaviour, which every existing caller sends.
+ * Warms the container only -- an engine id cannot say which machine an
+ * engine is on, so narrowing a warm by model is `POST /engined/v1/start`'s job,
+ * not this engine-keyed route's. A request body naming a model is ignored
+ * silently: the field is gone, not renamed, and this route itself is a
+ * three-phase transient.
  *
  * The warm is a head start, not a pin: the lease is released immediately and
  * idle-stop is armed as usual. `keep_resident` in config is what survives.
  */
-async function handleStart(ctx: DoorContext, id: string, req: Request): Promise<Response> {
-  let modelSeg: string | undefined;
+async function handleStart(ctx: DoorContext, id: string): Promise<Response> {
   try {
-    const raw = (await req.json()) as unknown;
-    if (isRecord(raw) && typeof raw.model === "string") {
-      modelSeg = raw.model;
-    }
-  } catch {
-    // No body, or not JSON: warming the container alone is the whole request.
-  }
-  let started: Awaited<ReturnType<EngineRegistry["start"]>>;
-  try {
-    started = await ctx.registry.start(id);
+    return Response.json(await ctx.registry.start(id));
   } catch (err) {
     return jsonError(STATUS_NOT_FOUND, errMessage(err));
   }
-  if (modelSeg === undefined) {
-    return Response.json(started);
-  }
-  const engineEntry = ctx.registry.entry(id);
-  const route =
-    engineEntry === undefined ? undefined : findModelOnEngine(ctx.getConfig().routes, id, modelSeg);
-  if (engineEntry === undefined || route === undefined) {
-    return jsonError(STATUS_BAD_GATEWAY, `model "${modelSeg}" not found on "${id}"`);
-  }
-  try {
-    await getLlamaRouter(ctx, engineEntry).warm(route);
-  } catch (err) {
-    return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
-  }
-  return Response.json(started);
 }
 
 async function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
@@ -1432,7 +1409,7 @@ function routePost(
 ): Response | Promise<Response> | undefined {
   const startMatch = START_RE.exec(pathname)?.[1];
   if (startMatch !== undefined) {
-    return handleStart(ctx, startMatch, req);
+    return handleStart(ctx, startMatch);
   }
   const stopMatch = STOP_RE.exec(pathname)?.[1];
   if (stopMatch !== undefined) {

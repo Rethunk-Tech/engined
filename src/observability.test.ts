@@ -272,7 +272,12 @@ test("a state change reaches a subscriber as a live frame", async () => {
   expect(live.join("\n")).toContain("local-llama");
 });
 
-test("start with a model names an unknown one rather than warming silently", async () => {
+// An engine id cannot say which machine an engine is on, so narrowing a
+// start by model is POST /engined/v1/start's job (a later route), not this
+// engine-keyed one's. A body naming a model is ignored silently -- the field
+// is gone, not renamed -- rather than inventing a 400 or a 502 on a route
+// already scheduled for deletion.
+test("start with a model in the body still just warms the container", async () => {
   const { exec } = recordingExec((args) =>
     args[0] === "port" ? { stdout: "127.0.0.1:41234\n" } : {},
   );
@@ -283,8 +288,8 @@ test("start with a model names an unknown one rather than warming silently", asy
       body: JSON.stringify({ model: "nope" }),
     }),
   );
-  expect(res.status).toBe(502);
-  expect(((await res.json()) as { error: string }).error).toContain("nope");
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as { state: string }).state).not.toBe("unavailable");
 });
 
 test("start with no body still warms only the container", async () => {

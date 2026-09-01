@@ -119,6 +119,17 @@ test("response_format: mp3 on speech is rejected with 400 naming wav, not silent
   expect(JSON.stringify(result.body)).toContain("wav");
 });
 
+test("a start refused for a model conflict is a 409, never fetched", async () => {
+  const result = await handleSpeech(
+    { engine: "chatterbox", input: "hello there" },
+    async () => ({ private_url: null, conflict: 'engine "chatterbox" is busy' }),
+    unreachableFetch("must not fetch an engine refused for a model conflict"),
+  );
+
+  expect(result.status).toBe(409);
+  expect(JSON.stringify(result.body)).toContain("busy");
+});
+
 test("chatterbox spec.toml produces run argv carrying the GPU flags and no all-interfaces publish", () => {
   const spec = loadSpecFor("chatterbox");
   const argv = buildRunArgs("engined-chatterbox", spec, CHATTERBOX_CONTAINER_PORT);
@@ -229,6 +240,36 @@ test("a per-request language reaches the engine, asserted against the fake upstr
 
   expect(fake.requests).toHaveLength(1);
   expect(fake.requests[0]?.language).toBe("fr");
+});
+
+test("a route's model reaches EngineStart as its own argument, not folded into the engine id", async () => {
+  const fake = startFakeWhisper();
+  const starts: Array<{ id: string; model: string | undefined }> = [];
+
+  await handleTranscription(
+    { engine: "whisper", model: "small.en", file: SAMPLE_AUDIO_BYTES },
+    (id, model) => {
+      starts.push({ id, model });
+      return Promise.resolve({ private_url: fake.base });
+    },
+  );
+  fake.stop();
+
+  expect(starts).toEqual([{ id: "whisper", model: "small.en" }]);
+});
+
+test("a model switch that would kill an in-flight request is a 409, not a silent restart", async () => {
+  const result = await handleTranscription(
+    { engine: "whisper", model: "medium.en", file: SAMPLE_AUDIO_BYTES },
+    async () => ({
+      private_url: null,
+      conflict: 'engine "whisper" is serving 1 active request(s)',
+    }),
+    unreachableFetch("must not fetch an engine refused for a model conflict"),
+  );
+
+  expect(result.status).toBe(409);
+  expect(JSON.stringify(result.body)).toContain("active request");
 });
 
 test("with no whisper image built, transcriptions returns 503 naming it and GET /engined/v1/engines' status reports the docker build command", async () => {
