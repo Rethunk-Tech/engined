@@ -3,9 +3,9 @@ upstream = "self"
 image = "engined-chatterbox-en:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
-# No `streaming` key, for the same reason as engines/chatterbox-multi: one
-# blocking generate() call, no chunk boundary to forward.
-# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+# Sentence-chunked: when the door asks for chunks, app.py runs one generate()
+# per sentence and emits each as PCM before the terminal WAV frame.
+streaming = true
 command = []
 # Full GPU_FLAGS, not the Vulkan-only pair llama takes: this is a
 # ROCm/PyTorch engine like engines/chatterbox-multi. See engines/llama/spec.toml

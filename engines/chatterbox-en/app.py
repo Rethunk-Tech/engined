@@ -25,6 +25,8 @@ exit early via an internal `break` on EOS.
 
 import base64
 import io
+import numpy as np
+import re
 import json
 import logging
 import os
@@ -108,9 +110,31 @@ def _s3gen_inference_with_progress(*args, **kwargs):
 model.s3gen.inference = _s3gen_inference_with_progress
 
 
+
+_SENTENCE_END = re.compile(r"(?<=[.!?\u2026])\s+")
+
+
+def _sentences(text: str) -> list[str]:
+    """One generate() call per sentence when the caller streams: the first
+    sentence's audio goes out while the rest is still sampling, instead of
+    every sentence waiting for the last. A single-sentence request is one call
+    either way, so a non-streaming caller hears exactly what it always did."""
+    parts = [p.strip() for p in _SENTENCE_END.split(text.strip())]
+    return [p for p in parts if p] or [text]
+
+
+def _pcm16(samples: np.ndarray) -> bytes:
+    """Signed 16-bit little-endian, the one encoding a streaming caller can
+    concatenate without a container format in the way; clipping first keeps a
+    hot sample from wrapping to the opposite sign instead of saturating."""
+    return (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+
 class TtsRequest(BaseModel):
     text: str
     voice: str | None = None
+    # Additive: an adapter that does not ask still sees exactly the frames it
+    # always did. Asking adds per-sentence PCM ahead of the terminal frame.
+    chunks: bool = False
 
 
 @app.get("/health")
@@ -128,10 +152,23 @@ def synthesize(req: TtsRequest):
             audio_prompt = (
                 req.voice if req.voice and os.path.exists(req.voice) else None
             )
+            pieces = _sentences(req.text) if req.chunks else [req.text]
+            wavs: list[np.ndarray] = []
             with _model_lock:
-                wav = model.generate(req.text, audio_prompt_path=audio_prompt)
+                for text in pieces:
+                    wav = model.generate(text, audio_prompt_path=audio_prompt)
+                    samples = wav.squeeze(0).cpu().numpy()
+                    wavs.append(samples)
+                    if req.chunks:
+                        q.put(
+                            {
+                                "phase": "chunk",
+                                "pcm": base64.b64encode(_pcm16(samples)).decode("ascii"),
+                                "rate": model.sr,
+                            }
+                        )
             buf = io.BytesIO()
-            sf.write(buf, wav.squeeze(0).cpu().numpy(), model.sr, format="WAV")
+            sf.write(buf, np.concatenate(wavs) if len(wavs) > 1 else wavs[0], model.sr, format="WAV")
             q.put(
                 {
                     "phase": "done",

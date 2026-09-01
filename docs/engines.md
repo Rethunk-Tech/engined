@@ -255,21 +255,26 @@ or on a multilingual model that is not currently configured.
 Both routes mount the same `models_dir`, so the Silero VAD model both load
 is one file on disk, not two.
 
-## `streaming`, a tts-only spec key
+## `streaming`, a spec key on every kind
 
-Whether an engine's `/v1/tts` emits per-chunk NDJSON frames, and so whether
-`"stream": true` on `POST /openai/v1/audio/speech` is servable by it. `piper` and
-`kokoro` set `streaming = true`; `chatterbox-multi` and `chatterbox-en` omit it,
-because a single blocking `generate()` has no piece to forward before the
-last one.
+Whether the engine can serve a streamed request: per-chunk NDJSON frames from
+a `tts` app (`"stream": true` on `POST /openai/v1/audio/speech`), SSE from an
+`openai-http` server, text deltas from an agent CLI's streamed output format
+(`"stream": true` on `POST /openai/v1/chat/completions`). `piper` and `kokoro`
+stream sentence by sentence from their pipelines; `chatterbox-multi` and
+`chatterbox-en` run one `generate()` per sentence when the door asks for
+chunks, so the first sentence's audio goes out while the rest is still
+sampling -- a single-sentence request is one call either way. `llama` streams
+SSE; `claude`, `opencode` and `cursor` stream their answer text as the CLI
+prints it. `whisper` and `comfy` do not: whisper.cpp answers a transcription
+whole, and comfy's proxy is not a content endpoint.
 
 It lives in `spec.toml` because it is a property of the engine's own app, not
-of an install — the same reason `serves` does. It is fatal at parse on any
-other kind: only `/openai/v1/audio/speech` has a chunk contract, so anywhere else
-the key would be read, reported and honoured by nothing. Off unless a spec
-says otherwise, which is the safe direction: an engine that under-declares
-costs a caller the early audio it could have had, while one that
-over-declares costs it a 502 on every request.
+of an install — the same reason `serves` does — and a `[[route]]` may override
+it for one provider tier that cannot chunk what its siblings can. Off unless a
+spec says otherwise, which is the safe direction: an engine that
+under-declares costs a caller the early audio it could have had, while one
+that over-declares costs it a 502 on every request.
 
 `GET /engined/v1/engines` reports it per engine, so no consumer has to carry its own
 list of which engines can stream — see [http-api.md](http-api.md).

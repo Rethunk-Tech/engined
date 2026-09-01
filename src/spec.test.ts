@@ -115,14 +115,11 @@ describe("shipped specs", () => {
   test.each([
     ["piper", true],
     ["kokoro", true],
-    ["chatterbox-multi", false],
-    ["chatterbox-en", false],
+    ["chatterbox-multi", true],
+    ["chatterbox-en", true],
   ] as const)("the shipped %s spec declares streaming = %p", (id, streaming) => {
     const loaded = loadSpec(engine({ id }), { enginesRoot: ENGINES_ROOT, bunx: BUNX });
-    expect(loaded.spec.kind).toBe("tts");
-    if (loaded.spec.kind !== "agentic-cli") {
-      expect(loaded.spec.streaming).toBe(streaming);
-    }
+    expect(loaded.spec.streaming).toBe(streaming);
   });
 
   // The regression guard: a literal /home/<user>/... path in a shipped spec

@@ -3,11 +3,9 @@ upstream = "self"
 image = "engined-chatterbox-multi:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
-# No `streaming` key: chatterbox-tts synthesizes in one blocking generate()
-# call with no intermediate boundary to forward, so a streamed request is a
-# 502 rather than a slow 200. Absent, not `false`, because absent is what
-# every non-streaming spec says.
-# The image's own CMD already runs uvicorn on the right host/port; no args needed.
+# Sentence-chunked: when the door asks for chunks, app.py runs one generate()
+# per sentence and emits each as PCM before the terminal WAV frame.
+streaming = true
 command = []
 # Full GPU_FLAGS, not the Vulkan-only pair llama takes: chatterbox-multi is a
 # ROCm/PyTorch engine. See engines/llama/spec.toml for why that one
