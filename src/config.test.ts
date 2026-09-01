@@ -482,6 +482,17 @@ describe("chain hops", () => {
     expect(message).toContain('"@/local-llama/nope"');
   });
 
+  test("a hop naming a model that exists only on a different engine fails at parse, not silently at the wrong engine's default", () => {
+    // "ornith" is real -- just not on "claude". A flat model-name check
+    // would have let this hop through clean and run claude's default model
+    // at runtime; the pair check refuses it here instead.
+    const message = parseMessage(
+      `${llamaEngineAndRoute()}\n[[engine]]\nid = "claude"\nkind = "agentic-cli"\n\n[[chain]]\nid = "c"\nhops = ["@/claude/ornith"]\n`,
+    );
+    expect(message).toContain('model "ornith" does not exist on "claude"');
+    expect(message).toContain('"@/claude/ornith"');
+  });
+
   test("a three-segment hop resolves by (engine, upstream, model), not just the last two", () => {
     const toml = `
 ${LOCAL_UPSTREAM}
