@@ -76,7 +76,7 @@ egress   = "remote"
 [[upstream]]
 id       = "openai"
 base_url = "https://api.openai.com/v1"
-secret   = { service = "openai-api", username = "default", header = "authorization" }
+secret   = { service = "openai-api", username = "default", header = "authorization", scheme = "Bearer" }
 egress   = "remote"
 wire     = "openai"
 
@@ -88,7 +88,7 @@ wire     = "openai"
 [[upstream]]
 id       = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
-secret   = { service = "openrouter-api", username = "claude-code", header = "authorization" }
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
 egress   = "remote"
 wire     = "openai"
 
@@ -97,7 +97,7 @@ wire     = "openai"
 id       = "openrouter-anthropic"
 disable  = true
 base_url = "https://openrouter.ai/api"
-secret   = { service = "openrouter-api", username = "claude-code", header = "authorization" }
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
 egress   = "remote"
 wire     = "anthropic"
 
