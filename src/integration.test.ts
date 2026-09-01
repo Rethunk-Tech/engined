@@ -81,6 +81,21 @@ path = "/health"
 status = 200
 `;
 
+/** Mirrors engines/local-llama/spec.toml's own `streaming = true` -- llama has streamed all along, and this is what proves a row can finally say so. */
+const OPENAI_SPEC_STREAMING = `
+kind = "openai-http"
+upstream = "self"
+image = "test-openai:local"
+obtain = "pull"
+serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
+command = []
+streaming = true
+
+[ready]
+path = "/health"
+status = 200
+`;
+
 const AGENTIC_SPEC = `
 kind = "agentic-cli"
 upstream = "optional"
@@ -137,7 +152,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
       route({ engine: "chatterbox", model: undefined, upstream: "local" }),
     ],
     engines: [
-      containerEngine("local", OPENAI_SPEC),
+      containerEngine("local", OPENAI_SPEC_STREAMING),
       containerEngine("claude", AGENTIC_SPEC, { egress: "remote" }),
       containerEngine("comfy", COMFY_SPEC),
       containerEngine("chatterbox", ttsSpec()),
@@ -158,12 +173,16 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     const res = await door.fetch(req("GET", "/openai/v1/models"));
     // `data` optional, because that is the shape a consumer must survive: the
     // `?? []` below is only a real fallback if the type admits its absence.
-    const body = (await res.json()) as { object: string; data?: Array<{ id: string }> };
+    const body = (await res.json()) as {
+      object: string;
+      data?: Array<{ id: string; streaming: boolean }>;
+    };
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
     // undefined, which reads as "this engine has no models" rather than as
     // an error. sagaforge-ts's probeModels is written exactly like this.
-    const ids = (body.data ?? []).map((m) => m.id);
+    const rows = body.data ?? [];
+    const ids = rows.map((m) => m.id);
     expect(body.object).toBe("list");
     expect(ids).not.toHaveLength(0);
 
@@ -172,6 +191,9 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     );
     expect(ids).not.toContain("comfy");
     expect(ids).not.toContain("@/comfy/local");
+    // llama has streamed on the wire all along with no way to declare it;
+    // this is the first place a caller can ask and get a real answer.
+    expect(rows.find((r) => r.id === "@/local/ornith")?.streaming).toBe(true);
   } finally {
     await door.registry.shutdown();
   }
