@@ -123,14 +123,17 @@ function startFakeElevenLabs(recorded: RecordedForm[]): { base: string; stop: ()
   return { base: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
 }
 
-test("a remote STT engine posts ElevenLabs' own shape and unwraps its transcript", async () => {
+// The whole point of this delivery: the door's own resolved model reaches
+// the wire, never an engine-config fallback -- asserted against
+// transcribeRemote's OUTGOING FORM (what the fake upstream actually
+// received), not against config. Deleting `[engine.args].model_id` alone
+// would be green and wrong: nothing would throw, and the door would send
+// whatever a stale default held.
+test("a remote STT engine posts the door's own model, not an engine-config default", async () => {
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
-    const resolution = await resolveRemote(
-      remoteEngine({ base_url: fake.base, args: { model_id: "scribe_v1_experimental" } }),
-      foundSecret,
-    );
+    const resolution = await resolveRemote(remoteEngine({ base_url: fake.base }), foundSecret);
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) {
       return;
@@ -138,6 +141,7 @@ test("a remote STT engine posts ElevenLabs' own shape and unwraps its transcript
     const result = await handleTranscription(
       {
         engine: "elevenlabs",
+        model: "scribe_v1_experimental",
         file: SAMPLE_WAV,
         language: "en",
         response_format: "text",
@@ -160,7 +164,10 @@ test("a remote STT engine posts ElevenLabs' own shape and unwraps its transcript
   }
 });
 
-test("a remote STT engine without a configured model_id still sends one", async () => {
+// The door has no built-in default any more: a caller reaching a remote STT
+// engine with no model resolved is a 502 naming the gap, not a silent
+// fallback to whatever ElevenLabs' own default happens to be.
+test("a remote STT engine with no model resolved is a 502, not a silent default", async () => {
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
@@ -176,12 +183,9 @@ test("a remote STT engine without a configured model_id still sends one", async 
       }),
     );
 
-    expect(result.status).toBe(200);
-    // Absent `response_format` is the door's JSON shape, carrying only
-    // `text` -- never the upstream's word timings, which would appear and
-    // disappear with the engine id.
-    expect(result.body).toEqual({ text: "the cutover is finished" });
-    expect(recorded[0]?.modelId).toBe("scribe_v1");
+    expect(result.status).toBe(502);
+    expect(JSON.stringify(result.body)).toContain("requires a model");
+    expect(recorded).toHaveLength(0);
   } finally {
     fake.stop();
   }

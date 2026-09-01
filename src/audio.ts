@@ -480,8 +480,6 @@ export async function handleSpeech(
   return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: Buffer.from(audio, "base64") };
 }
 
-/** ElevenLabs' own default. Overridable per engine through `[engine.args] model_id`. */
-const ELEVENLABS_DEFAULT_MODEL_ID = "scribe_v1";
 /**
  * ElevenLabs returns words with timings, so `srt`/`vtt` are buildable — and
  * building them means owning a subtitle writer for a format no consumer has
@@ -491,14 +489,15 @@ const ELEVENLABS_DEFAULT_MODEL_ID = "scribe_v1";
 const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
 
 /**
- * The ElevenLabs Scribe dialect. `model_id` is not the door's `engine`: on
- * this door `engine` names the engine, so the upstream's own model id can
- * only come from config — forwarding `engine` verbatim would send the string
- * "elevenlabs" as a model id and earn a 422.
+ * The ElevenLabs Scribe dialect. `model` is the door's own resolved model --
+ * the route's `model` (`@/elevenlabs/scribe_v1`), never `req.engine`, which
+ * names the engine and would send the literal string "elevenlabs" as a
+ * model id and earn a 422.
  */
 async function transcribeRemote(
   req: TranscriptionRequestBody,
   remote: RemoteEndpoint,
+  model: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
   const format = req.response_format;
@@ -511,7 +510,7 @@ async function transcribeRemote(
 
   const form = new FormData();
   form.append("file", new Blob([req.file]), "audio");
-  form.append("model_id", String(remote.args.model_id ?? ELEVENLABS_DEFAULT_MODEL_ID));
+  form.append("model_id", model);
   if (req.language !== undefined) {
     form.append("language_code", req.language);
   }
@@ -562,7 +561,13 @@ export async function handleTranscription(
     return conflict;
   }
   if (engine.remote !== undefined) {
-    return await transcribeRemote(req, engine.remote, fetchImpl);
+    if (req.model === undefined) {
+      return errorResponse(
+        STATUS_BAD_GATEWAY,
+        `${req.engine} requires a model, and none was named`,
+      );
+    }
+    return await transcribeRemote(req, engine.remote, req.model, fetchImpl);
   }
   if (engine.private_url === null) {
     return errorResponse(
