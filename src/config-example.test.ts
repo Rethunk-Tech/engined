@@ -101,7 +101,7 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const config = loadConfig(configPath, ENGINES_ROOT);
 
   expect(sortedIds(config.engines, (e) => e.id)).toEqual(EXPECTED_ENGINE_IDS);
-  expect(config.models).toEqual([]);
+  expect(config.models.map((m) => m.id)).toEqual(["sonnet-5"]);
   expect(sortedIds(config.routes, (r) => r.model)).toEqual(EXPECTED_ROUTE_MODEL_IDS);
   expect(
     sortedIds(
@@ -109,6 +109,17 @@ test("config.example.toml parses through the real loadConfig()", () => {
       (e) => e.id,
     ),
   ).toEqual(EXPECTED_DISABLED_IDS);
+
+  // The [[model]] row's capabilities reach the route naming it...
+  const sonnet5 = config.routes.find((r) => r.engine === "claude" && r.model === "sonnet-5");
+  expect(sonnet5?.context_in).toBe(200_000);
+  expect(sonnet5?.reasoning).toEqual(["none", "low", "high"]);
+  // ...and inserting that [[model]] row ahead of local-llama's own routes did
+  // not silently migrate [route.args] onto the wrong one: TOML attaches a
+  // bare [route.args] to whichever [[route]] was declared most recently, so
+  // ornith's own draft-MTP args must still be ornith's.
+  const ornith = config.routes.find((r) => r.engine === "local-llama" && r.model === "ornith");
+  expect(ornith?.args["spec-type"]).toBe("draft-mtp");
 
   expect(config.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);
   // Written with three remote/agentic hops after the local one; claude and

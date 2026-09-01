@@ -220,6 +220,19 @@ agent_version = "2.1.247"
 # duplication class as the read-only floor. [engine.args] still applies to
 # whatever claude flags actually ARE yours to set (max-turns, model, ...).
 
+# A [[model]] is optional -- declared only where there's a capability worth
+# recording -- and unrelated to any engine or upstream; it names nothing
+# about who can reach it. Values are Anthropic's own published figures for
+# this model, not a guess: input/output modalities, context window in each
+# direction, and the reasoning-effort levels it accepts.
+[[model]]
+id          = "sonnet-5"
+input       = ["text", "image"]
+output      = ["text"]
+context_in  = 200000
+context_out = 64000
+reasoning   = ["none", "low", "high"]
+
 # No upstream: ambient means the CLI's own subscription login rather than an
 # API token, and an ambient route's egress is always "remote".
 [[route]]
