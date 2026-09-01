@@ -409,13 +409,13 @@ describe.skipIf(!READY)(
         if (!rig) {
           throw new Error("beforeAll did not run -- rig is unset");
         }
-        const { registry, router } = rig;
+        const { registry, router, lifecycle } = rig;
         const { chatRoute } = FIXTURE as Fixture;
 
         expect(await chatCompletes(router, chatRoute)).toBe(true);
         const comfyStatus = await registry.start("comfy");
         expect(comfyStatus.state).toBe("running");
-        expect(await comfyQueueReachable(comfyStatus.private_url)).toBe(true);
+        expect(await comfyQueueReachable(lifecycle.getStatus("comfy").private_url)).toBe(true);
 
         // Co-residency, not a reload: the SAME chat completion still answers
         // with comfy now also running, through the identical router instance
@@ -470,16 +470,16 @@ describe.skipIf(!READY)(
         if (!rig) {
           throw new Error("beforeAll did not run -- rig is unset");
         }
-        const { registry, router } = rig;
+        const { registry, router, lifecycle } = rig;
         const { chatRoute } = FIXTURE as Fixture;
 
         expect(await chatCompletes(router, chatRoute)).toBe(true);
-        const before = registry.get("local-llama")?.private_url;
+        const before = lifecycle.getStatus("local-llama").private_url;
 
         const comfy = await registry.start("comfy");
         expect(comfy.state).toBe("running");
         const images = await runComfyJob(
-          comfy.private_url as string,
+          lifecycle.getStatus("comfy").private_url as string,
           TEST_TIMEOUT_MS / 2,
           modelFreeWorkflow(),
         );
@@ -490,7 +490,7 @@ describe.skipIf(!READY)(
         // private_url above.
         expect(await chatCompletes(router, chatRoute)).toBe(true);
         expect(registry.get("local-llama")?.state).toBe("running");
-        expect(registry.get("local-llama")?.private_url).toBe(before);
+        expect(lifecycle.getStatus("local-llama").private_url).toBe(before);
       },
       TEST_TIMEOUT_MS,
     );
@@ -528,15 +528,12 @@ describe.skipIf(!CAN_RENDER)(
         }
         const comfy = await rig.registry.start("comfy");
         expect(comfy.state).toBe("running");
+        const comfyUrl = rig.lifecycle.getStatus("comfy").private_url as string;
 
-        const images = await runComfyJob(
-          comfy.private_url as string,
-          RENDER_BUDGET_MS,
-          diffusionWorkflow(),
-        );
+        const images = await runComfyJob(comfyUrl, RENDER_BUDGET_MS, diffusionWorkflow());
         expect(images.length).toBe(1);
 
-        const png = await fetchOutputImage(comfy.private_url as string, images[0] as string);
+        const png = await fetchOutputImage(comfyUrl, images[0] as string);
         expect(isPng(png)).toBe(true);
         expect(pngDimensions(png)).toEqual({ width: RENDER_WIDTH, height: RENDER_HEIGHT });
         expect(png.byteLength).toBeGreaterThan(MIN_RENDERED_PNG_BYTES);

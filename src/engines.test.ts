@@ -403,20 +403,20 @@ status = 200
 });
 
 describe("installed engines", () => {
-  test("an engine merely stopped is installed with a null private_url, never reported as broken", async () => {
+  test("an engine merely stopped is installed, never reported as broken, and carries no container address", async () => {
     const { reg } = setupLlama();
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
     expect(listed?.state).toBe("installed");
-    expect(listed?.private_url).toBeNull();
+    expect(listed).not.toHaveProperty("private_url");
     expect(listed?.fix).toBeUndefined();
   });
 
-  test("private_url is null before any start, from both get() and list()", async () => {
+  test("neither get() nor list() ever carries a container address, before any start or after", async () => {
     const lifecycle = new DockerLifecycle(OK_EXEC);
     const { reg } = setupLlama({ lifecycle });
-    expect(reg.get("llama")?.private_url).toBeNull();
+    expect(reg.get("llama")).not.toHaveProperty("private_url");
     const listed = (await reg.list()).engines.find((e) => e.id === "llama");
-    expect(listed?.private_url).toBeNull();
+    expect(listed).not.toHaveProperty("private_url");
   });
 });
 
@@ -442,10 +442,10 @@ describe("spec-less engines: no secret gate, just an optimistic installed", () =
     const id = "spec-less-proxy";
     const reg = registry(config({ engines: [specLessProxyEngine(id)] }), newEnginesRoot());
     expect(reg.get(id)?.state).toBe("installed");
-    expect(reg.get(id)?.private_url).toBeNull();
+    expect(reg.get(id)).not.toHaveProperty("private_url");
     const listed = (await reg.list()).engines.find((e) => e.id === id);
     expect(listed?.state).toBe("installed");
-    expect(listed?.private_url).toBeNull();
+    expect(listed).not.toHaveProperty("private_url");
   });
 
   test("a spec-less agentic-cli engine has no built-in launch to fall back to, and refuses at construction", () => {
@@ -824,16 +824,16 @@ describe("comfy: idle timer driven by /queue polling", () => {
         queueFetch: () => Promise.resolve(EMPTY_QUEUE),
         comfyPollIntervalMs: 15,
       },
-      async (reg) => {
+      async (reg, lifecycle) => {
         const started = await reg.start("comfy");
         expect(started.state).toBe("running");
-        expect(started.private_url).not.toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
 
         await new Promise((resolve) => setTimeout(resolve, 300));
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("installed");
-        expect(after?.private_url).toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).toBeNull();
       },
     );
   });
@@ -846,7 +846,7 @@ describe("comfy: idle timer driven by /queue polling", () => {
         queueFetch: () => Promise.resolve(BUSY_QUEUE),
         comfyPollIntervalMs: 15,
       },
-      async (reg) => {
+      async (reg, lifecycle) => {
         const started = await reg.start("comfy");
         expect(started.state).toBe("running");
 
@@ -854,7 +854,7 @@ describe("comfy: idle timer driven by /queue polling", () => {
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("running");
-        expect(after?.private_url).not.toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
       },
     );
   });
@@ -870,13 +870,15 @@ describe("comfy: resolved URL outlives its container by exactly nothing", () => 
         comfyPollIntervalMs: 60_000,
       },
       async (reg, lifecycle) => {
-        const first = await reg.start("comfy");
+        await reg.start("comfy");
+        const first = lifecycle.getStatus("comfy").private_url;
         await lifecycle.removeEngine("comfy");
-        const second = await reg.start("comfy");
+        await reg.start("comfy");
+        const second = lifecycle.getStatus("comfy").private_url;
 
-        expect(first.private_url).not.toBeNull();
-        expect(second.private_url).not.toBeNull();
-        expect(second.private_url).not.toBe(first.private_url);
+        expect(first).not.toBeNull();
+        expect(second).not.toBeNull();
+        expect(second).not.toBe(first);
       },
     );
   });
@@ -1076,10 +1078,10 @@ describe("comfy: a container that dies underneath engined", () => {
         queueFetch: () => Promise.reject(new Error("connect ECONNREFUSED")),
         comfyPollIntervalMs: 15,
       },
-      async (reg) => {
+      async (reg, lifecycle) => {
         const started = await reg.start("comfy");
         expect(started.state).toBe("running");
-        expect(started.private_url).not.toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
 
         comfyLive.alive = false;
         await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1087,7 +1089,7 @@ describe("comfy: a container that dies underneath engined", () => {
         // Never a 200 naming a dead address: the door reports what docker says.
         const after = reg.get("comfy");
         expect(after?.state).toBe("installed");
-        expect(after?.private_url).toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).toBeNull();
       },
     );
   });
@@ -1100,14 +1102,14 @@ describe("comfy: a container that dies underneath engined", () => {
         queueFetch: () => Promise.reject(new Error("socket hang up")),
         comfyPollIntervalMs: 15,
       },
-      async (reg) => {
+      async (reg, lifecycle) => {
         expect((await reg.start("comfy")).state).toBe("running");
 
         await new Promise((resolve) => setTimeout(resolve, 300));
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("running");
-        expect(after?.private_url).not.toBeNull();
+        expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
       },
     );
   });
@@ -1230,7 +1232,8 @@ describe("model-bearing stt: switching models is a stop-and-restart", () => {
     const { reg, lifecycle, runLog, stopLog } = sttSwitchRegistry();
     try {
       const started = await reg.start("whisper-like", "small");
-      expect(started.private_url).not.toBeNull();
+      expect(started.state).toBe("running");
+      expect(lifecycle.getStatus("whisper-like").private_url).not.toBeNull();
       lifecycle.beginLease("whisper-like");
 
       await expect(reg.start("whisper-like", "big")).rejects.toThrow(EngineBusyError);

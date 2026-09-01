@@ -1789,9 +1789,8 @@ function audioStart(ctx: DoorContext): EngineStart {
         ? { private_url: null, remote: resolution.endpoint }
         : { private_url: null, unavailable: resolution.error };
     }
-    let status: Awaited<ReturnType<EngineRegistry["start"]>>;
     try {
-      status = await ctx.registry.start(id, model);
+      await ctx.registry.start(id, model);
     } catch (err) {
       if (err instanceof EngineBusyError) {
         return { private_url: null, conflict: err.message };
@@ -1800,7 +1799,10 @@ function audioStart(ctx: DoorContext): EngineStart {
     }
     // Paired with the `armAudioIdleStop` every audio path runs on the way out.
     ctx.lifecycle.beginLease(id);
-    return { private_url: status.private_url };
+    // `EngineStatus` (the wire type `registry.start` returns) carries no
+    // container address at all -- the internal runtime read is `lifecycle`'s
+    // own, the same source the comfy proxy resolves against.
+    return { private_url: ctx.lifecycle.getStatus(id).private_url };
   };
 }
 
@@ -1937,13 +1939,16 @@ async function handleExtras(
     return jsonError(STATUS_BAD_REQUEST, `engine "${engineId}" does not serve ${verb}`);
   }
   const status = await ctx.registry.start(engineId);
-  if (status.private_url === null) {
+  // `EngineStatus` carries no container address; the internal runtime read
+  // is `lifecycle`'s own, the same source the comfy proxy resolves against.
+  const privateUrl = ctx.lifecycle.getStatus(engineId).private_url;
+  if (privateUrl === null) {
     return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`);
   }
   const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
   return proxyExtras(
     req,
-    { baseUrl: `http://${status.private_url}`, enginePath: `/${verb}` },
+    { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },
     residentModel,
     ctx.doorOpts.extrasHttpClient,
   );

@@ -2050,3 +2050,34 @@ describe("POST /engined/v1/start", () => {
     expect(stopLog).toHaveLength(0);
   });
 });
+
+describe("no response ever carries a container address", () => {
+  // Grepping the raw JSON text, not typed field access: a field the wire
+  // TYPE no longer declares would still typecheck clean even if some call
+  // site smuggled it back in through a spread -- only the actual bytes on
+  // the wire prove it is gone.
+  test("GET /engined/v1/engines, with a running llama and a running comfy, mentions no private_url anywhere", async () => {
+    const { cfg: base, root } = llamaDoorConfigWithComfy();
+    const cfg: Config = {
+      ...base,
+      routes: [...base.routes, route({ engine: "comfy", model: undefined, upstream: "local" })],
+    };
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient([]),
+    });
+    await door.fetch(startRequest("@/local-llama/ornith"));
+    await door.fetch(startRequest("@/comfy/local"));
+
+    const res = await door.fetch(new Request("http://engined/engined/v1/engines"));
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text).not.toContain("private_url");
+  });
+
+  test("POST /engined/v1/start's own response never mentions private_url", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: makeLlamaHttpClient([]) });
+    const res = await door.fetch(startRequest("@/local-llama/ornith"));
+    expect(await res.text()).not.toContain("private_url");
+  });
+});

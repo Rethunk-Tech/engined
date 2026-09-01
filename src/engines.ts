@@ -450,7 +450,6 @@ function statusFrom(engine: EngineEntry, spec: Spec, runtime: RuntimeStatus): En
     streaming: streamingOf(spec),
     state: runtime.state,
     fix: runtime.fix,
-    private_url: runtime.private_url,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
   };
@@ -635,7 +634,6 @@ export class EngineRegistry {
         serves: spec.serves,
         streaming: streamingOf(spec),
         state: "installed",
-        private_url: null,
       };
     }
 
@@ -659,7 +657,6 @@ export class EngineRegistry {
       state: "unavailable",
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
-      private_url: null,
     };
   }
 
@@ -705,7 +702,6 @@ export class EngineRegistry {
       kind: spec.kind,
       serves: spec.serves,
       streaming: streamingOf(spec),
-      private_url: null,
     } as const;
     if (engine.agent_version === undefined) {
       return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };

@@ -424,6 +424,14 @@ export interface RoleContention {
   waiting: number;
 }
 
+/**
+ * No `private_url`, on purpose: every control this project has -- call
+ * recording, egress ceilings, and later the budgets that decide whose money
+ * pays -- lives at the door, and a consumer holding a raw container address
+ * routes around all of it. The value stays an internal runtime one --
+ * `docker.ts`'s own `RuntimeStatus`, read straight off `DockerLifecycle` by
+ * whichever door verb still needs it -- it simply never reaches the wire.
+ */
 export interface EngineStatus {
   id: string;
   kind: EngineKind;
@@ -456,8 +464,6 @@ export interface EngineStatus {
    * goes stale the moment engined gains an engine.
    */
   streaming: boolean;
-  /** Docker reassigns the host port every start, so this is a per-job read. */
-  private_url: string | null;
   last_error?: string;
   /**
    * Requests holding this engine open right now. The audio engines serialize
@@ -530,7 +536,7 @@ export interface StartResponse {
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 4;
+export const CONTRACT = 5;
 
 /**
  * Anything a restart cannot fix. The unit carries
