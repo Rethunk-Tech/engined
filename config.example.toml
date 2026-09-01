@@ -492,18 +492,28 @@ id                = "comfy"
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 
-# Comfy's default residency policy evicts a resident checkpoint once others
-# are loaded on top, even with 127 of 133 GB free -- and the fragmentation
-# bookkeeping that costs a reload also emits spurious allocator OOM warnings
-# with tens of GB genuinely available. Both live only on the non-highvram
-# path. A consumer that alternates image and video work in one job pays the
-# reload every time it switches back.
+# `cache-lru` is what keeps a checkpoint resident across workflows, and it is
+# load-bearing: comfy holds each loaded model by a WEAK reference, and the
+# strong reference lives in the node-output cache, which by default retains
+# only the workflow currently running. Run a second workflow and the first
+# one's loader-node output is dropped, its ModelPatcher loses its last strong
+# reference, and 27 GB is finalized out from under the next request.
+#
+# This is not a memory decision and no vram flag prevents it: measured at the
+# moment it happened, comfy reported 94 GB free against the ~6 GB the incoming
+# model needed, so its own free_memory() pass unloads nothing. A consumer that
+# alternates image and video work in one job -- sagaforge does, per episode --
+# otherwise pays a full reload on every switch back.
+#
+# `highvram` is kept for steady-state residency, not for that: it does NOT
+# stop the eviction above, which was measured with it enabled.
 #
 # Keep an [engine.args] table LAST in its block: every bare key after it
 # belongs to the table, not to the engine, so a following idle_stop_seconds
 # silently becomes an argv flag for the child process instead.
 [engine.args]
 highvram = true
+"cache-lru" = 50
 
 [[route]]
 engine   = "comfy"
