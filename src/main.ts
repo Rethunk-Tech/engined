@@ -65,6 +65,7 @@ import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { loadSpec } from "./spec.ts";
 import {
+  type AgenticSpec,
   type Config,
   type Egress,
   type EngineEntry,
@@ -74,7 +75,6 @@ import {
   errMessage,
   FatalError,
   findModelOnEngine,
-  isContainerSpec,
   isRecord,
   type ModelCapabilities,
   type ModelRow,
@@ -427,6 +427,32 @@ async function handleResources(registry: EngineRegistry, id: string): Promise<Re
  */
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/;
 const COMFY_WS_SUFFIX = "ws";
+/** Rewrites an `http(s)://` base to its `ws(s)://` twin for the comfy websocket bridge. */
+const HTTP_SCHEME_RE = /^http/;
+/** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
+const COMFY_UPLOAD_PREFIX_LEN = 12;
+
+/** The three path segments `COMFY_PROXY_RE` captures. */
+interface ComfyMatch {
+  engineSeg: string;
+  upstreamSeg: string;
+  rest: string;
+}
+
+function matchComfyPath(pathname: string): ComfyMatch | undefined {
+  const m = COMFY_PROXY_RE.exec(pathname);
+  return m
+    ? { engineSeg: m[1] as string, upstreamSeg: m[2] as string, rest: m[3] as string }
+    : undefined;
+}
+
+/** One resolved comfy engine plus the client every forwarded call goes through. */
+interface ComfyProxy {
+  ctx: DoorContext;
+  engineId: string;
+  base: string;
+  httpClient: HttpClient;
+}
 
 /** `ServerWebSocket.data` for one comfy relay connection: where to reach the real container, the door-assigned clientId comfy filters frames by, and the live upstream socket once `open` has dialed it. */
 interface ComfyWsData {
@@ -514,11 +540,8 @@ async function forwardComfyGet(
 
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
 async function proxyComfyPrompt(
-  ctx: DoorContext,
-  engineId: string,
-  base: string,
+  { ctx, engineId, base, httpClient }: ComfyProxy,
   req: Request,
-  httpClient: HttpClient,
 ): Promise<Response> {
   const body = await req.text();
   const res = await httpClient(`${base}/prompt`, {
@@ -553,7 +576,7 @@ async function proxyComfyUpload(
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part');
   }
   const originalName = image instanceof File ? image.name : "upload.png";
-  const namespaced = `${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}-${originalName}`;
+  const namespaced = `${crypto.randomUUID().replace(/-/g, "").slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${originalName}`;
   const outgoing = new FormData();
   // A fresh `Blob`, not the caller's own `File`: `FormData.append`'s third
   // argument only renames a plain Blob -- handed an existing File, it keeps
@@ -585,11 +608,8 @@ function comfyViewRefused(): Response {
  * and a caller-supplied filename must never become a URL on its own say-so.
  */
 async function proxyComfyView(
-  ctx: DoorContext,
-  engineId: string,
-  base: string,
+  { ctx, engineId, base, httpClient }: ComfyProxy,
   params: URLSearchParams,
-  httpClient: HttpClient,
 ): Promise<Response> {
   const filename = params.get("filename");
   if (filename === null || !comfyState(ctx, engineId).filenames.has(filename)) {
@@ -640,11 +660,8 @@ function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
  * actually produced, which is what makes `/view` servable at all.
  */
 async function proxyComfyHistory(
-  ctx: DoorContext,
-  engineId: string,
-  base: string,
+  { ctx, engineId, base, httpClient }: ComfyProxy,
   promptId: string,
-  httpClient: HttpClient,
 ): Promise<Response> {
   if (!comfyState(ctx, engineId).promptIds.has(promptId)) {
     return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
@@ -667,11 +684,8 @@ async function proxyComfyHistory(
 
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */
 async function proxyComfyQueueDelete(
-  ctx: DoorContext,
-  engineId: string,
-  base: string,
+  { ctx, engineId, base, httpClient }: ComfyProxy,
   req: Request,
-  httpClient: HttpClient,
 ): Promise<Response> {
   let body: unknown;
   try {
@@ -717,20 +731,21 @@ async function proxyComfyQueueDelete(
  * not explicitly allowlisted is refused the same way: the safe default is
  * to forward nothing at all.
  */
-async function handleComfyProxy(
+function handleComfyProxy(
   ctx: DoorContext,
   req: Request,
-  engineSeg: string,
-  upstreamSeg: string,
-  rest: string,
-): Promise<Response> {
+  { engineSeg, upstreamSeg, rest }: ComfyMatch,
+): Response | Promise<Response> {
   const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
   if (target === undefined) {
     return noSuchComfyEngine(engineSeg, upstreamSeg);
   }
-  const { engineId, base } = target;
-  const httpClient = ctx.doorOpts.comfyHttpClient ?? fetch;
-  const url = new URL(req.url);
+  const proxy: ComfyProxy = {
+    ctx,
+    engineId: target.engineId,
+    base: target.base,
+    httpClient: ctx.doorOpts.comfyHttpClient ?? fetch,
+  };
 
   if (rest === COMFY_WS_SUFFIX) {
     // A real upgrade never reaches here -- `fetch` intercepts it before
@@ -740,25 +755,39 @@ async function handleComfyProxy(
     // proxied at all.
     return jsonError(STATUS_BAD_REQUEST, "this path is a websocket upgrade, not a plain request");
   }
-  if (req.method === "GET" && (rest === "system_stats" || rest.startsWith("object_info/"))) {
-    return forwardComfyGet(base, rest, url.search, httpClient);
+  let forwarded: Promise<Response> | undefined;
+  if (req.method === "GET") {
+    forwarded = comfyGet(proxy, rest, new URL(req.url));
+  } else if (req.method === "POST") {
+    forwarded = comfyPost(proxy, rest, req);
   }
-  if (req.method === "POST" && rest === "prompt") {
-    return proxyComfyPrompt(ctx, engineId, base, req, httpClient);
+  return forwarded ?? jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`);
+}
+
+function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> | undefined {
+  if (rest === "system_stats" || rest.startsWith("object_info/")) {
+    return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient);
   }
-  if (req.method === "POST" && rest === "upload/image") {
-    return proxyComfyUpload(base, req, httpClient);
+  if (rest === "view") {
+    return proxyComfyView(proxy, url.searchParams);
   }
-  if (req.method === "GET" && rest === "view") {
-    return proxyComfyView(ctx, engineId, base, url.searchParams, httpClient);
+  if (rest.startsWith("history/")) {
+    return proxyComfyHistory(proxy, rest.slice("history/".length));
   }
-  if (req.method === "GET" && rest.startsWith("history/")) {
-    return proxyComfyHistory(ctx, engineId, base, rest.slice("history/".length), httpClient);
+  return undefined;
+}
+
+function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Response> | undefined {
+  if (rest === "prompt") {
+    return proxyComfyPrompt(proxy, req);
   }
-  if (req.method === "POST" && rest === "queue") {
-    return proxyComfyQueueDelete(ctx, engineId, base, req, httpClient);
+  if (rest === "upload/image") {
+    return proxyComfyUpload(proxy.base, req, proxy.httpClient);
   }
-  return jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`);
+  if (rest === "queue") {
+    return proxyComfyQueueDelete(proxy, req);
+  }
+  return undefined;
 }
 
 /**
@@ -776,16 +805,15 @@ function handleComfyWsUpgrade(
   ctx: DoorContext,
   req: Request,
   server: EnginedServer,
-  engineSeg: string,
-  upstreamSeg: string,
+  { engineSeg, upstreamSeg }: ComfyMatch,
 ): Response | undefined {
   const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
   if (target === undefined) {
     return noSuchComfyEngine(engineSeg, upstreamSeg);
   }
   const clientId = crypto.randomUUID().replace(/-/g, "");
-  const upstreamUrl = `${target.base.replace(/^http/, "ws")}/ws?clientId=${clientId}`;
-  const data: ComfyWsData = { upstreamUrl, clientId };
+  const upstreamWsUrl = `${target.base.replace(HTTP_SCHEME_RE, "ws")}/ws?clientId=${clientId}`;
+  const data: ComfyWsData = { upstreamUrl: upstreamWsUrl, clientId };
   return server.upgrade(req, { data })
     ? undefined
     : jsonError(STATUS_BAD_REQUEST, "websocket upgrade failed");
@@ -944,8 +972,10 @@ export interface Door {
    * can answer with nothing at all, because the connection itself became
    * the answer.
    */
-  fetch(req: Request): Response | Promise<Response>;
-  fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined;
+  fetch: {
+    (req: Request): Response | Promise<Response>;
+    (req: Request, server: EnginedServer): Response | Promise<Response> | undefined;
+  };
   /** Re-reads `path`. Invalid TOML keeps the running config and records the error. */
   reload: (path: string) => void;
   registry: EngineRegistry;
@@ -1034,12 +1064,17 @@ interface HopRequest {
  * forwarded into `RequestInit` so a slow upstream is actually cut off at the
  * budget `chatTimeoutMs` picked, not just marked aborted after the fact.
  */
+/** One `openai-http` hop, resolved: the engine answering it, the model segment it was addressed by, and the route (if any) that segment resolved to. */
+interface HttpHop {
+  engineEntry: EngineEntry;
+  modelSeg: string;
+  route: ResolvedRoute | undefined;
+  req: HopRequest & { signal: AbortSignal };
+}
+
 async function execLlama(
   ctx: DoorContext,
-  engineEntry: EngineEntry,
-  modelSeg: string,
-  route: ResolvedRoute | undefined,
-  req: HopRequest & { signal: AbortSignal },
+  { engineEntry, modelSeg, route, req }: HttpHop,
 ): Promise<HopResult> {
   if (!route) {
     return {
@@ -1189,13 +1224,21 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
  * completion from spawning machinery nobody asked for against a billing
  * account this call was never going to use.
  */
-function redirectEnv(
-  baseUrl: string,
-  secretHeader: string,
-  apiKey: string,
-  model: string | undefined,
-  doorUrl: string,
-): Record<string, string> {
+interface RedirectEnvOptions {
+  baseUrl: string;
+  secretHeader: string;
+  apiKey: string;
+  model: string | undefined;
+  doorUrl: string;
+}
+
+function redirectEnv({
+  baseUrl,
+  secretHeader,
+  apiKey,
+  model,
+  doorUrl,
+}: RedirectEnvOptions): Record<string, string> {
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: baseUrl,
     ...(secretHeader === "authorization"
@@ -1263,14 +1306,23 @@ type RedirectResolution =
  * The resolved value only ever reaches the child's environment below --
  * never a log line, an error body, or anything this function returns.
  */
-export async function resolveRedirect(
-  upstream: Upstream,
-  engineId: string,
-  modelSeg: string,
-  config: Config,
-  doorUrl: string,
-  secretExec?: SecretExec,
-): Promise<RedirectResolution> {
+export interface RedirectOptions {
+  upstream: Upstream;
+  engineId: string;
+  modelSeg: string;
+  config: Config;
+  doorUrl: string;
+  secretExec?: SecretExec;
+}
+
+export async function resolveRedirect({
+  upstream,
+  engineId,
+  modelSeg,
+  config,
+  doorUrl,
+  secretExec,
+}: RedirectOptions): Promise<RedirectResolution> {
   const { base_url } = upstream;
   if (base_url === undefined) {
     // Config requires a secret alongside a base_url but not the converse, so
@@ -1286,7 +1338,16 @@ export async function resolveRedirect(
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
   const model = resolveUpstreamModelId(config, engineId, modelSeg, upstream.id);
-  return { ok: true, env: redirectEnv(base_url, resolved.header, resolved.value, model, doorUrl) };
+  return {
+    ok: true,
+    env: redirectEnv({
+      baseUrl: base_url,
+      secretHeader: resolved.header,
+      apiKey: resolved.value,
+      model,
+      doorUrl,
+    }),
+  };
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
@@ -1334,37 +1395,197 @@ async function proveAgenticPin(
   };
 }
 
-async function execAgentic(
-  ctx: DoorContext,
-  engineId: string,
-  modelSeg: string,
-  route: ResolvedRoute | undefined,
+interface AgenticHop {
+  engineId: string;
+  modelSeg: string;
+  route: ResolvedRoute | undefined;
   req: {
     rawBody: Record<string, unknown>;
     signal: AbortSignal;
     setContentType: (ct: string) => void;
-  },
-): Promise<HopResult> {
-  const { rawBody, signal } = req;
-  const config = ctx.getConfig();
-  const engineEntry = ctx.registry.entry(engineId);
-  if (!engineEntry) {
-    return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(`unknown engine "${engineId}"`) };
+  };
+}
+
+interface RouteRedirectOptions {
+  engineId: string;
+  modelSeg: string;
+  route: ResolvedRoute | undefined;
+  doorUrl: string;
+}
+
+type RouteRedirect =
+  | { ok: true; env: Record<string, string> | undefined }
+  | { ok: false; result: HopResult };
+
+/**
+ * A route naming a real upstream (not ambient, not this box's own `local`)
+ * redirects to it: the engine's own launch is identical either way, only
+ * its resolved upstream differs. `env: undefined` is the ambient case.
+ */
+function resolveRouteRedirect(
+  ctx: DoorContext,
+  { engineId, modelSeg, route, doorUrl }: RouteRedirectOptions,
+): RouteRedirect | Promise<RouteRedirect> {
+  const upstreamId = route?.upstream ?? null;
+  if (upstreamId === null || upstreamId === "local") {
+    return { ok: true, env: undefined };
   }
-  if (engineEntry.agent_version === undefined) {
+  const config = ctx.getConfig();
+  const upstream = config.upstreams.find((u) => u.id === upstreamId);
+  if (upstream === undefined) {
     return {
-      status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineId}" has no agent_version configured`),
+      ok: false,
+      result: {
+        status: STATUS_BAD_GATEWAY,
+        body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
+      },
     };
   }
+  return resolveRedirect({
+    upstream,
+    engineId,
+    modelSeg,
+    config,
+    doorUrl,
+    secretExec: ctx.doorOpts.secretExec,
+  });
+}
+
+/**
+ * Ambient claude has no upstream to redirect to, but the model segment
+ * still has to reach the CLI -- otherwise `@/claude/sonnet-5` and
+ * `@/claude/opus-4` launch the same process.
+ */
+function ambientAgentEnv(
+  agent: string,
+  modelSeg: string,
+  route: ResolvedRoute | undefined,
+): Record<string, string> | undefined {
+  const ambientModel =
+    route?.wire_model ?? route?.model ?? (modelSeg === "" ? undefined : modelSeg);
+  return agent === "claude" && ambientModel !== undefined
+    ? claudeModelEnv(ambientModel)
+    : undefined;
+}
+
+interface AgenticLaunch {
+  spec: AgenticSpec;
+  engineEntry: EngineEntry;
+  agentVersion: string;
+  doorUrl: string;
+  modelSeg: string;
+  workdir: string | undefined;
+  extraEnv: Record<string, string> | undefined;
+  req: AgenticHop["req"];
+  /** Called when the answer is handed off as a stream that outlives the hop; `run` settles when the child exits. */
+  onHandoff: (run: Promise<unknown>) => void;
+}
+
+async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<HopResult> {
+  const { spec, engineEntry, agentVersion, doorUrl, modelSeg, workdir, extraEnv, req } = launch;
+  const { rawBody, signal } = req;
+  const wantsStream = rawBody.stream === true;
+  const deltas: string[] = [];
+  let pump: (() => void) | undefined;
+  let first: (arrived: "delta" | "done") => void = () => undefined;
+  const firstSignal = new Promise<"delta" | "done">((resolve) => {
+    first = resolve;
+  });
+  const run = runAgentic({
+    agent: spec.agent,
+    agentVersion,
+    // An agent CLI reaches its model back through engined's own door, so an
+    // opencode turn is dispatched, chained and accounted for like any other
+    // -- always on the launch-scoped URL, never the plain one. The model is
+    // always the one this request itself resolved -- an agent with no
+    // `configure` (claude) simply never reads this.
+    upstream: { baseUrl: doorUrl, model: modelSeg },
+    args: engineEntry.args,
+    envAllowlist: spec.env,
+    workdir,
+    prompt: promptFromMessages(rawBody),
+    spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
+    bunx: ctx.registryOpts.bunx,
+    ambientEnv: ctx.doorOpts.agenticAmbientEnv,
+    extraEnv,
+    signal,
+    onDelta: wantsStream
+      ? (text) => {
+          deltas.push(text);
+          pump?.();
+          first("delta");
+        }
+      : undefined,
+  });
+  run.then(
+    () => first("done"),
+    () => first("done"),
+  );
+  // Commit to a stream only once the CLI has printed answer text: every
+  // pre-spawn refusal (400 workdir, floor, secret) and an envelope that
+  // fails before its first delta still land as a plain status.
+  if (wantsStream && (await firstSignal) === "delta") {
+    launch.onHandoff(run);
+    req.setContentType(SSE_CONTENT_TYPE);
+    return {
+      status: STATUS_OK,
+      stream: agenticSse(run, deltas, (p) => {
+        pump = p;
+      }),
+      version: agentVersion,
+    };
+  }
+  return hopResultFromAgenticOutcome(await run);
+}
+
+type AgenticEntry =
+  | { ok: true; engineEntry: EngineEntry; agentVersion: string; spec: AgenticSpec }
+  | { ok: false; result: HopResult };
+
+function agenticRefusal(message: string): AgenticEntry {
+  return { ok: false, result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(message) } };
+}
+
+/** The engine, the pin it launches at and its spec -- or the refusal for one missing any of the three. */
+function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
+  const engineEntry = ctx.registry.entry(engineId);
+  if (!engineEntry) {
+    return agenticRefusal(`unknown engine "${engineId}"`);
+  }
+  const agentVersion = engineEntry.agent_version;
+  if (agentVersion === undefined) {
+    return agenticRefusal(`engine "${engineId}" has no agent_version configured`);
+  }
+  const { spec } = loadAgenticSpec(ctx, engineEntry);
+  if (spec.kind !== "agentic-cli") {
+    // Only reachable if an engine routed here carries a non-agentic spec,
+    // which the kind check upstream already rules out -- but `agent` is what
+    // decides the floor, so it is never read off a spec that has not proven
+    // it has one.
+    return agenticRefusal(`engine "${engineId}" is not an agentic-cli spec`);
+  }
+  return { ok: true, engineEntry, agentVersion, spec };
+}
+
+async function execAgentic(
+  ctx: DoorContext,
+  { engineId, modelSeg, route, req }: AgenticHop,
+): Promise<HopResult> {
+  const config = ctx.getConfig();
+  const entry = agenticEntry(ctx, engineId);
+  if (!entry.ok) {
+    return entry.result;
+  }
+  const { engineEntry, agentVersion, spec } = entry;
 
   // Minted once per launch and revoked the instant this call returns --
   // the only door URL ever handed to this child, and it dies with the
-  // process it was handed to. `runAgentic` below is what actually spawns;
-  // everything between here and its `finally` is still before that, but the
-  // nonce is live for the whole window on the same reasoning `resolveRedirect`
-  // never caches a secret: cheaper to mint one that goes unused than to
-  // widen the window where a real launch could be missing one.
+  // process it was handed to. `runAgentic` (inside `launchAgentic`) is what
+  // actually spawns; everything between here and the `finally` is still
+  // before that, but the nonce is live for the whole window on the same
+  // reasoning `resolveRedirect` never caches a secret: cheaper to mint one
+  // that goes unused than to widen the window where a real launch could be
+  // missing one.
   const nonce = mintLaunchNonce();
   ctx.launchNonces.add(nonce);
   // A streamed launch outlives this call, so its nonce is released when the
@@ -1372,111 +1593,30 @@ async function execAgentic(
   let handedOff = false;
   try {
     const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`;
-
-    // A route naming a real upstream (not ambient, not this box's own `local`)
-    // redirects to it: the engine's own launch is identical either way, only
-    // its resolved upstream differs.
-    let extraEnv: Record<string, string> | undefined;
-    const upstreamId = route?.upstream ?? null;
-    if (upstreamId !== null && upstreamId !== "local") {
-      const upstream = config.upstreams.find((u) => u.id === upstreamId);
-      if (upstream === undefined) {
-        return {
-          status: STATUS_BAD_GATEWAY,
-          body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
-        };
-      }
-      const redirect = await resolveRedirect(
-        upstream,
-        engineId,
-        modelSeg,
-        config,
-        doorUrl,
-        ctx.doorOpts.secretExec,
-      );
-      if (!redirect.ok) {
-        return redirect.result;
-      }
-      extraEnv = redirect.env;
+    const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl });
+    if (!redirect.ok) {
+      return redirect.result;
     }
-
-    const loaded = loadAgenticSpec(ctx, engineEntry);
-    if (loaded.spec.kind !== "agentic-cli") {
-      // Only reachable if an engine routed here carries a non-agentic spec,
-      // which the kind check upstream already rules out -- but `agent` is what
-      // decides the floor, so it is never read off a spec that has not proven
-      // it has one.
-      return {
-        status: STATUS_BAD_GATEWAY,
-        body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),
-      };
-    }
-    // Ambient claude has no upstream to redirect to, but the model segment
-    // still has to reach the CLI -- otherwise `@/claude/sonnet-5` and
-    // `@/claude/opus-4` launch the same process.
-    const ambientModel =
-      route?.wire_model ?? route?.model ?? (modelSeg === "" ? undefined : modelSeg);
-    if (extraEnv === undefined && loaded.spec.agent === "claude" && ambientModel !== undefined) {
-      extraEnv = claudeModelEnv(ambientModel);
-    }
-    const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
+    const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route);
+    const workdir = typeof req.rawBody.workdir === "string" ? req.rawBody.workdir : undefined;
     const unproved = await proveAgenticPin(ctx, engineId, workdir);
     if (unproved !== null) {
       return unproved;
     }
-    const wantsStream = rawBody.stream === true;
-    const deltas: string[] = [];
-    let pump: (() => void) | undefined;
-    let first: (arrived: "delta" | "done") => void = () => undefined;
-    const firstSignal = new Promise<"delta" | "done">((resolve) => {
-      first = resolve;
-    });
-    const run = runAgentic({
-      agent: loaded.spec.agent,
-      agentVersion: engineEntry.agent_version,
-      // An agent CLI reaches its model back through engined's own door, so an
-      // opencode turn is dispatched, chained and accounted for like any other
-      // -- always on the launch-scoped URL, never the plain one. The model is
-      // always the one this request itself resolved -- an agent with no
-      // `configure` (claude) simply never reads this.
-      upstream: { baseUrl: doorUrl, model: modelSeg },
-      args: engineEntry.args,
-      envAllowlist: loaded.spec.env,
+    return await launchAgentic(ctx, {
+      spec,
+      engineEntry,
+      agentVersion,
+      doorUrl,
+      modelSeg,
       workdir,
-      prompt: promptFromMessages(rawBody),
-      spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
-      bunx: ctx.registryOpts.bunx,
-      ambientEnv: ctx.doorOpts.agenticAmbientEnv,
       extraEnv,
-      signal,
-      onDelta: wantsStream
-        ? (text) => {
-            deltas.push(text);
-            pump?.();
-            first("delta");
-          }
-        : undefined,
+      req,
+      onHandoff: (run) => {
+        handedOff = true;
+        run.finally(() => ctx.launchNonces.delete(nonce));
+      },
     });
-    run.then(
-      () => first("done"),
-      () => first("done"),
-    );
-    // Commit to a stream only once the CLI has printed answer text: every
-    // pre-spawn refusal (400 workdir, floor, secret) and an envelope that
-    // fails before its first delta still land as a plain status.
-    if (wantsStream && (await firstSignal) === "delta") {
-      handedOff = true;
-      run.finally(() => ctx.launchNonces.delete(nonce));
-      req.setContentType(SSE_CONTENT_TYPE);
-      return {
-        status: STATUS_OK,
-        stream: agenticSse(run, deltas, (p) => {
-          pump = p;
-        }),
-        version: engineEntry.agent_version,
-      };
-    }
-    return hopResultFromAgenticOutcome(await run);
   } finally {
     if (!handedOff) {
       ctx.launchNonces.delete(nonce);
@@ -1545,10 +1685,7 @@ function agenticSse(
  */
 async function execRemoteHttp(
   ctx: DoorContext,
-  engineEntry: EngineEntry,
-  modelSeg: string,
-  route: ResolvedRoute | undefined,
-  req: HopRequest & { signal: AbortSignal },
+  { engineEntry, modelSeg, route, req }: HttpHop,
 ): Promise<HopResult> {
   const config = ctx.getConfig();
   // The route's own upstream carries the address and secret; the engine
@@ -1644,18 +1781,19 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
     };
   }
   if (kind === "agentic-cli") {
-    return await execAgentic(ctx, engineId, modelSeg, route, {
-      rawBody: req.rawBody,
-      signal,
-      setContentType: req.setContentType,
+    return await execAgentic(ctx, {
+      engineId,
+      modelSeg,
+      route,
+      req: { rawBody: req.rawBody, signal, setContentType: req.setContentType },
     });
   }
   const engineEntry = ctx.registry.entry(engineId);
   if (kind === "openai-http" && engineEntry && route !== undefined && route.upstream !== "local") {
-    return await execRemoteHttp(ctx, engineEntry, modelSeg, route, { ...req, signal });
+    return await execRemoteHttp(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } });
   }
   if (kind === "openai-http" && engineEntry) {
-    return await execLlama(ctx, engineEntry, modelSeg, route, { ...req, signal });
+    return await execLlama(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } });
   }
   return {
     status: STATUS_BAD_GATEWAY,
@@ -1882,26 +2020,39 @@ function resolveAudioEngine(
  * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
  * they already turn `unavailable` into a 503.
  */
+/** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone. */
+function audioRoute(
+  config: Config,
+  id: string,
+  model: string | undefined,
+): ResolvedRoute | undefined {
+  return model === undefined
+    ? config.routes.find((r) => r.engine === id && r.model === undefined)
+    : findModelOnEngine(config.routes, id, model);
+}
+
+async function remoteAudioStart(
+  ctx: DoorContext,
+  id: string,
+  upstreamId: string,
+): Promise<Awaited<ReturnType<EngineStart>>> {
+  const upstream = ctx.getConfig().upstreams.find((u) => u.id === upstreamId);
+  if (upstream === undefined) {
+    return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` };
+  }
+  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
+  return resolution.ok
+    ? { private_url: null, remote: resolution.endpoint }
+    : { private_url: null, unavailable: resolution.error };
+}
+
 function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
-    const config = ctx.getConfig();
-    const route =
-      model === undefined
-        ? // A modelless route: no model segment to look one up by, so it is
-          // found by engine id alone.
-          config.routes.find((r) => r.engine === id && r.model === undefined)
-        : findModelOnEngine(config.routes, id, model);
+    const route = audioRoute(ctx.getConfig(), id, model);
     const upstreamId = route?.upstream ?? null;
     if (engine && upstreamId !== null && upstreamId !== "local") {
-      const upstream = config.upstreams.find((u) => u.id === upstreamId);
-      if (upstream === undefined) {
-        return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` };
-      }
-      const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
-      return resolution.ok
-        ? { private_url: null, remote: resolution.endpoint }
-        : { private_url: null, unavailable: resolution.error };
+      return remoteAudioStart(ctx, id, upstreamId);
     }
     try {
       await ctx.registry.start(id, model);
@@ -2264,12 +2415,16 @@ async function agenticRouteState(
   return resolved.ok ? engineState : "unavailable";
 }
 
+interface ModelRowOptions {
+  route: ResolvedRoute;
+  siblingCount: number;
+  config: Config;
+  statuses: ReadonlyMap<string, EngineStatus>;
+}
+
 async function modelRow(
   ctx: DoorContext,
-  route: ResolvedRoute,
-  siblingCount: number,
-  config: Config,
-  statuses: ReadonlyMap<string, EngineStatus>,
+  { route, siblingCount, config, statuses }: ModelRowOptions,
 ): Promise<ModelRow> {
   const status = statuses.get(route.engine);
   const state = await agenticRouteState(ctx, route, status?.state ?? "unavailable");
@@ -2343,7 +2498,7 @@ async function modelsMenu(ctx: DoorContext): Promise<Response> {
         : config.routes.filter(
             (r) => !r.disabled && r.engine === route.engine && r.model === route.model,
           ).length;
-    rows.push(await modelRow(ctx, route, siblingCount, config, statuses));
+    rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }));
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
     rows.push(chainRow(chainId, hops, config, statuses));
@@ -2411,15 +2566,9 @@ function routeRequest(
     return refuse("this launch-scoped URL is unknown or has expired");
   }
   const { pathname, launchScoped } = stripped;
-  const comfyMatch = COMFY_PROXY_RE.exec(pathname);
+  const comfyMatch = matchComfyPath(pathname);
   if (comfyMatch) {
-    return handleComfyProxy(
-      ctx,
-      req,
-      comfyMatch[1] as string,
-      comfyMatch[2] as string,
-      comfyMatch[3] as string,
-    );
+    return handleComfyProxy(ctx, req, comfyMatch);
   }
   let matched: Response | Promise<Response> | undefined;
   if (req.method === "GET") {
@@ -2430,27 +2579,26 @@ function routeRequest(
   return matched ?? jsonError(STATUS_NOT_FOUND, "not found");
 }
 
-export function createDoor(
-  initialConfig: Config,
+/**
+ * One LlamaRouter per llama-kind engine, sharing `lifecycle` with the
+ * registry so idle-stop, port read-back and start-locking are never
+ * tracked twice for the same container.
+ */
+function createDoorContext(
+  getConfig: () => Config,
   registryOpts: RegistryOptions,
-  doorOpts: DoorOptions = {},
-): Door {
-  let config = initialConfig;
-  let configErr: string | undefined;
+  doorOpts: DoorOptions,
+): DoorContext {
   const lifecycle =
     registryOpts.lifecycle ??
     new DockerLifecycle(registryOpts.exec ?? dockerExec, registryOpts.probe);
-  const registry = new EngineRegistry(config, {
+  const registry = new EngineRegistry(getConfig(), {
     ...registryOpts,
     lifecycle,
     presetHostPath: doorOpts.llamaPresetHostPath,
   });
-
-  // One LlamaRouter per llama-kind engine, sharing `lifecycle` with the
-  // registry so idle-stop, port read-back and start-locking are never
-  // tracked twice for the same container.
-  const ctx: DoorContext = {
-    getConfig: () => config,
+  return {
+    getConfig,
     registry,
     lifecycle,
     registryOpts,
@@ -2460,6 +2608,17 @@ export function createDoor(
     launchNonces: new Set(),
     comfyProxyState: new Map(),
   };
+}
+
+export function createDoor(
+  initialConfig: Config,
+  registryOpts: RegistryOptions,
+  doorOpts: DoorOptions = {},
+): Door {
+  let config = initialConfig;
+  let configErr: string | undefined;
+  const ctx = createDoorContext(() => config, registryOpts, doorOpts);
+  const { registry } = ctx;
 
   function reload(path: string): void {
     try {
@@ -2496,9 +2655,9 @@ export function createDoor(
     // (see `bindDualFamily`), which is the one thing a plain request/response
     // handler cannot do on its own.
     if (server !== undefined) {
-      const wsMatch = COMFY_PROXY_RE.exec(new URL(req.url).pathname);
-      if (wsMatch && wsMatch[3] === COMFY_WS_SUFFIX) {
-        return handleComfyWsUpgrade(ctx, req, server, wsMatch[1] as string, wsMatch[2] as string);
+      const wsMatch = matchComfyPath(new URL(req.url).pathname);
+      if (wsMatch?.rest === COMFY_WS_SUFFIX) {
+        return handleComfyWsUpgrade(ctx, req, server, wsMatch);
       }
     }
     return routeRequest(ctx, req, configErr);

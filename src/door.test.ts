@@ -1438,6 +1438,18 @@ function bearerGatewayUpstream(): Upstream {
   };
 }
 
+/** `resolveRedirect` for claude's kimi-k3 route onto `upstream`, with the secret lookup faked to `secret`. */
+function redirectKimi(upstream: Upstream, cfg: Config, secret: string | undefined) {
+  return resolveRedirect({
+    upstream,
+    engineId: "claude",
+    modelSeg: "kimi-k3",
+    config: cfg,
+    doorUrl: TEST_DOOR_URL,
+    secretExec: fakeExec(secret),
+  });
+}
+
 describe("the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)", () => {
   test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN to the RAW value even though secret.scheme is "Bearer" -- the CLI prepends its own, so redirectEnv must not double it', async () => {
     clearVerifiedVersion("claude");
