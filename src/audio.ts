@@ -193,6 +193,7 @@ interface Frame {
   phase?: unknown;
   pcm?: unknown;
   rate?: unknown;
+  words?: unknown;
   detail?: unknown;
   step?: unknown;
   step_limit?: unknown;
@@ -333,6 +334,17 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
   };
 }
 
+/** A spoken word and where it sits in the utterance, in seconds. Kokoro reports these; piper does not. */
+function isWord(value: unknown): value is { text: string; start: number; end: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { text?: unknown }).text === "string" &&
+    typeof (value as { start?: unknown }).start === "number" &&
+    typeof (value as { end?: unknown }).end === "number"
+  );
+}
+
 /** The fields the door forwards, and nothing an engine invents beside them. */
 function vettedFrame(frame: Frame, sentChunk: boolean): Record<string, unknown> | undefined {
   if (typeof frame.phase !== "string") {
@@ -351,6 +363,9 @@ function vettedFrame(frame: Frame, sentChunk: boolean): Record<string, unknown> 
   if (frame.phase === "chunk" && typeof frame.pcm === "string" && typeof frame.rate === "number") {
     out.pcm = frame.pcm;
     out.rate = frame.rate;
+    if (Array.isArray(frame.words)) {
+      out.words = frame.words.filter(isWord);
+    }
   }
   if (frame.phase === "done" && !sentChunk && typeof frame.audio === "string") {
     out.audio = frame.audio;

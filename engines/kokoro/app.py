@@ -212,6 +212,24 @@ def _pcm16(samples: np.ndarray) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+def _seconds(chunks: list[np.ndarray]) -> float:
+    return sum(len(c) for c in chunks) / SAMPLE_RATE
+
+
+def _words(result, offset: float) -> list[dict]:
+    """Each spoken word with its start and end in seconds from the start of
+    the whole utterance. The English G2P times every token; punctuation and
+    whitespace tokens are not words and are left out, so a caller can cut the
+    text it sent at the word that was playing."""
+    return [
+        {"text": t.text, "start": offset + t.start_ts, "end": offset + t.end_ts}
+        for t in (getattr(result, "tokens", None) or [])
+        if t.start_ts is not None
+        and t.end_ts is not None
+        and any(c.isalnum() for c in t.text)
+    ]
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -238,21 +256,23 @@ def synthesize(req: TtsRequest):
             # out as it is produced, and the terminal frame still follows.
             collected = []
             with _model_lock:
-                for _, _, audio in pipeline(req.text, voice=voice):
-                    collected.append(audio)
+                for result in pipeline(req.text, voice=voice):
+                    audio = np.asarray(result.audio)
                     if req.chunks:
                         yield (
                             json.dumps(
                                 {
                                     "phase": "chunk",
-                                    "pcm": base64.b64encode(
-                                        _pcm16(np.asarray(audio))
-                                    ).decode("ascii"),
+                                    "pcm": base64.b64encode(_pcm16(audio)).decode(
+                                        "ascii"
+                                    ),
                                     "rate": SAMPLE_RATE,
+                                    "words": _words(result, _seconds(collected)),
                                 }
                             )
                             + "\n"
                         )
+                    collected.append(audio)
             chunks = collected
             wav = (
                 np.asarray(chunks[0])

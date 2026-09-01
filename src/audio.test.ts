@@ -506,6 +506,34 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
   ]);
 });
 
+test('stream: "ndjson" forwards a chunk\'s word timings, and only well-formed ones', async () => {
+  const frames = [
+    JSON.stringify({
+      phase: "chunk",
+      pcm: Buffer.from([1, 2]).toString("base64"),
+      rate: 24_000,
+      words: [{ text: "hi", start: 0.1, end: 0.4 }, { text: "bad" }, "junk"],
+      invented: true,
+    }),
+    JSON.stringify({ phase: "done" }),
+  ].join("\n");
+  const res = await handleSpeech(
+    { engine: "chatterbox-multi", input: "hi", stream: "ndjson" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+  const out = (await new Response(res.stream).text())
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+  expect(out[0]).toEqual({
+    phase: "chunk",
+    pcm: Buffer.from([1, 2]).toString("base64"),
+    rate: 24_000,
+    words: [{ text: "hi", start: 0.1, end: 0.4 }],
+  });
+});
+
 test('stream: "ndjson" keeps the terminal audio when the engine never chunked', async () => {
   // chatterbox-multi streams step counts and then one whole-utterance WAV: it emits
   // no chunk frames at all, so dropping `audio` on `done` -- correct for a
