@@ -55,6 +55,8 @@ function comfyExec(port: number): Exec {
 }
 
 const PROXY_PATH = "/engined/v1/comfy/comfy/local";
+/** A real ComfyUI node type: the proxy must forward the segment untouched, so the test needs one that actually exists. */
+const NODE_TYPE = "KSampler";
 
 /** A running comfy engine, ready to proxy through -- `port` need not answer anything real when `comfyHttpClient` intercepts every forwarded call. */
 async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999) {
@@ -94,17 +96,17 @@ describe("comfy proxy: forwarded as-is", () => {
   test("GET object_info/{nodeType} is forwarded verbatim", async () => {
     const { client, calls } = recordingComfyClient(() =>
       Response.json({
-        CheckpointLoaderSimple: { input: { required: { ckpt_name: [["a.safetensors"]] } } },
+        [NODE_TYPE]: { input: { required: { seed: [["INT"]] } } },
       }),
     );
     const door = await comfyDoor(client);
     const res = await door.fetch(
-      new Request(`http://engined${PROXY_PATH}/object_info/CheckpointLoaderSimple`),
+      new Request(`http://engined${PROXY_PATH}/object_info/${NODE_TYPE}`),
     );
     expect(res.status).toBe(200);
-    expect(calls[0]?.url).toContain("/object_info/CheckpointLoaderSimple");
-    const body = (await res.json()) as { CheckpointLoaderSimple: unknown };
-    expect(body.CheckpointLoaderSimple).toBeDefined();
+    expect(calls[0]?.url).toContain(`/object_info/${NODE_TYPE}`);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body[NODE_TYPE]).toBeDefined();
   });
 
   test("GET system_stats is forwarded verbatim", async () => {

@@ -12,7 +12,6 @@ import {
 } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
-import type { SecretOutcome } from "./secrets.ts";
 import { loadSpec } from "./spec.ts";
 import {
   BUNX,
@@ -28,13 +27,7 @@ import {
   upstream,
   writeEngineSpec,
 } from "./test-support.ts";
-import {
-  type Config,
-  type EngineEntry,
-  type EngineStatus,
-  FatalError,
-  isContainerSpec,
-} from "./types.ts";
+import { type Config, type EngineEntry, FatalError, isContainerSpec } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-engines-test-");
 
