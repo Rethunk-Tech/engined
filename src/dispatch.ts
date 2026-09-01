@@ -1,20 +1,18 @@
 /**
- * Resolves an OpenAI `model` string to an engine (and, where one applies, a
- * model on it) for one door endpoint. Pure over `Config` and the registry's
- * `get`/`serves` so it is testable without `Bun.serve` or docker.
+ * Resolves an OpenAI `model` string to a route for one door endpoint. Pure
+ * over `Config` and the registry's `get`/`serves`/`entry` so it is testable
+ * without `Bun.serve` or docker.
  */
 
-import { resolveLocalCandidates } from "./config.ts";
 import type { EngineRegistry } from "./engines.ts";
-import type { Config } from "./types.ts";
-import { findModelOnEngine, MODEL_LESS_KINDS, QUALIFIED_MODEL_RE } from "./types.ts";
+import type { Config, Egress, ResolvedRoute } from "./types.ts";
+import { EGRESS_RANK, qualifiedSegments } from "./types.ts";
 
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
 const CHAIN_ENDPOINT = "/openai/v1/chat/completions";
 
 export type Dispatch =
-  | { ok: true; kind: "engine"; engine: string }
-  | { ok: true; kind: "model"; engine: string; model: string }
+  | { ok: true; kind: "model"; engine: string; model?: string; upstream?: string }
   | { ok: true; kind: "chain"; chain: string; hops: readonly string[] }
   | { ok: false; error: string };
 
@@ -22,111 +20,158 @@ function fail(error: string): Dispatch {
   return { ok: false, error };
 }
 
-/** `local` is the one no-egress engine at least one route names -- config.ts's own rule, shared rather than re-derived so the two can never disagree. */
-function resolveLocalEngine(config: Config): string | undefined {
-  const candidates = resolveLocalCandidates(config.engines, config.routes);
-  return candidates.length === 1 ? candidates[0]?.id : undefined;
-}
-
-/** Exported so the door can resolve the same `local` alias for chain hops, extras and `egressOf`. */
+/** The engine segment, resolved to a real id -- `undefined` when nothing configured carries it. Exported so the door can resolve the same segment for chain hops, extras and `egressOf`. */
 export function resolveEngineSegment(seg: string, config: Config): string | undefined {
-  if (seg === "local") {
-    return resolveLocalEngine(config);
-  }
   return config.engines.some((e) => e.id === seg) ? seg : undefined;
 }
 
-/** `engine.serves(endpoint)`, or the model-less form when `model` is `undefined`. */
+/** `engine.serves(endpoint)`, or the model-less form when `model` is `undefined`. The one funnel every resolved dispatch passes through, so the disabled check lives here rather than in each resolver. */
 function withEndpointCheck(
   engineId: string,
-  modelId: string | undefined,
+  model: string | undefined,
+  upstream: string | undefined,
   endpoint: string,
   registry: EngineRegistry,
 ): Dispatch {
-  // The one funnel every resolved dispatch passes through, so the disabled
-  // check lives here rather than in each resolver. Chains never arrive here
-  // holding a disabled hop: config parse drops those.
   if (registry.entry(engineId)?.disabled) {
     return fail(`engine "${engineId}" is disabled in config`);
   }
   if (!registry.serves(engineId).includes(endpoint)) {
     return fail(`engine "${engineId}" does not serve ${endpoint}`);
   }
-  return modelId === undefined
-    ? { ok: true, kind: "engine", engine: engineId }
-    : { ok: true, kind: "model", engine: engineId, model: modelId };
+  return { ok: true, kind: "model", engine: engineId, model, upstream };
 }
 
-function resolveQualified(
-  match: RegExpExecArray,
+/** Where an upstream ranks on `EGRESS_RANK`; ambient (`upstream === null`) is `"remote"`, matching `Upstream`'s own doc: no upstream leaves the box the same as any other network call. */
+function routeEgressRank(route: ResolvedRoute, config: Config): number {
+  const egress: Egress =
+    route.upstream === null
+      ? "remote"
+      : (config.upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote");
+  return EGRESS_RANK[egress];
+}
+
+/**
+ * `@/<model>`: the highest-preference route naming this model, across every
+ * engine. Ordered local -> `lan` -> `remote` -> declaration, and resolved to
+ * exactly ONE route -- it does not walk on failure. A caller wanting
+ * fallback across candidates writes a chain instead.
+ */
+function resolveOneSegment(
+  model: string,
   endpoint: string,
   config: Config,
   registry: EngineRegistry,
 ): Dispatch {
-  const [, engineSeg, modelSeg] = match;
-  if (engineSeg === undefined || modelSeg === undefined) {
-    return fail("malformed @/<engine>/<model> form");
+  const candidates = config.routes.filter((r) => !r.disabled && r.model === model);
+  if (candidates.length === 0) {
+    return fail(`model "${model}" does not exist`);
   }
-  const engineId = resolveEngineSegment(engineSeg, config);
-  if (engineId === undefined) {
-    return fail(`"@/${engineSeg}/${modelSeg}": engine "${engineSeg}" does not exist`);
+  const [winner] = [...candidates].sort(
+    (a, b) => routeEgressRank(a, config) - routeEgressRank(b, config),
+  );
+  const route = winner as ResolvedRoute;
+  return withEndpointCheck(route.engine, model, route.upstream ?? undefined, endpoint, registry);
+}
+
+/** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
+function pickDefaultUpstream(matches: readonly ResolvedRoute[]): ResolvedRoute | undefined {
+  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
+}
+
+/**
+ * `@/<engine>/<seg>`: engine+model normally, or engine+upstream when this
+ * engine's own routes declare no model at all -- read from the engine's
+ * declaration, never from whether `seg` happens to match an upstream id.
+ * That stays single-valued only because config parse refuses an engine that
+ * mixes modelless and model-bearing routes.
+ */
+function resolveTwoSegments(
+  engineSeg: string,
+  seg: string,
+  endpoint: string,
+  config: Config,
+  registry: EngineRegistry,
+): Dispatch {
+  if (!config.engines.some((e) => e.id === engineSeg)) {
+    return fail(`"@/${engineSeg}/${seg}": engine "${engineSeg}" does not exist`);
   }
-  // Ahead of the model lookup, which would otherwise report a disabled
-  // engine's dropped models as models that never existed.
-  if (registry.entry(engineId)?.disabled) {
-    return fail(`engine "${engineId}" is disabled in config`);
+  // Ahead of the route lookup, which would otherwise report a disabled
+  // engine's dropped routes as routes that never existed.
+  if (registry.entry(engineSeg)?.disabled) {
+    return fail(`engine "${engineSeg}" is disabled in config`);
   }
-  const found = findModelOnEngine(config.routes, engineId, modelSeg);
-  // A disabled route (its own disable, or its engine's or upstream's) is
-  // invisible to dispatch, same as a disabled engine's models used to be
-  // absent from config.models outright.
-  if (!found || found.disabled) {
+  const engineRoutes = config.routes.filter((r) => r.engine === engineSeg);
+  const modelless = engineRoutes.some((r) => r.model === undefined);
+  if (modelless) {
+    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg);
+    if (!route) {
+      return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`);
+    }
+    return withEndpointCheck(engineSeg, undefined, seg, endpoint, registry);
+  }
+  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
+  if (matches.length === 0) {
+    return fail(`"@/${engineSeg}/${seg}": model "${seg}" does not exist on "${engineSeg}"`);
+  }
+  const route = matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
+  if (route === undefined) {
+    const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
+    return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
+  }
+  return withEndpointCheck(engineSeg, seg, route.upstream ?? undefined, endpoint, registry);
+}
+
+/** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
+function resolveThreeSegments(
+  engineSeg: string,
+  upstreamSeg: string,
+  modelSeg: string,
+  endpoint: string,
+  config: Config,
+  registry: EngineRegistry,
+): Dispatch {
+  if (!config.engines.some((e) => e.id === engineSeg)) {
     return fail(
-      `"@/${engineSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineId}"`,
+      `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": engine "${engineSeg}" does not exist`,
     );
   }
-  return withEndpointCheck(engineId, found.model ?? modelSeg, endpoint, registry);
-}
-
-/** A bare id or alias, valid only when exactly one route claims it. */
-function resolveBareModel(
-  model: string,
-  endpoint: string,
-  config: Config,
-  registry: EngineRegistry,
-): Dispatch | undefined {
-  const matches = config.routes.filter(
-    (r) => !r.disabled && (r.model === model || r.aliases.includes(model)),
+  if (registry.entry(engineSeg)?.disabled) {
+    return fail(`engine "${engineSeg}" is disabled in config`);
+  }
+  const route = config.routes.find(
+    (r) =>
+      !r.disabled && r.engine === engineSeg && r.upstream === upstreamSeg && r.model === modelSeg,
   );
-  if (matches.length === 0) {
-    return;
+  if (!route) {
+    return fail(
+      `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
+    );
   }
-  if (matches.length > 1) {
-    const qualified = matches.map((r) => `@/${r.engine}/${r.model}`).join(", ");
-    return fail(`"${model}" is ambiguous across engines; use one of: ${qualified}`);
-  }
-  const [only] = matches;
-  if (!only) {
-    return;
-  }
-  return withEndpointCheck(only.engine, only.model ?? model, endpoint, registry);
+  return withEndpointCheck(engineSeg, modelSeg, upstreamSeg, endpoint, registry);
 }
 
-/** An engine id bare, but only for a kind that answers without being told which model. */
-function resolveBareEngine(
-  model: string,
+function resolveQualified(
+  segments: readonly string[],
   endpoint: string,
   config: Config,
   registry: EngineRegistry,
-): Dispatch | undefined {
-  if (!config.engines.some((e) => e.id === model)) {
-    return;
+): Dispatch {
+  const [first, second, third] = segments;
+  if (segments.length === 1) {
+    return resolveOneSegment(first as string, endpoint, config, registry);
   }
-  const kind = registry.get(model)?.kind;
-  if (kind === undefined || !MODEL_LESS_KINDS.has(kind)) {
-    return fail(`"${model}" is an engine that requires a model, not a bare selector`);
+  if (segments.length === 2) {
+    return resolveTwoSegments(first as string, second as string, endpoint, config, registry);
   }
-  return withEndpointCheck(model, undefined, endpoint, registry);
+  return resolveThreeSegments(
+    first as string,
+    second as string,
+    third as string,
+    endpoint,
+    config,
+    registry,
+  );
 }
 
 function resolveChain(model: string, endpoint: string, config: Config): Dispatch | undefined {
@@ -143,7 +188,9 @@ function resolveChain(model: string, endpoint: string, config: Config): Dispatch
 /**
  * `model` resolution for one door endpoint. A caller that has not said where
  * its prompt should run has not said whether it may leave the machine, so
- * absent or empty is fatal to the request rather than defaulted.
+ * absent or empty is fatal to the request rather than defaulted. A bare
+ * (unqualified, no `@/`) string resolves only as a chain name -- a bare model
+ * or engine id is 400, same as any other unrecognised string.
  */
 export function resolveModel(
   model: string | undefined,
@@ -155,15 +202,10 @@ export function resolveModel(
     return fail("model is required");
   }
 
-  const qualified = QUALIFIED_MODEL_RE.exec(model);
-  if (qualified) {
-    return resolveQualified(qualified, endpoint, config, registry);
+  const segments = qualifiedSegments(model);
+  if (segments !== undefined) {
+    return resolveQualified(segments, endpoint, config, registry);
   }
 
-  return (
-    resolveBareModel(model, endpoint, config, registry) ??
-    resolveBareEngine(model, endpoint, config, registry) ??
-    resolveChain(model, endpoint, config) ??
-    fail(`unknown model "${model}"`)
-  );
+  return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`);
 }

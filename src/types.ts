@@ -62,11 +62,10 @@ export interface RouteFieldRules {
  */
 const KIND_TRAITS: Record<
   EngineKind,
-  { container: boolean; modelLess: boolean; upstream: UpstreamTrait; localFile: RouteFieldRules }
+  { container: boolean; upstream: UpstreamTrait; localFile: RouteFieldRules }
 > = {
   "openai-http": {
     container: true,
-    modelLess: false,
     // A spec-less openai-http engine (openrouter) is a pure proxy: it must
     // name the one upstream it proxies to, there being no "self" to default to.
     upstream: "required",
@@ -75,26 +74,21 @@ const KIND_TRAITS: Record<
   // The only kind that runs no container at all.
   "agentic-cli": {
     container: false,
-    modelLess: true,
     upstream: "optional",
     localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
   },
-  // tts/stt have no model id of their own; agentic-cli picks its own.
   tts: {
     container: true,
-    modelLess: true,
     upstream: "self",
     localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
   },
   stt: {
     container: true,
-    modelLess: true,
     upstream: "self",
     localFile: { filename: "required", role: "forbidden", args: "allowed" },
   },
   comfy: {
     container: true,
-    modelLess: false,
     // comfy runs here or on some peer's `local`, never against a foreign provider.
     upstream: "self",
     localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
@@ -112,11 +106,6 @@ export const ENGINE_KINDS: readonly EngineKind[] = KIND_ENTRIES.map(([kind]) => 
 /** Kinds whose spec is the container dialect. */
 export const CONTAINER_KINDS: ReadonlySet<EngineKind> = new Set(
   KIND_ENTRIES.filter(([, t]) => t.container).map(([kind]) => kind),
-);
-
-/** Kinds whose door takes no separate model id. */
-export const MODEL_LESS_KINDS: ReadonlySet<EngineKind> = new Set(
-  KIND_ENTRIES.filter(([, t]) => t.modelLess).map(([kind]) => kind),
 );
 
 /** A spec-less engine's upstream trait, keyed by its declared `kind`. A spec-full engine's trait comes from its own spec instead -- see `spec.ts`'s `upstream` key. */
@@ -182,16 +171,11 @@ export interface Upstream {
  * `upstream` and `model` are three independent things related many-to-many:
  * none owns another, and a route is the only place that says which pairing
  * actually exists.
- *
- * `aliases` is kept alongside `model` so `findModelOnEngine` can still
- * resolve either -- currently always empty, since no `[[route]]` key
- * populates it yet.
  */
 export interface ResolvedRoute extends ModelCapabilities {
   engine: string;
-  /** Absent on a MODELLESS route (comfy): this engine runs on this upstream and nothing more. */
+  /** Absent on a MODELLESS route (comfy, and every media engine): this engine runs on this upstream and nothing more. */
   model?: string;
-  aliases: string[];
   /** `null` === ambient: no upstream, the CLI's own login. Egress is `"remote"`. */
   upstream: string | null;
   /** Absent by construction whenever `upstream` is not `"local"`: a route proxied elsewhere has no local file to describe. */
@@ -309,26 +293,39 @@ export interface ReadyProbe {
 }
 
 /**
- * The qualified `@/<engine>/<model>` form, as written by an operator in a
- * chain or by a caller in `model`. Exactly two segments: `chain.ts`'s
- * `parseHop` is deliberately looser because it also destructures the bare
- * `@/<engine>` hop this rejects.
+ * The qualified address form an operator or caller writes: `@/model` (one
+ * segment), `@/engine/model` (two -- or `@/engine/upstream` for a modelless
+ * engine), or `@/engine/upstream/model` (three, fully explicit). One regex
+ * with two nested optional groups, so a three-segment match is only ever
+ * reached through a present second segment -- never a shape a second regex
+ * has to re-derive. Segment count alone decides the reading; that is
+ * `qualifiedSegments`'s job, not this pattern's.
  */
-export const QUALIFIED_MODEL_RE = /^@\/([^/]+)\/([^/]+)$/;
+export const QUALIFIED_MODEL_RE = /^@\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/;
+
+/** `QUALIFIED_MODEL_RE`'s match, as the one, two or three non-empty segments it captured. `undefined` when `model` is not a qualified `@/...` address at all. */
+export function qualifiedSegments(model: string): string[] | undefined {
+  const match = QUALIFIED_MODEL_RE.exec(model);
+  if (!match) {
+    return undefined;
+  }
+  return [match[1], match[2], match[3]].filter((seg): seg is string => seg !== undefined);
+}
 
 /**
- * A route on one engine, by model id or by alias. The alias half is why this
- * is shared: a caller that compares only `model` silently stops resolving
- * aliases. A modelless route (`model` absent) never matches -- `idOrAlias` is
- * always a real string, and `undefined === idOrAlias` is never true.
+ * A route on one engine, by model id -- and, when `upstream` is given, on
+ * that one upstream specifically. A modelless route (`model` absent) never
+ * matches: `model` here is always a real string, and `undefined === model`
+ * is never true.
  */
-export function findModelOnEngine<T extends { engine: string; model?: string; aliases: string[] }>(
-  routes: readonly T[],
-  engineId: string,
-  idOrAlias: string,
-): T | undefined {
+export function findModelOnEngine<
+  T extends { engine: string; model?: string; upstream: string | null },
+>(routes: readonly T[], engineId: string, model: string, upstream?: string): T | undefined {
   return routes.find(
-    (r) => r.engine === engineId && (r.model === idOrAlias || r.aliases.includes(idOrAlias)),
+    (r) =>
+      r.engine === engineId &&
+      r.model === model &&
+      (upstream === undefined || r.upstream === upstream),
   );
 }
 
@@ -503,8 +500,35 @@ export interface EnginesResponse {
   config_error?: string;
 }
 
+/**
+ * One `GET /openai/v1/models` row: an address with its own capabilities,
+ * never a bare id. `id` is the addressable `@/...` string a caller can put
+ * straight into `model` -- the two-segment form when it is unambiguous on
+ * its own, the three-segment form when a sibling route shares its
+ * `(engine, model)` pair on a different upstream. A chain row omits
+ * `engine`/`upstream`/`model`/`egress`: no single one answers for every hop,
+ * so `streaming`, `state` and `capabilities` are its first hop's instead --
+ * that is the hop that actually answers.
+ */
+export interface ModelRow {
+  id: string;
+  engine?: string;
+  upstream?: string;
+  model?: string;
+  egress?: Egress;
+  streaming: boolean;
+  serves: string[];
+  state: EngineState;
+  capabilities: ModelCapabilities;
+}
+
+export interface ModelsResponse {
+  object: "list";
+  data: ModelRow[];
+}
+
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 3;
+export const CONTRACT = 4;
 
 /**
  * Anything a restart cannot fix. The unit carries
