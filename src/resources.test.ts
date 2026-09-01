@@ -3,7 +3,7 @@ import { parseGraphicsBytes, parseResources } from "./resources.ts";
 
 const GIB = 1024 ** 3;
 
-// Captured verbatim from `engined-local-llama` with two models resident.
+// Captured verbatim from `engined-llama` with two models resident.
 // Note the padding the kernel puts after `drm-memory-gtt` -- an exact-match
 // key comparison without a trim silently drops the larger of the two numbers.
 const TWO_MODELS = `19310452736
