@@ -106,6 +106,19 @@ export function enginePath(doorPath: string): string {
   return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath;
 }
 
+/**
+ * The launch-scoped door: `/openai/v1/<nonce>/...` dispatches exactly like
+ * `/openai/v1/...`, with the request marked launch-scoped so a hop resolving
+ * to an agentic engine can be refused. `<nonce>` is `crypto.randomUUID()`
+ * with its dashes stripped -- 32 lowercase hex characters -- minted at the
+ * `runAgentic` call site and never written anywhere durable.
+ */
+const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/;
+
+function mintLaunchNonce(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
 const START_RE = /^\/engined\/v1\/engines\/([^/]+)\/start$/;
 const STOP_RE = /^\/engined\/v1\/engines\/([^/]+)\/stop$/;
 const LOGS_RE = /^\/engined\/v1\/engines\/([^/]+)\/logs$/;
@@ -353,6 +366,13 @@ interface DoorContext {
    * getting a second one that has no idea what the first still has resident.
    */
   staleLlamaRouters: Set<string>;
+  /**
+   * Live launch-scoped nonces: minted at the `runAgentic` call site, deleted
+   * the moment that call returns. A request naming one that is not in this
+   * set -- expired, or never minted -- is refused outright, whether or not
+   * it names an agentic engine: a leaked or reused URL is not a standing key.
+   */
+  launchNonces: Set<string>;
 }
 
 function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
@@ -559,10 +579,16 @@ function redirectEnv(
   baseUrl: string,
   apiKey: string,
   model: string | undefined,
+  doorUrl: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_API_KEY: apiKey,
+    // The launch-scoped door: closes the recursion hazard this agent's own
+    // network reach into engined otherwise opens. Carried alongside the
+    // real redirect rather than in place of it -- this agent's own
+    // inference still goes straight to `baseUrl`, never through here.
+    ENGINED_DOOR_URL: doorUrl,
     DISABLE_AUTOUPDATER: "1",
     DISABLE_TELEMETRY: "1",
     DISABLE_ERROR_REPORTING: "1",
@@ -617,6 +643,7 @@ export async function resolveRedirect(
   engineId: string,
   modelSeg: string,
   config: Config,
+  doorUrl: string,
   secretExec?: SecretExec,
 ): Promise<RedirectResolution> {
   const { base_url } = upstream;
@@ -634,7 +661,7 @@ export async function resolveRedirect(
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
   const model = resolveUpstreamModelId(config, engineId, modelSeg);
-  return { ok: true, env: redirectEnv(base_url, resolved.value, model) };
+  return { ok: true, env: redirectEnv(base_url, resolved.value, model, doorUrl) };
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
@@ -701,68 +728,85 @@ async function execAgentic(
     };
   }
 
-  // A route naming a real upstream (not ambient, not this box's own `local`)
-  // redirects to it: the engine's own launch is identical either way, only
-  // its resolved upstream differs.
-  let extraEnv: Record<string, string> | undefined;
-  const route = findModelOnEngine(config.routes, engineId, modelSeg);
-  const upstreamId = route?.upstream ?? null;
-  if (upstreamId !== null && upstreamId !== "local") {
-    const upstream = config.upstreams.find((u) => u.id === upstreamId);
-    if (upstream === undefined) {
+  // Minted once per launch and revoked the instant this call returns --
+  // the only door URL ever handed to this child, and it dies with the
+  // process it was handed to. `runAgentic` below is what actually spawns;
+  // everything between here and its `finally` is still before that, but the
+  // nonce is live for the whole window on the same reasoning `resolveRedirect`
+  // never caches a secret: cheaper to mint one that goes unused than to
+  // widen the window where a real launch could be missing one.
+  const nonce = mintLaunchNonce();
+  ctx.launchNonces.add(nonce);
+  try {
+    const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`;
+
+    // A route naming a real upstream (not ambient, not this box's own `local`)
+    // redirects to it: the engine's own launch is identical either way, only
+    // its resolved upstream differs.
+    let extraEnv: Record<string, string> | undefined;
+    const route = findModelOnEngine(config.routes, engineId, modelSeg);
+    const upstreamId = route?.upstream ?? null;
+    if (upstreamId !== null && upstreamId !== "local") {
+      const upstream = config.upstreams.find((u) => u.id === upstreamId);
+      if (upstream === undefined) {
+        return {
+          status: STATUS_BAD_GATEWAY,
+          body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
+        };
+      }
+      const redirect = await resolveRedirect(
+        upstream,
+        engineId,
+        modelSeg,
+        config,
+        doorUrl,
+        ctx.doorOpts.secretExec,
+      );
+      if (!redirect.ok) {
+        return redirect.result;
+      }
+      extraEnv = redirect.env;
+    }
+
+    const loaded = loadAgenticSpec(ctx, engineEntry);
+    if (loaded.spec.kind !== "agentic-cli") {
+      // Only reachable if an engine routed here carries a non-agentic spec,
+      // which the kind check upstream already rules out -- but `agent` is what
+      // decides the floor, so it is never read off a spec that has not proven
+      // it has one.
       return {
         status: STATUS_BAD_GATEWAY,
-        body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
+        body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),
       };
     }
-    const redirect = await resolveRedirect(
-      upstream,
-      engineId,
-      modelSeg,
-      config,
-      ctx.doorOpts.secretExec,
-    );
-    if (!redirect.ok) {
-      return redirect.result;
+    const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
+    const unproved = await proveAgenticPin(ctx, engineId, workdir);
+    if (unproved !== null) {
+      return unproved;
     }
-    extraEnv = redirect.env;
+    const outcome = await runAgentic({
+      agent: loaded.spec.agent,
+      agentVersion: engineEntry.agent_version,
+      // An agent CLI reaches its model back through engined's own door, so an
+      // opencode turn is dispatched, chained and accounted for like any other
+      // -- always on the launch-scoped URL, never the plain one. The model is
+      // always the one this request itself resolved -- an agent with no
+      // `configure` (claude) simply never reads this.
+      upstream: { baseUrl: doorUrl, model: modelSeg },
+      args: engineEntry.args,
+      envAllowlist: loaded.spec.env,
+      workdir,
+      prompt: promptFromMessages(rawBody),
+      spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
+      bunx: ctx.registryOpts.bunx,
+      ambientEnv: ctx.doorOpts.agenticAmbientEnv,
+      extraEnv,
+      signal,
+    });
+    return hopResultFromAgenticOutcome(outcome);
+  } finally {
+    ctx.launchNonces.delete(nonce);
   }
-
-  const loaded = loadAgenticSpec(ctx, engineEntry);
-  if (loaded.spec.kind !== "agentic-cli") {
-    // Only reachable if an engine routed here carries a non-agentic spec,
-    // which the kind check upstream already rules out -- but `agent` is what
-    // decides the floor, so it is never read off a spec that has not proven
-    // it has one.
-    return {
-      status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineId}" is not an agentic-cli spec`),
-    };
-  }
-  const workdir = typeof rawBody.workdir === "string" ? rawBody.workdir : undefined;
-  const unproved = await proveAgenticPin(ctx, engineId, workdir);
-  if (unproved !== null) {
-    return unproved;
-  }
-  const outcome = await runAgentic({
-    agent: loaded.spec.agent,
-    agentVersion: engineEntry.agent_version,
-    // An agent CLI reaches its model back through engined's own door, so an
-    // opencode turn is dispatched, chained and accounted for like any other.
-    // The model is always the one this request itself resolved -- an agent
-    // with no `configure` (claude) simply never reads this.
-    upstream: { baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`, model: modelSeg },
-    args: engineEntry.args,
-    envAllowlist: loaded.spec.env,
-    workdir,
-    prompt: promptFromMessages(rawBody),
-    spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
-    bunx: ctx.registryOpts.bunx,
-    ambientEnv: ctx.doorOpts.agenticAmbientEnv,
-    extraEnv,
-    signal,
-  });
-  return hopResultFromAgenticOutcome(outcome);
 }
 
 /**
@@ -824,11 +868,28 @@ async function execRemoteHttp(
   return { status: response.status, stream, modelReported };
 }
 
-function buildHopExec(ctx: DoorContext, req: HopRequest): HopExec {
+function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean): HopExec {
   return async (hop, signal) => {
     const { engine: seg, model: modelSeg } = parseHop(hop);
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
+    // Keyed on the RESOLVED engine, never the caller's literal model string:
+    // a one-segment address that resolves to an agentic route is the same
+    // attack as naming that engine outright, and refusing only the literal
+    // spelling would miss it. `envelopeFailure: true` is what keeps this a
+    // clean terminal refusal rather than advancing: 403 is otherwise one of
+    // the credential-shaped statuses `classifyResult` advances past, and this
+    // is a proven refusal, not a transport hiccup a next hop might route
+    // around.
+    if (launchScoped && kind === "agentic-cli") {
+      return {
+        status: STATUS_FORBIDDEN,
+        envelopeFailure: true,
+        body: jsonErrorBody(
+          `engine "${engineId}" is agentic and cannot be reached from a launch-scoped door`,
+        ),
+      };
+    }
     if (kind === "agentic-cli") {
       return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
     }
@@ -882,6 +943,8 @@ interface ContentRequest {
   body: Record<string, unknown>;
   /** The client's signal, carried this far so an abandoned chat stops the chain instead of running every hop to its full budget. */
   signal: AbortSignal;
+  /** This request arrived on a launch-scoped `/openai/v1/<nonce>/...` URL. */
+  launchScoped: boolean;
 }
 
 const VALID_EGRESS: ReadonlySet<string> = new Set(["none", "lan", "remote"]);
@@ -902,7 +965,7 @@ async function handleChatOrEmbeddings(
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
 ): Promise<Response> {
-  const { pathname, rawModel, body, signal } = content;
+  const { pathname, rawModel, body, signal, launchScoped } = content;
   const maxEgress = parseMaxEgress(body.max_egress);
   if (!maxEgress.ok) {
     return jsonError(STATUS_BAD_REQUEST, 'max_egress must be "none", "lan" or "remote"');
@@ -918,13 +981,17 @@ async function handleChatOrEmbeddings(
     egressOf: (hop) => egressOf(ctx, hop),
     timeoutMs: chatTimeoutMs(ctx),
     signal,
-    exec: buildHopExec(ctx, {
-      pathname,
-      rawBody: body,
-      setContentType: (ct) => {
-        contentType = ct;
+    exec: buildHopExec(
+      ctx,
+      {
+        pathname,
+        rawBody: body,
+        setContentType: (ct) => {
+          contentType = ct;
+        },
       },
-    }),
+      launchScoped,
+    ),
     write: ctx.doorOpts.write,
   });
 
@@ -1246,7 +1313,12 @@ async function handleExtras(
   );
 }
 
-async function handleContent(ctx: DoorContext, req: Request, pathname: string): Promise<Response> {
+async function handleContent(
+  ctx: DoorContext,
+  req: Request,
+  pathname: string,
+  launchScoped: boolean,
+): Promise<Response> {
   if (pathname === "/openai/v1/audio/transcriptions") {
     return handleAudioTranscription(ctx, req);
   }
@@ -1269,6 +1341,7 @@ async function handleContent(ctx: DoorContext, req: Request, pathname: string): 
     rawModel: rawModel ?? "",
     body,
     signal: req.signal,
+    launchScoped,
   });
 }
 
@@ -1494,6 +1567,7 @@ function routePost(
   ctx: DoorContext,
   req: Request,
   pathname: string,
+  launchScoped: boolean,
 ): Response | Promise<Response> | undefined {
   const startMatch = START_RE.exec(pathname)?.[1];
   if (startMatch !== undefined) {
@@ -1508,12 +1582,34 @@ function routePost(
     return handleRelease(ctx.registry, releaseMatch);
   }
   if (CONTENT_ENDPOINTS.has(pathname)) {
-    return handleContent(ctx, req, pathname);
+    return handleContent(ctx, req, pathname, launchScoped);
   }
   const extras = EXTRAS_RE.exec(pathname);
   if (extras?.[1] !== undefined && extras[2] !== undefined) {
     return handleExtras(ctx, req, extras[1], extras[2]);
   }
+}
+
+/**
+ * `null` means the path named a launch-scoped nonce that is not (or is no
+ * longer) live -- expired with the child that minted it, or never minted at
+ * all. Every OTHER path, launch-scoped or not, passes through with its
+ * `/openai/v1/...` shape unchanged, which is what every downstream matcher
+ * already expects.
+ */
+function stripLaunchNonce(
+  ctx: DoorContext,
+  pathname: string,
+): { pathname: string; launchScoped: boolean } | null {
+  const match = LAUNCH_NONCE_RE.exec(pathname);
+  if (!match) {
+    return { pathname, launchScoped: false };
+  }
+  const [, nonce, rest] = match;
+  if (nonce === undefined || !ctx.launchNonces.has(nonce)) {
+    return null;
+  }
+  return { pathname: `/openai/v1${rest}`, launchScoped: true };
 }
 
 function routeRequest(
@@ -1522,12 +1618,16 @@ function routeRequest(
   configErr: string | undefined,
 ): Response | Promise<Response> {
   const url = new URL(req.url);
-  const { pathname } = url;
+  const stripped = stripLaunchNonce(ctx, url.pathname);
+  if (stripped === null) {
+    return refuse("this launch-scoped URL is unknown or has expired");
+  }
+  const { pathname, launchScoped } = stripped;
   let matched: Response | Promise<Response> | undefined;
   if (req.method === "GET") {
-    matched = routeGet(ctx, url, configErr, req.signal);
+    matched = routeGet(ctx, new URL(pathname + url.search, url), configErr, req.signal);
   } else if (req.method === "POST") {
-    matched = routePost(ctx, req, pathname);
+    matched = routePost(ctx, req, pathname, launchScoped);
   }
   return matched ?? jsonError(STATUS_NOT_FOUND, "not found");
 }
@@ -1559,6 +1659,7 @@ export function createDoor(
     doorOpts,
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
+    launchNonces: new Set(),
   };
 
   function reload(path: string): void {

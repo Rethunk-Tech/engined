@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { join } from "node:path";
+import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
 import type { Probe } from "./docker.ts";
@@ -17,6 +18,7 @@ import {
   resolveRedirect,
   timeoutSecondsForKind,
 } from "./main.ts";
+import { stateDir } from "./paths.ts";
 import {
   assertReportedAndResident,
   BUNX,
@@ -35,6 +37,8 @@ import {
 import type { Config, EngineEntry, Upstream } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-door-test-");
+/** A plausible launch-scoped door URL for a `resolveRedirect` unit test that never touches the real door. */
+const TEST_DOOR_URL = "http://127.0.0.1:29200/openai/v1/deadbeefdeadbeefdeadbeefdeadbeef";
 
 const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true });
 
@@ -197,6 +201,15 @@ upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
+env = ["HOME"]
+`;
+
+const OPENCODE_SPEC = `
+kind = "agentic-cli"
+upstream = "optional"
+agent = "opencode"
+serves = ["/openai/v1/chat/completions"]
+command = ["{bunx}", "opencode-ai@{agent_version}", "run"]
 env = ["HOME"]
 `;
 
@@ -1394,6 +1407,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
       "claude",
       "kimi-k3",
       config(),
+      TEST_DOOR_URL,
       fakeExec(undefined),
     );
     expect(redirect.ok).toBe(false);
@@ -1416,6 +1430,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
       "claude",
       "kimi-k3",
       config(),
+      TEST_DOOR_URL,
       fakeExec("k"),
     );
     expect(redirect.ok).toBe(false);
@@ -1462,5 +1477,298 @@ describe("the door: remote-agentic redirect, missing secret does not take down o
       chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
     );
     expect(llamaRes.status).toBe(200);
+  });
+});
+
+/** `${doorUrl}/chat/completions`, the request a launched child's own OpenAI-compatible traffic would make. */
+function scopedChatRequest(doorUrl: string, body: unknown): Request {
+  return new Request(`${doorUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("the launch-scoped door", () => {
+  /**
+   * claude routed at moonshot: `redirectEnv`'s own path, and the one that
+   * needs no `bwrap` (claude's floor is argv, not the sandbox) -- so this
+   * exercises the real `resolveRedirect` -> `redirectEnv` wiring end to end
+   * with nothing faked but the spawn.
+   */
+  test("redirectEnv's own output carries the launch-scoped door URL, and a child POSTing back to it naming an agentic engine is refused", async () => {
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      upstreams: [moonshotUpstream()],
+      routes: [
+        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
+        route({ engine: "claude", model: "sonnet-5", upstream: null }),
+      ],
+    });
+    let capturedEnv: Record<string, string> = {};
+    // The nonce lives only until runAgentic returns, so the recursive call
+    // naming another agentic engine has to be made FROM INSIDE the fake
+    // spawn, while the launch it belongs to is still in flight -- exactly
+    // where a real child's own traffic would originate.
+    let recursiveStatus: number | undefined;
+    let recursiveBody = "";
+    const spawn: AgenticSpawn = async (_argv, opts) => {
+      capturedEnv = opts.env;
+      const doorUrl = opts.env.ENGINED_DOOR_URL ?? "";
+      // The refusal is keyed on the RESOLVED engine, not the literal
+      // string -- a one-segment address that resolves to claude is the
+      // same attack as naming "claude" outright.
+      const recursive = await door.fetch(
+        scopedChatRequest(doorUrl, {
+          model: "@/claude/sonnet-5",
+          messages: [{ role: "user", content: "escape" }],
+        }),
+      );
+      recursiveStatus = recursive.status;
+      recursiveBody = await recursive.text();
+      return {
+        stdout: '{"is_error":false,"result":"answered via kimi"}',
+        stderr: "",
+        exitCode: 0,
+      };
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, secretExec: fakeExec("kimi-secret-value"), write: () => undefined },
+    );
+    clearVerifiedVersion("claude");
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // redirectEnv's own output: the launch-scoped URL, not the plain door.
+    expect(capturedEnv.ENGINED_DOOR_URL).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/,
+    );
+    // The redirect itself is untouched by the door URL's addition.
+    expect(capturedEnv.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+
+    expect(recursiveStatus).toBe(403);
+    expect(recursiveBody).toContain("agentic");
+    clearVerifiedVersion("claude");
+  });
+
+  test("the same address, off the launch-scoped prefix, is an ordinary request -- refused only on the scoped URL", async () => {
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      routes: [route({ engine: "claude", model: "sonnet-5", upstream: null })],
+    });
+    const spawn: AgenticSpawn = () =>
+      Promise.resolve({
+        stdout: '{"is_error":false,"result":"answered ambiently"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, write: () => undefined },
+    );
+    clearVerifiedVersion("claude");
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/sonnet-5",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(res.status).toBe(200);
+    clearVerifiedVersion("claude");
+  });
+
+  test("a non-agentic engine's request is served on the launch-scoped URL, and still recorded", async () => {
+    const root = redirectDoorRoot();
+    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+    const cfg = config({
+      engines: [
+        claudeEngine(),
+        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+      ],
+      upstreams: [moonshotUpstream()],
+      routes: [
+        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
+        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+      ],
+    });
+    const recorded: { body: string }[] = [];
+    const lines: string[] = [];
+    // The nonce lives only until `runAgentic` returns, so the recursive,
+    // non-agentic request has to be made FROM INSIDE the fake spawn, while
+    // the launch it belongs to is still in flight.
+    let innerStatus: number | undefined;
+    const spawn: AgenticSpawn = async (_argv, opts) => {
+      const doorUrl = opts.env.ENGINED_DOOR_URL ?? "";
+      const inner = await door.fetch(
+        scopedChatRequest(doorUrl, {
+          model: "@/local-llama/ornith",
+          messages: [{ role: "user", content: "from the sandbox" }],
+        }),
+      );
+      innerStatus = inner.status;
+      // The response body is a stream even for a buffered JSON reply
+      // (readHopBody), and its provenance line is not emitted until the
+      // stream is actually drained -- consume it or the line never lands.
+      await inner.text();
+      return {
+        stdout: '{"is_error":false,"result":"answered via kimi"}',
+        stderr: "",
+        exitCode: 0,
+      };
+    };
+    const door = createDoor(
+      cfg,
+      {
+        enginesRoot: root,
+        bunx: BUNX,
+        exec: llamaExec(),
+        probe: READY_200,
+        agenticProbeRunner: PASSING_PROBE,
+      },
+      {
+        agenticSpawn: spawn,
+        secretExec: fakeExec("kimi-secret-value"),
+        llamaHttpClient: makeLlamaHttpClient(recorded),
+        llamaPresetHostPath: tempPresetPath(TEST_ROOT),
+        write: (l) => lines.push(l),
+      },
+    );
+    clearVerifiedVersion("claude");
+    const outer = await door.fetch(
+      chatRequest({
+        model: "@/claude/kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(outer.status).toBe(200);
+    // The inner, non-agentic request succeeded (200) from inside the launch.
+    expect(innerStatus).toBe(200);
+    // Still recorded: the launch-scoped local-llama call left its own
+    // provenance line, egress-checked and accounted for like any other.
+    expect(lines.some((l) => JSON.parse(l).attempts?.[0]?.engine === "local-llama")).toBe(true);
+    clearVerifiedVersion("claude");
+  });
+
+  test("a request on a retired nonce is refused, regardless of which engine it names", async () => {
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      upstreams: [moonshotUpstream()],
+      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
+    });
+    let capturedDoorUrl = "";
+    const spawn: AgenticSpawn = (_argv, opts) => {
+      capturedDoorUrl = opts.env.ENGINED_DOOR_URL ?? "";
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"answered via kimi"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, secretExec: fakeExec("kimi-secret-value"), write: () => undefined },
+    );
+    clearVerifiedVersion("claude");
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/kimi-k3",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // The launch this nonce belonged to has already finished by the time
+    // door.fetch() above resolved -- so it is retired here, before this
+    // second, unrelated request ever names an engine at all.
+    const stale = await door.fetch(
+      scopedChatRequest(capturedDoorUrl, {
+        model: "@/claude/kimi-k3",
+        messages: [{ role: "user", content: "too late" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(stale.status).toBe(403);
+    expect(JSON.stringify(await stale.json())).toContain("expired");
+    clearVerifiedVersion("claude");
+  });
+
+  /**
+   * `agent.configure` -- `renderOpencodeConfig` -- runs before `runAgentic`'s
+   * own `bwrap` gate, so the rendered file carries the scoped URL whether or
+   * not this box has a real `bwrap` at all. `ENGINED_BWRAP` is pointed at
+   * `/bin/true`, present on every POSIX box, purely so the spawn (faked
+   * regardless) is reached deterministically in CI.
+   */
+  test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
+    const previousStateHome = process.env.XDG_STATE_HOME;
+    const previousBwrap = process.env.ENGINED_BWRAP;
+    process.env.XDG_STATE_HOME = stateHome;
+    process.env.ENGINED_BWRAP = "/bin/true";
+    try {
+      const root = redirectDoorRoot();
+      writeEngineSpec(root, "opencode", OPENCODE_SPEC);
+      const cfg = config({
+        engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
+        routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
+      });
+      const door = createDoor(
+        cfg,
+        { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+        {
+          agenticSpawn: () =>
+            Promise.resolve({
+              stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
+              stderr: "",
+              exitCode: 0,
+            }),
+          write: () => undefined,
+        },
+      );
+      clearVerifiedVersion("opencode");
+      const res = await door.fetch(
+        chatRequest({
+          model: "@/opencode/code",
+          messages: [{ role: "user", content: "hi" }],
+          workdir: "/tmp/scratch",
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const rendered = JSON.parse(
+        readFileSync(join(stateDir(), "agentic-opencode.json"), "utf8"),
+      ) as { provider: { engined: { options: { baseURL: string } } } };
+      expect(rendered.provider.engined.options.baseURL).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/,
+      );
+      clearVerifiedVersion("opencode");
+    } finally {
+      if (previousStateHome === undefined) {
+        delete process.env.XDG_STATE_HOME;
+      } else {
+        process.env.XDG_STATE_HOME = previousStateHome;
+      }
+      if (previousBwrap === undefined) {
+        delete process.env.ENGINED_BWRAP;
+      } else {
+        process.env.ENGINED_BWRAP = previousBwrap;
+      }
+    }
   });
 });
