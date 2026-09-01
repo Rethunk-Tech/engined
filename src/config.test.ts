@@ -259,16 +259,52 @@ test("the worked config parses clean", () => {
   ]);
 });
 
-test("a route's own capability declaration overrides the [[model]] row it names", () => {
+test("a route with no capability fields of its own inherits the [[model]] row it names", () => {
   const toml = `
 ${workedConfig()}
 `;
   const cfg = loadConfig(writeConfig(toml));
   const ornithRoute = cfg.routes.find((r) => r.model === "ornith");
-  // The route names no capability fields of its own, so it inherits the
-  // [[model]] row's.
   expect(ornithRoute?.input).toEqual(["text"]);
   expect(ornithRoute?.output).toEqual(["text"]);
+});
+
+test("a route's own capability field wins over the [[model]] row's, field by field -- an undeclared field still falls through", () => {
+  const dir = tempModelsDir("ornith.gguf");
+  const toml = `
+[[upstream]]
+id     = "local"
+egress = "none"
+
+[[model]]
+id          = "ornith"
+input       = ["text"]
+output      = ["text"]
+context_in  = 4096
+context_out = 1024
+
+[[engine]]
+id         = "local-llama"
+kind       = "openai-http"
+models_dir = "${dir}"
+
+[[route]]
+engine     = "local-llama"
+model      = "ornith"
+upstream   = "local"
+filename   = "ornith.gguf"
+role       = "chat"
+output     = ["text", "image"]
+context_in = 8192
+`;
+  const cfg = loadConfig(writeConfig(toml));
+  const ornithRoute = cfg.routes.find((r) => r.model === "ornith");
+  // The route's own "output" and "context_in" win over the model row's.
+  expect(ornithRoute?.output).toEqual(["text", "image"]);
+  expect(ornithRoute?.context_in).toBe(8192);
+  // Fields the route left undeclared still fall through to the model row.
+  expect(ornithRoute?.input).toEqual(["text"]);
+  expect(ornithRoute?.context_out).toBe(1024);
 });
 
 test('a secret\'s own "scheme" parses through onto the upstream, and stays absent where undeclared', () => {

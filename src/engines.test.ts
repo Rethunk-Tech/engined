@@ -420,6 +420,49 @@ describe("installed engines", () => {
   });
 });
 
+describe("a route's capability fields reach GET /engined/v1/engines", () => {
+  test("one entry per model-bearing route, a disabled route excluded, and no entry for the engine when none of its routes name a model or a field", async () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "llama" })],
+        routes: [
+          route({
+            engine: "llama",
+            model: "ornith",
+            upstream: "local",
+            input: ["text"],
+            output: ["text"],
+            context_in: 8192,
+          }),
+          route({ engine: "llama", model: "sonnet-5", upstream: "local", output: ["text"] }),
+          route({
+            engine: "llama",
+            model: "off",
+            upstream: "local",
+            output: ["text"],
+            disabled: true,
+          }),
+        ],
+      }),
+      root,
+    );
+
+    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
+    expect(listed?.capabilities).toEqual([
+      { model: "ornith", input: ["text"], output: ["text"], context_in: 8192 },
+      { model: "sonnet-5", output: ["text"] },
+    ]);
+  });
+
+  test("an engine with no model-bearing or capability-declaring routes reports no capabilities at all", async () => {
+    const { reg } = setupLlama();
+    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
+    expect(listed?.capabilities).toBeUndefined();
+  });
+});
+
 function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
   runner: AgenticProbeRunner;
   calls: Array<{ engineId: string; version: string }>;

@@ -157,6 +157,19 @@ export interface ModelEntry extends ModelCapabilities {
   id: string;
 }
 
+/**
+ * One route's own resolved capability fields, alongside the model they
+ * describe -- absent `model` reports the fields a modelless route declared
+ * directly on itself. An engine with several model-bearing routes reports
+ * one of these per route rather than merging them into a single answer: two
+ * routes on the same engine may genuinely differ (different context windows
+ * on different upstream tiers, for one), and merging would silently pick a
+ * winner the way `EnginesResponse` never has elsewhere.
+ */
+export interface EngineCapability extends ModelCapabilities {
+  model?: string;
+}
+
 /** Names a keyring pair, an address and the wire it speaks -- *where* the bytes for a route come from, never *how* they are produced. */
 export interface Upstream {
   id: string;
@@ -476,6 +489,14 @@ export interface EngineStatus {
    * concurrent demand on them is visible at all.
    */
   active_leases?: number;
+  /**
+   * What this engine's own model-bearing routes can be asked for, one entry
+   * per non-disabled route -- the config surface `[[route]]`/`[[model]]`
+   * capability fields exist to answer, so a caller learns it from this
+   * listing rather than needing a second source. Absent when the engine has
+   * no model-bearing routes at all (comfy, every modelless media engine).
+   */
+  capabilities?: EngineCapability[];
 }
 
 export interface EnginesResponse {
@@ -540,7 +561,7 @@ export interface StartResponse {
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 5;
+export const CONTRACT = 6;
 
 /**
  * Anything a restart cannot fix. The unit carries

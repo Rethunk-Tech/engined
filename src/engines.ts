@@ -21,6 +21,7 @@ import {
   CONTRACT,
   type Config,
   type Disposition,
+  type EngineCapability,
   type EngineEntry,
   type EngineKind,
   type EngineStatus,
@@ -416,6 +417,17 @@ function checkSelfUpstream(
   }
 }
 
+/** Whether a route declares any of its own capability fields, model-bearing or not. */
+function routeHasCapability(r: ResolvedRoute): boolean {
+  return (
+    r.input !== undefined ||
+    r.output !== undefined ||
+    r.context_in !== undefined ||
+    r.context_out !== undefined ||
+    r.reasoning !== undefined
+  );
+}
+
 function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
@@ -441,8 +453,43 @@ function streamingOf(spec: Spec): boolean {
   return isContainerSpec(spec) ? spec.streaming : false;
 }
 
+/**
+ * What `id`'s own routes can be asked for: one entry per non-disabled route
+ * that names a model or declares a capability field directly, in the
+ * precedence `config.ts`'s `mergeCapabilities` already resolved (a route's
+ * own field beats the `[[model]]` row it names). Several routes on one
+ * engine report several entries rather than one merged answer -- see
+ * `EngineCapability`'s own doc for why a merge would be the wrong call.
+ * `undefined` rather than `[]` when there is nothing to report, matching
+ * every other optional `EngineStatus` field.
+ */
+function engineCapabilities(
+  engineId: string,
+  routes: readonly ResolvedRoute[],
+): EngineCapability[] | undefined {
+  const capabilities = routes
+    .filter((r) => r.engine === engineId && r.disabled !== true)
+    .filter((r) => r.model !== undefined || routeHasCapability(r))
+    .map(
+      (r): EngineCapability => ({
+        model: r.model,
+        input: r.input,
+        output: r.output,
+        context_in: r.context_in,
+        context_out: r.context_out,
+        reasoning: r.reasoning,
+      }),
+    );
+  return capabilities.length > 0 ? capabilities : undefined;
+}
+
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
-function statusFrom(engine: EngineEntry, spec: Spec, runtime: RuntimeStatus): EngineStatus {
+function statusFrom(
+  engine: EngineEntry,
+  spec: Spec,
+  runtime: RuntimeStatus,
+  routes: readonly ResolvedRoute[],
+): EngineStatus {
   return {
     id: engine.id,
     kind: spec.kind,
@@ -452,6 +499,7 @@ function statusFrom(engine: EngineEntry, spec: Spec, runtime: RuntimeStatus): En
     fix: runtime.fix,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
+    capabilities: engineCapabilities(engine.id, routes),
   };
 }
 
@@ -634,10 +682,11 @@ export class EngineRegistry {
         serves: spec.serves,
         streaming: streamingOf(spec),
         state: "installed",
+        capabilities: engineCapabilities(engine.id, this.config.routes),
       };
     }
 
-    return statusFrom(engine, spec, this.lifecycle.getStatus(engine.id));
+    return statusFrom(engine, spec, this.lifecycle.getStatus(engine.id), this.config.routes);
   }
 
   /**
@@ -657,6 +706,7 @@ export class EngineRegistry {
       state: "unavailable",
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
+      capabilities: engineCapabilities(engine.id, this.config.routes),
     };
   }
 
@@ -682,7 +732,12 @@ export class EngineRegistry {
       return this.syncStatus(entry);
     }
     const { engine } = entry;
-    return statusFrom(engine, spec, await this.lifecycle.probe(engine.id, spec, source));
+    return statusFrom(
+      engine,
+      spec,
+      await this.lifecycle.probe(engine.id, spec, source),
+      this.config.routes,
+    );
   }
 
   /**
@@ -702,7 +757,8 @@ export class EngineRegistry {
       kind: spec.kind,
       serves: spec.serves,
       streaming: streamingOf(spec),
-    } as const;
+      capabilities: engineCapabilities(engine.id, this.config.routes),
+    };
     if (engine.agent_version === undefined) {
       return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };
     }
