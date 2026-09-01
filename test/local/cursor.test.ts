@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import {
   buildAgenticProbeRunner,
   defaultAgenticSpawn,
   hashTree,
+  observeAgentVersion,
   PROBE_ENV_ALLOWLIST,
   plantCursorPromptHook,
   type RunAgenticResult,
@@ -17,41 +18,32 @@ import { stateDir } from "../../src/paths.ts";
 import type { Config, EngineEntry } from "../../src/types.ts";
 
 /**
- * A real round trip against the real `agent -p` CLI through `bunx`, using
- * this box's own logged-in Cursor account -- ambient, the only pairing
- * proven to work (see engines/cursor/spec.toml and src/agents.ts's cursor
- * entry: `CURSOR_API_KEY` is checked against Cursor's own key format
- * client-side before any network attempt, so no upstream redirect can pass
- * it today). `--output-format stream-json`, never `text`: a refused write
- * emits an empty `text` stream, so this suite failing to parse a real
- * answer out of the JSON stream is the regression it exists to catch.
+ * A real round trip against the real `agent -p` CLI, resolved on this box's
+ * own PATH (agents.ts's `resolveCursorBinary`) and using this box's own
+ * logged-in Cursor account -- ambient, the only pairing proven to work (see
+ * engines/cursor/spec.toml and src/agents.ts's cursor entry: `CURSOR_API_KEY`
+ * is checked against Cursor's own key format client-side before any network
+ * attempt, so no upstream redirect can pass it today). `--output-format
+ * stream-json`, never `text`: a refused write emits an empty `text` stream,
+ * so this suite failing to parse a real answer out of the JSON stream is the
+ * regression it exists to catch.
  *
- * MEASURED CURRENT STATUS: every test below fails on this box, and will
- * fail anywhere until buildArgv's launch mechanism changes. `bunx
- * cursor-agent@<pin>` does not resolve the real CLI at all -- the npm
- * package literally named `cursor-agent` is an unrelated third-party tool
- * ("Task sequence creator for Cursor AI agents", zalab-inc, versions
- * 1.0.0-1.0.3 only), and no `@anysphere/cursor-agent` or `@cursor/cli`
- * package exists. The real binary is delivered exclusively by Cursor's own
- * `curl https://cursor.com/install | bash` installer into
- * `~/.local/share/cursor-agent/versions/<version>/`, which self-updates in
- * the background with no version-pinning subcommand (`agent update` only
- * updates to latest) -- a distribution model `buildArgv`'s shared
- * `bunx pkg@version` launch has no path resolving. This is a blocker for
- * the whole integration, not a config gap; see the delivery report for the
- * full trail.
- *
- * Not wired into the `test:local` npm script's env derivation (package.json
- * is outside this delivery's scope, and its `tr -cd '0-9.'` strip would
- * mangle cursor's `YYYY.MM.DD-hash` pin shape anyway) -- run this file
- * directly: `ENGINED_LOCAL=1 ENGINED_BUNX=$(command -v bunx)
- * ENGINED_TEST_CURSOR_VERSION=<pin> bun test test/local/cursor.test.ts`.
+ * cursor's binary self-updates in the background with no version-pinning
+ * subcommand -- measured live, twice, mid-delivery, on this very box. Nothing
+ * launched here ever selects a specific pin (`buildArgv` skips the pinned-
+ * package prefix entirely for an agent with `resolveBinary`); the box's
+ * currently-installed binary is whatever runs, always. `ENGINED_TEST_CURSOR_
+ * VERSION` records what the operator last observed, not a pin engined can
+ * enforce, so the `beforeAll` below checks it against the binary's own
+ * `--version` before any real round trip runs, and fails loudly and
+ * specifically -- not as a confusing provenance mismatch three assertions
+ * deep -- the moment a self-update has made it stale.
  */
 const CURSOR_VERSION = process.env.ENGINED_TEST_CURSOR_VERSION;
 const BUNX = process.env.ENGINED_BUNX;
 const LOCAL = process.env.ENGINED_LOCAL === "1";
 
-/** A real observed round trip through `bunx agent -p` took 3-9s; genuine headroom over that. */
+/** A real observed round trip through `agent -p` took 3-9s; genuine headroom over that. */
 const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;
 /** The probe-gate test below makes two real round trips sequentially. */
 const PROBE_GATE_TIMEOUT_MS = 180_000;
@@ -79,6 +71,35 @@ function describeTitle(base: string): string {
   return `${base}: SKIPPED -- ${reason}`;
 }
 
+/**
+ * Set once, before any real round trip below runs. `undefined` means the
+ * pin is current (or this tier is skipped entirely); any other value is the
+ * exact, actionable reason every real-launch test below refuses to run --
+ * a self-update the operator's `ENGINED_TEST_CURSOR_VERSION` has not caught
+ * up with yet, never a bare assertion failure inside a 60s-timeout test.
+ */
+let staleVersionReason: string | undefined;
+
+beforeAll(async () => {
+  if (!AGENTIC_READY) {
+    return;
+  }
+  const observed = await observeAgentVersion("cursor", agentVersion(), defaultAgenticSpawn);
+  if (!observed.ok) {
+    staleVersionReason = `cursor's binary could not be observed: ${observed.error}`;
+    return;
+  }
+  if (observed.version !== agentVersion()) {
+    staleVersionReason = `ENGINED_TEST_CURSOR_VERSION is "${agentVersion()}", but this box's "agent --version" now reports "${observed.version}" -- cursor self-updated since the pin was set; re-run with ENGINED_TEST_CURSOR_VERSION=${observed.version}`;
+  }
+});
+
+function assertVersionCurrent(): void {
+  if (staleVersionReason !== undefined) {
+    throw new Error(staleVersionReason);
+  }
+}
+
 function scratchWorktree(): string {
   const dir = mkdtempSync(join(tmpdir(), "engined-cursor-"));
   writeFileSync(join(dir, "seed.txt"), "unrelated pre-existing content\n");
@@ -92,6 +113,7 @@ function scratchWorktree(): string {
  * back "ls: command not found" (exit 127).
  */
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
+  assertVersionCurrent();
   return runAgentic({
     agent: "cursor",
     agentVersion: agentVersion(),
@@ -155,6 +177,10 @@ describe.skipIf(!AGENTIC_READY)(describeTitle("cursor agentic provenance (local)
       rmSync(workdir, { recursive: true, force: true });
 
       expect(result.status).toBe(200);
+      // Honest by construction, not by luck: `beforeAll` above already
+      // proved CURSOR_VERSION matches what "agent --version" reports on
+      // this box, so this equality is a real claim about what ran, not a
+      // tautological echo of an unverified env var.
       expect(result.version).toBe(CURSOR_VERSION);
       expect(result.result?.toLowerCase()).toContain("pong");
     },
@@ -203,6 +229,7 @@ describe.skipIf(!AGENTIC_READY)(
     test(
       "unavailable with no probe runner configured; installed once the real probes run and pass",
       async () => {
+        assertVersionCurrent();
         rmSync(PROBE_GATE_VERIFIED_DIR, { recursive: true, force: true });
 
         const gated = new EngineRegistry(buildProbeGateConfig(), {
@@ -223,6 +250,10 @@ describe.skipIf(!AGENTIC_READY)(
         const afterStatus = await proven.start(PROBE_GATE_ENGINE_ID);
         expect(afterStatus.state).toBe("installed");
 
+        // `writeVerifiedVersion` (engines.ts) persists the OBSERVED version,
+        // never the configured one on its own -- these are proved equal by
+        // the same `beforeAll` precondition the provenance test above relies
+        // on, not by this gate's own construction.
         const recorded = readFileSync(
           join(PROBE_GATE_VERIFIED_DIR, "verified_version"),
           "utf8",
