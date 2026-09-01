@@ -364,6 +364,19 @@ export function plantUserPromptSubmitHook(workdir: string, witness: string): voi
   );
 }
 
+/** cursor's own hook file, `beforeSubmitPrompt` being its closest equivalent to claude's `UserPromptSubmit`. Verified to fire for a plain `-p` launch and to stay silent under `--mode plan`. */
+export function plantCursorPromptHook(workdir: string, witness: string): void {
+  const cursorDir = join(workdir, ".cursor");
+  mkdirSync(cursorDir, { recursive: true });
+  writeFileSync(
+    join(cursorDir, "hooks.json"),
+    JSON.stringify({
+      version: 1,
+      hooks: { beforeSubmitPrompt: [{ command: `echo fired >> ${witness}` }] },
+    }),
+  );
+}
+
 interface AgenticProbeRunnerDeps {
   /** Defaults to the real child-process spawn; a test injects a fake so no billed call ever runs. */
   spawn?: AgenticSpawn;
@@ -432,14 +445,18 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<{ ok: boolean }
   }
 }
 
-async function runHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> {
+/** Shared by every `flags` agent's hook-silence probe -- only which hook file gets planted differs. */
+async function hookSilenceProbe(
+  input: ProbeInput,
+  plant: (workdir: string, witness: string) => void,
+): Promise<{ ok: boolean }> {
   const workdir = scratchWorktree();
   const witness = join(
     tmpdir(),
     `engined-agentic-probe-witness-${Date.now()}-${Math.random().toString(WITNESS_ID_RADIX).slice(2)}`,
   );
   rmSync(witness, { force: true });
-  plantUserPromptSubmitHook(workdir, witness);
+  plant(workdir, witness);
   try {
     const outcome = await probeLaunch(input, workdir, "Say hello in one short sentence.");
     return { ok: outcome.ok && !existsSync(witness) };
@@ -447,6 +464,14 @@ async function runHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> 
     rmSync(workdir, { recursive: true, force: true });
     rmSync(witness, { force: true });
   }
+}
+
+function runHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> {
+  return hookSilenceProbe(input, plantUserPromptSubmitHook);
+}
+
+function runCursorHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> {
+  return hookSilenceProbe(input, plantCursorPromptHook);
 }
 
 /**
@@ -511,6 +536,13 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
   // No model round trip: see runSandboxFloorProbe for why the kernel is the
   // whole proof for an agent floored this way.
   opencode: [{ name: "sandbox-refuses-writes", run: runSandboxFloorProbe }],
+  // Same shape as claude's: both floors live in argv, re-proved against
+  // every new pin rather than the kernel. cursor's own hook file differs
+  // from claude's, so only that probe's plant function does.
+  cursor: [
+    { name: "byte-identical", run: runByteIdenticalProbe },
+    { name: "no-hook-fires", run: runCursorHookSilenceProbe },
+  ],
 };
 
 export function buildAgenticProbeRunner(

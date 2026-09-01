@@ -171,6 +171,54 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
 }
 
 /**
+ * `--output-format text` emits an empty stream on a refused write -- the tool
+ * calls and the refusal itself are visible only in the `stream-json` event
+ * log, so this is part of the floor's own evidence, not a preference.
+ */
+const CURSOR_OUTPUT_FORMAT = ["--output-format", "stream-json"] as const;
+
+/**
+ * cursor's floor: a mode, not a tool allowlist. Measured (docs/security-model.md)
+ * against 2026.08.28-50f0823: under `--mode plan` it read files and ran
+ * read-only shell commands, but a write instruction produced no file and the
+ * text "Plan mode blocks file writes", reaching for its plan tool instead --
+ * unmoved by a permissive `.cursor/cli-config.json` planted in the workdir and
+ * its parent. `--trust` carries no write capability of its own; without it a
+ * fresh workdir's workspace-trust prompt refuses the launch outright before
+ * plan mode is ever reached.
+ */
+const CURSOR_FLOOR = ["--mode", "plan", "--trust"] as const;
+
+/**
+ * `stream-json` is one JSON object per line, and unlike opencode's stream it
+ * ends with a single terminal `{"type":"result",...}` line carrying
+ * `is_error`/`subtype`/`result` -- a claude-shaped envelope embedded as the
+ * last of many progress lines (`thinking`, `tool_call`, `assistant`) rather
+ * than the sole output. Every line before it is progress and carries no
+ * verdict, so only the last `result` line found is read.
+ */
+export function parseCursorEvents(stdout: string): AgenticOutcome {
+  let outcome: { is_error?: boolean; subtype?: string; result?: string } | undefined;
+  for (const line of stdout.split("\n")) {
+    const event = eventOf(line);
+    if (event !== null && event.type === "result") {
+      outcome = event as { is_error?: boolean; subtype?: string; result?: string };
+    }
+  }
+  if (outcome === undefined) {
+    return { ok: false, failure: "cursor did not print a parseable result on stdout" };
+  }
+  if (outcome.is_error) {
+    return {
+      ok: false,
+      failure: `agentic envelope failure: ${outcome.subtype ?? "is_error"}`,
+      result: outcome.result,
+    };
+  }
+  return { ok: true, result: outcome.result };
+}
+
+/**
  * opencode is configured by file, not by flags, so engined writes the file.
  * It names an openai-compatible provider at the given base -- normally
  * engined's own door, which is what lets an opencode turn reach a local model
@@ -226,6 +274,29 @@ const AGENTS: Record<string, AgentCli> = {
     launch: () => ["run", "--format", "json"],
     parse: parseOpencodeEvents,
     configure: renderOpencodeConfig,
+  },
+  cursor: {
+    id: "cursor",
+    pkg: "cursor-agent",
+    floor: "flags",
+    // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself
+    // as normalizing cursor's own request shape "into the standard OpenAI
+    // Chat Completions format" before it reaches a model -- the closest
+    // available classification of the two this repo has. Nominal only: no
+    // `configure` is declared below, so no route can actually reach it yet.
+    wire: "openai",
+    // cursor has no config-path flag of its own -- `mcpConfigPath` is part
+    // of every agent's `launch` signature but unused here.
+    launch: () => ["-p", ...CURSOR_OUTPUT_FORMAT, ...CURSOR_FLOOR],
+    parse: parseCursorEvents,
+    // No `configure`: `CURSOR_API_KEY` is checked against Cursor's own key
+    // format client-side before any network attempt -- measured against a
+    // real OpenRouter key (rejected in ~0.4s, no connection made) and
+    // against a Cursor-shaped placeholder pointed at an unreachable address
+    // (a real connection attempt followed). No key this box holds passes
+    // that check, so redirecting cursor's own inference through engined's
+    // door here would turn every launch into a guaranteed failure, ambient
+    // ones included -- worse than leaving it on its own login.
   },
 };
 

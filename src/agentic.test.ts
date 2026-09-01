@@ -432,6 +432,66 @@ test("buildAgenticProbeRunner: an envelope failure fails byte-identical even wit
   expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
 });
 
+/** Reads the witness path back out of the hook `plantCursorPromptHook` planted -- cursor's own `.cursor/hooks.json`, never claude's `.claude/settings.json`. */
+function cursorWitnessPathFromCwd(cwd: string): string | undefined {
+  const hooksPath = join(cwd, ".cursor", "hooks.json");
+  if (!existsSync(hooksPath)) {
+    return;
+  }
+  const hooks = JSON.parse(readFileSync(hooksPath, "utf8")) as {
+    hooks: { beforeSubmitPrompt: { command: string }[] };
+  };
+  const command = hooks.hooks.beforeSubmitPrompt[0]?.command ?? "";
+  return command.split(">>")[1]?.trim();
+}
+
+function cleanCursorSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
+  return (_argv, opts) => {
+    onCwd?.(opts.cwd);
+    return Promise.resolve({
+      stdout: '{"type":"result","subtype":"success","is_error":false,"result":"hello"}',
+      stderr: "",
+      exitCode: 0,
+    });
+  };
+}
+
+function runCursorProbe(spawn: AgenticSpawn) {
+  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+  return runner(PROBE_ENGINE, PIN, "cursor");
+}
+
+test("buildAgenticProbeRunner: cursor's own probes pass against a clean stream-json result", async () => {
+  const outcome = await runCursorProbe(cleanCursorSpawn());
+
+  expect(outcome).toEqual({ ok: true });
+});
+
+test("buildAgenticProbeRunner: a cursor hook that actually fires fails no-hook-fires, read from .cursor/hooks.json", async () => {
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    const witness = cursorWitnessPathFromCwd(opts.cwd);
+    if (witness !== undefined) {
+      writeFileSync(witness, "fired\n");
+    }
+    return cleanCursorSpawn()([], opts);
+  };
+
+  const outcome = await runCursorProbe(spawn);
+
+  expect(outcome).toEqual({ ok: false, failedProbe: "no-hook-fires" });
+});
+
+test("buildAgenticProbeRunner: cursor writing into the scratch worktree fails byte-identical", async () => {
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    writeFileSync(join(opts.cwd, "proof.txt"), "hello");
+    return cleanCursorSpawn()([], opts);
+  };
+
+  const outcome = await runCursorProbe(spawn);
+
+  expect(outcome).toEqual({ ok: false, failedProbe: "byte-identical" });
+});
+
 /**
  * `defaultAgenticSpawn` against a REAL child process, not a fake -- the one
  * thing a fake can never prove. `/bin/sh -c "... & wait"` gives the wrapper

@@ -1,0 +1,27 @@
+kind = "agentic-cli"
+# A route naming no upstream is ambient: cursor carries its own Cursor
+# account login, not a configured address or secret. Measured against
+# 2026.08.28-50f0823, this is also the ONLY pairing that works today --
+# `CURSOR_API_KEY` is checked against Cursor's own key format client-side,
+# before any network attempt, so a third-party key (e.g. openrouter's) can
+# never pass it. `src/agents.ts`'s cursor entry declares no `configure` for
+# exactly this reason: a route naming a real upstream would parse but fail
+# every launch.
+upstream = "optional"
+agent = "cursor"
+serves = ["/openai/v1/chat/completions"]
+# NOT the launch line -- src/spec.ts checks this array at parse (command[0]
+# must be the {bunx} placeholder, command[1] must be exactly this agent's
+# package at {agent_version}, and assertNoForbiddenFlags runs over it too)
+# and then it is discarded. src/agentic.ts's buildArgv constructs the real
+# argv from scratch on every call -- bunx path, package@pin, then whatever
+# src/agents.ts says this agent's launch is, which for cursor is "-p", the
+# stream-json output format and the read-only floor ("--mode plan --trust")
+# -- and never reads this field.
+command = ["{bunx}", "cursor-agent@{agent_version}", "-p"]
+# PATH is here, unlike claude's: cursor's floor is a mode, not a tool
+# allowlist, so its shell tool stays reachable under --mode plan --
+# measured, with no PATH a shell command it runs comes back
+# "ls: command not found" (exit 127), and with PATH it runs normally. Denied
+# a *write*, plan mode still reads files and runs read-only shell commands.
+env = ["HOME", "PATH", "BUN_INSTALL", "BUN_TMPDIR"]

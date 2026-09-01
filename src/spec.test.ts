@@ -54,6 +54,15 @@ describe("shipped specs", () => {
     expect(loaded.spec.command).toEqual([BUNX, "@anthropic-ai/claude-code@1.2.3", "-p"]);
   });
 
+  test("cursor resolves clean", () => {
+    const loaded = loadSpec(engine({ id: "cursor", agent_version: "2026.08.28-50f0823" }), {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+    });
+    expect(loaded.spec.kind).toBe("agentic-cli");
+    expect(loaded.spec.command).toEqual([BUNX, "cursor-agent@2026.08.28-50f0823", "-p"]);
+  });
+
   test("whisper as shipped resolves clean, and keeps its POST probe and accept range", () => {
     // A probe declared in a spec and dropped by the loader is the silent
     // failure this field exists to prevent, so assert the parsed values rather
@@ -120,10 +129,13 @@ describe("shipped specs", () => {
   // leaks the operator's username into a file that ships. Assert against the
   // real committed files so a reintroduced literal fails here regardless of
   // what any loadSpec() call above happens to substitute.
-  test.each(["whisper"])("the shipped %s spec.toml contains no absolute host path", (id) => {
-    const raw = readFileSync(join(ENGINES_ROOT, id, "spec.toml"), "utf8");
-    expect(raw).not.toMatch(RX_HOME_PATH);
-  });
+  test.each(["whisper", "cursor"])(
+    "the shipped %s spec.toml contains no absolute host path",
+    (id) => {
+      const raw = readFileSync(join(ENGINES_ROOT, id, "spec.toml"), "utf8");
+      expect(raw).not.toMatch(RX_HOME_PATH);
+    },
+  );
 });
 
 test("volume.name and artifact.obtain placeholders resolve to the supplied values", () => {

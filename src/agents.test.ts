@@ -4,7 +4,13 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { expect, it } from "bun:test";
-import { AGENT_IDS, agentCli, parseClaudeEnvelope, parseOpencodeEvents } from "./agents.ts";
+import {
+  AGENT_IDS,
+  agentCli,
+  parseClaudeEnvelope,
+  parseCursorEvents,
+  parseOpencodeEvents,
+} from "./agents.ts";
 import { AGENTIC_FLOOR } from "./types.ts";
 
 /** Captured verbatim: `opencode run --format json "Reply with exactly the word: pong"`. */
@@ -83,5 +89,66 @@ it("claude carries the read-only floor in its launch argv and opencode carries n
 
 it("an unknown agent resolves to nothing, so the spec parser can refuse it by name", () => {
   expect(agentCli("codex")).toBeUndefined();
-  expect(AGENT_IDS).toEqual(["claude", "opencode"]);
+  expect(AGENT_IDS).toEqual(["claude", "opencode", "cursor"]);
+});
+
+/**
+ * Captured verbatim: `agent -p --output-format stream-json --mode plan
+ * --trust "Say hello in one short sentence."` against 2026.08.28-50f0823,
+ * logged in, trimmed to the lines the parser reads.
+ */
+const CURSOR_OK = [
+  '{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/x","session_id":"s1","model":"Composer 2.5","permissionMode":"default"}',
+  '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Say hello in one short sentence."}]},"session_id":"s1"}',
+  '{"type":"thinking","subtype":"delta","text":"Preparing a brief greeting.","session_id":"s1"}',
+  '{"type":"thinking","subtype":"completed","session_id":"s1"}',
+  '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello — good to meet you."}]},"session_id":"s1"}',
+  '{"type":"result","subtype":"success","duration_ms":2458,"is_error":false,"result":"Hello — good to meet you.","session_id":"s1","request_id":"r1","usage":{"inputTokens":1,"outputTokens":1}}',
+].join("\n");
+
+it("reads cursor's answer out of the terminal result line, not the progress lines before it", () => {
+  expect(parseCursorEvents(CURSOR_OK)).toEqual({ ok: true, result: "Hello — good to meet you." });
+});
+
+it("a stream with no result line is a failure, not a silent empty success", () => {
+  const noResult = CURSOR_OK.split("\n")
+    .filter((l) => !l.includes('"type":"result"'))
+    .join("\n");
+  const out = parseCursorEvents(noResult);
+  expect(out.ok).toBe(false);
+  expect(out.failure).toContain("parseable result");
+});
+
+it("stdout that is not events at all is a failure naming that -- the empty-stream non-result claude's own trap warns against", () => {
+  expect(parseCursorEvents("").ok).toBe(false);
+  expect(parseCursorEvents("Segmentation fault\n").failure).toContain("parseable result");
+});
+
+it("an in-stream is_error beats a populated result, the same as claude's own envelope", () => {
+  const lying = parseCursorEvents(
+    '{"type":"result","subtype":"error","is_error":true,"result":"partial"}',
+  );
+  expect(lying.ok).toBe(false);
+  expect(lying.failure).toContain("error");
+  expect(lying.result).toBe("partial");
+});
+
+it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist -- and never touches AGENTIC_FLOOR", () => {
+  const cursor = agentCli("cursor");
+  expect(cursor?.floor).toBe("flags");
+  expect(cursor?.wire).toBe("openai");
+  expect(cursor?.launch("/mcp.json")).toEqual([
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--mode",
+    "plan",
+    "--trust",
+  ]);
+  expect(
+    cursor?.launch("/mcp.json").some((tok) => (AGENTIC_FLOOR as readonly string[]).includes(tok)),
+  ).toBe(false);
+  // No `configure`: see src/agents.ts for why redirecting cursor's own
+  // inference through engined's door is worse than leaving it alone.
+  expect(cursor?.configure).toBeUndefined();
 });
