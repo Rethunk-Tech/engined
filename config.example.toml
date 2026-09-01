@@ -306,8 +306,21 @@ model    = "sonnet-5"
 #
 # opencode is configured by file rather than by flags: engined resolves the
 # request's own model (below, "code") back through listen_port and writes
-# opencode's provider config naming it -- there is no separate agent_model to
-# set, the model a caller asked for IS the model opencode is pointed at.
+# opencode's provider config naming it, so opencode POSTs `model: "code"` --
+# bare, no "@/" prefix -- back to THIS SAME door when it actually answers.
+# An OpenAI-compatible client has no notion of engined's qualified addressing.
+#
+# `dispatch.ts`'s resolveModel never falls through a bare string to an
+# engine/model match -- only a `[[chain]]` id resolves one. So the
+# `[[chain]] id = "code"` near the bottom of this file is NOT a redundant
+# duplicate of the route below: it is the only thing that makes opencode's
+# own callback resolve at all. The two "code"s mean different things --
+# `@/opencode/code` (qualified, below) selects the opencode ENGINE; bare
+# `code` (what opencode itself sends back) selects that CHAIN, which is what
+# actually answers the prompt. One name, two meanings, told apart only by the
+# "@/" prefix. This is LOAD-BEARING, not elegant: delete the chain because it
+# looks redundant sitting next to this route, and every opencode request
+# starts failing with `unknown model "code"`.
 #
 # The floor: opencode exposes NO flag that restricts its tools, and its config
 # floor is overridable by an opencode.json in the workdir or any ancestor of
@@ -386,6 +399,10 @@ upstream = "local"
 id                = "kokoro"
 idle_stop_seconds = 1800
 # Same posture as chatterbox: weights are image-baked, nothing to mount.
+# Longer than the 60s default: app.py's decoder bucket warm-up runs before
+# /health can answer (see engines.md), and a cold MIOpen cache (first boot,
+# or the named volume not yet populated) pays real JIT-compile time for it.
+ready_timeout_s   = 120
 
 [[route]]
 engine   = "kokoro"
@@ -548,3 +565,22 @@ hops = [
   "@/claude/sonnet-5",
   "@/openai/gpt-5.4-mini",
 ]
+
+# LOAD-BEARING, see the long comment on the opencode `[[engine]]` above: this
+# id has to equal the opencode route's own `model` value, because that value
+# is exactly what opencode POSTs back here, bare, when its provider config
+# resolves. It exists to make ONE caller-invisible round trip work, not to be
+# addressed directly -- a caller reaches opencode through the qualified
+# `@/opencode/code`, never through this bare name.
+[[chain]]
+id   = "code"
+hops = ["@/llama/ornith"]
+
+# The plain dial for this box's own local chat model, addressed by its bare
+# name rather than through chain-private/chain-public's fallback framing --
+# what test/local/opencode.test.ts's default ENGINED_TEST_AGENT_MODEL dials
+# to prove a bare-chain round trip end to end, independent of the opencode
+# route above.
+[[chain]]
+id   = "ornith"
+hops = ["@/llama/ornith"]
