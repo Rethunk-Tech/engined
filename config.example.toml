@@ -495,12 +495,12 @@ kind = "openai-http"
 # carry, since it is the segment separator. "model" is the slash-free name
 # this route is addressed by; "wire_model" is the id OpenRouter actually
 # knows, sent on the wire in its place. Verified against the live catalogue:
-# 425 models, 18 free, "z-ai/glm-5.2:free" among them at pricing.prompt = 0.
+# 425 models, 18 free, "cohere/north-mini-code:free" among them at pricing.prompt = 0.
 [[route]]
 engine     = "openrouter"
 upstream   = "openrouter"
-model      = "glm-5.2:free"
-wire_model = "z-ai/glm-5.2:free"
+model      = "north-mini-code:free"
+wire_model = "cohere/north-mini-code:free"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.

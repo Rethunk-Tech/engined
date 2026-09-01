@@ -50,15 +50,15 @@ const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
 // caller dials, not what reaches an upstream.
 // "sonnet-5" appears twice: the ambient claude route and the claude route
 // onto openrouter-anthropic. The openrouter engine's own openai-wire route
-// addresses a different model ("glm-5.2:free") than either.
+// addresses a different model ("north-mini-code:free") than either.
 const EXPECTED_ROUTE_MODEL_IDS = [
   "code",
   "embed",
-  "glm-5.2:free",
   "gpt-5.4",
   "gpt-5.4-mini",
   "k3",
   "medium.en",
+  "north-mini-code:free",
   "ocr",
   "ornith",
   "scribe_v1",
@@ -183,8 +183,8 @@ test("config.example.toml parses through the real loadConfig()", () => {
   );
   // The address segment is slash-free; the real OpenRouter id lives in
   // wire_model, sent on the wire in its place.
-  expect(orDirectRoute?.model).toBe("glm-5.2:free");
-  expect(orDirectRoute?.wire_model).toBe("z-ai/glm-5.2:free");
+  expect(orDirectRoute?.model).toBe("north-mini-code:free");
+  expect(orDirectRoute?.wire_model).toBe("cohere/north-mini-code:free");
   expect(orDirectRoute?.disabled).toBeUndefined();
   // "claude" itself is disabled (EXPECTED_DISABLED_IDS), so every route on
   // it -- ambient, moonshot, and this one -- is disabled regardless of its
