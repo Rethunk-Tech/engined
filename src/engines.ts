@@ -19,16 +19,19 @@ import {
   type AgenticSpec,
   CONTRACT,
   type Config,
+  type Disposition,
   type EngineEntry,
   type EngineKind,
   type EngineStatus,
   type EnginesResponse,
   FatalError,
   isContainerSpec,
+  KIND_LOCAL_FILE_RULES,
   KIND_UPSTREAM_TRAIT,
   type LoadedSpec,
   MODEL_LESS_KINDS,
   type ReadyProbe,
+  type ResolvedRoute,
   type Spec,
 } from "./types.ts";
 
@@ -255,15 +258,73 @@ function loadEngineSpec(
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
 }
 
+/** One field's disposition against whether the route actually declared it. `FatalError`, not `ParseError`: this is a startup failure, not a config-file one -- kind is not known until the spec driving this check has already loaded. */
+function assertFieldDisposition(
+  disposition: Disposition,
+  present: boolean,
+  field: string,
+  engineId: string,
+  model: string | undefined,
+): void {
+  const site = `route on engine "${engineId}" model "${model ?? ""}"`;
+  if (disposition === "required" && !present) {
+    throw new FatalError(`${site} is missing required "${field}"`);
+  }
+  if (disposition === "forbidden" && present) {
+    throw new FatalError(`${site} must not declare "${field}"`);
+  }
+}
+
+/**
+ * The kind-dependent half of the filename/role/args split `config.ts`'s
+ * parse-tier check leaves open: whisper requires `filename` and forbids
+ * `role`, llama requires both. Only reached for a route the parse tier did
+ * NOT already forbid outright (model-bearing, `upstream === "local"`, and
+ * the engine actually has a `models_dir`) -- for every other route the
+ * question is already closed and this is a no-op. `@/llama/sonnet-5` (a
+ * filename-less llama route) stays invalid because of this, not for free.
+ */
+function checkLocalFileDisposition(
+  engine: EngineEntry,
+  kind: EngineKind,
+  routes: readonly ResolvedRoute[],
+): void {
+  const rules = KIND_LOCAL_FILE_RULES[kind];
+  for (const r of routes) {
+    if (
+      r.engine !== engine.id ||
+      r.model === undefined ||
+      r.upstream !== "local" ||
+      engine.models_dir === undefined
+    ) {
+      continue;
+    }
+    assertFieldDisposition(
+      rules.filename,
+      r.filename !== undefined,
+      "filename",
+      engine.id,
+      r.model,
+    );
+    assertFieldDisposition(rules.role, r.role !== undefined, "role", engine.id, r.model);
+    if (rules.args === "forbidden" && Object.keys(r.args).length > 0) {
+      throw new FatalError(
+        `route on engine "${engine.id}" model "${r.model}" must not declare "args"`,
+      );
+    }
+  }
+}
+
 function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
   presetHostPath: string,
 ): Entry[] {
-  return config.engines.map((engine) => ({
-    engine,
-    spec: loadEngineSpec(engine, specOptions, presetHostPath),
-  }));
+  return config.engines.map((engine) => {
+    const spec = loadEngineSpec(engine, specOptions, presetHostPath);
+    checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
+    return { engine, spec };
+  });
 }
 
 /**

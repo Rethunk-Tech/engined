@@ -631,6 +631,55 @@ describe("spec_source", () => {
   });
 });
 
+describe("the kind-dependent filename/role split runs at registry construction, not parse", () => {
+  test("a whisper-shaped route (filename, no role) parses and is accepted", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "whisper-like", STT_REAL_COMMAND);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
+        routes: [
+          route({ engine: "whisper-like", upstream: "local", model: "x", filename: "x.bin" }),
+        ],
+      }),
+      root,
+    );
+    expect(reg.serves("whisper-like")).toEqual(["/openai/v1/audio/transcriptions"]);
+  });
+
+  test("a llama-shaped route without role still fails, at construction", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama-like", PULLED_CONTAINER);
+    expect(
+      () =>
+        new EngineRegistry(
+          config({
+            engines: [engine({ id: "llama-like", models_dir: "/data/gguf" })],
+            routes: [
+              route({ engine: "llama-like", upstream: "local", model: "x", filename: "x.gguf" }),
+            ],
+          }),
+          { enginesRoot: root, bunx: BUNX },
+        ),
+    ).toThrow(/missing required "role"/);
+  });
+
+  test("@/llama/sonnet-5 stays invalid: a filename-less llama route fails at construction", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama-like", PULLED_CONTAINER);
+    expect(
+      () =>
+        new EngineRegistry(
+          config({
+            engines: [engine({ id: "llama-like", models_dir: "/data/gguf" })],
+            routes: [route({ engine: "llama-like", upstream: "local", model: "sonnet-5" })],
+          }),
+          { enginesRoot: root, bunx: BUNX },
+        ),
+    ).toThrow(/missing required "filename"/);
+  });
+});
+
 describe("comfy: shipped spec", () => {
   test("the run argv takes GPU_FLAGS, label=disable and latent2rgb, and publishes to no wildcard interface", () => {
     const loaded = loadSpec(engine({ id: "comfy" }), {
