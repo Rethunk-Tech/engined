@@ -341,7 +341,6 @@ function swapModels(): SwapRoute[] {
     upstream: "local" as const,
     filename: CHAT.filename,
     role: "chat" as const,
-    aliases: [] as string[],
   };
   const specArgs = (pMin: number) => ({
     "spec-type": "draft-mtp",
