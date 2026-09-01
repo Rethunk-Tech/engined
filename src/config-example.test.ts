@@ -5,7 +5,7 @@ import { loadConfig } from "./config.ts";
 import { EngineRegistry } from "./engines.ts";
 import { dataHome } from "./paths.ts";
 import { BUNX, ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
-import { FatalError } from "./types.ts";
+import { type Config, FatalError } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-example-");
 
@@ -20,6 +20,7 @@ const TEST_ROOT = makeTestRoot("engined-example-");
  * weights on disk just to run the suite.
  */
 const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
+const WIRE_MISMATCH_RE = /wire "openai".*speaks "anthropic"/;
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
@@ -105,16 +106,18 @@ function sortedIds<T>(items: readonly T[], pick: (item: T) => string | undefined
     .sort(byName);
 }
 
-test("config.example.toml parses through the real loadConfig()", () => {
-  const repoRoot = join(import.meta.dir, "..");
-  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
-  expect(raw).toMatch(LLAMA_MODELS_DIR_RE);
-
+/** The example config through the real `loadConfig()`, with `append` tacked onto its end. `raw` is the unpatched file text. */
+function loadExample(append = ""): { raw: string; config: Config } {
+  const raw = readFileSync(join(import.meta.dir, "..", "config.example.toml"), "utf8");
   const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
   placeExampleModels(modelsDir);
+  const configPath = writePatchedExampleConfig(raw + append, modelsDir);
+  return { raw, config: loadConfig(configPath, ENGINES_ROOT) };
+}
 
-  const configPath = writePatchedExampleConfig(raw, modelsDir);
-  const config = loadConfig(configPath, ENGINES_ROOT);
+test("config.example.toml parses through the real loadConfig()", () => {
+  const { raw, config } = loadExample();
+  expect(raw).toMatch(LLAMA_MODELS_DIR_RE);
 
   expect(sortedIds(config.engines, (e) => e.id)).toEqual(EXPECTED_ENGINE_IDS);
   expect(config.models.map((m) => m.id)).toEqual(["sonnet-5"]);
@@ -125,17 +128,6 @@ test("config.example.toml parses through the real loadConfig()", () => {
       (e) => e.id,
     ),
   ).toEqual(EXPECTED_DISABLED_IDS);
-
-  // The [[model]] row's capabilities reach the route naming it...
-  const sonnet5 = config.routes.find((r) => r.engine === "claude" && r.model === "sonnet-5");
-  expect(sonnet5?.context_in).toBe(200_000);
-  expect(sonnet5?.reasoning).toEqual(["none", "low", "high"]);
-  // ...and inserting that [[model]] row ahead of llama's own routes did
-  // not silently migrate [route.args] onto the wrong one: TOML attaches a
-  // bare [route.args] to whichever [[route]] was declared most recently, so
-  // ornith's own draft-MTP args must still be ornith's.
-  const ornith = config.routes.find((r) => r.engine === "llama" && r.model === "ornith");
-  expect(ornith?.args["spec-type"]).toBe("draft-mtp");
 
   expect(config.chains["chain-private"]).toEqual(["@/llama/ornith"]);
   // Written with three remote/agentic hops after the local one; claude and
@@ -151,12 +143,29 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // this stays that directory's sibling under any XDG_DATA_HOME -- it is
   // never a plain $HOME expansion of the example's tilde text.
   expect(whisper?.models_dir).toBe(join(dataHome(), "engined-models/whisper"));
+});
 
-  // The remote STT engine's whole shape now spans an engine, an upstream and
-  // a route, none of which has a spec directory to carry any of it. A `kind`
-  // lost to an edit would make it an engine of no kind, a lost route "model"
-  // would send the door's own engine id upstream as a model, and a lost
-  // secret would leave the upstream unable to authenticate at all.
+// The [[model]] row's capabilities reach the route naming it, and inserting
+// that [[model]] row ahead of llama's own routes did not silently migrate
+// [route.args] onto the wrong one: TOML attaches a bare [route.args] to
+// whichever [[route]] was declared most recently, so ornith's own draft-MTP
+// args must still be ornith's.
+test("a [[model]] row reaches the route naming it without stealing a neighbour's [route.args]", () => {
+  const { config } = loadExample();
+  const sonnet5 = config.routes.find((r) => r.engine === "claude" && r.model === "sonnet-5");
+  expect(sonnet5?.context_in).toBe(200_000);
+  expect(sonnet5?.reasoning).toEqual(["none", "low", "high"]);
+  const ornith = config.routes.find((r) => r.engine === "llama" && r.model === "ornith");
+  expect(ornith?.args["spec-type"]).toBe("draft-mtp");
+});
+
+// The remote STT engine's whole shape spans an engine, an upstream and a
+// route, none of which has a spec directory to carry any of it. A `kind`
+// lost to an edit would make it an engine of no kind, a lost route "model"
+// would send the door's own engine id upstream as a model, and a lost
+// secret would leave the upstream unable to authenticate at all.
+test("the spec-less remote STT engine keeps its kind, route model and secret header", () => {
+  const { config } = loadExample();
   const elevenlabs = config.engines.find((e) => e.id === "elevenlabs");
   expect(elevenlabs?.kind).toBe("stt");
   const elevenlabsRoute = config.routes.find((r) => r.engine === "elevenlabs");
@@ -164,11 +173,14 @@ test("config.example.toml parses through the real loadConfig()", () => {
   const elevenlabsUpstream = config.upstreams.find((u) => u.id === "elevenlabs");
   expect(elevenlabsUpstream?.egress).toBe("remote");
   expect(elevenlabsUpstream?.secret?.header).toBe("xi-api-key");
+});
 
-  // One provider, two wires, two upstreams -- the OpenAI-shaped one proven
-  // live and on, the Anthropic gateway still off. The engine's own route
-  // stays two-segment because it is the only route on "openrouter" (see the
-  // config's own comment on that route).
+// One provider, two wires, two upstreams -- the OpenAI-shaped one proven
+// live and on, the Anthropic gateway still off. The engine's own route
+// stays two-segment because it is the only route on "openrouter" (see the
+// config's own comment on that route).
+test("openrouter's openai wire is on and its anthropic wire is off, each with its own upstream", () => {
+  const { config } = loadExample();
   const orOpenai = config.upstreams.find((u) => u.id === "openrouter");
   const orAnthropic = config.upstreams.find((u) => u.id === "openrouter-anthropic");
   expect(orOpenai?.disabled).toBeUndefined();
@@ -206,22 +218,14 @@ test("config.example.toml parses through the real loadConfig()", () => {
  * because the agent's own wire comes from its spec, loaded a step later.
  */
 test("claude routed at openrouter's openai wire is refused at registry construction", () => {
-  const repoRoot = join(import.meta.dir, "..");
-  const raw = readFileSync(join(repoRoot, "config.example.toml"), "utf8");
-
-  const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
-  placeExampleModels(modelsDir);
-
-  const mismatched = `${raw}
+  const { config } = loadExample(`
 [[route]]
 engine   = "claude"
 upstream = "openrouter"
 model    = "openrouter-mismatch"
-`;
-  const configPath = writePatchedExampleConfig(mismatched, modelsDir);
-  const config = loadConfig(configPath, ENGINES_ROOT);
+`);
 
   const build = () => new EngineRegistry(config, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
   expect(build).toThrow(FatalError);
-  expect(build).toThrow(/wire "openai".*speaks "anthropic"/);
+  expect(build).toThrow(WIRE_MISMATCH_RE);
 });

@@ -110,6 +110,54 @@ const RX_DUP_DECLARED_TWICE = /"dup" is declared twice/;
 const RX_MIXED_MODELLESS = /carries both a modelless route and a model-bearing route/;
 const RX_NO_UPSTREAM_TRAIT = /spec is missing required "upstream"/;
 const RX_REQUIRED_NO_DEFAULT = /is "required" to have exactly one across its routes/;
+const RX_UNRECOGNISED_SECRET_KEY = /"secret" has unrecognised key "schema"/;
+const RX_UNRECOGNISED_WIRE_MODEL_KEY = /unrecognised key "wire_modell"/;
+
+/** Hops that are not `@/<engine>/<model>`: [label, config, the hop text the error must quote]. */
+const NOT_QUALIFIED_HOPS: [string, string, string][] = [
+  [
+    "a bare model id",
+    `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["ornith"]\n`,
+    "ornith",
+  ],
+  [
+    "a bare engine id",
+    `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["local-llama"]\n`,
+    "local-llama",
+  ],
+  [
+    "another chain's name",
+    `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["other"]\n[[chain]]\nid = "other"\nhops = ["@/local-llama/ornith"]\n`,
+    "other",
+  ],
+];
+
+const COMFY_SPEC_SELF_UPSTREAM = [
+  'kind = "comfy"',
+  'upstream = "self"',
+  'image = "x"',
+  'obtain = "pull"',
+  "serves = []",
+  "command = []",
+  "",
+  "[ready]",
+  'path = "/queue"',
+  "status = 200",
+];
+const COMFY_SPEC_NO_UPSTREAM = [
+  'kind = "comfy"',
+  'image = "x"',
+  'obtain = "pull"',
+  "serves = []",
+  "command = []",
+];
+
+/** A scratch spec dir holding a `spec.toml` made of `lines`. */
+function writeSpecDir(lines: readonly string[]): string {
+  const specDir = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
+  writeFileSync(join(specDir, "spec.toml"), lines.join("\n"));
+  return specDir;
+}
 
 /**
  * The worked config, five tables: an [[upstream]] a route names explicitly
@@ -355,7 +403,7 @@ engine   = "hosted-llama"
 upstream = "hosted"
 model    = "x"
 `;
-  expect(() => loadConfig(writeConfig(toml))).toThrow(/"secret" has unrecognised key "schema"/);
+  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_SECRET_KEY);
 });
 
 test("a disabled engine keeps its entry, marked, and its routes drop", () => {
@@ -530,27 +578,14 @@ upstream = "local"
 });
 
 describe("chain hops", () => {
-  test.each([
-    [
-      "a bare model id",
-      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["ornith"]\n`,
-      "ornith",
-    ],
-    [
-      "a bare engine id",
-      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["local-llama"]\n`,
-      "local-llama",
-    ],
-    [
-      "another chain's name",
-      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["other"]\n[[chain]]\nid = "other"\nhops = ["@/local-llama/ornith"]\n`,
-      "other",
-    ],
-  ])("%s is not a fully-qualified hop, naming it", (_label, toml, hop) => {
-    const message = parseMessage(toml);
-    expect(message).toMatch(RX_NOT_QUALIFIED);
-    expect(message).toContain(`"${hop}"`);
-  });
+  test.each(NOT_QUALIFIED_HOPS)(
+    "%s is not a fully-qualified hop, naming it",
+    (_label, toml, hop) => {
+      const message = parseMessage(toml);
+      expect(message).toMatch(RX_NOT_QUALIFIED);
+      expect(message).toContain(`"${hop}"`);
+    },
+  );
 
   test("a qualified hop naming an unknown engine fails, naming the engine half and the hop", () => {
     const message = parseMessage(
@@ -839,7 +874,7 @@ engine = "claude"
 model = "x"
 wire_modell = "y"
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(/unrecognised key "wire_modell"/);
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_WIRE_MODEL_KEY);
   });
 });
 
@@ -955,22 +990,7 @@ model = "x"
   });
 
   test("a spec-full engine's trait is read from its own spec.toml", () => {
-    const specDir = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
-    writeFileSync(
-      join(specDir, "spec.toml"),
-      [
-        'kind = "comfy"',
-        'upstream = "self"',
-        'image = "x"',
-        'obtain = "pull"',
-        "serves = []",
-        "command = []",
-        "",
-        "[ready]",
-        'path = "/queue"',
-        "status = 200",
-      ].join("\n"),
-    );
+    const specDir = writeSpecDir(COMFY_SPEC_SELF_UPSTREAM);
     const toml = `
 ${LOCAL_UPSTREAM}
 [[engine]]
@@ -985,13 +1005,7 @@ engine = "comfy"
   });
 
   test("a spec-full engine whose spec omits upstream is fatal", () => {
-    const specDir = mkdtempSync(join(TEST_ROOT, "engined-spec-"));
-    writeFileSync(
-      join(specDir, "spec.toml"),
-      ['kind = "comfy"', 'image = "x"', 'obtain = "pull"', "serves = []", "command = []"].join(
-        "\n",
-      ),
-    );
+    const specDir = writeSpecDir(COMFY_SPEC_NO_UPSTREAM);
     const toml = `
 [[engine]]
 id = "comfy"

@@ -348,7 +348,7 @@ function parseRouteRaw(
   if (!engines.has(engineId)) {
     throw new ParseError(`${site} names unknown engine "${engineId}"`, file);
   }
-  if (modelStr !== undefined && modelStr.includes("/")) {
+  if (modelStr?.includes("/")) {
     throw new ParseError(
       `${site} has a "model" containing "/", which an address segment cannot express; give it a slash-free "model" and put the id its upstream actually knows in "wire_model"`,
       file,
@@ -386,7 +386,7 @@ function parseRouteRaw(
  * this one flat key needs, and engine parsing must finish before spec loading
  * (`engines.ts`'s `buildEntries`) ever starts.
  */
-function upstreamTraitFor(engine: EngineEntry, enginesRoot: string, file: string): UpstreamTrait {
+function upstreamTraitFor(engine: EngineEntry, enginesRoot: string): UpstreamTrait {
   if (engine.kind !== undefined) {
     return KIND_UPSTREAM_TRAIT[engine.kind];
   }
@@ -689,6 +689,10 @@ interface ChainCtx {
   file: string;
 }
 
+/** `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes. */
+const HOP_SEGMENTS_WITHOUT_UPSTREAM = 2;
+const HOP_SEGMENTS_WITH_UPSTREAM = 3;
+
 /** `seg.split("/")` on a hop stripped of its `@/` prefix -- `undefined` when the prefix itself is missing or nothing follows it. */
 function splitHopSegments(hop: string): string[] | undefined {
   if (!hop.startsWith("@/")) {
@@ -727,7 +731,12 @@ function parseChainHops(name: string, hops: readonly string[], ctx: ChainCtx): s
   const kept: string[] = [];
   for (const [i, hop] of hops.entries()) {
     const segs = splitHopSegments(hop);
-    if (!segs || (segs.length !== 2 && segs.length !== 3) || segs.some((s) => s === "")) {
+    if (
+      !segs ||
+      (segs.length !== HOP_SEGMENTS_WITHOUT_UPSTREAM &&
+        segs.length !== HOP_SEGMENTS_WITH_UPSTREAM) ||
+      segs.some((s) => s === "")
+    ) {
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}" is not a fully-qualified "@/<engine>/<model>" or "@/<engine>/<upstream>/<model>" hop`,
         file,
@@ -737,7 +746,7 @@ function parseChainHops(name: string, hops: readonly string[], ctx: ChainCtx): s
     const resolvedSegs = [resolvedEngine, ...segs.slice(1)];
     const route = findRouteForHop(resolvedSegs, routes);
     if (route === undefined) {
-      const model = segs[segs.length - 1];
+      const model = segs.at(-1);
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${resolvedEngine}"`,
         file,
@@ -813,23 +822,7 @@ function parseChains(raw: unknown, ctx: ChainCtx): Record<string, string[]> {
 export function loadConfig(path?: string, enginesRoot?: string): Config {
   const file = path ?? configPath();
   const root = enginesRoot ?? join(installDir(), "engines");
-
-  let text: string;
-  try {
-    text = readFileSync(file, "utf8");
-  } catch (err) {
-    throw new ParseError("cannot read config", file, { cause: err });
-  }
-
-  let raw: unknown;
-  try {
-    raw = Bun.TOML.parse(text);
-  } catch (err) {
-    throw new ParseError("invalid TOML", file, { cause: err });
-  }
-  if (!isRecord(raw)) {
-    throw new ParseError("config must be a table", file);
-  }
+  const raw = readConfigTable(file);
 
   const engines = asArray(raw.engine, "engine", file).map((e, i) => parseEngine(e, i, file));
   checkEngineCollisions(engines, file);
@@ -849,22 +842,12 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     parseRouteRaw(r, i, file, engineMap),
   );
 
-  const traitCache = new Map<string, UpstreamTrait>();
-  const traitFor = (engine: EngineEntry): UpstreamTrait => {
-    let t = traitCache.get(engine.id);
-    if (t === undefined) {
-      t = upstreamTraitFor(engine, root, file);
-      traitCache.set(engine.id, t);
-    }
-    return t;
-  };
-
   const routeCtx: RouteResolveCtx = {
     allRaws: rawRoutes,
     engines: engineMap,
     upstreams: upstreamMap,
     models: modelMap,
-    traitFor,
+    traitFor: cachedTraitFor(root),
     file,
   };
   const routes = rawRoutes.map((r) => resolveRoute(r, routeCtx));
@@ -877,6 +860,54 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   const chains = parseChains(raw.chain, { engines, routes, file });
 
   return {
+    ...parseTopLevelSettings(raw, file),
+    models,
+    engines,
+    upstreams,
+    routes,
+    chains,
+  };
+}
+
+/** The config file as a parsed TOML table; every read or parse failure is a ParseError naming the file. */
+function readConfigTable(file: string): Record<string, unknown> {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (err) {
+    throw new ParseError("cannot read config", file, { cause: err });
+  }
+
+  let raw: unknown;
+  try {
+    raw = Bun.TOML.parse(text);
+  } catch (err) {
+    throw new ParseError("invalid TOML", file, { cause: err });
+  }
+  if (!isRecord(raw)) {
+    throw new ParseError("config must be a table", file);
+  }
+  return raw;
+}
+
+/** A spec is read at most once per engine no matter how many routes name it. */
+function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => UpstreamTrait {
+  const cache = new Map<string, UpstreamTrait>();
+  return (engine) => {
+    let t = cache.get(engine.id);
+    if (t === undefined) {
+      t = upstreamTraitFor(engine, enginesRoot);
+      cache.set(engine.id, t);
+    }
+    return t;
+  };
+}
+
+function parseTopLevelSettings(
+  raw: Record<string, unknown>,
+  file: string,
+): Pick<Config, "listen_port" | "chat_timeout_seconds" | "agent_timeout_seconds"> {
+  return {
     listen_port:
       optional(raw.listen_port, "number", 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
     chat_timeout_seconds:
@@ -885,10 +916,5 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     agent_timeout_seconds:
       optional(raw.agent_timeout_seconds, "number", 'config "agent_timeout_seconds"', file) ??
       DEFAULT_AGENT_TIMEOUT_SECONDS,
-    models,
-    engines,
-    upstreams,
-    routes,
-    chains,
   };
 }
