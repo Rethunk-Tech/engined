@@ -1349,19 +1349,29 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
   });
 });
 
-/** An Anthropic-compatible Bearer gateway (OpenRouter-shaped): `secret.header` is `authorization`, not `x-api-key`. */
+/**
+ * An Anthropic-compatible Bearer gateway (OpenRouter-shaped): `secret.header`
+ * is `authorization`, not `x-api-key`. Carries `secret.scheme = "Bearer"`,
+ * same as the real config -- the CLI itself prepends "Bearer" to whatever
+ * ANTHROPIC_AUTH_TOKEN carries, so the redirect must hand it the raw value.
+ */
 function bearerGatewayUpstream(): Upstream {
   return {
     id: "openrouter",
     base_url: "https://openrouter.ai/api/v1",
-    secret: { service: "openrouter-api", username: "claude-code", header: "authorization" },
+    secret: {
+      service: "openrouter-api",
+      username: "claude-code",
+      header: "authorization",
+      scheme: "Bearer",
+    },
     egress: "remote",
     wire: "anthropic",
   };
 }
 
 describe("the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)", () => {
-  test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN and clears ANTHROPIC_API_KEY -- an unset var and an empty one are not the same thing', async () => {
+  test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN to the RAW value even though secret.scheme is "Bearer" -- the CLI prepends its own, so redirectEnv must not double it', async () => {
     clearVerifiedVersion("claude");
     const root = redirectDoorRoot();
     const cfg = config({

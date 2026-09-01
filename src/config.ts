@@ -70,6 +70,7 @@ const ENGINE_KEYS = new Set([
   "args",
 ]);
 const UPSTREAM_KEYS = new Set(["id", "base_url", "secret", "egress", "wire", "disable"]);
+const SECRET_KEYS = new Set(["service", "username", "header", "scheme"]);
 const MODEL_KEYS = new Set(["id", "input", "output", "context_in", "context_out", "reasoning"]);
 const ROUTE_KEYS = new Set([
   "engine",
@@ -158,10 +159,16 @@ function parseSecret(v: unknown, site: string, file: string): SecretRef {
   if (!isRecord(v)) {
     throw new ParseError(`${site} "secret" must be a table`, file);
   }
+  for (const key of Object.keys(v)) {
+    if (!SECRET_KEYS.has(key)) {
+      throw new ParseError(`${site} "secret" has unrecognised key "${key}"`, file);
+    }
+  }
   return {
     service: requireString(v.service, `${site} "secret.service"`, file),
     username: requireString(v.username, `${site} "secret.username"`, file),
     header: requireString(v.header, `${site} "secret.header"`, file),
+    scheme: optional(v.scheme, "string", `${site} "secret.scheme"`, file),
   };
 }
 

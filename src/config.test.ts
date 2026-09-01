@@ -271,6 +271,56 @@ ${workedConfig()}
   expect(ornithRoute?.output).toEqual(["text"]);
 });
 
+test('a secret\'s own "scheme" parses through onto the upstream, and stays absent where undeclared', () => {
+  const toml = `
+${workedConfig()}
+`;
+  const cfg = loadConfig(writeConfig(toml));
+  // "moonshot" (x-api-key) declares no scheme in workedConfig() -- absent means raw.
+  expect(cfg.upstreams.find((u) => u.id === "moonshot")?.secret?.scheme).toBeUndefined();
+});
+
+test('a secret\'s own "scheme" parses through as declared', () => {
+  const toml = `
+[[upstream]]
+id       = "hosted"
+base_url = "https://x"
+secret   = { service = "s", username = "u", header = "authorization", scheme = "Bearer" }
+egress   = "remote"
+
+[[engine]]
+id   = "hosted-llama"
+kind = "openai-http"
+
+[[route]]
+engine   = "hosted-llama"
+upstream = "hosted"
+model    = "x"
+`;
+  const cfg = loadConfig(writeConfig(toml));
+  expect(cfg.upstreams.find((u) => u.id === "hosted")?.secret?.scheme).toBe("Bearer");
+});
+
+test("a secret table rejects an unrecognised key rather than dropping it silently", () => {
+  const toml = `
+[[upstream]]
+id       = "hosted"
+base_url = "https://x"
+secret   = { service = "s", username = "u", header = "h", schema = "Bearer" }
+egress   = "remote"
+
+[[engine]]
+id   = "hosted-llama"
+kind = "openai-http"
+
+[[route]]
+engine   = "hosted-llama"
+upstream = "hosted"
+model    = "x"
+`;
+  expect(() => loadConfig(writeConfig(toml))).toThrow(/"secret" has unrecognised key "schema"/);
+});
+
 test("a disabled engine keeps its entry, marked, and its routes drop", () => {
   const toml = workedConfig().replace(
     'id            = "claude"\nkind          = "agentic-cli"',

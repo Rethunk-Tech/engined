@@ -130,6 +130,8 @@ export interface SecretRef {
   service: string;
   username: string;
   header: string;
+  /** The auth scheme prefix a provider expects before the credential, e.g. "Bearer". Absent means the header carries the raw value. */
+  scheme?: string;
 }
 
 /**

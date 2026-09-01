@@ -66,6 +66,29 @@ test("resolveUpstream projects the secret into exactly the header config named",
   expect(resolution.endpoint.base_url).toBe("https://api.elevenlabs.io/v1");
 });
 
+test("a secret naming a scheme sends it as a prefix, with exactly one space", async () => {
+  const resolution = await resolveUpstream(
+    elevenlabsUpstream({
+      secret: { service: "svc", username: "user", header: "authorization", scheme: "Bearer" },
+    }),
+    foundSecret,
+  );
+  expect(resolution.ok).toBe(true);
+  if (!resolution.ok) {
+    return;
+  }
+  expect(resolution.endpoint.headers).toEqual({ authorization: `Bearer ${SECRET_VALUE}` });
+});
+
+test("a secret naming no scheme sends the raw value, unprefixed", async () => {
+  const resolution = await resolveUpstream(elevenlabsUpstream(), foundSecret);
+  expect(resolution.ok).toBe(true);
+  if (!resolution.ok) {
+    return;
+  }
+  expect(resolution.endpoint.headers).toEqual({ "xi-api-key": SECRET_VALUE });
+});
+
 test("an upstream with no secret is a 502 -- misconfigured, not merely unavailable", async () => {
   const resolution = await resolveUpstream(elevenlabsUpstream({ secret: undefined }), foundSecret);
   expect(resolution.ok).toBe(false);

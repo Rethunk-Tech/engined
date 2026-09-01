@@ -24,7 +24,7 @@ import type { Upstream } from "./types.ts";
 export interface UpstreamEndpoint {
   /** The configured `base_url`, verbatim — engined writes no port for anything but this. */
   base_url: string;
-  /** `{ [secret.header]: <resolved value> }`. One header, named by config. */
+  /** `{ [secret.header]: <resolved value>, or "<scheme> <resolved value>" when the secret names one }`. One header, named by config. */
   headers: Record<string, string>;
 }
 
@@ -32,9 +32,9 @@ type UpstreamResolution =
   | { ok: true; endpoint: UpstreamEndpoint }
   | { ok: false; status: number; error: string };
 
-/** `header` rides along so a caller never has to reach back into `upstream.secret` the resolver already validated. */
+/** `header` and `scheme` ride along so a caller never has to reach back into `upstream.secret` the resolver already validated. */
 type SecretResolution =
-  | { ok: true; value: string; header: string }
+  | { ok: true; value: string; header: string; scheme?: string }
   | { ok: false; status: number; error: string };
 
 const TRAILING_SLASHES = /\/+$/;
@@ -74,7 +74,12 @@ export async function resolveUpstreamSecret(
   }
   const outcome = await resolveSecret(upstream.secret, secretExec);
   return outcome.ok
-    ? { ok: true, value: outcome.value, header: upstream.secret.header }
+    ? {
+        ok: true,
+        value: outcome.value,
+        header: upstream.secret.header,
+        scheme: upstream.secret.scheme,
+      }
     : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix };
 }
 
@@ -100,7 +105,10 @@ export async function resolveUpstream(
     ok: true,
     endpoint: {
       base_url: upstream.base_url,
-      headers: { [resolved.header]: resolved.value },
+      headers: {
+        [resolved.header]:
+          resolved.scheme === undefined ? resolved.value : `${resolved.scheme} ${resolved.value}`,
+      },
     },
   };
 }
