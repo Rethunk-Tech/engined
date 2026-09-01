@@ -314,6 +314,8 @@ export interface RunAgenticResult {
    * upstream 5xx does.
    */
   envelopeFailure: boolean;
+  /** The tail of what the CLI wrote to stderr when its envelope could not be read -- the only place a launch that never answered explains itself. */
+  stderrTail?: string;
   /** The pin actually embedded in the launched argv. Absent when no process was spawned (the workdir-required 400). */
   version?: string;
 }
@@ -427,6 +429,7 @@ async function spawnAndParse(
     failure: outcome.failure,
     envelopeFailure: !outcome.ok,
     version: input.agentVersion,
+    stderrTail: outcome.ok ? undefined : stderrTail(spawned.stderr),
   };
 }
 
@@ -575,6 +578,14 @@ function wroteNothing(outcome: RunAgenticResult, floor: FloorKind, unchanged: bo
   return floor === "sandbox" ? outcome.version !== undefined : outcome.ok;
 }
 
+const STDERR_TAIL_CHARS = 300;
+
+/** Whitespace-collapsed last few hundred characters: enough to name the fault, bounded so a fix line stays a line. */
+function stderrTail(stderr: string): string | undefined {
+  const flat = stderr.replace(/\s+/g, " ").trim();
+  return flat === "" ? undefined : flat.slice(-STDERR_TAIL_CHARS);
+}
+
 const WRITE_INSTRUCTION =
   "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.";
 
@@ -616,7 +627,7 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
     return {
       ok: false,
       detail: unchanged
-        ? `launch answered ${outcome.status}: ${outcome.failure ?? outcome.result ?? "no result"}`
+        ? `launch answered ${outcome.status}: ${outcome.failure ?? outcome.result ?? "no result"}${outcome.stderrTail === undefined ? "" : ` (stderr: ${outcome.stderrTail})`}`
         : `worktree changed: ${listTree(workdir).join(", ")}`,
     };
   } finally {
