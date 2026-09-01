@@ -79,7 +79,7 @@ once at startup. See [docs/configuration.md](docs/configuration.md).
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
 ```sh
-curl -s -X POST localhost:29200/engined/v1/engines/local-llama/start | jq
+curl -s -X POST localhost:29200/engined/v1/engines/llama/start | jq
 ```
 
 ## Troubleshoot
