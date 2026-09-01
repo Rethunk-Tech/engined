@@ -376,6 +376,9 @@ model  = "composer-2.5"
 id                = "chatterbox"
 idle_stop_seconds = 1800
 # No models_dir: chatterbox's weights are baked into its image at build time.
+# Cold start to first audio measures ~41s against the 60s default, and that
+# margin is what a sibling engine's GPU load eats first.
+ready_timeout_s   = 90
 
 [[route]]
 engine   = "chatterbox"
@@ -390,6 +393,8 @@ upstream = "local"
 [[engine]]
 id                = "chatterbox-fast"
 idle_stop_seconds = 1800
+# ~29s cold start; same reasoning as chatterbox above.
+ready_timeout_s   = 90
 
 [[route]]
 engine   = "chatterbox-fast"
@@ -486,6 +491,19 @@ id                = "comfy"
 # -- never at a raw container address, and never dispatched to by a model id.
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
+
+# Comfy's default residency policy evicts a resident checkpoint once others
+# are loaded on top, even with 127 of 133 GB free -- and the fragmentation
+# bookkeeping that costs a reload also emits spurious allocator OOM warnings
+# with tens of GB genuinely available. Both live only on the non-highvram
+# path. A consumer that alternates image and video work in one job pays the
+# reload every time it switches back.
+#
+# Keep an [engine.args] table LAST in its block: every bare key after it
+# belongs to the table, not to the engine, so a following idle_stop_seconds
+# silently becomes an argv flag for the child process instead.
+[engine.args]
+highvram = true
 
 [[route]]
 engine   = "comfy"
