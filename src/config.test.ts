@@ -661,6 +661,72 @@ model = "x"
   });
 });
 
+describe("wire_model: the address segment vs. the id the upstream knows", () => {
+  test('a "model" containing "/" is a ParseError naming the offending route', () => {
+    const message = parseMessage(`
+[[upstream]]
+id = "hosted"
+base_url = "https://x"
+egress = "remote"
+
+[[engine]]
+id = "openrouter"
+kind = "openai-http"
+
+[[route]]
+engine = "openrouter"
+upstream = "hosted"
+model = "z-ai/glm-5.2:free"
+`);
+    expect(message).toContain('route[0] on engine "openrouter"');
+    expect(message).toContain("/");
+    expect(message).toContain("wire_model");
+  });
+
+  test('"wire_model" survives parsing distinct from "model", and is absent when not configured', () => {
+    const toml = `
+[[upstream]]
+id = "hosted"
+base_url = "https://x"
+egress = "remote"
+
+[[engine]]
+id = "openrouter"
+kind = "openai-http"
+
+[[route]]
+engine = "openrouter"
+upstream = "hosted"
+model = "glm-5.2:free"
+wire_model = "z-ai/glm-5.2:free"
+
+[[route]]
+engine = "openrouter"
+upstream = "hosted"
+model = "plain"
+`;
+    const cfg = loadConfig(writeConfig(toml));
+    const withWire = cfg.routes.find((r) => r.model === "glm-5.2:free");
+    expect(withWire?.wire_model).toBe("z-ai/glm-5.2:free");
+    const plain = cfg.routes.find((r) => r.model === "plain");
+    expect(plain?.wire_model).toBeUndefined();
+  });
+
+  test('an unrecognised route key is still rejected -- "wire_model" did not widen the closed set', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "x"
+wire_modell = "y"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/unrecognised key "wire_modell"/);
+  });
+});
+
 describe("upstream defaulting by trait", () => {
   test('a route naming no upstream on an "optional"-trait (agentic-cli) engine is ambient', () => {
     const toml = `

@@ -74,6 +74,7 @@ const MODEL_KEYS = new Set(["id", "input", "output", "context_in", "context_out"
 const ROUTE_KEYS = new Set([
   "engine",
   "model",
+  "wire_model",
   "upstream",
   "filename",
   "role",
@@ -305,6 +306,7 @@ function parseModel(raw: unknown, index: number, file: string): ModelEntry {
 interface RawRoute {
   engine: string;
   model?: string;
+  wire_model?: string;
   declaredUpstream?: string;
   filename?: string;
   role?: Role;
@@ -336,6 +338,13 @@ function parseRouteRaw(
   if (!engines.has(engineId)) {
     throw new ParseError(`${site} names unknown engine "${engineId}"`, file);
   }
+  if (modelStr !== undefined && modelStr.includes("/")) {
+    throw new ParseError(
+      `${site} has a "model" containing "/", which an address segment cannot express; give it a slash-free "model" and put the id its upstream actually knows in "wire_model"`,
+      file,
+    );
+  }
+  const wireModel = optional(raw.wire_model, "string", `${site} "wire_model"`, file);
   const rawFilename = optional(raw.filename, "string", `${site} "filename"`, file);
   const roleStr = optional(raw.role, "string", `${site} "role"`, file);
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {
@@ -346,6 +355,7 @@ function parseRouteRaw(
   return {
     engine: engineId,
     model: modelStr,
+    wire_model: wireModel,
     declaredUpstream: optional(raw.upstream, "string", `${site} "upstream"`, file),
     filename: rawFilename === undefined ? undefined : expandConfigPath(rawFilename),
     role: roleStr as Role | undefined,
@@ -495,6 +505,7 @@ function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
   return {
     engine: raw.engine,
     model: raw.model,
+    wire_model: raw.wire_model,
     upstream: upstreamId,
     filename: raw.filename,
     role: raw.role,

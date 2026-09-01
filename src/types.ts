@@ -176,6 +176,8 @@ export interface ResolvedRoute extends ModelCapabilities {
   engine: string;
   /** Absent on a MODELLESS route (comfy, and every media engine): this engine runs on this upstream and nothing more. */
   model?: string;
+  /** The id the upstream knows this model by, when that differs from the name it is addressed by. Sent on the wire in place of `model` whenever present. */
+  wire_model?: string;
   /** `null` === ambient: no upstream, the CLI's own login. Egress is `"remote"`. */
   upstream: string | null;
   /** Absent by construction whenever `upstream` is not `"local"`: a route proxied elsewhere has no local file to describe. */
