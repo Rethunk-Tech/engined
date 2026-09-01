@@ -241,6 +241,74 @@ describe("disabled engines", () => {
     reg.reload(config({ engines: [engine({ id: "llama", disabled: true })] }));
     expect(lifecycle.removed).toEqual(["llama"]);
   });
+
+  test("a reload that repoints an engine's route away from local tears its container down without changing its id", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const lifecycle = new RemovalSpy(OK_EXEC);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "llama" })],
+        upstreams: [upstream({ id: "peer", egress: "lan" })],
+        routes: [route({ engine: "llama", model: "m", upstream: "local" })],
+      }),
+      root,
+      { lifecycle },
+    );
+
+    // The id diff alone would miss this: "llama" survives into the new
+    // config unchanged, and only its route's own upstream moved.
+    reg.reload(
+      config({
+        engines: [engine({ id: "llama" })],
+        upstreams: [upstream({ id: "peer", egress: "lan" })],
+        routes: [route({ engine: "llama", model: "m", upstream: "peer" })],
+      }),
+    );
+
+    expect(lifecycle.removed).toEqual(["llama"]);
+  });
+
+  test("a reload that keeps an engine's local binding does not tear its container down", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const lifecycle = new RemovalSpy(OK_EXEC);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "llama" })],
+        routes: [route({ engine: "llama", model: "m", upstream: "local" })],
+      }),
+      root,
+      { lifecycle },
+    );
+
+    reg.reload(
+      config({
+        engines: [engine({ id: "llama", idle_stop_seconds: 42 })],
+        routes: [route({ engine: "llama", model: "m", upstream: "local" })],
+      }),
+    );
+
+    expect(lifecycle.removed).toEqual([]);
+  });
+
+  // The bindings-only failure this delivery exists to avoid: an engine with
+  // no routes at all (comfy, sometimes) has no binding either way, so a
+  // rule that merged the id-diff and binding checks into one would stop
+  // managing it silently the moment it had zero routes -- still typechecking,
+  // still constructing, and never torn down or reported missing.
+  test("an engine with no routes at all has no binding to lose, and an unrelated reload does not spuriously tear it down", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama", PULLED_CONTAINER);
+    const lifecycle = new RemovalSpy(OK_EXEC);
+    const reg = registry(config({ engines: [engine({ id: "llama" })], routes: [] }), root, {
+      lifecycle,
+    });
+
+    reg.reload(config({ engines: [engine({ id: "llama", idle_stop_seconds: 42 })], routes: [] }));
+
+    expect(lifecycle.removed).toEqual([]);
+  });
 });
 
 describe("unavailable engines", () => {

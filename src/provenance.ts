@@ -19,6 +19,8 @@ export interface Attempt {
   model_resident?: string;
   /** The pin that actually launched, for an agentic attempt only. Absent, never an empty string, for every other kind. */
   version?: string;
+  /** This hop's resolved `[[upstream]]` id, or `"local"`. Absent for an ambient hop, which named no upstream at all. */
+  upstream_used?: string;
 }
 
 export interface CallRecord {
@@ -26,6 +28,8 @@ export interface CallRecord {
   requested: string;
   attempts: Attempt[];
   engine_used: string | null;
+  /** The upstream of the attempt that actually answered. `null` alongside `engine_used: null` — nothing answered. */
+  upstream_used: string | null;
 }
 
 function writeToStdout(line: string): void {
@@ -48,6 +52,7 @@ function serializeAttempt(attempt: Attempt): Attempt {
     model_reported: attempt.model_reported,
     model_resident: attempt.model_resident,
     version: attempt.version,
+    upstream_used: attempt.upstream_used,
   };
 }
 
@@ -61,6 +66,7 @@ export function recordCall(
       requested: record.requested,
       attempts: record.attempts.map(serializeAttempt),
       engine_used: record.engine_used,
+      upstream_used: record.upstream_used,
     }),
   );
 }

@@ -30,6 +30,7 @@ test("recordCall: one call with three attempts emits exactly one line carrying a
       { engine: "llama-c", model: "chat", ok: true, duration_ms: DURATION_C_MS },
     ],
     engine_used: "llama-c",
+    upstream_used: null,
   };
 
   recordCall(record, write);
@@ -58,6 +59,7 @@ test("recordCall: model_reported and model_resident survive as distinct fields w
       },
     ],
     engine_used: "llama-a",
+    upstream_used: null,
   };
 
   recordCall(record, write);
@@ -78,6 +80,7 @@ test("recordCall: an agentic attempt's version equals the pin that was launched;
       { engine: "llama-a", model: "chat", ok: true, duration_ms: DURATION_B_MS },
     ],
     engine_used: "claude",
+    upstream_used: null,
   };
 
   recordCall(record, write);
@@ -103,6 +106,7 @@ test("recordCall: each attempt carries its own duration_ms", () => {
       { engine: "llama-b", model: "chat", ok: true, duration_ms: DURATION_B_MS },
     ],
     engine_used: "llama-b",
+    upstream_used: null,
   };
 
   recordCall(record, write);
@@ -128,6 +132,7 @@ test("recordCall: a secret spread onto an attempt is dropped from the emitted li
     requested: "@/chat/default",
     attempts: [tainted],
     engine_used: null,
+    upstream_used: null,
   };
 
   recordCall(record, write);
@@ -136,4 +141,33 @@ test("recordCall: a secret spread onto an attempt is dropped from the emitted li
   expect(lines[0]).not.toContain("sk-super-secret");
   expect(lines[0]).not.toContain("authorization");
   expect(lines[0]).not.toContain("api_key");
+});
+
+// serializeAttempt and recordCall each pick named fields off their own
+// allowlist, so a field written onto Attempt but not onto CallRecord (or the
+// reverse) is silently dropped rather than a type error -- this is the one
+// place both are checked emitting the SAME line.
+test("recordCall: upstream_used survives serialization on both the attempt and the call record", () => {
+  const { lines, write } = collectLines();
+  const record: CallRecord = {
+    chain: null,
+    requested: "@/claude/kimi-k3",
+    attempts: [
+      {
+        engine: "claude",
+        model: "kimi-k3",
+        ok: true,
+        duration_ms: DURATION_A_MS,
+        upstream_used: "moonshot",
+      },
+    ],
+    engine_used: "claude",
+    upstream_used: "moonshot",
+  };
+
+  recordCall(record, write);
+
+  const parsed = JSON.parse(lines[0] ?? "");
+  expect(parsed.attempts[0].upstream_used).toBe("moonshot");
+  expect(parsed.upstream_used).toBe("moonshot");
 });

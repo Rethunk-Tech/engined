@@ -1333,6 +1333,8 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
     expect(env.ANTHROPIC_MODEL).toBe("kimi-k3");
     expect("GITHUB_TOKEN" in env).toBe(false);
     expect(Object.values(env)).not.toContain("ghp_leaked_repo_scope");
+    // secret.header "x-api-key": the Bearer variable is never set.
+    expect("ANTHROPIC_AUTH_TOKEN" in env).toBe(false);
 
     // The full floor is still present in argv, all three flags individually.
     expect(argv).toContain("--safe-mode");
@@ -1343,6 +1345,65 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
 
     // The resolved secret appears nowhere in argv.
     expect(argv.some((a) => a.includes("kimi-secret-value"))).toBe(false);
+    clearVerifiedVersion("claude");
+  });
+});
+
+/** An Anthropic-compatible Bearer gateway (OpenRouter-shaped): `secret.header` is `authorization`, not `x-api-key`. */
+function bearerGatewayUpstream(): Upstream {
+  return {
+    id: "openrouter",
+    base_url: "https://openrouter.ai/api/v1",
+    secret: { service: "openrouter-api", username: "claude-code", header: "authorization" },
+    egress: "remote",
+    wire: "anthropic",
+  };
+}
+
+describe("the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)", () => {
+  test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN and clears ANTHROPIC_API_KEY -- an unset var and an empty one are not the same thing', async () => {
+    clearVerifiedVersion("claude");
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      upstreams: [bearerGatewayUpstream()],
+      routes: [route({ engine: "claude", upstream: "openrouter", model: "sonnet-5" })],
+    });
+    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+    const spawn: AgenticSpawn = (spawnArgv, opts) => {
+      spawnCalls.push({ argv: spawnArgv, env: opts.env });
+      return Promise.resolve({
+        stdout: '{"is_error":false,"result":"answered via openrouter"}',
+        stderr: "",
+        exitCode: 0,
+      });
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      {
+        agenticSpawn: spawn,
+        secretExec: fakeExec("or-secret-value"),
+        write: () => undefined,
+      },
+    );
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/sonnet-5",
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    const { env } = spawnCalls[0] ?? { env: {} as Record<string, string> };
+
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://openrouter.ai/api/v1");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("or-secret-value");
+    // Present and empty, not absent: an unset ANTHROPIC_API_KEY leaves the
+    // CLI defaulting to x-api-key, which 401s against a Bearer-only gateway.
+    expect("ANTHROPIC_API_KEY" in env).toBe(true);
+    expect(env.ANTHROPIC_API_KEY).toBe("");
     clearVerifiedVersion("claude");
   });
 });
@@ -1770,5 +1831,40 @@ describe("the launch-scoped door", () => {
         process.env.ENGINED_BWRAP = previousBwrap;
       }
     }
+  });
+});
+
+describe("GET /openai/v1/models: an agentic engine's per-route state factors in that route's own upstream secret", () => {
+  test("the ambient route reports installed; the route keyed to an upstream with no configured secret reports unavailable", async () => {
+    clearVerifiedVersion("claude");
+    const root = redirectDoorRoot();
+    const cfg = config({
+      engines: [claudeEngine()],
+      upstreams: [moonshotUpstream()],
+      routes: [
+        route({ engine: "claude", model: "sonnet-5", upstream: null }),
+        route({ engine: "claude", model: "k3", upstream: "moonshot" }),
+      ],
+    });
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { secretExec: fakeExec(undefined), write: () => undefined },
+    );
+    const res = await door.fetch(new Request("http://engined/openai/v1/models"));
+    const body = (await res.json()) as { data: { id: string; state: string }[] };
+    const ambient = body.data.find((r) => r.id === "@/claude/sonnet-5");
+    // Different models on the one engine (not sibling routes on the SAME
+    // model), so each keeps the plain two-segment id -- modelRowId only
+    // reaches for the three-segment form when two routes share a model.
+    const keyed = body.data.find((r) => r.id === "@/claude/k3");
+
+    // The one proof this engine's pin carries -- the read-only floor -- is
+    // upstream-independent, so both routes start from the same base state.
+    // Only the keyed route's OWN secret resolution can pull it down from
+    // there; the ambient probe passing does not vouch for it.
+    expect(ambient?.state).toBe("installed");
+    expect(keyed?.state).toBe("unavailable");
+    clearVerifiedVersion("claude");
   });
 });

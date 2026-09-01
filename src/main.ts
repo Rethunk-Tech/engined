@@ -66,6 +66,7 @@ import {
   type Egress,
   type EngineEntry,
   type EngineKind,
+  type EngineState,
   type EngineStatus,
   errMessage,
   FatalError,
@@ -563,11 +564,15 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
 }
 
 /**
- * `x-api-key` (`ANTHROPIC_API_KEY`) is Kimi's own coding endpoint's required
- * auth header; `ANTHROPIC_AUTH_TOKEN` 401s against it, so this is the
- * mechanism `secret.header` names, not a free choice. Keys minted for this
- * endpoint are further scoped to api.kimi.com/coding/ and are rejected
- * against the general api.moonshot.ai platform — a different service.
+ * `secret.header` is what actually decides which env var carries the key --
+ * not a free choice, and not always `ANTHROPIC_API_KEY`. `x-api-key` (Kimi's
+ * own coding endpoint's required header) is `ANTHROPIC_API_KEY` verbatim, the
+ * CLI's own default. `authorization` (an Anthropic-compatible Bearer gateway,
+ * e.g. OpenRouter) is `ANTHROPIC_AUTH_TOKEN` -- and `ANTHROPIC_API_KEY` must
+ * still be set, to the EMPTY STRING, because an unset var and an empty one
+ * behave differently: unset, the CLI falls back to sending `x-api-key` and
+ * the gateway 401s every request. Measured against `~/.local/bin/claude-openrouter`
+ * on this box.
  *
  * Every model tier is pointed at the same `model`, so nothing silently
  * falls back to an Anthropic-named tier this endpoint does not serve. The
@@ -577,13 +582,16 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
  */
 function redirectEnv(
   baseUrl: string,
+  secretHeader: string,
   apiKey: string,
   model: string | undefined,
   doorUrl: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: baseUrl,
-    ANTHROPIC_API_KEY: apiKey,
+    ...(secretHeader === "authorization"
+      ? { ANTHROPIC_AUTH_TOKEN: apiKey, ANTHROPIC_API_KEY: "" }
+      : { ANTHROPIC_API_KEY: apiKey }),
     // The launch-scoped door: closes the recursion hazard this agent's own
     // network reach into engined otherwise opens. Carried alongside the
     // real redirect rather than in place of it -- this agent's own
@@ -661,7 +669,7 @@ export async function resolveRedirect(
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
   const model = resolveUpstreamModelId(config, engineId, modelSeg);
-  return { ok: true, env: redirectEnv(base_url, resolved.value, model, doorUrl) };
+  return { ok: true, env: redirectEnv(base_url, resolved.header, resolved.value, model, doorUrl) };
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
@@ -873,46 +881,66 @@ function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean):
     const { engine: seg, model: modelSeg } = parseHop(hop);
     const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
     const kind = ctx.registry.get(engineId)?.kind;
-    // Keyed on the RESOLVED engine, never the caller's literal model string:
-    // a one-segment address that resolves to an agentic route is the same
-    // attack as naming that engine outright, and refusing only the literal
-    // spelling would miss it. `envelopeFailure: true` is what keeps this a
-    // clean terminal refusal rather than advancing: 403 is otherwise one of
-    // the credential-shaped statuses `classifyResult` advances past, and this
-    // is a proven refusal, not a transport hiccup a next hop might route
-    // around.
-    if (launchScoped && kind === "agentic-cli") {
-      return {
-        status: STATUS_FORBIDDEN,
-        envelopeFailure: true,
-        body: jsonErrorBody(
-          `engine "${engineId}" is agentic and cannot be reached from a launch-scoped door`,
-        ),
-      };
-    }
-    if (kind === "agentic-cli") {
-      return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
-    }
-    const engineEntry = ctx.registry.entry(engineId);
     // Which of the two openai-http proxies applies is the resolved route's
     // question, not the engine's: `upstream === "local"` is this box's own
     // llama-server, anything else is proxied elsewhere with no local router.
+    // Also this hop's provenance `upstream_used` -- absent for an ambient
+    // route, which named no upstream at all.
     const route = findModelOnEngine(ctx.getConfig().routes, engineId, modelSeg);
-    if (
-      kind === "openai-http" &&
-      engineEntry &&
-      route !== undefined &&
-      route.upstream !== "local"
-    ) {
-      return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
-    }
-    if (kind === "openai-http" && engineEntry) {
-      return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
-    }
+    const upstreamUsed = route?.upstream ?? undefined;
+    const result = await execHop(ctx, req, {
+      engineId,
+      modelSeg,
+      kind,
+      route,
+      launchScoped,
+      signal,
+    });
+    return { ...result, upstreamUsed };
+  };
+}
+
+interface HopDispatch {
+  engineId: string;
+  modelSeg: string;
+  kind: EngineKind | undefined;
+  route: ResolvedRoute | undefined;
+  launchScoped: boolean;
+  signal: AbortSignal;
+}
+
+async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promise<HopResult> {
+  const { engineId, modelSeg, kind, route, launchScoped, signal } = d;
+  // Keyed on the RESOLVED engine, never the caller's literal model string:
+  // a one-segment address that resolves to an agentic route is the same
+  // attack as naming that engine outright, and refusing only the literal
+  // spelling would miss it. `envelopeFailure: true` is what keeps this a
+  // clean terminal refusal rather than advancing: 403 is otherwise one of
+  // the credential-shaped statuses `classifyResult` advances past, and this
+  // is a proven refusal, not a transport hiccup a next hop might route
+  // around.
+  if (launchScoped && kind === "agentic-cli") {
     return {
-      status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineId}" of kind "${kind}" cannot serve this request`),
+      status: STATUS_FORBIDDEN,
+      envelopeFailure: true,
+      body: jsonErrorBody(
+        `engine "${engineId}" is agentic and cannot be reached from a launch-scoped door`,
+      ),
     };
+  }
+  if (kind === "agentic-cli") {
+    return await execAgentic(ctx, engineId, modelSeg, { rawBody: req.rawBody, signal });
+  }
+  const engineEntry = ctx.registry.entry(engineId);
+  if (kind === "openai-http" && engineEntry && route !== undefined && route.upstream !== "local") {
+    return await execRemoteHttp(ctx, engineEntry, modelSeg, { ...req, signal });
+  }
+  if (kind === "openai-http" && engineEntry) {
+    return await execLlama(ctx, engineEntry, modelSeg, { ...req, signal });
+  }
+  return {
+    status: STATUS_BAD_GATEWAY,
+    body: jsonErrorBody(`engine "${engineId}" of kind "${kind}" cannot serve this request`),
   };
 }
 
@@ -1047,6 +1075,9 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
           },
         ],
         engine_used: ok ? engineId : null,
+        // Audio provenance does not resolve or track an upstream id today --
+        // this is the chat/agentic path's field.
+        upstream_used: null,
       },
       ctx.doorOpts.write,
     );
@@ -1478,13 +1509,46 @@ function modelRowId(route: ResolvedRoute, siblingCount: number): string {
   return `@/${route.engine}/${route.model}`;
 }
 
-function modelRow(
+/**
+ * The engine-wide agentic proof (`EngineStatus.state`) only ever vouches for
+ * the read-only floor -- a guarantee the pin carries regardless of which
+ * upstream a route redirects to, so one proof legitimately covers every
+ * route on the engine. A route's own resolvable-address question does not:
+ * `@/claude/openrouter/sonnet-5` with no configured secret would otherwise
+ * report `installed` right alongside a proven ambient route and fail on the
+ * first real request. Checked here, per row, never folded into the shared
+ * engine-wide state.
+ */
+async function agenticRouteState(
+  ctx: DoorContext,
+  route: ResolvedRoute,
+  engineState: EngineState,
+): Promise<EngineState> {
+  if (
+    engineState !== "installed" ||
+    route.upstream === null ||
+    route.upstream === "local" ||
+    ctx.registry.get(route.engine)?.kind !== "agentic-cli"
+  ) {
+    return engineState;
+  }
+  const upstream = ctx.getConfig().upstreams.find((u) => u.id === route.upstream);
+  if (upstream === undefined) {
+    return "unavailable";
+  }
+  const resolved = await resolveUpstreamSecret(upstream, ctx.doorOpts.secretExec);
+  return resolved.ok ? engineState : "unavailable";
+}
+
+async function modelRow(
+  ctx: DoorContext,
   route: ResolvedRoute,
   siblingCount: number,
   config: Config,
   statuses: ReadonlyMap<string, EngineStatus>,
-): ModelRow {
+): Promise<ModelRow> {
   const status = statuses.get(route.engine);
+  const state = await agenticRouteState(ctx, route, status?.state ?? "unavailable");
   return {
     id: modelRowId(route, siblingCount),
     engine: route.engine,
@@ -1493,7 +1557,7 @@ function modelRow(
     egress: routeEgress(route, config.upstreams),
     streaming: status?.streaming ?? false,
     serves: status?.serves ?? [],
-    state: status?.state ?? "unavailable",
+    state,
     capabilities: routeCapabilities(route),
   };
 }
@@ -1554,7 +1618,7 @@ async function modelsMenu(ctx: DoorContext): Promise<Response> {
         : config.routes.filter(
             (r) => !r.disabled && r.engine === route.engine && r.model === route.model,
           ).length;
-    rows.push(modelRow(route, siblingCount, config, statuses));
+    rows.push(await modelRow(ctx, route, siblingCount, config, statuses));
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
     rows.push(chainRow(chainId, hops, config, statuses));

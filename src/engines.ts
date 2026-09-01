@@ -148,6 +148,11 @@ function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
   return kind === "openai-http" && engine.models_dir !== undefined;
 }
 
+/** Whether any of this engine's own routes resolve to THIS box's own upstream -- the fact `reload`'s second pass keys a container teardown on. An engine with no routes at all (comfy, sometimes) has no binding either way. */
+function hasLocalBinding(engineId: string, routes: readonly ResolvedRoute[]): boolean {
+  return routes.some((r) => r.engine === engineId && r.upstream === "local");
+}
+
 /**
  * The read-only floor is version-specific, so a proved version is only
  * proof for that version. One file per engine, mirroring the local-llama
@@ -993,6 +998,25 @@ export class EngineRegistry {
     const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id));
     for (const old of this.entries) {
       if (!newIds.has(old.engine.id)) {
+        this.lifecycle.removeEngine(old.engine.id).catch(() => undefined);
+      }
+    }
+    // A second, independent pass: an engine present in BOTH configs -- the
+    // id diff above only catches an add or a remove -- whose LOCAL binding
+    // changed. Repointing llama's own routes away from "local" changes no
+    // engine id, so nothing else would notice its container is now
+    // orphaned, with nothing routed to it on this box. Never merged with
+    // the id-diff pass: an engine with no routes at all (comfy, sometimes)
+    // has no binding either way, so a bindings-only rule would silently
+    // stop managing it while still typechecking -- exactly the failure
+    // class this delivery removes elsewhere.
+    for (const old of this.entries) {
+      if (!newIds.has(old.engine.id)) {
+        continue;
+      }
+      const hadLocal = hasLocalBinding(old.engine.id, this.config.routes);
+      const hasLocal = hasLocalBinding(old.engine.id, config.routes);
+      if (hadLocal && !hasLocal) {
         this.lifecycle.removeEngine(old.engine.id).catch(() => undefined);
       }
     }

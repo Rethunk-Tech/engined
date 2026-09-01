@@ -34,6 +34,8 @@ export interface HopResult {
   modelResident?: string;
   /** Set only by an agentic hop, from the version that actually launched. Passed straight to the attempt's `version`; absent for every other hop kind. */
   version?: string;
+  /** This hop's resolved upstream id, or `"local"`. Absent for an ambient hop. Passed straight to the attempt's `upstream_used`. */
+  upstreamUsed?: string;
 }
 
 export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
@@ -180,12 +182,18 @@ function effectiveHops(hops: string[], opts: RunChainOptions): string[] | null {
   return kept.length === 0 ? null : kept;
 }
 
-function emit(opts: RunChainOptions, attempts: Attempt[], engineUsed: string | null): void {
+function emit(
+  opts: RunChainOptions,
+  attempts: Attempt[],
+  engineUsed: string | null,
+  upstreamUsed: string | null,
+): void {
   const record: CallRecord = {
     chain: opts.chain,
     requested: opts.requested,
     attempts,
     engine_used: engineUsed,
+    upstream_used: upstreamUsed,
   };
   recordCall(record, opts.write);
 }
@@ -220,6 +228,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         model_reported: result.modelReported,
         model_resident: result.modelResident,
         version: result.version,
+        upstream_used: result.upstreamUsed,
       },
       result,
       advance: outcome.advance,
@@ -247,8 +256,9 @@ function finalizeTerminal(
   opts: RunChainOptions,
 ): ChainResult {
   const { engine } = attempt;
+  const upstreamUsed = attempt.upstream_used ?? null;
   if (!result.stream) {
-    emit(opts, attempts, engine);
+    emit(opts, attempts, engine, upstreamUsed);
     return { status: result.status, body: result.body, engineUsed: engine };
   }
   const stream = wrapStream(result.stream, (ok, streamFailure) => {
@@ -256,7 +266,7 @@ function finalizeTerminal(
       attempt.ok = false;
       attempt.failure = streamFailure ?? "stream ended before completion";
     }
-    emit(opts, attempts, engine);
+    emit(opts, attempts, engine, upstreamUsed);
   });
   return { status: result.status, body: result.body, stream, engineUsed: engine };
 }
@@ -264,7 +274,7 @@ function finalizeTerminal(
 export async function runChain(hops: string[], opts: RunChainOptions): Promise<ChainResult> {
   const truncated = effectiveHops(hops, opts);
   if (truncated === null) {
-    emit(opts, [], null);
+    emit(opts, [], null, null);
     return {
       status: STATUS_BAD_REQUEST,
       body: jsonErrorBody(
@@ -291,7 +301,7 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     return abandoned(attempts, opts);
   }
 
-  emit(opts, attempts, null);
+  emit(opts, attempts, null, null);
   return {
     status: STATUS_UNAVAILABLE,
     body: { ...jsonErrorBody("every engine in this chain failed"), attempts },
@@ -301,7 +311,7 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
 
 /** The client left mid-chain. Advancing would bill the next provider for an answer nobody is waiting for, so the walk stops here and the attempts so far are still recorded. */
 function abandoned(attempts: Attempt[], opts: RunChainOptions): ChainResult {
-  emit(opts, attempts, null);
+  emit(opts, attempts, null, null);
   return {
     status: STATUS_CLIENT_CLOSED,
     body: { ...jsonErrorBody("client disconnected"), attempts },
