@@ -14,7 +14,7 @@ never reach the runtime image.
 
 ### llama.cpp
 
-`engines/local-llama/`, image `engined-llama-cpp:local`. Builds
+`engines/llama/`, image `engined-llama-cpp:local`. Builds
 `llama-server` from [Nathanw1014/llama.cpp](https://github.com/Nathanw1014/llama.cpp)'s
 `strix-halo-vulkan` branch (fork of upstream, MIT) — Strix-Halo Vulkan work
 not yet upstream.
@@ -83,7 +83,7 @@ hears a level change.
 
 `engines/kokoro/`. Follows ComfyUI's base pattern — `rocm/dev-ubuntu-24.04:7.2.4`
 plus the official PyTorch ROCm wheel — and takes the full GPU flags
-(`/dev/kfd`, `/dev/dri`, `video`), not the Vulkan-only pair local-llama uses.
+(`/dev/kfd`, `/dev/dri`, `video`), not the Vulkan-only pair llama uses.
 Ported from sagaforge-ts's `Dockerfile.rocm` rather than the vendored
 `ghcr.io/remsky` image: that one speaks OpenAI's `/v1/audio/speech` natively,
 while the audio door already translates the NDJSON `/v1/tts` contract this
@@ -112,26 +112,27 @@ Its voice synthesizes at **22050 Hz**, not the 24000 kokoro uses. Nothing
 inside a WAV cares, but a streamed `audio/L16` reply has only the content type
 to say so -- see [http-api.md](http-api.md).
 
-### Whisper (`whisper`, `whisper-fast`)
+### Whisper (`whisper`, routes `medium.en` and `small.en`)
 
-`engines/whisper/` and `engines/whisper-fast/`, both running
-`engined-whisper:local` — a two-line Dockerfile over a pinned
-`ghcr.io/ggml-org/whisper.cpp` digest, adding the `EXPOSE` the upstream image
-omits and engined's port discovery requires. Only `engines/whisper/` holds
-that Dockerfile: the two engines differ by their `-m` model file and nothing
-else, so a second copy of the pinned digest would only be a second thing to
-keep in step.
+`engines/whisper/`, running `engined-whisper:local` — a two-line Dockerfile
+over a pinned `ghcr.io/ggml-org/whisper.cpp` digest, adding the `EXPOSE` the
+upstream image omits and engined's port discovery requires. One engine, two
+model-bearing routes rather than two engines: same image, same `models_dir`,
+differing only in which `-m` weights file starts the container, so a second
+copy of the pinned digest would only be a second thing to keep in step.
+Switching between the two routes is a stop-and-restart, refused with 409
+while a transcription is in flight.
 
-Which one a consumer names is a latency choice, and it is a real frontier
-rather than a big/small pair. Measured on this box over 8 recorded speech
-clips (4.3–8.7s, known transcripts, scored after normalising numeral
+Which route a consumer addresses is a latency choice, and it is a real
+frontier rather than a big/small pair. Measured on this box over 8 recorded
+speech clips (4.3–8.7s, known transcripts, scored after normalising numeral
 formatting so "twenty five" against "25" is not counted a mishearing), median
 encode per clip:
 
-| engine | model | WER | ms/clip |
+| route | model file | WER | ms/clip |
 | ------ | ------ | ------ | ------ |
-| `whisper` | `ggml-medium.en-q8_0` | 11.5% | 2715 |
-| `whisper-fast` | `ggml-small.en-q8_0` | 13.5% | 929 |
+| `medium.en` | `ggml-medium.en-q8_0` | 11.5% | 2715 |
+| `small.en` | `ggml-small.en-q8_0` | 13.5% | 929 |
 | — | `ggml-large-v3-turbo-q8_0` | 13.5% | 4063 |
 
 The third row is not served: the large multilingual model is beaten on
@@ -139,12 +140,12 @@ accuracy *and* speed by `medium.en`, so nothing points at it. Model load is
 41–196ms across all three — encode is the entire cost, and size does not buy
 back its own load.
 
-**Both models are English-only.** Neither spec pins `-l` (language stays a
+**Both routes are English-only.** Neither pins `-l` (language stays a
 per-request field), but a request naming another language is still decoded by
 English-trained weights. Non-English work belongs on the remote STT engine,
 or on a multilingual model that is not currently configured.
 
-Both engines mount the same `models_dir`, so the Silero VAD model both load
+Both routes mount the same `models_dir`, so the Silero VAD model both load
 is one file on disk, not two.
 
 ## `streaming`, a tts-only spec key
@@ -174,17 +175,17 @@ Dropping any of these produces no error, just wrong behaviour:
   frames never arrive.
 - Kokoro's entrypoint override, without which its image floods the log at
   debug level.
-- Whisper's `--inference-path` — in both whisper specs — which is the only
-  reason those engines are OpenAI-shaped.
+- Whisper's `--inference-path`, which is the only reason that engine's routes
+  are OpenAI-shaped.
 
 The agentic launch flags are the read-only guarantee itself. All of these
 belong in a file that ships and diffs, not one an operator edits.
 
-## Vision fidelity (local-llama, Vulkan)
+## Vision fidelity (llama, Vulkan)
 
 Two upstream Vulkan defects affect the vision role. One crashes llama-server
 and has a workaround engined already applies (`no-mmproj-offload`, see
-`engines/local-llama/spec.toml`).
+`engines/llama/spec.toml`).
 
 The other has none: **a vision request can return a confident, plausible,
 wrong description of the image, with nothing in the response to signal it.**

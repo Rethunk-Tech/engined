@@ -1,13 +1,13 @@
-# Tuning (local-llama)
+# Tuning (llama)
 
 Measurements taken on this box against Ornith-1.5-35B-A3B MTPv2,
-Vulkan/RADV, `q8_0` K/V. They justify the values `engines/local-llama/spec.toml`
+Vulkan/RADV, `q8_0` K/V. They justify the values `engines/llama/spec.toml`
 and `config.example.toml` ship, and they are the reason those values are not
 worth guessing at.
 
 ## Speculative decoding
 
-`engines/local-llama/spec.toml` passes `--spec-type draft-mtp` for any catalog
+`engines/llama/spec.toml` passes `--spec-type draft-mtp` for any catalog
 model marked `mtp` — the head lives inside the GGUF, and llama.cpp only infers
 a speculative type from a *separate* draft model, so it has to be named.
 Naming it on a headless GGUF is fatal (`model doesn't contain MTP layers`,
