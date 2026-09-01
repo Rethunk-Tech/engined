@@ -44,21 +44,39 @@ name = "engined-whisper-models"
 path = "/models"
 `;
 
+/** Resolves a shipped spec against the real `engines/` tree. */
+function loadShipped(overrides: Partial<EngineEntry> = {}): ReturnType<typeof loadSpec> {
+  return loadSpec(engine(overrides), { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+}
+
+/** What whisper's shipped `[[artifact]]` rows resolve to with `models_dir = "/data/models"`. */
+const WHISPER_ARTIFACTS = [
+  {
+    path: "/models/ggml-medium.en-q8_0.bin",
+    obtain:
+      "curl -fL -o /data/models/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin",
+  },
+  {
+    path: "/models/ggml-small.en-q8_0.bin",
+    obtain:
+      "curl -fL -o /data/models/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin",
+  },
+  {
+    path: "/models/ggml-silero-v6.2.0.bin",
+    obtain:
+      "curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
+  },
+];
+
 describe("shipped specs", () => {
   test("claude resolves clean", () => {
-    const loaded = loadSpec(engine({ agent_version: "1.2.3" }), {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-    });
+    const loaded = loadShipped({ agent_version: "1.2.3" });
     expect(loaded.spec.kind).toBe("agentic-cli");
     expect(loaded.spec.command).toEqual([BUNX, "@anthropic-ai/claude-code@1.2.3", "-p"]);
   });
 
   test("cursor resolves clean", () => {
-    const loaded = loadSpec(engine({ id: "cursor", agent_version: "2026.08.28-50f0823" }), {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-    });
+    const loaded = loadShipped({ id: "cursor", agent_version: "2026.08.28-50f0823" });
     expect(loaded.spec.kind).toBe("agentic-cli");
     expect(loaded.spec.command).toEqual([BUNX, "cursor-agent@2026.08.28-50f0823", "-p"]);
   });
@@ -67,10 +85,7 @@ describe("shipped specs", () => {
     // A probe declared in a spec and dropped by the loader is the silent
     // failure this field exists to prevent, so assert the parsed values rather
     // than that loading succeeded.
-    const loaded = loadSpec(engine({ id: "whisper", models_dir: "/data/models" }), {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-    });
+    const loaded = loadShipped({ id: "whisper", models_dir: "/data/models" });
     expect(loaded.spec.kind).toBe("stt");
     if (loaded.spec.kind !== "agentic-cli") {
       // medium.en by default; EngineRegistry.start (engines.ts) rewrites this
@@ -87,23 +102,7 @@ describe("shipped specs", () => {
         { name: "/data/models", path: "/models", read_only: true },
         { name: specDirPath, path: "/spec", read_only: true },
       ]);
-      expect(loaded.spec.artifacts).toEqual([
-        {
-          path: "/models/ggml-medium.en-q8_0.bin",
-          obtain:
-            "curl -fL -o /data/models/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin",
-        },
-        {
-          path: "/models/ggml-small.en-q8_0.bin",
-          obtain:
-            "curl -fL -o /data/models/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin",
-        },
-        {
-          path: "/models/ggml-silero-v6.2.0.bin",
-          obtain:
-            "curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
-        },
-      ]);
+      expect(loaded.spec.artifacts).toEqual(WHISPER_ARTIFACTS);
     }
   });
 
@@ -118,8 +117,7 @@ describe("shipped specs", () => {
     ["chatterbox-multi", true],
     ["chatterbox-en", true],
   ] as const)("the shipped %s spec declares streaming = %p", (id, streaming) => {
-    const loaded = loadSpec(engine({ id }), { enginesRoot: ENGINES_ROOT, bunx: BUNX });
-    expect(loaded.spec.streaming).toBe(streaming);
+    expect(loadShipped({ id }).spec.streaming).toBe(streaming);
   });
 
   // The regression guard: a literal /home/<user>/... path in a shipped spec
