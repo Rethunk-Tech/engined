@@ -1,0 +1,403 @@
+/**
+ * `POST /engined/v1/comfy/:engine/:upstream/...`: the mediated comfy proxy.
+ * Everything here treats the real container as a stand-in dependency,
+ * injected the same way `llamaHttpClient`/`extrasHttpClient` already are --
+ * except the websocket bridge, which needs a real socket to prove anything
+ * at all, so that one test binds a real door against a real fake container.
+ */
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import type { Exec, ExecResult } from "./exec.ts";
+import type { HttpClient } from "./http.ts";
+import { bindDualFamily, createDoor } from "./main.ts";
+import {
+  BUNX,
+  config,
+  containerRunning,
+  engine,
+  inspectSinglePort,
+  makeTestRoot,
+  portResult,
+  route,
+  writeEngineSpec,
+} from "./test-support.ts";
+
+const TEST_ROOT = makeTestRoot("engined-comfy-proxy-");
+
+const COMFY_SPEC = `
+kind = "comfy"
+upstream = "self"
+image = "engined/fakecomfy:local"
+obtain = "build"
+serves = []
+command = []
+
+[ready]
+path = "/queue"
+status = 200
+`;
+
+/** A running-comfy-container exec fake: the docker calls the registry makes to get `comfy` into `state: "running"`, none of which this suite's `comfyHttpClient` intercepts. */
+function comfyExec(port: number): Exec {
+  return (args): Promise<ExecResult> => {
+    if (args[0] === "image" && args[1] === "inspect") {
+      return Promise.resolve(inspectSinglePort(8188));
+    }
+    if (args[0] === "port") {
+      return Promise.resolve(portResult(port));
+    }
+    if (args[0] === "inspect") {
+      return Promise.resolve(containerRunning());
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+}
+
+const PROXY_PATH = "/engined/v1/comfy/comfy/local";
+
+/** A running comfy engine, ready to proxy through -- `port` need not answer anything real when `comfyHttpClient` intercepts every forwarded call. */
+async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999) {
+  const root = mkdtempSync(join(TEST_ROOT, "door-"));
+  writeEngineSpec(root, "comfy", COMFY_SPEC);
+  const cfg = config({
+    engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
+    routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
+  });
+  const door = createDoor(
+    cfg,
+    {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec: comfyExec(port),
+      probe: () => Promise.resolve({ status: 200 }),
+    },
+    { comfyHttpClient },
+  );
+  await door.registry.start("comfy");
+  return door;
+}
+
+/** Records every call a fake comfy container's `HttpClient` receives, answering with `respond`'s own per-URL logic. */
+function recordingComfyClient(
+  respond: (url: string, init?: RequestInit) => Promise<Response> | Response,
+): { client: HttpClient; calls: { url: string; init?: RequestInit }[] } {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const client: HttpClient = async (url, init) => {
+    calls.push({ url, init });
+    return await respond(url, init);
+  };
+  return { client, calls };
+}
+
+describe("comfy proxy: forwarded as-is", () => {
+  test("GET object_info/{nodeType} is forwarded verbatim", async () => {
+    const { client, calls } = recordingComfyClient(() =>
+      Response.json({
+        CheckpointLoaderSimple: { input: { required: { ckpt_name: [["a.safetensors"]] } } },
+      }),
+    );
+    const door = await comfyDoor(client);
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/object_info/CheckpointLoaderSimple`),
+    );
+    expect(res.status).toBe(200);
+    expect(calls[0]?.url).toContain("/object_info/CheckpointLoaderSimple");
+    const body = (await res.json()) as { CheckpointLoaderSimple: unknown };
+    expect(body.CheckpointLoaderSimple).toBeDefined();
+  });
+
+  test("GET system_stats is forwarded verbatim", async () => {
+    const { client, calls } = recordingComfyClient(() =>
+      Response.json({ system: { os: "posix" } }),
+    );
+    const door = await comfyDoor(client);
+    const res = await door.fetch(new Request(`http://engined${PROXY_PATH}/system_stats`));
+    expect(res.status).toBe(200);
+    expect(calls[0]?.url).toContain("/system_stats");
+  });
+});
+
+describe("comfy proxy: POST /prompt binds the result, POST /upload/image namespaces it", () => {
+  test("a submitted prompt's id becomes known to this door, and nothing else", async () => {
+    const { client } = recordingComfyClient(() => Response.json({ prompt_id: "job-1", number: 1 }));
+    const door = await comfyDoor(client);
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, {
+        method: "POST",
+        body: JSON.stringify({ prompt: {}, client_id: "whatever" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { prompt_id: string }).prompt_id).toBe("job-1");
+  });
+
+  test("an uploaded filename reaches comfy renamed, never the caller's literal name", async () => {
+    const { client, calls } = recordingComfyClient(async (_url, init) => {
+      const form = await (init?.body as FormData);
+      const image = form.get("image") as File;
+      return Response.json({ name: image.name, subfolder: "", type: "input" });
+    });
+    const door = await comfyDoor(client);
+    const form = new FormData();
+    form.append("image", new Blob([new Uint8Array([1, 2, 3])]), "reference.png");
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, { method: "POST", body: form }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { name: string };
+    expect(body.name).not.toBe("reference.png");
+    expect(body.name.endsWith("reference.png")).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("comfy proxy: GET /view is mediated", () => {
+  test("a filename no completed job produced is refused byte-identically, whether or not it exists on disk", async () => {
+    const { client, calls } = recordingComfyClient(() => new Response("should never be reached"));
+    const door = await comfyDoor(client);
+    const neverKnown = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=nothing-like-this-exists.png`),
+    );
+    const alsoNeverKnown = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=some-other-name.png`),
+    );
+    expect(neverKnown.status).toBe(alsoNeverKnown.status);
+    expect(await neverKnown.text()).toBe(await alsoNeverKnown.text());
+    // Refused before ever reaching comfy -- the mediation checks this door's
+    // own known-filenames set, never the container's disk.
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a filename a completed history read actually surfaced is served", async () => {
+    const { client } = recordingComfyClient((url) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-2" });
+      }
+      if (url.includes("/history/")) {
+        return Response.json({
+          "job-2": {
+            outputs: { "9": { images: [{ filename: "out.png", subfolder: "", type: "output" }] } },
+          },
+        });
+      }
+      if (url.includes("/view")) {
+        return new Response(new Uint8Array([137, 80, 78, 71]), {
+          headers: { "content-type": "image/png" },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    const door = await comfyDoor(client);
+
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-2`));
+    const viewed = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=out.png&subfolder=&type=output`),
+    );
+
+    expect(viewed.status).toBe(200);
+    expect(viewed.headers.get("content-type")).toBe("image/png");
+  });
+});
+
+describe("comfy proxy: GET /history is never served bare or for an unknown prompt_id", () => {
+  test("an unknown prompt_id is refused without reaching comfy", async () => {
+    const { client, calls } = recordingComfyClient(() => new Response("should never be reached"));
+    const door = await comfyDoor(client);
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/history/never-submitted`),
+    );
+    expect(res.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("comfy proxy: control verbs never forwarded", () => {
+  test("GET /queue bare, POST /free and POST /interrupt all 404 -- release is the only way to drop weights", async () => {
+    const { client, calls } = recordingComfyClient(() => new Response("should never be reached"));
+    const door = await comfyDoor(client);
+
+    const bareQueue = await door.fetch(new Request(`http://engined${PROXY_PATH}/queue`));
+    const free = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/free`, { method: "POST" }),
+    );
+    const interrupt = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/interrupt`, { method: "POST" }),
+    );
+
+    expect(bareQueue.status).toBe(404);
+    expect(free.status).toBe(404);
+    expect(interrupt.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("POST /queue delete is refused for a prompt_id this door never bound, and forwarded for one it did", async () => {
+    const { client, calls } = recordingComfyClient((url) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-3" });
+      }
+      return Response.json({});
+    });
+    const door = await comfyDoor(client);
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+
+    const foreign = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/queue`, {
+        method: "POST",
+        body: JSON.stringify({ delete: ["someone-elses-job"] }),
+      }),
+    );
+    expect(foreign.status).toBe(404);
+    expect(calls.filter((c) => c.url.includes("/queue"))).toHaveLength(0);
+
+    const own = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/queue`, {
+        method: "POST",
+        body: JSON.stringify({ delete: ["job-3"] }),
+      }),
+    );
+    expect(own.status).toBe(200);
+    expect(calls.filter((c) => c.url.includes("/queue"))).toHaveLength(1);
+  });
+});
+
+/** A minimal stand-in for ComfyUI's own `/ws?clientId=` endpoint: records every clientId a connection dialed in with, and lets the test push frames back down whichever socket is currently open. */
+function fakeComfyWsContainer(): {
+  port: number;
+  stop: () => void;
+  connectedClientIds: string[];
+  sendText: (data: unknown) => void;
+  sendBinary: (bytes: Uint8Array) => void;
+} {
+  const connectedClientIds: string[] = [];
+  let current: import("bun").ServerWebSocket<{ clientId: string }> | undefined;
+  const server = Bun.serve<{ clientId: string }>({
+    port: 0,
+    fetch(req, srv) {
+      const url = new URL(req.url);
+      if (url.pathname === "/ws") {
+        const clientId = url.searchParams.get("clientId") ?? "";
+        const upgraded = srv.upgrade(req, { data: { clientId } });
+        return upgraded ? undefined : new Response("upgrade failed", { status: 400 });
+      }
+      return new Response("not found", { status: 404 });
+    },
+    websocket: {
+      open(ws) {
+        connectedClientIds.push(ws.data.clientId);
+        current = ws;
+      },
+      message() {},
+      close() {
+        current = undefined;
+      },
+    },
+  });
+  return {
+    port: server.port ?? 0,
+    stop: () => server.stop(true),
+    connectedClientIds,
+    sendText: (data) => current?.send(JSON.stringify(data)),
+    sendBinary: (bytes) => current?.send(bytes),
+  };
+}
+
+function ephemeralPort(): number {
+  return 41_000 + Math.floor(Math.random() * 5000);
+}
+
+describe("comfy proxy: the websocket bridge", () => {
+  test("the door assigns its own clientId, announces it first, and bridges text and binary frames", async () => {
+    const fakeComfy = fakeComfyWsContainer();
+    const root = mkdtempSync(join(TEST_ROOT, "door-ws-"));
+    writeEngineSpec(root, "comfy", COMFY_SPEC);
+    const doorPort = ephemeralPort();
+    // `checkOrigin` refuses any `Host` outside `config.listen_port` -- this
+    // suite binds a REAL socket (the one thing an upgrade needs), so the
+    // config must agree with the port it is actually bound on.
+    const cfg = config({
+      listen_port: doorPort,
+      engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
+      routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
+    });
+    const door = createDoor(cfg, {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec: comfyExec(fakeComfy.port),
+      probe: () => Promise.resolve({ status: 200 }),
+    });
+    await door.registry.start("comfy");
+
+    const bound = bindDualFamily(door.fetch, doorPort);
+
+    try {
+      const caller = new WebSocket(
+        `ws://127.0.0.1:${doorPort}${PROXY_PATH}/ws?clientId=caller-picked-this`,
+      );
+      caller.binaryType = "arraybuffer";
+      const frames: unknown[] = [];
+      const firstFrame = new Promise<{ type: string; data: { client_id: string } }>((resolve) => {
+        caller.onmessage = (ev) => {
+          const parsed =
+            typeof ev.data === "string"
+              ? (JSON.parse(ev.data) as { type: string; data: { client_id: string } })
+              : undefined;
+          frames.push(ev.data);
+          if (parsed?.type === "client_id") {
+            resolve(parsed);
+          }
+        };
+      });
+      await new Promise<void>((resolve, reject) => {
+        caller.onopen = () => resolve();
+        caller.onerror = () => reject(new Error("caller socket failed to open"));
+      });
+
+      const announced = await firstFrame;
+      // The door minted its own id -- never the one the caller asked for in
+      // the query string, which is exactly the eavesdrop this exists to close.
+      expect(announced.data.client_id).not.toBe("caller-picked-this");
+      // ...and it is the SAME id the door itself dialed comfy's real /ws with.
+      expect(fakeComfy.connectedClientIds).toEqual([announced.data.client_id]);
+
+      const progressText = new Promise<string>((resolve) => {
+        const onMsg = (ev: MessageEvent) => {
+          if (typeof ev.data === "string" && ev.data.includes("progress")) {
+            caller.removeEventListener("message", onMsg);
+            resolve(ev.data);
+          }
+        };
+        caller.addEventListener("message", onMsg);
+      });
+      fakeComfy.sendText({ type: "progress", data: { value: 3, max: 10 } });
+      expect(JSON.parse(await progressText)).toEqual({
+        type: "progress",
+        data: { value: 3, max: 10 },
+      });
+
+      const binaryFrame = new Promise<ArrayBuffer>((resolve) => {
+        const onMsg = (ev: MessageEvent) => {
+          if (ev.data instanceof ArrayBuffer) {
+            caller.removeEventListener("message", onMsg);
+            resolve(ev.data);
+          }
+        };
+        caller.addEventListener("message", onMsg);
+      });
+      const preview = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9]);
+      fakeComfy.sendBinary(preview);
+      expect(new Uint8Array(await binaryFrame)).toEqual(preview);
+
+      caller.close();
+    } finally {
+      bound.v4.stop(true);
+      bound.v6.stop(true);
+      fakeComfy.stop();
+    }
+  });
+});

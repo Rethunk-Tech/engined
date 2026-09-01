@@ -4,9 +4,24 @@ kind = "comfy"
 upstream = "self"
 image = "engined-comfyui:local"
 obtain = "build"
-# Comfy has no OpenAI shape: a consumer reaches it through POST
-# /engined/v1/engines/comfy/start and the private_url that returns, never as a model.
-serves = []
+# Comfy has no OpenAI shape: a consumer starts it by address (POST
+# /engined/v1/start) and reaches it through the mediated proxy below, never
+# through a raw container address. Every entry here is a real forwarded or
+# mediated path -- nothing calls the bare form, only these sub-paths. Colon
+# params, not curly braces: `{...}` is spec.toml's own placeholder syntax
+# (substituted at load time against spec_dir/bunx/models_dir/...), and an
+# unresolved one is a parse error -- these params are resolved by the door
+# at request time, never by this loader.
+serves = [
+  "/engined/v1/comfy/:engine/:upstream/object_info/:nodeType",
+  "/engined/v1/comfy/:engine/:upstream/prompt",
+  "/engined/v1/comfy/:engine/:upstream/upload/image",
+  "/engined/v1/comfy/:engine/:upstream/view",
+  "/engined/v1/comfy/:engine/:upstream/ws",
+  "/engined/v1/comfy/:engine/:upstream/history/:promptId",
+  "/engined/v1/comfy/:engine/:upstream/queue",
+  "/engined/v1/comfy/:engine/:upstream/system_stats",
+]
 # Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: comfy is a
 # ROCm/PyTorch engine. See engines/local-llama/spec.toml for why that one
 # omits /dev/kfd -- both nodes exist on this box, so the wrong choice would

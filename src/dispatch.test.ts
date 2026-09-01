@@ -174,15 +174,16 @@ describe("modelless engine addressing", () => {
     expect(resolveModel("gguf-host", CHAT, cfg, registry(cfg)).ok).toBe(false);
   });
 
-  test("comfy's serves=[] means its route resolves but no endpoint accepts it", () => {
+  test("comfy's serves names no OpenAI endpoint: its route resolves but no content endpoint accepts it", () => {
     const cfg = config({
       engines: [engine({ id: "comfy" })],
       routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
     });
     const reg = registry(cfg, ENGINES_ROOT);
     // The route itself is found (a different failure than "no such route"
-    // below would report), and only the endpoint gate refuses it -- comfy
-    // answers no OpenAI-shaped endpoint at all.
+    // below would report), and only the endpoint gate refuses it -- comfy's
+    // real `serves` is its own mediated proxy paths, none of them this
+    // door's OpenAI-shaped chat endpoint.
     const result = resolveModel("@/comfy/local", CHAT, cfg, reg);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error).toContain("does not serve");
