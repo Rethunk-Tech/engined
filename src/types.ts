@@ -409,13 +409,18 @@ export interface AgenticSpec extends SpecCommon {
 
 export type Spec = ContainerSpec | AgenticSpec;
 
+/** A `ContainerSpec` that can actually be run: `image` is the one field a spec-less engine's built-in spec omits, and `isContainerSpec` is the only way to reach this type. */
+export type RunnableContainerSpec = ContainerSpec & { image: string };
+
 /**
  * A declared `image`, not `kind !== "agentic-cli"`: a spec-less engine's
  * built-in spec is container-SHAPED (its `kind` is e.g. `"openai-http"`) but
  * launches nothing, so it must not read as a container here -- otherwise
- * starting it would `docker run` a proxy with no image.
+ * starting it would `docker run` a proxy with no image. Every caller that
+ * narrows through this gets `RunnableContainerSpec` for free, so `docker.ts`
+ * never has to re-assert what this already proved.
  */
-export function isContainerSpec(s: Spec): s is ContainerSpec & { image: string } {
+export function isContainerSpec(s: Spec): s is RunnableContainerSpec {
   return s.kind !== "agentic-cli" && s.image !== undefined;
 }
 

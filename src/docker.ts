@@ -2,8 +2,8 @@
  * Generic managed-engine lifecycle: start-on-demand behind a per-engine start
  * lock, force-remove-and-recreate on every start (never a bare resume of
  * whatever container already holds the name), port read-back, readiness and
- * idle-stop. Every engine kind plays a `ContainerSpec` through this same
- * machinery; nothing here is llama, Comfy or audio specific.
+ * idle-stop. Every engine kind plays a `RunnableContainerSpec` through this
+ * same machinery; nothing here is llama, Comfy or audio specific.
  *
  * Parsing is pure and takes strings. Only `dockerExec` and `defaultProbe`
  * touch a process or a socket, so everything else runs with no docker and no
@@ -16,7 +16,7 @@ import process from "node:process";
 import { binExec, type Exec } from "./exec.ts";
 import type { EngineResources } from "./resources.ts";
 import { parseResources, RESOURCE_PROBE_SH } from "./resources.ts";
-import type { Artifact, ContainerSpec, EngineState, ReadyProbe, Volume } from "./types.ts";
+import type { Artifact, EngineState, ReadyProbe, RunnableContainerSpec, Volume } from "./types.ts";
 
 import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
 
@@ -124,7 +124,7 @@ export function hostBindings(ports: string): string {
 }
 
 /** Everything `docker run` takes that comes from the spec, in the order the image needs: flags, then the image, then its argv. */
-function specRunArgs(spec: ContainerSpec): string[] {
+function specRunArgs(spec: RunnableContainerSpec): string[] {
   const args: string[] = [];
   for (const device of spec.devices) {
     args.push("--device", device);
@@ -163,14 +163,14 @@ function specRunArgs(spec: ContainerSpec): string[] {
  * both are read back rather than written, and neither says anything about
  * the configuration the container is serving.
  */
-export function specDigest(spec: ContainerSpec): string {
+export function specDigest(spec: RunnableContainerSpec): string {
   return Bun.SHA256.hash(JSON.stringify(specRunArgs(spec)), "hex");
 }
 
 /** The flags docker never receives from config: the container name and both ports are read back, not written. */
 export function buildRunArgs(
   containerName: string,
-  spec: ContainerSpec,
+  spec: RunnableContainerSpec,
   containerPort: number,
 ): string[] {
   return [
@@ -385,7 +385,11 @@ export class DockerLifecycle {
    * `build`-obtain spec can omit it; every real caller has it, straight from
    * `LoadedSpec.source`.
    */
-  async start(id: string, spec: ContainerSpec, opts: LifecycleOptions): Promise<RuntimeStatus> {
+  async start(
+    id: string,
+    spec: RunnableContainerSpec,
+    opts: LifecycleOptions,
+  ): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     this.cancelIdle(rt);
     // Returning the map's record on faith hands back a corpse when the
@@ -420,7 +424,7 @@ export class DockerLifecycle {
    * can act on it. A caller reconciling an engine it already believes running
    * has nothing to adopt and omits it.
    */
-  async reconcile(id: string, spec?: ContainerSpec): Promise<RuntimeStatus> {
+  async reconcile(id: string, spec?: RunnableContainerSpec): Promise<RuntimeStatus> {
     const rt = this.runtimes.get(id);
     if (!rt) {
       return this.getStatus(id);
@@ -464,7 +468,7 @@ export class DockerLifecycle {
    * recreate is announced rather than taken silently, because a container
    * being destroyed is the one outcome an operator would want to have seen.
    */
-  private async adopt(rt: Runtime, spec: ContainerSpec): Promise<void> {
+  private async adopt(rt: Runtime, spec: RunnableContainerSpec): Promise<void> {
     const found = await this.findOrphan(rt.containerName);
     if (found === null) {
       return;
@@ -520,7 +524,11 @@ export class DockerLifecycle {
   }
 
   /** Reports what an engine's artifacts say, without starting it. */
-  async probe(id: string, spec: ContainerSpec, specSource?: string): Promise<RuntimeStatus> {
+  async probe(
+    id: string,
+    spec: RunnableContainerSpec,
+    specSource?: string,
+  ): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     // Neither `running` nor `installed` is known here, only believed: the
     // first survives in the map long after the container behind it died, and
@@ -547,7 +555,7 @@ export class DockerLifecycle {
   private async checkInstallable(
     id: string,
     rt: Runtime,
-    spec: ContainerSpec,
+    spec: RunnableContainerSpec,
     specSource?: string,
   ): Promise<{ ok: true; containerPort: number } | { ok: false; status: RuntimeStatus }> {
     const image = await this.ensureImageChecked(rt, spec, specSource);
@@ -571,7 +579,7 @@ export class DockerLifecycle {
   private async doStart(
     id: string,
     rt: Runtime,
-    spec: ContainerSpec,
+    spec: RunnableContainerSpec,
     opts: LifecycleOptions,
   ): Promise<RuntimeStatus> {
     this.transition(rt, "warming");
@@ -619,7 +627,7 @@ export class DockerLifecycle {
    * elsewhere and only tagged locally, so naming a path that does not exist
    * would be the same defect in a new costume.
    */
-  private buildImageFix(spec: ContainerSpec, specSource?: string): string {
+  private buildImageFix(spec: RunnableContainerSpec, specSource?: string): string {
     if (spec.obtain === "pull") {
       return `docker pull ${spec.image}`;
     }
@@ -632,7 +640,7 @@ export class DockerLifecycle {
   }
 
   private async checkImage(
-    spec: ContainerSpec,
+    spec: RunnableContainerSpec,
     specSource?: string,
   ): Promise<Result<{ containerPort: number }>> {
     const res = await this.exec(["image", "inspect", spec.image]);
@@ -653,7 +661,7 @@ export class DockerLifecycle {
   /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix (e.g. `docker pull`) can make it pass, and that fix happens outside this process. */
   private async ensureImageChecked(
     rt: Runtime,
-    spec: ContainerSpec,
+    spec: RunnableContainerSpec,
     specSource?: string,
   ): Promise<Result<{ containerPort: number }>> {
     if (!rt.imageCheck) {
@@ -667,7 +675,7 @@ export class DockerLifecycle {
   }
 
   /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix can make it pass, and the fix happens outside this process. */
-  private async ensureArtifactsChecked(rt: Runtime, spec: ContainerSpec): Promise<Result> {
+  private async ensureArtifactsChecked(rt: Runtime, spec: RunnableContainerSpec): Promise<Result> {
     if (spec.artifacts.length === 0) {
       return { ok: true };
     }
@@ -687,7 +695,7 @@ export class DockerLifecycle {
    * at all) is checked the only way it can be: a short-lived container per
    * artifact, mounting every volume the spec declares.
    */
-  private async checkArtifacts(spec: ContainerSpec): Promise<Result> {
+  private async checkArtifacts(spec: RunnableContainerSpec): Promise<Result> {
     const needsContainer: Artifact[] = [];
     for (const artifact of spec.artifacts) {
       const hostPath = hostPathFor(artifact, spec.volumes);
@@ -751,7 +759,7 @@ export class DockerLifecycle {
    */
   private async runContainer(
     containerName: string,
-    spec: ContainerSpec,
+    spec: RunnableContainerSpec,
     containerPort: number,
   ): Promise<Result> {
     const rm = await this.exec(["rm", "-f", containerName]);

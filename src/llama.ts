@@ -16,8 +16,8 @@ import type { DockerLifecycle } from "./docker.ts";
 import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
 import { localLlamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { ContainerSpec, EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
-import { isContainerSpec, MS_PER_SECOND, ParseError } from "./types.ts";
+import type { EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
+import { isContainerSpec, MS_PER_SECOND, ParseError, type RunnableContainerSpec } from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
 const PRESET_CONTAINER_PATH = "/preset.ini";
@@ -105,7 +105,7 @@ export function buildLlamaSpec(
   engine: EngineEntry,
   opts: SpecLoadOptions,
   presetHostPath: string,
-): ContainerSpec {
+): RunnableContainerSpec {
   const loaded = loadSpec(engine, {
     enginesRoot: opts.enginesRoot,
     bunx: opts.bunx,
