@@ -48,6 +48,7 @@ test("an unresolved spec placeholder exits 78 rather than crashing", async () =>
   const env = scratchHome(
     [
       'kind = "tts"',
+      'upstream = "self"',
       'image = "probe:local"',
       'obtain = "build"',
       'serves = ["/openai/v1/audio/speech"]',
@@ -91,6 +92,7 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
     const env = scratchHome(
       [
         'kind = "tts"',
+        'upstream = "self"',
         'image = "probe:local"',
         'obtain = "build"',
         'serves = ["/openai/v1/audio/speech"]',

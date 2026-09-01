@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { dataHome } from "./paths.ts";
-import { makeTestRoot } from "./test-support.ts";
+import { ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
 
 const TEST_ROOT = makeTestRoot("engined-example-");
 
@@ -27,7 +27,6 @@ const EXPECTED_ENGINE_IDS = [
   "chatterbox",
   "chatterbox-fast",
   "claude",
-  "claude-kimi",
   "comfy",
   "elevenlabs",
   "kokoro",
@@ -40,10 +39,21 @@ const EXPECTED_ENGINE_IDS = [
 ];
 
 // The example ships every off-box engine disabled, and a disabled engine's
-// models are dropped: nothing here can be dispatched to.
-const EXPECTED_DISABLED_IDS = ["claude", "claude-kimi", "elevenlabs", "openai"];
+// routes are dropped: nothing here can be dispatched to.
+const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
 
-const EXPECTED_MODEL_IDS = ["code", "embed", "ornith", "vision"];
+// The example declares no [[model]] capability rows -- every model id below
+// comes from a route naming one, disabled or not.
+const EXPECTED_ROUTE_MODEL_IDS = [
+  "code",
+  "embed",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "k3",
+  "ornith",
+  "sonnet-5",
+  "vision",
+];
 
 /** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
 function placeExampleModels(modelsDir: string): void {
@@ -76,11 +86,17 @@ test("config.example.toml parses through the real loadConfig()", () => {
   placeExampleModels(modelsDir);
 
   const configPath = writePatchedExampleConfig(raw, modelsDir);
-  const config = loadConfig(configPath);
+  const config = loadConfig(configPath, ENGINES_ROOT);
 
   const byName = (a: string, b: string) => a.localeCompare(b);
   expect(config.engines.map((e) => e.id).sort(byName)).toEqual(EXPECTED_ENGINE_IDS);
-  expect(config.models.map((m) => m.id).sort(byName)).toEqual(EXPECTED_MODEL_IDS);
+  expect(config.models).toEqual([]);
+  expect(
+    config.routes
+      .map((r) => r.model)
+      .filter((m): m is string => m !== undefined)
+      .sort(byName),
+  ).toEqual(EXPECTED_ROUTE_MODEL_IDS);
   expect(
     config.engines
       .filter((e) => e.disabled)
@@ -89,8 +105,8 @@ test("config.example.toml parses through the real loadConfig()", () => {
   ).toEqual(EXPECTED_DISABLED_IDS);
 
   expect(config.chains["chain-private"]).toEqual(["@/local-llama/ornith"]);
-  // Written with three remote hops after the local one; all three engines are
-  // disabled, so what survives parse is the local hop alone.
+  // Written with three remote/agentic hops after the local one; claude and
+  // openai are both disabled, so what survives parse is the local hop alone.
   expect(config.chains["chain-public"]).toEqual(["@/local-llama/ornith"]);
 
   // whisper's spec needs models_dir on the wire (its bind mount and
@@ -103,13 +119,15 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // never a plain $HOME expansion of the example's tilde text.
   expect(whisper?.models_dir).toBe(join(dataHome(), "engined-models/whisper"));
 
-  // The remote STT engine's whole shape lives in this file -- it has no spec
-  // directory to carry any of it. A `kind` lost to an edit would make it an
-  // engine of no kind, and a lost `model_id` would send the door's own
-  // engine id upstream as a model.
+  // The remote STT engine's whole shape now spans an engine and an upstream,
+  // neither of which has a spec directory to carry any of it. A `kind` lost
+  // to an edit would make it an engine of no kind, a lost `model_id` would
+  // send the door's own engine id upstream as a model, and a lost secret
+  // would leave the upstream unable to authenticate at all.
   const elevenlabs = config.engines.find((e) => e.id === "elevenlabs");
   expect(elevenlabs?.kind).toBe("stt");
-  expect(elevenlabs?.egress).toBe("remote");
-  expect(elevenlabs?.secret?.header).toBe("xi-api-key");
   expect(elevenlabs?.args.model_id).toBe("scribe_v1");
+  const elevenlabsUpstream = config.upstreams.find((u) => u.id === "elevenlabs");
+  expect(elevenlabsUpstream?.egress).toBe("remote");
+  expect(elevenlabsUpstream?.secret?.header).toBe("xi-api-key");
 });

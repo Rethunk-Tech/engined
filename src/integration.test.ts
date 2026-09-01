@@ -126,7 +126,14 @@ function containerEngine(
 test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is the menu: GGUF ids and aliases, chain names, agentic engine ids -- never comfy, never an unregistered model", async () => {
   const config = baseConfig({
     routes: [
-      route({ engine: "local", model: "ornith", aliases: ["default-chat"], upstream: "local" }),
+      route({
+        engine: "local",
+        model: "ornith",
+        aliases: ["default-chat"],
+        upstream: "local",
+        filename: "ornith.gguf",
+        role: "chat",
+      }),
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC),
@@ -350,7 +357,10 @@ test("a chain whose first hop is dead completes on the second, and provenance na
   const lines: string[] = [];
   await withChatDoor(
     {
-      routes: [route({ engine: "dead", role: "chat" }), route({ engine: "good", role: "chat" })],
+      routes: [
+        route({ engine: "dead", role: "chat", filename: "m.gguf" }),
+        route({ engine: "good", role: "chat", filename: "m.gguf" }),
+      ],
       engines: [
         // Short readiness timeout: nothing listens on `dead`, so the poll
         // must give up fast rather than spend the 60s default finding out.
@@ -402,7 +412,10 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
   const lines: string[] = [];
   await withChatDoor(
     {
-      routes: [route({ engine: "dead", role: "chat" }), route({ engine: "good", role: "chat" })],
+      routes: [
+        route({ engine: "dead", role: "chat", filename: "m.gguf" }),
+        route({ engine: "good", role: "chat", filename: "m.gguf" }),
+      ],
       engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
@@ -440,7 +453,7 @@ test("a chain dispatch to a llama hop rewrites the forwarded body's model to the
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat", filename: "ornith.gguf" })],
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
@@ -467,7 +480,7 @@ test("a streaming chain dispatch to a llama hop also rewrites the forwarded body
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat", filename: "ornith.gguf" })],
       engines: [containerEngine("good", openaiSpec())],
       chains: { "chain-private": ["@/good/ornith"] },
     },
@@ -498,7 +511,7 @@ test("a direct (non-chain) model request still forwards its own model id unchang
   const exec = buildExec({ portByContainer: { "engined-good": Number(goodPort) } });
   await withChatDoor(
     {
-      routes: [route({ engine: "good", model: "ornith", role: "chat" })],
+      routes: [route({ engine: "good", model: "ornith", role: "chat", filename: "ornith.gguf" })],
       engines: [containerEngine("good", openaiSpec())],
     },
     { exec, stoppables: [good] },
@@ -524,7 +537,7 @@ test("local_only: true against a public chain never reaches a remote hop, even w
   await withChatDoor(
     {
       routes: [
-        route({ engine: "local", role: "chat" }),
+        route({ engine: "local", role: "chat", filename: "m.gguf" }),
         route({ engine: "remote", role: "chat", upstream: "remote" }),
       ],
       engines: [
@@ -562,7 +575,10 @@ test("every engine in a chain unavailable returns 503 listing each attempt", asy
   const exec = buildExec({ missingImages: new Set(["missing-e1:local", "missing-e2:local"]) });
   await withChatDoor(
     {
-      routes: [route({ engine: "e1", role: "chat" }), route({ engine: "e2", role: "chat" })],
+      routes: [
+        route({ engine: "e1", role: "chat", filename: "m.gguf" }),
+        route({ engine: "e2", role: "chat", filename: "m.gguf" }),
+      ],
       engines: [
         containerEngine("e1", openaiSpec("missing-e1:local")),
         containerEngine("e2", openaiSpec("missing-e2:local")),

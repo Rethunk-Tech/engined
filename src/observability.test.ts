@@ -17,6 +17,7 @@ const TEST_ROOT = makeTestRoot("engined-observability-");
 
 const COMFY_SPEC = `
 kind = "comfy"
+upstream = "self"
 image = "ghcr.io/example/comfy@sha256:bbbb"
 obtain = "pull"
 serves = []
@@ -29,6 +30,7 @@ status = 200
 
 const CONTAINER_SPEC = `
 kind = "openai-http"
+upstream = "self"
 image = "ghcr.io/example/llama@sha256:aaaa"
 obtain = "pull"
 serves = ["/openai/v1/chat/completions"]
@@ -66,7 +68,12 @@ function doorWith(exec: Exec, releaseFetch?: ReleaseFetch) {
     config({
       engines: [
         engine({ id: "local-llama", egress: "none" }),
-        engine({ id: "hosted", egress: "remote", base_url: "https://api.example.com/v1" }),
+        engine({
+          id: "hosted",
+          egress: "remote",
+          kind: "openai-http",
+          base_url: "https://api.example.com/v1",
+        }),
       ],
     }),
     {
