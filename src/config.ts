@@ -504,7 +504,6 @@ function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
   return {
     engine: raw.engine,
     model: raw.model,
-    aliases: [],
     upstream: upstreamId,
     filename: raw.filename,
     role: raw.role,
@@ -653,25 +652,6 @@ function checkModelCollisions(models: readonly ModelEntry[], file: string): void
   }
 }
 
-/**
- * `local` resolves to the one no-egress engine that at least one route
- * serves. A `models_dir` is not that signal: Comfy carries one too, for its
- * own bind mount, and is reached by starting the engine directly, never by a
- * chain hop naming it through this alias. The one implementation parse time
- * (this file, which turns "not exactly one" fatal) and runtime
- * (`dispatch.ts`'s `resolveEngineSegment`, which returns undefined the same
- * as any other unresolved id) both call, so the two rules cannot drift back
- * out of agreement with each other.
- */
-export function resolveLocalCandidates(
-  engines: readonly EngineEntry[],
-  routes: readonly ResolvedRoute[],
-): EngineEntry[] {
-  return engines.filter(
-    (e) => !e.disabled && e.egress === "none" && routes.some((r) => r.engine === e.id),
-  );
-}
-
 /** Everything chain-hop resolution reads; one object so neither half runs past the parameter budget. */
 interface ChainCtx {
   engines: EngineEntry[];
@@ -688,26 +668,15 @@ function splitHopSegments(hop: string): string[] | undefined {
   return rest === "" ? undefined : rest.split("/");
 }
 
-/** The engine segment, resolved to a real id -- `"local"` is still a reserved alias this phase, not yet a real engine id. */
+/** The engine segment, resolved to a real id. `local` is a real upstream id, never an engine one -- a chain hop names an engine by its actual id, same as every other address form. */
 function resolveEngineSegmentForChain(seg: string, ctx: ChainCtx, hop: string): string {
-  if (seg !== "local") {
-    if (!ctx.engines.some((e) => e.id === seg)) {
-      throw new ParseError(`chain hop "${hop}": engine "${seg}" does not exist`, ctx.file);
-    }
-    return seg;
+  if (!ctx.engines.some((e) => e.id === seg)) {
+    throw new ParseError(`chain hop "${hop}": engine "${seg}" does not exist`, ctx.file);
   }
-  const candidates = resolveLocalCandidates(ctx.engines, ctx.routes);
-  if (candidates.length !== 1) {
-    const names = candidates.map((e) => e.id).join(", ") || "none";
-    throw new ParseError(
-      `chain hop "${hop}": "local" must resolve to exactly one engine with egress "none" that serves a route; candidates: ${names}`,
-      ctx.file,
-    );
-  }
-  return (candidates[0] as EngineEntry).id;
+  return seg;
 }
 
-/** The route a resolved (engine, [upstream,] model) hop names, by model id or alias. */
+/** The route a resolved (engine, [upstream,] model) hop names. */
 function findRouteForHop(
   segs: readonly string[],
   routes: readonly ResolvedRoute[],
@@ -715,17 +684,10 @@ function findRouteForHop(
   const model = segs[segs.length - 1];
   if (segs.length === 2) {
     const engine = segs[0];
-    return routes.find(
-      (r) => r.engine === engine && (r.model === model || r.aliases.includes(model as string)),
-    );
+    return routes.find((r) => r.engine === engine && r.model === model);
   }
   const [engine, upstream] = segs;
-  return routes.find(
-    (r) =>
-      r.engine === engine &&
-      r.upstream === upstream &&
-      (r.model === model || r.aliases.includes(model as string)),
-  );
+  return routes.find((r) => r.engine === engine && r.upstream === upstream && r.model === model);
 }
 
 /**

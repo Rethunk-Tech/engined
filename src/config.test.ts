@@ -93,9 +93,8 @@ const RX_TWO_PINNED = /only one model per role can be resident/;
 const RX_PINNED_NO_ROLE = /declares "keep_resident" but has no "role"/;
 const RX_UNKNOWN_ENGINE = /engine "nope" does not exist/;
 const RX_UNKNOWN_MODEL = /model "nope" does not exist/;
-const RX_NO_LOCAL_CANDIDATE = /candidates: none/;
-const RX_TWO_LOCAL_CANDIDATES = /candidates: local-llama, other-local/;
 const RX_MISSING_FILENAME_UNDER_DIR = /"filename" does not exist at/;
+const RX_UNKNOWN_ENGINE_LOCAL = /engine "local" does not exist/;
 const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
 const RX_MISSING_EGRESS = /is missing required "egress"/;
@@ -335,30 +334,6 @@ test("a disabled chain drops it while its engines and routes stay served", () =>
   expect(cfg.engines.find((e) => e.id === "claude")?.disabled).toBeUndefined();
 });
 
-test('disabling the only local-egress engine makes a chain\'s "local" hop fatal, not silently remote', () => {
-  const toml = `
-${LOCAL_UPSTREAM}
-[[engine]]
-id = "local-llama"
-kind = "openai-http"
-egress = "none"
-disable = true
-models_dir = "${tempModelsDir("ornith.gguf")}"
-
-[[route]]
-engine = "local-llama"
-upstream = "local"
-model = "ornith"
-filename = "ornith.gguf"
-role = "chat"
-
-[[chain]]
-id = "c"
-hops = ["@/local/ornith"]
-`;
-  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
-});
-
 test("tilde in a route's filename is expanded to an absolute path", () => {
   const toml = `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "y.gguf"\nrole = "chat"\n`;
   // No file on disk -- the escape check passes (tilde expanded, still under
@@ -535,42 +510,33 @@ hops = ["@/claude/moonshot/k3"]
     expect(cfg.chains.c).toEqual(["@/claude/moonshot/k3"]);
   });
 
-  test('"local" with zero candidate engines is fatal, listing none', () => {
-    const toml = `
-[[upstream]]
-id = "anthropic"
-egress = "remote"
+  test('"local" is a real upstream id, never a discovered engine alias: a hop naming it as the engine segment is just an unknown engine', () => {
+    const toml = `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNKNOWN_ENGINE_LOCAL);
+  });
 
+  test('an engine literally id = "local" is addressed directly, same as any other id', () => {
+    const dir = tempModelsDir("ornith.gguf");
+    const toml = `
+${LOCAL_UPSTREAM}
 [[engine]]
-id = "claude"
-kind = "agentic-cli"
+id = "local"
+kind = "openai-http"
+models_dir = "${dir}"
 
 [[route]]
-engine = "claude"
-model = "sonnet-5"
+engine = "local"
+upstream = "local"
+model = "ornith"
+filename = "ornith.gguf"
+role = "chat"
 
 [[chain]]
 id = "c"
-hops = ["@/local/sonnet-5"]
+hops = ["@/local/ornith"]
 `;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
-  });
-
-  test('an engine with egress "none" and a models_dir but no routes does not shadow the real "local" candidate', () => {
-    const toml = `${llamaEngineAndRoute()}\n[[engine]]\nid = "comfy"\nkind = "comfy"\negress = "none"\nmodels_dir = "/no/route/names/this"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
     const cfg = loadConfig(writeConfig(toml));
     expect(cfg.chains.c).toEqual(["@/local/ornith"]);
-  });
-
-  test('two engines that both serve routes and are both "local" candidates is fatal, listing both', () => {
-    const otherDir = tempModelsDir("other.gguf");
-    const toml = `${llamaEngineAndRoute()}\n[[engine]]\nid = "other-local"\nkind = "openai-http"\negress = "none"\nmodels_dir = "${otherDir}"\n\n[[route]]\nengine = "other-local"\nupstream = "local"\nmodel = "y"\nfilename = "other.gguf"\nrole = "chat"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_TWO_LOCAL_CANDIDATES);
-  });
-
-  test('an engine with egress "none" and a models_dir but no routes is not a "local" candidate on its own', () => {
-    const toml = `${LOCAL_UPSTREAM}\n[[engine]]\nid = "comfy"\nkind = "comfy"\negress = "none"\nmodels_dir = "/no/route/names/this"\n\n[[chain]]\nid = "c"\nhops = ["@/local/ornith"]\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_NO_LOCAL_CANDIDATE);
   });
 });
 
