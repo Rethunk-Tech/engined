@@ -332,9 +332,9 @@ const SWAP_PMIN_B = 0.35;
 
 type SwapRoute = ResolvedRoute & { model: string; filename: string };
 
-function swapModels(): [SwapRoute, SwapRoute] | undefined {
+function swapModels(): SwapRoute[] {
   if (!CHAT || CHAT.filename === undefined) {
-    return;
+    return [];
   }
   const base = {
     engine: "local-llama",
@@ -368,7 +368,7 @@ function argvHasSpecPMin(lines: string[], value: number): boolean {
 
 describe.skipIf(!READY)(describeTitle("local-llama router: same-role swap (local)"), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-  const models = swapModels() ?? [];
+  const models = swapModels();
   const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);
 
   afterAll(async () => {
