@@ -104,7 +104,7 @@ serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `;
 
-/** Mirrors engines/chatterbox and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */
+/** Mirrors engines/chatterbox-multi and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */
 const TTS_EMPTY_COMMAND = `
 kind = "tts"
 upstream = "self"

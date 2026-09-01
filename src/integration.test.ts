@@ -149,13 +149,13 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
         role: "chat",
       }),
       route({ engine: "claude", model: "sonnet-5", upstream: null }),
-      route({ engine: "chatterbox", model: undefined, upstream: "local" }),
+      route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
     ],
     engines: [
       containerEngine("local", OPENAI_SPEC_STREAMING),
       containerEngine("claude", AGENTIC_SPEC),
       containerEngine("comfy", COMFY_SPEC),
-      containerEngine("chatterbox", ttsSpec()),
+      containerEngine("chatterbox-multi", ttsSpec()),
     ],
     chains: { "chain-x": ["@/local/ornith"] },
   });
@@ -187,7 +187,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(ids).not.toHaveLength(0);
 
     expect(new Set(ids)).toEqual(
-      new Set(["@/local/ornith", "@/claude/sonnet-5", "@/chatterbox/local", "chain-x"]),
+      new Set(["@/local/ornith", "@/claude/sonnet-5", "@/chatterbox-multi/local", "chain-x"]),
     );
     expect(ids).not.toContain("comfy");
     expect(ids).not.toContain("@/comfy/local");
@@ -298,9 +298,11 @@ status = 200
 `;
 }
 
-/** chatterbox is modelless: its one route names an upstream, never a model, and its address is that route's engine+upstream form. */
-const CHATTERBOX = "@/chatterbox/local";
-const CHATTERBOX_ROUTES = [route({ engine: "chatterbox", model: undefined, upstream: "local" })];
+/** chatterbox-multi is modelless: its one route names an upstream, never a model, and its address is that route's engine+upstream form. */
+const CHATTERBOX = "@/chatterbox-multi/local";
+const CHATTERBOX_ROUTES = [
+  route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
+];
 
 /**
  * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
@@ -744,11 +746,13 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     return new Response("", { status: 404 });
   });
   const { port } = fake;
-  const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": port } });
   const IDLE_STOP_SECONDS = 0.03;
   const config = baseConfig({
     routes: CHATTERBOX_ROUTES,
-    engines: [containerEngine("chatterbox", ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS })],
+    engines: [
+      containerEngine("chatterbox-multi", ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS }),
+    ],
   });
   const door = createDoor(config, {
     enginesRoot: "/nonexistent/engines",
@@ -769,7 +773,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
 
     const engines = await door.fetch(req("GET", "/engined/v1/engines"));
     const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> };
-    expect(body.engines.find((e) => e.id === "chatterbox")?.state).toBe("installed");
+    expect(body.engines.find((e) => e.id === "chatterbox-multi")?.state).toBe("installed");
   } finally {
     fake.stop();
     await door.registry.shutdown();
@@ -787,10 +791,10 @@ test("a failed audio call records why it failed, not merely that it did", async 
     return new Response("", { status: 503 });
   });
   const { port } = fake;
-  const exec = buildExec({ portByContainer: { "engined-chatterbox": port } });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": port } });
   const config = baseConfig({
     routes: CHATTERBOX_ROUTES,
-    engines: [containerEngine("chatterbox", ttsSpec())],
+    engines: [containerEngine("chatterbox-multi", ttsSpec())],
   });
   const lines: string[] = [];
   const door = createDoor(
@@ -846,10 +850,13 @@ interface StreamingSpeechDoor {
 
 function streamingSpeechDoor(): StreamingSpeechDoor {
   const fake = startFakeUpstream(fakeStreamingTts());
-  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": fake.port } });
   const lines: string[] = [];
   const door = createDoor(
-    baseConfig({ routes: CHATTERBOX_ROUTES, engines: [containerEngine("chatterbox", ttsSpec())] }),
+    baseConfig({
+      routes: CHATTERBOX_ROUTES,
+      engines: [containerEngine("chatterbox-multi", ttsSpec())],
+    }),
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
     { write: (l) => lines.push(l) },
   );
@@ -888,7 +895,7 @@ test("a streamed audio call that forwards its whole body records a success, not 
     const record = speechAttempt(lines);
     expect(record.attempts[0]?.ok).toBe(true);
     expect(record.attempts[0]?.failure).toBeUndefined();
-    expect(record.engine_used).toBe("chatterbox");
+    expect(record.engine_used).toBe("chatterbox-multi");
   } finally {
     stop();
     await door.registry.shutdown();
@@ -961,10 +968,10 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
     }
     return new Response("", { status: 404 });
   });
-  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": fake.port } });
   const config = baseConfig({
     routes: CHATTERBOX_ROUTES,
-    engines: [containerEngine("chatterbox", ttsSpec())],
+    engines: [containerEngine("chatterbox-multi", ttsSpec())],
   });
   const door = createDoor(config, {
     enginesRoot: "/nonexistent/engines",
@@ -985,7 +992,7 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
 
 test("speech forwards OpenAI's own fields under the engine's names, and carries unknown ones through", async () => {
   // The OpenAI SDKs ship extra_body so a compatible server can be handed
-  // parameters the standard shape has no room for. chatterbox has several --
+  // parameters the standard shape has no room for. chatterbox-multi has several --
   // a reference-voice path, a language -- and a closed set here would cost a
   // door edit per engine capability.
   let sent: Record<string, unknown> = {};
@@ -1001,9 +1008,12 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
     }
     return new Response("", { status: 404 });
   });
-  const exec = buildExec({ portByContainer: { "engined-chatterbox": fake.port } });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": fake.port } });
   const door = createDoor(
-    baseConfig({ routes: CHATTERBOX_ROUTES, engines: [containerEngine("chatterbox", ttsSpec())] }),
+    baseConfig({
+      routes: CHATTERBOX_ROUTES,
+      engines: [containerEngine("chatterbox-multi", ttsSpec())],
+    }),
     {
       enginesRoot: "/nonexistent/engines",
       bunx: "/opt/test/bunx",
@@ -1026,7 +1036,7 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
   );
   expect(res.status).toBe(200);
 
-  // OpenAI's names map to the engine's: `instructions` is what chatterbox calls `prompt`.
+  // OpenAI's names map to the engine's: `instructions` is what chatterbox-multi calls `prompt`.
   expect(sent.voice).toBe("af_heart");
   expect(sent.speed).toBe(1.25);
   expect(sent.prompt).toBe("Speak with controlled rage.");

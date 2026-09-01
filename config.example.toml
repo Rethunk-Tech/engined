@@ -373,15 +373,15 @@ model  = "composer-2.5"
 # ---------------------------------------------------------------------------
 
 [[engine]]
-id                = "chatterbox"
+id                = "chatterbox-multi"
 idle_stop_seconds = 1800
-# No models_dir: chatterbox's weights are baked into its image at build time.
+# No models_dir: chatterbox-multi's weights are baked into its image at build time.
 # Cold start to first audio measures ~41s against the 60s default, and that
 # margin is what a sibling engine's GPU load eats first.
 ready_timeout_s   = 90
 
 [[route]]
-engine   = "chatterbox"
+engine   = "chatterbox-multi"
 upstream = "local"
 
 # Chatterbox Turbo, kept alongside the one above rather than replacing it: a
@@ -391,19 +391,19 @@ upstream = "local"
 # faster than realtime, where that one is not. Roughly half that gain is
 # MIOPEN_FIND_MODE=FAST, baked into this image; the rest is the model.
 [[engine]]
-id                = "chatterbox-fast"
+id                = "chatterbox-en"
 idle_stop_seconds = 1800
-# ~29s cold start; same reasoning as chatterbox above.
+# ~29s cold start; same reasoning as chatterbox-multi above.
 ready_timeout_s   = 90
 
 [[route]]
-engine   = "chatterbox-fast"
+engine   = "chatterbox-en"
 upstream = "local"
 
 [[engine]]
 id                = "kokoro"
 idle_stop_seconds = 1800
-# Same posture as chatterbox: weights are image-baked, nothing to mount.
+# Same posture as the chatterbox engines: weights are image-baked, nothing to mount.
 # Longer than the 60s default: app.py's decoder bucket warm-up runs before
 # /health can answer (see engines.md), and a cold MIOpen cache (first boot,
 # or the named volume not yet populated) pays real JIT-compile time for it.
@@ -415,7 +415,7 @@ upstream = "local"
 
 # The CPU voice. Same image-baked posture as the two above, and the only
 # engine here that asks for no GPU at all -- which is the reason to pick it
-# over kokoro or chatterbox for a voice channel: it speaks while a 25 GB GGUF
+# over kokoro or the chatterbox engines for a voice channel: it speaks while a 25 GB GGUF
 # stays resident, instead of contending with it.
 [[engine]]
 id                = "piper"
@@ -427,7 +427,7 @@ upstream = "local"
 
 [[engine]]
 id                = "whisper"
-# Required here, unlike chatterbox/kokoro: whisper's spec.toml bind-mounts
+# Required here, unlike the chatterbox engines or kokoro: whisper's spec.toml bind-mounts
 # this path read-only and its own artifact-fetch commands write into it. An
 # engine that omits models_dir while its spec needs one fails loudly at spec
 # load naming the unresolved placeholder -- it does not start half-broken.

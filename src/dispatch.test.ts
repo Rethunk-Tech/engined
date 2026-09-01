@@ -148,24 +148,24 @@ describe("modelless engine addressing", () => {
   }
 
   test("its two-segment engine+upstream form resolves", () => {
-    const cfg = modelless("chatterbox");
-    expect(resolveModel("@/chatterbox/local", SPEECH, cfg, registry(cfg))).toEqual({
+    const cfg = modelless("chatterbox-multi");
+    expect(resolveModel("@/chatterbox-multi/local", SPEECH, cfg, registry(cfg))).toEqual({
       ok: true,
       kind: "model",
-      engine: "chatterbox",
+      engine: "chatterbox-multi",
       upstream: "local",
     });
   });
 
   test("it has no one-segment form", () => {
-    const cfg = modelless("chatterbox");
-    expect(resolveModel("chatterbox", SPEECH, cfg, registry(cfg)).ok).toBe(false);
-    expect(resolveModel("@/chatterbox", SPEECH, cfg, registry(cfg)).ok).toBe(false);
+    const cfg = modelless("chatterbox-multi");
+    expect(resolveModel("chatterbox-multi", SPEECH, cfg, registry(cfg)).ok).toBe(false);
+    expect(resolveModel("@/chatterbox-multi", SPEECH, cfg, registry(cfg)).ok).toBe(false);
   });
 
   test("a third segment is refused: there is no model to name", () => {
-    const cfg = modelless("chatterbox");
-    const result = resolveModel("@/chatterbox/local/x", SPEECH, cfg, registry(cfg));
+    const cfg = modelless("chatterbox-multi");
+    const result = resolveModel("@/chatterbox-multi/local/x", SPEECH, cfg, registry(cfg));
     expect(result.ok).toBe(false);
   });
 

@@ -43,7 +43,7 @@ from pydantic import BaseModel
 app = FastAPI()
 logger = logging.getLogger(__name__)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# Turbo, not the multilingual model engines/chatterbox loads. Its diffusion
+# Turbo, not the multilingual model engines/chatterbox-multi loads. Its diffusion
 # decoder runs one step where that one runs ten, which is what makes it
 # faster; its generate() is English-only and takes no language_id at all, so
 # there is no language to plumb through here.

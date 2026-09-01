@@ -33,22 +33,26 @@ official PyTorch ROCm wheels, which are self-contained and would otherwise
 duplicate a fuller base's own ROCm math libraries. GPU detected as `Radeon
 8060S Graphics : native`. ~28.9 GB, down from 41.1 GB on `rocm/pytorch`.
 
-### Chatterbox
+### Chatterbox Multilingual (`chatterbox-multi`)
 
-`engines/chatterbox/`. Follows ComfyUI's base pattern. Installs
+`engines/chatterbox-multi/`. Follows ComfyUI's base pattern. Installs
 `chatterbox-tts` (devnen's `chatterbox-v2` fork, which carries gfx1151 dtype
 fixes) with `--no-deps`, then its real runtime dependencies at versions that
 work on Python 3.12 / torch 2.13 — its own `pyproject.toml` pins
 `numpy<1.26` (no Python 3.12 wheel exists at all) and `torch==2.5.1`,
-neither usable here. ~29 GB.
+neither usable here. ~29 GB. Runs `ChatterboxMultilingualTTS`, whose
+`generate()` takes a required `language_id`.
 
-### Chatterbox Turbo (`chatterbox-fast`)
+### Chatterbox Turbo (`chatterbox-en`)
 
-`engines/chatterbox-fast/`. The same base and ROCm posture as Chatterbox, but
-a different checkpoint -- `ResembleAI/chatterbox-turbo`, whose diffusion
-decoder runs one step where the multilingual model runs ten. English-only:
-Turbo's `generate()` takes no `language_id`, so there is no language to plumb.
-Kept alongside Chatterbox rather than replacing it; both images ship.
+`engines/chatterbox-en/`. The same base and ROCm posture as Chatterbox
+Multilingual, but a different checkpoint -- `ResembleAI/chatterbox-turbo`,
+whose diffusion decoder runs one step where the multilingual model runs ten.
+Runs `ChatterboxTurboTTS`, whose `generate()` takes no language parameter at
+all -- English-only by construction, not by convention: a Japanese sentence
+fed to it produces 15.76s of degenerate babble against 2.76s of correct audio
+from the multilingual model on the same input. Kept alongside Chatterbox
+Multilingual rather than replacing it; both images ship.
 
 It is the fastest of the three GPU TTS engines, and the only one of them that
 is faster than realtime on this box. Piper is faster than all of them and is
@@ -57,14 +61,14 @@ Measured, median of three runs after warm-up, on the same input:
 
 | engine | `MIOPEN_FIND_MODE` | RTF | realtime |
 | ------ | ------ | ------ | ------ |
-| chatterbox | default | 2.48 | 0.40x |
-| chatterbox | FAST | 1.06 | 0.94x |
-| chatterbox-fast | default | 1.29 | 0.78x |
-| chatterbox-fast | FAST | 0.62 | 1.52-1.60x |
+| chatterbox-multi | default | 2.48 | 0.40x |
+| chatterbox-multi | FAST | 1.06 | 0.94x |
+| chatterbox-en | default | 1.29 | 0.78x |
+| chatterbox-en | FAST | 0.62 | 1.52-1.60x |
 
 **These ratios are a ceiling, not a budget.** They were taken on input long
 enough to amortize a fixed per-request cost; on a short reply the same engine
-measures well below them -- chatterbox-fast lands at 0.86-1.20x on a 12-char
+measures well below them -- chatterbox-en lands at 0.86-1.20x on a 12-char
 input and 1.11-1.16x on 41 chars. Still realtime or better, but do not size a
 short-reply latency budget from the headline figure.
 
@@ -228,7 +232,7 @@ is one file on disk, not two.
 
 Whether an engine's `/v1/tts` emits per-chunk NDJSON frames, and so whether
 `"stream": true` on `POST /openai/v1/audio/speech` is servable by it. `piper` and
-`kokoro` set `streaming = true`; `chatterbox` and `chatterbox-fast` omit it,
+`kokoro` set `streaming = true`; `chatterbox-multi` and `chatterbox-en` omit it,
 because a single blocking `generate()` has no piece to forward before the
 last one.
 

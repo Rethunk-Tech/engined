@@ -26,8 +26,8 @@ const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models
 // A disabled engine keeps its entry -- that is what lets GET /engined/v1/engines
 // report it as off -- so the list here is every engine the file declares.
 const EXPECTED_ENGINE_IDS = [
-  "chatterbox",
-  "chatterbox-fast",
+  "chatterbox-en",
+  "chatterbox-multi",
   "claude",
   "comfy",
   "cursor",

@@ -77,7 +77,7 @@ export interface SpeechRequestBody {
    *
    * The OpenAI SDKs ship `extra_body` precisely so a compatible server can be
    * handed parameters the standard shape has no room for, and engined's TTS
-   * engines have several: chatterbox takes a reference-voice path and a
+   * engines have several: chatterbox-multi takes a reference-voice path and a
    * language, and a new one will take something nobody has thought of yet.
    * A closed set here would mean a door edit per engine capability, which is
    * the friction the spec table exists to avoid.

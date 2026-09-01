@@ -15,7 +15,7 @@ const CHATTERBOX_CONTAINER_PORT = 8004;
 const SAMPLE_WAV_BYTES = Buffer.from("RIFF____WAVEfmt ", "utf8");
 const SAMPLE_WAV_BASE64 = SAMPLE_WAV_BYTES.toString("base64");
 
-/** `docker image inspect`, one exposed port — chatterbox's shape, not a real capture. */
+/** `docker image inspect`, one exposed port — chatterbox-multi's shape, not a real capture. */
 const CHATTERBOX_INSPECT = JSON.stringify([
   { Config: { ExposedPorts: { [`${CHATTERBOX_CONTAINER_PORT}/tcp`]: {} } } },
 ]);
@@ -58,8 +58,8 @@ function makeLifecycle(exec: Exec): DockerLifecycle {
   return new DockerLifecycle(exec, async () => ({ status: 200 }));
 }
 
-/** A real `Bun.serve` fake chatterbox, emitting real NDJSON: one frame with `audio`, alignment null. */
-function startFakeChatterbox(): { base: string; stop: () => void } {
+/** A real `Bun.serve` fake chatterbox-multi, emitting real NDJSON: one frame with `audio`, alignment null. */
+function startFakeChatterboxMulti(): { base: string; stop: () => void } {
   const server = Bun.serve({
     port: 0,
     fetch(req) {
@@ -75,12 +75,15 @@ function startFakeChatterbox(): { base: string; stop: () => void } {
   return { base: `127.0.0.1:${server.port}`, stop: () => server.stop(true) };
 }
 
-test("handleSpeech returns an OpenAI audio body, not the chatterbox NDJSON envelope", async () => {
-  const fake = startFakeChatterbox();
+test("handleSpeech returns an OpenAI audio body, not the chatterbox-multi NDJSON envelope", async () => {
+  const fake = startFakeChatterboxMulti();
 
-  const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, async () => ({
-    private_url: fake.base,
-  }));
+  const result = await handleSpeech(
+    { engine: "chatterbox-multi", input: "hello there" },
+    async () => ({
+      private_url: fake.base,
+    }),
+  );
   fake.stop();
 
   expect(result.status).toBe(200);
@@ -91,10 +94,10 @@ test("handleSpeech returns an OpenAI audio body, not the chatterbox NDJSON envel
 });
 
 test("response_format: wav returns bytes with a binary content type, not a JSON envelope", async () => {
-  const fake = startFakeChatterbox();
+  const fake = startFakeChatterboxMulti();
 
   const result = await handleSpeech(
-    { engine: "chatterbox", input: "hello there", response_format: "wav" },
+    { engine: "chatterbox-multi", input: "hello there", response_format: "wav" },
     async () => ({ private_url: fake.base }),
   );
   fake.stop();
@@ -107,7 +110,7 @@ test("response_format: wav returns bytes with a binary content type, not a JSON 
 
 test("response_format: mp3 on speech is rejected with 400 naming wav, not silently returned as wav bytes", async () => {
   const result = await handleSpeech(
-    { engine: "chatterbox", input: "hello there", response_format: "mp3" },
+    { engine: "chatterbox-multi", input: "hello there", response_format: "mp3" },
     () => {
       throw new Error("must not start an engine for a rejected response_format");
     },
@@ -121,8 +124,8 @@ test("response_format: mp3 on speech is rejected with 400 naming wav, not silent
 
 test("a start refused for a model conflict is a 409, never fetched", async () => {
   const result = await handleSpeech(
-    { engine: "chatterbox", input: "hello there" },
-    async () => ({ private_url: null, conflict: 'engine "chatterbox" is busy' }),
+    { engine: "chatterbox-multi", input: "hello there" },
+    async () => ({ private_url: null, conflict: 'engine "chatterbox-multi" is busy' }),
     unreachableFetch("must not fetch an engine refused for a model conflict"),
   );
 
@@ -130,9 +133,9 @@ test("a start refused for a model conflict is a 409, never fetched", async () =>
   expect(JSON.stringify(result.body)).toContain("busy");
 });
 
-test("chatterbox spec.toml produces run argv carrying the GPU flags and no all-interfaces publish", () => {
-  const spec = loadSpecFor("chatterbox");
-  const argv = buildRunArgs("engined-chatterbox", spec, CHATTERBOX_CONTAINER_PORT);
+test("chatterbox-multi spec.toml produces run argv carrying the GPU flags and no all-interfaces publish", () => {
+  const spec = loadSpecFor("chatterbox-multi");
+  const argv = buildRunArgs("engined-chatterbox-multi", spec, CHATTERBOX_CONTAINER_PORT);
 
   expect(argv).toContain("/dev/kfd");
   expect(argv).toContain("/dev/dri");
@@ -142,7 +145,7 @@ test("chatterbox spec.toml produces run argv carrying the GPU flags and no all-i
 });
 
 test("a request against a stopped engine starts it on demand through the real docker lifecycle", async () => {
-  const fake = startFakeChatterbox();
+  const fake = startFakeChatterboxMulti();
   const [, fakePort] = fake.base.split(":");
   const runLog: string[][] = [];
 
@@ -159,9 +162,9 @@ test("a request against a stopped engine starts it on demand through the real do
     }
   });
   const lifecycle = makeLifecycle(exec);
-  const spec = loadSpecFor("chatterbox");
+  const spec = loadSpecFor("chatterbox-multi");
 
-  const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, (id) =>
+  const result = await handleSpeech({ engine: "chatterbox-multi", input: "hello there" }, (id) =>
     lifecycle.start(id, spec, { idleStopSeconds: 60, readyTimeoutS: 1 }),
   );
   fake.stop();
@@ -350,7 +353,7 @@ test("a second audio caller is visible as a lease while the first is still in fl
     }
   });
   const lifecycle = makeLifecycle(exec);
-  await lifecycle.start("chatterbox", loadSpecFor("chatterbox"), {
+  await lifecycle.start("chatterbox-multi", loadSpecFor("chatterbox-multi"), {
     idleStopSeconds: 60,
     readyTimeoutS: 1,
   });
@@ -358,13 +361,13 @@ test("a second audio caller is visible as a lease while the first is still in fl
   // The engine apps serialize synthesis on one process-wide lock, so a second
   // caller simply waits. Without the lease count nothing outside the container
   // reports that it is waiting at all.
-  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(0);
-  lifecycle.beginLease("chatterbox");
-  lifecycle.beginLease("chatterbox");
-  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(2);
+  expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(0);
+  lifecycle.beginLease("chatterbox-multi");
+  lifecycle.beginLease("chatterbox-multi");
+  expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(2);
 
-  lifecycle.endLease("chatterbox", 60);
-  expect(lifecycle.getStatus("chatterbox").active_leases).toBe(1);
+  lifecycle.endLease("chatterbox-multi", 60);
+  expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(1);
 });
 
 test("a streamed speech request forwards each chunk's PCM and drops the terminal WAV", async () => {
@@ -479,7 +482,7 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
   ].join("\n");
   let asked: unknown;
   const res = await handleSpeech(
-    { engine: "chatterbox", input: "hi", stream: "ndjson" },
+    { engine: "chatterbox-multi", input: "hi", stream: "ndjson" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     (_url, init) => {
       asked = JSON.parse(String(init?.body));
@@ -504,7 +507,7 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
 });
 
 test('stream: "ndjson" keeps the terminal audio when the engine never chunked', async () => {
-  // chatterbox streams step counts and then one whole-utterance WAV: it emits
+  // chatterbox-multi streams step counts and then one whole-utterance WAV: it emits
   // no chunk frames at all, so dropping `audio` on `done` -- correct for a
   // chunking engine that already sent the samples -- hands this caller
   // progress and silence.
@@ -514,7 +517,7 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
     JSON.stringify({ phase: "done", audio: SAMPLE_WAV_BASE64, alignment: null }),
   ].join("\n");
   const res = await handleSpeech(
-    { engine: "chatterbox", input: "hi", stream: "ndjson" },
+    { engine: "chatterbox-multi", input: "hi", stream: "ndjson" },
     () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
     () => Promise.resolve(new Response(frames)),
   );

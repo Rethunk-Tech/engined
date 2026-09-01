@@ -1,6 +1,6 @@
 kind = "tts"
 upstream = "self"
-image = "engined-chatterbox:local"
+image = "engined-chatterbox-multi:local"
 obtain = "build"
 serves = ["/openai/v1/audio/speech"]
 # No `streaming` key: chatterbox-tts synthesizes in one blocking generate()
@@ -9,7 +9,7 @@ serves = ["/openai/v1/audio/speech"]
 # every non-streaming spec says.
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.
 command = []
-# Full GPU_FLAGS, not the Vulkan-only pair llama takes: chatterbox is a
+# Full GPU_FLAGS, not the Vulkan-only pair llama takes: chatterbox-multi is a
 # ROCm/PyTorch engine. See engines/llama/spec.toml for why that one
 # omits /dev/kfd.
 devices = ["/dev/kfd", "/dev/dri"]

@@ -1,5 +1,5 @@
-"""Thin HTTP wrapper around Piper for the same NDJSON /v1/tts contract chatterbox and
-kokoro speak (engines/kokoro/app.py) -- not a new protocol. engined's audio door
+"""Thin HTTP wrapper around Piper for the same NDJSON /v1/tts contract the chatterbox
+engines and kokoro speak (engines/kokoro/app.py) -- not a new protocol. engined's audio door
 (src/audio.ts) reads the first frame carrying a non-empty base64 `audio` field and returns
 those bytes as WAV; a wrapper that served /v1/audio/speech directly would be invisible to it.
 
@@ -88,9 +88,7 @@ def synthesize(req: TtsRequest):
                 # format to write a WAV header with, and a zero-length WAV would read to
                 # the caller as a successful silent synthesis.
                 yield (
-                    json.dumps(
-                        {"phase": "error", "detail": "text produced no audio"}
-                    )
+                    json.dumps({"phase": "error", "detail": "text produced no audio"})
                     + "\n"
                 )
                 return

@@ -135,7 +135,7 @@ sharp. A mid-stream failure ends the stream rather than changing a status code
 that has already been sent, so a caller sees short audio.
 
 Only an engine that implements chunking can be streamed: kokoro and piper do,
-and chatterbox and chatterbox-fast do not — a single blocking `generate()` has
+and chatterbox-multi and chatterbox-en do not — a single blocking `generate()` has
 no piece to forward before the last one. A request that streams one of those
 gets a 502 saying the engine streamed no audio, sent before any header is
 committed, rather than a 200 whose body never arrives.

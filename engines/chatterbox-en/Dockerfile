@@ -76,7 +76,7 @@ RUN sed -i \
 # thing this step exists to guarantee.
 #
 # Turbo is ResembleAI/chatterbox-turbo, a different checkpoint from the
-# multilingual model engines/chatterbox bakes -- both images are kept, so
+# multilingual model engines/chatterbox-multi bakes -- both images are kept, so
 # nothing here may reach for that one's cache.
 ENV HF_HOME=/app/hf_cache
 RUN python3 -c "\

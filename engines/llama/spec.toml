@@ -15,8 +15,8 @@ image = "engined-llama-cpp:local"
 obtain = "build"
 serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
 # Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
-# --group-add video) is for the ROCm/PyTorch engines -- comfy, chatterbox,
-# kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three
+# --group-add video) is for the ROCm/PyTorch engines -- comfy, the chatterbox
+# engines, kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three
 # and, in its own llama spec, keeps --group-add video while dropping
 # /dev/kfd alone -- the device node is the difference, not the group. Both
 # nodes exist on this box, so the ROCm flags would run and the mistake would

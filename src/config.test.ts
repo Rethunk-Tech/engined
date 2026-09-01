@@ -210,12 +210,12 @@ engine   = "comfy"
 upstream = "local"
 
 [[engine]]
-id                = "chatterbox"
+id                = "chatterbox-multi"
 kind              = "tts"
 idle_stop_seconds = 1800
 
 [[route]]
-engine   = "chatterbox"
+engine   = "chatterbox-multi"
 upstream = "local"
 
 [[engine]]

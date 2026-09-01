@@ -12,12 +12,12 @@ import { isContainerSpec } from "../../src/types.ts";
 import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
- * Drives `handleSpeech` (audio.ts) against the real chatterbox container
+ * Drives `handleSpeech` (audio.ts) against the real chatterbox-multi container
  * rather than the fake `Bun.serve` double `src/audio.test.ts` uses, and
  * drives `DockerLifecycle.probe` against real docker for whisper's
  * artifact-missing status (the non-local suite already proves that same
  * logic path, but entirely against a fake `Exec`). Closes local-tier gaps:
- * nothing until this file proved the chatterbox door against a real
+ * nothing until this file proved the chatterbox-multi door against a real
  * NDJSON-speaking process, or proved the "unavailable, naming the artifact's
  * obtain command" status against a real image.
  */
@@ -57,10 +57,10 @@ function imageBuilt(image: string): boolean {
 /**
  * Read from the real spec.toml rather than hardcoded -- llama's own
  * image tag drifted mid-session (see llama.test.ts), and a hardcoded copy
- * here would be exactly the same risk for chatterbox/whisper the next time
+ * here would be exactly the same risk for chatterbox-multi/whisper the next time
  * either gets its own vendored Dockerfile and a fresh tag. `models_dir:
  * "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to
- * substitute cleanly; chatterbox's spec has no such placeholder.
+ * substitute cleanly; chatterbox-multi's spec has no such placeholder.
  */
 function specImage(id: string): string | undefined {
   try {
@@ -76,14 +76,14 @@ function specImage(id: string): string | undefined {
 
 const KOKORO_IMAGE = LOCAL ? specImage("kokoro") : undefined;
 const PIPER_IMAGE = LOCAL ? specImage("piper") : undefined;
-const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox") : undefined;
+const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox-multi") : undefined;
 const WHISPER_IMAGE = LOCAL ? specImage("whisper") : undefined;
 const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
 const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE);
 const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
 const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
 
-// See llama.test.ts: chatterbox's test starts the very container the unit owns.
+// See llama.test.ts: chatterbox-multi's test starts the very container the unit owns.
 if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO || HAVE_PIPER) {
   requireNoResidentEngine();
 }
@@ -94,18 +94,18 @@ function describeTitle(base: string, ready: boolean, reason: string): string {
 
 describe.skipIf(!HAVE_CHATTERBOX)(
   describeTitle(
-    "chatterbox speech door (local)",
+    "chatterbox-multi speech door (local)",
     HAVE_CHATTERBOX,
     CHATTERBOX_IMAGE === undefined
-      ? "chatterbox's spec.toml did not resolve an image"
+      ? "chatterbox-multi's spec.toml did not resolve an image"
       : `${CHATTERBOX_IMAGE} is not built`,
   ),
   () => {
     const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-    const engine: EngineEntry = { id: "chatterbox", args: {} };
+    const engine: EngineEntry = { id: "chatterbox-multi", args: {} };
     const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
     if (!isContainerSpec(loaded.spec)) {
-      throw new Error("chatterbox spec.toml did not parse as a container spec");
+      throw new Error("chatterbox-multi spec.toml did not parse as a container spec");
     }
     const { spec } = loaded;
 
@@ -114,7 +114,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
     });
 
     test(
-      "a real chatterbox container starts on demand and its NDJSON is translated into real WAV bytes",
+      "a real chatterbox-multi container starts on demand and its NDJSON is translated into real WAV bytes",
       async () => {
         const start = async (id: string) => {
           const status = await lifecycle.start(id, spec, {
@@ -125,7 +125,10 @@ describe.skipIf(!HAVE_CHATTERBOX)(
           return { private_url: status.private_url };
         };
 
-        const result = await handleSpeech({ engine: "chatterbox", input: "hello there" }, start);
+        const result = await handleSpeech(
+          { engine: "chatterbox-multi", input: "hello there" },
+          start,
+        );
 
         expect(result.status).toBe(200);
         expect(result.bytes).toBeDefined();

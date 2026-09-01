@@ -115,8 +115,8 @@ describe("shipped specs", () => {
   test.each([
     ["piper", true],
     ["kokoro", true],
-    ["chatterbox", false],
-    ["chatterbox-fast", false],
+    ["chatterbox-multi", false],
+    ["chatterbox-en", false],
   ] as const)("the shipped %s spec declares streaming = %p", (id, streaming) => {
     const loaded = loadSpec(engine({ id }), { enginesRoot: ENGINES_ROOT, bunx: BUNX });
     expect(loaded.spec.kind).toBe("tts");
