@@ -90,9 +90,7 @@ function loadFixture(): Fixture {
   try {
     const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
     const engine = config.engines.find((e) => e.id === "llama");
-    const routes = config.routes.filter(
-      (r) => r.engine === "llama" && r.upstream === "local",
-    );
+    const routes = config.routes.filter((r) => r.engine === "llama" && r.upstream === "local");
     if (!engine) {
       return {
         engine: EMPTY_ENGINE,
