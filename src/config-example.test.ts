@@ -45,13 +45,16 @@ const EXPECTED_ENGINE_IDS = [
 const EXPECTED_DISABLED_IDS = ["claude", "elevenlabs", "openai"];
 
 // The example declares no [[model]] capability rows -- every model id below
-// comes from a route naming one, disabled or not.
-// "sonnet-5" appears three times: the ambient claude route, the claude route
-// onto openrouter-anthropic, and the openrouter engine's own openai-wire
-// route -- the same model id addressed through three different pairings.
+// comes from a route naming one, disabled or not. Every id here is the
+// address segment ("model"), never "wire_model" -- this list answers what a
+// caller dials, not what reaches an upstream.
+// "sonnet-5" appears twice: the ambient claude route and the claude route
+// onto openrouter-anthropic. The openrouter engine's own openai-wire route
+// addresses a different model ("glm-5.2:free") than either.
 const EXPECTED_ROUTE_MODEL_IDS = [
   "code",
   "embed",
+  "glm-5.2:free",
   "gpt-5.4",
   "gpt-5.4-mini",
   "k3",
@@ -60,7 +63,6 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "ornith",
   "scribe_v1",
   "small.en",
-  "sonnet-5",
   "sonnet-5",
   "sonnet-5",
   "vision",
@@ -161,12 +163,13 @@ test("config.example.toml parses through the real loadConfig()", () => {
   expect(elevenlabsUpstream?.egress).toBe("remote");
   expect(elevenlabsUpstream?.secret?.header).toBe("xi-api-key");
 
-  // One provider, two wires, two upstreams -- both off until proven live,
-  // and the engine's own route stays two-segment because it is the only
-  // route on "openrouter" (see the config's own comment on that route).
+  // One provider, two wires, two upstreams -- the OpenAI-shaped one proven
+  // live and on, the Anthropic gateway still off. The engine's own route
+  // stays two-segment because it is the only route on "openrouter" (see the
+  // config's own comment on that route).
   const orOpenai = config.upstreams.find((u) => u.id === "openrouter");
   const orAnthropic = config.upstreams.find((u) => u.id === "openrouter-anthropic");
-  expect(orOpenai?.disabled).toBe(true);
+  expect(orOpenai?.disabled).toBeUndefined();
   expect(orOpenai?.wire).toBe("openai");
   expect(orOpenai?.base_url).toBe("https://openrouter.ai/api/v1");
   expect(orAnthropic?.disabled).toBe(true);
@@ -174,14 +177,15 @@ test("config.example.toml parses through the real loadConfig()", () => {
   expect(orAnthropic?.base_url).toBe("https://openrouter.ai/api");
   const orEngine = config.engines.find((e) => e.id === "openrouter");
   expect(orEngine?.kind).toBe("openai-http");
-  // Disabled through its own upstream, not the engine: "openrouter" (unlike
-  // "claude") carries no engine-level disable of its own, so this route
-  // dropping is entirely the upstream's doing.
   expect(orEngine?.disabled).toBeUndefined();
   const orDirectRoute = config.routes.find(
     (r) => r.engine === "openrouter" && r.upstream === "openrouter",
   );
-  expect(orDirectRoute?.disabled).toBe(true);
+  // The address segment is slash-free; the real OpenRouter id lives in
+  // wire_model, sent on the wire in its place.
+  expect(orDirectRoute?.model).toBe("glm-5.2:free");
+  expect(orDirectRoute?.wire_model).toBe("z-ai/glm-5.2:free");
+  expect(orDirectRoute?.disabled).toBeUndefined();
   // "claude" itself is disabled (EXPECTED_DISABLED_IDS), so every route on
   // it -- ambient, moonshot, and this one -- is disabled regardless of its
   // own upstream's flag.

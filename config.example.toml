@@ -83,10 +83,10 @@ wire     = "openai"
 # OpenRouter serves both wire shapes from one account: an OpenAI-shaped API
 # at /api/v1, and an Anthropic-compatible gateway at /api that a Claude CLI
 # can point at with no protocol change. One provider, two wires, two rows --
-# both off below until a route through each is proven live end to end.
+# the OpenAI-shaped one proven live end to end below; the Anthropic gateway
+# stays off until a route through it gets the same proof, on a separate path.
 [[upstream]]
 id       = "openrouter"
-disable  = true
 base_url = "https://openrouter.ai/api/v1"
 secret   = { service = "openrouter-api", username = "claude-code", header = "authorization" }
 egress   = "remote"
@@ -487,15 +487,20 @@ model    = "gpt-5.4"
 id   = "openrouter"
 kind = "openai-http"
 
-# This is the only route on "openrouter", so @/openrouter/sonnet-5 has
+# This is the only route on "openrouter", so @/openrouter/glm-5.2:free has
 # exactly one candidate and stays two-segment; a second upstream sharing this
-# engine's routes would force the three-segment form instead. Off because its
-# upstream above is off.
+# engine's routes would force the three-segment form instead.
+#
+# OpenRouter's real ids are "org/model" -- a slash the address grammar cannot
+# carry, since it is the segment separator. "model" is the slash-free name
+# this route is addressed by; "wire_model" is the id OpenRouter actually
+# knows, sent on the wire in its place. Verified against the live catalogue:
+# 425 models, 18 free, "z-ai/glm-5.2:free" among them at pricing.prompt = 0.
 [[route]]
-engine   = "openrouter"
-upstream = "openrouter"
-model    = "sonnet-5"  # sent upstream verbatim -- confirm OpenRouter's real
-                        # published slug before this ever leaves "disable = true".
+engine     = "openrouter"
+upstream   = "openrouter"
+model      = "glm-5.2:free"
+wire_model = "z-ai/glm-5.2:free"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
