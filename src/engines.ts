@@ -25,6 +25,7 @@ import {
   type EngineStatus,
   type EnginesResponse,
   FatalError,
+  findModelOnEngine,
   isContainerSpec,
   KIND_LOCAL_FILE_RULES,
   KIND_UPSTREAM_TRAIT,
@@ -32,6 +33,7 @@ import {
   MODEL_LESS_KINDS,
   type ReadyProbe,
   type ResolvedRoute,
+  type RunnableContainerSpec,
   type Spec,
 } from "./types.ts";
 
@@ -41,6 +43,14 @@ declare const ENGINED_COMMIT: string | undefined;
 /** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
 export const DEFAULT_IDLE_STOP_SECONDS = 900;
 export const DEFAULT_READY_TIMEOUT_S = 60;
+
+/**
+ * Thrown by `EngineRegistry.start` when a model switch would kill requests
+ * mid-flight: a warm is an optimization, and stopping a container to satisfy
+ * one is strictly worse than warming late. A distinct class rather than a
+ * plain `Error` so a caller can map it to 409 without parsing a message.
+ */
+export class EngineBusyError extends Error {}
 
 /**
  * Comfy is the one engine whose idleness engined cannot observe, because it
@@ -258,6 +268,29 @@ function loadEngineSpec(
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
 }
 
+/** Where every container-kind engine's models_dir is bind-mounted; `filename` on a route is relative to it. */
+const MODEL_MOUNT_PATH = "/models";
+
+/**
+ * The `-m <path>` pair in a stt-kind engine's own command, rewritten to name
+ * one of its model-bearing routes' weights file -- the argv token that
+ * differs between "@/whisper/small.en" and "@/whisper/medium.en". Whisper is
+ * the only kind this ever runs for (`EngineRegistry.start` gates the call on
+ * `kind === "stt"`), so an absent "-m" pair here is a spec that does not
+ * actually take a model file and is a startup-time mistake, not a runtime one.
+ */
+function withModelFile(spec: RunnableContainerSpec, filename: string): RunnableContainerSpec {
+  const idx = spec.command.indexOf("-m");
+  if (idx === -1 || spec.command[idx + 1] === undefined) {
+    throw new FatalError(
+      `image "${spec.image}": no "-m <path>" pair in its command to substitute a model into`,
+    );
+  }
+  const command = [...spec.command];
+  command[idx + 1] = `${MODEL_MOUNT_PATH}/${filename}`;
+  return { ...spec, command };
+}
+
 /** One field's disposition against whether the route actually declared it. `FatalError`, not `ParseError`: this is a startup failure, not a config-file one -- kind is not known until the spec driving this check has already loaded. */
 function assertFieldDisposition(
   disposition: Disposition,
@@ -376,6 +409,15 @@ export class EngineRegistry {
     string,
     { version: string; outcome?: AgenticProbeOutcome; promise?: Promise<AgenticProbeOutcome> }
   >();
+  /**
+   * The model each container-kind engine's own `start()` last requested --
+   * whisper's only consumer today. Compared against a fresh `start(id, model)`
+   * call to decide whether the running container actually needs a
+   * stop-and-restart; a container that has never been asked for a specific
+   * model (started via the plain warm path) has no entry here, which reads as
+   * "unknown" rather than any real model id.
+   */
+  private readonly residentModel = new Map<string, string | undefined>();
 
   constructor(config: Config, opts: RegistryOptions) {
     this.exec = opts.exec ?? dockerExec;
@@ -735,7 +777,49 @@ export class EngineRegistry {
     return entry ? this.syncStatus(entry) : undefined;
   }
 
-  async start(id: string): Promise<EngineStatus> {
+  /** The route `model` names on `id`, or `undefined` when no model was asked for. Throws when one was asked for and none matches. */
+  private routeForStart(id: string, model: string | undefined): ResolvedRoute | undefined {
+    if (model === undefined) {
+      return undefined;
+    }
+    const route = findModelOnEngine(this.config.routes, id, model);
+    if (route === undefined) {
+      throw new Error(`model "${model}" not found on "${id}"`);
+    }
+    return route;
+  }
+
+  /**
+   * Stops the running container when `model` differs from the one already
+   * resident, so the `lifecycle.start` call after this recreates it rather
+   * than reconciling onto the still-running old one. Refuses with
+   * `EngineBusyError` instead of stopping while a request still holds the
+   * container open: a warm is an optimization, and killing one in flight to
+   * satisfy it is strictly worse than warming late.
+   */
+  private async stopForModelSwitch(id: string, model: string | undefined): Promise<void> {
+    if (model === undefined || this.residentModel.get(id) === model) {
+      return;
+    }
+    const current = this.lifecycle.getStatus(id);
+    if (current.state !== "running") {
+      return;
+    }
+    if ((current.active_leases ?? 0) > 0) {
+      throw new EngineBusyError(
+        `engine "${id}" is serving ${current.active_leases} active request(s); switching to model "${model}" would stop them mid-flight`,
+      );
+    }
+    await this.lifecycle.stop(id);
+  }
+
+  /**
+   * `model`, when given, selects which of the engine's own model-bearing
+   * routes should be resident -- meaningful only for a `kind === "stt"`
+   * engine today (whisper), which loads its model at container start rather
+   * than through a router like llama's.
+   */
+  async start(id: string, model?: string): Promise<EngineStatus> {
     const entry = this.byId.get(id);
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
@@ -756,11 +840,18 @@ export class EngineRegistry {
     if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
       this.renderLocalLlamaPreset(entry.engine);
     }
-    await this.lifecycle.start(id, entry.spec.spec, {
+    const route = this.routeForStart(id, model);
+    const spec =
+      route?.filename !== undefined && entry.spec.spec.kind === "stt"
+        ? withModelFile(entry.spec.spec, route.filename)
+        : entry.spec.spec;
+    await this.stopForModelSwitch(id, model);
+    await this.lifecycle.start(id, spec, {
       idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
       specSource: entry.spec.source,
     });
+    this.residentModel.set(id, model);
     return this.statusFor(entry);
   }
 

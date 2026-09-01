@@ -5,6 +5,7 @@ import process from "node:process";
 import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
 import {
   type AgenticProbeRunner,
+  EngineBusyError,
   EngineRegistry,
   type QueueSnapshot,
   type RegistryOptions,
@@ -1051,5 +1052,134 @@ describe("comfy: a container that dies underneath engined", () => {
         expect(after?.private_url).not.toBeNull();
       },
     );
+  });
+});
+
+/** Mirrors engines/whisper's real shape: a real "-m <path>" pair for `withModelFile` to rewrite. */
+const STT_WITH_MODEL_FLAG = `
+kind = "stt"
+upstream = "self"
+image = "engined/fakestt:local"
+obtain = "build"
+serves = ["/openai/v1/audio/transcriptions"]
+command = ["--host", "0.0.0.0", "-m", "/models/default.bin"]
+
+[ready]
+path = "/health"
+status = 200
+`;
+
+/** Tracks `run -d` and `stop` separately, so a test can assert a restart happened -- or did not -- without conflating the two. */
+function sttSwitchExec(runLog: string[][], stopLog: string[][]): Exec {
+  let port = 51_000;
+  return (args) => {
+    const argv = [...args];
+    if (argv[0] === "image" && argv[1] === "inspect") {
+      return Promise.resolve(inspectSinglePort(8080));
+    }
+    if (argv[0] === "run" && argv[1] === "-d") {
+      runLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "stop") {
+      stopLog.push(argv);
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+    }
+    if (argv[0] === "port") {
+      return Promise.resolve(portResult(++port));
+    }
+    if (argv[0] === "inspect") {
+      return Promise.resolve(containerRunning());
+    }
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+  };
+}
+
+/** A registry over one stt-kind engine with two model-bearing routes, its lifecycle wired to `sttSwitchExec` and handed back so a test can drive leases directly. */
+function sttSwitchRegistry(): {
+  reg: EngineRegistry;
+  lifecycle: DockerLifecycle;
+  runLog: string[][];
+  stopLog: string[][];
+} {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "whisper-like", STT_WITH_MODEL_FLAG);
+  const runLog: string[][] = [];
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(sttSwitchExec(runLog, stopLog), READY_PROBE);
+  const reg = new EngineRegistry(
+    config({
+      engines: [engine({ id: "whisper-like", egress: "none", models_dir: "/data/whisper" })],
+      routes: [
+        route({
+          engine: "whisper-like",
+          upstream: "local",
+          model: "small",
+          filename: "small.bin",
+        }),
+        route({ engine: "whisper-like", upstream: "local", model: "big", filename: "big.bin" }),
+      ],
+    }),
+    { enginesRoot: root, bunx: BUNX, lifecycle },
+  );
+  return { reg, lifecycle, runLog, stopLog };
+}
+
+describe("model-bearing stt: switching models is a stop-and-restart", () => {
+  test("starting with a model bakes that route's filename into the -m argument", async () => {
+    const { reg, runLog } = sttSwitchRegistry();
+    try {
+      await reg.start("whisper-like", "small");
+      expect(runLog).toHaveLength(1);
+      const argv = runLog[0] as string[];
+      const idx = argv.indexOf("-m");
+      expect(argv[idx + 1]).toBe("/models/small.bin");
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("switching models with no active leases stops the container and restarts it with the new one", async () => {
+    const { reg, runLog, stopLog } = sttSwitchRegistry();
+    try {
+      await reg.start("whisper-like", "small");
+      expect(runLog).toHaveLength(1);
+      expect(stopLog).toHaveLength(0);
+
+      await reg.start("whisper-like", "big");
+      expect(stopLog).toHaveLength(1);
+      expect(runLog).toHaveLength(2);
+      const secondArgv = runLog[1] as string[];
+      expect(secondArgv[secondArgv.indexOf("-m") + 1]).toBe("/models/big.bin");
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("requesting the same resident model again neither stops nor restarts", async () => {
+    const { reg, runLog, stopLog } = sttSwitchRegistry();
+    try {
+      await reg.start("whisper-like", "small");
+      await reg.start("whisper-like", "small");
+      expect(runLog).toHaveLength(1);
+      expect(stopLog).toHaveLength(0);
+    } finally {
+      await reg.shutdown();
+    }
+  });
+
+  test("a switch while a request is in flight is refused with EngineBusyError and never restarts", async () => {
+    const { reg, lifecycle, runLog, stopLog } = sttSwitchRegistry();
+    try {
+      const started = await reg.start("whisper-like", "small");
+      expect(started.private_url).not.toBeNull();
+      lifecycle.beginLease("whisper-like");
+
+      await expect(reg.start("whisper-like", "big")).rejects.toThrow(EngineBusyError);
+      expect(runLog).toHaveLength(1);
+      expect(stopLog).toHaveLength(0);
+    } finally {
+      await reg.shutdown();
+    }
   });
 });
