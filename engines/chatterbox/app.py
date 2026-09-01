@@ -15,9 +15,12 @@ reports step counts internally via tqdm — chatterbox.models.t3.t3 imports
 `tqdm` and does `for i in tqdm(range(max_new_tokens), desc="Sampling", ...)`.
 We swap that module's tqdm for ProgressTqdm below (observing only, no fork of
 the library's actual generation logic) and stream (step, step_limit) to the
-caller. The vocoding phase after it (flow-matching + HiFi-GAN) is a fixed
-~10-step ODE solve that completes in well under a second — not worth
-instrumenting — so it's reported as a single indeterminate "vocoding" event,
+caller. The vocoding phase after it (flow-matching + HiFi-GAN) measures on
+the order of one second on this hardware (gfx1151, with MIOPEN_FIND_MODE=FAST
+set in the Dockerfile) — a share of total latency comparable to sampling
+itself, not a negligible tail. It's still reported as a single indeterminate
+"vocoding" event rather than per-step progress, because s3gen.inference
+exposes no equivalent step hook to swap the way t3's tqdm loop does; it's
 emitted by wrapping model.s3gen.inference (the call boundary between the two
 phases) rather than trying to detect sampling's last iteration, which can
 exit early via an internal `break` on EOS.

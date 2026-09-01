@@ -91,6 +91,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/hf_cache
+ENV MIOPEN_FIND_MODE=FAST
 ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY --from=builder /opt/venv /opt/venv
