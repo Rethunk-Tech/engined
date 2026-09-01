@@ -58,13 +58,15 @@ command = [
   # 16, the box's physical core count, not 32 (SMT2 total) and not the 8 this
   # was pinned at with no comment before. A/B'd against the same probe
   # table, -t 4/8/16, GPU-lock held for the CPU image so nothing else on the
-  # box was contending: -t 4 lost badly everywhere (1.9-10.0s), -t 8 and -t
-  # 16 landed within a few percent of each other on 5 of 6 probes, and -t 16
-  # won all but the longest medium.en clip, where -t 8 measured faster by
-  # ~17% -- inside the range this box's shared-GPU sibling load can swing a
-  # single sample, not a reason to prefer fewer threads. Encode now runs on
-  # the GPU (see devices/group_add above), so this mostly governs VAD and
-  # request-handling threads rather than the dominant cost.
+  # box was contending, which made the numbers untrustworthy. Re-run
+  # on an idle box, thread count does not matter at all: 2.1s / 5.7s / 34.1s
+  # clips measured 70/113/483ms at -t 4, 69/114/475ms at -t 8 and
+  # 68/112/473ms at -t 16 -- a 1-2% spread, inside noise at every length.
+  #
+  # The earlier sweep where -t 4 lost badly (1.9-10.0s) was on the CPU
+  # backend. Encode now runs on the GPU (see devices/group_add above), so this
+  # governs only VAD and request handling. 16 is kept because it is the
+  # physical core count and nothing argues against it -- not because it wins.
   "-t",
   "16",
   "--no-timestamps",
