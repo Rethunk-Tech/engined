@@ -30,7 +30,6 @@ import {
   KIND_LOCAL_FILE_RULES,
   KIND_UPSTREAM_TRAIT,
   type LoadedSpec,
-  MODEL_LESS_KINDS,
   type ReadyProbe,
   type ResolvedRoute,
   type RunnableContainerSpec,
@@ -717,42 +716,6 @@ export class EngineRegistry {
       commit: typeof ENGINED_COMMIT === "string" ? ENGINED_COMMIT : "unknown",
       engines,
     };
-  }
-
-  /**
-   * Every selectable `model` string: route model ids and their aliases,
-   * engine ids of engines that answer without being told which model
-   * (`agentic-cli`, `tts`, `stt` — each serves a fixed job with no GGUF to
-   * name), and chain names (already `chain-*` in `config.chains`'s keys).
-   * `openai-http` engines are excluded here because a router needs the GGUF
-   * id, not the engine id. `comfy` is excluded structurally, never by name:
-   * it has no OpenAI shape and owns no model-bearing route, so it never
-   * enters the set.
-   */
-  models(): string[] {
-    const out = new Set<string>();
-    for (const r of this.config.routes) {
-      if (r.model !== undefined) {
-        out.add(r.model);
-      }
-      for (const alias of r.aliases) {
-        out.add(alias);
-      }
-    }
-    for (const entry of this.entries) {
-      // A disabled engine is reported by /engined/v1/engines, never advertised here:
-      // this list is what a caller may put in `model`, and dispatch refuses it.
-      if (entry.engine.disabled) {
-        continue;
-      }
-      if (MODEL_LESS_KINDS.has(entry.spec.spec.kind)) {
-        out.add(entry.engine.id);
-      }
-    }
-    for (const name of Object.keys(this.config.chains)) {
-      out.add(name);
-    }
-    return [...out];
   }
 
   /** Whether an id names the local llama, which is the only engine the extras routes can address. */

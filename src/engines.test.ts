@@ -108,19 +108,6 @@ serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `;
 
-const COMFY_CONTAINER = `
-kind = "comfy"
-upstream = "self"
-image = "engined/comfy:local"
-obtain = "build"
-serves = []
-command = ["--serve"]
-
-[ready]
-path = "/queue"
-status = 200
-`;
-
 /** Mirrors engines/chatterbox and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */
 const TTS_EMPTY_COMMAND = `
 kind = "tts"
@@ -206,17 +193,6 @@ function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
 
 const RX_DISABLED_START = /is disabled in config/;
 
-/** A remote tts engine: a model-less kind, so its engine id IS its model string. */
-function voiceEngine(): EngineEntry {
-  return engine({
-    id: "voice",
-    egress: "remote",
-    kind: "tts",
-    base_url: "https://example.com/voice",
-    secret: { service: "voice", username: "u", header: "x-api-key" },
-  });
-}
-
 /** Records what `reload` asks to be torn down; a disabling reload must ask. */
 class RemovalSpy extends DockerLifecycle {
   readonly removed: string[] = [];
@@ -251,15 +227,6 @@ describe("disabled engines", () => {
     expect(reg.get("llama")?.disabled).toBe(true);
     await expect(reg.start("llama")).rejects.toThrow(RX_DISABLED_START);
     expect(execLog).toEqual([]);
-  });
-
-  test("are not advertised by models(), which is what a caller may put in `model`", () => {
-    const voice = voiceEngine();
-    const enabled = registry(config({ engines: [voice] }), newEnginesRoot());
-    expect(enabled.models()).toContain("voice");
-
-    const off = registry(config({ engines: [{ ...voice, disabled: true }] }), newEnginesRoot());
-    expect(off.models()).not.toContain("voice");
   });
 
   test("a reload that disables an engine tears its container down like a removal", () => {
@@ -420,32 +387,6 @@ describe("spec-less engines: no secret gate, just an optimistic installed", () =
           bunx: BUNX,
         }),
     ).toThrow(FatalError);
-  });
-});
-
-describe("GET /openai/v1/models", () => {
-  test("includes chain names, GGUF ids and aliases, agentic and audio engine ids; excludes comfy", () => {
-    const root = newEnginesRoot();
-    writeEngineSpec(root, "claude", AGENTIC);
-    writeEngineSpec(root, "kokoro", BUILT_CONTAINER);
-    writeEngineSpec(root, "comfy", COMFY_CONTAINER);
-    const cfg = config({
-      engines: [
-        engine({ id: "claude", egress: "remote", agent_version: "1.2.3" }),
-        engine({ id: "kokoro" }),
-        engine({ id: "comfy" }),
-      ],
-      routes: [route({ engine: "claude", model: "ornith", aliases: ["bird"], upstream: null })],
-      chains: { "chain-private": ["@/local/ornith"] },
-    });
-    const reg = registry(cfg, root);
-    const names = reg.models();
-    expect(names).toContain("ornith");
-    expect(names).toContain("bird");
-    expect(names).toContain("claude");
-    expect(names).toContain("kokoro");
-    expect(names).toContain("chain-private");
-    expect(names).not.toContain("comfy");
   });
 });
 
