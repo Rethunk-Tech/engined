@@ -28,7 +28,13 @@ import {
   upstream,
   writeEngineSpec,
 } from "./test-support.ts";
-import { type Config, type EngineEntry, FatalError, isContainerSpec } from "./types.ts";
+import {
+  type Config,
+  type EngineEntry,
+  type EngineStatus,
+  FatalError,
+  isContainerSpec,
+} from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-engines-test-");
 
@@ -188,6 +194,11 @@ function setupKokoro(exec: Exec): { root: string; reg: EngineRegistry } {
 }
 
 const RX_DISABLED_START = /is disabled in config/;
+const RX_NO_ENDPOINT = /engine "img".*serves no endpoint to ask it through/;
+const RX_WIRE_MISMATCH = /wire "openai".*speaks "anthropic"/;
+const RX_IS_SELF = /is "self"/;
+const RX_MISSING_ROLE = /missing required "role"/;
+const RX_MISSING_FILENAME = /missing required "filename"/;
 
 /** Records what `reload` asks to be torn down; a disabling reload must ask. */
 class RemovalSpy extends DockerLifecycle {
@@ -226,65 +237,56 @@ describe("disabled engines", () => {
   });
 
   test("a reload that disables an engine tears its container down like a removal", () => {
-    const root = newEnginesRoot();
-    writeEngineSpec(root, "llama", PULLED_CONTAINER);
     // The entry survives a disabling reload, so the removal that a dropped
     // engine gets for free has to be asked for -- this is that ask.
-    const lifecycle = new RemovalSpy(OK_EXEC);
-    const reg = registry(config({ engines: [engine({ id: "llama" })] }), root, { lifecycle });
-
-    reg.reload(config({ engines: [engine({ id: "llama", disabled: true })] }));
-    expect(lifecycle.removed).toEqual(["llama"]);
+    const removed = removedByReload(
+      config({ engines: [engine({ id: "llama" })] }),
+      config({ engines: [engine({ id: "llama", disabled: true })] }),
+    );
+    expect(removed).toEqual(["llama"]);
   });
+});
 
+/** Builds a registry over a pulled `llama` from `before`, reloads it with `after`, and reports what was torn down. */
+function removedByReload(before: Config, after: Config): string[] {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "llama", PULLED_CONTAINER);
+  const lifecycle = new RemovalSpy(OK_EXEC);
+  registry(before, root, { lifecycle }).reload(after);
+  return lifecycle.removed;
+}
+
+describe("reloading an engine's route binding", () => {
   test("a reload that repoints an engine's route away from local tears its container down without changing its id", () => {
-    const root = newEnginesRoot();
-    writeEngineSpec(root, "llama", PULLED_CONTAINER);
-    const lifecycle = new RemovalSpy(OK_EXEC);
-    const reg = registry(
+    // The id diff alone would miss this: "llama" survives into the new
+    // config unchanged, and only its route's own upstream moved.
+    const removed = removedByReload(
       config({
         engines: [engine({ id: "llama" })],
         upstreams: [upstream({ id: "peer", egress: "lan" })],
         routes: [route({ engine: "llama", model: "m", upstream: "local" })],
       }),
-      root,
-      { lifecycle },
-    );
-
-    // The id diff alone would miss this: "llama" survives into the new
-    // config unchanged, and only its route's own upstream moved.
-    reg.reload(
       config({
         engines: [engine({ id: "llama" })],
         upstreams: [upstream({ id: "peer", egress: "lan" })],
         routes: [route({ engine: "llama", model: "m", upstream: "peer" })],
       }),
     );
-
-    expect(lifecycle.removed).toEqual(["llama"]);
+    expect(removed).toEqual(["llama"]);
   });
 
   test("a reload that keeps an engine's local binding does not tear its container down", () => {
-    const root = newEnginesRoot();
-    writeEngineSpec(root, "llama", PULLED_CONTAINER);
-    const lifecycle = new RemovalSpy(OK_EXEC);
-    const reg = registry(
+    const removed = removedByReload(
       config({
         engines: [engine({ id: "llama" })],
         routes: [route({ engine: "llama", model: "m", upstream: "local" })],
       }),
-      root,
-      { lifecycle },
-    );
-
-    reg.reload(
       config({
         engines: [engine({ id: "llama", idle_stop_seconds: 42 })],
         routes: [route({ engine: "llama", model: "m", upstream: "local" })],
       }),
     );
-
-    expect(lifecycle.removed).toEqual([]);
+    expect(removed).toEqual([]);
   });
 
   // The bindings-only failure this delivery exists to avoid: an engine with
@@ -293,16 +295,11 @@ describe("disabled engines", () => {
   // managing it silently the moment it had zero routes -- still typechecking,
   // still constructing, and never torn down or reported missing.
   test("an engine with no routes at all has no binding to lose, and an unrelated reload does not spuriously tear it down", () => {
-    const root = newEnginesRoot();
-    writeEngineSpec(root, "llama", PULLED_CONTAINER);
-    const lifecycle = new RemovalSpy(OK_EXEC);
-    const reg = registry(config({ engines: [engine({ id: "llama" })], routes: [] }), root, {
-      lifecycle,
-    });
-
-    reg.reload(config({ engines: [engine({ id: "llama", idle_stop_seconds: 42 })], routes: [] }));
-
-    expect(lifecycle.removed).toEqual([]);
+    const removed = removedByReload(
+      config({ engines: [engine({ id: "llama" })], routes: [] }),
+      config({ engines: [engine({ id: "llama", idle_stop_seconds: 42 })], routes: [] }),
+    );
+    expect(removed).toEqual([]);
   });
 });
 
@@ -475,9 +472,7 @@ describe("a declared capability whose endpoint is unserved fails at startup", ()
       routes: [route({ engine: "img", model: undefined, upstream: "local", output: ["image"] })],
     });
     expect(() => registry(cfg, newEnginesRoot())).toThrow(FatalError);
-    expect(() => registry(cfg, newEnginesRoot())).toThrow(
-      /engine "img".*serves no endpoint to ask it through/,
-    );
+    expect(() => registry(cfg, newEnginesRoot())).toThrow(RX_NO_ENDPOINT);
   });
 
   test("the same engine with no capability-declaring route constructs clean", () => {
@@ -544,7 +539,7 @@ describe("an agent's wire is checked against its route's upstream at registry co
       routes: [route({ engine: "claude", model: "sonnet", upstream: "hosted" })],
     });
     expect(() => registry(cfg, root)).toThrow(FatalError);
-    expect(() => registry(cfg, root)).toThrow(/wire "openai".*speaks "anthropic"/);
+    expect(() => registry(cfg, root)).toThrow(RX_WIRE_MISMATCH);
   });
 
   test("claude routed at a matching anthropic-wire upstream constructs clean", () => {
@@ -584,7 +579,7 @@ describe("a self-trait engine may proxy to a peer, never to a wire-shaped provid
       routes: [route({ engine: "voice", model: undefined, upstream: "openai" })],
     });
     expect(() => registry(cfg, root)).toThrow(FatalError);
-    expect(() => registry(cfg, root)).toThrow(/is "self"/);
+    expect(() => registry(cfg, root)).toThrow(RX_IS_SELF);
   });
 
   test("a self engine's route naming a wire-less peer upstream constructs clean -- bastet kokoro voice1, proxied", () => {
@@ -731,119 +726,96 @@ function fixedObservedVersion(
   return () => Promise.resolve({ ok: true, version });
 }
 
+/** A just-cleared agentic pin at "1.0.0" with its spec written, plus a passing probe runner and its call log. */
+function freshAgenticPin(id: string): {
+  root: string;
+  passingRunner: AgenticProbeRunner;
+  calls: Array<{ engineId: string; version: string }>;
+} {
+  clearVerifiedVersion(id);
+  const root = newEnginesRoot();
+  writeEngineSpec(root, id, AGENTIC);
+  const { runner: passingRunner, calls } = trackingRunner({ ok: true });
+  return { root, passingRunner, calls };
+}
+
+/**
+ * Proves "1.0.0" for `id` exactly as any ordinary first proof would, then
+ * builds a second registry over the same state whose binary now reports
+ * "1.0.1" -- readVerifiedVersion still says "1.0.0", so this is a real
+ * mismatch -- with whatever probe runner (or none) the caller wires in.
+ */
+async function proveThenDrift(
+  id: string,
+  driftRunner: AgenticProbeRunner | undefined,
+): Promise<{
+  first: EngineStatus | undefined;
+  drifted: EngineStatus | undefined;
+  calls: Array<{ engineId: string; version: string }>;
+}> {
+  const { root, passingRunner, calls } = freshAgenticPin(id);
+  const cfg = config({ engines: [agenticEngine(id, "1.0.0")] });
+  const first = registry(cfg, root, {
+    agenticProbeRunner: passingRunner,
+    observeAgentVersion: fixedObservedVersion("1.0.0"),
+  });
+  const firstStatus = (await first.list()).engines.find((e) => e.id === id);
+  const drifted = registry(cfg, root, {
+    ...(driftRunner === undefined ? {} : { agenticProbeRunner: driftRunner }),
+    observeAgentVersion: fixedObservedVersion("1.0.1"),
+  });
+  const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
+  return { first: firstStatus, drifted: driftedStatus, calls };
+}
+
 describe("agentic engines: the observed-version gate (a self-updating binary drifting from its proof)", () => {
   test("a proved version, then a simulated drift with no probe runner, flips the engine unavailable and the fix names both versions", async () => {
     const id = "agentic-verify-drift-noRunner";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeEngineSpec(root, id, AGENTIC);
-    const { runner: passingRunner } = trackingRunner({ ok: true });
-
-    // Proves "1.0.0" first, same as any ordinary first proof.
-    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: passingRunner,
-      observeAgentVersion: fixedObservedVersion("1.0.0"),
-    });
-    const firstStatus = (await first.list()).engines.find((e) => e.id === id);
-    expect(firstStatus?.state).toBe("installed");
-
-    // The binary self-updated to "1.0.1" underneath it -- readVerifiedVersion
-    // still says "1.0.0", so this is a real mismatch, and with no probe
-    // runner to re-prove it engined must refuse to serve rather than trust
-    // a floor that was never actually checked for this binary.
-    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      observeAgentVersion: fixedObservedVersion("1.0.1"),
-    });
-    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
-
-    expect(driftedStatus?.state).toBe("unavailable");
-    expect(driftedStatus?.fix).toContain("1.0.0");
-    expect(driftedStatus?.fix).toContain("1.0.1");
-
+    // With no probe runner to re-prove it, engined must refuse to serve
+    // rather than trust a floor that was never actually checked for this binary.
+    const { first, drifted } = await proveThenDrift(id, undefined);
+    expect(first?.state).toBe("installed");
+    expect(drifted?.state).toBe("unavailable");
+    expect(drifted?.fix).toContain("1.0.0");
+    expect(drifted?.fix).toContain("1.0.1");
     clearVerifiedVersion(id);
   });
 
   test("a proved version, then a simulated drift with a probe runner that fails, stays unavailable and names both versions and the failed probe", async () => {
     const id = "agentic-verify-drift-failRunner";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeEngineSpec(root, id, AGENTIC);
-    const { runner: passingRunner } = trackingRunner({ ok: true });
-
-    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: passingRunner,
-      observeAgentVersion: fixedObservedVersion("1.0.0"),
-    });
-    await first.list();
-
     const { runner: failingRunner } = trackingRunner({ ok: false, failedProbe: "byte-identical" });
-    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: failingRunner,
-      observeAgentVersion: fixedObservedVersion("1.0.1"),
-    });
-    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
-
-    expect(driftedStatus?.state).toBe("unavailable");
-    expect(driftedStatus?.fix).toContain("1.0.0");
-    expect(driftedStatus?.fix).toContain("1.0.1");
-    expect(driftedStatus?.fix).toContain("byte-identical");
-
+    const { drifted } = await proveThenDrift(id, failingRunner);
+    expect(drifted?.state).toBe("unavailable");
+    expect(drifted?.fix).toContain("1.0.0");
+    expect(drifted?.fix).toContain("1.0.1");
+    expect(drifted?.fix).toContain("byte-identical");
     clearVerifiedVersion(id);
   });
 
   test("a proved version, then a simulated drift with a probe runner that passes, re-proves and persists the NEW observed version, not the configured pin", async () => {
     const id = "agentic-verify-drift-reproves";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeEngineSpec(root, id, AGENTIC);
-    const { runner: passingRunner, calls } = trackingRunner({ ok: true });
-
-    const first = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: passingRunner,
-      observeAgentVersion: fixedObservedVersion("1.0.0"),
-    });
-    await first.list();
+    const { runner: passingRunner, calls: reproveCalls } = trackingRunner({ ok: true });
+    const { drifted, calls } = await proveThenDrift(id, passingRunner);
+    expect(drifted?.state).toBe("installed");
     expect(calls).toEqual([{ engineId: id, version: "1.0.0" }]);
-
-    const drifted = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: passingRunner,
-      observeAgentVersion: fixedObservedVersion("1.0.1"),
-    });
-    const driftedStatus = (await drifted.list()).engines.find((e) => e.id === id);
-
-    expect(driftedStatus?.state).toBe("installed");
-    expect(calls).toEqual([
-      { engineId: id, version: "1.0.0" },
-      { engineId: id, version: "1.0.1" },
-    ]);
-
-    const recorded = readFileSync(
-      join(stateDir(), "agentic", id, "verified_version"),
-      "utf8",
-    ).trim();
-    expect(recorded).toBe("1.0.1");
-
+    expect(reproveCalls).toEqual([{ engineId: id, version: "1.0.1" }]);
+    const recorded = readFileSync(join(stateDir(), "agentic", id, "verified_version"), "utf8");
+    expect(recorded.trim()).toBe("1.0.1");
     clearVerifiedVersion(id);
   });
 
   test("a binary that cannot be resolved at all is unavailable, names the reason, and never calls the probe runner", async () => {
     const id = "agentic-verify-unresolved-binary";
-    clearVerifiedVersion(id);
-    const root = newEnginesRoot();
-    writeEngineSpec(root, id, AGENTIC);
-    const { runner, calls } = trackingRunner({ ok: true });
-
+    const { root, passingRunner, calls } = freshAgenticPin(id);
     const reg = registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
-      agenticProbeRunner: runner,
+      agenticProbeRunner: passingRunner,
       observeAgentVersion: () =>
         Promise.resolve({ ok: false, error: 'cursor\'s "agent" binary was not found on PATH' }),
     });
     const status = (await reg.list()).engines.find((e) => e.id === id);
-
     expect(status?.state).toBe("unavailable");
     expect(status?.fix).toContain("not found on PATH");
     expect(calls).toHaveLength(0);
-
     clearVerifiedVersion(id);
   });
 });
@@ -960,7 +932,7 @@ describe("the kind-dependent filename/role split runs at registry construction, 
           }),
           { enginesRoot: root, bunx: BUNX },
         ),
-    ).toThrow(/missing required "role"/);
+    ).toThrow(RX_MISSING_ROLE);
   });
 
   test("@/llama/sonnet-5 stays invalid: a filename-less llama route fails at construction", () => {
@@ -975,7 +947,7 @@ describe("the kind-dependent filename/role split runs at registry construction, 
           }),
           { enginesRoot: root, bunx: BUNX },
         ),
-    ).toThrow(/missing required "filename"/);
+    ).toThrow(RX_MISSING_FILENAME);
   });
 });
 
