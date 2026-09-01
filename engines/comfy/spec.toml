@@ -22,8 +22,8 @@ serves = [
   "/engined/v1/comfy/:engine/:upstream/queue",
   "/engined/v1/comfy/:engine/:upstream/system_stats",
 ]
-# Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: comfy is a
-# ROCm/PyTorch engine. See engines/local-llama/spec.toml for why that one
+# Full GPU_FLAGS, not the Vulkan-only pair llama takes: comfy is a
+# ROCm/PyTorch engine. See engines/llama/spec.toml for why that one
 # omits /dev/kfd -- both nodes exist on this box, so the wrong choice would
 # not announce itself.
 devices = ["/dev/kfd", "/dev/dri"]

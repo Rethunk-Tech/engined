@@ -31,7 +31,7 @@ export interface EngineResources {
    *
    * Not a substitute for `graphics_bytes` and not comparable to it: a loaded
    * model lands in GTT, which the cgroup does not account for. Measured with
-   * three GGUFs resident, `engined-local-llama` reported 1.59 GiB here while
+   * three GGUFs resident, `engined-llama` reported 1.59 GiB here while
    * holding 40.89 GiB of graphics memory -- a consumer showing only this
    * number understates a busy engine by more than an order of magnitude.
    *

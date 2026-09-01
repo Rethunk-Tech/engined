@@ -10,9 +10,9 @@ serves = ["/openai/v1/audio/speech"]
 streaming = true
 # The image's own CMD already runs uvicorn on the right host/port; no args needed.
 command = []
-# Full GPU_FLAGS, not the Vulkan-only pair local-llama takes: kokoro-rocm is
+# Full GPU_FLAGS, not the Vulkan-only pair llama takes: kokoro-rocm is
 # a ROCm/PyTorch engine like chatterbox and comfy. See
-# engines/local-llama/spec.toml for why that one omits /dev/kfd.
+# engines/llama/spec.toml for why that one omits /dev/kfd.
 devices = ["/dev/kfd", "/dev/dri"]
 group_add = ["video"]
 security_opt = ["label=disable"]

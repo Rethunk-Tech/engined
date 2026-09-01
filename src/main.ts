@@ -1553,7 +1553,7 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
  * The budget for one hop, keyed on THAT hop's own engine kind -- never on
  * whether the request happens to be a chain, and never on any other hop
  * sharing it. Both budgets are single top-level values, applied per attempt
- * according to the kind answering it; an all-local-llama chain must not
+ * according to the kind answering it; an all-llama chain must not
  * inherit the long agentic budget just because a chain is, in general,
  * allowed to contain agentic hops.
  */

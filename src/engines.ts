@@ -155,7 +155,7 @@ function hasLocalBinding(engineId: string, routes: readonly ResolvedRoute[]): bo
 
 /**
  * The read-only floor is version-specific, so a proved version is only
- * proof for that version. One file per engine, mirroring the local-llama
+ * proof for that version. One file per engine, mirroring the llama
  * preset's own directory shape under the state directory.
  */
 const AGENTIC_VERIFIED_DIR = (engineId: string): string => `${stateDir()}/agentic/${engineId}`;
@@ -242,7 +242,7 @@ const PEEK_PRESET_INI = "/unused";
 /**
  * Picks the per-engine builder from the loaded spec's own `kind` and the
  * engine's own configuration, never from a hardcoded id — an operator naming
- * the local llama engine something other than "local-llama" must still get
+ * the local llama engine something other than "llama" must still get
  * its models mount. `buildLlamaSpec`/`buildComfySpec` each call `loadSpec`
  * themselves; the first call here only exists to learn `kind` cheaply,
  * before ever running or proxying anything.
