@@ -178,9 +178,11 @@ a scratch directory the way a real launch binds a workdir and requires a plain
 so that proves what an agent round trip would, in milliseconds and with no LLM
 in the loop to be nondeterministic about.
 
-`cursor-agent`'s floor is **argv, like claude's** — measured against
-2026.08.28-50f0823, and it does not yet ship only because its `AGENTS` entry is
-still to be written.
+`cursor-agent`'s floor is **argv, like claude's** — first measured against
+2026.08.28-50f0823 and re-verified against 2026.09.01-597265b. It launches: the
+binary is resolved from PATH or `~/.local/share/cursor-agent/versions/`, not
+from npm. It stays disabled for the reason above — nothing can thread a door URL
+to it — not for want of a launch path.
 
 Under `--mode plan --trust` it answered a question about a file in the workspace
 with the file's actual contents, so it demonstrably ran; asked to create a file
@@ -195,6 +197,14 @@ created the file, so writes were available in that directory throughout.
 emits an empty `text` stream — which is exactly the ambiguity that sank the
 first attempt. The tool calls and the refusal are visible only in the JSON
 stream, so the format is part of the floor's evidence, not a preference.
+
+Plan mode also refuses **network egress of any verb**, which is tighter than
+"blocks writes, allows reads" would predict. Asked under `--mode plan --trust`
+to `curl` a throwaway listener on a local port, it refused both a GET and a
+POST — *"Plan mode blocked shell execution"* — and nothing ever arrived at the
+listener. So a read-shaped request over the network is still shell, and still
+blocked. That is what makes the absent door URL a belt-and-braces gap rather
+than the only thing standing between cursor and this box's other ports.
 
 Two things this does not settle. Whether `--force`/`--yolo` or
 `--sandbox disabled` override `--mode plan` was not tested, so all three belong
