@@ -201,33 +201,73 @@ describe("modelless engine addressing", () => {
   });
 });
 
+/** The successful `resolveModel` reading for a model route. */
+function modelResolution(engineId: string, model: string, upstream: string) {
+  return { ok: true as const, kind: "model" as const, engine: engineId, model, upstream };
+}
+
+/** "ornith" served by both `engineA` and `engineB`, with no upstream to tell them apart. */
+function ornithOnTwoEnginesConfig(): Config {
+  return config({
+    engines: [remoteOpenaiHttp("engineA"), remoteOpenaiHttp("engineB")],
+    routes: [
+      route({ engine: "engineA", model: "ornith" }),
+      route({ engine: "engineB", model: "ornith" }),
+    ],
+  });
+}
+
+/** claude with an ambient sonnet route and a moonshot-routed k3 route. */
+function claudeOnMoonshotConfig(): Config {
+  return config({
+    engines: [remoteOpenaiHttp("claude")],
+    routes: [
+      route({ engine: "claude", model: "sonnet-5", upstream: null }),
+      route({ engine: "claude", model: "k3", upstream: "moonshot" }),
+    ],
+  });
+}
+
+/** "ornith" on a remote-egress `far` and a no-egress `near`, so a one-segment address must pick `near`. */
+function farAndNearConfig(near: EngineEntry): Config {
+  return config({
+    engines: [remoteOpenaiHttp("far"), near],
+    upstreams: [
+      { id: "far-up", egress: "remote" },
+      { id: "near-up", egress: "none" },
+    ],
+    routes: [
+      route({ engine: "far", model: "ornith", upstream: "far-up" }),
+      route({ engine: "near", model: "ornith", upstream: "near-up" }),
+    ],
+  });
+}
+
+/** One engine, one model id, two remote upstreams: the two-segment form cannot pick. */
+function cursorOnTwoUpstreamsConfig(): Config {
+  return config({
+    engines: [remoteOpenaiHttp("cursor")],
+    upstreams: [
+      { id: "openrouter", egress: "remote" },
+      { id: "anthropic", egress: "remote" },
+    ],
+    routes: [
+      route({ engine: "cursor", model: "sonnet-5", upstream: "openrouter" }),
+      route({ engine: "cursor", model: "sonnet-5", upstream: "anthropic" }),
+    ],
+  });
+}
+
 describe("segment count decides the reading", () => {
   test("a fully-explicit three-segment address resolves", () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp("claude")],
-      routes: [
-        route({ engine: "claude", model: "sonnet-5", upstream: null }),
-        route({ engine: "claude", model: "k3", upstream: "moonshot" }),
-      ],
-    });
-    const reg = registry(cfg);
-    expect(resolveModel("@/claude/moonshot/k3", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "claude",
-      model: "k3",
-      upstream: "moonshot",
-    });
+    const cfg = claudeOnMoonshotConfig();
+    expect(resolveModel("@/claude/moonshot/k3", CHAT, cfg, registry(cfg))).toEqual(
+      modelResolution("claude", "k3", "moonshot"),
+    );
   });
 
   test("the same model id on two engines resolves both ways", () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp("engineA"), remoteOpenaiHttp("engineB")],
-      routes: [
-        route({ engine: "engineA", model: "ornith" }),
-        route({ engine: "engineB", model: "ornith" }),
-      ],
-    });
+    const cfg = ornithOnTwoEnginesConfig();
     const reg = registry(cfg);
     const a = resolveModel("@/engineA/ornith", CHAT, cfg, reg);
     const b = resolveModel("@/engineB/ornith", CHAT, cfg, reg);
@@ -236,71 +276,31 @@ describe("segment count decides the reading", () => {
   });
 
   test("a one-segment address picks the lowest-egress route: local, then lan, then remote, then declaration order", () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp("far"), remoteOpenaiHttp("near")],
-      upstreams: [
-        { id: "far-up", egress: "remote" },
-        { id: "near-up", egress: "none" },
-      ],
-      routes: [
-        route({ engine: "far", model: "ornith", upstream: "far-up" }),
-        route({ engine: "near", model: "ornith", upstream: "near-up" }),
-      ],
-    });
-    const reg = registry(cfg);
-    expect(resolveModel("@/ornith", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "near",
-      model: "ornith",
-      upstream: "near-up",
-    });
+    const cfg = farAndNearConfig(remoteOpenaiHttp("near"));
+    expect(resolveModel("@/ornith", CHAT, cfg, registry(cfg))).toEqual(
+      modelResolution("near", "ornith", "near-up"),
+    );
   });
 
   test("a one-segment address resolves to exactly one route and does not walk on failure", () => {
     // "near" is the lowest-egress candidate but does not serve chat -- the
     // resolver commits to it and reports the endpoint mismatch rather than
     // falling through to "far", which does serve it.
-    const cfg = config({
-      engines: [{ ...remoteOpenaiHttp("far") }, { ...remoteTts("near") }],
-      upstreams: [
-        { id: "far-up", egress: "remote" },
-        { id: "near-up", egress: "none" },
-      ],
-      routes: [
-        route({ engine: "far", model: "ornith", upstream: "far-up" }),
-        route({ engine: "near", model: "ornith", upstream: "near-up" }),
-      ],
-    });
-    const reg = registry(cfg);
-    const result = resolveModel("@/ornith", CHAT, cfg, reg);
+    const cfg = farAndNearConfig(remoteTts("near"));
+    const result = resolveModel("@/ornith", CHAT, cfg, registry(cfg));
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error).toContain("does not serve");
   });
 
   test("a two-segment address ambiguous across upstreams demands the three-segment form", () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp("cursor")],
-      upstreams: [
-        { id: "openrouter", egress: "remote" },
-        { id: "anthropic", egress: "remote" },
-      ],
-      routes: [
-        route({ engine: "cursor", model: "sonnet-5", upstream: "openrouter" }),
-        route({ engine: "cursor", model: "sonnet-5", upstream: "anthropic" }),
-      ],
-    });
+    const cfg = cursorOnTwoUpstreamsConfig();
     const reg = registry(cfg);
     const ambiguous = resolveModel("@/cursor/sonnet-5", CHAT, cfg, reg);
     expect(ambiguous.ok).toBe(false);
     expect(!ambiguous.ok && ambiguous.error).toContain("ambiguous");
-    expect(resolveModel("@/cursor/openrouter/sonnet-5", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "cursor",
-      model: "sonnet-5",
-      upstream: "openrouter",
-    });
+    expect(resolveModel("@/cursor/openrouter/sonnet-5", CHAT, cfg, reg)).toEqual(
+      modelResolution("cursor", "sonnet-5", "openrouter"),
+    );
   });
 
   test("a hop naming a model that exists only on a different engine does not resolve", () => {
@@ -308,8 +308,7 @@ describe("segment count decides the reading", () => {
       engines: [remoteOpenaiHttp("engineA"), remoteOpenaiHttp("engineB")],
       routes: [route({ engine: "engineA", model: "ornith" })],
     });
-    const reg = registry(cfg);
-    const result = resolveModel("@/engineB/ornith", CHAT, cfg, reg);
+    const result = resolveModel("@/engineB/ornith", CHAT, cfg, registry(cfg));
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error).toContain('"ornith"');
   });

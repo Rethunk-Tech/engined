@@ -294,7 +294,9 @@ function fakeComfyWsContainer(): {
         connectedClientIds.push(ws.data.clientId);
         current = ws;
       },
-      message() {},
+      message() {
+        // Frames only flow comfy -> caller in this suite; nothing the caller sends is asserted on.
+      },
       close() {
         current = undefined;
       },
@@ -313,93 +315,109 @@ function ephemeralPort(): number {
   return 41_000 + Math.floor(Math.random() * 5000);
 }
 
+/** A running comfy engine behind a door bound on a REAL socket -- the one thing a websocket upgrade needs. */
+async function startWsDoor(): Promise<{
+  fakeComfy: ReturnType<typeof fakeComfyWsContainer>;
+  doorPort: number;
+  stop: () => void;
+}> {
+  const fakeComfy = fakeComfyWsContainer();
+  const root = mkdtempSync(join(TEST_ROOT, "door-ws-"));
+  writeEngineSpec(root, "comfy", COMFY_SPEC);
+  const doorPort = ephemeralPort();
+  // `checkOrigin` refuses any `Host` outside `config.listen_port`, so the
+  // config must agree with the port the door is actually bound on.
+  const cfg = config({
+    listen_port: doorPort,
+    engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
+    routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
+  });
+  const door = createDoor(cfg, {
+    enginesRoot: root,
+    bunx: BUNX,
+    exec: comfyExec(fakeComfy.port),
+    probe: () => Promise.resolve({ status: 200 }),
+  });
+  await door.registry.start("comfy");
+  const bound = bindDualFamily(door.fetch, doorPort);
+  return {
+    fakeComfy,
+    doorPort,
+    stop: () => {
+      bound.v4.stop(true);
+      bound.v6.stop(true);
+      fakeComfy.stop();
+    },
+  };
+}
+
+/** Resolves with the first frame `pick` accepts, then stops listening. */
+function nextFrame<T>(caller: WebSocket, pick: (data: unknown) => T | undefined): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const onMsg = (ev: MessageEvent) => {
+      const picked = pick(ev.data);
+      if (picked !== undefined) {
+        caller.removeEventListener("message", onMsg);
+        resolve(picked);
+      }
+    };
+    caller.addEventListener("message", onMsg);
+  });
+}
+
+function pickTextFrame(data: unknown): string | undefined {
+  return typeof data === "string" ? data : undefined;
+}
+
+function pickBinaryFrame(data: unknown): ArrayBuffer | undefined {
+  return data instanceof ArrayBuffer ? data : undefined;
+}
+
+function openCaller(caller: WebSocket): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    caller.onopen = () => resolve();
+    caller.onerror = () => reject(new Error("caller socket failed to open"));
+  });
+}
+
 describe("comfy proxy: the websocket bridge", () => {
   test("the door assigns its own clientId, announces it first, and bridges text and binary frames", async () => {
-    const fakeComfy = fakeComfyWsContainer();
-    const root = mkdtempSync(join(TEST_ROOT, "door-ws-"));
-    writeEngineSpec(root, "comfy", COMFY_SPEC);
-    const doorPort = ephemeralPort();
-    // `checkOrigin` refuses any `Host` outside `config.listen_port` -- this
-    // suite binds a REAL socket (the one thing an upgrade needs), so the
-    // config must agree with the port it is actually bound on.
-    const cfg = config({
-      listen_port: doorPort,
-      engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
-      routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
-    });
-    const door = createDoor(cfg, {
-      enginesRoot: root,
-      bunx: BUNX,
-      exec: comfyExec(fakeComfy.port),
-      probe: () => Promise.resolve({ status: 200 }),
-    });
-    await door.registry.start("comfy");
-
-    const bound = bindDualFamily(door.fetch, doorPort);
-
+    const { fakeComfy, doorPort, stop } = await startWsDoor();
     try {
       const caller = new WebSocket(
         `ws://127.0.0.1:${doorPort}${PROXY_PATH}/ws?clientId=caller-picked-this`,
       );
       caller.binaryType = "arraybuffer";
-      const frames: unknown[] = [];
-      const firstFrame = new Promise<{ type: string; data: { client_id: string } }>((resolve) => {
-        caller.onmessage = (ev) => {
-          const parsed =
-            typeof ev.data === "string"
-              ? (JSON.parse(ev.data) as { type: string; data: { client_id: string } })
-              : undefined;
-          frames.push(ev.data);
-          if (parsed?.type === "client_id") {
-            resolve(parsed);
-          }
-        };
-      });
-      await new Promise<void>((resolve, reject) => {
-        caller.onopen = () => resolve();
-        caller.onerror = () => reject(new Error("caller socket failed to open"));
-      });
+      // Listen before the socket opens: the announcement is the first frame down.
+      const firstFrame = nextFrame(caller, pickTextFrame);
+      await openCaller(caller);
 
-      const announced = await firstFrame;
+      const announced = JSON.parse(await firstFrame) as {
+        type: string;
+        data: { client_id: string };
+      };
+      expect(announced.type).toBe("client_id");
       // The door minted its own id -- never the one the caller asked for in
       // the query string, which is exactly the eavesdrop this exists to close.
       expect(announced.data.client_id).not.toBe("caller-picked-this");
       // ...and it is the SAME id the door itself dialed comfy's real /ws with.
       expect(fakeComfy.connectedClientIds).toEqual([announced.data.client_id]);
 
-      const progressText = new Promise<string>((resolve) => {
-        const onMsg = (ev: MessageEvent) => {
-          if (typeof ev.data === "string" && ev.data.includes("progress")) {
-            caller.removeEventListener("message", onMsg);
-            resolve(ev.data);
-          }
-        };
-        caller.addEventListener("message", onMsg);
-      });
+      const progressText = nextFrame(caller, pickTextFrame);
       fakeComfy.sendText({ type: "progress", data: { value: 3, max: 10 } });
       expect(JSON.parse(await progressText)).toEqual({
         type: "progress",
         data: { value: 3, max: 10 },
       });
 
-      const binaryFrame = new Promise<ArrayBuffer>((resolve) => {
-        const onMsg = (ev: MessageEvent) => {
-          if (ev.data instanceof ArrayBuffer) {
-            caller.removeEventListener("message", onMsg);
-            resolve(ev.data);
-          }
-        };
-        caller.addEventListener("message", onMsg);
-      });
+      const binaryFrame = nextFrame(caller, pickBinaryFrame);
       const preview = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9]);
       fakeComfy.sendBinary(preview);
       expect(new Uint8Array(await binaryFrame)).toEqual(preview);
 
       caller.close();
     } finally {
-      bound.v4.stop(true);
-      bound.v6.stop(true);
-      fakeComfy.stop();
+      stop();
     }
   });
 });
