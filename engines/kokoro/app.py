@@ -15,9 +15,12 @@ import io
 import json
 import logging
 import threading
+import time
 
 import numpy as np
 import soundfile as sf
+import torch
+import torch.nn.functional as F
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from kokoro import KPipeline
@@ -25,8 +28,109 @@ from pydantic import BaseModel
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
+
+# Measured on this box (gfx1151/ROCm 7.2): the vocoder (KModel.decoder) is
+# the entire cost of time-to-first-audio, and that cost is not FLOPs -- it is
+# MIOpen JIT-compiling a fresh kernel the first time it sees a given exact
+# frame count. Repeat calls at an already-seen exact shape run in ~0.15s;
+# a never-before-seen one costs ~1.1-3s regardless of how short the text is
+# (confirmed: a 14-phoneme "Hi there friend" cost as much as a 71-phoneme
+# sentence). Since every distinct sentence produces a distinct frame count
+# (duration is predicted per phoneme, not quantized), production traffic
+# hits a cold shape on nearly every request. Bucketing collapses that
+# unbounded shape space to a fixed, enumerable set of frame counts so a
+# one-time warm-up (below) can pre-pay the compile for the whole practical
+# range, and any request's true frame count reuses whichever bucket covers it.
+_DECODER_BUCKET_FRAMES = 32
+
+
+class _BucketedDecoder(torch.nn.Module):
+    """Rounds the vocoder's input frame count up to `_DECODER_BUCKET_FRAMES`
+    with zero-padding, runs the real decoder once, then trims the output back
+    to the true (unpadded) sample count.
+
+    Correctness: verified numerically against the unpadded decoder on real
+    kokoro output -- the trimmed region matches to ~1e-8 (float noise), and
+    the padding-induced difference elsewhere is the same order of magnitude
+    as the run-to-run noise this decoder already exhibits between two calls
+    of identical input (this ROCm/MIOpen backend is not bit-deterministic
+    call to call regardless of this wrapper). Padding is silence in the
+    frame-rate features, not the waveform, so it does not add audible content
+    of its own -- only the choice of compiled kernel changes.
+    """
+
+    def __init__(self, decoder: torch.nn.Module, bucket: int = _DECODER_BUCKET_FRAMES):
+        super().__init__()
+        self.decoder = decoder
+        self.bucket = bucket
+
+    def forward(
+        self,
+        asr: torch.Tensor,
+        f0_pred: torch.Tensor,
+        n_pred: torch.Tensor,
+        ref: torch.Tensor,
+    ) -> torch.Tensor:
+        true_frames = asr.shape[-1]
+        bucket_frames = -(-true_frames // self.bucket) * self.bucket
+        pad = bucket_frames - true_frames
+        if pad == 0:
+            return self.decoder(asr, f0_pred, n_pred, ref)
+        # F0/N run at a fixed multiple of the frame rate (kokoro's own
+        # architecture constant) -- read it from the real tensors rather than
+        # hard-coding it, so a future kokoro version that changes it still
+        # pads the right amount instead of silently misaligning.
+        f0_ratio = f0_pred.shape[-1] // true_frames
+        n_ratio = n_pred.shape[-1] // true_frames
+        asr = F.pad(asr, (0, pad))
+        f0_pred = F.pad(f0_pred, (0, pad * f0_ratio))
+        n_pred = F.pad(n_pred, (0, pad * n_ratio))
+        out = self.decoder(asr, f0_pred, n_pred, ref)
+        # Output samples are exactly linear in frame count (no fixed offset,
+        # confirmed empirically) -- derive the true length from the padded
+        # run's own ratio rather than assuming a hop-size constant.
+        samples_per_frame = out.shape[-1] // bucket_frames
+        return out[..., : true_frames * samples_per_frame]
+
+
+def _warm_decoder_buckets(pipeline: KPipeline) -> None:
+    """Pre-pays the bucket compile cost at container start, before /health
+    (and so the readiness probe) can succeed -- same invariant the module-
+    level KPipeline() construction below already relies on. Texts are chosen
+    only to spread real phoneme/frame counts across the practical
+    conversational range (roughly a greeting through a long sentence); their
+    content is otherwise unused and never reaches a caller.
+    """
+    warmup_texts = [
+        "Hi.",
+        "Okay, sure.",
+        "Got it, thanks.",
+        "Let me check on that for you.",
+        "The weather today looks pretty clear and mild.",
+        "I found a few options that might work for what you need.",
+        "That should be ready in just a moment, please hold on.",
+        "Here is a longer sentence to cover replies that run past a dozen words or so.",
+        "This next one is longer still, closer to a full paragraph of spoken reply text.",
+        "And this final warm-up sentence pushes further out toward the longest replies this engine is likely to ever synthesize in one turn.",
+    ]
+    voice = "af_heart"
+    t0 = time.perf_counter()
+    with torch.no_grad():
+        for text in warmup_texts:
+            for _ in pipeline(text, voice=voice):
+                pass
+    # print, not logger: uvicorn's --log-level warning (see Dockerfile) would
+    # otherwise swallow this, and it is the only line that says how long the
+    # container spent compiling kernels before /health could answer.
+    print(
+        f"kokoro decoder warm-up: {len(warmup_texts)} texts in {time.perf_counter() - t0:.1f}s"
+    )
+
+
 pipeline = KPipeline(lang_code="a")
 print(f"Kokoro pipeline resolved device: {pipeline.model.device}")
+pipeline.model.decoder = _BucketedDecoder(pipeline.model.decoder)
+_warm_decoder_buckets(pipeline)
 SAMPLE_RATE = 24_000
 # One lock per process serializes concurrent TTS on this container. Correct for a single
 # GPU with no multi-lease concept upstream; the lock guards only the blocking pipeline

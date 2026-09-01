@@ -19,6 +19,19 @@ security_opt = ["label=disable"]
 # Weights are baked into the image at build time (HF_HOME) -- no [[artifact]]
 # and no model volume, same posture as chatterbox.
 
+# Persists MIOpen's on-disk kernel cache (populated by app.py's decoder
+# bucket warm-up on every start) across container recreations. A plain name
+# with no leading "/" is a docker-managed named volume, not a host bind mount
+# -- docker creates and keeps it with no operator config needed. Without
+# this, the `docker rm -f` + `docker run` engined does on every start (and
+# every idle-stop restart) wipes the container's writable layer, and the
+# ~1-3s-per-shape MIOpen JIT compile the warm-up just paid for is thrown away
+# with it; this volume is what lets that cost amortize across restarts
+# instead of being paid again every time the engine wakes up.
+[[volume]]
+name = "engined-kokoro-miopen-cache"
+path = "/root/.cache/miopen"
+
 # app.py's /health is a static {"status": "ok"} that never inspects the
 # loaded pipeline -- but KPipeline is instantiated at module import time,
 # before uvicorn binds its listening socket (uvicorn's Server.serve() loads

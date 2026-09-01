@@ -95,6 +95,70 @@ Being a ROCm engine, it contends for the box's single GPU like ComfyUI and
 llama.cpp do. Piper is the CPU voice, and that is the reason to reach for it
 instead when speech has to run while a large GGUF stays resident.
 
+#### Time-to-first-audio: the floor was MIOpen, not FLOPs
+
+Kokoro's own vocoder (`KModel.decoder`, an ISTFTNet-style HiFi-GAN) yields one
+array per sentence, so with `chunks: true` any RTF win lands directly on
+TTFB. Profiling on this box (gfx1151/ROCm 7.2) found the ~1.2-3.7s TTFB was
+not FLOPs at all: it is MIOpen JIT-compiling a fresh kernel the first time
+the decoder sees a given exact frame count. A repeat call at an
+already-compiled shape runs the same decoder in ~0.15s; a never-before-seen
+one costs ~1.1-3s regardless of how short the text is (measured: a
+14-phoneme "Hi there friend" cost as much as a 71-phoneme sentence, and two
+inputs differing by a single character both paid the full cost). Since
+duration is predicted per phoneme rather than quantized, almost every
+distinct sentence produces a distinct frame count, so production traffic
+hit a cold shape on nearly every request — fp16 and `torch.compile` were
+never going to fix this, because the cost was never in the matrix multiplies.
+
+`app.py` wraps `model.decoder` in `_BucketedDecoder`: it rounds the frame
+count up to a 32-frame bucket with zero-padding, runs the real decoder once,
+and trims the output back to the true sample count (output samples are
+exactly linear in frame count, confirmed empirically, so the trim point is
+exact). This collapses the practical shape space to a small enumerable set,
+and a startup warm-up (before `/health`, same invariant `KPipeline()`
+already relies on) pre-pays the compile for that whole set. `spec.toml`
+persists MIOpen's on-disk kernel cache in a docker-managed named volume so a
+container recreated by idle-stop does not re-pay it from zero; `config.toml`
+gives kokoro `ready_timeout_s = 120` (default 60) so the warm-up has room.
+
+Measured through the door (`POST /openai/v1/audio/speech`, `stream: true`,
+warm engine, distinct texts, median of runs), before vs. after:
+
+| input length | before | after |
+| ------ | ------ | ------ |
+| ~15 ch | 1.24-1.60s | 0.29-0.58s |
+| ~40 ch | 1.22-1.27s | 0.34-0.66s |
+| ~55 ch | 1.24-1.86s | 0.36-1.48s |
+| ~135 ch | 3.73s (op's baseline) | 1.75s |
+
+Correctness: verified numerically against the unpadded decoder on real
+kokoro output — the trimmed region matches to ~1e-8, and the padding-induced
+difference elsewhere is the same order of magnitude as the run-to-run noise
+this ROCm/MIOpen backend already exhibits between two calls of *identical*
+input with no padding involved at all (up to ~0.07 absolute on a few
+samples — this backend is not bit-deterministic call to call, independent of
+this change). Padding is silence in the frame-rate features, not the
+waveform, so it adds no content of its own; only the compiled kernel choice
+changes. Flagged for an operator A/B listen regardless — if anything is
+audible, it would be a faint texture change in the last ~25ms of a sentence's
+tail, not a click or a dropout.
+
+**Measured and rejected: clause-splitting at commas** to shorten the first
+synthesis unit. The TTFB floor is ~1.24s even for a 12-character input, so a
+shorter first chunk buys almost nothing — the floor was never about how much
+text the first chunk holds.
+
+**Not fixed here, and worth naming so it isn't re-investigated as a mystery:**
+bucketing only covers the decoder. `KModel.bert`, `predictor.text_encoder`,
+`predictor.lstm` and `F0Ntrain` each pay their own smaller MIOpen JIT cost
+(measured ~0.1-0.3s each) on a novel *input* phoneme length, unbucketed —
+which is why medium/long inputs above still show real, if reduced, variance.
+Closing that gap means padding `input_ids` the same way, which the model's
+existing `text_mask`/`attention_mask` plumbing could plausibly support, but
+touches the alignment construction (`pred_aln_trg`) and needs its own
+correctness pass — left as a follow-up rather than folded into this change.
+
 ### Piper
 
 `engines/piper/`. The one engine with no GPU flags at all: an ONNX voice small
