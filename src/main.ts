@@ -1224,10 +1224,12 @@ function redirectEnv(
 }
 
 /**
- * The configured id verbatim — never invented, never stripped — resolved
- * through aliases the same way a chat model is. Shared by the agentic
- * redirect and the remote HTTP proxy: both hand a `[[model]]` id straight to
- * someone else's service, where a prettier local alias would simply 404.
+ * The id an upstream actually knows this model by: a route's own
+ * `wire_model` when it declared one (an address segment that cannot spell
+ * the real id, e.g. an `org/model` slug), else the address segment itself.
+ * Shared by the agentic redirect and the remote HTTP proxy: both hand this
+ * id straight to someone else's service, where the address a caller dialed
+ * would simply 404.
  */
 function resolveUpstreamModelId(
   config: Config,
@@ -1237,7 +1239,8 @@ function resolveUpstreamModelId(
   if (modelSeg === "") {
     return;
   }
-  return findModelOnEngine(config.routes, engineId, modelSeg)?.model ?? modelSeg;
+  const route = findModelOnEngine(config.routes, engineId, modelSeg);
+  return route?.wire_model ?? route?.model ?? modelSeg;
 }
 
 type RedirectResolution =

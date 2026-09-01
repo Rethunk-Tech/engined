@@ -1501,6 +1501,32 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     expect(redirect.result.status).toBe(502);
     expect((redirect.result.body as { error: string }).error).toContain("no configured base_url");
   });
+
+  test("a route's wire_model reaches ANTHROPIC_MODEL, not the address segment", async () => {
+    const cfg = config({
+      routes: [
+        route({
+          engine: "claude",
+          model: "kimi-k3",
+          wire_model: "moonshot/kimi-k3-0905",
+          upstream: "moonshot",
+        }),
+      ],
+    });
+    const redirect = await resolveRedirect(
+      moonshotUpstream(),
+      "claude",
+      "kimi-k3",
+      cfg,
+      TEST_DOOR_URL,
+      fakeExec("k"),
+    );
+    expect(redirect.ok).toBe(true);
+    if (!redirect.ok) {
+      throw new Error("expected resolveRedirect to succeed");
+    }
+    expect(redirect.env.ANTHROPIC_MODEL).toBe("moonshot/kimi-k3-0905");
+  });
 });
 
 describe("the door: remote-agentic redirect, missing secret does not take down other engines", () => {
@@ -2079,5 +2105,88 @@ describe("no response ever carries a container address", () => {
     const door = createLlamaDoor(cfg, root, { llamaHttpClient: makeLlamaHttpClient([]) });
     const res = await door.fetch(startRequest("@/local-llama/ornith"));
     expect(await res.text()).not.toContain("private_url");
+  });
+});
+
+describe("wire_model: the id sent upstream can differ from the address segment", () => {
+  test("the remote openai-http proxy sends wire_model in the outgoing request body, not the address segment", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    const originalFetch = globalThis.fetch;
+    let capturedBody: { model?: string } | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody =
+        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+      return Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] });
+    }) as typeof fetch;
+    try {
+      const cfg = config({
+        upstreams: [
+          {
+            id: "openrouter",
+            egress: "remote",
+            base_url: "https://openrouter.example/api/v1",
+            secret: { service: "s", username: "u", header: "authorization" },
+          },
+        ],
+        engines: [engine({ id: "hosted", kind: "openai-http" })],
+        routes: [
+          route({
+            engine: "hosted",
+            model: "glm-5.2:free",
+            wire_model: "z-ai/glm-5.2:free",
+            upstream: "openrouter",
+          }),
+        ],
+      });
+      const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
+      const res = await door.fetch(
+        chatRequest({
+          model: "@/hosted/glm-5.2:free",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      );
+      expect(res.status).toBe(200);
+      // The config's own address segment must never leak onto the wire once
+      // a wire_model is configured -- the config-read trap this exists to
+      // catch is a test that asserts the route's `model` field and calls it
+      // proof of what was actually sent.
+      expect(capturedBody?.model).toBe("z-ai/glm-5.2:free");
+      expect(capturedBody?.model).not.toBe("glm-5.2:free");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("with no wire_model configured, the remote openai-http proxy still sends the address segment verbatim", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    const originalFetch = globalThis.fetch;
+    let capturedBody: { model?: string } | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody =
+        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+      return Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] });
+    }) as typeof fetch;
+    try {
+      const cfg = config({
+        upstreams: [
+          {
+            id: "openrouter",
+            egress: "remote",
+            base_url: "https://openrouter.example/api/v1",
+            secret: { service: "s", username: "u", header: "authorization" },
+          },
+        ],
+        engines: [engine({ id: "hosted", kind: "openai-http" })],
+        routes: [route({ engine: "hosted", model: "sonnet-5", upstream: "openrouter" })],
+      });
+      const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
+      const res = await door.fetch(
+        chatRequest({ model: "@/hosted/sonnet-5", messages: [{ role: "user", content: "hi" }] }),
+      );
+      expect(res.status).toBe(200);
+      expect(capturedBody?.model).toBe("sonnet-5");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
