@@ -35,7 +35,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { type AgenticOutcome, agentCli, type FloorKind, type Upstream } from "./agents.ts";
+import { type AgenticOutcome, type AgentTarget, agentCli, type FloorKind } from "./agents.ts";
 import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
@@ -213,7 +213,7 @@ interface RunAgenticInput {
   /** Overrides `resolveBwrap` for a test. Only ever consulted for a `sandbox` agent. */
   bwrap?: string | null;
   /** Where this agent's own model lives. Required by an agent with a `configure`; ignored by one without. */
-  upstream?: Upstream;
+  upstream?: AgentTarget;
   ambientEnv?: NodeJS.ProcessEnv;
   /**
    * Set on the child unconditionally, after the allowlist — a different
@@ -375,7 +375,7 @@ interface ProbeInput {
   agentVersion: string;
   bunx: string;
   /** An agent engined has to configure cannot be probed without one: it would be refused before it launched. */
-  upstream?: Upstream;
+  upstream?: AgentTarget;
   deps: AgenticProbeRunnerDeps;
 }
 

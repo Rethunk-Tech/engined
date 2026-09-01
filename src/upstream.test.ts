@@ -9,9 +9,9 @@ import { expect, test } from "bun:test";
 import { handleSpeech, handleTranscription } from "./audio.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
-import { isRemote, remoteUrl, resolveRemote, upstreamPath } from "./remote.ts";
 import { config as baseConfigFixture, route } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
+import { isRemote, resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
 
 const TEST_LISTEN_PORT = 39_218;
 const SAMPLE_WAV = new Uint8Array(Buffer.from("RIFF____WAVEfmt ", "utf8"));
@@ -41,11 +41,11 @@ function remoteEngine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   };
 }
 
-test("remoteUrl keeps the base URL's own path, which new URL() would discard", () => {
-  expect(remoteUrl("https://api.elevenlabs.io/v1", "/speech-to-text")).toBe(
+test("upstreamUrl keeps the base URL's own path, which new URL() would discard", () => {
+  expect(upstreamUrl("https://api.elevenlabs.io/v1", "/speech-to-text")).toBe(
     "https://api.elevenlabs.io/v1/speech-to-text",
   );
-  expect(remoteUrl("https://api.kimi.com/coding/", "/openai/v1/chat/completions")).toBe(
+  expect(upstreamUrl("https://api.kimi.com/coding/", "/openai/v1/chat/completions")).toBe(
     "https://api.kimi.com/coding/openai/v1/chat/completions",
   );
 });
@@ -63,8 +63,8 @@ test("isRemote is base_url and nothing else", () => {
   expect(isRemote({ id: "local-llama", egress: "none", args: {} })).toBe(false);
 });
 
-test("resolveRemote projects the secret into exactly the header config named", async () => {
-  const resolution = await resolveRemote(remoteEngine(), foundSecret);
+test("resolveUpstream projects the secret into exactly the header config named", async () => {
+  const resolution = await resolveUpstream(remoteEngine(), foundSecret);
   expect(resolution.ok).toBe(true);
   if (!resolution.ok) {
     return;
@@ -74,7 +74,7 @@ test("resolveRemote projects the secret into exactly the header config named", a
 });
 
 test("a remote engine with no secret is a 502 -- misconfigured, not merely unavailable", async () => {
-  const resolution = await resolveRemote(remoteEngine({ secret: undefined }), foundSecret);
+  const resolution = await resolveUpstream(remoteEngine({ secret: undefined }), foundSecret);
   expect(resolution.ok).toBe(false);
   if (resolution.ok) {
     return;
@@ -83,7 +83,7 @@ test("a remote engine with no secret is a 502 -- misconfigured, not merely unava
 });
 
 test("a missing keyring entry is a 503 carrying the runnable secret-tool fix", async () => {
-  const resolution = await resolveRemote(remoteEngine(), missingSecret);
+  const resolution = await resolveUpstream(remoteEngine(), missingSecret);
   expect(resolution.ok).toBe(false);
   if (resolution.ok) {
     return;
@@ -133,7 +133,7 @@ test("a remote STT engine posts the door's own model, not an engine-config defau
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
-    const resolution = await resolveRemote(remoteEngine({ base_url: fake.base }), foundSecret);
+    const resolution = await resolveUpstream(remoteEngine({ base_url: fake.base }), foundSecret);
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) {
       return;
@@ -171,7 +171,7 @@ test("a remote STT engine with no model resolved is a 502, not a silent default"
   const recorded: RecordedForm[] = [];
   const fake = startFakeElevenLabs(recorded);
   try {
-    const resolution = await resolveRemote(remoteEngine({ base_url: fake.base }), foundSecret);
+    const resolution = await resolveUpstream(remoteEngine({ base_url: fake.base }), foundSecret);
     if (!resolution.ok) {
       throw new Error("expected the fake secret to resolve");
     }
@@ -193,7 +193,7 @@ test("a remote STT engine with no model resolved is a 502, not a silent default"
 
 test("a remote engine whose secret will not resolve reports the fix, not 'not available'", async () => {
   const result = await handleTranscription({ engine: "elevenlabs", file: SAMPLE_WAV }, async () => {
-    const resolution = await resolveRemote(remoteEngine(), missingSecret);
+    const resolution = await resolveUpstream(remoteEngine(), missingSecret);
     return resolution.ok
       ? { private_url: null, remote: resolution.endpoint }
       : { private_url: null, unavailable: resolution.error };

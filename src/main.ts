@@ -60,14 +60,6 @@ import {
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { configPath, installDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
-import {
-  isRemote,
-  noBaseUrlFix,
-  remoteUrl,
-  resolveRemote,
-  resolveRemoteSecret,
-  upstreamPath,
-} from "./remote.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type Config,
@@ -87,6 +79,14 @@ import {
   type ResolvedRoute,
   type Upstream,
 } from "./types.ts";
+import {
+  isRemote,
+  noBaseUrlFix,
+  resolveUpstream,
+  resolveUpstreamSecret,
+  upstreamPath,
+  upstreamUrl,
+} from "./upstream.ts";
 
 const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
 
@@ -659,7 +659,7 @@ export async function resolveRedirect(
       result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(noBaseUrlFix(engineEntry.id)) },
     };
   }
-  const resolved = await resolveRemoteSecret(engineEntry, secretExec);
+  const resolved = await resolveUpstreamSecret(engineEntry, secretExec);
   if (!resolved.ok) {
     return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } };
   }
@@ -812,14 +812,14 @@ async function execRemoteHttp(
 ): Promise<HopResult> {
   const config = ctx.getConfig();
   // The route's own upstream carries the address and secret now, not the
-  // engine -- substituted onto a shim so `resolveRemote` (which still reads
+  // engine -- substituted onto a shim so `resolveUpstream` (which still reads
   // the dead-but-standing EngineEntry fields) resolves the right one.
   const route = findModelOnEngine(config.routes, engineEntry.id, modelSeg);
   const upstream =
     route?.upstream === undefined || route.upstream === null
       ? undefined
       : config.upstreams.find((u) => u.id === route.upstream);
-  const resolution = await resolveRemote(
+  const resolution = await resolveUpstream(
     withUpstreamAddress(engineEntry, upstream),
     ctx.doorOpts.secretExec,
   );
@@ -840,7 +840,7 @@ async function execRemoteHttp(
   const body = withoutCallerNulls({ ...resolution.endpoint.args, ...callerBody }, callerBody);
   const init = openAiRequestInit(body, modelId, req.signal);
   const response = await fetch(
-    remoteUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
+    upstreamUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
     {
       ...init,
       headers: { ...(init.headers as Record<string, string>), ...resolution.endpoint.headers },
@@ -1088,7 +1088,7 @@ function audioStart(ctx: DoorContext): EngineStart {
     const upstreamId = route?.upstream ?? null;
     if (engine && upstreamId !== null && upstreamId !== "local") {
       const upstream = config.upstreams.find((u) => u.id === upstreamId);
-      const resolution = await resolveRemote(
+      const resolution = await resolveUpstream(
         withUpstreamAddress(engine, upstream),
         ctx.doorOpts.secretExec,
       );

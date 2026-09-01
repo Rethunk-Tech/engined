@@ -40,7 +40,7 @@ import {
   TEXT_CONTENT_TYPE,
   WAV_CONTENT_TYPE,
 } from "./http.ts";
-import { type RemoteEndpoint, remoteUrl } from "./remote.ts";
+import { type UpstreamEndpoint, upstreamUrl } from "./upstream.ts";
 
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
 const TEXT_RESPONSE_FORMATS = new Set(["text", "srt", "vtt"]);
@@ -142,7 +142,7 @@ export type EngineStart = (id: string, model?: string) => Promise<StartedEngine>
 
 interface StartedEngine {
   private_url: string | null;
-  remote?: RemoteEndpoint;
+  remote?: UpstreamEndpoint;
   /**
    * The runnable fix for an engine that could not be reached at all — a
    * `secret-tool store` line, usually. Carried rather than collapsed into
@@ -496,7 +496,7 @@ const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
  */
 async function transcribeRemote(
   req: TranscriptionRequestBody,
-  remote: RemoteEndpoint,
+  remote: UpstreamEndpoint,
   model: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
@@ -515,7 +515,7 @@ async function transcribeRemote(
     form.append("language_code", req.language);
   }
 
-  const res = await fetchImpl(remoteUrl(remote.base_url, "/speech-to-text"), {
+  const res = await fetchImpl(upstreamUrl(remote.base_url, "/speech-to-text"), {
     method: "POST",
     headers: remote.headers,
     body: form,

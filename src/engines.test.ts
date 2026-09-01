@@ -553,26 +553,6 @@ describe("serves()", () => {
   });
 });
 
-describe("spec_source", () => {
-  test("names the shipped directory when no spec_dir override is set", async () => {
-    const { root, reg } = setupLlama();
-    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
-    expect(listed?.spec_source).toBe(join(root, "llama"));
-  });
-
-  test("names the override directory when spec_dir wins", async () => {
-    const root = newEnginesRoot();
-    const overrideRoot = mkdtempSync(join(TEST_ROOT, "engined-override-"));
-    writeFileSync(join(overrideRoot, "spec.toml"), PULLED_CONTAINER);
-    const reg = registry(
-      config({ engines: [engine({ id: "llama", spec_dir: overrideRoot })] }),
-      root,
-    );
-    const listed = (await reg.list()).engines.find((e) => e.id === "llama");
-    expect(listed?.spec_source).toBe(overrideRoot);
-  });
-});
-
 describe("the kind-dependent filename/role split runs at registry construction, not parse", () => {
   test("a whisper-shaped route (filename, no role) parses and is accepted", () => {
     const root = newEnginesRoot();

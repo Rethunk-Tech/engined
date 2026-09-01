@@ -362,12 +362,7 @@ function streamingOf(spec: Spec): boolean {
 }
 
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
-function statusFrom(
-  engine: EngineEntry,
-  spec: Spec,
-  source: string,
-  runtime: RuntimeStatus,
-): EngineStatus {
+function statusFrom(engine: EngineEntry, spec: Spec, runtime: RuntimeStatus): EngineStatus {
   return {
     id: engine.id,
     kind: spec.kind,
@@ -377,7 +372,6 @@ function statusFrom(
     state: runtime.state,
     fix: runtime.fix,
     private_url: runtime.private_url,
-    spec_source: source,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
   };
@@ -554,7 +548,7 @@ export class EngineRegistry {
       return this.disabledStatus(entry);
     }
 
-    const { spec, source } = entry.spec;
+    const { spec } = entry.spec;
     if (!isContainerSpec(spec)) {
       return {
         id: engine.id,
@@ -564,11 +558,10 @@ export class EngineRegistry {
         streaming: streamingOf(spec),
         state: "installed",
         private_url: null,
-        spec_source: source,
       };
     }
 
-    return statusFrom(engine, spec, source, this.lifecycle.getStatus(engine.id));
+    return statusFrom(engine, spec, this.lifecycle.getStatus(engine.id));
   }
 
   /**
@@ -590,7 +583,6 @@ export class EngineRegistry {
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
       private_url: null,
-      spec_source: spec.source,
     };
   }
 
@@ -608,7 +600,7 @@ export class EngineRegistry {
     const { spec, source } = entry.spec;
     if (!isContainerSpec(spec)) {
       if (spec.kind === "agentic-cli") {
-        return this.agenticStatus(entry.engine, spec, source);
+        return this.agenticStatus(entry.engine, spec);
       }
       // A spec-less proxy: nothing to probe and nothing resident -- an
       // address is either configured or it is not, and syncStatus's
@@ -616,7 +608,7 @@ export class EngineRegistry {
       return this.syncStatus(entry);
     }
     const { engine } = entry;
-    return statusFrom(engine, spec, source, await this.lifecycle.probe(engine.id, spec, source));
+    return statusFrom(engine, spec, await this.lifecycle.probe(engine.id, spec, source));
   }
 
   /**
@@ -630,11 +622,7 @@ export class EngineRegistry {
    * same unproved pin share one in-flight probe instead of each billing
    * their own — see `runAgenticProbe`.
    */
-  private async agenticStatus(
-    engine: EngineEntry,
-    spec: AgenticSpec,
-    source: string,
-  ): Promise<EngineStatus> {
+  private async agenticStatus(engine: EngineEntry, spec: AgenticSpec): Promise<EngineStatus> {
     const base = {
       id: engine.id,
       kind: spec.kind,
@@ -642,7 +630,6 @@ export class EngineRegistry {
       serves: spec.serves,
       streaming: streamingOf(spec),
       private_url: null,
-      spec_source: source,
     } as const;
     if (engine.agent_version === undefined) {
       return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };

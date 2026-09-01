@@ -1428,7 +1428,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
       throw new Error("expected resolveRedirect to fail without a base_url");
     }
     expect(redirect.result.status).toBe(502);
-    expect((redirect.result.body as { error: string }).error).toContain("no base_url");
+    expect((redirect.result.body as { error: string }).error).toContain("no configured base_url");
   });
 });
 

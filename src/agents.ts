@@ -48,10 +48,10 @@ export interface AgentCli {
    * upstream some other way -- claude's is a base URL and a key in the env,
    * already handled as a remote redirect.
    */
-  configure?: (upstream: Upstream) => Record<string, string>;
+  configure?: (upstream: AgentTarget) => Record<string, string>;
 }
 
-export interface Upstream {
+export interface AgentTarget {
   /** An OpenAI-compatible base, normally engined's own door. */
   baseUrl: string;
   /** The model id at that base, e.g. `ornith`. */
@@ -174,7 +174,7 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
  * floor is `sandbox.ts`; this only closes the ordinary case where no such
  * file exists, and must never be described as what makes opencode safe.
  */
-function renderOpencodeConfig(upstream: Upstream): Record<string, string> {
+function renderOpencodeConfig(upstream: AgentTarget): Record<string, string> {
   const path = join(stateDir(), "agentic-opencode.json");
   mkdirSync(stateDir(), { recursive: true });
   writeFileSync(

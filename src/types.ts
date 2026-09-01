@@ -475,7 +475,6 @@ export interface EngineStatus {
   streaming: boolean;
   /** Docker reassigns the host port every start, so this is a per-job read. */
   private_url: string | null;
-  spec_source: string;
   last_error?: string;
   /**
    * Requests holding this engine open right now. The audio engines serialize
