@@ -6,7 +6,7 @@
  * at all, so that one test binds a real door against a real fake container.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import type { Exec, ExecResult } from "./exec.ts";
@@ -521,7 +521,7 @@ describe("comfy proxy: the websocket bridge", () => {
 
 type Door = Awaited<ReturnType<typeof comfyDoor>>;
 
-function cancellingComfyClient(running: string[], pending: string[]) {
+function cancellingComfyClient(running: string[], pending: string[], deleteStatus = 200) {
   return recordingComfyClient((url, init) => {
     if (url.includes("/prompt")) {
       return Response.json({ prompt_id: "job-c" });
@@ -532,7 +532,7 @@ function cancellingComfyClient(running: string[], pending: string[]) {
         queue_pending: pending.map((id) => [0, id]),
       });
     }
-    return Response.json({});
+    return Response.json({}, { status: deleteStatus });
   });
 }
 
@@ -571,11 +571,38 @@ describe("comfy proxy: scoped cancel", () => {
     const { client, calls } = cancellingComfyClient(["someone-elses-job"], ["job-c"]);
     const res = await cancel(await boundDoor(client), "job-c");
 
+    expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "pending" });
     expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
-    expect(calls.filter((c) => c.url.includes("/queue") && c.init?.method === "POST")).toHaveLength(
-      1,
+    const deletes = calls.filter((c) => c.url.includes("/queue") && c.init?.method === "POST");
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]?.init?.body).toBe(JSON.stringify({ delete: ["job-c"] }));
+  });
+
+  // Reporting a cancel comfy never performed is worse than reporting none:
+  // the caller stops waiting for a prompt that is still queued to render.
+  test("POST /cancel reports a queue delete comfy refused, never a cancel it did not perform", async () => {
+    const { client } = cancellingComfyClient(["someone-elses-job"], ["job-c"], 500);
+    const res = await cancel(await boundDoor(client), "job-c");
+    const body = (await res.json()) as { error?: string; cancelled?: string };
+
+    expect(res.status).toBe(502);
+    expect(body.cancelled).toBeUndefined();
+    expect(body.error).toContain("http 500");
+  });
+
+  // Whatever comfy answered, it was not a queue: the door cannot prove the
+  // prompt is the caller's own, so it interrupts nothing and says so.
+  test("POST /cancel refuses when comfy's queue does not read as one", async () => {
+    const { client, calls } = recordingComfyClient((url) =>
+      url.includes("/prompt")
+        ? Response.json({ prompt_id: "job-c" })
+        : new Response("null", { headers: { "content-type": "application/json" } }),
     );
+    const res = await cancel(await boundDoor(client), "job-c");
+
+    expect(res.status).toBe(502);
+    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
   });
 
   test("POST /cancel never interrupts on behalf of a prompt_id this door did not bind", async () => {
@@ -643,5 +670,60 @@ describe("comfy proxy: the binding table is bounded", () => {
     expect(
       (await restarted.fetch(new Request(`http://engined${PROXY_PATH}/history/job-1001`))).status,
     ).toBe(200);
+  });
+});
+
+describe("comfy proxy: a binding the state dir would not take", () => {
+  /**
+   * The table in memory is a superset of the file, never the other way
+   * round: a write that fails costs the caller nothing until this process
+   * restarts, where a table shrunk to match a file that never got the
+   * binding would refuse an output the door itself produced.
+   */
+  test("a binding that could not be persisted is still served, and the file never gained it", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-readonly-"));
+    const engined = join(stateHome, "engined");
+    mkdirSync(engined, { mode: 0o500 });
+    const { client } = recordingComfyClient((url) =>
+      url.includes("/prompt") ? Response.json({ prompt_id: "job-w" }) : Response.json({}),
+    );
+
+    const door = await comfyDoor(client, 40_999, stateHome);
+    const bound = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    const served = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-w`));
+
+    expect(bound.status).toBe(200);
+    expect(served.status).toBe(200);
+    expect(existsSync(join(engined, "comfy-bindings.json"))).toBe(false);
+    chmodSync(engined, 0o700);
+  });
+});
+
+describe("comfy proxy: the table is written only when it changed", () => {
+  // A client watching a running prompt polls the same entry until it
+  // finishes, and every one of those reads answers with what the door
+  // already knows.
+  test("polling /history for filenames the door already holds does not rewrite the table", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-poll-"));
+    const { client } = recordingComfyClient((url) =>
+      url.includes("/prompt")
+        ? Response.json({ prompt_id: "job-p" })
+        : Response.json({ "job-p": { outputs: { "9": { images: [{ filename: "out.png" }] } } } }),
+    );
+
+    const door = await comfyDoor(client, 40_999, stateHome);
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-p`));
+
+    const file = join(stateHome, "engined", "comfy-bindings.json");
+    rmSync(file);
+    const repoll = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-p`));
+
+    expect(repoll.status).toBe(200);
+    expect(existsSync(file)).toBe(false);
   });
 });

@@ -479,15 +479,15 @@ function comfyBindingsPath(): string {
 }
 
 function loadComfyBindings(): ComfyBindings {
-  let raw: unknown;
+  let text = "";
   try {
-    raw = JSON.parse(readFileSync(comfyBindingsPath(), "utf8"));
+    text = readFileSync(comfyBindingsPath(), "utf8");
   } catch {
-    // No table yet, or one this build cannot read. An empty table refuses
-    // every stored output, which is the safe direction to fail.
-    return new Map();
+    // No table yet. An empty one refuses every stored output, which is the
+    // safe direction to fail, and so is a file this build cannot read.
   }
-  if (!isRecord(raw)) {
+  const raw = parseRecord(text);
+  if (raw === null) {
     return new Map();
   }
   return new Map(
@@ -510,17 +510,19 @@ function loadComfyBindings(): ComfyBindings {
 const COMFY_BINDINGS_MAX = 1000;
 
 // ponytail: the whole table is rewritten on every bind and every filename
-// attach -- bounded work now that COMFY_BINDINGS_MAX bounds the table. An
-// append log only earns its complexity if that cap is ever raised far enough
-// for the rewrite to be felt.
+// this door had not already recorded -- bounded work now that
+// COMFY_BINDINGS_MAX bounds the table. An append log only earns its
+// complexity if that cap is ever raised far enough for the rewrite to be felt.
 /**
  * The eviction lands only once the write has. A full disk or an unwritable
  * state dir would otherwise shrink the table in memory while the file keeps
  * the larger set, and the door would refuse an output it can still see on
- * disk with nothing said. So a failed write leaves the table exactly as the
- * file still describes it, reports itself, and lets the call it belongs to
- * answer: the caller's own request succeeded, and nothing is lost until this
- * process restarts.
+ * disk with nothing said. So a failed write evicts nothing, leaving the
+ * table a superset of what the file describes -- every binding the file
+ * holds is still served, plus the ones that never reached it, which is the
+ * direction that refuses nothing. The failure reports itself and the call it
+ * belongs to still answers: the caller's own request succeeded, and only the
+ * unwritten bindings are lost, at the next restart.
  */
 function saveComfyBindings(bindings: ComfyBindings): void {
   // Oldest first: a binding is inserted when its prompt is queued and only
@@ -595,12 +597,8 @@ async function forwardComfyGet(
 
 /** The `prompt_id` comfy answered `/prompt` with -- `undefined` for a body that is not JSON or carries none, which binds nothing. The caller still gets comfy's real body and status back either way. */
 function comfyPromptId(text: string): string | undefined {
-  try {
-    const parsed = JSON.parse(text) as { prompt_id?: unknown };
-    return typeof parsed.prompt_id === "string" ? parsed.prompt_id : undefined;
-  } catch {
-    return undefined;
-  }
+  const id = parseRecord(text)?.prompt_id;
+  return typeof id === "string" ? id : undefined;
 }
 
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
@@ -703,29 +701,22 @@ async function proxyComfyView(
   });
 }
 
-interface ComfyHistoryMedia {
-  filename?: unknown;
-}
-interface ComfyHistoryOutput {
-  images?: ComfyHistoryMedia[];
-  gifs?: ComfyHistoryMedia[];
-  video?: ComfyHistoryMedia[];
-}
-interface ComfyHistoryEntry {
-  outputs?: Record<string, ComfyHistoryOutput>;
-}
+type ComfyHistoryEntry = Record<string, unknown>;
+
+/** The media kinds a comfy node can emit an output filename under. */
+const COMFY_MEDIA_KEYS = ["images", "gifs", "video"];
 
 /** Every output filename a history entry names, across every node and every media kind comfy can emit one under. */
 function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
+  const outputs = entry?.outputs;
   const names: string[] = [];
-  for (const output of Object.values(entry?.outputs ?? {})) {
-    for (const media of [
-      ...(output.images ?? []),
-      ...(output.gifs ?? []),
-      ...(output.video ?? []),
-    ]) {
-      if (typeof media.filename === "string") {
-        names.push(media.filename);
+  for (const output of Object.values(isRecord(outputs) ? outputs : {})) {
+    for (const key of COMFY_MEDIA_KEYS) {
+      const media = isRecord(output) ? output[key] : undefined;
+      for (const item of Array.isArray(media) ? media : []) {
+        if (isRecord(item) && typeof item.filename === "string") {
+          names.push(item.filename);
+        }
       }
     }
   }
@@ -734,11 +725,8 @@ function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
 
 /** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
 function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | undefined {
-  try {
-    return (JSON.parse(text) as Record<string, ComfyHistoryEntry>)[promptId];
-  } catch {
-    return undefined;
-  }
+  const entry = parseRecord(text)?.[promptId];
+  return isRecord(entry) ? entry : undefined;
 }
 
 /**
@@ -760,43 +748,34 @@ async function proxyComfyHistory(
   const res = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`);
   const text = await res.text();
   if (res.ok) {
-    for (const filename of filenamesIn(comfyHistoryEntry(text, promptId))) {
-      if (!bound.includes(filename)) {
-        bound.push(filename);
-      }
+    // A client polling a running prompt reads the same entry over and over,
+    // so the whole table is only rewritten when this read taught it something.
+    const added = filenamesIn(comfyHistoryEntry(text, promptId)).filter(
+      (filename) => !bound.includes(filename),
+    );
+    if (added.length > 0) {
+      bound.push(...added);
+      saveComfyBindings(ctx.comfyBindings);
     }
-    saveComfyBindings(ctx.comfyBindings);
   }
   return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
 }
 
 /** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
-interface ComfyQueue {
-  queue_running?: unknown[][];
-  queue_pending?: unknown[][];
-}
-
 const COMFY_QUEUE_PROMPT_ID_INDEX = 1;
 
-function queuedPromptIds(entries: unknown[][] | undefined): string[] {
-  return (entries ?? [])
-    .map((entry) => entry[COMFY_QUEUE_PROMPT_ID_INDEX])
+function queuedPromptIds(entries: unknown): string[] {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => (Array.isArray(entry) ? entry[COMFY_QUEUE_PROMPT_ID_INDEX] : undefined))
     .filter((id): id is string => typeof id === "string");
 }
 
 async function readComfyQueue(
   base: string,
   httpClient: HttpClient,
-): Promise<ComfyQueue | undefined> {
+): Promise<Record<string, unknown> | undefined> {
   const res = await httpClient(`${base}/queue`);
-  if (!res.ok) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(await res.text()) as ComfyQueue;
-  } catch {
-    return undefined;
-  }
+  return res.ok ? (parseRecord(await res.text()) ?? undefined) : undefined;
 }
 
 /**
@@ -840,11 +819,17 @@ async function proxyComfyCancel(
     return Response.json({ prompt_id: promptId, cancelled: "running" });
   }
   if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
-    await httpClient(`${base}/queue`, {
+    const dropped = await httpClient(`${base}/queue`, {
       method: "POST",
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ delete: [promptId] }),
     });
+    if (!dropped.ok) {
+      return jsonError(
+        STATUS_BAD_GATEWAY,
+        `comfy refused to drop "${promptId}" from its queue (http ${dropped.status})`,
+      );
+    }
     return Response.json({ prompt_id: promptId, cancelled: "pending" });
   }
   return Response.json({ prompt_id: promptId, cancelled: "finished" });
