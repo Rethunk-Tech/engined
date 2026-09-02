@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import process from "node:process";
 import { bindDualFamily } from "../../src/main.ts";
+import { LOCAL } from "./exclusive.ts";
 
 /**
  * `bindDualFamily` is exported specifically so a test binds through the
@@ -21,7 +21,7 @@ import { bindDualFamily } from "../../src/main.ts";
  */
 const MARKER = "engined-network-local-smoke";
 
-describe.skipIf(process.env.ENGINED_LOCAL !== "1")("dual-family real socket (local)", () => {
+describe.skipIf(!LOCAL)("dual-family real socket (local)", () => {
   let bound: ReturnType<typeof bindDualFamily> | undefined;
 
   beforeAll(() => {
@@ -56,31 +56,28 @@ describe.skipIf(process.env.ENGINED_LOCAL !== "1")("dual-family real socket (loc
  * at all. That is why this needs a real socket: the in-process `fetch` call
  * every other test makes never opens one, so it cannot observe the timer.
  */
-describe.skipIf(process.env.ENGINED_LOCAL !== "1")(
-  "slow response over a real socket (local)",
-  () => {
-    const SLOWER_THAN_BUN_DEFAULT_MS = 12_000;
-    let bound: ReturnType<typeof bindDualFamily> | undefined;
+describe.skipIf(!LOCAL)("slow response over a real socket (local)", () => {
+  const SLOWER_THAN_BUN_DEFAULT_MS = 12_000;
+  let bound: ReturnType<typeof bindDualFamily> | undefined;
 
-    beforeAll(() => {
-      bound = bindDualFamily(async () => {
-        await new Promise((resolve) => setTimeout(resolve, SLOWER_THAN_BUN_DEFAULT_MS));
-        return new Response(MARKER);
-      }, 0);
-    });
+  beforeAll(() => {
+    bound = bindDualFamily(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SLOWER_THAN_BUN_DEFAULT_MS));
+      return new Response(MARKER);
+    }, 0);
+  });
 
-    afterAll(() => {
-      bound?.v4.stop(true);
-      bound?.v6.stop(true);
-    });
+  afterAll(() => {
+    bound?.v4.stop(true);
+    bound?.v6.stop(true);
+  });
 
-    test("an answer slower than Bun's default idle timeout still reaches the caller", async () => {
-      if (!bound) {
-        throw new Error("beforeAll did not run -- bound is unset");
-      }
-      const res = await fetch(`http://127.0.0.1:${bound.v4.port}/`);
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe(MARKER);
-    }, 60_000);
-  },
-);
+  test("an answer slower than Bun's default idle timeout still reaches the caller", async () => {
+    if (!bound) {
+      throw new Error("beforeAll did not run -- bound is unset");
+    }
+    const res = await fetch(`http://127.0.0.1:${bound.v4.port}/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(MARKER);
+  }, 60_000);
+});

@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import process from "node:process";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import type { RunnableContainerSpec } from "../../src/types.ts";
-import { TEST_NAME_PREFIX } from "./exclusive.ts";
+import { LOCAL, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**
  * A real round trip against a trivial, already-small single-port image:
@@ -43,7 +42,7 @@ async function removeContainer(): Promise<void> {
   await dockerExec(["rm", "-f", CONTAINER_NAME]);
 }
 
-describe.skipIf(process.env.ENGINED_LOCAL !== "1")("docker lifecycle (local)", () => {
+describe.skipIf(!LOCAL)("docker lifecycle (local)", () => {
   beforeAll(async () => {
     await dockerExec(["pull", SPEC.image]);
     await removeContainer();

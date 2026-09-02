@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -14,9 +14,17 @@ import {
   runAgentic,
 } from "../../src/agentic.ts";
 import { EngineRegistry } from "../../src/engines.ts";
-import { stateDir } from "../../src/paths.ts";
-import type { Config, EngineEntry } from "../../src/types.ts";
-import { LOCAL } from "./exclusive.ts";
+import { clearVerifiedVersion } from "../../src/test-support.ts";
+import type { Config } from "../../src/types.ts";
+import { ENGINES_ROOT, LOCAL } from "./exclusive.ts";
+import {
+  missingEnv,
+  probeGateConfig,
+  requireEnv,
+  scratchWorktree,
+  skipTitle,
+  verifiedVersionPath,
+} from "./fixtures.ts";
 
 /**
  * A real round trip against the real `agent -p` CLI, resolved on this box's
@@ -48,28 +56,14 @@ const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;
 /** The probe-gate test below makes two real round trips sequentially. */
 const PROBE_GATE_TIMEOUT_MS = 180_000;
 
-function requireEnv(name: string, value: string | undefined): string {
-  if (value === undefined) {
-    throw new Error(`${name} is unset: this tier runs only under an explicit local invocation`);
-  }
-  return value;
-}
 const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
 const agentVersion = (): string => requireEnv("ENGINED_TEST_CURSOR_VERSION", CURSOR_VERSION);
 
-const MISSING_ENV_VARS = [
-  CURSOR_VERSION === undefined ? "ENGINED_TEST_CURSOR_VERSION" : undefined,
-  BUNX === undefined ? "ENGINED_BUNX" : undefined,
-].filter((name): name is string => name !== undefined);
+const MISSING_ENV_VARS = missingEnv({
+  ENGINED_TEST_CURSOR_VERSION: CURSOR_VERSION,
+  ENGINED_BUNX: BUNX,
+});
 const AGENTIC_READY = LOCAL && MISSING_ENV_VARS.length === 0;
-
-function describeTitle(base: string): string {
-  if (AGENTIC_READY) {
-    return base;
-  }
-  const reason = LOCAL ? `missing ${MISSING_ENV_VARS.join(", ")}` : 'ENGINED_LOCAL is not "1"';
-  return `${base}: SKIPPED -- ${reason}`;
-}
 
 /**
  * Set once, before any real round trip below runs. `undefined` means the
@@ -100,11 +94,7 @@ function assertVersionCurrent(): void {
   }
 }
 
-function scratchWorktree(): string {
-  const dir = mkdtempSync(join(tmpdir(), "engined-cursor-"));
-  writeFileSync(join(dir, "seed.txt"), "unrelated pre-existing content\n");
-  return dir;
-}
+const WORKTREE_PREFIX = "engined-cursor-";
 
 /**
  * PATH, unlike claude's own version of this call: cursor's floor is a mode,
@@ -126,67 +116,73 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
   });
 }
 
-describe.skipIf(!AGENTIC_READY)(describeTitle("cursor agentic probes (local)"), () => {
-  test(
-    "byte-identical: a completion instructed to create a file leaves the worktree untouched",
-    async () => {
-      const workdir = scratchWorktree();
-      const before = hashTree(workdir);
+describe.skipIf(!AGENTIC_READY)(
+  skipTitle("cursor agentic probes (local)", MISSING_ENV_VARS),
+  () => {
+    test(
+      "byte-identical: a completion instructed to create a file leaves the worktree untouched",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const before = hashTree(workdir);
 
-      const result = await callAgentic(
-        workdir,
-        "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
-      );
+        const result = await callAgentic(
+          workdir,
+          "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
+        );
 
-      const after = hashTree(workdir);
-      rmSync(workdir, { recursive: true, force: true });
+        const after = hashTree(workdir);
+        rmSync(workdir, { recursive: true, force: true });
 
-      expect(result.status).toBe(200);
-      expect(after).toBe(before);
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
+        expect(result.status).toBe(200);
+        expect(after).toBe(before);
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
 
-  test(
-    "no hook fires: a planted beforeSubmitPrompt hook never appends to its witness file",
-    async () => {
-      const workdir = scratchWorktree();
-      const witness = join(tmpdir(), `engined-cursor-witness-${Date.now()}.txt`);
-      rmSync(witness, { force: true });
-      plantCursorPromptHook(workdir, witness);
+    test(
+      "no hook fires: a planted beforeSubmitPrompt hook never appends to its witness file",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const witness = join(tmpdir(), `engined-cursor-witness-${Date.now()}.txt`);
+        rmSync(witness, { force: true });
+        plantCursorPromptHook(workdir, witness);
 
-      const result = await callAgentic(workdir, "Say hello in one short sentence.");
+        const result = await callAgentic(workdir, "Say hello in one short sentence.");
 
-      const witnessExists = existsSync(witness);
-      rmSync(workdir, { recursive: true, force: true });
-      rmSync(witness, { force: true });
+        const witnessExists = existsSync(witness);
+        rmSync(workdir, { recursive: true, force: true });
+        rmSync(witness, { force: true });
 
-      expect(result.status).toBe(200);
-      expect(witnessExists).toBe(false);
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
-});
+        expect(result.status).toBe(200);
+        expect(witnessExists).toBe(false);
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
+  },
+);
 
-describe.skipIf(!AGENTIC_READY)(describeTitle("cursor agentic provenance (local)"), () => {
-  test(
-    "provenance: the result's version is the pin that was actually launched, and the answer is real text out of the stream-json envelope",
-    async () => {
-      const workdir = scratchWorktree();
-      const result = await callAgentic(workdir, "Reply with exactly the word: pong");
-      rmSync(workdir, { recursive: true, force: true });
+describe.skipIf(!AGENTIC_READY)(
+  skipTitle("cursor agentic provenance (local)", MISSING_ENV_VARS),
+  () => {
+    test(
+      "provenance: the result's version is the pin that was actually launched, and the answer is real text out of the stream-json envelope",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const result = await callAgentic(workdir, "Reply with exactly the word: pong");
+        rmSync(workdir, { recursive: true, force: true });
 
-      expect(result.status).toBe(200);
-      // Honest by construction, not by luck: `beforeAll` above already
-      // proved CURSOR_VERSION matches what "agent --version" reports on
-      // this box, so this equality is a real claim about what ran, not a
-      // tautological echo of an unverified env var.
-      expect(result.version).toBe(CURSOR_VERSION);
-      expect(result.result?.toLowerCase()).toContain("pong");
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
-});
+        expect(result.status).toBe(200);
+        // Honest by construction, not by luck: `beforeAll` above already
+        // proved CURSOR_VERSION matches what "agent --version" reports on
+        // this box, so this equality is a real claim about what ran, not a
+        // tautological echo of an unverified env var.
+        expect(result.version).toBe(CURSOR_VERSION);
+        expect(result.result?.toLowerCase()).toContain("pong");
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
+  },
+);
 
 /**
  * Mirrors `test/local/agentic.test.ts`'s own probe-gate test for claude:
@@ -197,43 +193,24 @@ describe.skipIf(!AGENTIC_READY)(describeTitle("cursor agentic provenance (local)
  * the live unit's own `verified_version` file.
  */
 const PROBE_GATE_ENGINE_ID = "engined-local-test-cursor-probe-gate";
-const PROBE_GATE_ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
-const PROBE_GATE_VERIFIED_DIR = join(stateDir(), "agentic", PROBE_GATE_ENGINE_ID);
 
-function buildProbeGateConfig(): Config {
-  const engine: EngineEntry = {
-    id: PROBE_GATE_ENGINE_ID,
-    agent_version: agentVersion(),
-    spec_dir: join(PROBE_GATE_ENGINES_ROOT, "cursor"),
-    args: {},
-  };
-  return {
-    listen_port: 0,
-    chat_timeout_seconds: 600,
-    agent_timeout_seconds: 3600,
-    engines: [engine],
-    models: [],
-    upstreams: [],
-    routes: [],
-    chains: {},
-  };
-}
+const gateConfig = (): Config => probeGateConfig(PROBE_GATE_ENGINE_ID, "cursor", agentVersion());
 
 describe.skipIf(!AGENTIC_READY)(
-  describeTitle("cursor agentic probes gate serving via the real registry (local)"),
+  skipTitle("cursor agentic probes gate serving via the real registry (local)", MISSING_ENV_VARS),
   () => {
     afterAll(() => {
-      rmSync(PROBE_GATE_VERIFIED_DIR, { recursive: true, force: true });
+      clearVerifiedVersion(PROBE_GATE_ENGINE_ID);
     });
 
     test(
       "unavailable with no probe runner configured; installed once the real probes run and pass",
       async () => {
         assertVersionCurrent();
-        rmSync(PROBE_GATE_VERIFIED_DIR, { recursive: true, force: true });
+        clearVerifiedVersion(PROBE_GATE_ENGINE_ID);
 
-        const gated = new EngineRegistry(buildProbeGateConfig(), {
-          enginesRoot: PROBE_GATE_ENGINES_ROOT,
+        const gated = new EngineRegistry(gateConfig(), {
+          enginesRoot: ENGINES_ROOT,
           bunx: bunx(),
         });
         const beforeStatus = (await gated.list()).engines.find(
@@ -242,8 +219,8 @@ describe.skipIf(!AGENTIC_READY)(
         expect(beforeStatus?.state).toBe("unavailable");
         expect(beforeStatus?.fix).toContain("no agentic probe runner is configured");
 
-        const proven = new EngineRegistry(buildProbeGateConfig(), {
-          enginesRoot: PROBE_GATE_ENGINES_ROOT,
+        const proven = new EngineRegistry(gateConfig(), {
+          enginesRoot: ENGINES_ROOT,
           bunx: bunx(),
           agenticProbeRunner: buildAgenticProbeRunner(bunx()),
         });
@@ -254,10 +231,7 @@ describe.skipIf(!AGENTIC_READY)(
         // never the configured one on its own -- these are proved equal by
         // the same `beforeAll` precondition the provenance test above relies
         // on, not by this gate's own construction.
-        const recorded = readFileSync(
-          join(PROBE_GATE_VERIFIED_DIR, "verified_version"),
-          "utf8",
-        ).trim();
+        const recorded = readFileSync(verifiedVersionPath(PROBE_GATE_ENGINE_ID), "utf8").trim();
         expect(recorded).toBe(agentVersion());
       },
       PROBE_GATE_TIMEOUT_MS,

@@ -1,8 +1,8 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import process from "node:process";
 import { resolveSecret, secretExec } from "../../src/secrets.ts";
 import type { SecretRef } from "../../src/types.ts";
+import { LOCAL } from "./exclusive.ts";
 
 /**
  * A real round trip against the real keyring, scoped to a throwaway service
@@ -39,7 +39,7 @@ function storeScratch(value: string): Promise<number> {
   });
 }
 
-describe.skipIf(process.env.ENGINED_LOCAL !== "1")("resolveSecret (local)", () => {
+describe.skipIf(!LOCAL)("resolveSecret (local)", () => {
   beforeEach(async () => {
     await clearScratch();
     const exitCode = await storeScratch(SCRATCH_VALUE);
