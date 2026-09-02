@@ -960,16 +960,49 @@ export class LlamaRouter {
     const state = this.roleState(role);
     const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId);
     await this.beginLease(role, modelId, init.signal);
-    let upstream: Response;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const release = this.streamRelease(role, init.signal, (reason) => {
+      reader?.cancel(reason).catch(() => undefined);
+    });
+    // Everything between the lease and the `Response` can throw -- the fetch
+    // itself, and the provenance read, whose `res.json()` rejects on any
+    // non-JSON body llama-server writes. Without this the lease is never
+    // released and the engine's idle-stop is never armed again.
     try {
-      upstream = await this.fetchUpstream(path, init, modelId);
+      const upstream = await this.fetchUpstream(path, init, modelId);
+      reader = upstream.body?.getReader();
+      const modelResident = await this.residentModelId(role);
+      return {
+        response: new Response(pipeUpstream(reader, emitWarming, release), {
+          status: upstream.status,
+          headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
+        }),
+        modelResident,
+      };
     } catch (err) {
-      this.finishLease(role);
+      release();
       throw err;
     }
-    const reader = upstream.body?.getReader();
+  }
+
+  /**
+   * The one release a streamed hop's lease has, idempotent so whichever
+   * terminus arrives first is the one that counts: the stream draining,
+   * erroring or being cancelled, a throw before the stream exists, or the
+   * caller aborting.
+   *
+   * The abort listener is why this is not simply `withLease`'s `finally`: the
+   * other release paths are driven by the stream's consumer -- `pull` on
+   * drain, `cancel` on disconnect -- and a client that goes away without the
+   * runtime pulling or cancelling reaches none of them. The abort signal is
+   * the one signal that does not depend on the consumer.
+   */
+  private streamRelease(
+    role: Role,
+    signal: AbortSignal | null | undefined,
+    cancelUpstream: (reason: unknown) => void,
+  ): () => void {
     let released = false;
-    const { signal } = init;
     const release = () => {
       if (released) {
         return;
@@ -978,32 +1011,15 @@ export class LlamaRouter {
       signal?.removeEventListener("abort", onAbort);
       this.finishLease(role);
     };
-    /**
-     * Every other release path is driven by the stream's consumer -- `pull`
-     * on drain, `cancel` on disconnect. A client that goes away without the
-     * runtime pulling or cancelling reaches none of them, and the lease is
-     * then never released: `totalActive` never returns to zero, so this
-     * engine's idle-stop is never armed again for the life of the process.
-     * The abort signal is the one signal that does not depend on the
-     * consumer, so it releases too.
-     */
     const onAbort = () => {
       release();
-      reader?.cancel(signal?.reason).catch(() => undefined);
+      cancelUpstream(signal?.reason);
     };
     if (signal?.aborted) {
       onAbort();
     } else {
       signal?.addEventListener("abort", onAbort, { once: true });
     }
-    const modelResident = await this.residentModelId(role);
-    const stream = pipeUpstream(reader, emitWarming, release);
-    return {
-      response: new Response(stream, {
-        status: upstream.status,
-        headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
-      }),
-      modelResident,
-    };
+    return release;
   }
 }

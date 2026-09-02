@@ -738,6 +738,36 @@ test("a streaming client that aborts without draining the stream still releases 
   expect(router.hasOutstandingLeases()).toBe(false);
 });
 
+test("a streaming hop whose provenance read gets a non-JSON body releases its lease rather than leaking it", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  // The load's own /v1/models poll must still answer JSON, or the failure
+  // under test is never reached: only the provenance read that runs AFTER the
+  // upstream has answered gets the body llama-server writes when it is not
+  // answering as a router at all.
+  let chatAnswered = false;
+  const { client } = fakeLlama((call) => {
+    if (call.path === CHAT_PATH) {
+      chatAnswered = true;
+      return;
+    }
+    if (call.path === MODELS_LIST_PATH && chatAnswered) {
+      return new Response("<html>502 Bad Gateway</html>", { status: 502 });
+    }
+  });
+  const router = routerWithClient(e, [a], client);
+
+  await expect(
+    router.proxy(a, CHAT_PATH, {
+      method: "POST",
+      body: JSON.stringify({ model: "a", stream: true }),
+    }),
+  ).rejects.toThrow();
+
+  expect(router.hasOutstandingLeases()).toBe(false);
+  expect(router.contention()).toEqual([]);
+});
+
 test("a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body", async () => {
   const { a, router } = singleModelRouter();
 
