@@ -2,10 +2,24 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { handleSpeech, handleTranscription } from "./audio.ts";
+import { handleAudioSpeech } from "./audioDoor.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
+import type { DoorContext } from "./doorContext.ts";
+import { EngineRegistry } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { loadSpec } from "./spec.ts";
-import { containerRunning, makeTestRoot, startFakeUpstream } from "./test-support.ts";
+import {
+  BUNX,
+  collectLines,
+  config,
+  containerRunning,
+  ENGINES_ROOT,
+  engine,
+  makeTestRoot,
+  route,
+  startFakeUpstream,
+  upstream,
+} from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 import { isContainerSpec } from "./types.ts";
 
@@ -618,4 +632,59 @@ test("a buffered speech failure reports the engine's own reason, not just missin
   expect((res.body as { error: string }).error).toContain(
     'unknown Kokoro voice "not_a_real_voice"',
   );
+});
+
+const CHATTERBOX_HOST_PORT = 41_100;
+
+/** A door context over one real chatterbox-multi spec, started and running: enough for the two audio verbs, and nothing else. */
+function speechDoorContext(): { ctx: DoorContext; lifecycle: DockerLifecycle } {
+  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 }, (argv) => {
+    if (argv[0] === "start") {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+    if (argv[0] === "port") {
+      return { stdout: `127.0.0.1:${CHATTERBOX_HOST_PORT}`, stderr: "", exitCode: 0 };
+    }
+  });
+  const lifecycle = makeLifecycle(exec);
+  const cfg = config({
+    engines: [engine({ id: "chatterbox-multi", idle_stop_seconds: 60 })],
+    upstreams: [upstream()],
+    routes: [route({ engine: "chatterbox-multi", model: undefined })],
+  });
+  const registry = new EngineRegistry(cfg, {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    lifecycle,
+  });
+  const ctx: DoorContext = {
+    getConfig: () => cfg,
+    registry,
+    lifecycle,
+    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
+    doorOpts: { write: collectLines().write },
+    llamaRouters: new Map(),
+    staleLlamaRouters: new Set(),
+    launchNonces: new Set(),
+    comfyBindings: new Map(),
+  };
+  return { ctx, lifecycle };
+}
+
+test("a speech body refused before the engine is started does not release another request's lease", async () => {
+  const { ctx, lifecycle } = speechDoorContext();
+  await ctx.registry.start("chatterbox-multi");
+
+  // The interleaving: one synthesis is in flight and holds the container
+  // open. A second caller then posts a body that is refused before `start`
+  // is ever reached -- so it takes no lease of its own.
+  lifecycle.beginLease("chatterbox-multi");
+  expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(1);
+
+  const refused = await handleAudioSpeech(ctx, { model: "@/chatterbox-multi/local", input: "" });
+  expect(refused.status).toBe(400);
+
+  // Releasing here would hand away a lease this caller never held, arming an
+  // idle-stop against the synthesis that is still running.
+  expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(1);
 });

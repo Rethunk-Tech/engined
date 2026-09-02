@@ -122,13 +122,30 @@ function doorResponseToResponse(result: DoorResponse): Response {
   return Response.json(result.body, { status: result.status });
 }
 
+/** Whether this call's `audioStart` actually took a lease -- the only thing entitled to give one back. */
+interface AudioLease {
+  held: boolean;
+}
+
 /**
  * The audio door proxies a single buffered request per call, with no
  * multi-lease concept like `LlamaRouter`'s roles: unlike Comfy, this is
  * request traffic engined does see, so idle-stop arms right here rather than
- * off a queue poll. A no-op if the start attempt never reached "running".
+ * off a queue poll.
+ *
+ * A call that never took a lease must not release one. Several paths reach
+ * here without one -- a body refused before the engine was ever started, a
+ * remote engine that has no container, a start refused with `conflict` --
+ * and the lease they would hand back belongs to whichever request is still
+ * in flight on that container. `conflict` is the sharp case: the refusal
+ * happens precisely BECAUSE a lease is held, so releasing here would drop
+ * that count to zero and arm a countdown against a live request. The
+ * countdown those paths need is already armed by the start itself.
  */
-function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
+function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease): void {
+  if (!leased.held) {
+    return;
+  }
   const engine = ctx.registry.entry(engineId);
   ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
 }
@@ -192,7 +209,7 @@ async function remoteAudioStart(
  * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
  * they already turn `unavailable` into a 503.
  */
-function audioStart(ctx: DoorContext): EngineStart {
+function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
     const route = audioRoute(ctx.getConfig(), id, model);
@@ -208,12 +225,18 @@ function audioStart(ctx: DoorContext): EngineStart {
       }
       throw err;
     }
-    // Paired with the `armAudioIdleStop` every audio path runs on the way out.
+    // Paired with the `armAudioIdleStop` on the way out, which releases only
+    // what this line actually took.
     ctx.lifecycle.beginLease(id);
     // `EngineStatus` (the wire type `registry.start` returns) carries no
     // container address at all -- the internal runtime read is `lifecycle`'s
     // own, the same source the comfy proxy resolves against.
-    return { private_url: ctx.lifecycle.getStatus(id).private_url };
+    const status = ctx.lifecycle.getStatus(id);
+    // `active_leases` is reported for a running container and no other, which
+    // is the one condition `beginLease` takes a lease under. Read in the same
+    // tick, it answers whether the line above took one.
+    leased.held = status.active_leases !== undefined;
+    return { private_url: status.private_url };
   };
 }
 
@@ -227,7 +250,8 @@ export async function handleAudioSpeech(
     return audio.response;
   }
   const { engineId } = audio;
-  const start = audioStart(ctx);
+  const leased: AudioLease = { held: false };
+  const start = audioStart(ctx, leased);
   const extra = Object.fromEntries(
     Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
   );
@@ -243,7 +267,7 @@ export async function handleAudioSpeech(
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);
-  armAudioIdleStop(ctx, engineId);
+  armAudioIdleStop(ctx, engineId, leased);
   return doorResponseToResponse(
     recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt }),
   );
@@ -319,7 +343,8 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
     return audio.response;
   }
   const { engineId, model } = audio;
-  const start = audioStart(ctx);
+  const leased: AudioLease = { held: false };
+  const start = audioStart(ctx, leased);
   const transcriptionReq: TranscriptionRequestBody = {
     engine: engineId,
     model,
@@ -330,7 +355,7 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
   };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
-  armAudioIdleStop(ctx, engineId);
+  armAudioIdleStop(ctx, engineId, leased);
   return doorResponseToResponse(
     recordAudioCall(ctx, { engineId, model, requested: form.rawModel ?? "", result, startedAt }),
   );
