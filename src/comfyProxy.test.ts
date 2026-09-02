@@ -5,7 +5,7 @@
  * except the websocket bridge, which needs a real socket to prove anything
  * at all, so that one test binds a real door against a real fake container.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./exec.ts";
@@ -24,6 +24,18 @@ import {
 } from "./test-support.ts";
 
 const TEST_ROOT = makeTestRoot("engined-comfy-proxy-");
+
+// `comfyDoor` points XDG_STATE_HOME at a scratch dir and leaves it there for
+// the door it just built; restoring it here keeps that out of sibling suites
+// sharing this process.
+const PREVIOUS_STATE_HOME = process.env.XDG_STATE_HOME;
+afterAll(() => {
+  if (PREVIOUS_STATE_HOME === undefined) {
+    delete process.env.XDG_STATE_HOME;
+  } else {
+    process.env.XDG_STATE_HOME = PREVIOUS_STATE_HOME;
+  }
+});
 
 const COMFY_SPEC = `
 kind = "comfy"
@@ -58,8 +70,15 @@ const PROXY_PATH = "/engined/v1/comfy/comfy/local";
 /** A real ComfyUI node type: the proxy must forward the segment untouched, so the test needs one that actually exists. */
 const NODE_TYPE = "KSampler";
 
-/** A running comfy engine, ready to proxy through -- `port` need not answer anything real when `comfyHttpClient` intercepts every forwarded call. */
-async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999) {
+/**
+ * A running comfy engine, ready to proxy through -- `port` need not answer
+ * anything real when `comfyHttpClient` intercepts every forwarded call. The
+ * binding table lives under `XDG_STATE_HOME`, so each door gets a fresh one
+ * unless the caller names an existing one to reopen: sharing it would let one
+ * test's bindings make another test's refusal pass for the wrong reason.
+ */
+async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999, stateHome?: string) {
+  process.env.XDG_STATE_HOME = stateHome ?? mkdtempSync(join(TEST_ROOT, "state-"));
   const root = mkdtempSync(join(TEST_ROOT, "door-"));
   writeEngineSpec(root, "comfy", COMFY_SPEC);
   const cfg = config({
@@ -214,6 +233,83 @@ describe("comfy proxy: GET /history is never served bare or for an unknown promp
     );
     expect(res.status).toBe(404);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("comfy proxy: a filename belongs to the prompt that produced it", () => {
+  /**
+   * `/history` seeds filenames under the ONE prompt it read, never an
+   * engine-wide set: an id the caller does own must not turn another
+   * prompt's output into a servable filename.
+   */
+  test("a filename surfaced under prompt A is not viewable by way of prompt B", async () => {
+    const { client } = recordingComfyClient((url) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-a" });
+      }
+      if (url.includes("/history/job-a")) {
+        return Response.json({
+          "job-a": { outputs: { "9": { images: [{ filename: "a.png" }] } } },
+        });
+      }
+      if (url.includes("/history/job-b")) {
+        // comfy's own answer names job-a's output; the door must not adopt it.
+        return Response.json({
+          "job-a": { outputs: { "9": { images: [{ filename: "secret.png" }] } } },
+        });
+      }
+      return new Response(new Uint8Array([1]), { headers: { "content-type": "image/png" } });
+    });
+    const door = await comfyDoor(client);
+
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-a`));
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-b`));
+
+    const own = await door.fetch(new Request(`http://engined${PROXY_PATH}/view?filename=a.png`));
+    const other = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=secret.png`),
+    );
+
+    expect(own.status).toBe(200);
+    expect(other.status).toBe(404);
+  });
+});
+
+describe("comfy proxy: the binding table outlives the process", () => {
+  /** A restart that forgot its bindings would refuse a stored output to the caller that created it. */
+  test("a filename bound before a restart is still served after one", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-restart-"));
+    const respond = (url: string): Response => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-r" });
+      }
+      if (url.includes("/history/")) {
+        return Response.json({
+          "job-r": { outputs: { "9": { images: [{ filename: "kept.png" }] } } },
+        });
+      }
+      return new Response(new Uint8Array([1]), { headers: { "content-type": "image/png" } });
+    };
+
+    const before = await comfyDoor(recordingComfyClient(respond).client, 40_999, stateHome);
+    await before.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    await before.fetch(new Request(`http://engined${PROXY_PATH}/history/job-r`));
+
+    const after = await comfyDoor(recordingComfyClient(respond).client, 40_999, stateHome);
+    const viewed = await after.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=kept.png`),
+    );
+    const unbound = await after.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=never.png`),
+    );
+
+    expect(viewed.status).toBe(200);
+    expect(unbound.status).toBe(404);
   });
 });
 

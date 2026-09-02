@@ -6,6 +6,8 @@
  * process: binds, signal handlers, and the fatal-at-startup exit.
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import process from "node:process";
 import {
   type AgenticSpawn,
@@ -61,7 +63,7 @@ import {
   TEXT_CONTENT_TYPE,
 } from "./http.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
-import { configPath, installDir } from "./paths.ts";
+import { configPath, installDir, stateDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import { loadSpec } from "./spec.ts";
 import {
@@ -423,6 +425,8 @@ function matchComfyPath(pathname: string): ComfyMatch | undefined {
 interface ComfyProxy {
   ctx: DoorContext;
   engineId: string;
+  /** Who submitted the prompt: half the binding key, so no rekey is needed the day a call arrives from somewhere other than this box. */
+  origin: string;
   base: string;
   httpClient: HttpClient;
 }
@@ -439,25 +443,62 @@ type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>;
 
 /**
  * What this door has actually seen pass through a comfy engine's proxy:
- * every `prompt_id` `POST /prompt` handed back, and every output filename a
- * completed `/history` read surfaced for one of them. `GET /view` and
- * `POST /queue` are mediated against these sets rather than against
- * anything the caller merely claims -- comfy's output directory is shared,
- * so a caller-supplied filename must never become a URL on its own say-so.
+ * every `prompt_id` `POST /prompt` handed back, keyed on the origin that
+ * submitted it as well as the engine, and under each one the output
+ * filenames a completed `/history` read surfaced for THAT prompt. `GET
+ * /view` and `POST /queue` are mediated against this table rather than
+ * against anything the caller merely claims -- comfy's output directory is
+ * shared, so a caller-supplied filename must never become a URL on its own
+ * say-so, and one engine-wide filename set would hand every origin every
+ * other origin's outputs.
  */
-interface ComfyProxyState {
-  promptIds: Set<string>;
-  filenames: Set<string>;
+type ComfyBindings = Map<string, string[]>;
+
+/** Every caller reaching this door reached it directly, so far; a federated hop will supply its own origin instead of this constant. */
+const COMFY_LOCAL_ORIGIN = "local";
+
+/** NUL, so the composed key stays unambiguous and `startsWith` can scope a scan to one (engine, origin) pair: no engine id, origin or `prompt_id` can contain one. */
+const COMFY_KEY_SEP = "\u0000";
+
+function comfyKey(engineId: string, origin: string, promptId: string): string {
+  return `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}${promptId}`;
 }
 
-function comfyState(ctx: DoorContext, engineId: string): ComfyProxyState {
-  const existing = ctx.comfyProxyState.get(engineId);
-  if (existing) {
-    return existing;
+/**
+ * The binding table on disk: ids and filenames only, never a request body --
+ * a `prompt_id` is comfy's job handle, not the prompt that produced it.
+ * It outlives the process because a restart that forgot a binding would
+ * refuse a stored output to the very caller that created it.
+ */
+function comfyBindingsPath(): string {
+  return join(stateDir(), "comfy-bindings.json");
+}
+
+function loadComfyBindings(): ComfyBindings {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(comfyBindingsPath(), "utf8"));
+  } catch {
+    // No table yet, or one this build cannot read. An empty table refuses
+    // every stored output, which is the safe direction to fail.
+    return new Map();
   }
-  const fresh: ComfyProxyState = { promptIds: new Set(), filenames: new Set() };
-  ctx.comfyProxyState.set(engineId, fresh);
-  return fresh;
+  if (!isRecord(raw)) {
+    return new Map();
+  }
+  return new Map(
+    Object.entries(raw).flatMap(([key, names]): [string, string[]][] =>
+      Array.isArray(names) ? [[key, names.filter((n) => typeof n === "string")]] : [],
+    ),
+  );
+}
+
+// ponytail: the whole table is rewritten on every bind and every filename
+// attach. It is a few hundred bytes per prompt with no pruning yet, so an
+// append log only earns its complexity once retention exists to need one.
+function saveComfyBindings(bindings: ComfyBindings): void {
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(bindings)));
 }
 
 interface ComfyTarget {
@@ -513,7 +554,7 @@ async function forwardComfyGet(
 
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
 async function proxyComfyPrompt(
-  { ctx, engineId, base, httpClient }: ComfyProxy,
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
   const body = await req.text();
@@ -527,7 +568,8 @@ async function proxyComfyPrompt(
     try {
       const parsed = JSON.parse(text) as { prompt_id?: unknown };
       if (typeof parsed.prompt_id === "string") {
-        comfyState(ctx, engineId).promptIds.add(parsed.prompt_id);
+        ctx.comfyBindings.set(comfyKey(engineId, origin, parsed.prompt_id), []);
+        saveComfyBindings(ctx.comfyBindings);
       }
     } catch {
       // Not JSON, or no prompt_id -- nothing to bind, and the caller still
@@ -568,6 +610,28 @@ async function proxyComfyUpload(
   });
 }
 
+/**
+ * Whether some prompt this origin submitted to this engine actually
+ * produced `filename`. Scoped to the pair, never engine-wide: another
+ * origin's `/history` read must not make its outputs viewable here.
+ */
+// ponytail: linear over the table; index by filename if it ever grows past
+// a few thousand live bindings.
+function comfyFilenameBound(
+  ctx: DoorContext,
+  engineId: string,
+  origin: string,
+  filename: string,
+): boolean {
+  const prefix = `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}`;
+  for (const [key, filenames] of ctx.comfyBindings) {
+    if (key.startsWith(prefix) && filenames.includes(filename)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** The one refusal `GET /view` ever answers with, for a filename this door never saw a completed job produce -- byte-identical whether that filename does not exist at all or simply was never surfaced to this caller, because this door checks its own known-filenames set and never comfy's disk either way. */
 function comfyViewRefused(): Response {
   return jsonError(STATUS_NOT_FOUND, "unknown filename");
@@ -581,11 +645,11 @@ function comfyViewRefused(): Response {
  * and a caller-supplied filename must never become a URL on its own say-so.
  */
 async function proxyComfyView(
-  { ctx, engineId, base, httpClient }: ComfyProxy,
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   params: URLSearchParams,
 ): Promise<Response> {
   const filename = params.get("filename");
-  if (filename === null || !comfyState(ctx, engineId).filenames.has(filename)) {
+  if (filename === null || !comfyFilenameBound(ctx, engineId, origin, filename)) {
     return comfyViewRefused();
   }
   const res = await httpClient(`${base}/view?${params.toString()}`);
@@ -633,10 +697,11 @@ function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
  * actually produced, which is what makes `/view` servable at all.
  */
 async function proxyComfyHistory(
-  { ctx, engineId, base, httpClient }: ComfyProxy,
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   promptId: string,
 ): Promise<Response> {
-  if (!comfyState(ctx, engineId).promptIds.has(promptId)) {
+  const bound = ctx.comfyBindings.get(comfyKey(engineId, origin, promptId));
+  if (bound === undefined) {
     return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
   }
   const res = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`);
@@ -645,8 +710,11 @@ async function proxyComfyHistory(
     try {
       const history = JSON.parse(text) as Record<string, ComfyHistoryEntry>;
       for (const filename of filenamesIn(history[promptId])) {
-        comfyState(ctx, engineId).filenames.add(filename);
+        if (!bound.includes(filename)) {
+          bound.push(filename);
+        }
       }
+      saveComfyBindings(ctx.comfyBindings);
     } catch {
       // Not the shape expected -- nothing new to learn; the caller still
       // gets comfy's real body and status back either way.
@@ -657,7 +725,7 @@ async function proxyComfyHistory(
 
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */
 async function proxyComfyQueueDelete(
-  { ctx, engineId, base, httpClient }: ComfyProxy,
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
   const body = await readJsonBody(req);
@@ -667,9 +735,8 @@ async function proxyComfyQueueDelete(
   if (!(Array.isArray(body.delete) && body.delete.every((id) => typeof id === "string"))) {
     return jsonError(STATUS_BAD_REQUEST, 'expected {"delete": string[]}');
   }
-  const known = comfyState(ctx, engineId).promptIds;
   const ids = body.delete as string[];
-  if (!ids.every((id) => known.has(id))) {
+  if (!ids.every((id) => ctx.comfyBindings.has(comfyKey(engineId, origin, id)))) {
     return jsonError(STATUS_NOT_FOUND, "one or more prompt ids are not known to this door");
   }
   const res = await httpClient(`${base}/queue`, {
@@ -708,6 +775,7 @@ function handleComfyProxy(
   const proxy: ComfyProxy = {
     ctx,
     engineId: target.engineId,
+    origin: COMFY_LOCAL_ORIGIN,
     base: target.base,
     httpClient: ctx.doorOpts.comfyHttpClient ?? fetch,
   };
@@ -969,8 +1037,8 @@ interface DoorContext {
    * it names an agentic engine: a leaked or reused URL is not a standing key.
    */
   launchNonces: Set<string>;
-  /** Per comfy-engine proxy mediation state -- see `comfyState`. */
-  comfyProxyState: Map<string, ComfyProxyState>;
+  /** Comfy proxy mediation state, reload-durable -- see `ComfyBindings`. */
+  comfyBindings: ComfyBindings;
 }
 
 function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
@@ -2550,7 +2618,7 @@ function createDoorContext(
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
-    comfyProxyState: new Map(),
+    comfyBindings: loadComfyBindings(),
   };
 }
 
