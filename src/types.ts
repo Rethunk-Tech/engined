@@ -594,6 +594,8 @@ export interface StartRow {
   engine: string;
   upstream: string | null;
   state: EngineState;
+  /** True when this call launched the engine; false when it was already running. */
+  started: boolean;
   fix?: string;
 }
 
