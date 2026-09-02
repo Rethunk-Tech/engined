@@ -29,18 +29,18 @@ function injectModel(bodyText: string | undefined, model: string): string {
   return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed);
 }
 
-/**
- * Forwards one extras request to the resident llama-server, injecting the
- * resident model where router mode requires one. The response is returned
- * exactly as the upstream sent it -- no buffering, no reparsing -- so an SSE
- * body's `timings`/`timings_per_token` fields reach the caller unmodified.
- */
 /** Where the request goes: the engine's own base URL, and its own path for this verb. */
 interface ExtrasTarget {
   baseUrl: string;
   enginePath: string;
 }
 
+/**
+ * Forwards one extras request to the resident llama-server, injecting the
+ * resident model where router mode requires one. The response is returned
+ * exactly as the upstream sent it -- no buffering, no reparsing -- so an SSE
+ * body's `timings`/`timings_per_token` fields reach the caller unmodified.
+ */
 export async function proxyExtras(
   req: Request,
   target: ExtrasTarget,

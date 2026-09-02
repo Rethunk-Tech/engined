@@ -102,7 +102,7 @@ const CONTENT_ENDPOINTS = new Set([
  * upstream is asked for a path only this door knows about.
  */
 const OPENAI_PREFIX = "/openai";
-export function enginePath(doorPath: string): string {
+function enginePath(doorPath: string): string {
   return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath;
 }
 
@@ -301,12 +301,6 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
   return row;
 }
 
-/**
- * Every JSON body this door reads, or the 400 to return instead. A table is
- * the only accepted shape: `null`, an array and a bare scalar all parse as
- * valid JSON and none of them has the fields a handler goes on to read, so
- * they are rejected here rather than at the first property access.
- */
 /**
  * `POST /engined/v1/start`: a model address or a chain name, resolved to the
  * route(s) it names and started where "started" means something. Never hands

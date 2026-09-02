@@ -156,16 +156,6 @@ function resolveAudioEngine(
   return { ok: true, engineId: resolved.route.engine, model: resolved.route.model };
 }
 
-/**
- * The audio door's `EngineStart`. A remote engine is resolved to an address
- * and a header instead of started — there is no container to warm — and a
- * secret that will not resolve surfaces as a null `private_url` with no
- * `remote`, which the door reports as unavailable exactly like a container
- * that failed to come up. `EngineBusyError` (a model switch that would kill
- * a request in flight) surfaces as `conflict` rather than propagating, so
- * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
- * they already turn `unavailable` into a 503.
- */
 /** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone. */
 function audioRoute(
   config: Config,
@@ -192,6 +182,16 @@ async function remoteAudioStart(
     : { private_url: null, unavailable: resolution.error };
 }
 
+/**
+ * The audio door's `EngineStart`. A remote engine is resolved to an address
+ * and a header instead of started — there is no container to warm — and a
+ * secret that will not resolve surfaces as a null `private_url` with no
+ * `remote`, which the door reports as unavailable exactly like a container
+ * that failed to come up. `EngineBusyError` (a model switch that would kill
+ * a request in flight) surfaces as `conflict` rather than propagating, so
+ * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
+ * they already turn `unavailable` into a 503.
+ */
 function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
