@@ -723,6 +723,86 @@ async function proxyComfyHistory(
   return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
 }
 
+/** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
+interface ComfyQueue {
+  queue_running?: unknown[][];
+  queue_pending?: unknown[][];
+}
+
+const COMFY_QUEUE_PROMPT_ID_INDEX = 1;
+
+function queuedPromptIds(entries: unknown[][] | undefined): string[] {
+  return (entries ?? [])
+    .map((entry) => entry[COMFY_QUEUE_PROMPT_ID_INDEX])
+    .filter((id): id is string => typeof id === "string");
+}
+
+async function readComfyQueue(
+  base: string,
+  httpClient: HttpClient,
+): Promise<ComfyQueue | undefined> {
+  const res = await httpClient(`${base}/queue`);
+  if (!res.ok) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(await res.text()) as ComfyQueue;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `POST /cancel {prompt_id}` -- the door's own verb for stopping a prompt it
+ * bound, and the whole reason `/interrupt` is never forwarded on its own.
+ * comfy can only interrupt "whatever is running", carrying no id to scope
+ * it; the door supplies the scoping the container lacks by reading the queue
+ * itself -- never handing that ledger out -- and interrupting only once it
+ * has confirmed the running prompt is the caller's own. A prompt still
+ * pending is dropped from the queue instead, which needs no interrupt at
+ * all, and one that has already finished is reported as such rather than
+ * interrupting whatever inherited the GPU after it.
+ *
+ * ponytail: the running check and the interrupt are two calls, so a prompt
+ * that finishes between them yields to a successor this cancel then stops.
+ * The window is one round trip against a local container and comfy offers
+ * no id-scoped interrupt to close it; close it with a door-held execution
+ * lease if that is ever observed to bite.
+ */
+async function proxyComfyCancel(
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
+  req: Request,
+): Promise<Response> {
+  const body = await readJsonBody(req);
+  if (body instanceof Response) {
+    return body;
+  }
+  const promptId = body.prompt_id;
+  if (typeof promptId !== "string") {
+    return jsonError(STATUS_BAD_REQUEST, 'expected {"prompt_id": string}');
+  }
+  if (!ctx.comfyBindings.has(comfyKey(engineId, origin, promptId))) {
+    return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
+  }
+  const queue = await readComfyQueue(base, httpClient);
+  if (queue === undefined) {
+    return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
+  }
+  if (queuedPromptIds(queue.queue_running).includes(promptId)) {
+    await httpClient(`${base}/interrupt`, { method: "POST" });
+    return Response.json({ prompt_id: promptId, cancelled: "running" });
+  }
+  if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
+    await httpClient(`${base}/queue`, {
+      method: "POST",
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+      body: JSON.stringify({ delete: [promptId] }),
+    });
+    return Response.json({ prompt_id: promptId, cancelled: "pending" });
+  }
+  return Response.json({ prompt_id: promptId, cancelled: "finished" });
+}
+
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */
 async function proxyComfyQueueDelete(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
@@ -759,7 +839,10 @@ async function proxyComfyQueueDelete(
  * evicts loaded weights (`release` is the door's own verb for that, with
  * the lease check that belongs there), `/interrupt` stops whatever the
  * container is CURRENTLY processing with no scoping of its own, and a bare
- * `/queue` is the container's entire global ledger. Anything this door has
+ * `/queue` is the container's entire global ledger. `POST /cancel` is the
+ * door's own verb for the one those two would otherwise be wanted for: it
+ * reads that ledger and interrupts on the caller's behalf, but only for a
+ * `prompt_id` this door bound to this caller. Anything this door has
  * not explicitly allowlisted is refused the same way: the safe default is
  * to forward nothing at all.
  */
@@ -819,6 +902,9 @@ function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Respo
   }
   if (rest === "queue") {
     return proxyComfyQueueDelete(proxy, req);
+  }
+  if (rest === "cancel") {
+    return proxyComfyCancel(proxy, req);
   }
   return undefined;
 }
