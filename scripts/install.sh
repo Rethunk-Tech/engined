@@ -112,14 +112,24 @@ main() {
 
   # The install dir is deliberately not a git tree, so GET /engined/v1/engines can
   # only report the revision it was built from if it's baked in now. The bundle
-  # is `bun run build`'s -- one definition of the flags -- run through turbo so a
-  # re-install at the same commit replays it. ENGINED_COMMIT is declared as that
-  # task's env input, which is what stops the cache handing back a bundle stamped
-  # with a different commit. Dependencies first: the build task runs typecheck.
+  # is `bun run build`'s -- one definition of the flags -- and ENGINED_COMMIT is
+  # declared as the turbo task's env input, which is what stops the cache handing
+  # back a bundle stamped with a different commit.
+  #
+  # The bundle has no runtime dependencies, so a checkout with nothing installed
+  # builds the same bytes. turbo and tsc are devDependencies: where they are
+  # present the turbo run adds a typecheck and replays a re-install at the same
+  # commit from cache, and where they are not, going straight to the build is what
+  # keeps this working on a cold clone with no network -- rather than an install
+  # step whose lockfile check can fail an update for a reason unrelated to it.
   (
     cd "$REPO_ROOT"
-    bun install --frozen-lockfile
-    ENGINED_COMMIT="$COMMIT" bunx turbo run build
+    export ENGINED_COMMIT="$COMMIT"
+    if [[ -x node_modules/.bin/turbo ]]; then
+      bunx turbo run build
+    else
+      bun run build
+    fi
   )
 
   mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$STATE_DIR/bun-install" "$STATE_DIR/tmp"
