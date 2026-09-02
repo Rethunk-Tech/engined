@@ -16,7 +16,7 @@ import {
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
 import type { Egress } from "./types.ts";
-import { errMessage, withinCeiling } from "./types.ts";
+import { errMessage, qualifiedSegments, withinCeiling } from "./types.ts";
 
 export interface HopResult {
   status: number;
@@ -72,21 +72,12 @@ interface ChainResult {
   engineUsed: string | null;
 }
 
-const HOP_PREFIX = /^@\//;
-
-/**
- * A hop is always the two- or three-segment qualified form: `@/<engine>/<model>`
- * or `@/<engine>/<upstream>/<model>`. Reads exactly three segments -- the
- * third only when present -- rather than joining every segment past the
- * first into `model`, which is how a three-segment hop used to silently
- * become a model id containing a slash.
- */
+/** A hop is the two- or three-segment qualified form, `@/<engine>/<model>` or `@/<engine>/<upstream>/<model>`; the third segment is the model only when present. */
 export function parseHop(hop: string): { engine: string; upstream?: string; model: string } {
-  const [engine, second, third] = hop.replace(HOP_PREFIX, "").split("/");
-  if (third !== undefined) {
-    return { engine: engine ?? hop, upstream: second, model: third };
-  }
-  return { engine: engine ?? hop, model: second ?? "" };
+  const [engine = hop, second = "", third] = qualifiedSegments(hop) ?? [];
+  return third === undefined
+    ? { engine, model: second }
+    : { engine, upstream: second, model: third };
 }
 
 function bodyIsEmpty(body: unknown): boolean {

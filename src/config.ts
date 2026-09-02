@@ -32,6 +32,7 @@ import {
   isRecord,
   KIND_UPSTREAM_TRAIT,
   ParseError,
+  qualifiedSegments,
   routeForHop,
 } from "./types.ts";
 
@@ -689,19 +690,6 @@ interface ChainCtx {
   file: string;
 }
 
-/** `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes. */
-const HOP_SEGMENTS_WITHOUT_UPSTREAM = 2;
-const HOP_SEGMENTS_WITH_UPSTREAM = 3;
-
-/** `seg.split("/")` on a hop stripped of its `@/` prefix -- `undefined` when the prefix itself is missing or nothing follows it. */
-function splitHopSegments(hop: string): string[] | undefined {
-  if (!hop.startsWith("@/")) {
-    return undefined;
-  }
-  const rest = hop.slice(2);
-  return rest === "" ? undefined : rest.split("/");
-}
-
 /** The engine segment, resolved to a real id. `local` is a real upstream id, never an engine one -- a chain hop names an engine by its actual id, same as every other address form. */
 function resolveEngineSegmentForChain(seg: string, ctx: ChainCtx, hop: string): string {
   if (!ctx.engines.some((e) => e.id === seg)) {
@@ -730,13 +718,9 @@ function parseChainHops(name: string, hops: readonly string[], ctx: ChainCtx): s
   const { file, routes } = ctx;
   const kept: string[] = [];
   for (const [i, hop] of hops.entries()) {
-    const segs = splitHopSegments(hop);
-    if (
-      !segs ||
-      (segs.length !== HOP_SEGMENTS_WITHOUT_UPSTREAM &&
-        segs.length !== HOP_SEGMENTS_WITH_UPSTREAM) ||
-      segs.some((s) => s === "")
-    ) {
+    // `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes.
+    const segs = qualifiedSegments(hop);
+    if (segs === undefined || segs.length === 1) {
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}" is not a fully-qualified "@/<engine>/<model>" or "@/<engine>/<upstream>/<model>" hop`,
         file,
