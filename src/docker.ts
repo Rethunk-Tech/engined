@@ -27,6 +27,14 @@ const READY_POLL_INTERVAL_MS = 250;
 const DOCKER_START_FAILURE_EXIT_CODE = 125;
 /** A stuck idle-stop is retried this many times, at the same idle-stop cadence, before it is left to the next real request's `endLease` -- bounded so a persistently wedged daemon does not retry forever. */
 const MAX_IDLE_STOP_RETRIES = 3;
+/**
+ * What an adopted orphan counts down from when the caller that found it had
+ * no engine config in hand -- `probe`, reached from a plain status GET. It is
+ * a floor, not the operator's setting: the first `start` or `endLease` re-arms
+ * from `[[engine]] idle_stop_seconds`. Without it an orphan adopted on a
+ * status GET and never dispatched to holds its GPU until the daemon restarts.
+ */
+const ADOPTED_IDLE_STOP_SECONDS = 900;
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/;
 const NO_SUCH_CONTAINER = /no such container/i;
 /**
@@ -226,8 +234,6 @@ interface Runtime {
   idleStopAttempts: number;
   /** Requests holding this container open. Idle-stop is armed only at zero, so a start with no traffic behind it still counts down. */
   activeLeases: number;
-  /** Whatever the last `start`/`endLease` was told, so a re-arm does not need the caller to repeat it. */
-  idleStopSeconds: number | null;
   /**
    * Whether this process has already asked docker about a container holding
    * this name that it did not start. Only an unclean exit can leave one, so
@@ -292,7 +298,6 @@ export class DockerLifecycle {
         artifactCheck: null,
         idleStopAttempts: 0,
         activeLeases: 0,
-        idleStopSeconds: null,
         adoptChecked: false,
       };
       this.runtimes.set(id, rt);
@@ -320,6 +325,21 @@ export class DockerLifecycle {
       clearTimeout(rt.idleTimer);
       rt.idleTimer = null;
     }
+  }
+
+  /**
+   * Everything that stops being true the moment the container is no longer
+   * serving: the countdown, the state, the port and the leases. Shared by
+   * every path that learns the container is gone, so one of them can never
+   * again drop a lease the others reset -- a survivor pins the engine's GPU
+   * for the life of the process, because `refreshIdle` refuses to arm while
+   * a lease is held and nothing else re-arms it.
+   */
+  private markStopped(rt: Runtime): void {
+    this.cancelIdle(rt);
+    this.transition(rt, "installed");
+    rt.hostPort = null;
+    rt.activeLeases = 0;
   }
 
   /**
@@ -354,7 +374,6 @@ export class DockerLifecycle {
    * and before this it stayed resident until the process died.
    */
   private refreshIdle(rt: Runtime, idleStopSeconds: number): void {
-    rt.idleStopSeconds = idleStopSeconds;
     this.cancelIdle(rt);
     if (rt.activeLeases > 0 || rt.state !== "running") {
       return;
@@ -404,7 +423,10 @@ export class DockerLifecycle {
     // and starting on faith destroys a container this process never started
     // but an earlier one did. A reconcile decides both, and only what it
     // leaves `running` is handed back without a fresh start.
-    if ((await this.reconcile(id, spec)).state === "running" && rt.hostPort !== null) {
+    if (
+      (await this.reconcile(id, spec, opts.idleStopSeconds)).state === "running" &&
+      rt.hostPort !== null
+    ) {
       this.refreshIdle(rt, opts.idleStopSeconds);
       return { ...this.getStatus(id), launched: false };
     }
@@ -433,9 +455,14 @@ export class DockerLifecycle {
    *
    * `spec` enables the adoption direction and is passed by the two reads that
    * can act on it. A caller reconciling an engine it already believes running
-   * has nothing to adopt and omits it.
+   * has nothing to adopt and omits it, and with it `idleStopSeconds` -- which
+   * only an adoption spends.
    */
-  async reconcile(id: string, spec?: RunnableContainerSpec): Promise<RuntimeStatus> {
+  async reconcile(
+    id: string,
+    spec?: RunnableContainerSpec,
+    idleStopSeconds?: number,
+  ): Promise<RuntimeStatus> {
     const rt = this.runtimes.get(id);
     if (!rt) {
       return this.getStatus(id);
@@ -453,14 +480,12 @@ export class DockerLifecycle {
       if (res.exitCode === 0 && res.stdout.trim() === "true") {
         return this.getStatus(id);
       }
-      this.cancelIdle(rt);
-      this.transition(rt, "installed");
-      rt.hostPort = null;
+      this.markStopped(rt);
       return this.getStatus(id);
     }
     if (spec !== undefined && !rt.adoptChecked) {
       rt.adoptChecked = true;
-      await this.adopt(rt, spec);
+      await this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS);
     }
     return this.getStatus(id);
   }
@@ -478,8 +503,15 @@ export class DockerLifecycle {
    * and one nothing can reach is not serving anything worth keeping. That
    * recreate is announced rather than taken silently, because a container
    * being destroyed is the one outcome an operator would want to have seen.
+   *
+   * An adopted container counts down like one this process started: nothing
+   * else will ever arm it, since adoption happens once per process.
    */
-  private async adopt(rt: Runtime, spec: RunnableContainerSpec): Promise<void> {
+  private async adopt(
+    rt: Runtime,
+    spec: RunnableContainerSpec,
+    idleStopSeconds: number,
+  ): Promise<void> {
     const found = await this.findOrphan(rt.containerName);
     if (found === null) {
       return;
@@ -507,6 +539,7 @@ export class DockerLifecycle {
     }
     rt.hostPort = hostPort;
     this.transition(rt, "running");
+    this.refreshIdle(rt, idleStopSeconds);
   }
 
   /** Running only: a container that already exited holds nothing, and the next start removes it as it always did. */
@@ -539,6 +572,7 @@ export class DockerLifecycle {
     id: string,
     spec: RunnableContainerSpec,
     specSource?: string,
+    idleStopSeconds?: number,
   ): Promise<RuntimeStatus> {
     const rt = this.runtime(id);
     // Neither `running` nor `installed` is known here, only believed: the
@@ -548,7 +582,7 @@ export class DockerLifecycle {
     // the engine is servable, so both go to docker first. Whatever reconcile
     // does not leave running falls through to the installability check, which
     // reports the truthful resting state instead of a dead `private_url`.
-    const reconciled = await this.reconcile(id, spec);
+    const reconciled = await this.reconcile(id, spec, idleStopSeconds);
     if (reconciled.state === "running" || reconciled.state === "warming") {
       return reconciled;
     }
@@ -812,18 +846,33 @@ export class DockerLifecycle {
     );
   }
 
-  /** A failed `docker stop` leaves the container's real state (still running) alone and records why. Returns whether it actually stopped. */
+  /**
+   * A failed `docker stop` leaves the container's real state (still running)
+   * alone and records why. Returns whether it actually stopped.
+   *
+   * The record stops being `running` before `docker stop` is issued, not once
+   * it returns: the stop waits out the full SIGTERM grace, and a caller
+   * reading the map during those seconds would be handed a `private_url` that
+   * is about to die, take a lease against it, and then lose that lease to the
+   * reset the stop performs on its way out.
+   */
   private async stopContainer(rt: Runtime): Promise<boolean> {
-    this.cancelIdle(rt);
+    const priorState = rt.state;
+    const priorPort = rt.hostPort;
+    this.markStopped(rt);
     const res = await this.exec(["stop", rt.containerName]);
     if (res.exitCode !== 0) {
       rt.lastError = res.stderr.trim() || `docker stop failed for ${rt.containerName}`;
+      // A start that arrived during the grace has already replaced everything
+      // `markStopped` cleared; only an untouched record may be handed back the
+      // truth it held before the attempt.
+      if (rt.state === "installed" && rt.hostPort === null) {
+        rt.hostPort = priorPort;
+        this.transition(rt, priorState);
+      }
       return false;
     }
-    this.transition(rt, "installed");
-    rt.hostPort = null;
     rt.lastError = undefined;
-    rt.activeLeases = 0;
     return true;
   }
 

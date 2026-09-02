@@ -812,3 +812,109 @@ test("init = true reaches the run argv as --init, and is absent by default", () 
   expect(buildRunArgs("engined-x", { ...SPEC, init: true }, 8188)).toContain("--init");
   expect(buildRunArgs("engined-x", { ...SPEC, init: false }, 8188)).not.toContain("--init");
 });
+
+/**
+ * `docker stop` is not instantaneous: it sends SIGTERM and waits out the
+ * grace period before killing. Everything below forces that window open and
+ * runs a request through it.
+ */
+const STOP_GRACE_MS = 120;
+const GRACE_IDLE_STOP_SECONDS = 0.02;
+/** Comfortably after the countdown fires and comfortably before the grace ends. */
+const MID_GRACE_WAIT_MS = 50;
+const PAST_GRACE_WAIT_MS = STOP_GRACE_MS * 2;
+
+/** The ordinary stub, with `docker stop` held open for a real SIGTERM grace. */
+function slowStopExec(runLog: string[][], stopLog: string[][]): Exec {
+  const live = buildExec({ runLog, stopLog, port: STUB_HOST_PORT_A });
+  return async (args) => {
+    const res = await live(args);
+    if (args[0] === "stop") {
+      await Bun.sleep(STOP_GRACE_MS);
+    }
+    return res;
+  };
+}
+
+test("a request arriving inside docker stop's SIGTERM grace is never handed the dying container", async () => {
+  const runLog: string[][] = [];
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(slowStopExec(runLog, stopLog), readyProbe);
+  const opts = { idleStopSeconds: GRACE_IDLE_STOP_SECONDS, readyTimeoutS: 1 };
+
+  await lifecycle.start("grace", SPEC, opts);
+  expect(runLog.length).toBe(1);
+
+  // The interleaving: idle-stop has fired and `docker stop` is blocked in its
+  // grace. Everything until PAST_GRACE_WAIT_MS below happens strictly inside
+  // that window, with the stop's own bookkeeping still to come.
+  await Bun.sleep(MID_GRACE_WAIT_MS);
+  expect(stopLog.length).toBe(1);
+  const dying = lifecycle.getStatus("grace");
+  expect(dying.state).not.toBe("running");
+  expect(dying.private_url).toBeNull();
+
+  // A request admitted here must get a container that will still exist when
+  // the stop lands -- a fresh one, not the corpse.
+  const restarted = await lifecycle.start("grace", SPEC, opts);
+  lifecycle.beginLease("grace");
+  expect(restarted.state).toBe("running");
+  expect(runLog.length).toBe(2);
+
+  // The stop resolves last, and must not reset the record the restart built.
+  await Bun.sleep(PAST_GRACE_WAIT_MS);
+  const after = lifecycle.getStatus("grace");
+  expect(after.state).toBe("running");
+  expect(after.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`);
+  expect(after.active_leases).toBe(1);
+});
+
+test("a lease held when the container dies underneath engined does not survive the reconcile that notices", async () => {
+  // Comfy's shape: its leases come from a queue poller rather than from a
+  // request, so the poll that reconciles a dead container is the only thing
+  // that will ever release the lease that poller took.
+  const gone = { yet: false };
+  const stopLog: string[][] = [];
+  const live = buildExec({ stopLog, port: STUB_HOST_PORT_A });
+  const exec: Exec = (args) =>
+    args[0] === "inspect" && gone.yet
+      ? Promise.resolve({ stdout: "", stderr: "No such object", exitCode: 1 })
+      : live(args);
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
+
+  await lifecycle.start("queue-lease", SPEC, opts);
+  lifecycle.beginLease("queue-lease");
+
+  // The container dies; the next poll's reconcile is what learns of it.
+  gone.yet = true;
+  expect((await lifecycle.probe("queue-lease", SPEC)).state).toBe("installed");
+
+  gone.yet = false;
+  const restarted = await lifecycle.start("queue-lease", SPEC, opts);
+  expect(restarted.state).toBe("running");
+  expect(restarted.active_leases).toBe(0);
+
+  // A lease surviving the death would leave refreshIdle refusing to arm, and
+  // the restarted container would hold its GPU until the daemon restarts.
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
+  expect(stopLog.length).toBe(1);
+  expect(lifecycle.getStatus("queue-lease").state).toBe("installed");
+});
+
+test("an orphan adopted on a status GET counts down like one this process started", async () => {
+  const stopLog: string[][] = [];
+  const live = buildExec({ stopLog, port: STUB_HOST_PORT_A });
+  const exec: Exec = (args) =>
+    args[0] === "ps" ? Promise.resolve(orphanPs(matchingOrphan())) : live(args);
+  const lifecycle = new DockerLifecycle(exec, readyProbe);
+
+  // The first status GET after an unclean exit: nothing else in this process
+  // will ever arm this engine, since adoption happens once.
+  const probed = await lifecycle.probe("orphan", SPEC, undefined, IDLE_STOP_SECONDS);
+  expect(probed.state).toBe("running");
+
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
+  expect(stopLog.length).toBe(1);
+  expect(lifecycle.getStatus("orphan").state).toBe("installed");
+});
