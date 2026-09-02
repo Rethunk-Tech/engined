@@ -513,17 +513,33 @@ const COMFY_BINDINGS_MAX = 1000;
 // attach -- bounded work now that COMFY_BINDINGS_MAX bounds the table. An
 // append log only earns its complexity if that cap is ever raised far enough
 // for the rewrite to be felt.
+/**
+ * The eviction lands only once the write has. A full disk or an unwritable
+ * state dir would otherwise shrink the table in memory while the file keeps
+ * the larger set, and the door would refuse an output it can still see on
+ * disk with nothing said. So a failed write leaves the table exactly as the
+ * file still describes it, reports itself, and lets the call it belongs to
+ * answer: the caller's own request succeeded, and nothing is lost until this
+ * process restarts.
+ */
 function saveComfyBindings(bindings: ComfyBindings): void {
   // Oldest first: a binding is inserted when its prompt is queued and only
   // mutated in place afterwards, so insertion order is creation order.
-  for (const key of bindings.keys()) {
-    if (bindings.size <= COMFY_BINDINGS_MAX) {
-      break;
-    }
+  const entries = [...bindings];
+  const evicted = entries.slice(0, Math.max(0, entries.length - COMFY_BINDINGS_MAX));
+  try {
+    mkdirSync(stateDir(), { recursive: true });
+    writeFileSync(
+      comfyBindingsPath(),
+      JSON.stringify(Object.fromEntries(entries.slice(evicted.length))),
+    );
+  } catch (err) {
+    process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`);
+    return;
+  }
+  for (const [key] of evicted) {
     bindings.delete(key);
   }
-  mkdirSync(stateDir(), { recursive: true });
-  writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(bindings)));
 }
 
 interface ComfyTarget {
@@ -577,6 +593,16 @@ async function forwardComfyGet(
   });
 }
 
+/** The `prompt_id` comfy answered `/prompt` with -- `undefined` for a body that is not JSON or carries none, which binds nothing. The caller still gets comfy's real body and status back either way. */
+function comfyPromptId(text: string): string | undefined {
+  try {
+    const parsed = JSON.parse(text) as { prompt_id?: unknown };
+    return typeof parsed.prompt_id === "string" ? parsed.prompt_id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
 async function proxyComfyPrompt(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
@@ -589,17 +615,10 @@ async function proxyComfyPrompt(
     body,
   });
   const text = await res.text();
-  if (res.ok) {
-    try {
-      const parsed = JSON.parse(text) as { prompt_id?: unknown };
-      if (typeof parsed.prompt_id === "string") {
-        ctx.comfyBindings.set(comfyKey(engineId, origin, parsed.prompt_id), []);
-        saveComfyBindings(ctx.comfyBindings);
-      }
-    } catch {
-      // Not JSON, or no prompt_id -- nothing to bind, and the caller still
-      // gets comfy's real body and status back either way.
-    }
+  const promptId = res.ok ? comfyPromptId(text) : undefined;
+  if (promptId !== undefined) {
+    ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), []);
+    saveComfyBindings(ctx.comfyBindings);
   }
   return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
 }
@@ -713,6 +732,15 @@ function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
   return names;
 }
 
+/** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
+function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | undefined {
+  try {
+    return (JSON.parse(text) as Record<string, ComfyHistoryEntry>)[promptId];
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * `GET /history/{promptId}`, mediated: refused outright for a `promptId`
  * this door never bound via `/prompt` -- the bare form is the container's
@@ -732,18 +760,12 @@ async function proxyComfyHistory(
   const res = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`);
   const text = await res.text();
   if (res.ok) {
-    try {
-      const history = JSON.parse(text) as Record<string, ComfyHistoryEntry>;
-      for (const filename of filenamesIn(history[promptId])) {
-        if (!bound.includes(filename)) {
-          bound.push(filename);
-        }
+    for (const filename of filenamesIn(comfyHistoryEntry(text, promptId))) {
+      if (!bound.includes(filename)) {
+        bound.push(filename);
       }
-      saveComfyBindings(ctx.comfyBindings);
-    } catch {
-      // Not the shape expected -- nothing new to learn; the caller still
-      // gets comfy's real body and status back either way.
     }
+    saveComfyBindings(ctx.comfyBindings);
   }
   return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
 }
