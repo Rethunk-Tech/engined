@@ -62,3 +62,10 @@ token and this tier's active bpw barely moves.
 `parallel = -1` is llama.cpp's auto (4 unified slots here): 62.94 t/s decode,
 against 68.28 t/s at `-np 1 -kvu`. `-np 2` and above halves ctx-size per slot
 by turning off kv_unified, which is not worth that footgun.
+
+The door's admission cap follows that auto: a role whose merged `parallel` is
+`-1`, `0`, or unset is admitted four at a time rather than uncapped, so the
+queue forms at the door where it is visible instead of inside llama-server's
+scheduler. Whether four is still the child's real slot count on a bumped
+`LLAMA_COMMIT` is unproven — `engines/llama/spec.toml` carries that criterion
+and what a bump owes it.
