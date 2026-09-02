@@ -1098,6 +1098,12 @@ function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResul
  * its own 503. A caller who named this engine directly does own the
  * omission and gets `runAgentic`'s terminal 400 naming it, the mistake that
  * is actually theirs, before anything this engine cannot do for them.
+ *
+ * A field this engine cannot honour is settled first for a chain caller,
+ * because `unhonourableRefusal` has already decided it either way -- 502
+ * while a later hop can still honour it, terminal 400 when none can. Letting
+ * the missing workdir advance ahead of that turns the terminal answer into an
+ * exhausted 503 blaming the engine for the one mistake the caller can fix.
  */
 async function preLaunchRefusal(
   ctx: DoorContext,
@@ -1106,7 +1112,7 @@ async function preLaunchRefusal(
   workdir: string | undefined,
 ): Promise<HopResult | null> {
   const refusal = unhonourableRefusal(engineId, req);
-  if (refusal !== null && req.toolsHonourableElsewhere) {
+  if (refusal !== null && req.inChain) {
     return refusal;
   }
   if (workdir === undefined || workdir === "") {

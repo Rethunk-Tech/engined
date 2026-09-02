@@ -1177,6 +1177,10 @@ function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
     chains: {
       "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"],
       "chain-rev": ["@/claude/x", "@/llama-dead/dead-model"],
+      // No hop here can honour a tool call, and none reads a workdir from a
+      // caller who addressed the chain: the two refusals a chain caller can
+      // meet, with nothing behind either to soften them.
+      "chain-agentic-only": ["@/claude/x"],
     },
   });
   const control = llamaControlPlane();
@@ -1223,7 +1227,11 @@ async function toolFallbackCall(
   agenticFirst = false,
 ): Promise<{
   status: number;
-  body: { choices?: { finish_reason?: string }[]; error?: string; attempts?: unknown[] };
+  body: {
+    choices?: { finish_reason?: string }[];
+    error?: string;
+    attempts?: { failure?: string }[];
+  };
   spawnCalls: string[][];
 }> {
   const spawnCalls: string[][] = [];
@@ -1301,6 +1309,47 @@ describe("the door: a missing workdir is the chain's business, not the caller's"
     expect(body.error).toContain("workdir is required");
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
+  });
+});
+
+describe("the door: a chain nothing in it can honour answers the caller, not a dead engine", () => {
+  // No hop can honour `tools`, so the refusal is terminal wherever it is
+  // reached from -- and a caller who left out the `workdir` only an agentic
+  // hop reads still gets told the one thing they can act on.
+  test("an all-agentic chain names the field it cannot honour even with no workdir sent", async () => {
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "chain-agentic-only",
+      messages: [{ role: "user", content: "what time is it" }],
+      tools: [TOOL_NOW],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("cannot honour tools");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  // The missing workdir still advances, and the exhausted chain has to say
+  // what actually happened: `http 502` alone reads as an engine that failed.
+  test("an all-agentic chain with no workdir exhausts, and the attempt records why", async () => {
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "chain-agentic-only",
+      messages: [{ role: "user", content: "what time is it" }],
+    });
+    expect(status).toBe(503);
+    expect(body.attempts).toHaveLength(1);
+    expect(body.attempts?.[0]?.failure).toContain("carried no workdir");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  test("a max_egress that is not an egress is a 400 naming the values that are", async () => {
+    const { status, body } = await toolFallbackCall({
+      model: "chain-agentic-only",
+      messages: [{ role: "user", content: "what time is it" }],
+      max_egress: "internet",
+    });
+    expect(status).toBe(400);
+    expect(body.error).toBe("max_egress must be one of: none, lan, remote");
   });
 });
 

@@ -101,6 +101,22 @@ const ADVANCING_CLIENT_ERRORS = new Set([
   STATUS_TOO_MANY_REQUESTS,
 ]);
 
+/**
+ * The status alone cannot say what went wrong: a hop refused before it was
+ * ever asked -- no workdir, an unresolvable upstream -- puts the only
+ * explanation in its body, and an attempt recorded as bare `http 502` reads
+ * as an engine that failed. An envelope failure is the one exclusion: that
+ * text is the child agent's own words, and no provenance line carries those.
+ */
+function failureOf(result: HopResult): string {
+  const status = `http ${result.status}`;
+  const { body } = result;
+  if (result.envelopeFailure || typeof body !== "object" || body === null || !("error" in body)) {
+    return status;
+  }
+  return typeof body.error === "string" ? `${status}: ${body.error}` : status;
+}
+
 /** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body -- except the credential-shaped ones above -- and 5xx and empty body always do, except an envelope failure, which never advances regardless of status. */
 export function classifyResult(result: HopResult): {
   advance: boolean;
@@ -108,16 +124,16 @@ export function classifyResult(result: HopResult): {
   failure?: string;
 } {
   if (result.envelopeFailure) {
-    return { advance: false, ok: false, failure: `http ${result.status}` };
+    return { advance: false, ok: false, failure: failureOf(result) };
   }
   if (result.status >= HTTP_SERVER_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MAX) {
-    return { advance: true, ok: false, failure: `http ${result.status}` };
+    return { advance: true, ok: false, failure: failureOf(result) };
   }
   if (ADVANCING_CLIENT_ERRORS.has(result.status)) {
-    return { advance: true, ok: false, failure: `http ${result.status}` };
+    return { advance: true, ok: false, failure: failureOf(result) };
   }
   if (result.status >= HTTP_CLIENT_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MIN) {
-    return { advance: false, ok: false, failure: `http ${result.status}` };
+    return { advance: false, ok: false, failure: failureOf(result) };
   }
   if (!result.stream && bodyIsEmpty(result.body)) {
     return { advance: true, ok: false, failure: "empty body" };
