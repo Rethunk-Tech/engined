@@ -1024,6 +1024,22 @@ describe("engine/upstream required/forbidden fields", () => {
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_EGRESS);
   });
 
+  /**
+   * `local` names this box everywhere it appears -- `defaultUpstreamFor`
+   * and `localFileForbiddenReason` both read it as such. A config that
+   * pointed it off-machine would make both of them lie, so the refusal is
+   * at parse, before route defaulting ever reads the literal.
+   */
+  test("the reserved id local cannot carry a base_url or a secret", () => {
+    const withUrl = `[[upstream]]\nid = "local"\negress = "none"\nbase_url = "https://elsewhere"\n`;
+    const withSecret = `[[upstream]]\nid = "local"\negress = "remote"\n\n  [upstream.secret]\n  keyring = "x"\n`;
+    expect(() => loadConfig(writeConfig(withUrl))).toThrow(/reserved for this box/);
+    expect(() => loadConfig(writeConfig(withSecret))).toThrow(/reserved for this box/);
+    expect(() =>
+      loadConfig(writeConfig(`[[upstream]]\nid = "local"\negress = "none"\n`)),
+    ).not.toThrow();
+  });
+
   // A remote, non-agentic engine's [engine.args] are wire parameters rather
   // than process flags -- remote.ts hands them to whichever dialect the door
   // is speaking (ElevenLabs' model_id is the first). They parse and survive

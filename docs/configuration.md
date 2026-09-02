@@ -47,7 +47,7 @@ error by design rather than a silent no-op.
 | `ready_timeout_s` | how long a start may take to pass its readiness probe |
 | `agent_version` | agentic engines; substituted as `{agent_version}`, never `@latest` |
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
-| `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`) |
+| `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
 | `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
 | `hops` | `[[chain]]` — an ordered list of route addresses |

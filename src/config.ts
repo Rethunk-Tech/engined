@@ -247,6 +247,14 @@ function parseUpstream(raw: unknown, index: number, file: string): Upstream {
   if (egress === undefined) {
     throw new ParseError(`${site} is missing required "egress"`, file);
   }
+  // "local" always means this box, so a learned upstream name can never point it
+  // off-machine. Refused here, before route defaulting reads the literal.
+  if (id === "local" && (raw.base_url !== undefined || raw.secret !== undefined)) {
+    throw new ParseError(
+      `${site} is reserved for this box and cannot carry "base_url" or "secret"`,
+      file,
+    );
+  }
   const wireStr = optional(raw.wire, "string", `${site} "wire"`, file);
   if (wireStr !== undefined && wireStr !== "openai" && wireStr !== "anthropic") {
     throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, file);

@@ -49,7 +49,8 @@ agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, n
 # Upstreams: where the bytes for a route actually come from.
 # ---------------------------------------------------------------------------
 
-# Reserved: this box. Every route that runs here names it explicitly.
+# Reserved: this box. Every route that runs here names it explicitly, and the
+# id refuses `base_url` or `secret` so it can never be pointed off-machine.
 [[upstream]]
 id     = "local"
 egress = "none"
