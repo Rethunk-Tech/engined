@@ -75,6 +75,18 @@ export function reportedModelFrom(body: unknown): string | undefined {
 }
 
 /**
+ * Precedence in one place: a route key beats the engine key naming it. The
+ * preset INI and the door's own capacity ceiling must read the same merged
+ * table, or the door admits a concurrency the child never agreed to.
+ */
+function mergedArgs(
+  engine: EngineEntry,
+  route: { args: Record<string, unknown> } | undefined,
+): Record<string, unknown> {
+  return { ...engine.args, ...route?.args };
+}
+
+/**
  * One `[model]` section per route on this engine. A route's section starts
  * from the engine's process-flag defaults and layers the route's own on top
  * — a route key beats the engine key naming it — then passes the merged
@@ -88,7 +100,7 @@ export function renderPresetIni(engine: EngineEntry, routes: readonly ResolvedRo
         r.engine === engine.id && r.filename !== undefined && r.model !== undefined,
     )
     .map((r) => {
-      const args = { ...engine.args, ...r.args };
+      const args = mergedArgs(engine, r);
       const lines = [`model = ${MODELS_CONTAINER_PATH}/${r.filename}`, ...iniLines(args)];
       return `[${r.model}]\n${lines.join("\n")}`;
     })
@@ -370,11 +382,6 @@ export class LlamaRouter {
   }
 
   /**
-   * The same `{...engine.args, ...route.args}` merge `renderPresetIni`
-   * builds for this model's INI section, read back for its `parallel` key
-   * rather than re-derived some other way -- the door and the child must
-   * agree on what one resident model can actually run at once.
-   *
    * `parallel <= 0` covers both llama.cpp's own `-1` ("auto": some
    * server-decided slot count this door was never told, measured at 4 for
    * one config on this box and not a portable constant) and a role that
@@ -388,7 +395,7 @@ export class LlamaRouter {
     const route = this.routes.find(
       (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
     );
-    const { parallel } = { ...this.engine.args, ...route?.args };
+    const { parallel } = mergedArgs(this.engine, route);
     return typeof parallel === "number" && Number.isInteger(parallel) && parallel > 0
       ? parallel
       : Number.POSITIVE_INFINITY;

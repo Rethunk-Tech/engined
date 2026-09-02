@@ -363,6 +363,12 @@ interface SandboxFloorInput {
   bwrapOverride: string | null | undefined;
 }
 
+/** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
+function usableBwrap(override?: string | null): string | null {
+  const bwrap = override === undefined ? resolveBwrap() : override;
+  return bwrap === null || bwrap === "" ? null : bwrap;
+}
+
 /** `argv` wrapped under bwrap for a `sandbox`-floor agent, `home`'s env merged into `env` in place -- unchanged for a `flags` agent, or a 503 when this box has no bwrap to wrap it with. */
 function applySandboxFloor(
   agent: AgentCli,
@@ -372,8 +378,8 @@ function applySandboxFloor(
   if (agent.floor !== "sandbox") {
     return { argv };
   }
-  const bwrap = bwrapOverride === undefined ? resolveBwrap() : bwrapOverride;
-  if (bwrap === null || bwrap === "") {
+  const bwrap = usableBwrap(bwrapOverride);
+  if (bwrap === null) {
     // Never a fallback to an unsandboxed launch: this agent's whole floor is
     // the mount table, so without it there is no floor to run under at all.
     return {
@@ -686,8 +692,8 @@ function runCursorHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> 
  * `test/local/opencode.test.ts`, where a real round trip belongs.
  */
 async function runSandboxFloorProbe(input: ProbeInput): Promise<{ ok: boolean }> {
-  const bwrap = resolveBwrap();
-  if (bwrap === null || bwrap === "") {
+  const bwrap = usableBwrap();
+  if (bwrap === null) {
     return { ok: false };
   }
   const workdir = scratchWorktree();

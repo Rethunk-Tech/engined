@@ -29,6 +29,7 @@ import {
   argKeysAsFlags,
   assertNoForbiddenFlags,
   ENGINE_KINDS,
+  isEgress,
   isRecord,
   KIND_UPSTREAM_TRAIT,
   ParseError,
@@ -189,10 +190,10 @@ function parseKind(
 
 function parseEgress(raw: unknown, label: string, file: string): Egress | undefined {
   const v = optional(raw, "string", label, file);
-  if (v !== undefined && v !== "none" && v !== "lan" && v !== "remote") {
+  if (v !== undefined && !isEgress(v)) {
     throw new ParseError(`${label} must be "none", "lan" or "remote"`, file);
   }
-  return v as Egress | undefined;
+  return v;
 }
 
 function parseEngine(raw: unknown, index: number, file: string): EngineEntry {

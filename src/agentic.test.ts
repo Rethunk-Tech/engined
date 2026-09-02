@@ -586,10 +586,8 @@ test("defaultAgenticSpawn: aborting kills the real worker process, not just the 
   });
 
   const countLines = () => readFileSync(heartbeat, "utf8").split("\n").filter(Boolean).length;
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
   // Let the worker actually start writing before killing it.
-  await sleep(300);
+  await Bun.sleep(300);
   expect(countLines()).toBeGreaterThan(0);
 
   controller.abort();
@@ -598,9 +596,9 @@ test("defaultAgenticSpawn: aborting kills the real worker process, not just the 
   // The rejection above proves the PROMISE settled -- it proves nothing
   // about the process. Two more samples, a beat apart: if the worker
   // survived, the count would still be climbing between them.
-  await sleep(400);
+  await Bun.sleep(400);
   const justAfterKill = countLines();
-  await sleep(400);
+  await Bun.sleep(400);
   const settled = countLines();
 
   expect(settled).toBe(justAfterKill);

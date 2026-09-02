@@ -6,10 +6,13 @@
 
 import type { EngineRegistry } from "./engines.ts";
 import type { Config, Egress, ResolvedRoute } from "./types.ts";
-import { EGRESS_RANK, pickDefaultUpstream, qualifiedSegments, routeServes } from "./types.ts";
-
-/** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
-const CHAIN_ENDPOINT = "/openai/v1/chat/completions";
+import {
+  CONTENT_ENDPOINT_CHAT,
+  EGRESS_RANK,
+  pickDefaultUpstream,
+  qualifiedSegments,
+  routeServes,
+} from "./types.ts";
 
 export type ModelDispatch =
   | { ok: true; kind: "model"; route: ResolvedRoute }
@@ -152,8 +155,9 @@ function resolveChain(model: string, endpoint: string, config: Config): Dispatch
   if (hops === undefined) {
     return;
   }
-  if (endpoint !== CHAIN_ENDPOINT) {
-    return fail(`chain "${model}" only serves ${CHAIN_ENDPOINT}`);
+  // Chains exist to route a chat prompt hop by hop; no other endpoint takes one.
+  if (endpoint !== CONTENT_ENDPOINT_CHAT) {
+    return fail(`chain "${model}" only serves ${CONTENT_ENDPOINT_CHAT}`);
   }
   return { ok: true, kind: "chain", chain: model, hops };
 }

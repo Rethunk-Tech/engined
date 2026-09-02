@@ -1038,7 +1038,7 @@ describe("comfy: idle timer driven by /queue polling", () => {
         expect(started.state).toBe("running");
         expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
 
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await Bun.sleep(300);
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("installed");
@@ -1059,7 +1059,7 @@ describe("comfy: idle timer driven by /queue polling", () => {
         const started = await reg.start("comfy");
         expect(started.state).toBe("running");
 
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await Bun.sleep(300);
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("running");
@@ -1293,7 +1293,7 @@ describe("comfy: a container that dies underneath engined", () => {
         expect(lifecycle.getStatus("comfy").private_url).not.toBeNull();
 
         comfyLive.alive = false;
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await Bun.sleep(300);
 
         // Never a 200 naming a dead address: the door reports what docker says.
         const after = reg.get("comfy");
@@ -1314,7 +1314,7 @@ describe("comfy: a container that dies underneath engined", () => {
       async (reg, lifecycle) => {
         expect((await reg.start("comfy")).state).toBe("running");
 
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await Bun.sleep(300);
 
         const after = reg.get("comfy");
         expect(after?.state).toBe("running");

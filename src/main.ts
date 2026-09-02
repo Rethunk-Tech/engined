@@ -68,6 +68,10 @@ import { recordCall } from "./provenance.ts";
 import { loadSpec } from "./spec.ts";
 import {
   type AgenticSpec,
+  CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
   type Egress,
   type EngineEntry,
@@ -77,6 +81,7 @@ import {
   errMessage,
   FatalError,
   findModelOnEngine,
+  isEgress,
   isRecord,
   type ModelCapabilities,
   type ModelRow,
@@ -99,13 +104,11 @@ import {
   upstreamUrl,
 } from "./upstream.ts";
 
-const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
-
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
-  "/openai/v1/embeddings",
-  "/openai/v1/audio/speech",
-  "/openai/v1/audio/transcriptions",
+  CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
 ]);
 
 /**
@@ -1996,16 +1999,12 @@ interface ContentRequest {
   launchScoped: boolean;
 }
 
-const VALID_EGRESS: ReadonlySet<string> = new Set(["none", "lan", "remote"]);
-
 /** `undefined` when the caller left it out (no ceiling); a legal `Egress` string when it named one. A value that is neither is the caller's own mistake, not a silent no-ceiling. */
 function parseMaxEgress(raw: unknown): { ok: true; value: Egress | undefined } | { ok: false } {
   if (raw === undefined) {
     return { ok: true, value: undefined };
   }
-  return typeof raw === "string" && VALID_EGRESS.has(raw)
-    ? { ok: true, value: raw as Egress }
-    : { ok: false };
+  return isEgress(raw) ? { ok: true, value: raw } : { ok: false };
 }
 
 /** Chat and embeddings: `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
@@ -2240,7 +2239,7 @@ async function handleAudioSpeech(
   body: Record<string, unknown>,
 ): Promise<Response> {
   const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const audio = resolveAudioEngine(ctx, rawModel, "/openai/v1/audio/speech");
+  const audio = resolveAudioEngine(ctx, rawModel, CONTENT_ENDPOINT_SPEECH);
   if (!audio.ok) {
     return audio.response;
   }
@@ -2331,7 +2330,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
   const audio = resolveAudioEngine(
     ctx,
     form.rawModel ?? undefined,
-    "/openai/v1/audio/transcriptions",
+    CONTENT_ENDPOINT_TRANSCRIPTIONS,
   );
   if (!audio.ok) {
     return audio.response;
@@ -2393,14 +2392,14 @@ async function handleContent(
   pathname: string,
   launchScoped: boolean,
 ): Promise<Response> {
-  if (pathname === "/openai/v1/audio/transcriptions") {
+  if (pathname === CONTENT_ENDPOINT_TRANSCRIPTIONS) {
     return handleAudioTranscription(ctx, req);
   }
   const body = await readJsonBody(req);
   if (body instanceof Response) {
     return body;
   }
-  if (pathname === "/openai/v1/audio/speech") {
+  if (pathname === CONTENT_ENDPOINT_SPEECH) {
     return handleAudioSpeech(ctx, body);
   }
   const rawModel = typeof body.model === "string" ? body.model : undefined;

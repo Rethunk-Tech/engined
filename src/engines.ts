@@ -19,6 +19,10 @@ import type { EngineResources } from "./resources.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
 import {
   type AgenticSpec,
+  CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTRACT,
   type Config,
   type Disposition,
@@ -103,10 +107,10 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
  * this map's callers rather than mapped to `[]` here.
  */
 const KIND_SERVES: Record<EngineKind, string[]> = {
-  "openai-http": ["/openai/v1/chat/completions", "/openai/v1/embeddings"],
-  "agentic-cli": ["/openai/v1/chat/completions"],
-  tts: ["/openai/v1/audio/speech"],
-  stt: ["/openai/v1/audio/transcriptions"],
+  "openai-http": [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS],
+  "agentic-cli": [CONTENT_ENDPOINT_CHAT],
+  tts: [CONTENT_ENDPOINT_SPEECH],
+  stt: [CONTENT_ENDPOINT_TRANSCRIPTIONS],
   comfy: [],
 };
 

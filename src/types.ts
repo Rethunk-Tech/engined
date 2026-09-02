@@ -24,6 +24,18 @@ export type Egress = "none" | "lan" | "remote";
 export const EGRESS_RANK: Record<Egress, number> = { none: 0, lan: 1, remote: 2 };
 
 /**
+ * The ONLY membership test on `Egress`, keyed off `EGRESS_RANK` itself so a
+ * fourth member is admitted by every parser the moment the table names it.
+ * A hand-spelled chain of `!==` comparisons anywhere else typechecks and
+ * lints clean while refusing a value this type declares legal.
+ *
+ * `Object.hasOwn`, never `in`: every object answers `in` for `toString`.
+ */
+export function isEgress(value: unknown): value is Egress {
+  return typeof value === "string" && Object.hasOwn(EGRESS_RANK, value);
+}
+
+/**
  * The ONLY legal comparison on `Egress`. Bare `<`/`<=` is banned: alphabetically
  * `"lan" < "none" < "remote"`, so the natural spelling admits a `lan` hop under a
  * `none` ceiling -- it typechecks, lints clean, and is wrong on the one boundary
@@ -172,7 +184,14 @@ export interface EngineCapability extends ModelCapabilities {
   serves: string[];
 }
 
-const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
+/**
+ * The door's OpenAI-surface paths, spelled once. A `serves` list, a dispatch
+ * check and a route table that spell one differently disagree silently.
+ */
+export const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
+export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
+export const CONTENT_ENDPOINT_SPEECH = "/openai/v1/audio/speech";
+export const CONTENT_ENDPOINT_TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
 
 /**
  * The door paths one route answers, which its engine's own `serves` cannot
