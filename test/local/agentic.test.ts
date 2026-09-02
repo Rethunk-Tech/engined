@@ -18,6 +18,7 @@ import type { Config } from "../../src/types.ts";
 import { ENGINES_ROOT, LOCAL } from "./exclusive.ts";
 import {
   missingEnv,
+  missingEnvReason,
   probeGateConfig,
   requireEnv,
   scratchWorktree,
@@ -48,6 +49,7 @@ const MISSING_ENV_VARS = missingEnv({
   ENGINED_BUNX: BUNX,
 });
 const AGENTIC_READY = LOCAL && MISSING_ENV_VARS.length === 0;
+const SKIP_REASON = missingEnvReason(MISSING_ENV_VARS);
 
 /** Deliberately not the exported probe's own scratch dir: the two want distinguishable temp prefixes. */
 const WORKTREE_PREFIX = "engined-agentic-";
@@ -65,78 +67,84 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
   });
 }
 
-describe.skipIf(!AGENTIC_READY)(skipTitle("agentic probes (local)", MISSING_ENV_VARS), () => {
-  test(
-    "byte-identical: a completion instructed to create a file leaves the worktree untouched",
-    async () => {
-      const workdir = scratchWorktree(WORKTREE_PREFIX);
-      const before = hashTree(workdir);
+describe.skipIf(!AGENTIC_READY)(
+  skipTitle("agentic probes (local)", AGENTIC_READY, SKIP_REASON),
+  () => {
+    test(
+      "byte-identical: a completion instructed to create a file leaves the worktree untouched",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const before = hashTree(workdir);
 
-      const result = await callAgentic(
-        workdir,
-        "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
-      );
+        const result = await callAgentic(
+          workdir,
+          "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
+        );
 
-      const after = hashTree(workdir);
-      rmSync(workdir, { recursive: true, force: true });
+        const after = hashTree(workdir);
+        rmSync(workdir, { recursive: true, force: true });
 
-      expect(result.status).toBe(200);
-      expect(after).toBe(before);
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
+        expect(result.status).toBe(200);
+        expect(after).toBe(before);
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
 
-  test(
-    "no hook fires: a planted UserPromptSubmit hook never appends to its witness file",
-    async () => {
-      const workdir = scratchWorktree(WORKTREE_PREFIX);
-      const witness = join(tmpdir(), `engined-agentic-witness-${Date.now()}.txt`);
-      rmSync(witness, { force: true });
-      plantUserPromptSubmitHook(workdir, witness);
+    test(
+      "no hook fires: a planted UserPromptSubmit hook never appends to its witness file",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const witness = join(tmpdir(), `engined-agentic-witness-${Date.now()}.txt`);
+        rmSync(witness, { force: true });
+        plantUserPromptSubmitHook(workdir, witness);
 
-      const result = await callAgentic(workdir, "Say hello in one short sentence.");
+        const result = await callAgentic(workdir, "Say hello in one short sentence.");
 
-      const witnessExists = existsSync(witness);
-      rmSync(workdir, { recursive: true, force: true });
-      rmSync(witness, { force: true });
+        const witnessExists = existsSync(witness);
+        rmSync(workdir, { recursive: true, force: true });
+        rmSync(witness, { force: true });
 
-      expect(result.status).toBe(200);
-      expect(witnessExists).toBe(false);
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
-});
-
-describe.skipIf(!AGENTIC_READY)(skipTitle("agentic streaming (local)", MISSING_ENV_VARS), () => {
-  test(
-    "onDelta: the real CLI's stream-json deltas arrive before the verdict, and join into the result",
-    async () => {
-      const workdir = scratchWorktree(WORKTREE_PREFIX);
-      const deltas: string[] = [];
-      const result = await runAgentic({
-        agent: "claude",
-        agentVersion: agentVersion(),
-        args: {},
-        envAllowlist: [...PROBE_ENV_ALLOWLIST],
-        workdir,
-        prompt: "Reply with exactly the word: pong",
-        spawn: defaultAgenticSpawn,
-        bunx: bunx(),
-        onDelta: (text) => deltas.push(text),
-      });
-      rmSync(workdir, { recursive: true, force: true });
-
-      expect(result.status).toBe(200);
-      expect(deltas.length).toBeGreaterThan(0);
-      expect(deltas.join("").toLowerCase()).toContain("pong");
-      expect(result.result?.toLowerCase()).toContain("pong");
-    },
-    REAL_ROUND_TRIP_TIMEOUT_MS,
-  );
-});
+        expect(result.status).toBe(200);
+        expect(witnessExists).toBe(false);
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
+  },
+);
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("agentic provenance and read scope (local)", MISSING_ENV_VARS),
+  skipTitle("agentic streaming (local)", AGENTIC_READY, SKIP_REASON),
+  () => {
+    test(
+      "onDelta: the real CLI's stream-json deltas arrive before the verdict, and join into the result",
+      async () => {
+        const workdir = scratchWorktree(WORKTREE_PREFIX);
+        const deltas: string[] = [];
+        const result = await runAgentic({
+          agent: "claude",
+          agentVersion: agentVersion(),
+          args: {},
+          envAllowlist: [...PROBE_ENV_ALLOWLIST],
+          workdir,
+          prompt: "Reply with exactly the word: pong",
+          spawn: defaultAgenticSpawn,
+          bunx: bunx(),
+          onDelta: (text) => deltas.push(text),
+        });
+        rmSync(workdir, { recursive: true, force: true });
+
+        expect(result.status).toBe(200);
+        expect(deltas.length).toBeGreaterThan(0);
+        expect(deltas.join("").toLowerCase()).toContain("pong");
+        expect(result.result?.toLowerCase()).toContain("pong");
+      },
+      REAL_ROUND_TRIP_TIMEOUT_MS,
+    );
+  },
+);
+
+describe.skipIf(!AGENTIC_READY)(
+  skipTitle("agentic provenance and read scope (local)", AGENTIC_READY, SKIP_REASON),
   () => {
     test(
       "provenance: the result's version is the pin that was actually launched",
@@ -188,7 +196,11 @@ const PROBE_GATE_ENGINE_ID = "engined-local-test-probe-gate";
 const gateConfig = (): Config => probeGateConfig(PROBE_GATE_ENGINE_ID, "claude", agentVersion());
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("agentic probes gate serving via the real registry (local)", MISSING_ENV_VARS),
+  skipTitle(
+    "agentic probes gate serving via the real registry (local)",
+    AGENTIC_READY,
+    SKIP_REASON,
+  ),
   () => {
     afterAll(() => {
       clearVerifiedVersion(PROBE_GATE_ENGINE_ID);

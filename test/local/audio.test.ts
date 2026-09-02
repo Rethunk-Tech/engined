@@ -17,6 +17,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
+import { skipTitle } from "./fixtures.ts";
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox-multi container
@@ -80,12 +81,8 @@ if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO || HAVE_PIPER) {
   requireNoResidentEngine();
 }
 
-function describeTitle(base: string, ready: boolean, reason: string): string {
-  return ready ? base : `${base}: SKIPPED -- ${reason}`;
-}
-
 describe.skipIf(!HAVE_CHATTERBOX)(
-  describeTitle(
+  skipTitle(
     "chatterbox-multi speech door (local)",
     HAVE_CHATTERBOX,
     CHATTERBOX_IMAGE === undefined
@@ -142,7 +139,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
  * installed state.
  */
 describe.skipIf(!HAVE_WHISPER)(
-  describeTitle(
+  skipTitle(
     "whisper unavailable status against real docker (local)",
     HAVE_WHISPER,
     WHISPER_IMAGE === undefined
@@ -207,7 +204,7 @@ const TTS_ROUND_TRIPS: { id: string; ready: boolean }[] = [
 
 for (const tts of TTS_ROUND_TRIPS) {
   describe.skipIf(!(tts.ready && HAVE_WHISPER))(
-    describeTitle(
+    skipTitle(
       `${tts.id} -> whisper round trip (local)`,
       tts.ready && HAVE_WHISPER,
       `${tts.id} or whisper is not built`,

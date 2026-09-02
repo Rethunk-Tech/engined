@@ -19,6 +19,7 @@ import type { Config } from "../../src/types.ts";
 import { ENGINES_ROOT, LOCAL } from "./exclusive.ts";
 import {
   missingEnv,
+  missingEnvReason,
   probeGateConfig,
   requireEnv,
   scratchWorktree,
@@ -64,6 +65,7 @@ const MISSING_ENV_VARS = missingEnv({
   ENGINED_BUNX: BUNX,
 });
 const AGENTIC_READY = LOCAL && MISSING_ENV_VARS.length === 0;
+const SKIP_REASON = missingEnvReason(MISSING_ENV_VARS);
 
 /**
  * Set once, before any real round trip below runs. `undefined` means the
@@ -117,7 +119,7 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
 }
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("cursor agentic probes (local)", MISSING_ENV_VARS),
+  skipTitle("cursor agentic probes (local)", AGENTIC_READY, SKIP_REASON),
   () => {
     test(
       "byte-identical: a completion instructed to create a file leaves the worktree untouched",
@@ -162,7 +164,7 @@ describe.skipIf(!AGENTIC_READY)(
 );
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("cursor agentic provenance (local)", MISSING_ENV_VARS),
+  skipTitle("cursor agentic provenance (local)", AGENTIC_READY, SKIP_REASON),
   () => {
     test(
       "provenance: the result's version is the pin that was actually launched, and the answer is real text out of the stream-json envelope",
@@ -197,7 +199,11 @@ const PROBE_GATE_ENGINE_ID = "engined-local-test-cursor-probe-gate";
 const gateConfig = (): Config => probeGateConfig(PROBE_GATE_ENGINE_ID, "cursor", agentVersion());
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("cursor agentic probes gate serving via the real registry (local)", MISSING_ENV_VARS),
+  skipTitle(
+    "cursor agentic probes gate serving via the real registry (local)",
+    AGENTIC_READY,
+    SKIP_REASON,
+  ),
   () => {
     afterAll(() => {
       clearVerifiedVersion(PROBE_GATE_ENGINE_ID);

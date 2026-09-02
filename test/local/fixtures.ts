@@ -34,13 +34,14 @@ export function missingEnv(vars: Record<string, string | undefined>): string[] {
     .map(([name]) => name);
 }
 
-/** Names exactly what is missing in the describe title, rather than a red suite for an unset env var. */
-export function skipTitle(base: string, missing: string[]): string {
-  if (LOCAL && missing.length === 0) {
-    return base;
-  }
-  const reason = LOCAL ? `missing ${missing.join(", ")}` : 'ENGINED_LOCAL is not "1"';
-  return `${base}: SKIPPED -- ${reason}`;
+/** Names in the describe title exactly why a suite did not run, rather than a green suite that ran nothing. */
+export function skipTitle(base: string, ready: boolean, reason: string): string {
+  return ready ? base : `${base}: SKIPPED -- ${reason}`;
+}
+
+/** Why an env-gated suite cannot run: the tier's own gate first, since an unset `ENGINED_LOCAL` leaves every other var unset too. */
+export function missingEnvReason(missing: string[]): string {
+  return LOCAL ? `missing ${missing.join(", ")}` : 'ENGINED_LOCAL is not "1"';
 }
 
 /**

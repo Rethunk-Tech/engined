@@ -14,6 +14,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
+import { skipTitle } from "./fixtures.ts";
 
 /**
  * Drives the real `LlamaRouter` against llama's real container and
@@ -104,10 +105,6 @@ function skipReason(): string {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
   return `expected exactly 3 llama routes (chat, vision, embedding) in config.example.toml, found ${FIXTURE.routes.length}`;
-}
-
-function describeTitle(base: string): string {
-  return READY ? base : `${base}: SKIPPED -- ${skipReason()}`;
 }
 
 /** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
@@ -235,7 +232,7 @@ async function proxyEmbedding(
   return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
 }
 
-describe.skipIf(!READY)(describeTitle("llama router (local)"), () => {
+describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const router = buildRouter(FIXTURE.engine, FIXTURE.routes, ".scratch-preset.ini", lifecycle);
 
@@ -336,47 +333,60 @@ function argvHasSpecPMin(lines: string[], value: number): boolean {
   return lines.some((line) => line.includes("--draft-p-min") && line.includes(String(value)));
 }
 
-describe.skipIf(!READY)(describeTitle("llama router: same-role swap (local)"), () => {
-  const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-  const models = swapModels();
-  const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);
+describe.skipIf(!READY)(
+  skipTitle("llama router: same-role swap (local)", READY, skipReason()),
+  () => {
+    const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
+    const models = swapModels();
+    const router = buildRouter(FIXTURE.engine, models, ".scratch-preset-swap.ini", lifecycle);
 
-  afterAll(async () => {
-    await lifecycle.shutdown();
-  });
+    afterAll(async () => {
+      await lifecycle.shutdown();
+    });
 
-  test(
-    "swapping the chat-role resident unloads the prior one, the listing shows at most one loaded, and the real child argv changes",
-    async () => {
-      const [modelA, modelB] = models;
-      if (!(modelA && modelB)) {
-        throw new Error("swap fixture is missing -- READY should have been false");
-      }
+    test(
+      "swapping the chat-role resident unloads the prior one, the listing shows at most one loaded, and the real child argv changes",
+      async () => {
+        const [modelA, modelB] = models;
+        if (!(modelA && modelB)) {
+          throw new Error("swap fixture is missing -- READY should have been false");
+        }
 
-      expect(
-        await proxyStatus(router, modelA, "/v1/chat/completions", chatCompletionBody(modelA.model)),
-      ).toBe(200);
-      expect(router.residentModel("chat")).toBe(modelA.model);
-      expect(argvHasSpecPMin(await containerCmdlines(), SWAP_PMIN_A)).toBe(true);
+        expect(
+          await proxyStatus(
+            router,
+            modelA,
+            "/v1/chat/completions",
+            chatCompletionBody(modelA.model),
+          ),
+        ).toBe(200);
+        expect(router.residentModel("chat")).toBe(modelA.model);
+        expect(argvHasSpecPMin(await containerCmdlines(), SWAP_PMIN_A)).toBe(true);
 
-      expect(
-        await proxyStatus(router, modelB, "/v1/chat/completions", chatCompletionBody(modelB.model)),
-      ).toBe(200);
-      expect(router.residentModel("chat")).toBe(modelB.model);
+        expect(
+          await proxyStatus(
+            router,
+            modelB,
+            "/v1/chat/completions",
+            chatCompletionBody(modelB.model),
+          ),
+        ).toBe(200);
+        expect(router.residentModel("chat")).toBe(modelB.model);
 
-      // Independent of the router's own bookkeeping: the engine's own
-      // /v1/models listing, read fresh, shows the new one loaded and the old
-      // one NOT loaded -- "at most one GGUF per role", not "the router
-      // thinks it swapped".
-      expect(await router.residentModelId("chat")).toBe(modelB.model);
+        // Independent of the router's own bookkeeping: the engine's own
+        // /v1/models listing, read fresh, shows the new one loaded and the old
+        // one NOT loaded -- "at most one GGUF per role", not "the router
+        // thinks it swapped".
+        expect(await router.residentModelId("chat")).toBe(modelB.model);
 
-      // The rendered preset file is not proof, the real
-      // child's argv is. Re-read after the swap -- a relabelled bookkeeping
-      // entry over the same unchanged process would still show the OLD value.
-      const argvAfterB = await containerCmdlines();
-      expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_B)).toBe(true);
-      expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_A)).toBe(false);
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+        // The rendered preset file is not proof, the real
+        // child's argv is. Re-read after the swap -- a relabelled bookkeeping
+        // entry over the same unchanged process would still show the OLD value.
+        const argvAfterB = await containerCmdlines();
+        expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_B)).toBe(true);
+        expect(argvHasSpecPMin(argvAfterB, SWAP_PMIN_A)).toBe(false);
+      },
+      TEST_TIMEOUT_MS,
+    );
+  },
+);

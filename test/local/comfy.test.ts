@@ -16,6 +16,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
+import { skipTitle } from "./fixtures.ts";
 
 type ChatRoute = ResolvedRoute & { model: string };
 
@@ -364,9 +365,7 @@ function buildRig(fixture: Fixture): Rig {
 }
 
 describe.skipIf(!READY)(
-  READY
-    ? "comfy + llama co-residency (local)"
-    : `comfy + llama co-residency (local): SKIPPED -- ${skipReason()}`,
+  skipTitle("comfy + llama co-residency (local)", READY, skipReason()),
   () => {
     let rig: Rig | undefined;
 
@@ -425,9 +424,7 @@ describe.skipIf(!READY)(
  * has executed something, so this drives a real one.
  */
 describe.skipIf(!READY)(
-  READY
-    ? "comfy runs a real job beside a resident chat GGUF (local)"
-    : `comfy runs a real job beside a resident chat GGUF (local): SKIPPED -- ${skipReason()}`,
+  skipTitle("comfy runs a real job beside a resident chat GGUF (local)", READY, skipReason()),
   () => {
     let rig: Rig | undefined;
 
@@ -481,9 +478,7 @@ describe.skipIf(!READY)(
  * the guard without becoming pinned to them.
  */
 describe.skipIf(!CAN_RENDER)(
-  CAN_RENDER
-    ? "comfy renders through a real checkpoint (local)"
-    : `comfy renders through a real checkpoint (local): SKIPPED -- ${renderSkipReason()}`,
+  skipTitle("comfy renders through a real checkpoint (local)", CAN_RENDER, renderSkipReason()),
   () => {
     let rig: Rig | undefined;
 

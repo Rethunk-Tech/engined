@@ -11,7 +11,7 @@ import {
   runAgentic,
 } from "../../src/agentic.ts";
 import { LOCAL } from "./exclusive.ts";
-import { missingEnv, seedWorktree, skipTitle } from "./fixtures.ts";
+import { missingEnv, missingEnvReason, seedWorktree, skipTitle } from "./fixtures.ts";
 
 /**
  * A real opencode round trip: `bunx opencode-ai@<pin> run --format json`, under
@@ -74,7 +74,7 @@ function call(workdir: string, prompt: string) {
 }
 
 describe.skipIf(!READY)(
-  skipTitle("opencode, through this door, under the sandbox", MISSING),
+  skipTitle("opencode, through this door, under the sandbox", READY, missingEnvReason(MISSING)),
   () => {
     test(
       "answers from the local model, so the whole route works end to end",

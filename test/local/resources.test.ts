@@ -18,6 +18,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
+import { skipTitle } from "./fixtures.ts";
 
 /**
  * Proves `resources.ts` against a real loaded engine rather than a recorded
@@ -148,10 +149,6 @@ function skipReason(): string {
   return "no amdgpu mem_info counters under /sys/class/drm -- nothing to reconcile against";
 }
 
-function describeTitle(base: string): string {
-  return READY ? base : `${base}: SKIPPED -- ${skipReason()}`;
-}
-
 /** Drives one real completion, which is what makes the GGUF resident for the reading below. */
 async function loadChatModel(lifecycle: DockerLifecycle, chat: ChatRoute): Promise<void> {
   const router = new LlamaRouter(FIXTURE.engine, [chat], lifecycle, {
@@ -177,7 +174,7 @@ async function loadChatModel(lifecycle: DockerLifecycle, chat: ChatRoute): Promi
   await response.text();
 }
 
-describe.skipIf(!READY)(describeTitle("engine resources (local)"), () => {
+describe.skipIf(!READY)(skipTitle("engine resources (local)", READY, skipReason()), () => {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
 
   afterAll(async () => {
