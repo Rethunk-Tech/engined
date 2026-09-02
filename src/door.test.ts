@@ -24,6 +24,7 @@ import {
   BUNX,
   buildExec,
   clearVerifiedVersion,
+  collectLines,
   config,
   containerRunning,
   engine,
@@ -536,10 +537,10 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
         });
       });
     };
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: client,
-      write: (l) => lines.push(l),
+      write,
     });
 
     const res = await door.fetch(
@@ -599,10 +600,10 @@ describe("the door: content routing", () => {
   test("a chat against a resolvable llama model reaches the router and returns its body", async () => {
     const { cfg, root } = llamaDoorConfig();
     const recorded: { body: string }[] = [];
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
-      write: (l) => lines.push(l),
+      write,
     });
     const res = await door.fetch(
       chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
@@ -747,7 +748,7 @@ function fetchStreamChat(cfg: Config, root: string, doorOpts: DoorOptions): Prom
 describe("the door: streaming provenance", () => {
   test("a streaming llama hop records model_reported from the first SSE frame, and it differs from model_resident", async () => {
     const { cfg, root } = streamingDoorConfig();
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const chunks = [
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"Hel"}}]}\n\n',
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
@@ -755,7 +756,7 @@ describe("the door: streaming provenance", () => {
     ];
     const res = await fetchStreamChat(cfg, root, {
       llamaHttpClient: makeStreamingReportedHttpClient(chunks),
-      write: (l) => lines.push(l),
+      write,
     });
     await res.text();
     assertReportedAndResident(lines, "ornith", "ornith-real");
@@ -778,14 +779,14 @@ describe("the door: streaming provenance", () => {
 
   test("a stream whose frames carry no model id leaves model_reported absent, and the response still completes", async () => {
     const { cfg, root } = streamingDoorConfig();
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const chunks = [
       'data: {"id":"1","choices":[{"delta":{"content":"Hi"}}]}\n\n',
       "data: [DONE]\n\n",
     ];
     const res = await fetchStreamChat(cfg, root, {
       llamaHttpClient: makeStreamingReportedHttpClient(chunks),
-      write: (l) => lines.push(l),
+      write,
     });
     const body = await res.text();
     expect(body).toBe(WARMING_COMMENT + chunks.join(""));
@@ -796,10 +797,10 @@ describe("the door: streaming provenance", () => {
 describe("the door: provenance model fields", () => {
   test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
     const { cfg, root } = streamingDoorConfig();
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeStaleReportedHttpClient(),
-      write: (l) => lines.push(l),
+      write,
     });
     const res = await door.fetch(
       chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
@@ -897,11 +898,11 @@ describe("the door: chain skips an engine that fails its version proof", () => {
         exitCode: 0,
       });
     };
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: probeRunner },
-      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+      { agenticSpawn: spawn, write },
     );
     const res = await door.fetch(
       chatRequest({
@@ -948,11 +949,11 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
       new Promise((_resolve, reject) => {
         opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
       });
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+      { agenticSpawn: spawn, write },
     );
 
     const res = await door.fetch(
@@ -996,11 +997,11 @@ describe("the door: chain routing", () => {
       (argv.includes("@anthropic-ai/claude-code@1.2.3") ? hopACalls : hopBCalls).push(argv);
       return Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
     };
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, write: (l) => lines.push(l) },
+      { agenticSpawn: spawn, write },
     );
     const res = await door.fetch(
       chatRequest({
@@ -2061,7 +2062,7 @@ describe("the launch-scoped door: what a child may call back to", () => {
     const root = redirectDoorRoot();
     const cfg = kimiBesideLlamaConfig(root);
     const recorded: { body: string }[] = [];
-    const lines: string[] = [];
+    const { lines, write } = collectLines();
     // The nonce lives only until `runAgentic` returns, so the recursive,
     // non-agentic request has to be made FROM INSIDE the fake spawn, while
     // the launch it belongs to is still in flight.
@@ -2095,7 +2096,7 @@ describe("the launch-scoped door: what a child may call back to", () => {
         secretExec: fakeExec("kimi-secret-value"),
         llamaHttpClient: makeLlamaHttpClient(recorded),
         llamaPresetHostPath: tempPresetPath(TEST_ROOT),
-        write: (l) => lines.push(l),
+        write,
       },
     );
     clearVerifiedVersion("claude");

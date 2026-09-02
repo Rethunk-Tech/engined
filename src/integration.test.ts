@@ -13,6 +13,7 @@ import type { Exec, ExecResult } from "./exec.ts";
 import { createDoor, type Door, type DoorOptions } from "./main.ts";
 import {
   buildExec,
+  collectLines,
   deadPort,
   makeTestRoot,
   route,
@@ -449,7 +450,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
   const exec = buildExec({
     portByContainer: { "engined-dead": dead, "engined-good": Number(goodPort) },
   });
-  const lines: string[] = [];
+  const { lines, write } = collectLines();
   await withChatDoor(
     {
       routes: [
@@ -464,7 +465,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
       ],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
-    { exec, stoppables: [good], doorOpts: { write: (line) => lines.push(line) } },
+    { exec, stoppables: [good], doorOpts: { write } },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/openai/v1/chat/completions", {
@@ -500,7 +501,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
   const exec = buildExec({
     portByContainer: { "engined-dead": Number(deadHostPort), "engined-good": Number(goodPort) },
   });
-  const lines: string[] = [];
+  const { lines, write } = collectLines();
   await withChatDoor(
     {
       routes: [
@@ -510,7 +511,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
       engines: [containerEngine("dead", openaiSpec()), containerEngine("good", openaiSpec())],
       chains: { "chain-x": ["@/dead/m", "@/good/m"] },
     },
-    { exec, stoppables: [dead, good], doorOpts: { write: (line) => lines.push(line) } },
+    { exec, stoppables: [dead, good], doorOpts: { write } },
     async (door) => {
       const res = await door.fetch(
         req("POST", "/openai/v1/chat/completions", {
@@ -824,11 +825,11 @@ test("a failed audio call records why it failed, not merely that it did", async 
     routes: CHATTERBOX_ROUTES,
     engines: [containerEngine("chatterbox-multi", ttsSpec())],
   });
-  const lines: string[] = [];
+  const { lines, write } = collectLines();
   const door = createDoor(
     config,
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { write: (l) => lines.push(l) },
+    { write },
   );
 
   try {
@@ -875,14 +876,14 @@ interface StreamingSpeechDoor {
 function streamingSpeechDoor(): StreamingSpeechDoor {
   const fake = startFakeUpstream(fakeStreamingTts());
   const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": fake.port } });
-  const lines: string[] = [];
+  const { lines, write } = collectLines();
   const door = createDoor(
     baseConfig({
       routes: CHATTERBOX_ROUTES,
       engines: [containerEngine("chatterbox-multi", ttsSpec())],
     }),
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { write: (l) => lines.push(l) },
+    { write },
   );
   return {
     door,
