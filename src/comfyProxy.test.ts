@@ -534,11 +534,10 @@ function cancel(door: Door, promptId: string) {
   );
 }
 
-describe("comfy proxy: scoped cancel", () => {
-  // The door refuses a bare `/interrupt` because comfy carries no id to scope
-  // it. `/cancel` is what makes one safe: the door reads the queue itself and
-  // only interrupts once the running prompt is provably the caller's own.
-
+// The door refuses a bare `/interrupt` because comfy carries no id to scope
+// it. `/cancel` is what makes one safe: the door reads the queue itself and
+// only interrupts once the running prompt is provably the caller's own.
+describe("comfy proxy: a scoped cancel the door can prove and perform", () => {
   test("POST /cancel interrupts the container only when the caller's own prompt is the running one", async () => {
     const { client, calls } = cancellingComfyClient(["job-c"], []);
     const res = await cancel(await boundDoor(client), "job-c");
@@ -560,6 +559,18 @@ describe("comfy proxy: scoped cancel", () => {
     expect(deletes[0]?.init?.body).toBe(JSON.stringify({ delete: ["job-c"] }));
   });
 
+  // A cancel that lands after the render finished must not interrupt whatever
+  // inherited the GPU behind it.
+  test("POST /cancel reports a finished prompt without touching the container", async () => {
+    const { client, calls } = cancellingComfyClient(["a-later-job"], []);
+    const res = await cancel(await boundDoor(client), "job-c");
+
+    expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "finished" });
+    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
+  });
+});
+
+describe("comfy proxy: a scoped cancel the door refuses", () => {
   // Reporting a cancel comfy never performed is worse than reporting none:
   // the caller stops waiting for a prompt that is still queued to render.
   test("POST /cancel reports a queue delete comfy refused, never a cancel it did not perform", async () => {
@@ -591,16 +602,6 @@ describe("comfy proxy: scoped cancel", () => {
     const res = await cancel(await boundDoor(client), "someone-elses-job");
 
     expect(res.status).toBe(404);
-    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
-  });
-
-  // A cancel that lands after the render finished must not interrupt whatever
-  // inherited the GPU behind it.
-  test("POST /cancel reports a finished prompt without touching the container", async () => {
-    const { client, calls } = cancellingComfyClient(["a-later-job"], []);
-    const res = await cancel(await boundDoor(client), "job-c");
-
-    expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "finished" });
     expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
   });
 });

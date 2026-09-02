@@ -1214,50 +1214,40 @@ function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
   );
 }
 
+/** Every tool-refusal case sends the same function under both spellings; only the body shape around it differs. */
+const TOOL_NOW = { type: "function", function: { name: "now", parameters: {} } };
+
+/** One tool-fallback door per call, posted a chat body and read back whole -- the spawn log is what proves the agent was never reached. */
+async function toolFallbackCall(
+  body: Record<string, unknown>,
+  agenticFirst = false,
+): Promise<{
+  status: number;
+  body: { choices?: { finish_reason?: string }[]; error?: string; attempts?: unknown[] };
+  spawnCalls: string[][];
+}> {
+  const spawnCalls: string[][] = [];
+  const door = toolFallbackDoor(spawnCalls, agenticFirst);
+  const res = await door.fetch(chatRequest(body));
+  return { status: res.status, body: await res.json(), spawnCalls };
+}
+
 describe("the door: a tool call never falls back into prose", () => {
   test("a chain falling off a llama hop onto an agentic one refuses the tools it cannot honour instead of answering", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "chain-tools",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
-        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
-        parallel_tool_calls: true,
-      }),
-    );
-    const body = (await res.json()) as {
-      choices?: unknown;
-      error?: string;
-      attempts?: unknown[];
-    };
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "chain-tools",
+      messages: [{ role: "user", content: "what time is it" }],
+      workdir: "/tmp",
+      tools: [TOOL_NOW],
+      parallel_tool_calls: true,
+    });
     // The agent is never launched at all, so there is no prose to return.
     // A tool-capable hop was in this chain and merely failed, so the refusal
     // advances and the chain exhausts -- it does not terminate on the caller.
     expect(spawnCalls).toHaveLength(0);
-    expect(res.status).toBe(503);
+    expect(status).toBe(503);
     expect(body.error).toBe("every engine in this chain failed");
     expect(body.attempts).toHaveLength(2);
-    expect(body.choices).toBeUndefined();
-    clearVerifiedVersion("claude");
-  });
-
-  test("naming the agentic engine directly is terminal and names the field, not a 503 that reads as a dead box", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/x",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
-        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
-      }),
-    );
-    const body = (await res.json()) as { choices?: unknown; error?: string };
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("cannot honour tools");
-    expect(spawnCalls).toHaveLength(0);
     expect(body.choices).toBeUndefined();
     clearVerifiedVersion("claude");
   });
@@ -1266,39 +1256,45 @@ describe("the door: a tool call never falls back into prose", () => {
   // had no reason to send one -- and the agentic hop it is reached through
   // must not turn that into a terminal 400 the chain cannot get past.
   test("a chain whose first hop is agentic still reaches the tool-capable hop behind it with no workdir sent", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls, true);
-    const res = await door.fetch(
-      chatRequest({
+    const { status, body, spawnCalls } = await toolFallbackCall(
+      {
         model: "chain-rev",
         messages: [{ role: "user", content: "what time is it" }],
-        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
-      }),
+        tools: [TOOL_NOW],
+      },
+      true,
     );
-    const body = (await res.json()) as {
-      choices?: { finish_reason?: string }[];
-      error?: string;
-    };
-    expect(res.status).toBe(200);
+    expect(status).toBe(200);
     expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
   });
+});
+
+describe("the door: an agentic engine named directly refuses the tool field by name", () => {
+  test("naming the agentic engine directly is terminal and names the field, not a 503 that reads as a dead box", async () => {
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+      workdir: "/tmp",
+      tools: [TOOL_NOW],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("cannot honour tools");
+    expect(spawnCalls).toHaveLength(0);
+    expect(body.choices).toBeUndefined();
+    clearVerifiedVersion("claude");
+  });
 
   test("the legacy functions/function_call spelling is refused too, not answered in prose", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/x",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
-        functions: [{ name: "now", parameters: {} }],
-        function_call: "auto",
-      }),
-    );
-    const body = (await res.json()) as { error?: string };
-    expect(res.status).toBe(400);
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+      workdir: "/tmp",
+      functions: [TOOL_NOW.function],
+      function_call: "auto",
+    });
+    expect(status).toBe(400);
     expect(body.error).toContain("cannot honour functions");
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
