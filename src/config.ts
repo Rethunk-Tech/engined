@@ -662,24 +662,11 @@ function claimName(seen: Map<string, string>, name: string, site: string, file: 
   seen.set(name, site);
 }
 
-function checkEngineCollisions(engines: readonly EngineEntry[], file: string): void {
+/** Every `id` in one table declared once. Tables are checked only against themselves: an engine, an upstream and a model may share a name. */
+function checkCollisions(items: readonly { id: string }[], label: string, file: string): void {
   const seen = new Map<string, string>();
-  for (const e of engines) {
-    claimName(seen, e.id, `engine "${e.id}"`, file);
-  }
-}
-
-function checkUpstreamCollisions(upstreams: readonly Upstream[], file: string): void {
-  const seen = new Map<string, string>();
-  for (const u of upstreams) {
-    claimName(seen, u.id, `upstream "${u.id}"`, file);
-  }
-}
-
-function checkModelCollisions(models: readonly ModelEntry[], file: string): void {
-  const seen = new Map<string, string>();
-  for (const m of models) {
-    claimName(seen, m.id, `model "${m.id}"`, file);
+  for (const item of items) {
+    claimName(seen, item.id, `${label} "${item.id}"`, file);
   }
 }
 
@@ -776,10 +763,7 @@ function parseChainRaw(raw: unknown, index: number, file: string): RawChain {
 function parseChains(raw: unknown, ctx: ChainCtx): Record<string, string[]> {
   const rawChains = asArray(raw, "chain", ctx.file).map((c, i) => parseChainRaw(c, i, ctx.file));
 
-  const seen = new Map<string, string>();
-  for (const [i, c] of rawChains.entries()) {
-    claimName(seen, c.id, `chain[${i}]`, ctx.file);
-  }
+  checkCollisions(rawChains, "chain", ctx.file);
 
   const chains: Record<string, string[]> = {};
   for (const c of rawChains) {
@@ -809,17 +793,17 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   const raw = readConfigTable(file);
 
   const engines = asArray(raw.engine, "engine", file).map((e, i) => parseEngine(e, i, file));
-  checkEngineCollisions(engines, file);
+  checkCollisions(engines, "engine", file);
   const engineMap = new Map(engines.map((e) => [e.id, e]));
 
   const upstreams = asArray(raw.upstream, "upstream", file).map((u, i) =>
     parseUpstream(u, i, file),
   );
-  checkUpstreamCollisions(upstreams, file);
+  checkCollisions(upstreams, "upstream", file);
   const upstreamMap = new Map(upstreams.map((u) => [u.id, u]));
 
   const models = asArray(raw.model, "model", file).map((m, i) => parseModel(m, i, file));
-  checkModelCollisions(models, file);
+  checkCollisions(models, "model", file);
   const modelMap = new Map(models.map((m) => [m.id, m]));
 
   const rawRoutes = asArray(raw.route, "route", file).map((r, i) =>
