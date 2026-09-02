@@ -21,7 +21,7 @@ import {
   routeForHop,
   routeServes,
 } from "./types.ts";
-import { resolveUpstreamSecret } from "./upstream.ts";
+import { resolveUpstream } from "./upstream.ts";
 
 /** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
 function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
@@ -51,16 +51,21 @@ function modelRowId(route: ResolvedRoute, siblingCount: number): string {
 }
 
 /**
- * The engine-wide agentic proof (`EngineStatus.state`) only ever vouches for
- * the read-only floor -- a guarantee the pin carries regardless of which
- * upstream a route redirects to, so one proof legitimately covers every
- * route on the engine. A route's own resolvable-address question does not:
- * `@/claude/openrouter/sonnet-5` with no configured secret would otherwise
- * report `installed` right alongside a proven ambient route and fail on the
- * first real request. Checked here, per row, never folded into the shared
- * engine-wide state.
+ * An engine-wide proof (`EngineStatus.state`) only ever vouches for what the
+ * engine itself carries -- an agentic pin's read-only floor, a container's
+ * image -- and carries it regardless of which upstream a route points at, so
+ * one proof legitimately covers every route on the engine. A route's own
+ * resolvable-address question does not: `@/claude/openrouter/sonnet-5` with
+ * no configured secret, or an upstream carrying a secret and no `base_url`,
+ * would otherwise report `installed` right alongside a proven ambient route
+ * and fail on the first real request. Asked here per row with the resolver
+ * the request path itself uses, never folded into the shared engine state.
+ *
+ * comfy is the one kind exempt: its proxy dials the local container's own
+ * private_url and never the upstream's address, so a comfy route naming a
+ * peer serves without either half of this.
  */
-async function agenticRouteState(
+async function remoteRouteState(
   ctx: DoorContext,
   route: ResolvedRoute,
   engineState: EngineState,
@@ -69,7 +74,7 @@ async function agenticRouteState(
     engineState !== "installed" ||
     route.upstream === null ||
     route.upstream === "local" ||
-    ctx.registry.get(route.engine)?.kind !== "agentic-cli"
+    ctx.registry.get(route.engine)?.kind === "comfy"
   ) {
     return engineState;
   }
@@ -77,7 +82,7 @@ async function agenticRouteState(
   if (upstream === undefined) {
     return "unavailable";
   }
-  const resolved = await resolveUpstreamSecret(upstream, ctx.doorOpts.secretExec);
+  const resolved = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
   return resolved.ok ? engineState : "unavailable";
 }
 
@@ -93,7 +98,7 @@ async function modelRow(
   { route, siblingCount, config, statuses }: ModelRowOptions,
 ): Promise<ModelRow> {
   const status = statuses.get(route.engine);
-  const state = await agenticRouteState(ctx, route, status?.state ?? "unavailable");
+  const state = await remoteRouteState(ctx, route, status?.state ?? "unavailable");
   return {
     id: modelRowId(route, siblingCount),
     engine: route.engine,

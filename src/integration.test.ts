@@ -14,8 +14,10 @@ import type { Exec, ExecResult } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
 import {
   buildExec,
+  clearVerifiedVersion,
   collectLines,
   deadPort,
+  engine,
   makeTestRoot,
   route,
   config as sharedConfig,
@@ -1093,4 +1095,63 @@ test("a transcription request with no multipart body is a JSON 400, not Bun's HT
   );
   expect(missing.status).toBe(400);
   expect(((await missing.json()) as { error: string }).error).toContain("`file`");
+});
+
+/**
+ * `base_url` is optional and `secret` does not imply it, so an upstream
+ * carrying only a secret loads and every route naming it is dispatchable on
+ * paper. Both remote-addressed kinds resolve that address before they can
+ * answer -- the agentic redirect and the remote HTTP proxy alike -- so a row
+ * that says `installed` here is advertising an address whose very first POST
+ * 502s. The secret here resolves; the missing address is the only reason
+ * either row can be anything but `installed`.
+ */
+test("a route whose upstream has a secret and no base_url lists unavailable, agentic and remote-http alike", async () => {
+  const agenticId = "models-menu-addressless-agentic";
+  clearVerifiedVersion(agenticId);
+  const config = baseConfig({
+    routes: [
+      route({ engine: agenticId, model: "k3", upstream: "addressless" }),
+      route({ engine: "addressless-proxy", model: "m", upstream: "addressless-openai" }),
+    ],
+    engines: [
+      containerEngine(agenticId, AGENTIC_SPEC, { agent_version: "1.0.0" }),
+      engine({ id: "addressless-proxy", kind: "openai-http" }),
+    ],
+    upstreams: [
+      upstream({ id: "local", egress: "none" }),
+      upstream({
+        id: "addressless",
+        egress: "remote",
+        secret: { service: "svc", username: "u", header: "x-api-key" },
+        wire: "anthropic",
+      }),
+      upstream({
+        id: "addressless-openai",
+        egress: "remote",
+        secret: { service: "svc", username: "u", header: "authorization" },
+        wire: "openai",
+      }),
+    ],
+  });
+  const door = createDoor(
+    config,
+    {
+      enginesRoot: "/nonexistent/engines",
+      bunx: "/opt/test/bunx",
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 1 }),
+      agenticProbeRunner: () => Promise.resolve({ ok: true }),
+    },
+    { secretExec: () => Promise.resolve({ stdout: "key\n", stderr: "", exitCode: 0 }) },
+  );
+  try {
+    const res = await door.fetch(req("GET", "/openai/v1/models"));
+    const rows = ((await res.json()) as { data?: Array<{ id: string; state: string }> }).data ?? [];
+    const stateOf = (id: string): string | undefined => rows.find((r) => r.id === id)?.state;
+
+    expect(stateOf(`@/${agenticId}/k3`)).toBe("unavailable");
+    expect(stateOf("@/addressless-proxy/m")).toBe("unavailable");
+  } finally {
+    clearVerifiedVersion(agenticId);
+  }
 });
