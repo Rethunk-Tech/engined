@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
-import { DockerLifecycle, type Probe } from "./docker.ts";
+import { DockerLifecycle, NAME_PREFIX, type Probe } from "./docker.ts";
+
 import type { AgenticProbeRunner } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
@@ -21,6 +22,7 @@ import {
 import {
   assertReportedAndResident,
   BUNX,
+  buildExec,
   clearVerifiedVersion,
   config,
   containerRunning,
@@ -1020,19 +1022,12 @@ const FAILOVER_LIVE_PORT = 46_002;
 
 /** One shared docker fake for two engines, distinguished by the container name docker.ts always passes. */
 function twoEngineExec(): Exec {
-  return (args) => {
-    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
-    if (args[0] === "image" && args[1] === "inspect") {
-      result = inspectSinglePort(8080);
-    } else if (args[0] === "port") {
-      const name = args[1] ?? "";
-      const hostPort = name.includes("dead") ? FAILOVER_DEAD_PORT : FAILOVER_LIVE_PORT;
-      result = portResult(hostPort);
-    } else if (args[0] === "inspect") {
-      result = containerRunning();
-    }
-    return Promise.resolve(result);
-  };
+  return buildExec({
+    portByContainer: {
+      [`${NAME_PREFIX}llama-dead`]: FAILOVER_DEAD_PORT,
+      [`${NAME_PREFIX}llama-live`]: FAILOVER_LIVE_PORT,
+    },
+  });
 }
 
 /** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each
@@ -2005,32 +2000,6 @@ path = "/health"
 status = 200
 `;
 
-/** Tracks `run -d` and `stop` separately, so a test can assert a container start happened -- or did not -- without conflating it with a docker `start` reconcile. */
-function sttExec(runLog: string[][], stopLog: string[][]): Exec {
-  let port = 52_000;
-  return (args) => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve(inspectSinglePort(8080));
-    }
-    if (argv[0] === "run" && argv[1] === "-d") {
-      runLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "stop") {
-      stopLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "port") {
-      return Promise.resolve(portResult(++port));
-    }
-    if (argv[0] === "inspect") {
-      return Promise.resolve(containerRunning());
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-}
-
 /** Every URL the llama router's own HTTP client was asked to hit, alongside the real load/unload/models control-plane replies -- `urls` is what proves a warm actually reached llama-server rather than merely returning without error. */
 function makeRecordingLlamaClient(): { client: HttpClient; urls: string[] } {
   const control = llamaControlPlane();
@@ -2136,7 +2105,12 @@ describe("POST /engined/v1/start", () => {
     const { cfg, root } = llamaThenWhisperChainConfig();
     const { client, urls } = makeRecordingLlamaClient();
     const runLog: string[][] = [];
-    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
+    const door = createLlamaDoor(
+      cfg,
+      root,
+      { llamaHttpClient: client },
+      buildExec({ runLog, portSeed: 52_000 }),
+    );
     const res = await door.fetch(startRequest("chain-x"));
 
     expect(res.status).toBe(200);
@@ -2174,12 +2148,27 @@ describe("POST /engined/v1/start", () => {
   });
 });
 
+describe("POST /engined/v1/start: the started field", () => {
+  test("is true only on the call that launches the engine", async () => {
+    const flags = await startedFlagsAcrossTwoCalls();
+    expect(flags.firstState).toBe("running");
+    expect(flags.firstStarted).toBe(true);
+    expect(flags.secondState).toBe("running");
+    expect(flags.secondStarted).toBe(false);
+  });
+});
+
 describe("POST /engined/v1/start: a roleless model on a container engine", () => {
   test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
     const { cfg, root } = whisperDoorConfig();
     const { client, urls } = makeRecordingLlamaClient();
     const runLog: string[][] = [];
-    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
+    const door = createLlamaDoor(
+      cfg,
+      root,
+      { llamaHttpClient: client },
+      buildExec({ runLog, portSeed: 52_000 }),
+    );
     const res = await door.fetch(startRequest("@/whisper-like/small"));
 
     expect(res.status).toBe(200);
@@ -2198,7 +2187,10 @@ describe("POST /engined/v1/start: a roleless model on a container engine", () =>
     );
     const runLog: string[][] = [];
     const stopLog: string[][] = [];
-    const lifecycle = new DockerLifecycle(sttExec(runLog, stopLog), READY_200);
+    const lifecycle = new DockerLifecycle(
+      buildExec({ runLog, stopLog, portSeed: 52_000 }),
+      READY_200,
+    );
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, lifecycle },
