@@ -493,10 +493,31 @@ function loadComfyBindings(): ComfyBindings {
   );
 }
 
+/**
+ * How many bindings the table keeps. Count, not age: a `prompt_id` carries no
+ * timestamp and adding one would mean a second on-disk shape to read back,
+ * where `Map` iteration order already puts the oldest binding first.
+ *
+ * Evicting a binding is what makes `GET /view` refuse an output the door
+ * itself produced, so this is set well above what a session plausibly
+ * generates rather than as tight as the file could bear -- ~78 bytes per
+ * binding measured, so the whole table stays under ~100 KB.
+ */
+const COMFY_BINDINGS_MAX = 1000;
+
 // ponytail: the whole table is rewritten on every bind and every filename
-// attach. It is a few hundred bytes per prompt with no pruning yet, so an
-// append log only earns its complexity once retention exists to need one.
+// attach -- bounded work now that COMFY_BINDINGS_MAX bounds the table. An
+// append log only earns its complexity if that cap is ever raised far enough
+// for the rewrite to be felt.
 function saveComfyBindings(bindings: ComfyBindings): void {
+  // Oldest first: a binding is inserted when its prompt is queued and only
+  // mutated in place afterwards, so insertion order is creation order.
+  for (const key of bindings.keys()) {
+    if (bindings.size <= COMFY_BINDINGS_MAX) {
+      break;
+    }
+    bindings.delete(key);
+  }
   mkdirSync(stateDir(), { recursive: true });
   writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(bindings)));
 }
@@ -615,8 +636,8 @@ async function proxyComfyUpload(
  * produced `filename`. Scoped to the pair, never engine-wide: another
  * origin's `/history` read must not make its outputs viewable here.
  */
-// ponytail: linear over the table; index by filename if it ever grows past
-// a few thousand live bindings.
+// ponytail: linear over the table, which COMFY_BINDINGS_MAX holds at a
+// thousand entries; index by filename only if that cap is ever raised.
 function comfyFilenameBound(
   ctx: DoorContext,
   engineId: string,
