@@ -73,6 +73,7 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
+  EGRESS_RANK,
   type Egress,
   type EngineEntry,
   type EngineKind,
@@ -2094,7 +2095,10 @@ async function handleChatOrEmbeddings(
   const { pathname, rawModel, body, signal, launchScoped } = content;
   const maxEgress = parseMaxEgress(body.max_egress);
   if (!maxEgress.ok) {
-    return jsonError(STATUS_BAD_REQUEST, 'max_egress must be "none", "lan" or "remote"');
+    return jsonError(
+      STATUS_BAD_REQUEST,
+      `max_egress must be one of: ${Object.keys(EGRESS_RANK).join(", ")}`,
+    );
   }
   const hops = resolved.kind === "chain" ? [...resolved.hops] : [routeAddress(resolved.route)];
   const chainName = resolved.kind === "chain" ? resolved.chain : null;

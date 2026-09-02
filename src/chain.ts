@@ -12,6 +12,9 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_CLIENT_CLOSED,
   STATUS_FORBIDDEN,
+  STATUS_PAYMENT_REQUIRED,
+  STATUS_TOO_MANY_REQUESTS,
+  STATUS_UNAUTHORIZED,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
@@ -91,9 +94,6 @@ function bodyIsEmpty(body: unknown): boolean {
  * not. The rest of 4xx still terminates: a caller's own malformed request
  * is not something a different upstream can fix either.
  */
-const STATUS_UNAUTHORIZED = 401;
-const STATUS_PAYMENT_REQUIRED = 402;
-const STATUS_TOO_MANY_REQUESTS = 429;
 const ADVANCING_CLIENT_ERRORS = new Set([
   STATUS_UNAUTHORIZED,
   STATUS_PAYMENT_REQUIRED,
