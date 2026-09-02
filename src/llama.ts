@@ -460,9 +460,14 @@ export class LlamaRouter {
       idleStopSeconds: this.opts.idleStopSeconds,
       readyTimeoutS: this.opts.readyTimeoutS,
     });
+    // A fresh child holds nothing, so no role has a resident model or a known
+    // capacity any more. `activeCount` is not the child's state though: it
+    // counts leases callers are still holding and will each release exactly
+    // once, and `fetchUpstreamOnce`'s retry reaches this restart with those
+    // leases live. Zeroing it lets the pump swap out from under them and
+    // admits a second full set of requests onto the same llama.cpp slots.
     for (const state of this.roleStates.values()) {
       state.activeModelId = null;
-      state.activeCount = 0;
       state.capacity = Number.POSITIVE_INFINITY;
     }
   }

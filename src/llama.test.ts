@@ -983,6 +983,68 @@ test("a request that cannot connect while the container is genuinely up rethrows
 });
 
 /**
+ * Interleaving: a request holding the chat role's lease loses its connection,
+ * so `fetchUpstreamOnce` reconciles a dead container and restarts it -- with
+ * that lease still held and its retry still to come. A second request for the
+ * same role arrives while the retry is in flight. The restart may forget what
+ * the child had resident; it must not forget the requests this door still has
+ * running against it, or four in-flight requests plus four newly admitted ride
+ * four llama.cpp slots.
+ */
+test("a container restarted under a live lease still counts that lease: the next request waits rather than riding the same slots", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+
+  const base = fakeExec();
+  const goneExec: Exec = (args) =>
+    args[0] === "inspect"
+      ? Promise.resolve({ exitCode: 0, stdout: "false\n", stderr: "" })
+      : base(args);
+
+  let retrying: () => void = () => undefined;
+  const retryStarted = new Promise<void>((r) => {
+    retrying = r;
+  });
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let chatCalls = 0;
+  const { client, calls } = fakeLlama();
+  const gatedClient: HttpClient = async (input, init) => {
+    if (new URL(String(input)).pathname === CHAT_PATH) {
+      chatCalls += 1;
+      if (chatCalls === 1) {
+        throw new Error("Unable to connect");
+      }
+      // The post-restart retry, still under the first request's lease.
+      retrying();
+      await gate;
+    }
+    return client(input, init);
+  };
+
+  const router = new LlamaRouter(e, [a], new DockerLifecycle(goneExec, fakeProbe), {
+    ...baseOpts(gatedClient),
+  });
+  const res1 = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  await retryStarted;
+
+  const res2 = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  await drainMicrotasks();
+
+  expect(router.contention()).toEqual([{ role: "chat", active: 1, waiting: 1 }]);
+  // Nor may the queued one swap a model in under the lease that is still running.
+  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(1);
+
+  release();
+  const [{ response: r1 }, { response: r2 }] = await Promise.all([res1, res2]);
+  expect(r1.status).toBe(200);
+  expect(r2.status).toBe(200);
+  expect(router.contention()).toEqual([]);
+});
+
+/**
  * The desync this heals is not hypothetical: unloading ornith straight at the
  * router (`POST /models/unload`) left engined still believing it resident, so
  * the very next proxied request came back 400 "model is not loaded" in ~12ms
