@@ -32,9 +32,16 @@ jobs:
       - id: test
         run: bunx turbo run test
         continue-on-error: true
+      # The bundle install.sh ships is this task's output, so a break in it has
+      # to be red here rather than at install time. ENGINED_COMMIT is left unset:
+      # a CI bundle is never installed, and stamping it with the pushed sha would
+      # miss the cache on every push including a docs-only one.
+      - id: build
+        run: bunx turbo run build
+        continue-on-error: true
 
       - name: gate
-        if: steps.lint.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success'
+        if: steps.lint.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success' || steps.build.outcome != 'success'
         run: |
-          echo "lint=${{ steps.lint.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }}"
+          echo "lint=${{ steps.lint.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }} build=${{ steps.build.outcome }}"
           exit 1

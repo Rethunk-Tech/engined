@@ -16,7 +16,8 @@
     "build": {
       "dependsOn": ["typecheck"],
       "inputs": ["src/**/*.ts", "tsconfig.json", "package.json"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**"],
+      "env": ["ENGINED_COMMIT"]
     }
   }
 }

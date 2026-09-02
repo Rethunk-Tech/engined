@@ -112,17 +112,17 @@ main() {
 
   COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 
-  BUILD_DIR="$(mktemp -d)"
-  trap 'rm -rf "$BUILD_DIR"' EXIT
-
   # The install dir is deliberately not a git tree, so GET /engined/v1/engines can
-  # only report the revision it was built from if it's baked in now.
-  # ENGINED_COMMIT is a bare global; unset (no --define) it falls through to
-  # "unknown" at the call site rather than throwing.
-  bun build "$REPO_ROOT/src/main.ts" \
-    --target=bun \
-    --define ENGINED_COMMIT="\"$COMMIT\"" \
-    --outfile "$BUILD_DIR/main.js"
+  # only report the revision it was built from if it's baked in now. The bundle
+  # is `bun run build`'s -- one definition of the flags -- run through turbo so a
+  # re-install at the same commit replays it. ENGINED_COMMIT is declared as that
+  # task's env input, which is what stops the cache handing back a bundle stamped
+  # with a different commit. Dependencies first: the build task runs typecheck.
+  (
+    cd "$REPO_ROOT"
+    bun install --frozen-lockfile
+    ENGINED_COMMIT="$COMMIT" bunx turbo run build
+  )
 
   mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$STATE_DIR/bun-install" "$STATE_DIR/tmp"
 
@@ -135,7 +135,7 @@ main() {
   # ($DATA_HOME/engined-models, not $INSTALL_DIR/models) and must stay one.
   # Nothing under here survives a sync it is not part of, and the model tree
   # is ~90 GB that no download step would replace.
-  cp "$BUILD_DIR/main.js" "$INSTALL_DIR/main.js"
+  cp "$REPO_ROOT/dist/main.js" "$INSTALL_DIR/main.js"
   rsync -a --delete "$REPO_ROOT/engines/" "$INSTALL_DIR/engines/"
 
   mkdir -p "$UNIT_DIR"
