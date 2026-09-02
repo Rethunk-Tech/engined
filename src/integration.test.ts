@@ -802,7 +802,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     // Nothing calls endLease for the audio door the way LlamaRouter's
     // withLease does for chat -- prove the request itself arms the timer,
     // not just that the container started.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await Bun.sleep(60);
 
     const engines = await door.fetch(req("GET", "/engined/v1/engines"));
     const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> };

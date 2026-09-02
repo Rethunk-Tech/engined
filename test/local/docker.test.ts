@@ -60,7 +60,7 @@ describe.skipIf(!LOCAL)("docker lifecycle (local)", () => {
     expect((await fetch(`http://${first.private_url}/`)).status).toBe(200);
 
     lifecycle.endLease(ID, IDLE_STOP_SECONDS);
-    await new Promise((resolve) => setTimeout(resolve, IDLE_WAIT_MS));
+    await Bun.sleep(IDLE_WAIT_MS);
     expect(lifecycle.getStatus(ID).state).toBe("installed");
 
     const second = await lifecycle.start(ID, SPEC, opts);

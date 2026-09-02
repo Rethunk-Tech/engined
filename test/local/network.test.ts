@@ -62,7 +62,7 @@ describe.skipIf(!LOCAL)("slow response over a real socket (local)", () => {
 
   beforeAll(() => {
     bound = bindDualFamily(async () => {
-      await new Promise((resolve) => setTimeout(resolve, SLOWER_THAN_BUN_DEFAULT_MS));
+      await Bun.sleep(SLOWER_THAN_BUN_DEFAULT_MS);
       return new Response(MARKER);
     }, 0);
   });

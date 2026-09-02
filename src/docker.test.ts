@@ -231,15 +231,15 @@ test("a held lease outlasts idle-stop; a lease-less start still counts down", as
   lifecycle.beginLease("idle-test");
 
   // A lease is held: outlasting idleStopSeconds must not stop it mid-use.
-  await new Promise((resolve) => setTimeout(resolve, OUTLAST_WAIT_MS));
+  await Bun.sleep(OUTLAST_WAIT_MS);
   expect(stopLog.length).toBe(0);
   expect(lifecycle.getStatus("idle-test").state).toBe("running");
 
   // Last lease ends: idle-stop is armed now, and fires after idleStopSeconds.
   lifecycle.endLease("idle-test", opts.idleStopSeconds);
-  await new Promise((resolve) => setTimeout(resolve, SHORT_WAIT_MS));
+  await Bun.sleep(SHORT_WAIT_MS);
   expect(stopLog.length).toBe(0);
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
   expect(stopLog.length).toBe(1);
   expect(lifecycle.getStatus("idle-test").state).toBe("installed");
 
@@ -247,10 +247,10 @@ test("a held lease outlasts idle-stop; a lease-less start still counts down", as
   await lifecycle.start("idle-test", SPEC, opts);
   lifecycle.beginLease("idle-test");
   lifecycle.endLease("idle-test", opts.idleStopSeconds);
-  await new Promise((resolve) => setTimeout(resolve, SHORT_WAIT_MS));
+  await Bun.sleep(SHORT_WAIT_MS);
   await lifecycle.start("idle-test", SPEC, opts);
   lifecycle.beginLease("idle-test");
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
   expect(stopLog.length).toBe(1);
 });
 
@@ -266,7 +266,7 @@ test("an engine warmed by start and never dispatched to still idle-stops", async
     readyTimeoutS: 1,
   });
 
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
   expect(stopLog.length).toBe(1);
   expect(lifecycle.getStatus("warm-only").state).toBe("installed");
 });
@@ -281,12 +281,12 @@ test("concurrent leases: the countdown starts only when the last one is released
   lifecycle.beginLease("two-leases");
 
   lifecycle.endLease("two-leases", opts.idleStopSeconds);
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
   expect(stopLog.length).toBe(0);
   expect(lifecycle.getStatus("two-leases").state).toBe("running");
 
   lifecycle.endLease("two-leases", opts.idleStopSeconds);
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
   expect(stopLog.length).toBe(1);
 });
 
@@ -636,7 +636,7 @@ test("idle-stop failure is recorded as last_error, not thrown, the container sta
   await lifecycle.start("flaky-stop", SPEC, opts);
 
   lifecycle.endLease("flaky-stop", opts.idleStopSeconds);
-  await new Promise((resolve) => setTimeout(resolve, PAST_IDLE_WAIT_MS));
+  await Bun.sleep(PAST_IDLE_WAIT_MS);
 
   const status = lifecycle.getStatus("flaky-stop");
   expect(status.state).toBe("running");
@@ -648,12 +648,12 @@ test("idle-stop failure is recorded as last_error, not thrown, the container sta
   // stops re-arming itself rather than retrying forever against a wedged
   // daemon.
   const RETRY_SETTLE_WAIT_MS = PAST_IDLE_WAIT_MS * 8;
-  await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_WAIT_MS));
+  await Bun.sleep(RETRY_SETTLE_WAIT_MS);
   const TOTAL_ATTEMPTS_WITH_RETRIES = 4;
   expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES);
 
   // Bounded: waiting again brings no further attempts.
-  await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_WAIT_MS));
+  await Bun.sleep(RETRY_SETTLE_WAIT_MS);
   expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES);
   expect(lifecycle.getStatus("flaky-stop").state).toBe("running");
 });
