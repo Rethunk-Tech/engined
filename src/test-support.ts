@@ -138,11 +138,17 @@ interface BuildExecOptions {
   port?: number;
   /** `docker port` answers `portSeed + 1`, then `+ 2`, ... regardless of container: for a test that only needs each lookup to differ, never the value itself. */
   portSeed?: number;
+  /**
+   * Every `docker run` argv, detached start (`run -d`) and one-shot artifact
+   * check (`run --rm --entrypoint sh`) alike. Logging only the detached ones
+   * would let an unexpected container start slip past a length assertion; a
+   * caller that needs to tell the two apart reads `-d` off the argv.
+   */
   runLog?: string[][];
   stopLog?: string[][];
   /** The single port the image `EXPOSE`s, when a test's engine kind has a real one. Never asserted on: `docker port` answers from `port`/`portByContainer` regardless. */
   containerPort?: number;
-  /** Holds `run -d` pending this long before resolving -- a genuine tick for a start-lock race test to prove overlap against, not sequencing. */
+  /** Holds `run -d` pending this long before resolving -- a genuine tick for a start-lock race test to prove overlap against, not sequencing. A one-shot artifact check is never delayed: only the start is what such a test races. */
   runDelayMs?: number;
 }
 
@@ -177,7 +183,7 @@ function execPort(
 
 async function execRun(argv: string[], opts: BuildExecOptions): Promise<ExecResult> {
   opts.runLog?.push(argv);
-  if (opts.runDelayMs) {
+  if (opts.runDelayMs && argv[1] === "-d") {
     await Bun.sleep(opts.runDelayMs);
   }
   return { stdout: "", stderr: "", exitCode: 0 };
@@ -201,7 +207,7 @@ export function buildExec(opts: BuildExecOptions): Exec {
     if (argv[0] === "start") {
       return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
     }
-    if (argv[0] === "run" && argv[1] === "-d") {
+    if (argv[0] === "run") {
       return execRun(argv, opts);
     }
     if (argv[0] === "stop") {

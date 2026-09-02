@@ -123,6 +123,32 @@ path = "/health"
 status = 200
 `;
 
+/**
+ * The one artifact shape no host `stat` can answer: a docker-managed named
+ * volume (`name` is not an absolute path), so the check is a container of its
+ * own -- a second `docker run` alongside the detached start.
+ */
+const STT_VOLUME_ARTIFACT = `
+kind = "stt"
+upstream = "self"
+image = "engined/fakestt:local"
+obtain = "build"
+serves = ["/openai/v1/audio/transcriptions"]
+command = ["--host", "0.0.0.0"]
+
+[ready]
+path = "/health"
+status = 200
+
+[[volume]]
+name = "engined-fakestt-models"
+path = "/models"
+
+[[artifact]]
+path = "/models/fake.bin"
+obtain = "curl -fL -o /models/fake.bin https://example.com/fake.bin"
+`;
+
 /** Mirrors engines/whisper's real shape: a real command that flags can extend. */
 const STT_REAL_COMMAND = `
 kind = "stt"
@@ -1083,7 +1109,7 @@ describe("comfy: resolved URL outlives its container by exactly nothing", () => 
   });
 });
 
-/** A lifecycle whose every `docker run -d` argv lands in `runArgvCalls`; the host port it hands back is never read. */
+/** A lifecycle whose every `docker run` argv lands in `runArgvCalls`; the host port it hands back is never read. */
 function capturingLifecycle(runArgvCalls: string[][], containerPort = 8080): DockerLifecycle {
   return new DockerLifecycle(
     buildExec({ portSeed: 50_000, containerPort, runLog: runArgvCalls }),
@@ -1149,6 +1175,30 @@ describe("spec construction is routed through the per-engine builder", () => {
       restoreStateHome();
     }
   });
+});
+
+// Every `toHaveLength(1)` above reads as "exactly one container started".
+// That only holds while the log sees one-shot runs too: an artifact check is
+// a `docker run` no fixture above triggers, and a log blind to it would let
+// an extra container start pass a length assertion unnoticed.
+test("an artifact only a named volume can hold starts its own check container, logged beside the detached start", async () => {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "volume-stt", STT_VOLUME_ARTIFACT);
+  const runArgvCalls: string[][] = [];
+  const reg = new EngineRegistry(
+    config({ engines: [engine({ id: "volume-stt", ready_timeout_s: 5 })] }),
+    { enginesRoot: root, bunx: BUNX, lifecycle: capturingLifecycle(runArgvCalls) },
+  );
+  try {
+    await reg.start("volume-stt");
+    expect(runArgvCalls).toHaveLength(2);
+    const [check, started] = runArgvCalls;
+    expect(check).toContain("--rm");
+    expect(check?.some((a) => a.includes("test -e '/models/fake.bin'"))).toBe(true);
+    expect(started?.[1]).toBe("-d");
+  } finally {
+    await reg.shutdown();
+  }
 });
 
 const RX_KOKORO_LIKE = /kokoro-like/;

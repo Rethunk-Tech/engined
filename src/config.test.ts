@@ -1026,6 +1026,16 @@ describe("engine/upstream required/forbidden fields", () => {
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_EGRESS);
   });
 
+  // The list is rendered from EGRESS_RANK rather than written out, so an
+  // added egress level reaches the operator's error without a second edit --
+  // asserting the literal is what proves the rendering, not the intent.
+  test("an egress that is not one refuses at parse, naming every value that is", () => {
+    const toml = `[[upstream]]\nid = "x"\negress = "internet"\n`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(
+      /upstream "x" "egress" must be one of: none, lan, remote/,
+    );
+  });
+
   /**
    * `local` names this box everywhere it appears -- `defaultUpstreamFor`
    * and `localFileForbiddenReason` both read it as such. A config that
