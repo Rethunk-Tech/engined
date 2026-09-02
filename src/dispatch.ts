@@ -14,7 +14,7 @@ import {
   routeServes,
 } from "./types.ts";
 
-export type ModelDispatch =
+type ModelDispatch =
   | { ok: true; kind: "model"; route: ResolvedRoute }
   | { ok: false; error: string };
 
@@ -23,7 +23,7 @@ export type Dispatch =
   | { ok: true; kind: "chain"; chain: string; hops: readonly string[] };
 
 /** Everything one resolution reads. No `endpoint` skips the serves check: starting a container asks nothing about which door path the engine answers. */
-export interface ResolveCtx {
+interface ResolveCtx {
   endpoint?: string;
   config: Config;
   registry: EngineRegistry;

@@ -127,9 +127,9 @@ function substituteDeep<T>(value: T, subs: Record<string, string>, file: string)
   if (Array.isArray(value)) {
     return value.map((item) => substituteDeep(item, subs, file)) as unknown as T;
   }
-  if (value !== null && typeof value === "object") {
+  if (isRecord(value)) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value)) {
       out[k] = substituteDeep(v, subs, file);
     }
     return out as T;
@@ -144,8 +144,8 @@ function assertNoPortKey(obj: unknown, file: string): void {
     }
     return;
   }
-  if (obj !== null && typeof obj === "object") {
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+  if (isRecord(obj)) {
+    for (const [k, v] of Object.entries(obj)) {
       if (PORT_KEYS.has(k)) {
         throw new ParseError(
           `"${k}" is not a spec field: the container side is the image's EXPOSE, the host side is docker's`,

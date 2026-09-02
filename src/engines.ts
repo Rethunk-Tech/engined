@@ -12,7 +12,7 @@ import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
-import { CONTENT_TYPE, JSON_CONTENT_TYPE } from "./http.ts";
+import { CONTENT_TYPE, JSON_CONTENT_TYPE, STATUS_OK } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { llamaPresetPath, stateDir } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
@@ -118,7 +118,7 @@ const KIND_SERVES: Record<EngineKind, string[]> = {
 const BUILTIN_SPEC_SOURCE = "(none: spec-less engine)";
 
 /** Never read: `isContainerSpec` is false for a spec-less engine's built-in spec, so no probe ever reaches `docker inspect` with this. */
-const BUILTIN_READY_PROBE: ReadyProbe = { path: "/", status: 200 };
+const BUILTIN_READY_PROBE: ReadyProbe = { path: "/", status: STATUS_OK };
 
 /**
  * The spec a spec-less engine takes when its own config declares `kind`.

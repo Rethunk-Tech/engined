@@ -40,7 +40,7 @@ import {
   TEXT_CONTENT_TYPE,
   WAV_CONTENT_TYPE,
 } from "./http.ts";
-import { parseRecord } from "./types.ts";
+import { isRecord, parseRecord } from "./types.ts";
 import { type UpstreamEndpoint, upstreamUrl } from "./upstream.ts";
 
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
@@ -334,11 +334,10 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
 /** A spoken word and where it sits in the utterance, in seconds, when the engine can tell. */
 function isWord(value: unknown): value is { text: string; start: number; end: number } {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { text?: unknown }).text === "string" &&
-    typeof (value as { start?: unknown }).start === "number" &&
-    typeof (value as { end?: unknown }).end === "number"
+    isRecord(value) &&
+    typeof value.text === "string" &&
+    typeof value.start === "number" &&
+    typeof value.end === "number"
   );
 }
 

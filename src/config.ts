@@ -10,6 +10,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, sep as pathSep, resolve as resolvePath } from "node:path";
+import { parseHop } from "./chain.ts";
 import { configPath, dataHome, expandTilde, installDir } from "./paths.ts";
 import type {
   Config,
@@ -28,6 +29,7 @@ import type {
 import {
   argKeysAsFlags,
   assertNoForbiddenFlags,
+  EGRESS_RANK,
   ENGINE_KINDS,
   isEgress,
   isRecord,
@@ -191,7 +193,7 @@ function parseKind(
 function parseEgress(raw: unknown, label: string, file: string): Egress | undefined {
   const v = optional(raw, "string", label, file);
   if (v !== undefined && !isEgress(v)) {
-    throw new ParseError(`${label} must be "none", "lan" or "remote"`, file);
+    throw new ParseError(`${label} must be one of: ${Object.keys(EGRESS_RANK).join(", ")}`, file);
   }
   return v;
 }
@@ -677,17 +679,6 @@ function checkCollisions(items: readonly { id: string }[], label: string, file: 
   }
 }
 
-/** The route a resolved (engine, [upstream,] model) hop names. */
-function findRouteForHop(
-  segs: readonly string[],
-  routes: readonly ResolvedRoute[],
-): ResolvedRoute | undefined {
-  const [engine, second, third] = segs;
-  return third === undefined
-    ? routeForHop(routes, engine as string, second as string)
-    : routeForHop(routes, engine as string, third, second);
-}
-
 /**
  * One chain's hops, minus any whose resolved (engine, upstream, model)
  * address is disabled -- through the engine, the upstream, or the route
@@ -712,13 +703,12 @@ function parseChainHops(
     }
     // `local` is a real upstream id, never an engine one: a hop names an
     // engine by its actual id, same as every other address form.
-    const engineId = segs[0] as string;
+    const { engine: engineId, upstream, model } = parseHop(hop);
     if (!engines.some((e) => e.id === engineId)) {
       throw new ParseError(`chain hop "${hop}": engine "${engineId}" does not exist`, file);
     }
-    const route = findRouteForHop(segs, routes);
+    const route = routeForHop(routes, engineId, model, upstream);
     if (route === undefined) {
-      const model = segs.at(-1);
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
         file,

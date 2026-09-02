@@ -13,14 +13,23 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DockerLifecycle } from "./docker.ts";
-import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } from "./http.ts";
+import {
+  CONTENT_TYPE,
+  HTTP_SERVER_ERROR_MIN,
+  type HttpClient,
+  JSON_CONTENT_TYPE,
+  SSE_CONTENT_TYPE,
+  STATUS_BAD_REQUEST,
+} from "./http.ts";
 import { llamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
 import {
   isContainerSpec,
+  isRecord,
   MS_PER_SECOND,
   ParseError,
+  parseRecord,
   pollUntil,
   type RunnableContainerSpec,
 } from "./types.ts";
@@ -30,18 +39,14 @@ const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
 /**
- * Statuses llama-server SENDS, named for what they mean coming back from it --
- * not statuses this door returns, which is what `http.ts` names. Keeping these
- * local is what lets the checks below read as the upstream conditions they are.
+ * The message bodies llama-server SENDS. The statuses they ride on are the
+ * registry's in `http.ts`; only the wording is llama-server's own, so only the
+ * wording is named here.
  */
-/** `/models/load`'s status for a model the router already considers resident. */
-const HTTP_ALREADY_RUNNING = 400;
 /** llama-server's answer once its own residency disagrees with this router's. */
 const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 /** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
 const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
-/** Any upstream fault, as distinct from a refusal this door authored. */
-const HTTP_SERVER_ERROR = 500;
 
 /** Not an upstream status like the group above: the bytes this door writes while a cold swap is still waiting. */
 const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
@@ -207,15 +212,7 @@ export interface LlamaRouterOptions {
  */
 function wantsStream(init: RequestInit): boolean {
   const { body } = init;
-  if (typeof body !== "string") {
-    return false;
-  }
-  try {
-    const parsed = JSON.parse(body) as { stream?: unknown };
-    return parsed.stream === true;
-  } catch {
-    return false;
-  }
+  return typeof body === "string" && parseRecord(body)?.stream === true;
 }
 
 /**
@@ -674,7 +671,7 @@ export class LlamaRouter {
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
     });
-    if (triggerRes.status === HTTP_ALREADY_RUNNING) {
+    if (triggerRes.status === STATUS_BAD_REQUEST) {
       const body = (await triggerRes.json()) as { error?: { message?: string } };
       if (body.error?.message !== "model is already running") {
         throw new Error(`${modelId}: load failed: ${body.error?.message ?? "400"}`);
@@ -903,15 +900,11 @@ export class LlamaRouter {
       return "none";
     }
     // The router writes this one as plain text, not as its JSON error shape.
-    if (res.status === HTTP_SERVER_ERROR && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
+    if (res.status === HTTP_SERVER_ERROR_MIN && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
       return "unreachable";
     }
-    try {
-      const parsed = JSON.parse(body) as { error?: { message?: string } };
-      return parsed.error?.message === MODEL_NOT_LOADED_MESSAGE ? "not-loaded" : "none";
-    } catch {
-      return "none";
-    }
+    const error = parseRecord(body)?.error;
+    return isRecord(error) && error.message === MODEL_NOT_LOADED_MESSAGE ? "not-loaded" : "none";
   }
 
   /**
