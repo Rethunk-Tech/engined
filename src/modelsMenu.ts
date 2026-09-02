@@ -147,7 +147,7 @@ interface ChainHop {
 }
 
 /** Every hop of one chain, each asked the same resolvable-address question a direct row is asked, so the menu cannot disagree with itself about the same address. */
-async function chainHops(
+function chainHops(
   ctx: DoorContext,
   hops: readonly string[],
   config: Config,
@@ -196,7 +196,7 @@ async function chainRow(
   statuses: ReadonlyMap<string, EngineStatus>,
 ): Promise<ModelRow> {
   const walked = await chainHops(ctx, hops, config, statuses);
-  const lead = walked[0];
+  const [lead] = walked;
   const dead = walked.filter((h) => h.state === "unavailable").map((h) => h.hop);
   return {
     id: chainId,

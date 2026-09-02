@@ -1166,8 +1166,12 @@ test("a route whose upstream has a secret and no base_url lists unavailable, age
  * hop still cannot answer, which is the only way to tell a per-hop answer
  * from an engine-wide one.
  */
-test("a chain reports the first hop that can answer as its state and names every hop that cannot", async () => {
-  const config = baseConfig({
+// hop-dead sits on a container engine whose image resolves, so its engine
+// state is `installed` and only the per-hop upstream resolution can make it
+// dead -- otherwise the assertions could pass off an engine-wide answer as a
+// per-hop one.
+const chainHopConfig = () =>
+  baseConfig({
     routes: [
       route({ engine: "hop-a", model: "m", upstream: "local", filename: "a.gguf", role: "chat" }),
       route({ engine: "hop-b", model: "m", upstream: "local", filename: "b.gguf", role: "chat" }),
@@ -1193,6 +1197,9 @@ test("a chain reports the first hop that can answer as its state and names every
       "chain-dead": ["@/hop-dead/addressless/m", "@/hop-dead/addressless/m2"],
     },
   });
+
+test("a chain reports the first hop that can answer as its state and names every hop that cannot", async () => {
+  const config = chainHopConfig();
   const door = createDoor(
     config,
     { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec: buildExec({}) },

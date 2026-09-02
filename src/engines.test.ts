@@ -1239,7 +1239,9 @@ describe("comfy: idle timer driven by /queue polling", () => {
       },
     );
   });
+});
 
+describe("comfy: the lease a busy queue takes", () => {
   test("a queue that turns busy takes the lease in the same tick it is observed, with no awaited docker work in between", async () => {
     const execLog: string[][] = [];
     const base = comfyExec();
