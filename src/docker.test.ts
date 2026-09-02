@@ -207,8 +207,13 @@ test("start: two concurrent calls against a stopped engine spawn exactly one con
 
   const [a, b] = await Promise.all([first, second]);
   expect(runLog.length).toBe(1);
-  expect(a).toEqual(b);
-  expect(a).toEqual({
+  // Same container, but only one call actually ran `doStart` -- `launched`
+  // is the one field the shared lock does not equalize between them.
+  const { launched: aLaunched, ...aRest } = a;
+  const { launched: bLaunched, ...bRest } = b;
+  expect(aRest).toEqual(bRest);
+  expect([aLaunched, bLaunched].sort()).toEqual([false, true]);
+  expect(aRest).toEqual({
     state: "running",
     private_url: `127.0.0.1:${STUB_HOST_PORT_A}`,
     fix: undefined,
@@ -393,7 +398,9 @@ test("probe: a container docker still reports as up is left alone, not re-checke
   expect(started.state).toBe("running");
 
   const probed = await lifecycle.probe("already-running", SPEC);
-  expect(probed).toEqual(started);
+  // `probe()` never sets `launched` -- only `start()` answers that question.
+  const { launched: _launched, ...startedRest } = started;
+  expect(probed).toEqual(startedRest);
   expect(runLog.length).toBe(1);
 });
 

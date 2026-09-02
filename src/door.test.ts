@@ -2158,6 +2158,41 @@ describe("POST /engined/v1/start: the started field", () => {
   });
 });
 
+describe("POST /engined/v1/start: concurrent calls on a cold container engine", () => {
+  /**
+   * Two `POST /start` calls racing on one never-started container engine.
+   * Before this fix each read `state === "running"` before its own launch
+   * attempt, so both saw "not running yet" and both reported `started:
+   * true` even though the lifecycle's start lock (`docker.ts`) let only one
+   * of them actually spawn the container.
+   */
+  test("exactly one of two concurrent starts reports started: true", async () => {
+    const { cfg, root } = whisperDoorConfig();
+    const runLog: string[][] = [];
+    const door = createDoor(cfg, {
+      enginesRoot: root,
+      bunx: BUNX,
+      lifecycle: new DockerLifecycle(
+        buildExec({ runLog, portSeed: 52_000, runDelayMs: 40 }),
+        READY_200,
+      ),
+    });
+
+    const [first, second] = await Promise.all([
+      door.fetch(startRequest("@/whisper-like/small")),
+      door.fetch(startRequest("@/whisper-like/small")),
+    ]);
+    const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
+    const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+
+    expect(runLog).toHaveLength(1);
+    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started];
+    expect(started.sort()).toEqual([false, true]);
+    expect(firstBody.data[0]?.state).toBe("running");
+    expect(secondBody.data[0]?.state).toBe("running");
+  });
+});
+
 describe("POST /engined/v1/start: a roleless model on a container engine", () => {
   test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
     const { cfg, root } = whisperDoorConfig();

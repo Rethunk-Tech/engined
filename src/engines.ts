@@ -1047,7 +1047,7 @@ export class EngineRegistry {
    * engine today (whisper), which loads its model at container start rather
    * than through a router like llama's.
    */
-  async start(id: string, model?: string): Promise<EngineStatus> {
+  async start(id: string, model?: string): Promise<EngineStatus & { launched: boolean }> {
     const entry = this.byId.get(id);
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
@@ -1060,7 +1060,7 @@ export class EngineRegistry {
     if (!isContainerSpec(entry.spec.spec)) {
       // Nothing to warm up: a spec-less proxy or an agentic-cli engine has
       // no standing container.
-      return this.statusFor(entry);
+      return { ...(await this.statusFor(entry)), launched: false };
     }
     // A fresh start's first queue observation must be a real transition, not
     // one suppressed by stale queue-emptiness from an earlier session.
@@ -1074,13 +1074,16 @@ export class EngineRegistry {
         ? withModelFile(entry.spec.spec, route.filename)
         : entry.spec.spec;
     await this.stopForModelSwitch(id, model);
-    await this.lifecycle.start(id, spec, {
+    // `launched` is the lifecycle start lock's own answer to "did this call
+    // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
+    // engine resolve to exactly one `true`.
+    const { launched } = await this.lifecycle.start(id, spec, {
       idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
       specSource: entry.spec.source,
     });
     this.residentModel.set(id, model);
-    return this.statusFor(entry);
+    return { ...(await this.statusFor(entry)), launched: launched ?? false };
   }
 
   /**

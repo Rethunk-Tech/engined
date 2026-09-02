@@ -358,7 +358,6 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
     };
     return row;
   }
-  const wasRunning = ctx.registry.get(engineId)?.state === "running";
   const status = await ctx.registry.start(engineId, route.model);
   const row = {
     address,
@@ -366,7 +365,7 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
     upstream,
     state: status.state,
     fix: status.fix,
-    started: !wasRunning,
+    started: status.launched,
   };
   return row;
 }

@@ -200,6 +200,13 @@ export interface RuntimeStatus {
   last_error?: string;
   /** Requests holding this engine open right now. Absent unless it is running. */
   active_leases?: number;
+  /**
+   * Set only by `start()`: whether this call is the one that ran `doStart`,
+   * as opposed to finding the container already running or joining another
+   * caller's in-flight start. Absent from every other return of this type
+   * (`reconcile`, `stop`, `getStatus`) -- there is nothing for them to answer.
+   */
+  launched?: boolean;
 }
 
 type Result<T = unknown> = ({ ok: true } & T) | { ok: false; fix?: string; error: string };
@@ -399,17 +406,21 @@ export class DockerLifecycle {
     // leaves `running` is handed back without a fresh start.
     if ((await this.reconcile(id, spec)).state === "running" && rt.hostPort !== null) {
       this.refreshIdle(rt, opts.idleStopSeconds);
-      return this.getStatus(id);
+      return { ...this.getStatus(id), launched: false };
     }
     if (rt.startPromise) {
-      return rt.startPromise;
+      // Joining someone else's in-flight start, not running doStart myself --
+      // `launched` must be decided per caller, not read off the shared
+      // promise's resolved value, or every joiner would inherit the
+      // launcher's `true`.
+      return { ...(await rt.startPromise), launched: false };
     }
     const promise = this.doStart(id, rt, spec, opts);
     rt.startPromise = promise;
     const status = await promise;
     rt.startPromise = null;
     this.refreshIdle(rt, opts.idleStopSeconds);
-    return status;
+    return { ...status, launched: true };
   }
 
   /**
