@@ -40,8 +40,9 @@ resolve_paths() {
   STATE_HOME="$(xdg XDG_STATE_HOME .local/state)"
   CONFIG_HOME="$(xdg XDG_CONFIG_HOME .config)"
 
-  if [[ -z "$DATA_HOME" || "$DATA_HOME" == "/" || -z "$STATE_HOME" || "$STATE_HOME" == "/" ]]; then
-    echo "install.sh: resolved data/state home is empty or filesystem root, refusing" >&2
+  if [[ -z "$DATA_HOME" || "$DATA_HOME" == "/" || -z "$STATE_HOME" || "$STATE_HOME" == "/" ||
+    -z "$CONFIG_HOME" || "$CONFIG_HOME" == "/" ]]; then
+    echo "install.sh: resolved data/state/config home is empty or filesystem root, refusing" >&2
     exit 1
   fi
 
