@@ -477,6 +477,14 @@ export class LlamaRouter {
    * on nobody's behalf, so an abort splices the waiter back out instead of
    * letting it resolve late.
    *
+   * The bypass also requires the pump to be idle. `pump` never awaits between
+   * shifting a same-model waiter and resolving it, so a pump observed running
+   * from here is parked inside `swapResident` or `rewarmPinned` -- both of
+   * which have already unloaded the old GGUF while `activeModelId` still
+   * names it and the queue is empty. That is exactly the shape the bypass
+   * tests for, and taking it there proxies to a model the child no longer
+   * holds.
+   *
    * Resolves to whether *this* grant was the one that swapped the resident
    * in `pump()`'s `admitAfterSwap` -- never a shared flag, since a joiner
    * admitted moments later onto the same now-resident model must report
@@ -486,6 +494,7 @@ export class LlamaRouter {
     const state = this.roleState(role);
     return new Promise<boolean>((resolve, reject) => {
       if (
+        !state.pumping &&
         state.queue.length === 0 &&
         state.activeModelId === modelId &&
         state.activeCount < state.capacity

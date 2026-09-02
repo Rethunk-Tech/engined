@@ -1164,6 +1164,116 @@ test("a role nothing has touched is absent from contention rather than reported 
   expect(router.contention()).toEqual([]);
 });
 
+/** Gates the fake client's very first `/models/unload` so a caller can park a
+ * role's pump inside `swapResident` -- the old GGUF already unloaded, the new
+ * one not yet loaded, `activeModelId` still naming the old one and the queue
+ * already empty. */
+function gatedFirstUnload(): {
+  client: HttpClient;
+  calls: RecordedCall[];
+  release: () => void;
+  started: Promise<void>;
+} {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let started: () => void = () => undefined;
+  const startedPromise = new Promise<void>((r) => {
+    started = r;
+  });
+  let sawFirstUnload = false;
+  const { client, calls } = fakeLlama();
+  const gatedClient: HttpClient = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === UNLOAD_PATH && !sawFirstUnload) {
+      sawFirstUnload = true;
+      started();
+      await gate;
+    }
+    return client(input, init);
+  };
+  return { client: gatedClient, calls, release, started: startedPromise };
+}
+
+/**
+ * Interleaving: "a" is resident and idle, so no lease is held and the queue is
+ * empty. A request for "b" is shifted off the queue and parked inside
+ * `swapResident`, which has already unloaded "a" -- but `activeModelId` still
+ * reads "a", and the queue it emptied is still empty. A fresh request for "a"
+ * then arrives and finds the same-GGUF bypass exactly true.
+ */
+test("a request for the resident model arriving while that GGUF is mid-unload queues instead of being admitted onto it", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { client, calls, release, started } = gatedFirstUnload();
+  const router = routerWithClient(e, [a, b], client);
+
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+  expect(router.residentModel("chat")).toBe("a");
+  expect(router.contention()).toEqual([]);
+
+  const resB = router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) });
+  await started;
+
+  const resA = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+  await drainMicrotasks();
+
+  // Nothing may be in flight during a swap: "a" is gone from the child and
+  // "b" is not there yet.
+  expect(router.contention()).toEqual([{ role: "chat", active: 0, waiting: 1 }]);
+
+  release();
+  await Promise.all([text(resB), text(resA)]);
+
+  // "a" had to be loaded a second time to serve the second request, rather
+  // than being served off the GGUF the swap had already unloaded.
+  expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual([
+    "a",
+    "b",
+    "a",
+  ]);
+});
+
+/**
+ * The same interleaving through `rewarmPinned`, which the pump reaches with an
+ * empty queue rather than a waiter: "b" served and released, so the re-warm to
+ * pinned "a" unloads "b" and parks -- `activeModelId` still "b", queue empty.
+ * A request for "b" then arrives onto a GGUF the re-warm has already taken.
+ */
+test("a request for the resident model arriving while a keep_resident re-warm unloads it queues instead of being admitted onto it", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf", keep_resident: true });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { client, calls, release, started } = gatedFirstUnload();
+  const router = routerWithClient(e, [a, b], client);
+
+  // Nothing is resident yet, so serving "b" loads it without an unload; the
+  // release that follows is what starts the re-warm, and its unload is the
+  // first this client ever sees.
+  await text(router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }));
+  await started;
+
+  const resB = router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) });
+  await drainMicrotasks();
+
+  expect(router.contention()).toEqual([{ role: "chat", active: 0, waiting: 1 }]);
+
+  release();
+  await text(resB);
+  // The release drains the role again, so the pin re-warms once more; wait it
+  // out rather than asserting into the middle of it.
+  await waitFor(() => router.residentModel("chat") === "a");
+
+  expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual([
+    "b",
+    "a",
+    "b",
+    "a",
+  ]);
+});
+
 test("a keep_resident model is reloaded once its role drains", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf", keep_resident: true });
