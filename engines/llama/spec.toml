@@ -131,10 +131,11 @@ security_opt = ["label=disable"]
 # door. `LlamaRouter.acquireLease`/`pump` (src/llama.ts) now cap a role's
 # `activeCount` at this same merged `parallel`, resolved once per resident
 # model and queued past that exactly like a model swap already queues --
-# `parallel <= 0` (llama.cpp's `-1` auto, or the key simply unset) is left
-# uncapped rather than guessed at, since neither tells the door a real slot
-# count and capping tighter than the child actually admits idles a slot
-# instead of protecting it.
+# `parallel <= 0` (llama.cpp's `-1` auto, or the key simply unset) caps at
+# the auto's measured four above rather than running uncapped, since the
+# child admits four either way and forwarding past that only moves the
+# queue into llama-server's scheduler where the door cannot see it. The
+# door caps; the child keeps its one unified pool.
 #
 # Four confirmed non-findings from that audit, so they are not
 # re-investigated:
