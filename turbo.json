@@ -15,7 +15,7 @@
     },
     "build": {
       "dependsOn": ["typecheck"],
-      "inputs": ["src/**/*.ts", "tsconfig.json", "package.json"],
+      "inputs": ["src/**/*.ts", "tsconfig.json", "package.json", "bun.lock"],
       "outputs": ["dist/**"],
       "env": ["ENGINED_COMMIT"]
     }
