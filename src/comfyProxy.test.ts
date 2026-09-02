@@ -210,6 +210,35 @@ describe("comfy proxy: GET /view is mediated", () => {
   });
 });
 
+// `outputs` is comfy's node-id table. Anything else -- an array of node outputs
+// included -- names no filename, so `/view` never reaches the container for one
+// a caller read out of a malformed history entry.
+describe("comfy proxy: a history entry only binds what its node table names", () => {
+  test("an outputs that is not a node table binds no filename", async () => {
+    const { client, calls } = recordingComfyClient((url) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-o" });
+      }
+      if (url.includes("/history/")) {
+        return Response.json({ "job-o": { outputs: [{ images: [{ filename: "out.png" }] }] } });
+      }
+      return new Response("should never be reached");
+    });
+    const door = await comfyDoor(client);
+
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-o`));
+    const viewed = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=out.png`),
+    );
+
+    expect(viewed.status).toBe(404);
+    expect(calls.filter((c) => c.url.includes("/view"))).toHaveLength(0);
+  });
+});
+
 describe("comfy proxy: GET /history is never served bare or for an unknown prompt_id", () => {
   test("an unknown prompt_id is refused without reaching comfy", async () => {
     const { client, calls } = recordingComfyClient(() => new Response("should never be reached"));
@@ -502,10 +531,18 @@ describe("comfy proxy: the websocket bridge", () => {
 
 type Door = Awaited<ReturnType<typeof comfyDoor>>;
 
-function cancellingComfyClient(running: string[], pending: string[], deleteStatus = 200) {
+function cancellingComfyClient(
+  running: string[],
+  pending: string[],
+  deleteStatus = 200,
+  interruptStatus = 200,
+) {
   return recordingComfyClient((url, init) => {
     if (url.includes("/prompt")) {
       return Response.json({ prompt_id: "job-c" });
+    }
+    if (url.includes("/interrupt")) {
+      return Response.json({}, { status: interruptStatus });
     }
     if (url.includes("/queue") && init?.method !== "POST") {
       return Response.json({
@@ -581,6 +618,20 @@ describe("comfy proxy: a scoped cancel the door refuses", () => {
     expect(res.status).toBe(502);
     expect(body.cancelled).toBeUndefined();
     expect(body.error).toContain("http 500");
+  });
+
+  // The running branch is the one holding the GPU: a caller told the render was
+  // interrupted stops polling, and a refused interrupt leaves it rendering to
+  // completion with nobody waiting on it.
+  test("POST /cancel reports an interrupt comfy refused, never a cancel it did not perform", async () => {
+    const { client, calls } = cancellingComfyClient(["job-c"], [], 200, 500);
+    const res = await cancel(await boundDoor(client), "job-c");
+    const body = (await res.json()) as { error?: string; cancelled?: string };
+
+    expect(res.status).toBe(502);
+    expect(body.cancelled).toBeUndefined();
+    expect(body.error).toContain("http 500");
+    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(1);
   });
 
   // Whatever comfy answered, it was not a queue: the door cannot prove the

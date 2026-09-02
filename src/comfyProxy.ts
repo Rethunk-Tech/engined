@@ -432,16 +432,25 @@ async function readComfyQueue(
  * comfy can only interrupt "whatever is running", carrying no id to scope
  * it; the door supplies the scoping the container lacks by reading the queue
  * itself -- never handing that ledger out -- and interrupting only once it
- * has confirmed the running prompt is the caller's own. A prompt still
- * pending is dropped from the queue instead, which needs no interrupt at
- * all, and one that has already finished is reported as such rather than
- * interrupting whatever inherited the GPU after it.
+ * has confirmed the running prompt is the caller's own. A prompt the queue
+ * read found still pending is dropped from the queue instead, which needs no
+ * interrupt as long as it really was still pending, and one that has already
+ * finished is reported as such rather than interrupting whatever inherited
+ * the GPU after it. Either way the answer reports what the container did:
+ * a refusal comes back as comfy's own status, never as a cancel this door
+ * did not perform.
  *
  * ponytail: the running check and the interrupt are two calls, so a prompt
  * that finishes between them yields to a successor this cancel then stops.
  * The window is one round trip against a local container and comfy offers
  * no id-scoped interrupt to close it; close it with a door-held execution
  * lease if that is ever observed to bite.
+ *
+ * ponytail: the pending branch has the mirror window -- a prompt that starts
+ * rendering between the queue read and the delete is still reported
+ * "pending", because comfy answers 200 to a queue delete that removed
+ * nothing. Same one round trip wide; a second queue read after the delete
+ * would confirm what it actually did, at a round trip on every cancel.
  */
 async function proxyComfyCancel(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
@@ -463,7 +472,13 @@ async function proxyComfyCancel(
     return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
   }
   if (queuedPromptIds(queue.queue_running).includes(promptId)) {
-    await httpClient(`${base}/interrupt`, { method: "POST" });
+    const interrupted = await httpClient(`${base}/interrupt`, { method: "POST" });
+    if (!interrupted.ok) {
+      return jsonError(
+        STATUS_BAD_GATEWAY,
+        `comfy refused to interrupt "${promptId}" (http ${interrupted.status})`,
+      );
+    }
     return Response.json({ prompt_id: promptId, cancelled: "running" });
   }
   if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
