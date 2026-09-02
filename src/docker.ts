@@ -189,7 +189,7 @@ export function buildRunArgs(
 interface LifecycleOptions {
   idleStopSeconds: number;
   readyTimeoutS: number;
-  /** The spec's own directory (shipped `engines/<id>`, or a `spec_dir` override) -- carried here rather than as its own parameter, since `doStart` already has four. */
+  /** The spec's own directory (shipped `engines/<id>`, or a `spec_dir` override). */
   specSource?: string;
 }
 

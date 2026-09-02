@@ -258,21 +258,13 @@ function noProbeRunnerConfiguredFix(
   return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`;
 }
 
-interface ProbeFailedFixOptions {
-  engineId: string;
-  observed: string;
-  proved: string | undefined;
-  failedProbe: string;
-  detail: string | undefined;
-}
-
-function probeFailedFix({
-  engineId,
-  observed,
-  proved,
-  failedProbe,
-  detail,
-}: ProbeFailedFixOptions): string {
+function probeFailedFix(
+  engineId: string,
+  observed: string,
+  proved: string | undefined,
+  failedProbe: string,
+  detail: string | undefined,
+): string {
   const why = detail === undefined ? "" : `: ${detail}`;
   if (proved === undefined) {
     return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`;
@@ -856,8 +848,8 @@ export class EngineRegistry {
    * binary that no longer exists is not a proof of anything running now.
    *
    * Re-verification only runs when the observed version differs from the one
-   * last proved — the same re-arm rule as before, just re-keyed off what is
-   * actually installed rather than what config says it should be. A pin that
+   * last proved — keyed off what is actually installed rather than what
+   * config says it should be. A pin that
    * FAILS is cached the same way: the failed outcome for that exact version
    * is remembered so every later poll reports it for free until the version
    * changes again, and two polls racing on the same unproved version share
@@ -912,13 +904,13 @@ export class EngineRegistry {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix({
-          engineId: engine.id,
-          observed: version,
+        fix: probeFailedFix(
+          engine.id,
+          version,
           proved,
-          failedProbe: outcome.failedProbe ?? "unknown",
-          detail: outcome.detail,
-        }),
+          outcome.failedProbe ?? "unknown",
+          outcome.detail,
+        ),
       };
     }
     writeVerifiedVersion(engine.id, version);
