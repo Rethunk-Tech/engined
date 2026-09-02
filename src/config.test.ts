@@ -7,6 +7,7 @@ import { makeTestRoot } from "./test-support.ts";
 import { ParseError } from "./types.ts";
 
 const RESERVED_FOR_THIS_BOX = /reserved for this box/;
+const EGRESS_MUST_BE_ONE_OF = /upstream "x" "egress" must be one of: none, lan, remote/;
 
 const TEST_ROOT = makeTestRoot("engined-config-test-");
 
@@ -1031,9 +1032,7 @@ describe("engine/upstream required/forbidden fields", () => {
   // asserting the literal is what proves the rendering, not the intent.
   test("an egress that is not one refuses at parse, naming every value that is", () => {
     const toml = `[[upstream]]\nid = "x"\negress = "internet"\n`;
-    expect(() => loadConfig(writeConfig(toml))).toThrow(
-      /upstream "x" "egress" must be one of: none, lan, remote/,
-    );
+    expect(() => loadConfig(writeConfig(toml))).toThrow(EGRESS_MUST_BE_ONE_OF);
   });
 
   /**
