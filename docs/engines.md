@@ -138,7 +138,9 @@ Kokoro's own vocoder (`KModel.decoder`, an ISTFTNet-style HiFi-GAN) yields one
 array per sentence, so with `chunks: true` any RTF win lands directly on
 TTFB. Profiling on this box (gfx1151/ROCm 7.2) found the ~1.2-3.7s TTFB was
 not FLOPs at all: it is MIOpen JIT-compiling a fresh kernel the first time
-the decoder sees a given exact frame count. A repeat call at an
+the decoder sees a given exact frame count.
+
+A repeat call at an
 already-compiled shape runs the same decoder in ~0.15s; a never-before-seen
 one costs ~1.1-3s regardless of how short the text is (measured: a
 14-phoneme "Hi there friend" cost as much as a 71-phoneme sentence, and two
@@ -175,7 +177,9 @@ difference elsewhere is the same order of magnitude as the run-to-run noise
 this ROCm/MIOpen backend already exhibits between two calls of *identical*
 input with no padding involved at all (up to ~0.07 absolute on a few
 samples — this backend is not bit-deterministic call to call, independent of
-this change). Padding is silence in the frame-rate features, not the
+this change).
+
+Padding is silence in the frame-rate features, not the
 waveform, so it adds no content of its own; only the compiled kernel choice
 changes. Flagged for an operator A/B listen regardless — if anything is
 audible, it would be a faint texture change in the last ~25ms of a sentence's

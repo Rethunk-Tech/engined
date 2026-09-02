@@ -72,12 +72,16 @@ either side.
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, egress, streaming, serves, state,
-capabilities}`. `serves` is the route's own, not its engine's: an `embedding`
+capabilities}`.
+
+`serves` is the route's own, not its engine's: an `embedding`
 role answers only `/openai/v1/embeddings`, any other role everything but that,
 and a route with no role whatever its engine serves -- so `@/llama/embed` is
 never offered as a chat model, and a chat request to it is a 400. The same
 per-route `serves` rides on each entry of an engine's `capabilities[]` in
-`GET /engined/v1/engines`. A chain row omits `engine`/`upstream`/`model`/`egress` because
+`GET /engined/v1/engines`.
+
+A chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming`, `state` and
 `capabilities` off its first hop instead. `streaming` is the engine spec's
 answer unless the route itself declares one.
@@ -134,7 +138,9 @@ With `"stream": true` it returns `audio/L16; rate=<engine's own rate>;
 channels=1` — signed 16-bit little-endian mono, forwarded as each piece is
 synthesized. PCM rather than a WAV because a WAV header carries a length
 nothing knows until synthesis ends; the rate and encoding ride in the content
-type instead. **Read the rate off the content type of the reply you got.** It
+type instead.
+
+**Read the rate off the content type of the reply you got.** It
 is not the same for every engine — kokoro synthesizes at 24000 and piper's
 voice at 22050 — and a caller that assumes one plays the other 8.8% fast and
 sharp. A mid-stream failure ends the stream rather than changing a status code
@@ -182,12 +188,15 @@ turn, and starting every hop would spin up containers for requests the first
 hop is going to answer. A bare `@/<model>` address warms every route offering
 that model, since one address can name more than one engine there; the two-
 and three-segment forms are already engine-specific and warm exactly one.
+
 Response rows are `{address, engine, upstream, state, started, fix?}` — never
 a `url`: reaching an engine is a separate request to the door, by address,
 and this verb only answers what state it is in. `started` is `true` only when
 this call is the one that launched the engine, `false` when it was already
 running -- the field a caller polling for "is it warming" can read once
-instead of hitting `/openai/v1/models` on a loop. On a llama route this loads the named
+instead of hitting `/openai/v1/models` on a loop.
+
+On a llama route this loads the named
 GGUF, so the first real request does not pay the cold load -- measured at
 13.84s cold against 2.09s warm for a TTS round trip on this box. The warm goes
 through the ordinary lease, so it cannot jump the queue or hold a role against

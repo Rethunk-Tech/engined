@@ -44,7 +44,9 @@ path dispatches exactly like the plain surface, except a hop that resolves to
 an `agentic-cli` engine — keyed on the resolved engine, never the caller's
 literal `model` string, so a one-segment address that happens to resolve there
 is caught the same as naming it outright — is refused with a 403 rather than
-run. The nonce is live only for the launch's own window: minted at the call
+run.
+
+The nonce is live only for the launch's own window: minted at the call
 site, added to an in-memory set, and deleted the instant that call returns,
 whether it succeeded or not. It is never written anywhere durable, so a leaked
 or reused URL past that window is refused as unknown or expired, not treated
@@ -164,7 +166,9 @@ against every new pin.
 built-in read-only `plan` agent was redefined the same way, because its rules
 are last-wins; and config is discovered by walking *up* from the working
 directory, so the exposure is not even bounded to the workdir. Its own
-configuration therefore cannot be a floor. Under `bwrap` it can be shown
+configuration therefore cannot be a floor.
+
+Under `bwrap` it can be shown
 instead, and was: with that permissive config planted in the workdir and its
 parent, opencode ran its `write` tool and then fell back to `printf >`, and
 both returned `Read-only file system` with the tree unchanged. That run is

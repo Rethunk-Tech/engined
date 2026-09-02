@@ -55,7 +55,9 @@ error by design rather than a silent no-op.
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
 role returns to. `filename`, `role` and `keep_resident` all live on the route,
 not the model — `ornith` on `llama` has a GGUF file and a role, `ornith`
-through `claude` has neither. Warmth is guaranteed against idleness, never
+through `claude` has neither.
+
+Warmth is guaranteed against idleness, never
 against contention: occupancy is still one model per role, so a request for a
 different model on the same role wins the swap exactly as it does now, and
 this only decides what loads again once nothing is waiting. Two routes
@@ -117,10 +119,14 @@ with no `[[model]]` row at all.
 `filename` and `role` are absent from an agentic route because both exist to
 account for occupancy, and an agentic attempt is never resident — the
 reasoning that makes them fatal on a llama route is what makes them
-inapplicable here. `egress` lives on the upstream, not the engine, because it
+inapplicable here.
+
+`egress` lives on the upstream, not the engine, because it
 answers "where do these bytes actually go", a question an engine alone cannot
 answer — `claude` pointed at `moonshot` and `claude` pointed at `openrouter`
-share an engine and differ only in upstream. A request declares `max_egress`
+share an engine and differ only in upstream.
+
+A request declares `max_egress`
 as a ceiling, compared against a route's egress via the ordered
 `EGRESS_RANK {none, lan, remote}` and `withinCeiling()` — never a bare `<`/`<=`
 on the strings themselves, since alphabetically `"lan" < "none" < "remote"`
