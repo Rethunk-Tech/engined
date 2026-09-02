@@ -1539,14 +1539,14 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
 }
 
 type AgenticEntry =
-  | { ok: true; engineEntry: EngineEntry; agentVersion: string; spec: AgenticSpec }
+  | { ok: true; engineEntry: EngineEntry; agentVersion: string }
   | { ok: false; result: HopResult };
 
 function agenticRefusal(message: string): AgenticEntry {
   return { ok: false, result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(message) } };
 }
 
-/** The engine, the pin it launches at and its spec -- or the refusal for one missing any of the three. */
+/** The engine and the pin it launches at -- or the refusal for one missing either. */
 function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
   const engineEntry = ctx.registry.entry(engineId);
   if (!engineEntry) {
@@ -1556,15 +1556,23 @@ function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
   if (agentVersion === undefined) {
     return agenticRefusal(`engine "${engineId}" has no agent_version configured`);
   }
+  return { ok: true, engineEntry, agentVersion };
+}
+
+/**
+ * Only reachable if an engine routed here carries a non-agentic spec, which
+ * the kind check upstream already rules out -- but `agent` is what decides the
+ * floor, so it is never read off a spec that has not proven it has one.
+ */
+function agenticSpecOf(ctx: DoorContext, engineEntry: EngineEntry): AgenticSpec | HopResult {
   const { spec } = loadAgenticSpec(ctx, engineEntry);
   if (spec.kind !== "agentic-cli") {
-    // Only reachable if an engine routed here carries a non-agentic spec,
-    // which the kind check upstream already rules out -- but `agent` is what
-    // decides the floor, so it is never read off a spec that has not proven
-    // it has one.
-    return agenticRefusal(`engine "${engineId}" is not an agentic-cli spec`);
+    return {
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(`engine "${engineEntry.id}" is not an agentic-cli spec`),
+    };
   }
-  return { ok: true, engineEntry, agentVersion, spec };
+  return spec;
 }
 
 async function execAgentic(
@@ -1576,7 +1584,7 @@ async function execAgentic(
   if (!entry.ok) {
     return entry.result;
   }
-  const { engineEntry, agentVersion, spec } = entry;
+  const { engineEntry, agentVersion } = entry;
 
   // Minted once per launch and revoked the instant this call returns --
   // the only door URL ever handed to this child, and it dies with the
@@ -1596,6 +1604,11 @@ async function execAgentic(
     const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl });
     if (!redirect.ok) {
       return redirect.result;
+    }
+    // After the redirect, so a misrouted engine is refused for its route first.
+    const spec = agenticSpecOf(ctx, engineEntry);
+    if (!("agent" in spec)) {
+      return spec;
     }
     const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route);
     const workdir = typeof req.rawBody.workdir === "string" ? req.rawBody.workdir : undefined;
