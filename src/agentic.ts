@@ -47,7 +47,7 @@ import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from "./sandbox.ts";
-import { argvFromArgs, type EngineEntry } from "./types.ts";
+import { argvFromArgs, type EngineEntry, errMessage } from "./types.ts";
 
 /**
  * `--strict-mcp-config` closes the MCP door only against a config that
@@ -196,13 +196,13 @@ export async function observeAgentVersion(
   try {
     binary = cli.resolveBinary();
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errMessage(err) };
   }
   let spawned: ExecResult;
   try {
     spawned = await agenticSpawn([binary, "--version"], { cwd: tmpdir(), env: {}, input: "" });
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errMessage(err) };
   }
   const version = spawned.stdout.trim();
   if (spawned.exitCode !== 0 || version === "") {

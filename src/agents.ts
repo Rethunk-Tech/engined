@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
-import { AGENTIC_FLOOR, isRecord, type Wire } from "./types.ts";
+import { AGENTIC_FLOOR, isRecord, parseRecord, type Wire } from "./types.ts";
 
 export interface AgenticOutcome {
   ok: boolean;
@@ -192,16 +192,7 @@ function opencodeErrorMessage(error: unknown): string {
 
 /** One NDJSON line as an event, or `null` for a blank or unparseable one -- neither of which counts as an event. */
 function eventOf(line: string): Record<string, unknown> | null {
-  if (line.trim() === "") {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  return isRecord(parsed) ? parsed : null;
+  return line.trim() === "" ? null : parseRecord(line);
 }
 
 /** The answer an event carries, which is the empty string for every event that is not a text part. */

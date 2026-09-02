@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_IDS, agentCli } from "./agents.ts";
+import { asArray, optional, requireString } from "./config.ts";
 import {
   type AgenticSpec,
   type Artifact,
@@ -66,11 +67,9 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
   const raw = Bun.TOML.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
   assertNoPortKey(raw, file);
 
-  if (typeof raw.kind !== "string") {
-    throw new ParseError('spec has no "kind"', file);
-  }
+  const kind = requireString(raw.kind, '"kind"', file);
   let spec: Spec =
-    raw.kind === "agentic-cli" ? parseAgentic(raw, file) : parseContainer(raw, file, raw.kind);
+    kind === "agentic-cli" ? parseAgentic(raw, file) : parseContainer(raw, file, kind);
 
   const subs = buildSubs(engine, opts, specDir);
   spec = substituteDeep(spec, subs, file);
@@ -186,13 +185,11 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
       );
     }
   }
-  if (typeof raw.agent !== "string") {
-    throw new ParseError(`agentic-cli spec needs "agent", one of: ${AGENT_IDS.join(", ")}`, file);
-  }
-  const agent = agentCli(raw.agent);
+  const agentId = requireString(raw.agent, '"agent"', file);
+  const agent = agentCli(agentId);
   if (agent === undefined) {
     throw new ParseError(
-      `unknown agent "${raw.agent}"; engined launches one of: ${AGENT_IDS.join(", ")}`,
+      `unknown agent "${agentId}"; engined launches one of: ${AGENT_IDS.join(", ")}`,
       file,
     );
   }
@@ -228,15 +225,13 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
   if (!(CONTAINER_KINDS as ReadonlySet<string>).has(kind)) {
     throw new ParseError(`unknown engine kind "${kind}"`, file);
   }
-  if (typeof raw.image !== "string") {
-    throw new ParseError('container spec needs "image"', file);
-  }
+  const image = requireString(raw.image, '"image"', file);
   if (raw.obtain !== "pull" && raw.obtain !== "build") {
     throw new ParseError('"obtain" must be "pull" or "build"', file);
   }
   return {
     kind: kind as ContainerSpec["kind"],
-    image: raw.image,
+    image,
     obtain: raw.obtain,
     serves: requireStringArray(raw.serves, "serves", file),
     env: raw.env === undefined ? [] : requireStringArray(raw.env, "env", file),
@@ -268,65 +263,52 @@ function parseReady(raw: unknown, file: string): ReadyProbe {
       file,
     );
   }
-  const r = raw as Record<string, unknown>;
-  if (typeof r.path !== "string" || typeof r.status !== "number") {
-    throw new ParseError('[ready] needs a string "path" and numeric "status"', file);
+  const path = requireString(raw.path, '[ready] "path"', file);
+  if (typeof raw.status !== "number") {
+    throw new ParseError('[ready] "status" must be a number', file);
   }
-  const probe: ReadyProbe = { path: r.path, status: r.status };
-  if (r.method !== undefined) {
-    if (r.method !== "GET" && r.method !== "POST") {
+  const probe: ReadyProbe = { path, status: raw.status };
+  if (raw.method !== undefined) {
+    if (raw.method !== "GET" && raw.method !== "POST") {
       throw new ParseError('[ready] "method" must be "GET" or "POST"', file);
     }
-    probe.method = r.method;
+    probe.method = raw.method;
   }
-  if (r.accept !== undefined) {
-    const accept = r.accept as Record<string, unknown>;
-    if (typeof accept.min !== "number" || typeof accept.max !== "number") {
+  if (raw.accept !== undefined) {
+    if (
+      !isRecord(raw.accept) ||
+      typeof raw.accept.min !== "number" ||
+      typeof raw.accept.max !== "number"
+    ) {
       throw new ParseError('[ready.accept] needs numeric "min" and "max"', file);
     }
-    probe.accept = { min: accept.min, max: accept.max };
+    probe.accept = { min: raw.accept.min, max: raw.accept.max };
   }
   return probe;
 }
 
 function parseVolumes(raw: unknown, file: string): Volume[] {
-  if (raw === undefined) {
-    return [];
-  }
-  if (!Array.isArray(raw)) {
-    throw new ParseError('"volume" must be an array of [[volume]] tables', file);
-  }
-  return raw.map((v) => {
+  return asArray(raw, "volume", file).map((v) => {
     if (!isRecord(v)) {
       throw new ParseError("malformed [[volume]] entry", file);
     }
-    const o = v as Record<string, unknown>;
-    if (typeof o.name !== "string" || typeof o.path !== "string") {
-      throw new ParseError('[[volume]] needs a string "name" and "path"', file);
-    }
-    if (o.read_only !== undefined && typeof o.read_only !== "boolean") {
-      throw new ParseError('[[volume]] "read_only" must be a boolean', file);
-    }
-    return { name: o.name, path: o.path, read_only: o.read_only as boolean | undefined };
+    return {
+      name: requireString(v.name, '[[volume]] "name"', file),
+      path: requireString(v.path, '[[volume]] "path"', file),
+      read_only: optional(v.read_only, "boolean", '[[volume]] "read_only"', file),
+    };
   });
 }
 
 function parseArtifacts(raw: unknown, file: string): Artifact[] {
-  if (raw === undefined) {
-    return [];
-  }
-  if (!Array.isArray(raw)) {
-    throw new ParseError('"artifact" must be an array of [[artifact]] tables', file);
-  }
-  return raw.map((a) => {
+  return asArray(raw, "artifact", file).map((a) => {
     if (!isRecord(a)) {
       throw new ParseError("malformed [[artifact]] entry", file);
     }
-    const o = a as Record<string, unknown>;
-    if (typeof o.path !== "string" || typeof o.obtain !== "string") {
-      throw new ParseError('[[artifact]] needs a string "path" and "obtain"', file);
-    }
-    return { path: o.path, obtain: o.obtain };
+    return {
+      path: requireString(a.path, '[[artifact]] "path"', file),
+      obtain: requireString(a.obtain, '[[artifact]] "obtain"', file),
+    };
   });
 }
 

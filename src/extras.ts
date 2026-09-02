@@ -15,20 +15,15 @@ import {
   jsonError,
   STATUS_BAD_REQUEST,
 } from "./http.ts";
-import { errMessage, isRecord } from "./types.ts";
+import { errMessage, parseRecord } from "./types.ts";
 
 /** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {
   if (bodyText === undefined) {
     return JSON.stringify({ model });
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch {
-    throw new SyntaxError("request body is not valid JSON");
-  }
-  if (!isRecord(parsed)) {
+  const parsed = parseRecord(bodyText);
+  if (parsed === null) {
     throw new SyntaxError("request body must be a JSON object");
   }
   return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed);

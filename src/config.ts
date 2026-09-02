@@ -93,7 +93,7 @@ const ROUTE_KEYS = new Set([
 const CHAIN_KEYS = new Set(["id", "hops", "disable"]);
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
-function asArray(v: unknown, key: string, file: string): unknown[] {
+export function asArray(v: unknown, key: string, file: string): unknown[] {
   if (v === undefined) {
     return [];
   }
@@ -103,7 +103,7 @@ function asArray(v: unknown, key: string, file: string): unknown[] {
   return v;
 }
 
-function requireString(v: unknown, label: string, file: string): string {
+export function requireString(v: unknown, label: string, file: string): string {
   if (typeof v !== "string" || v === "") {
     throw new ParseError(`${label} is missing or empty`, file);
   }
@@ -111,7 +111,7 @@ function requireString(v: unknown, label: string, file: string): string {
 }
 
 /** One helper for both optional-typed keys; `kind` selects "string" or "number". */
-function optional<T extends "string" | "number" | "boolean">(
+export function optional<T extends "string" | "number" | "boolean">(
   v: unknown,
   kind: T,
   label: string,

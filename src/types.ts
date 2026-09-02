@@ -733,6 +733,17 @@ export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Parses JSON text to a table, or `null` for anything unparseable or not a table -- neither counts as one. */
+export function parseRecord(text: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return isRecord(parsed) ? parsed : null;
+}
+
 /**
  * The one way an args table becomes argv: `--key` for every entry, a bare flag
  * when the value is `true`, the stringified value otherwise, and nothing at all
