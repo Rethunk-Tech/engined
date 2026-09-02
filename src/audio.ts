@@ -40,6 +40,7 @@ import {
   TEXT_CONTENT_TYPE,
   WAV_CONTENT_TYPE,
 } from "./http.ts";
+import { parseRecord } from "./types.ts";
 import { type UpstreamEndpoint, upstreamUrl } from "./upstream.ts";
 
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */
@@ -177,10 +178,8 @@ function extractAudioFromNdjson(body: string): { audio?: string; error?: string 
     if (trimmed.length === 0) {
       continue;
     }
-    let frame: { audio?: unknown; phase?: unknown; detail?: unknown };
-    try {
-      frame = JSON.parse(trimmed);
-    } catch {
+    const frame = parseRecord(trimmed);
+    if (frame === null) {
       continue;
     }
     // The engine says why it refused -- an unknown voice, say. Reporting
@@ -237,15 +236,7 @@ async function* ndjsonFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<F
 }
 
 function parseFrame(line: string): Frame | undefined {
-  const trimmed = line.trim();
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(trimmed) as Frame;
-  } catch {
-    return undefined;
-  }
+  return parseRecord(line) ?? undefined;
 }
 
 /**
@@ -564,20 +555,20 @@ async function transcribeRemote(
     );
   }
 
-  const parsed = (await res.json()) as { text?: unknown };
-  if (typeof parsed.text !== "string") {
+  const text = parseRecord(await res.text())?.text;
+  if (typeof text !== "string") {
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: /speech-to-text carried no transcript`,
     );
   }
   if (format !== undefined && REMOTE_TEXT_RESPONSE_FORMATS.has(format)) {
-    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: parsed.text };
+    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: text };
   }
   // The door's own JSON shape, not the upstream's: a consumer that switched
   // engines would otherwise start seeing ElevenLabs' word timings and
   // language-probability fields appear and disappear with the engine id.
-  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text: parsed.text } };
+  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text } };
 }
 
 export async function handleTranscription(

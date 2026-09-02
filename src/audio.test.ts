@@ -582,6 +582,24 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
   ]);
 });
 
+test('stream: "ndjson" skips a literal null line instead of throwing mid-body', async () => {
+  // A `null` line parses fine, so reading a field off it throws where the
+  // stream is already committed -- the caller gets truncated bytes, not a 502.
+  const frames = ["null", JSON.stringify({ phase: "done", audio: SAMPLE_WAV_BASE64 })].join("\n");
+  const res = await handleSpeech(
+    { engine: "chatterbox-multi", input: "hi", stream: "ndjson" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(frames)),
+  );
+
+  const out = (await new Response(res.stream).text())
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+  expect(out).toEqual([{ phase: "done", audio: SAMPLE_WAV_BASE64 }]);
+});
+
 test("a buffered speech failure reports the engine's own reason, not just missing audio", async () => {
   // kokoro refuses an unknown voice with {phase:"error", detail}. Reporting
   // "carried no audio" sends the caller looking at the door instead.
