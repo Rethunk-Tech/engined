@@ -9,8 +9,9 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { DoorOptions } from "./doorContext.ts";
 import type { Exec, ExecResult } from "./exec.ts";
-import { createDoor, type Door, type DoorOptions } from "./main.ts";
+import { createDoor, type Door } from "./main.ts";
 import {
   buildExec,
   collectLines,

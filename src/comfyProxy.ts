@@ -37,9 +37,9 @@ const HTTP_SCHEME_RE = /^http/;
 const COMFY_UPLOAD_PREFIX_LEN = 12;
 
 /**
- * The slice of the door's context this proxy reads. Declared here rather
- * than taken as the door's own `DoorContext`, which names the whole door:
- * the door imports this module, so this module cannot import it back.
+ * The slice of the door's context this proxy reads, narrow on purpose:
+ * `DoorContext` names `ComfyBindings`, which is declared here, so the
+ * context sits above this module and taking it whole would be a cycle.
  */
 export interface ComfyDoor {
   getConfig: () => Config;

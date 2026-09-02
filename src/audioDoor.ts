@@ -16,9 +16,8 @@ import {
 } from "./audio.ts";
 import { classifyResult, wrapStream } from "./chain.ts";
 import { resolveModel } from "./dispatch.ts";
-import type { DockerLifecycle } from "./docker.ts";
-import { DEFAULT_IDLE_STOP_SECONDS, EngineBusyError, type EngineRegistry } from "./engines.ts";
-import type { Exec as SecretExec } from "./exec.ts";
+import type { DoorContext } from "./doorContext.ts";
+import { DEFAULT_IDLE_STOP_SECONDS, EngineBusyError } from "./engines.ts";
 import {
   CONTENT_TYPE,
   jsonError,
@@ -35,18 +34,6 @@ import {
   type ResolvedRoute,
 } from "./types.ts";
 import { resolveUpstream } from "./upstream.ts";
-
-/**
- * The slice of the door's context these verbs read. Declared here for the
- * same reason the comfy proxy declares its own: the door imports this
- * module, so this module cannot import the door's `DoorContext` back.
- */
-export interface AudioDoor {
-  getConfig: () => Config;
-  registry: EngineRegistry;
-  lifecycle: DockerLifecycle;
-  doorOpts: { write?: (line: string) => void; secretExec?: SecretExec };
-}
 
 interface AudioCallInfo {
   engineId: string;
@@ -65,7 +52,7 @@ interface AudioCallInfo {
  * it actually forwarded -- a stream that ended having delivered audio is a
  * success, and one that died mid-body is not.
  */
-function recordAudioCall(ctx: AudioDoor, info: AudioCallInfo): DoorResponse {
+function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
   const { engineId, model, requested, result, startedAt } = info;
   const emit = (audioBytes: number, streamFailure?: string): void => {
     const verdict = classifyResult({
@@ -141,7 +128,7 @@ function doorResponseToResponse(result: DoorResponse): Response {
  * request traffic engined does see, so idle-stop arms right here rather than
  * off a queue poll. A no-op if the start attempt never reached "running".
  */
-function armAudioIdleStop(ctx: AudioDoor, engineId: string): void {
+function armAudioIdleStop(ctx: DoorContext, engineId: string): void {
   const engine = ctx.registry.entry(engineId);
   ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
 }
@@ -152,7 +139,7 @@ function armAudioIdleStop(ctx: AudioDoor, engineId: string): void {
  * "scribe_v1" -- never a chain. Resolution and that refusal are one step.
  */
 function resolveAudioEngine(
-  ctx: AudioDoor,
+  ctx: DoorContext,
   rawModel: string | undefined,
   endpoint: string,
 ): { ok: true; engineId: string; model?: string } | { ok: false; response: Response } {
@@ -191,7 +178,7 @@ function audioRoute(
 }
 
 async function remoteAudioStart(
-  ctx: AudioDoor,
+  ctx: DoorContext,
   id: string,
   upstreamId: string,
 ): Promise<Awaited<ReturnType<EngineStart>>> {
@@ -205,7 +192,7 @@ async function remoteAudioStart(
     : { private_url: null, unavailable: resolution.error };
 }
 
-function audioStart(ctx: AudioDoor): EngineStart {
+function audioStart(ctx: DoorContext): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
     const route = audioRoute(ctx.getConfig(), id, model);
@@ -231,7 +218,7 @@ function audioStart(ctx: AudioDoor): EngineStart {
 }
 
 export async function handleAudioSpeech(
-  ctx: AudioDoor,
+  ctx: DoorContext,
   body: Record<string, unknown>,
 ): Promise<Response> {
   const rawModel = typeof body.model === "string" ? body.model : undefined;
@@ -300,7 +287,7 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
  */
 const MAX_AUDIO_UPLOAD_BYTES = 268_435_456;
 
-export async function handleAudioTranscription(ctx: AudioDoor, req: Request): Promise<Response> {
+export async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise<Response> {
   const declared = Number(req.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
     return jsonError(

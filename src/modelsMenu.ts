@@ -6,8 +6,7 @@
 
 import { parseHop } from "./chain.ts";
 import { routeEgress } from "./dispatch.ts";
-import type { EngineRegistry } from "./engines.ts";
-import type { Exec as SecretExec } from "./exec.ts";
+import type { DoorContext } from "./doorContext.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
   type Config,
@@ -23,17 +22,6 @@ import {
   routeServes,
 } from "./types.ts";
 import { resolveUpstreamSecret } from "./upstream.ts";
-
-/**
- * The slice of the door's context the menu reads. Declared here for the same
- * reason the comfy proxy and the audio verbs declare their own: the door
- * imports this module, so this module cannot import `DoorContext` back.
- */
-export interface MenuDoor {
-  getConfig: () => Config;
-  registry: EngineRegistry;
-  doorOpts: { secretExec?: SecretExec };
-}
 
 /** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
 function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
@@ -73,7 +61,7 @@ function modelRowId(route: ResolvedRoute, siblingCount: number): string {
  * engine-wide state.
  */
 async function agenticRouteState(
-  ctx: MenuDoor,
+  ctx: DoorContext,
   route: ResolvedRoute,
   engineState: EngineState,
 ): Promise<EngineState> {
@@ -101,7 +89,7 @@ interface ModelRowOptions {
 }
 
 async function modelRow(
-  ctx: MenuDoor,
+  ctx: DoorContext,
   { route, siblingCount, config, statuses }: ModelRowOptions,
 ): Promise<ModelRow> {
   const status = statuses.get(route.engine);
@@ -192,7 +180,7 @@ function chainRow(
  * `serves` still tells a caller it does not speak chat, exactly as a
  * modelless audio engine's own `serves` (`/openai/v1/audio/speech`) does.
  */
-export async function modelsMenu(ctx: MenuDoor): Promise<Response> {
+export async function modelsMenu(ctx: DoorContext): Promise<Response> {
   const config = ctx.getConfig();
   const { engines } = await ctx.registry.list();
   const statuses = new Map(engines.map((e) => [e.id, e]));

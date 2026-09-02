@@ -6,6 +6,7 @@ import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
 import { loadConfig } from "./config.ts";
 import { DockerLifecycle, NAME_PREFIX, type Probe } from "./docker.ts";
+import type { DoorOptions } from "./doorContext.ts";
 
 import type { AgenticProbeRunner } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
@@ -14,7 +15,6 @@ import {
   bindDualFamily,
   createDoor,
   type Door,
-  type DoorOptions,
   resolveBunx,
   resolveRedirect,
   timeoutSecondsForKind,
@@ -1266,6 +1266,39 @@ describe("the door: a tool call never falls back into prose", () => {
     );
     expect(status).toBe(200);
     expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+});
+
+describe("the door: a missing workdir is the chain's business, not the caller's", () => {
+  // `workdir` is meaningful to an agentic hop and to nothing else, so a
+  // caller who addressed a chain had no reason to send one. The hop that
+  // cannot run without it is a shape mismatch like any other, whether or not
+  // the body also carries a field this engine cannot honour.
+  test("a chain whose first hop is agentic advances past it when no workdir and no tools were sent", async () => {
+    const { status, body, spawnCalls } = await toolFallbackCall(
+      {
+        model: "chain-rev",
+        messages: [{ role: "user", content: "what time is it" }],
+      },
+      true,
+    );
+    expect(status).toBe(200);
+    expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  // The counterpart the advance must not swallow: naming the engine itself
+  // makes the omission the caller's own, and it stays terminal.
+  test("naming the agentic engine directly with no workdir is still a terminal 400 naming it", async () => {
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("workdir is required");
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
   });

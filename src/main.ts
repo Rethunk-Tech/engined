@@ -8,7 +8,6 @@
 
 import process from "node:process";
 import {
-  type AgenticSpawn,
   buildAgenticProbeRunner,
   defaultAgenticSpawn,
   type RunAgenticResult,
@@ -18,7 +17,6 @@ import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
 import { type HopExec, type HopResult, parseHop, runChain } from "./chain.ts";
 import {
   COMFY_WS_SUFFIX,
-  type ComfyBindings,
   type ComfyWsData,
   comfyWebSocketHandlers,
   type EnginedServer,
@@ -30,6 +28,7 @@ import {
 import { loadConfig } from "./config.ts";
 import { type Dispatch, resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
+import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import {
   DEFAULT_IDLE_STOP_SECONDS,
   DEFAULT_READY_TIMEOUT_S,
@@ -41,7 +40,6 @@ import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
   CONTENT_TYPE,
-  type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
   jsonErrorBody,
@@ -512,22 +510,6 @@ function agenticEnvelope(text: string | undefined): Record<string, unknown> {
   };
 }
 
-export interface DoorOptions {
-  agenticSpawn?: AgenticSpawn;
-  llamaHttpClient?: HttpClient;
-  extrasHttpClient?: HttpClient;
-  /** Defaults to the real `fetch`; a test overrides it so the comfy proxy never reaches a real container. */
-  comfyHttpClient?: HttpClient;
-  /** Injected so a test can capture the provenance line instead of reading real stdout. */
-  write?: (line: string) => void;
-  /** Reaches both the registry that writes the preset and the router that mounts it; a test overrides it so neither touches the real state dir. */
-  llamaPresetHostPath?: string;
-  /** Defaults to the real `secret-tool`; a test overrides it so a remote-agentic engine's keyring lookup never runs for real. */
-  secretExec?: SecretExec;
-  /** Defaults to the real `process.env`; a test overrides it so a planted ambient secret has somewhere deterministic to not leak from. */
-  agenticAmbientEnv?: NodeJS.ProcessEnv;
-}
-
 export interface Door {
   /**
    * Two call shapes, not one loosely-typed signature: every existing caller
@@ -546,39 +528,6 @@ export interface Door {
   reload: (path: string) => void;
   registry: EngineRegistry;
   configError: () => string | undefined;
-}
-
-/**
- * Everything a content handler needs, bundled so each handler stays a
- * top-level function instead of a deep closure. `getConfig` rather than a
- * captured `Config` because `reload` swaps it out from under an in-flight
- * request's later lookups.
- */
-export interface DoorContext {
-  getConfig: () => Config;
-  registry: EngineRegistry;
-  lifecycle: DockerLifecycle;
-  registryOpts: RegistryOptions;
-  doorOpts: DoorOptions;
-  llamaRouters: Map<string, LlamaRouter>;
-  /**
-   * Engine ids whose cached router belongs to a config generation `reload`
-   * has since superseded. Swapped for a fresh one lazily, on the first call
-   * after its own outstanding leases drain to zero -- never mid-flight, so
-   * a request that arrives after a reload but while an earlier one is still
-   * reading from the container joins the SAME occupancy tracker instead of
-   * getting a second one that has no idea what the first still has resident.
-   */
-  staleLlamaRouters: Set<string>;
-  /**
-   * Live launch-scoped nonces: minted at the `runAgentic` call site, deleted
-   * the moment that call returns. A request naming one that is not in this
-   * set -- expired, or never minted -- is refused outright, whether or not
-   * it names an agentic engine: a leaked or reused URL is not a standing key.
-   */
-  launchNonces: Set<string>;
-  /** Comfy proxy mediation state, reload-durable -- see `ComfyBindings`. */
-  comfyBindings: ComfyBindings;
 }
 
 function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
@@ -623,6 +572,8 @@ interface HopRequest {
   setContentType: (ct: string) => void;
   /** Whether ANY hop of the chain this one belongs to forwards tool-calling fields, which is what makes an agentic hop's refusal advance rather than terminate. */
   toolsHonourableElsewhere: boolean;
+  /** Whether the caller addressed a chain rather than one engine. Nothing in the hops themselves answers this, and a chain caller owns none of the omissions a single hop's own shape needs. */
+  inChain: boolean;
 }
 
 /**
@@ -945,6 +896,7 @@ interface AgenticHop {
     signal: AbortSignal;
     setContentType: (ct: string) => void;
     toolsHonourableElsewhere: boolean;
+    inChain: boolean;
   };
 }
 
@@ -1141,11 +1093,11 @@ function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResul
 /**
  * `workdir` is meaningful to an agentic hop and to nothing else, so a caller
  * who addressed a chain had no reason to send one and does not own its
- * absence. There the unhonourable fields are answered first, so the refusal
- * advances and the chain still reaches the hop that can honour them; a
- * caller who named this engine directly does own the omission and gets
- * `runAgentic`'s 400 naming it, the mistake that is actually theirs, before
- * anything this engine cannot do for them.
+ * absence: there it is this hop's own shape that cannot be satisfied, which
+ * advances like any other, and a chain nothing can answer still exhausts to
+ * its own 503. A caller who named this engine directly does own the
+ * omission and gets `runAgentic`'s terminal 400 naming it, the mistake that
+ * is actually theirs, before anything this engine cannot do for them.
  */
 async function preLaunchRefusal(
   ctx: DoorContext,
@@ -1158,7 +1110,12 @@ async function preLaunchRefusal(
     return refusal;
   }
   if (workdir === undefined || workdir === "") {
-    return null;
+    return req.inChain
+      ? {
+          status: STATUS_BAD_GATEWAY,
+          body: jsonErrorBody(`engine "${engineId}" is agentic and this call carried no workdir`),
+        }
+      : null;
   }
   if (refusal !== null) {
     return refusal;
@@ -1393,6 +1350,7 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
         signal,
         setContentType: req.setContentType,
         toolsHonourableElsewhere: req.toolsHonourableElsewhere,
+        inChain: req.inChain,
       },
     });
   }
@@ -1483,6 +1441,7 @@ async function handleChatOrEmbeddings(
         toolsHonourableElsewhere: hops.some((hop) =>
           hopForwardsTools(hop, ctx.getConfig().routes, (id) => ctx.registry.get(id)),
         ),
+        inChain: chainName !== null,
       },
       launchScoped,
     ),
