@@ -11,7 +11,7 @@ import {
   specDigest,
 } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
-import { containerRunning, makeTestRoot } from "./test-support.ts";
+import { buildExec, containerRunning, makeTestRoot } from "./test-support.ts";
 import type { RunnableContainerSpec, Volume } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-docker-");
@@ -113,42 +113,6 @@ const SPEC: RunnableContainerSpec = {
   ready: { path: "/health", status: READY_STATUS },
 };
 
-/**
- * Stubbed docker: `start` always misses (forcing `run`), `port` answers with
- * a fixed mapping. `runDelayMs` holds `run` pending for a real tick before
- * resolving -- the start-lock race test needs this: without a genuine delay,
- * a broken lock could still coincidentally log one `run` if both calls
- * happened to interleave microtask-perfectly, which proves nothing about a
- * future regression that adds a real `await` between the lock's check and
- * its set. Every other caller passes 0 and sees no behaviour change.
- */
-function stubExec(runLog: string[][], stopLog: string[][], hostPort: number, runDelayMs = 0): Exec {
-  return async (args): Promise<ExecResult> => {
-    const argv = [...args];
-    switch (argv[0]) {
-      case "image":
-        return argv[1] === "inspect" ? inspectFound() : ok();
-      case "start":
-        return startMiss();
-      case "run":
-        runLog.push(argv);
-        if (runDelayMs > 0) {
-          await Bun.sleep(runDelayMs);
-        }
-        return ok();
-      case "port":
-        return portFound(hostPort);
-      case "stop":
-        stopLog.push(argv);
-        return ok();
-      case "inspect":
-        return containerRunning();
-      default:
-        return ok();
-    }
-  };
-}
-
 /** Function declaration, not a const arrow: avoids a nursery false-positive on serializable closures. */
 function readyProbe(): ReturnType<Probe> {
   return Promise.resolve({ status: READY_STATUS });
@@ -226,7 +190,7 @@ const RACE_MIDFLIGHT_CHECK_MS = 10;
 test("start: two concurrent calls against a stopped engine spawn exactly one container", async () => {
   const runLog: string[][] = [];
   const lifecycle = new DockerLifecycle(
-    stubExec(runLog, [], STUB_HOST_PORT_A, RACE_RUN_DELAY_MS),
+    buildExec({ runLog, port: STUB_HOST_PORT_A, runDelayMs: RACE_RUN_DELAY_MS }),
     readyProbe,
   );
 
@@ -255,7 +219,7 @@ test("start: two concurrent calls against a stopped engine spawn exactly one con
 
 test("a held lease outlasts idle-stop; a lease-less start still counts down", async () => {
   const stopLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe);
   const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
 
   await lifecycle.start("idle-test", SPEC, opts);
@@ -287,7 +251,7 @@ test("a held lease outlasts idle-stop; a lease-less start still counts down", as
 
 test("an engine warmed by start and never dispatched to still idle-stops", async () => {
   const stopLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe);
 
   // POST /engined/v1/engines/:id/start with no request behind it: nothing will ever
   // call endLease, so before the countdown was armed here too this container
@@ -304,7 +268,7 @@ test("an engine warmed by start and never dispatched to still idle-stops", async
 
 test("concurrent leases: the countdown starts only when the last one is released", async () => {
   const stopLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(stubExec([], stopLog, STUB_HOST_PORT_B), readyProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe);
   const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 };
 
   await lifecycle.start("two-leases", SPEC, opts);
@@ -424,7 +388,7 @@ test("start: a bind-mounted artifact is checked with a host stat, never a contai
 
 test("probe: a container docker still reports as up is left alone, not re-checked or restarted", async () => {
   const runLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(stubExec(runLog, [], STUB_HOST_PORT_A), readyProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ runLog, port: STUB_HOST_PORT_A }), readyProbe);
   const started = await lifecycle.start("already-running", SPEC, START_OPTS);
   expect(started.state).toBe("running");
 
@@ -442,7 +406,7 @@ test("probe: a container docker still reports as up is left alone, not re-checke
 describe("a container that vanished underneath engined", () => {
   /** Live until `gone` flips, then absent exactly as docker reports it: `inspect` fails, and a re-`run` succeeds. */
   function vanishingExec(gone: { yet: boolean }, runLog: string[][]): Exec {
-    const live = stubExec(runLog, [], STUB_HOST_PORT_A);
+    const live = buildExec({ runLog, port: STUB_HOST_PORT_A });
     return (args) => {
       if (args[0] === "inspect" && gone.yet) {
         return Promise.resolve({ stdout: "", stderr: "No such object", exitCode: 1 });
@@ -505,7 +469,7 @@ function orphanPs(orphan: Orphan): ExecResult {
  * through to a fresh `run` on the stub's own port.
  */
 function orphanExec(orphan: Orphan, runLog: string[][]): Exec {
-  const live = stubExec(runLog, [], STUB_HOST_PORT_A);
+  const live = buildExec({ runLog, port: STUB_HOST_PORT_A });
   return (args) => (args[0] === "ps" ? Promise.resolve(orphanPs(orphan)) : live(args));
 }
 
@@ -709,7 +673,7 @@ test("readiness honours a POST probe and an accept range, not just an exact GET 
     return Promise.resolve({ status: BAD_REQUEST });
   }
 
-  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), recordingProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ port: STUB_HOST_PORT_A }), recordingProbe);
   const status = await lifecycle.start("whisper", postSpec, START_OPTS);
 
   expect(status.state).toBe("running");
@@ -828,7 +792,7 @@ test("a 404 never counts as ready, even inside the accept range", async () => {
     return Promise.resolve({ status: NOT_FOUND });
   }
 
-  const lifecycle = new DockerLifecycle(stubExec([], [], STUB_HOST_PORT_A), notFoundProbe);
+  const lifecycle = new DockerLifecycle(buildExec({ port: STUB_HOST_PORT_A }), notFoundProbe);
   const status = await lifecycle.start("whisper", notFoundSpec, {
     idleStopSeconds: 60,
     readyTimeoutS: 0.05,

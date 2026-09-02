@@ -16,6 +16,7 @@ import { stateDir } from "./paths.ts";
 import { loadSpec } from "./spec.ts";
 import {
   BUNX,
+  buildExec,
   clearVerifiedVersion,
   config,
   containerRunning,
@@ -1338,33 +1339,7 @@ path = "/health"
 status = 200
 `;
 
-/** Tracks `run -d` and `stop` separately, so a test can assert a restart happened -- or did not -- without conflating the two. */
-function sttSwitchExec(runLog: string[][], stopLog: string[][]): Exec {
-  let port = 51_000;
-  return (args) => {
-    const argv = [...args];
-    if (argv[0] === "image" && argv[1] === "inspect") {
-      return Promise.resolve(inspectSinglePort(8080));
-    }
-    if (argv[0] === "run" && argv[1] === "-d") {
-      runLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "stop") {
-      stopLog.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (argv[0] === "port") {
-      return Promise.resolve(portResult(++port));
-    }
-    if (argv[0] === "inspect") {
-      return Promise.resolve(containerRunning());
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-}
-
-/** A registry over one stt-kind engine with two model-bearing routes, its lifecycle wired to `sttSwitchExec` and handed back so a test can drive leases directly. */
+/** A registry over one stt-kind engine with two model-bearing routes, its lifecycle wired to a stop-and-restart-tracking exec fake and handed back so a test can drive leases directly. */
 function sttSwitchRegistry(): {
   reg: EngineRegistry;
   lifecycle: DockerLifecycle;
@@ -1375,7 +1350,10 @@ function sttSwitchRegistry(): {
   writeEngineSpec(root, "whisper-like", STT_WITH_MODEL_FLAG);
   const runLog: string[][] = [];
   const stopLog: string[][] = [];
-  const lifecycle = new DockerLifecycle(sttSwitchExec(runLog, stopLog), READY_PROBE);
+  const lifecycle = new DockerLifecycle(
+    buildExec({ runLog, stopLog, portSeed: 51_000 }),
+    READY_PROBE,
+  );
   const reg = new EngineRegistry(
     config({
       engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],

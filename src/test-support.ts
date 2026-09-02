@@ -131,8 +131,16 @@ export function containerRunning(alive = true): ExecResult {
 
 interface BuildExecOptions {
   missingImages?: Set<string>;
+  /** Exact `docker port` answer per container name -- for a test distinguishing two engines. */
   portByContainer?: Record<string, number>;
+  /** One `docker port` answer for every container -- for a test with a single engine under test. */
+  port?: number;
+  /** `docker port` answers `portSeed + 1`, then `+ 2`, ... regardless of container: for a test that only needs each lookup to differ, never the value itself. */
+  portSeed?: number;
   runLog?: string[][];
+  stopLog?: string[][];
+  /** Holds `run -d` pending this long before resolving -- a genuine tick for a start-lock race test to prove overlap against, not sequencing. */
+  runDelayMs?: number;
 }
 
 /** Never asserted on directly: real host ports come from `portByContainer`, so this container port is an arbitrary placeholder. */
@@ -146,14 +154,42 @@ function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
   return inspectSinglePort(PLACEHOLDER_CONTAINER_PORT);
 }
 
-function execPort(argv: string[], opts: BuildExecOptions): ExecResult {
+/** `portState.next`, when set, wins over both `port` and `portByContainer` -- an incrementing seed answers every lookup regardless of container. */
+function execPort(
+  argv: string[],
+  opts: BuildExecOptions,
+  portState: { next: number | undefined },
+): ExecResult {
+  if (portState.next !== undefined) {
+    portState.next += 1;
+    return portResult(portState.next);
+  }
+  if (opts.port !== undefined) {
+    return portResult(opts.port);
+  }
   const [, containerName] = argv;
   const port = containerName === undefined ? undefined : opts.portByContainer?.[containerName];
   return port === undefined ? { stdout: "", stderr: "", exitCode: 1 } : portResult(port);
 }
 
+async function execRun(argv: string[], opts: BuildExecOptions): Promise<ExecResult> {
+  opts.runLog?.push(argv);
+  if (opts.runDelayMs) {
+    await Bun.sleep(opts.runDelayMs);
+  }
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
+function execStop(argv: string[], opts: BuildExecOptions): ExecResult {
+  opts.stopLog?.push(argv);
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
+
 /** One `Exec` shared by every container-spec engine in a test: dispatches on the image tag and the container name. */
 export function buildExec(opts: BuildExecOptions): Exec {
+  // Seeded here, not in `execPort`: the seed advances once per call and must
+  // survive across calls, which a stateless helper can't hold.
+  const portState = { next: opts.portSeed };
   return (args): Promise<ExecResult> => {
     const argv = [...args];
     if (argv[0] === "image" && argv[1] === "inspect") {
@@ -163,11 +199,13 @@ export function buildExec(opts: BuildExecOptions): Exec {
       return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
     }
     if (argv[0] === "run" && argv[1] === "-d") {
-      opts.runLog?.push(argv);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
+      return execRun(argv, opts);
+    }
+    if (argv[0] === "stop") {
+      return Promise.resolve(execStop(argv, opts));
     }
     if (argv[0] === "port") {
-      return Promise.resolve(execPort(argv, opts));
+      return Promise.resolve(execPort(argv, opts, portState));
     }
     if (argv[0] === "inspect") {
       return Promise.resolve(containerRunning());
