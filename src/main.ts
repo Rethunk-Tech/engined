@@ -851,7 +851,7 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
  * `rawBody.model` is whatever the caller's own request named -- a chain
  * name, an alias, anything -- never necessarily this hop's resolved model
  * id, so it is overwritten rather than forwarded verbatim. `workdir` is
- * stripped as before; every other caller-supplied field passes through.
+ * stripped; every other caller-supplied field passes through.
  *
  * Shared by the local llama proxy and the remote HTTP proxy: both speak the
  * same OpenAI body, and the only thing that differs is where it is posted

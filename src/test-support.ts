@@ -42,8 +42,8 @@ export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
 /**
  * One `[[upstream]]`, resolved: where a route's bytes actually come from.
  * Egress is expressible only here (and on `route()`'s own `upstream` id,
- * which this is what it resolves against) -- `loadConfig()` can no longer
- * produce an engine carrying its own egress, so no fixture may either.
+ * which resolves against this) -- `loadConfig()` never produces an engine
+ * carrying its own egress, so no fixture may either.
  */
 export function upstream(overrides: Partial<Upstream> = {}): Upstream {
   return { id: "local", egress: "none", ...overrides };

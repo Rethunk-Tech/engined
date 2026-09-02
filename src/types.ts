@@ -274,7 +274,7 @@ export interface Config {
   models: ModelEntry[];
   engines: EngineEntry[];
   upstreams: Upstream[];
-  /** The route table. Replaces every former `models.filter(m => m.engine === X)` consumer -- named separately from `models` so the two tables never read as one. */
+  /** The route table -- named separately from `models` so the two tables never read as one. */
   routes: ResolvedRoute[];
   /** Every hop is a fully-qualified `@/<engine>/<model>`. */
   chains: Record<string, string[]>;
@@ -356,7 +356,7 @@ export function findModelOnEngine<
  * The one route a resolved `@/engine/[upstream/]model` hop names. Two
  * segments default the upstream the way the dispatcher does -- ambient, then
  * this box's own `local` -- never whichever matching route was declared
- * first, which is how an ambient dispatch used to run on a keyed upstream.
+ * first, which would run an ambient dispatch on a keyed upstream.
  */
 export function routeForHop<T extends { engine: string; model?: string; upstream: string | null }>(
   routes: readonly T[],
@@ -519,9 +519,9 @@ export interface EngineStatus {
   roles?: RoleContention[];
   /**
    * Whether `"stream": true` is servable by this engine, on whichever route
-   * it serves that admits streaming at all. Every kind can now declare it
-   * (`spec.ts`'s `streaming` key is no longer tts-only), so a real boolean is
-   * the honest answer everywhere: `false` means "this engine does not
+   * it serves that admits streaming at all. Every kind declares it through
+   * `spec.ts`'s `streaming` key, so a real boolean is the honest answer
+   * everywhere: `false` means "this engine does not
    * stream", not "unknown". Without it a consumer's only way to learn that an
    * engine cannot chunk is a 502 per request, or a hardcoded engine list that
    * goes stale the moment engined gains an engine.

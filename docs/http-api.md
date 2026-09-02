@@ -105,8 +105,8 @@ unauditable egress is not one this design accepts.
 fixes it: `docker pull …`, `docker build …`, or a `secret-tool store` line for
 a missing key. There is no `private_url` on this wire: where a managed
 container happens to listen is the door's own business, never a caller's —
-see [comfy](#comfy) below for what that means for the one engine a consumer
-used to reach directly.
+see [comfy](#comfy) below for what that means for the one engine with an
+API of its own.
 
 The response carries a `contract` number, bumped when a field is **removed**,
 a state renamed, or a route's meaning altered — never for a field added. A
