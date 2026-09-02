@@ -32,6 +32,7 @@ import {
   makeTestRoot,
   portResult,
   route,
+  soleProvenanceRecord,
   tempPresetPath,
   writeEngineSpec,
 } from "./test-support.ts";
@@ -547,8 +548,7 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
     await res.text();
 
     expect(res.status).toBe(503);
-    const record = JSON.parse(lines[0] ?? "{}") as { attempts: { failure?: string }[] };
-    expect(record.attempts[0]?.failure).toBe("timeout");
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe("timeout");
   });
 });
 
@@ -609,10 +609,7 @@ describe("the door: content routing", () => {
     );
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
     expect(body.choices[0]?.message.content).toBe("hi");
-    expect(lines).toHaveLength(1);
-    expect((JSON.parse(lines[0] ?? "{}") as { engine_used: string }).engine_used).toBe(
-      "local-llama",
-    );
+    expect(soleProvenanceRecord(lines).engine_used).toBe("local-llama");
   });
 
   test("workdir is stripped and reasoning_effort passes through to an openai-http hop", async () => {
@@ -792,11 +789,7 @@ describe("the door: streaming provenance", () => {
     });
     const body = await res.text();
     expect(body).toBe(WARMING_COMMENT + chunks.join(""));
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as {
-      attempts: { model_reported?: string }[];
-    };
-    expect(record.attempts[0]?.model_reported).toBeUndefined();
+    expect(soleProvenanceRecord(lines).attempts[0]?.model_reported).toBeUndefined();
   });
 });
 
@@ -920,8 +913,7 @@ describe("the door: chain skips an engine that fails its version proof", () => {
     expect(res.status).toBe(200);
     expect(hopBCalls).toHaveLength(1);
     expect(hopBCalls[0]).toContain("@anthropic-ai/claude-code@4.5.6");
-    const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
-    expect(record.engine_used).toBe("claude-b");
+    expect(soleProvenanceRecord(lines).engine_used).toBe("claude-b");
     clearVerifiedVersion("claude-unproved");
     clearVerifiedVersion("claude-b");
   });
@@ -973,9 +965,7 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
     await res.text();
 
     expect(res.status).toBe(503);
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as { attempts: { failure?: string }[] };
-    expect(record.attempts[0]?.failure).toBe("timeout");
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe("timeout");
     clearVerifiedVersion(id);
   });
 });
@@ -1022,11 +1012,7 @@ describe("the door: chain routing", () => {
     expect(res.status).toBe(502);
     expect(hopACalls).toHaveLength(1);
     expect(hopBCalls).toHaveLength(0);
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as {
-      engine_used: string;
-      attempts: { engine: string; ok: boolean }[];
-    };
+    const record = soleProvenanceRecord(lines);
     expect(record.engine_used).toBe("claude-a");
     expect(record.attempts).toHaveLength(1);
     expect(record.attempts[0]).toMatchObject({ engine: "claude-a", ok: false });

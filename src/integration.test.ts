@@ -18,6 +18,7 @@ import {
   route,
   config as sharedConfig,
   tempPresetPath as sharedTempPresetPath,
+  soleProvenanceRecord,
   startFakeUpstream,
   upstream,
 } from "./test-support.ts";
@@ -475,11 +476,7 @@ test("a chain whose first hop is dead completes on the second, and provenance na
       expect(res.status).toBe(200);
       expect(body).toContain("answered by good");
 
-      expect(lines).toHaveLength(1);
-      const record = JSON.parse(lines[0] ?? "{}") as {
-        engine_used: string;
-        attempts: { engine: string; ok: boolean }[];
-      };
+      const record = soleProvenanceRecord(lines);
       expect(record.engine_used).toBe("good");
       expect(record.attempts).toHaveLength(2);
       expect(record.attempts[0]?.engine).toBe("dead");
@@ -527,9 +524,7 @@ test("a streaming chain whose first hop 5xxs on the actual chat call advances to
       expect(res.status).toBe(200);
       expect(body).toContain("answered by good");
 
-      expect(lines).toHaveLength(1);
-      const record = JSON.parse(lines[0] ?? "{}") as { engine_used: string };
-      expect(record.engine_used).toBe("good");
+      expect(soleProvenanceRecord(lines).engine_used).toBe("good");
     },
   );
 });
@@ -840,11 +835,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
     await door.fetch(
       req("POST", "/openai/v1/audio/speech", { body: { model: CHATTERBOX, input: "hi" } }),
     );
-    expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0] ?? "{}") as {
-      attempts: { ok: boolean; failure?: string }[];
-      engine_used: string | null;
-    };
+    const record = soleProvenanceRecord(lines);
     expect(record.attempts[0]?.ok).toBe(false);
     expect(record.attempts[0]?.failure).toBeDefined();
     expect(record.engine_used).toBeNull();
@@ -902,16 +893,6 @@ function streamingSpeechDoor(): StreamingSpeechDoor {
   };
 }
 
-function speechAttempt(lines: string[]): {
-  attempts: { ok: boolean; failure?: string }[];
-  engine_used: string | null;
-} {
-  return JSON.parse(lines[0] ?? "{}") as {
-    attempts: { ok: boolean; failure?: string }[];
-    engine_used: string | null;
-  };
-}
-
 const STREAM_SPEECH = { model: CHATTERBOX, input: "hi", stream: true };
 
 test("a streamed audio call that forwards its whole body records a success, not an empty body", async () => {
@@ -924,8 +905,7 @@ test("a streamed audio call that forwards its whole body records a success, not 
     expect(lines).toHaveLength(0);
     expect((await res.arrayBuffer()).byteLength).toBe(8);
 
-    expect(lines).toHaveLength(1);
-    const record = speechAttempt(lines);
+    const record = soleProvenanceRecord(lines);
     expect(record.attempts[0]?.ok).toBe(true);
     expect(record.attempts[0]?.failure).toBeUndefined();
     expect(record.engine_used).toBe("chatterbox-multi");
@@ -945,8 +925,7 @@ test("a streamed audio call abandoned mid-body still records a failure", async (
     expect((await reader.read()).value?.byteLength).toBe(4);
     await reader.cancel();
 
-    expect(lines).toHaveLength(1);
-    const record = speechAttempt(lines);
+    const record = soleProvenanceRecord(lines);
     expect(record.attempts[0]?.ok).toBe(false);
     expect(record.attempts[0]?.failure).toBe("client disconnected");
     expect(record.engine_used).toBeNull();

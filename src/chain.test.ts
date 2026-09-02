@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { type HopExec, parseHop, type RunChainOptions, runChain } from "./chain.ts";
-import { collectLines, deadPort, startFakeUpstream } from "./test-support.ts";
+import { collectLines, deadPort, soleProvenanceRecord, startFakeUpstream } from "./test-support.ts";
 import type { Egress } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -123,10 +123,10 @@ test("a three-segment hop's attempt records the bare model, never the upstream f
 
   expect(result.status).toBe(200);
   expect(result.engineUsed).toBe("cursor");
-  const record = JSON.parse(lines[0] ?? "");
+  const record = soleProvenanceRecord(lines);
   expect(record.engine_used).toBe("cursor");
-  expect(record.attempts[0].engine).toBe("cursor");
-  expect(record.attempts[0].model).toBe("sonnet-5");
+  expect(record.attempts[0]?.engine).toBe("cursor");
+  expect(record.attempts[0]?.model).toBe("sonnet-5");
 });
 
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
@@ -248,10 +248,10 @@ test("a stream that dies after the first byte does not advance, and the failure 
 
   expect(sawError).toBe(true);
   expect(up.requestLog).not.toContain("/unused");
-  const record = JSON.parse(lines[0] ?? "");
+  const record = soleProvenanceRecord(lines);
   expect(record.attempts).toHaveLength(1);
-  expect(record.attempts[0].ok).toBe(false);
-  expect(record.attempts[0].failure).toBeDefined();
+  expect(record.attempts[0]?.ok).toBe(false);
+  expect(record.attempts[0]?.failure).toBeDefined();
 });
 
 test("every hop failing returns 503 listing each attempt", async () => {
@@ -417,10 +417,9 @@ test("a client disconnecting mid-stream still emits the call's provenance line",
   await reader?.read();
   await reader?.cancel();
 
-  expect(lines.length).toBe(1);
-  const record = JSON.parse(lines[0] ?? "{}");
-  expect(record.attempts[0].ok).toBe(false);
-  expect(record.attempts[0].failure).toBe("client disconnected");
+  const record = soleProvenanceRecord(lines);
+  expect(record.attempts[0]?.ok).toBe(false);
+  expect(record.attempts[0]?.failure).toBe("client disconnected");
 });
 
 test("a client abort stops the chain instead of advancing and billing the next provider", async () => {

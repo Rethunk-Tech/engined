@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
-import { collectLines } from "./test-support.ts";
+import { collectLines, soleProvenanceRecord } from "./test-support.ts";
 
 const DURATION_A_MS = 120;
 const DURATION_B_MS = 340;
@@ -35,12 +35,11 @@ test("recordCall: one call with three attempts emits exactly one line carrying a
 
   recordCall(record, write);
 
-  expect(lines.length).toBe(1);
-  const parsed = JSON.parse(lines[0] ?? "");
+  const parsed = soleProvenanceRecord(lines);
   expect(parsed.attempts).toHaveLength(ATTEMPT_COUNT);
-  expect(parsed.attempts[0].failure).toBe("connection refused");
-  expect(parsed.attempts[1].failure).toBe("timeout");
-  expect(parsed.attempts[2].ok).toBe(true);
+  expect(parsed.attempts[0]?.failure).toBe("connection refused");
+  expect(parsed.attempts[1]?.failure).toBe("timeout");
+  expect(parsed.attempts[2]?.ok).toBe(true);
 });
 
 test("recordCall: model_reported and model_resident survive as distinct fields when they differ", () => {
@@ -64,10 +63,10 @@ test("recordCall: model_reported and model_resident survive as distinct fields w
 
   recordCall(record, write);
 
-  const parsed = JSON.parse(lines[0] ?? "");
-  expect(parsed.attempts[0].model_reported).toBe("router-section");
-  expect(parsed.attempts[0].model_resident).toBe("qwen3-30b-a3b-q4.gguf");
-  expect(parsed.attempts[0].model_reported).not.toBe(parsed.attempts[0].model_resident);
+  const parsed = soleProvenanceRecord(lines);
+  expect(parsed.attempts[0]?.model_reported).toBe("router-section");
+  expect(parsed.attempts[0]?.model_resident).toBe("qwen3-30b-a3b-q4.gguf");
+  expect(parsed.attempts[0]?.model_reported).not.toBe(parsed.attempts[0]?.model_resident);
 });
 
 test("recordCall: an agentic attempt's version equals the pin that was launched; a non-agentic attempt carries no version field", () => {
@@ -85,9 +84,9 @@ test("recordCall: an agentic attempt's version equals the pin that was launched;
 
   recordCall(record, write);
 
-  const parsed = JSON.parse(lines[0] ?? "");
-  expect(parsed.attempts[0].version).toBe("1.2.3");
-  expect(Object.hasOwn(parsed.attempts[1], "version")).toBe(false);
+  const parsed = soleProvenanceRecord(lines);
+  expect(parsed.attempts[0]?.version).toBe("1.2.3");
+  expect(parsed.attempts.map((a) => Object.hasOwn(a, "version"))).toEqual([true, false]);
 });
 
 test("recordCall: each attempt carries its own duration_ms", () => {
@@ -111,9 +110,9 @@ test("recordCall: each attempt carries its own duration_ms", () => {
 
   recordCall(record, write);
 
-  const parsed = JSON.parse(lines[0] ?? "");
-  expect(parsed.attempts[0].duration_ms).toBe(DURATION_A_MS);
-  expect(parsed.attempts[1].duration_ms).toBe(DURATION_B_MS);
+  const parsed = soleProvenanceRecord(lines);
+  expect(parsed.attempts[0]?.duration_ms).toBe(DURATION_A_MS);
+  expect(parsed.attempts[1]?.duration_ms).toBe(DURATION_B_MS);
 });
 
 test("recordCall: a secret spread onto an attempt is dropped from the emitted line", () => {
@@ -167,7 +166,7 @@ test("recordCall: upstream_used survives serialization on both the attempt and t
 
   recordCall(record, write);
 
-  const parsed = JSON.parse(lines[0] ?? "");
-  expect(parsed.attempts[0].upstream_used).toBe("moonshot");
+  const parsed = soleProvenanceRecord(lines);
+  expect(parsed.attempts[0]?.upstream_used).toBe("moonshot");
   expect(parsed.upstream_used).toBe("moonshot");
 });

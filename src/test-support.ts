@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
+import type { CallRecord } from "./provenance.ts";
 import type { Config, EngineEntry, ModelEntry, ResolvedRoute, Upstream } from "./types.ts";
 
 /** The bunx path every test spec is built against; never resolved from a real PATH. */
@@ -215,21 +216,7 @@ export function buildExec(opts: BuildExecOptions): Exec {
 }
 
 /** The one provenance line a call emits, parsed. Fails loudly rather than yielding an empty object, so a missing line reads as a missing line. */
-function soleProvenanceRecord(lines: string[]): {
-  chain: string | null;
-  requested: string;
-  engine_used: string | null;
-  attempts: Array<{
-    engine: string;
-    model: string;
-    ok: boolean;
-    failure?: string;
-    duration_ms: number;
-    model_reported?: string;
-    model_resident?: string;
-    version?: string;
-  }>;
-} {
+export function soleProvenanceRecord(lines: string[]): CallRecord {
   const [only, ...rest] = lines;
   // Thrown, not `expect`ed: this runs inside a helper rather than a test
   // body, and a throw fails the calling test just as loudly while naming the
