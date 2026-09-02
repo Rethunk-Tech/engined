@@ -463,3 +463,23 @@ test("an unaborted signal leaves chain walking untouched", async () => {
   expect(up.requestLog).toEqual(["/first", "/second"]);
   up.stop();
 });
+
+test("a hop whose body carries a child agent's words records the status alone", async () => {
+  const { lines, write } = collectLines();
+  const fix =
+    'engine "claude" pin 2.0.1 failed the "byte-identical" probe: ' +
+    "launch answered 502: CHILD_AGENT_PARSE_WORDS (stderr: CHILD_STDERR_TAIL_SECRET)";
+  const exec: HopExec = (hop) =>
+    Promise.resolve(
+      engineOf(hop) === "claude"
+        ? { status: 503, body: { error: fix }, bodyCarriesAgentOutput: true }
+        : { status: 200, body: "answer" },
+    );
+
+  await runChain(["@/claude/model", "@/success/model"], baseOpts({ exec, write }));
+
+  const record = soleProvenanceRecord(lines);
+  expect(record.attempts[0]?.failure).toBe("http 503");
+  expect(lines.join("")).not.toContain("CHILD_STDERR_TAIL_SECRET");
+  expect(lines.join("")).not.toContain("CHILD_AGENT_PARSE_WORDS");
+});

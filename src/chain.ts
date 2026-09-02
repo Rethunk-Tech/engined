@@ -32,6 +32,14 @@ export interface HopResult {
    * retry against the next hop might route around.
    */
   envelopeFailure?: boolean;
+  /**
+   * Text a child agent wrote -- its parsed stdout, or the tail of its stderr --
+   * reached this body. It still answers the caller, but no provenance line
+   * carries a child's words, so the recorded failure keeps the status alone.
+   * Set it where the body is built: a hop knows what it put there, and nothing
+   * downstream can tell engined's own sentence from an agent's.
+   */
+  bodyCarriesAgentOutput?: boolean;
   /** The router id the answering engine echoed back, when the hop kind can report one. Passed straight to the attempt's `model_reported`. */
   modelReported?: string;
   /** Read per attempt from the answering engine's own `GET /v1/models`, when it can supply one. Passed straight to the attempt's `model_resident`. */
@@ -105,13 +113,22 @@ const ADVANCING_CLIENT_ERRORS = new Set([
  * The status alone cannot say what went wrong: a hop refused before it was
  * ever asked -- no workdir, an unresolvable upstream -- puts the only
  * explanation in its body, and an attempt recorded as bare `http 502` reads
- * as an engine that failed. An envelope failure is the one exclusion: that
- * text is the child agent's own words, and no provenance line carries those.
+ * as an engine that failed. Excluded is any body a hop has marked as carrying
+ * a child agent's words -- the property that decides this, rather than a
+ * status or a shape that happens to correlate with one today.
  */
 function failureOf(result: HopResult): string {
   const status = `http ${result.status}`;
   const { body } = result;
-  if (result.envelopeFailure || typeof body !== "object" || body === null || !("error" in body)) {
+  // An envelope failure implies the mark: that body is the agent's own parsed
+  // stdout, never engined's sentence about it.
+  if (
+    result.bodyCarriesAgentOutput === true ||
+    result.envelopeFailure === true ||
+    typeof body !== "object" ||
+    body === null ||
+    !("error" in body)
+  ) {
     return status;
   }
   return typeof body.error === "string" ? `${status}: ${body.error}` : status;
