@@ -20,7 +20,6 @@
  * agent's own parser decides success.
  */
 
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -93,73 +92,80 @@ export type AgenticSpawn = (argv: string[], opts: AgenticSpawnOptions) => Promis
 /** Graceful-then-forceful: real work (writes, network calls) gets a chance to unwind before the group is SIGKILLed out from under it. */
 const KILL_GRACE_MS = 3000;
 
-export function defaultAgenticSpawn(
+export async function defaultAgenticSpawn(
   argv: string[],
   opts: AgenticSpawnOptions,
 ): Promise<ExecResult> {
-  return new Promise((resolve, reject) => {
-    const [cmd, ...rest] = argv;
-    if (cmd === undefined) {
-      reject(new Error("agentic launch argv is empty"));
-      return;
-    }
-    const child = spawn(cmd, rest, { cwd: opts.cwd, env: opts.env, detached: true });
-    let stdout = "";
-    let stderr = "";
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-
-    function killGroup(sig: NodeJS.Signals): void {
-      if (child.pid === undefined) {
-        return;
-      }
-      try {
-        process.kill(-child.pid, sig);
-      } catch {
-        // Already gone -- nothing left to signal.
-      }
-    }
-
-    function onAbort(): void {
-      killGroup("SIGTERM");
-      killTimer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
-    }
-
-    if (opts.signal?.aborted) {
-      onAbort();
-    } else {
-      opts.signal?.addEventListener("abort", onAbort);
-    }
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stdout += text;
-      opts.onStdout?.(text);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk;
-    });
-    child.on("error", (err) => {
-      opts.signal?.removeEventListener("abort", onAbort);
-      clearTimeout(killTimer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      opts.signal?.removeEventListener("abort", onAbort);
-      clearTimeout(killTimer);
-      // Killed by our own abort: rejecting (rather than resolving with
-      // whatever partial stdout it managed) is what lets runOneHop's own
-      // catch block -- which checks `controller.signal.aborted` -- record
-      // this as "timeout" instead of an ordinary envelope failure, the same
-      // distinction the openai-http path's aborted fetch() already gets.
-      if (opts.signal?.aborted) {
-        reject(new Error("agentic launch aborted"));
-        return;
-      }
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
-    });
-    child.stdin.write(opts.input);
-    child.stdin.end();
+  if (argv.length === 0) {
+    throw new Error("agentic launch argv is empty");
+  }
+  const child = Bun.spawn(argv, {
+    cwd: opts.cwd,
+    env: opts.env,
+    detached: true,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
   });
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function killGroup(sig: NodeJS.Signals): void {
+    try {
+      process.kill(-child.pid, sig);
+    } catch {
+      // Already gone -- nothing left to signal.
+    }
+  }
+
+  function onAbort(): void {
+    killGroup("SIGTERM");
+    killTimer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
+  }
+
+  if (opts.signal?.aborted) {
+    onAbort();
+  } else {
+    opts.signal?.addEventListener("abort", onAbort);
+  }
+  child.stdin.write(opts.input);
+  child.stdin.end();
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      teeText(child.stdout, opts.onStdout),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    // Killed by our own abort: rejecting (rather than resolving with
+    // whatever partial stdout it managed) is what lets runOneHop's own
+    // catch block -- which checks `controller.signal.aborted` -- record
+    // this as "timeout" instead of an ordinary envelope failure, the same
+    // distinction the openai-http path's aborted fetch() already gets.
+    if (opts.signal?.aborted) {
+      throw new Error("agentic launch aborted");
+    }
+    return { stdout, stderr, exitCode };
+  } finally {
+    opts.signal?.removeEventListener("abort", onAbort);
+    clearTimeout(killTimer);
+  }
+}
+
+/** The whole stream as text, with each chunk also handed to `onChunk` as it lands. */
+async function teeText(
+  stream: ReadableStream<Uint8Array>,
+  onChunk?: (chunk: string) => void,
+): Promise<string> {
+  if (onChunk === undefined) {
+    return new Response(stream).text();
+  }
+  const decoder = new TextDecoder();
+  let all = "";
+  for await (const chunk of stream) {
+    const text = decoder.decode(chunk, { stream: true });
+    all += text;
+    onChunk(text);
+  }
+  return all;
 }
 
 export interface ObservedVersion {
