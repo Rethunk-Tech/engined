@@ -6,7 +6,7 @@
  * at all, so that one test binds a real door against a real fake container.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import type { Exec, ExecResult } from "./exec.ts";
@@ -594,5 +594,54 @@ describe("comfy proxy: scoped cancel", () => {
 
     expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "finished" });
     expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
+  });
+});
+
+describe("comfy proxy: the binding table is bounded", () => {
+  /**
+   * The whole table is rewritten on every bind, so an unbounded one costs
+   * more per prompt forever. The bound is only safe if it drops the oldest
+   * binding -- evicting the newest would refuse the output of the prompt the
+   * caller is still waiting on -- and if disk agrees with memory, since a
+   * restart reads disk back as the whole truth.
+   */
+  test("past its bound the table holds 1000 and the oldest binding is the one gone, in memory and on disk", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-bound-"));
+    let issued = 0;
+    const respond = (url: string): Response =>
+      url.includes("/prompt") ? Response.json({ prompt_id: `job-${++issued}` }) : Response.json({});
+
+    const door = await comfyDoor(recordingComfyClient(respond).client, 40_999, stateHome);
+    for (let i = 0; i < 1001; i++) {
+      await door.fetch(
+        new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+      );
+    }
+
+    const onDisk = JSON.parse(
+      readFileSync(join(stateHome, "engined", "comfy-bindings.json"), "utf8"),
+    ) as Record<string, string[]>;
+    expect(Object.keys(onDisk)).toHaveLength(1000);
+
+    // In memory: the first prompt bound is the one the door no longer knows,
+    // and the one bound right after it survives.
+    const evicted = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-1`));
+    const oldestKept = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-2`));
+    const newest = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-1001`));
+    expect(evicted.status).toBe(404);
+    expect(oldestKept.status).toBe(200);
+    expect(newest.status).toBe(200);
+
+    // ...and a restart reading that file back answers identically.
+    const restarted = await comfyDoor(recordingComfyClient(respond).client, 40_999, stateHome);
+    expect(
+      (await restarted.fetch(new Request(`http://engined${PROXY_PATH}/history/job-1`))).status,
+    ).toBe(404);
+    expect(
+      (await restarted.fetch(new Request(`http://engined${PROXY_PATH}/history/job-2`))).status,
+    ).toBe(200);
+    expect(
+      (await restarted.fetch(new Request(`http://engined${PROXY_PATH}/history/job-1001`))).status,
+    ).toBe(200);
   });
 });
