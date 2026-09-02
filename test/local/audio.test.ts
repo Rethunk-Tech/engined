@@ -42,25 +42,32 @@ const ROUND_TRIP_TIMEOUT_MS = 600_000;
  * configuration, so a clean read here is also a live check that the example
  * still matches the model tree on disk.
  *
- * Nothing is caught. Every engine the example names ships its spec in this
- * repo, so a failure here is a broken fixture rather than an absent engine --
- * and a caught one degrades this suite into transcribing against a path that
- * holds no models, which is green and proves nothing.
+ * A failure degrades to a named skip rather than a throw, because `loadConfig`
+ * validates the whole file: a route on llama naming a GGUF this box does not
+ * hold fails first, and no engine in this suite speaks to llama. `ParseError`
+ * carries only a message and a file, so a broken spec and an absent unrelated
+ * weight arrive indistinguishable -- the message is carried into the skip
+ * title verbatim, so which one it was is still readable at a glance. What is
+ * never done is fall back to a directory holding no models, which is green and
+ * proves nothing.
  */
-function whisperModelsDir(): string {
+function whisperModelsDir(): { dir?: string; error?: string } {
   if (!LOCAL) {
-    return "/unused";
+    return { error: 'ENGINED_LOCAL is not "1"' };
   }
-  const modelsDir = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT).engines.find(
-    (e) => e.id === "whisper",
-  )?.models_dir;
-  if (modelsDir === undefined) {
-    throw new Error(`${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir`);
+  try {
+    const dir = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT).engines.find(
+      (e) => e.id === "whisper",
+    )?.models_dir;
+    return dir === undefined
+      ? { error: `${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir` }
+      : { dir };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
-  return modelsDir;
 }
 
-const WHISPER_MODELS_DIR = whisperModelsDir();
+const WHISPER_MODELS = whisperModelsDir();
 
 /** `models_dir: "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to substitute cleanly; chatterbox-multi's spec has no such placeholder. */
 function ttsEngine(id: string): EngineEntry {
@@ -202,12 +209,20 @@ const TTS_ROUND_TRIPS: { id: string; ready: boolean }[] = [
   { id: "piper", ready: HAVE_PIPER },
 ];
 
+/** Which of the two preconditions failed, so a skipped round trip never reads as "some image is missing" when the real cause is the example config. */
+function roundTripSkipReason(id: string, ready: boolean): string {
+  return ready && HAVE_WHISPER
+    ? `whisper's models_dir did not resolve: ${WHISPER_MODELS.error}`
+    : `${id} or whisper is not built`;
+}
+
 for (const tts of TTS_ROUND_TRIPS) {
-  describe.skipIf(!(tts.ready && HAVE_WHISPER))(
+  const roundTripReady = tts.ready && HAVE_WHISPER && WHISPER_MODELS.dir !== undefined;
+  describe.skipIf(!roundTripReady)(
     skipTitle(
       `${tts.id} -> whisper round trip (local)`,
-      tts.ready && HAVE_WHISPER,
-      `${tts.id} or whisper is not built`,
+      roundTripReady,
+      roundTripSkipReason(tts.id, tts.ready),
     ),
     () => {
       const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
@@ -216,7 +231,7 @@ for (const tts of TTS_ROUND_TRIPS) {
         const engine: EngineEntry = {
           id,
           args: {},
-          models_dir: WHISPER_MODELS_DIR,
+          models_dir: WHISPER_MODELS.dir,
         };
         const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
         if (!isContainerSpec(loaded.spec)) {
