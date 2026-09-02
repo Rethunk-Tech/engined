@@ -5,61 +5,53 @@
  */
 
 import type { EngineRegistry } from "./engines.ts";
-import type { Config, Egress, ResolvedRoute, Role } from "./types.ts";
-import { EGRESS_RANK, qualifiedSegments, routeServes } from "./types.ts";
+import type { Config, Egress, ResolvedRoute } from "./types.ts";
+import { EGRESS_RANK, pickDefaultUpstream, qualifiedSegments, routeServes } from "./types.ts";
 
 /** Chains exist to route a chat prompt hop by hop; no other endpoint takes one. */
 const CHAIN_ENDPOINT = "/openai/v1/chat/completions";
 
-export type Dispatch =
-  | { ok: true; kind: "model"; engine: string; model?: string; upstream?: string }
-  | { ok: true; kind: "chain"; chain: string; hops: readonly string[] }
+export type ModelDispatch =
+  | { ok: true; kind: "model"; route: ResolvedRoute }
   | { ok: false; error: string };
 
-/** Everything one resolution reads, bundled so no resolver runs past the parameter budget. */
-interface ResolveCtx {
-  endpoint: string;
+export type Dispatch =
+  | ModelDispatch
+  | { ok: true; kind: "chain"; chain: string; hops: readonly string[] };
+
+/** Everything one resolution reads. No `endpoint` skips the serves check: starting a container asks nothing about which door path the engine answers. */
+export interface ResolveCtx {
+  endpoint?: string;
   config: Config;
   registry: EngineRegistry;
 }
 
-function fail(error: string): Dispatch {
+function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
 }
 
-interface EndpointCheckOptions {
-  engineId: string;
-  model?: string;
-  upstream?: string;
-  ctx: ResolveCtx;
-  role?: Role;
-}
-
-/** `engine.serves(endpoint)`, or the model-less form when `model` is `undefined`. The one funnel every resolved dispatch passes through, so the disabled check lives here rather than in each resolver. */
-function withEndpointCheck({
-  engineId,
-  model,
-  upstream,
-  ctx,
-  role,
-}: EndpointCheckOptions): Dispatch {
-  if (ctx.registry.entry(engineId)?.disabled) {
-    return fail(`engine "${engineId}" is disabled in config`);
+/** `engine.serves(endpoint)`, or the model-less form when the route has no model. The one funnel every resolved dispatch passes through, so the disabled check lives here rather than in each resolver. */
+function withEndpointCheck(route: ResolvedRoute, ctx: ResolveCtx): ModelDispatch {
+  const { engine, model } = route;
+  if (ctx.registry.entry(engine)?.disabled) {
+    return fail(`engine "${engine}" is disabled in config`);
   }
-  if (!routeServes(role, ctx.registry.serves(engineId)).includes(ctx.endpoint)) {
-    const what = model === undefined ? `engine "${engineId}"` : `"@/${engineId}/${model}"`;
+  if (
+    ctx.endpoint !== undefined &&
+    !routeServes(route.role, ctx.registry.serves(engine)).includes(ctx.endpoint)
+  ) {
+    const what = model === undefined ? `engine "${engine}"` : `"@/${engine}/${model}"`;
     return fail(`${what} does not serve ${ctx.endpoint}`);
   }
-  return { ok: true, kind: "model", engine: engineId, model, upstream };
+  return { ok: true, kind: "model", route };
 }
 
-/** Where an upstream ranks on `EGRESS_RANK`; ambient (`upstream === null`) is `"remote"`, matching `Upstream`'s own doc: no upstream leaves the box the same as any other network call. */
-function routeEgressRank(route: ResolvedRoute, config: Config): number {
-  const egress: Egress =
-    route.upstream === null
-      ? "remote"
-      : (config.upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote");
-  return EGRESS_RANK[egress];
+/** Where this route's bytes travel. Ambient (`upstream === null`) is `"remote"`, matching `Upstream`'s own doc: no upstream leaves the box the same as any other network call. */
+export function routeEgress(route: ResolvedRoute, config: Config): Egress {
+  if (route.upstream === null) {
+    return "remote";
+  }
+  return config.upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote";
 }
 
 /**
@@ -68,27 +60,15 @@ function routeEgressRank(route: ResolvedRoute, config: Config): number {
  * exactly ONE route -- it does not walk on failure. A caller wanting
  * fallback across candidates writes a chain instead.
  */
-function resolveOneSegment(model: string, ctx: ResolveCtx): Dispatch {
+function resolveOneSegment(model: string, ctx: ResolveCtx): ModelDispatch {
   const candidates = ctx.config.routes.filter((r) => !r.disabled && r.model === model);
   if (candidates.length === 0) {
     return fail(`model "${model}" does not exist`);
   }
   const [winner] = [...candidates].sort(
-    (a, b) => routeEgressRank(a, ctx.config) - routeEgressRank(b, ctx.config),
+    (a, b) => EGRESS_RANK[routeEgress(a, ctx.config)] - EGRESS_RANK[routeEgress(b, ctx.config)],
   );
-  const route = winner as ResolvedRoute;
-  return withEndpointCheck({
-    engineId: route.engine,
-    model,
-    upstream: route.upstream ?? undefined,
-    ctx,
-    role: route.role,
-  });
-}
-
-/** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
-function pickDefaultUpstream(matches: readonly ResolvedRoute[]): ResolvedRoute | undefined {
-  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
+  return withEndpointCheck(winner as ResolvedRoute, ctx);
 }
 
 /**
@@ -98,7 +78,7 @@ function pickDefaultUpstream(matches: readonly ResolvedRoute[]): ResolvedRoute |
  * That stays single-valued only because config parse refuses an engine that
  * mixes modelless and model-bearing routes.
  */
-function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Dispatch {
+function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): ModelDispatch {
   if (!ctx.config.engines.some((e) => e.id === engineSeg)) {
     return fail(`"@/${engineSeg}/${seg}": engine "${engineSeg}" does not exist`);
   }
@@ -114,7 +94,7 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Di
     if (!route) {
       return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`);
     }
-    return withEndpointCheck({ engineId: engineSeg, upstream: seg, ctx });
+    return withEndpointCheck(route, ctx);
   }
   const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
   if (matches.length === 0) {
@@ -125,13 +105,7 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Di
     const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
     return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
   }
-  return withEndpointCheck({
-    engineId: engineSeg,
-    model: seg,
-    upstream: route.upstream ?? undefined,
-    ctx,
-    role: route.role,
-  });
+  return withEndpointCheck(route, ctx);
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -140,7 +114,7 @@ function resolveThreeSegments(
   upstreamSeg: string,
   modelSeg: string,
   ctx: ResolveCtx,
-): Dispatch {
+): ModelDispatch {
   if (!ctx.config.engines.some((e) => e.id === engineSeg)) {
     return fail(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": engine "${engineSeg}" does not exist`,
@@ -158,16 +132,11 @@ function resolveThreeSegments(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
     );
   }
-  return withEndpointCheck({
-    engineId: engineSeg,
-    model: modelSeg,
-    upstream: upstreamSeg,
-    ctx,
-    role: route.role,
-  });
+  return withEndpointCheck(route, ctx);
 }
 
-function resolveQualified(segments: readonly string[], ctx: ResolveCtx): Dispatch {
+/** A `@/...` address by segment count. Exported for `/engined/v1/start`, which resolves the same two- and three-segment forms with no endpoint to check. */
+export function resolveQualified(segments: readonly string[], ctx: ResolveCtx): ModelDispatch {
   const [first, second, third] = segments;
   if (segments.length === 1) {
     return resolveOneSegment(first as string, ctx);

@@ -83,13 +83,9 @@ describe("bare (unqualified) addressing is gone", () => {
       ],
     });
     const reg = registry(cfg);
-    expect(resolveModel("@/engineA/shared", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "engineA",
-      model: "shared",
-      upstream: "local",
-    });
+    expect(resolveModel("@/engineA/shared", CHAT, cfg, reg)).toEqual(
+      modelResolution("engineA", "shared", "local"),
+    );
   });
 
   test("a lone match does not resolve bare -- only through @/ or the one-segment form", () => {
@@ -99,20 +95,12 @@ describe("bare (unqualified) addressing is gone", () => {
     });
     const reg = registry(cfg);
     expect(resolveModel("only", CHAT, cfg, reg).ok).toBe(false);
-    expect(resolveModel("@/only", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "solo",
-      model: "only",
-      upstream: "local",
-    });
-    expect(resolveModel("@/solo/only", CHAT, cfg, reg)).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "solo",
-      model: "only",
-      upstream: "local",
-    });
+    expect(resolveModel("@/only", CHAT, cfg, reg)).toEqual(
+      modelResolution("solo", "only", "local"),
+    );
+    expect(resolveModel("@/solo/only", CHAT, cfg, reg)).toEqual(
+      modelResolution("solo", "only", "local"),
+    );
   });
 });
 
@@ -149,12 +137,9 @@ describe("modelless engine addressing", () => {
 
   test("its two-segment engine+upstream form resolves", () => {
     const cfg = modelless("chatterbox-multi");
-    expect(resolveModel("@/chatterbox-multi/local", SPEECH, cfg, registry(cfg))).toEqual({
-      ok: true,
-      kind: "model",
-      engine: "chatterbox-multi",
-      upstream: "local",
-    });
+    expect(resolveModel("@/chatterbox-multi/local", SPEECH, cfg, registry(cfg))).toEqual(
+      modelResolution("chatterbox-multi", undefined, "local"),
+    );
   });
 
   test("it has no one-segment form", () => {
@@ -202,8 +187,10 @@ describe("modelless engine addressing", () => {
 });
 
 /** The successful `resolveModel` reading for a model route. */
-function modelResolution(engineId: string, model: string, upstream: string) {
-  return { ok: true as const, kind: "model" as const, engine: engineId, model, upstream };
+function modelResolution(engineId: string, model: string | undefined, upstream: string) {
+  const fields =
+    model === undefined ? { engine: engineId, upstream } : { engine: engineId, model, upstream };
+  return { ok: true as const, kind: "model" as const, route: expect.objectContaining(fields) };
 }
 
 /** "ornith" served by both `engineA` and `engineB`, with no upstream to tell them apart. */
@@ -271,8 +258,8 @@ describe("segment count decides the reading", () => {
     const reg = registry(cfg);
     const a = resolveModel("@/engineA/ornith", CHAT, cfg, reg);
     const b = resolveModel("@/engineB/ornith", CHAT, cfg, reg);
-    expect(a.ok && a.kind === "model" && a.engine).toBe("engineA");
-    expect(b.ok && b.kind === "model" && b.engine).toBe("engineB");
+    expect(a.ok && a.kind === "model" && a.route.engine).toBe("engineA");
+    expect(b.ok && b.kind === "model" && b.route.engine).toBe("engineB");
   });
 
   test("a one-segment address picks the lowest-egress route: local, then lan, then remote, then declaration order", () => {

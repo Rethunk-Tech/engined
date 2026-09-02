@@ -368,9 +368,13 @@ export function routeForHop<T extends { engine: string; model?: string; upstream
     return findModelOnEngine(routes, engineId, model, upstream);
   }
   const matches = routes.filter((r) => r.engine === engineId && r.model === model);
-  if (matches.length === 1) {
-    return matches[0];
-  }
+  return matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
+}
+
+/** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
+export function pickDefaultUpstream<T extends { upstream: string | null }>(
+  matches: readonly T[],
+): T | undefined {
   return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
 }
 

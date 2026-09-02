@@ -32,7 +32,7 @@ import {
   wrapStream,
 } from "./chain.ts";
 import { loadConfig } from "./config.ts";
-import { type Dispatch, resolveModel } from "./dispatch.ts";
+import { type Dispatch, resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import {
   DEFAULT_IDLE_STOP_SECONDS,
@@ -195,65 +195,6 @@ async function handleEngines(ctx: DoorContext, configErr: string | undefined): P
 }
 
 /**
- * Among routes sharing one `(engine, model)`, the upstream `/engined/v1/start`'s
- * two-segment form defaults to: ambient first, then this box's own `local`.
- * Duplicated from `dispatch.ts`'s own default-upstream pick rather than
- * shared: that resolver is endpoint-gated (`serves(engineId).includes(...)`,
- * a question about which door PATH an engine answers), and starting a
- * container has nothing to do with that -- comfy serves no content endpoint
- * at all and must still resolve here.
- */
-function pickDefaultUpstream(matches: readonly ResolvedRoute[]): ResolvedRoute | undefined {
-  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");
-}
-
-/** The two- or three-segment qualified form, resolved to exactly the one route it names. Mirrors `dispatch.ts`'s `resolveTwoSegments`/`resolveThreeSegments`, minus the endpoint check neither applies here. */
-function resolveQualifiedStartRoute(
-  segments: readonly string[],
-  config: Config,
-): { ok: true; route: ResolvedRoute } | { ok: false; error: string } {
-  const [engineSeg, second, third] = segments;
-  const engine = engineSeg as string;
-  const engineEntry = config.engines.find((e) => e.id === engine);
-  if (engineEntry === undefined) {
-    return { ok: false, error: `engine "${engine}" does not exist` };
-  }
-  if (engineEntry.disabled) {
-    return { ok: false, error: `engine "${engine}" is disabled in config` };
-  }
-  if (third !== undefined) {
-    const upstream = second as string;
-    const model = third;
-    const route = findModelOnEngine(config.routes, engine, model, upstream);
-    return route
-      ? { ok: true, route }
-      : { ok: false, error: `model "${model}" does not exist on "${engine}"/"${upstream}"` };
-  }
-  const seg = second as string;
-  const engineRoutes = config.routes.filter((r) => r.engine === engine);
-  const modelless = engineRoutes.some((r) => r.model === undefined);
-  if (modelless) {
-    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg);
-    return route
-      ? { ok: true, route }
-      : { ok: false, error: `no route on "${engine}" with upstream "${seg}"` };
-  }
-  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
-  if (matches.length === 0) {
-    return { ok: false, error: `model "${seg}" does not exist on "${engine}"` };
-  }
-  const route = matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
-  if (route === undefined) {
-    const qualified = matches.map((r) => `@/${engine}/${r.upstream}/${seg}`).join(", ");
-    return {
-      ok: false,
-      error: `"@/${engine}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`,
-    };
-  }
-  return { ok: true, route };
-}
-
-/**
  * `/engined/v1/start`'s target: a chain name resolves to its FIRST hop only
  * (warming exists to avoid a cold first turn; starting every hop spins up
  * containers for requests the first hop will answer), a bare `@/<model>`
@@ -263,8 +204,9 @@ function resolveQualifiedStartRoute(
  */
 function resolveStartRoutes(
   model: string,
-  config: Config,
+  ctx: DoorContext,
 ): { ok: true; routes: readonly ResolvedRoute[] } | { ok: false; error: string } {
+  const config = ctx.getConfig();
   const chainHops = config.chains[model];
   if (chainHops !== undefined) {
     const [first] = chainHops;
@@ -288,12 +230,12 @@ function resolveStartRoutes(
       ? { ok: false, error: `model "${modelId}" does not exist` }
       : { ok: true, routes: candidates };
   }
-  const resolved = resolveQualifiedStartRoute(segments, config);
+  const resolved = resolveQualified(segments, { config, registry: ctx.registry });
   return resolved.ok ? { ok: true, routes: [resolved.route] } : resolved;
 }
 
-/** The canonical `@/...` this row answers for -- always the fully explicit form, never a URL. */
-function startRowAddress(route: ResolvedRoute): string {
+/** The canonical `@/...` a route answers for -- always the fully explicit form, never a URL. A start row reports it; a chat dispatch walks it as the one hop `runChain` takes. */
+function routeAddress(route: ResolvedRoute): string {
   const upstreamPart = route.upstream === null ? "" : `/${route.upstream}`;
   const modelPart = route.model === undefined ? "" : `/${route.model}`;
   return `@/${route.engine}${upstreamPart}${modelPart}`;
@@ -314,7 +256,7 @@ function startRowAddress(route: ResolvedRoute): string {
  * carries `filename` and no `role`, and `warm` throws on a roleless model.
  */
 async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<StartRow> {
-  const address = startRowAddress(route);
+  const address = routeAddress(route);
   const { engine: engineId, upstream } = route;
   if (upstream !== "local") {
     const status = ctx.registry.get(engineId);
@@ -385,7 +327,7 @@ async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
   if (model === "") {
     return jsonError(STATUS_BAD_REQUEST, "model is required");
   }
-  const resolved = resolveStartRoutes(model, ctx.getConfig());
+  const resolved = resolveStartRoutes(model, ctx);
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
@@ -876,13 +818,6 @@ const comfyWebSocketHandlers: Bun.WebSocketHandler<ComfyWsData> = {
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
 const EXTRAS_RE = /^\/engined\/v1\/engines\/([^/]+)\/(tokenize|apply-template)$/;
 
-/** A resolved address, re-qualified into the two- or three-segment hop form `runChain` walks. A chain never arrives here: it carries its own hops. */
-function hopFromDispatch(dispatch: Extract<Dispatch, { ok: true; kind: "model" }>): string {
-  const upstreamPart = dispatch.upstream === undefined ? "" : `/${dispatch.upstream}`;
-  const modelPart = dispatch.model === undefined ? "" : `/${dispatch.model}`;
-  return `@/${dispatch.engine}${upstreamPart}${modelPart}`;
-}
-
 /**
  * An explicit `null` from the caller unsets a wire default rather than being
  * forwarded as a null. Without this a caller can override an `[engine.args]`
@@ -1064,7 +999,7 @@ function egressOf(ctx: DoorContext, hop: string): Egress {
   const config = ctx.getConfig();
   const { engine: engineId, upstream: upstreamSeg, model } = parseHop(hop);
   const route = routeForHop(config.routes, engineId, model, upstreamSeg);
-  return route === undefined ? "remote" : routeEgress(route, config.upstreams);
+  return route === undefined ? "remote" : routeEgress(route, config);
 }
 
 interface HopRequest {
@@ -1881,7 +1816,7 @@ async function handleChatOrEmbeddings(
   if (!maxEgress.ok) {
     return jsonError(STATUS_BAD_REQUEST, 'max_egress must be "none", "lan" or "remote"');
   }
-  const hops = resolved.kind === "chain" ? [...resolved.hops] : [hopFromDispatch(resolved)];
+  const hops = resolved.kind === "chain" ? [...resolved.hops] : [routeAddress(resolved.route)];
   const chainName = resolved.kind === "chain" ? resolved.chain : null;
 
   let contentType: string = JSON_CONTENT_TYPE;
@@ -2033,7 +1968,7 @@ function resolveAudioEngine(
       response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
     };
   }
-  return { ok: true, engineId: resolved.engine, model: resolved.model };
+  return { ok: true, engineId: resolved.route.engine, model: resolved.route.model };
 }
 
 /**
@@ -2375,14 +2310,6 @@ function routeGet(
   }
 }
 
-/** Where this route's bytes travel. Ambient (`upstream === null`) is always `"remote"`, matching `Upstream`'s own doc. */
-function routeEgress(route: ResolvedRoute, upstreams: readonly Upstream[]): Egress {
-  if (route.upstream === null) {
-    return "remote";
-  }
-  return upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote";
-}
-
 /** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
 function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
   return {
@@ -2459,7 +2386,7 @@ async function modelRow(
     engine: route.engine,
     upstream: route.upstream ?? undefined,
     model: route.model,
-    egress: routeEgress(route, config.upstreams),
+    egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     serves: routeServes(route.role, status?.serves ?? []),
     state,
