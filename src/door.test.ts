@@ -2094,6 +2094,34 @@ function llamaThenWhisperChainConfig(): { cfg: Config; root: string } {
   return { cfg, root };
 }
 
+/**
+ * `started` names the call that actually launched the engine, not merely
+ * whether it ends up running: the second call against an already-warm route
+ * finds `state: "running"` too, but must report `started: false` so a caller
+ * can stop polling `/openai/v1/models` to tell a cold start from a warm one.
+ */
+async function startedFlagsAcrossTwoCalls(): Promise<{
+  firstState: unknown;
+  firstStarted: unknown;
+  secondState: unknown;
+  secondStarted: unknown;
+}> {
+  const { cfg, root } = llamaDoorConfig();
+  const { client } = makeRecordingLlamaClient();
+  const door = createLlamaDoor(cfg, root, { llamaHttpClient: client });
+
+  const first = await door.fetch(startRequest("@/local-llama/ornith"));
+  const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
+  const second = await door.fetch(startRequest("@/local-llama/ornith"));
+  const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+  return {
+    firstState: firstBody.data[0]?.state,
+    firstStarted: firstBody.data[0]?.started,
+    secondState: secondBody.data[0]?.state,
+    secondStarted: secondBody.data[0]?.started,
+  };
+}
+
 describe("POST /engined/v1/start", () => {
   test("an engine id is not a place: the old per-engine route is a 404", async () => {
     const { cfg, root } = llamaDoorConfig();

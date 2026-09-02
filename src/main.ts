@@ -319,37 +319,56 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
   const { engine: engineId, upstream } = route;
   if (upstream !== "local") {
     const status = ctx.registry.get(engineId);
-    return {
+    const row = {
       address,
       engine: engineId,
       upstream,
       state: status?.state ?? "unavailable",
       fix: `upstream "${upstream ?? "ambient"}" is not local; nothing to start here`,
+      started: false,
     };
+    return row;
   }
   if (ctx.registry.isLocalLlama(engineId)) {
     const engineEntry = ctx.registry.entry(engineId);
     if (engineEntry === undefined) {
-      return {
+      const row = {
         address,
         engine: engineId,
         upstream,
-        state: "unavailable",
+        state: "unavailable" as const,
         fix: `unknown engine "${engineId}"`,
+        started: false,
       };
+      return row;
     }
+    // Whether this call is the one that launched the engine, not merely whether
+    // it is running now: caught before `warm` acts, since `warm` is a no-op on
+    // an already-warm route.
+    const wasRunning = ctx.registry.get(engineId)?.state === "running";
     await getLlamaRouter(ctx, engineEntry).warm(route);
     const status = ctx.registry.get(engineId);
-    return {
+    const row = {
       address,
       engine: engineId,
       upstream,
       state: status?.state ?? "unavailable",
       fix: status?.fix,
+      started: !wasRunning,
     };
+    return row;
   }
+  const wasRunning = ctx.registry.get(engineId)?.state === "running";
   const status = await ctx.registry.start(engineId, route.model);
-  return { address, engine: engineId, upstream, state: status.state, fix: status.fix };
+  const row = {
+    address,
+    engine: engineId,
+    upstream,
+    state: status.state,
+    fix: status.fix,
+    started: !wasRunning,
+  };
+  return row;
 }
 
 /**

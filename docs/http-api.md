@@ -21,7 +21,7 @@ treated as a caller.
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
-| `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to |
+| `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
@@ -182,9 +182,12 @@ turn, and starting every hop would spin up containers for requests the first
 hop is going to answer. A bare `@/<model>` address warms every route offering
 that model, since one address can name more than one engine there; the two-
 and three-segment forms are already engine-specific and warm exactly one.
-Response rows are `{address, engine, upstream, state, fix?}` — never a `url`:
-reaching an engine is a separate request to the door, by address, and this
-verb only answers what state it is in. On a llama route this loads the named
+Response rows are `{address, engine, upstream, state, started, fix?}` — never
+a `url`: reaching an engine is a separate request to the door, by address,
+and this verb only answers what state it is in. `started` is `true` only when
+this call is the one that launched the engine, `false` when it was already
+running -- the field a caller polling for "is it warming" can read once
+instead of hitting `/openai/v1/models` on a loop. On a llama route this loads the named
 GGUF, so the first real request does not pay the cold load -- measured at
 13.84s cold against 2.09s warm for a TTS round trip on this box. The warm goes
 through the ordinary lease, so it cannot jump the queue or hold a role against
