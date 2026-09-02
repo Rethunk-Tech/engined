@@ -218,23 +218,25 @@ function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
       return remoteAudioStart(ctx, id, upstreamId);
     }
     try {
-      await ctx.registry.start(id, model);
+      // The lease is the registry's to take, not this door's: taken here it
+      // would be one microtask late, and a competing model switch reading
+      // zero leases in that gap stops the container under this request.
+      // Paired with the `armAudioIdleStop` on the way out, which releases
+      // only what was actually taken.
+      await ctx.registry.start(id, model, { lease: true });
     } catch (err) {
       if (err instanceof EngineBusyError) {
         return { private_url: null, conflict: err.message };
       }
       throw err;
     }
-    // Paired with the `armAudioIdleStop` on the way out, which releases only
-    // what this line actually took.
-    ctx.lifecycle.beginLease(id);
     // `EngineStatus` (the wire type `registry.start` returns) carries no
     // container address at all -- the internal runtime read is `lifecycle`'s
     // own, the same source the comfy proxy resolves against.
     const status = ctx.lifecycle.getStatus(id);
     // `active_leases` is reported for a running container and no other, which
     // is the one condition `beginLease` takes a lease under. Read in the same
-    // tick, it answers whether the line above took one.
+    // tick, it answers whether the start above took one.
     leased.held = status.active_leases !== undefined;
     return { private_url: status.private_url };
   };

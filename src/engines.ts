@@ -734,12 +734,11 @@ export class EngineRegistry {
 
   /**
    * A transition into empty arms the same idle-stop lease every other
-   * engine's request traffic arms, once; a transition into non-empty cancels
-   * a pending stop the same way a fresh `start()` on an already-running
-   * container does — cheap, since `start()` returns immediately once `state`
-   * is already `running`. Not stopped or started on every tick: docker.ts's
-   * `endLease` resets its own countdown on every call, so re-arming it every
-   * poll while the queue stays empty would defer the stop forever.
+   * engine's request traffic arms, once; a transition into non-empty takes
+   * that lease back, which is what cancels the pending stop. Not released or
+   * taken on every tick: docker.ts's `endLease` resets its own countdown on
+   * every call, so re-arming it every poll while the queue stays empty would
+   * defer the stop forever.
    */
   private async pollComfyQueue(entry: Entry): Promise<void> {
     if (!isContainerSpec(entry.spec.spec)) {
@@ -774,11 +773,12 @@ export class EngineRegistry {
     if (empty && !wasEmpty) {
       this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
     } else if (!empty && wasEmpty) {
-      await this.lifecycle.start(engine.id, entry.spec.spec, {
-        idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-        readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
-        specSource: entry.spec.source,
-      });
+      // The lease alone cancels the pending stop, and taking it synchronously
+      // is the point: a docker round trip here is a window in which the
+      // container holds neither a lease nor a countdown, and a model switch
+      // landing in it stops a comfy the queue has just reported working. The
+      // queue answering at all is better proof the container is up than any
+      // reconcile.
       this.lifecycle.beginLease(engine.id);
     }
   }
@@ -1115,8 +1115,20 @@ export class EngineRegistry {
    * routes should be resident -- meaningful only for a `kind === "stt"`
    * engine today (whisper), which loads its model at container start rather
    * than through a router like llama's.
+   *
+   * `opts.lease` hands back a container already held for the caller's own
+   * request. A caller that takes its own lease after this resolves cannot:
+   * `startsInFlight` stops covering the engine the moment `start` returns,
+   * and the caller's continuation is a microtask later -- a competing model
+   * switch running in between reads zero leases and no start in flight, and
+   * stops a container under a request already admitted. Taken here, the
+   * in-flight guard and the lease are one continuous interval.
    */
-  async start(id: string, model?: string): Promise<EngineStatus & { launched: boolean }> {
+  async start(
+    id: string,
+    model?: string,
+    opts?: { lease?: boolean },
+  ): Promise<EngineStatus & { launched: boolean }> {
     const entry = this.byId.get(id);
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);
@@ -1154,6 +1166,9 @@ export class EngineRegistry {
         specSource: entry.spec.source,
       });
       this.residentModel.set(id, model);
+      if (opts?.lease === true) {
+        this.lifecycle.beginLease(id);
+      }
       return { ...(await this.statusFor(entry)), launched: launched ?? false };
     } finally {
       this.leaveStart(id);

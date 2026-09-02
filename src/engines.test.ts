@@ -1239,6 +1239,41 @@ describe("comfy: idle timer driven by /queue polling", () => {
       },
     );
   });
+
+  test("a queue that turns busy takes the lease in the same tick it is observed, with no awaited docker work in between", async () => {
+    const execLog: string[][] = [];
+    const base = comfyExec();
+    const exec: Exec = (args) => {
+      execLog.push([...args]);
+      return base(args);
+    };
+    let busy = false;
+    await withComfyRegistry(
+      {
+        exec,
+        cfg: config({
+          engines: [engine({ id: "comfy", idle_stop_seconds: 30, ready_timeout_s: 5 })],
+        }),
+        queueFetch: () => Promise.resolve(busy ? BUSY_QUEUE : EMPTY_QUEUE),
+        comfyPollIntervalMs: 15,
+      },
+      async (reg, lifecycle) => {
+        await reg.start("comfy");
+        await Bun.sleep(60);
+        const settled = execLog.length;
+
+        busy = true;
+        await Bun.sleep(90);
+
+        // Every docker call the transition awaits is a window in which the
+        // container holds no lease and no countdown: a model switch landing
+        // there stops a comfy that has just been observed working.
+        expect(execLog.slice(settled)).toEqual([]);
+        expect(lifecycle.getStatus("comfy").active_leases).toBe(1);
+        expect(lifecycle.getStatus("comfy").state).toBe("running");
+      },
+    );
+  });
 });
 
 describe("comfy: resolved URL outlives its container by exactly nothing", () => {
@@ -1652,6 +1687,23 @@ test("a model switch cannot stop a container out from under a start still in fli
     expect(stopLog).toHaveLength(0);
   } finally {
     release.resolve();
+    await reg.shutdown();
+  }
+});
+
+test("a model switch one microtask after a leased start resolves finds the lease already held", async () => {
+  const { reg, runLog, stopLog } = sttSwitchRegistry();
+  try {
+    // `startsInFlight` no longer covers the engine here -- `start` has
+    // returned -- so the only thing standing between the container and a
+    // competing switch is a lease the start itself took.
+    const started = await reg.start("whisper-like", "small", { lease: true });
+    expect(started.active_leases).toBe(1);
+
+    await expect(reg.start("whisper-like", "big")).rejects.toThrow(EngineBusyError);
+    expect(runLog).toHaveLength(1);
+    expect(stopLog).toHaveLength(0);
+  } finally {
     await reg.shutdown();
   }
 });
