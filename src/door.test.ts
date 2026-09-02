@@ -1167,6 +1167,7 @@ function toolFallbackDoor(spawnCalls: string[][]): Door {
     ],
     routes: [
       route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
+      route({ engine: "claude", model: "x", upstream: null }),
     ],
     chains: { "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"] },
   });
@@ -1213,12 +1214,83 @@ describe("the door: a tool call never falls back into prose", () => {
         parallel_tool_calls: true,
       }),
     );
-    const body = (await res.json()) as { choices?: unknown; error?: { message: string } };
-    // The agent is never launched at all, so there is no prose to return:
-    // the chain exhausts on the refusal rather than committing to an answer.
+    const body = (await res.json()) as {
+      choices?: unknown;
+      error?: string;
+      attempts?: unknown[];
+    };
+    // The agent is never launched at all, so there is no prose to return.
+    // A tool-capable hop was in this chain and merely failed, so the refusal
+    // advances and the chain exhausts -- it does not terminate on the caller.
     expect(spawnCalls).toHaveLength(0);
-    expect(res.status).not.toBe(200);
+    expect(res.status).toBe(503);
+    expect(body.error).toBe("every engine in this chain failed");
+    expect(body.attempts).toHaveLength(2);
     expect(body.choices).toBeUndefined();
+    clearVerifiedVersion("claude");
+  });
+
+  test("naming the agentic engine directly is terminal and names the field, not a 503 that reads as a dead box", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/x",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
+      }),
+    );
+    const body = (await res.json()) as { choices?: unknown; error?: string };
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("cannot honour tools");
+    expect(spawnCalls).toHaveLength(0);
+    expect(body.choices).toBeUndefined();
+    clearVerifiedVersion("claude");
+  });
+
+  test("the shapes that demand nothing -- empty tools, tool_choice none, text response_format -- are answered", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/x",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+        tools: [],
+        tool_choice: "none",
+        parallel_tool_calls: false,
+        response_format: { type: "text" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    clearVerifiedVersion("claude");
+  });
+
+  test("a caller who also forgot workdir is told about the workdir, which is the mistake they own first", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/x",
+        messages: [{ role: "user", content: "what time is it" }],
+        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
+      }),
+    );
+    const body = (await res.json()) as { error?: string };
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("workdir is required");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  test("the models menu says which addresses forward a tool call before the first one is sent", async () => {
+    const door = toolFallbackDoor([]);
+    const res = await door.fetch(new Request("http://engined/openai/v1/models"));
+    const { data } = (await res.json()) as { data: { id: string; tools: boolean }[] };
+    expect(data.find((r) => r.id === "chain-tools")?.tools).toBe(false);
+    expect(data.find((r) => r.id === "@/llama-dead/dead-model")?.tools).toBe(true);
     clearVerifiedVersion("claude");
   });
 

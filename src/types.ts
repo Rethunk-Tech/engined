@@ -596,14 +596,18 @@ export interface ModelRow {
   egress?: Egress;
   streaming: boolean;
   /**
-   * Whether a request carrying `tools`/`tool_choice`/`parallel_tool_calls`/
-   * `response_format` is forwarded rather than refused here. An agent CLI
-   * takes a prompt string and prints answer text, so it has no channel for
-   * either half of a tool loop and the door refuses those fields outright --
-   * a chain row is `true` only when EVERY hop forwards them, since a
-   * fallback onto a hop that cannot is exactly what turns a tool call into
-   * prose. `false` never means the upstream model is bad at tool calling;
-   * that is the upstream's own answer to give.
+   * Whether a request that actually demands a tool call -- a non-empty
+   * `tools`, a `tool_choice` naming one, a `response_format` that is not
+   * plain text -- is forwarded rather than refused here. An agent CLI takes
+   * a prompt string and prints answer text, so it has no channel for either
+   * half of a tool loop and the door refuses such a request outright; an
+   * embeddings row is `false` for the same reason from the other side, with
+   * no tool-call channel to forward one down. A chain row is `true` only
+   * when EVERY hop forwards them, since a fallback onto a hop that cannot is
+   * exactly what turns a tool call into prose. `false` never means the
+   * upstream model is bad at tool calling; that is the upstream's own answer
+   * to give, and it says nothing about the values that demand nothing (an
+   * empty `tools`, `tool_choice: "none"`), which every row honours.
    */
   tools: boolean;
   serves: string[];

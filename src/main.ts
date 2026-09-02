@@ -90,6 +90,7 @@ import {
   parseRecord,
   qualifiedSegments,
   type ResolvedRoute,
+  type Role,
   routeForHop,
   routeServes,
   type StartResponse,
@@ -1064,23 +1065,39 @@ function promptFromMessages(body: Record<string, unknown>): string {
 }
 
 /**
- * Tool-calling fields no agent CLI has a channel for: `agents.ts`'s whole
- * contract is a prompt string in and answer text out (`parse` yields a
- * `result` string, `delta` an answer fragment), and an agent's own `tools`
- * are engined's read-only floor rather than the caller's. So neither half of
- * a tool loop can cross the boundary in either direction, and dropping these
- * silently hands a caller's tool loop prose it will parse as an answer.
+ * Whether a field's VALUE demands something no agent CLI has a channel for:
+ * `agents.ts`'s whole contract is a prompt string in and answer text out
+ * (`parse` yields a `result` string, `delta` an answer fragment), and an
+ * agent's own `tools` are engined's read-only floor rather than the
+ * caller's. So neither half of a tool loop can cross the boundary in either
+ * direction, and dropping such a field silently hands a caller's tool loop
+ * prose it will parse as an answer.
+ *
+ * Keyed on the value and not the key, because the values that ask for
+ * nothing are exactly what an agent already does: an empty `tools` offers
+ * none, `tool_choice: "none"` forbids them outright, `"auto"` permits prose,
+ * and `response_format: {type: "text"}` IS prose. Several
+ * OpenAI-compatible clients send those unconditionally, and refusing them
+ * would refuse traffic that wants nothing.
+ *
+ * `parallel_tool_calls` is absent: it constrains how tool calls are issued,
+ * never that any are, so a body carrying it either also carries a `tools`
+ * that demands them or asks for nothing at all.
  */
-const AGENTIC_UNHONOURABLE = [
-  "tools",
-  "tool_choice",
-  "parallel_tool_calls",
-  "response_format",
-] as const;
+const AGENTIC_UNHONOURABLE: Record<string, (value: unknown) => boolean> = {
+  tools: (v) => !Array.isArray(v) || v.length > 0,
+  tool_choice: (v) => v !== "none" && v !== "auto",
+  response_format: (v) => !isRecord(v) || v.type !== "text",
+};
 
-/** Which of those fields this body actually carries, in the order a caller would read them back. */
+/** Which of those fields this body carries a demanding value for, in the order a caller would read them back. A caller's `null` unsets a wire default (`withoutCallerNulls`) rather than demanding anything. */
 function unhonourableFields(body: Record<string, unknown>): string[] {
-  return AGENTIC_UNHONOURABLE.filter((key) => body[key] !== undefined && body[key] !== null);
+  return Object.entries(AGENTIC_UNHONOURABLE)
+    .filter(([key, demands]) => {
+      const value = body[key];
+      return value !== undefined && value !== null && demands(value);
+    })
+    .map(([key]) => key);
 }
 
 let agenticCallSeq = 0;
@@ -1211,6 +1228,8 @@ interface HopRequest {
   pathname: string;
   rawBody: Record<string, unknown>;
   setContentType: (ct: string) => void;
+  /** Whether ANY hop of the chain this one belongs to forwards tool-calling fields, which is what makes an agentic hop's refusal advance rather than terminate. */
+  toolsHonourableElsewhere: boolean;
 }
 
 /**
@@ -1508,20 +1527,8 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
   };
 }
 
-/** The `agentic-cli` case. `runAgentic` itself enforces the workdir-required-400 rule. */
-/**
- * The pin proof, and only once a workdir is in hand: the workdir-required 400
- * is a request-shape rejection the caller owns, and it fires before an
- * engine-availability check the server owns. `null` means nothing is wrong.
- */
-async function proveAgenticPin(
-  ctx: DoorContext,
-  engineId: string,
-  workdir: string | undefined,
-): Promise<HopResult | null> {
-  if (workdir === undefined || workdir === "") {
-    return null;
-  }
+/** The pin proof, which `runAgentic`'s own workdir-required 400 comes before. `null` means nothing is wrong. */
+async function proveAgenticPin(ctx: DoorContext, engineId: string): Promise<HopResult | null> {
   const proof = await ctx.registry.start(engineId);
   if (proof.state === "installed") {
     return null;
@@ -1544,6 +1551,7 @@ interface AgenticHop {
     rawBody: Record<string, unknown>;
     signal: AbortSignal;
     setContentType: (ct: string) => void;
+    toolsHonourableElsewhere: boolean;
   };
 }
 
@@ -1716,25 +1724,31 @@ function agenticSpecOf(ctx: DoorContext, engineEntry: EngineEntry): AgenticSpec 
   return spec;
 }
 
+/**
+ * A 502 only while a later hop could still forward these: the refusal is
+ * then about this engine's shape rather than the caller's request, the same
+ * reason a credential-shaped status advances. With no such hop anywhere in
+ * the chain nothing downstream can fix it, so the answer is a terminal 400
+ * naming the fields -- which `tools` on the `/openai/v1/models` row also
+ * says, discoverable before the first call rather than after it.
+ */
+function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResult | null {
+  const unhonourable = unhonourableFields(req.rawBody);
+  if (unhonourable.length === 0) {
+    return null;
+  }
+  return {
+    status: req.toolsHonourableElsewhere ? STATUS_BAD_GATEWAY : STATUS_BAD_REQUEST,
+    body: jsonErrorBody(
+      `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(", ")} -- an agent CLI answers in prose, never in tool calls`,
+    ),
+  };
+}
+
 async function execAgentic(
   ctx: DoorContext,
   { engineId, modelSeg, route, req }: AgenticHop,
 ): Promise<HopResult> {
-  // A plain 502, so a chain still advances to a hop that CAN forward these:
-  // the refusal is about this engine's shape, not about the caller's
-  // request, which is the same reason a credential-shaped status advances.
-  // A chain with no such hop left exhausts and says so; which chains those
-  // are is `tools` on the `/openai/v1/models` row, discoverable before the
-  // first call rather than after it.
-  const unhonourable = unhonourableFields(req.rawBody);
-  if (unhonourable.length > 0) {
-    return {
-      status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(
-        `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(", ")} -- an agent CLI answers in prose, never in tool calls`,
-      ),
-    };
-  }
   const config = ctx.getConfig();
   const entry = agenticEntry(ctx, engineId);
   if (!entry.ok) {
@@ -1768,9 +1782,18 @@ async function execAgentic(
     }
     const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route);
     const workdir = typeof req.rawBody.workdir === "string" ? req.rawBody.workdir : undefined;
-    const unproved = await proveAgenticPin(ctx, engineId, workdir);
-    if (unproved !== null) {
-      return unproved;
+    // Both of the next two wait on a workdir, so a caller who left one out
+    // gets `runAgentic`'s 400 naming it: a request-shape rejection the caller
+    // owns fires before anything this engine cannot do for them.
+    if (workdir !== undefined && workdir !== "") {
+      const refusal = unhonourableRefusal(engineId, req);
+      if (refusal !== null) {
+        return refusal;
+      }
+      const unproved = await proveAgenticPin(ctx, engineId);
+      if (unproved !== null) {
+        return unproved;
+      }
     }
     return await launchAgentic(ctx, {
       spec,
@@ -1953,7 +1976,12 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
       engineId,
       modelSeg,
       route,
-      req: { rawBody: req.rawBody, signal, setContentType: req.setContentType },
+      req: {
+        rawBody: req.rawBody,
+        signal,
+        setContentType: req.setContentType,
+        toolsHonourableElsewhere: req.toolsHonourableElsewhere,
+      },
     });
   }
   const engineEntry = ctx.registry.entry(engineId);
@@ -2037,6 +2065,9 @@ async function handleChatOrEmbeddings(
         setContentType: (ct) => {
           contentType = ct;
         },
+        toolsHonourableElsewhere: hops.some((hop) =>
+          hopForwardsTools(hop, ctx.getConfig().routes, (id) => ctx.registry.get(id)),
+        ),
       },
       launchScoped,
     ),
@@ -2592,7 +2623,7 @@ async function modelRow(
     model: route.model,
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
-    tools: forwardsTools(status?.kind),
+    tools: forwardsTools(status, route.role),
     serves: routeServes(route.role, status?.serves ?? []),
     state,
     capabilities: routeCapabilities(route),
@@ -2600,14 +2631,29 @@ async function modelRow(
 }
 
 /**
- * Whether the door hands this kind's upstream the request body it was given,
- * tool-calling fields and all. Only `openai-http` does: an agentic hop is
- * refused those fields outright (`unhonourableFields`), and no other kind
- * serves chat at all. It says nothing about whether the upstream then
- * honours them -- that answer is the upstream's own.
+ * Whether the door hands this route's upstream the request body it was
+ * given, tool-calling fields and all. Only a chat-serving `openai-http`
+ * route does: an agentic hop refuses the values that demand a tool call
+ * (`unhonourableFields`), an embeddings route has no tool-call channel to
+ * forward one down whatever its engine kind, and no other kind serves chat.
+ * It says nothing about whether the upstream then honours them -- that
+ * answer is the upstream's own.
  */
-function forwardsTools(kind: EngineKind | undefined): boolean {
-  return kind === "openai-http";
+function forwardsTools(status: EngineStatus | undefined, role: Role | undefined): boolean {
+  return (
+    status?.kind === "openai-http" &&
+    routeServes(role, status.serves).includes(CONTENT_ENDPOINT_CHAT)
+  );
+}
+
+/** The same question for one `@/engine/model` hop, which carries its route's role only once resolved. Shared by the `models` menu and by the dispatch that decides whether refusing a tool call is terminal. */
+function hopForwardsTools(
+  hop: string,
+  routes: Config["routes"],
+  statusOf: (engineId: string) => EngineStatus | undefined,
+): boolean {
+  const { engine, upstream, model } = parseHop(hop);
+  return forwardsTools(statusOf(engine), routeForHop(routes, engine, model, upstream)?.role);
 }
 
 /**
@@ -2637,7 +2683,7 @@ function chainRow(
   return {
     id: chainId,
     streaming: route?.streaming ?? status?.streaming ?? false,
-    tools: hops.every((h) => forwardsTools(statuses.get(parseHop(h).engine)?.kind)),
+    tools: hops.every((h) => hopForwardsTools(h, config.routes, (id) => statuses.get(id))),
     serves: [CONTENT_ENDPOINT_CHAT],
     state: status?.state ?? "unavailable",
     capabilities: route === undefined ? {} : routeCapabilities(route),
