@@ -1,6 +1,22 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
 import { type HopExec, parseHop, type RunChainOptions, runChain } from "./chain.ts";
-import { collectLines, deadPort, soleProvenanceRecord, startFakeUpstream } from "./test-support.ts";
+import type { AgenticProbeRunner } from "./engines.ts";
+import { createDoor } from "./main.ts";
+import {
+  BUNX,
+  clearVerifiedVersion,
+  collectLines,
+  config,
+  deadPort,
+  engine,
+  makeTestRoot,
+  route,
+  soleProvenanceRecord,
+  startFakeUpstream,
+  writeEngineSpec,
+} from "./test-support.ts";
 import type { Egress } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -482,4 +498,59 @@ test("a hop whose body carries a child agent's words records the status alone", 
   expect(record.attempts[0]?.failure).toBe("http 503");
   expect(lines.join("")).not.toContain("CHILD_STDERR_TAIL_SECRET");
   expect(lines.join("")).not.toContain("CHILD_AGENT_PARSE_WORDS");
+});
+
+const AGENTIC_SPEC = `
+kind = "agentic-cli"
+upstream = "optional"
+agent = "claude"
+serves = ["/openai/v1/chat/completions"]
+command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
+env = ["HOME"]
+`;
+
+/**
+ * The mark above only holds if the hop that actually builds this body sets
+ * it, so this drives the real door: a failed pin probe's `detail` is the
+ * child's own parsed stdout and stderr tail, and `proveAgenticPin` is the
+ * one site that puts it on a `HopResult`.
+ */
+test("a failed pin probe's detail never reaches the provenance line", async () => {
+  const id = "claude-leaky";
+  clearVerifiedVersion(id);
+  const root = mkdtempSync(join(makeTestRoot("engined-chain-test-"), "door-"));
+  writeEngineSpec(root, id, AGENTIC_SPEC);
+  const cfg = config({
+    routes: [route({ engine: id, model: "assistant", upstream: null })],
+    engines: [engine({ id, agent_version: "9.9.9" })],
+  });
+  const probeRunner: AgenticProbeRunner = () =>
+    Promise.resolve({
+      ok: false,
+      failedProbe: "byte-identical",
+      detail: "launch answered 502: CHILD_PARSE_WORDS (stderr: CHILD_STDERR_SECRET)",
+    });
+  const { lines, write } = collectLines();
+  const door = createDoor(
+    cfg,
+    { enginesRoot: root, bunx: BUNX, agenticProbeRunner: probeRunner },
+    { write },
+  );
+
+  const res = await door.fetch(
+    new Request("http://engined/openai/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: `@/${id}/assistant`,
+        messages: [{ role: "user", content: "hi" }],
+        workdir: "/tmp",
+      }),
+    }),
+  );
+
+  expect(res.status).toBe(503);
+  expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe("http 503");
+  expect(lines.join("")).not.toContain("CHILD_STDERR_SECRET");
+  expect(lines.join("")).not.toContain("CHILD_PARSE_WORDS");
+  clearVerifiedVersion(id);
 });

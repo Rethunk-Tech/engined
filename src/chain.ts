@@ -120,11 +120,8 @@ const ADVANCING_CLIENT_ERRORS = new Set([
 function failureOf(result: HopResult): string {
   const status = `http ${result.status}`;
   const { body } = result;
-  // An envelope failure implies the mark: that body is the agent's own parsed
-  // stdout, never engined's sentence about it.
   if (
     result.bodyCarriesAgentOutput === true ||
-    result.envelopeFailure === true ||
     typeof body !== "object" ||
     body === null ||
     !("error" in body)

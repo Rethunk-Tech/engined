@@ -855,6 +855,9 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
       status: outcome.status,
       body: jsonErrorBody(outcome.failure ?? "agentic call failed"),
       envelopeFailure: outcome.envelopeFailure,
+      // An envelope failure's text is the child's own parsed stdout; every
+      // other agentic failure here is engined's sentence about the launch.
+      bodyCarriesAgentOutput: outcome.envelopeFailure,
       version: outcome.version,
     };
   }
@@ -878,6 +881,10 @@ async function proveAgenticPin(ctx: DoorContext, engineId: string): Promise<HopR
   return {
     status: STATUS_UNAVAILABLE,
     body: jsonErrorBody(proof.fix ?? `engine "${engineId}" is not installed`),
+    // A probe's fix quotes what the child printed -- its parsed stdout and a
+    // tail of its stderr -- so this body answers the caller but stays out of
+    // the recorded failure.
+    bodyCarriesAgentOutput: true,
   };
 }
 
