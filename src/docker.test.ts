@@ -918,3 +918,37 @@ test("an orphan adopted on a status GET counts down like one this process starte
   expect(stopLog.length).toBe(1);
   expect(lifecycle.getStatus("orphan").state).toBe("installed");
 });
+
+const STOP_REFUSED = "Error response from daemon: cannot stop container";
+
+/** `docker stop` refused by the daemon: the container is still up afterwards. Every other verb behaves. */
+function failingStopExec(stopLog: string[][], port: number): Exec {
+  const live = buildExec({ port });
+  return (args) => {
+    if (args[0] !== "stop") {
+      return live(args);
+    }
+    stopLog.push([...args]);
+    return Promise.resolve({ stdout: "", stderr: STOP_REFUSED, exitCode: 1 });
+  };
+}
+
+test("removeEngine keeps a container it could not stop, so shutdown still reaches it", async () => {
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(failingStopExec(stopLog, STUB_HOST_PORT_A), readyProbe);
+
+  await lifecycle.start("stuck", SPEC, START_OPTS);
+  await expect(lifecycle.removeEngine("stuck")).rejects.toThrow(STOP_REFUSED);
+  expect(stopLog.length).toBe(1);
+
+  // The interleaving: a reload's teardown asked for this engine and docker
+  // refused. Dropping the record here is what puts the container beyond every
+  // later stop -- it is still running, so the record must still say so.
+  const after = lifecycle.getStatus("stuck");
+  expect(after.state).toBe("running");
+  expect(after.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`);
+  expect(after.last_error).toBe(STOP_REFUSED);
+
+  await lifecycle.shutdown();
+  expect(stopLog.length).toBe(2);
+});

@@ -933,14 +933,21 @@ export class DockerLifecycle {
     return this.getStatus(id);
   }
 
-  /** An engine that has been running is stopped, never left orphaned. */
+  /**
+   * An engine that has been running is stopped, never left orphaned. A stop
+   * that fails keeps the runtime and rejects: a container dropped from this
+   * map is beyond `shutdown`'s reach too, so forgetting one this process could
+   * not kill is how it comes to outlive the daemon still holding its GPU. The
+   * record `stopContainer` hands back on failure is the true one -- it
+   * restores the state and port it cleared -- so keeping it costs nothing.
+   */
   async removeEngine(id: string): Promise<void> {
     const rt = this.runtimes.get(id);
     if (!rt) {
       return;
     }
-    if (rt.state === "running" || rt.state === "warming") {
-      await this.stopContainer(rt);
+    if ((rt.state === "running" || rt.state === "warming") && !(await this.stopContainer(rt))) {
+      throw new Error(rt.lastError ?? `docker stop failed for ${rt.containerName}`);
     }
     this.runtimes.delete(id);
   }
