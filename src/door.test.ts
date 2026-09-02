@@ -1149,13 +1149,35 @@ describe("the door: a llama hop's real status decides chain advance", () => {
 
 const TOOL_FALLBACK_LLAMA_PORT = 46_003;
 
+const TOOL_CALL_ANSWER = {
+  id: "resp-tools",
+  choices: [
+    {
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call-1", type: "function", function: { name: "now", arguments: "{}" } },
+        ],
+      },
+      finish_reason: "tool_calls",
+    },
+  ],
+};
+
 /**
  * A chain that falls back off a tool-capable llama hop onto an agentic one.
  * `chain-public` in `config.example.toml` has this exact shape, and a
  * consumer running a real tool loop over it (majordomo does) gets whatever
  * the last hop returns.
+ *
+ * `chain-rev` is the same pair the other way round, for the case where the
+ * agentic hop is the one reached first: `llamaAnswers` then makes the llama
+ * hop behind it a live one, so what the caller gets back proves the chain
+ * reached it rather than merely that the agentic hop was skipped.
  */
-function toolFallbackDoor(spawnCalls: string[][]): Door {
+function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
   const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
   writeEngineSpec(root, "llama-dead", LOCAL_LLAMA_SPEC);
   writeEngineSpec(root, "claude", CLAUDE_SPEC);
@@ -1169,11 +1191,19 @@ function toolFallbackDoor(spawnCalls: string[][]): Door {
       route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
       route({ engine: "claude", model: "x", upstream: null }),
     ],
-    chains: { "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"] },
+    chains: {
+      "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"],
+      "chain-rev": ["@/claude/x", "@/llama-dead/dead-model"],
+    },
   });
   const control = llamaControlPlane();
   const llamaHttpClient: HttpClient = (url, init) =>
-    Promise.resolve(control(url, init) ?? Response.json({ error: "dead" }, { status: 500 }));
+    Promise.resolve(
+      control(url, init) ??
+        (llamaAnswers
+          ? Response.json(TOOL_CALL_ANSWER)
+          : Response.json({ error: "dead" }, { status: 500 })),
+    );
   return createDoor(
     cfg,
     {
@@ -1248,6 +1278,48 @@ describe("the door: a tool call never falls back into prose", () => {
     expect(body.choices).toBeUndefined();
     clearVerifiedVersion("claude");
   });
+
+  // `workdir` means nothing to the llama hop that answers this, so the caller
+  // had no reason to send one -- and the agentic hop it is reached through
+  // must not turn that into a terminal 400 the chain cannot get past.
+  test("a chain whose first hop is agentic still reaches the tool-capable hop behind it with no workdir sent", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls, true);
+    const res = await door.fetch(
+      chatRequest({
+        model: "chain-rev",
+        messages: [{ role: "user", content: "what time is it" }],
+        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
+      }),
+    );
+    const body = (await res.json()) as {
+      choices?: { finish_reason?: string }[];
+      error?: string;
+    };
+    expect(res.status).toBe(200);
+    expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  test("the legacy functions/function_call spelling is refused too, not answered in prose", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/x",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+        functions: [{ name: "now", parameters: {} }],
+        function_call: "auto",
+      }),
+    );
+    const body = (await res.json()) as { error?: string };
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("cannot honour functions");
+    expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
 });
 
 describe("the door: a body that demands no tool call is answered", () => {
@@ -1284,6 +1356,26 @@ describe("the door: a body that demands no tool call is answered", () => {
     expect(res.status).toBe(400);
     expect(body.error).toContain("workdir is required");
     expect(spawnCalls).toHaveLength(0);
+    clearVerifiedVersion("claude");
+  });
+
+  // A non-empty tool list under `tool_choice: "none"` is the only shape a
+  // client that carries tools and wants words actually sends, so refusing it
+  // would refuse the traffic this whole refusal exists to keep serving.
+  test('a real tool list under tool_choice "none" is answered, not refused for carrying one', async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "@/claude/x",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
+        tool_choice: "none",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
     clearVerifiedVersion("claude");
   });
 });

@@ -1095,6 +1095,11 @@ function promptFromMessages(body: Record<string, unknown>): string {
  * direction, and dropping such a field silently hands a caller's tool loop
  * prose it will parse as an answer.
  *
+ * Both spellings are here: a client sending OpenAI's original
+ * `functions`/`function_call` pair asks for exactly what `tools`/
+ * `tool_choice` asks for, so covering only the newer names leaves the same
+ * tool loop reading prose under a different key.
+ *
  * Keyed on the value and not the key, because the values that ask for
  * nothing are exactly what an agent already does: an empty `tools` offers
  * none, `tool_choice: "none"` forbids them outright, `"auto"` permits prose,
@@ -1109,13 +1114,32 @@ function promptFromMessages(body: Record<string, unknown>): string {
 const AGENTIC_UNHONOURABLE: Record<string, (value: unknown) => boolean> = {
   tools: (v) => !Array.isArray(v) || v.length > 0,
   tool_choice: (v) => v !== "none" && v !== "auto",
+  functions: (v) => !Array.isArray(v) || v.length > 0,
+  function_call: (v) => v !== "none" && v !== "auto",
   response_format: (v) => !isRecord(v) || v.type !== "text",
 };
 
-/** Which of those fields this body carries a demanding value for, in the order a caller would read them back. A caller's `null` unsets a wire default (`withoutCallerNulls`) rather than demanding anything. */
+/** The two list-of-tools fields, which a `"none"` choice cancels however long the list is. */
+const AGENTIC_TOOL_LISTS = new Set(["tools", "functions"]);
+
+/**
+ * Which of those fields this body carries a demanding value for, in the
+ * order a caller would read them back. A caller's `null` unsets a wire
+ * default (`withoutCallerNulls`) rather than demanding anything.
+ *
+ * A `"none"` choice is read across fields, not just on its own: it is the
+ * caller asking for prose outright, so the tool list it accompanies demands
+ * nothing either -- and a client that sends `"none"` is by definition one
+ * carrying a list, which is the very shape this refusal exists to let
+ * through.
+ */
 function unhonourableFields(body: Record<string, unknown>): string[] {
+  const noneChosen = body.tool_choice === "none" || body.function_call === "none";
   return Object.entries(AGENTIC_UNHONOURABLE)
     .filter(([key, demands]) => {
+      if (noneChosen && AGENTIC_TOOL_LISTS.has(key)) {
+        return false;
+      }
       const value = body[key];
       return value !== undefined && value !== null && demands(value);
     })
@@ -1767,19 +1791,28 @@ function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResul
   };
 }
 
-// Both checks wait on a workdir, so a caller who left one out gets
-// `runAgentic`'s 400 naming it: a request-shape rejection the caller owns
-// fires before anything this engine cannot do for them.
+/**
+ * `workdir` is meaningful to an agentic hop and to nothing else, so a caller
+ * who addressed a chain had no reason to send one and does not own its
+ * absence. There the unhonourable fields are answered first, so the refusal
+ * advances and the chain still reaches the hop that can honour them; a
+ * caller who named this engine directly does own the omission and gets
+ * `runAgentic`'s 400 naming it, the mistake that is actually theirs, before
+ * anything this engine cannot do for them.
+ */
 async function preLaunchRefusal(
   ctx: DoorContext,
   engineId: string,
   req: AgenticHop["req"],
   workdir: string | undefined,
 ): Promise<HopResult | null> {
+  const refusal = unhonourableRefusal(engineId, req);
+  if (refusal !== null && req.toolsHonourableElsewhere) {
+    return refusal;
+  }
   if (workdir === undefined || workdir === "") {
     return null;
   }
-  const refusal = unhonourableRefusal(engineId, req);
   if (refusal !== null) {
     return refusal;
   }
