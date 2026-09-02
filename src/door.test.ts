@@ -575,6 +575,26 @@ function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
   };
 }
 
+describe("the door: a JSON body that is not a table is a 400", () => {
+  // Each of these is valid JSON, so parsing cannot reject them -- only the
+  // table check can. `null` is the one that used to reach a property read.
+  const NOT_A_TABLE = ["null", "[]", "42", '"hi"'];
+  const BODY_ROUTES = ["/openai/v1/chat/completions", "/engined/v1/start"];
+
+  for (const pathname of BODY_ROUTES) {
+    for (const raw of NOT_A_TABLE) {
+      test(`${pathname} refuses ${raw}`, async () => {
+        const door = createDoor(config(), { enginesRoot: "/nonexistent", bunx: BUNX });
+        const res = await door.fetch(
+          new Request(`http://engined${pathname}`, { method: "POST", body: raw }),
+        );
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: "invalid JSON body" });
+      });
+    }
+  }
+});
+
 describe("the door: content routing", () => {
   test("a chat against a resolvable llama model reaches the router and returns its body", async () => {
     const { cfg, root } = llamaDoorConfig();

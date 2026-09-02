@@ -80,6 +80,7 @@ import {
   type ModelRow,
   type ModelsResponse,
   MS_PER_SECOND,
+  parseRecord,
   qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
@@ -311,17 +312,31 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
 }
 
 /**
+ * Every JSON body this door reads, or the 400 to return instead. A table is
+ * the only accepted shape: `null`, an array and a bare scalar all parse as
+ * valid JSON and none of them has the fields a handler goes on to read, so
+ * they are rejected here rather than at the first property access.
+ */
+async function readJsonBody(req: Request): Promise<Record<string, unknown> | Response> {
+  let raw: string;
+  try {
+    raw = await req.text();
+  } catch {
+    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  }
+  return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+}
+
+/**
  * `POST /engined/v1/start`: a model address or a chain name, resolved to the
  * route(s) it names and started where "started" means something. Never hands
  * back a `url` -- reaching the engine is a separate request, to the door, by
  * address; this verb only answers what state it is in.
  */
 async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  const body = await readJsonBody(req);
+  if (body instanceof Response) {
+    return body;
   }
   const model = typeof body.model === "string" ? body.model : "";
   if (model === "") {
@@ -645,19 +660,11 @@ async function proxyComfyQueueDelete(
   { ctx, engineId, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
-  let body: unknown;
-  try {
-    body = JSON.parse(await req.text());
-  } catch {
-    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  const body = await readJsonBody(req);
+  if (body instanceof Response) {
+    return body;
   }
-  if (
-    !(
-      isRecord(body) &&
-      Array.isArray(body.delete) &&
-      body.delete.every((id) => typeof id === "string")
-    )
-  ) {
+  if (!(Array.isArray(body.delete) && body.delete.every((id) => typeof id === "string"))) {
     return jsonError(STATUS_BAD_REQUEST, 'expected {"delete": string[]}');
   }
   const known = comfyState(ctx, engineId).promptIds;
@@ -2175,11 +2182,9 @@ async function handleContent(
   if (pathname === "/openai/v1/audio/transcriptions") {
     return handleAudioTranscription(ctx, req);
   }
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  const body = await readJsonBody(req);
+  if (body instanceof Response) {
+    return body;
   }
   if (pathname === "/openai/v1/audio/speech") {
     return handleAudioSpeech(ctx, body);
