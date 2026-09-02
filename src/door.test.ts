@@ -1229,17 +1229,6 @@ describe("the door: extras address one named engine, and refuse any other", () =
   });
 });
 
-/**
- * The registry runs its own availability probe, resolving each engine's secret
- * separately from the door's dispatch path -- so faking `secretExec` alone
- * still reaches the real `secret-tool`: absent on a CI runner, and on an
- * operator's box liable to resolve a live credential and pass for the wrong
- * reason.
- */
-function fakeSecretResolves(value: string) {
-  return () => Promise.resolve({ ok: true as const, value });
-}
-
 function fakeExec(value: string | undefined): Exec {
   return (args) => {
     if (args[0] === "lookup" && value !== undefined) {
@@ -1271,6 +1260,45 @@ function redirectDoorRoot(): string {
   return root;
 }
 
+/** What a faked claude spawn prints when its kimi-routed launch answers. */
+const KIMI_ANSWER: ExecResult = {
+  stdout: '{"is_error":false,"result":"answered via kimi"}',
+  stderr: "",
+  exitCode: 0,
+};
+
+/** An agentic chat request: one user message, launched in a scratch workdir. */
+function scratchChatRequest(model: string, content = "hi"): Request {
+  return chatRequest({ model, messages: [{ role: "user", content }], workdir: "/tmp/scratch" });
+}
+
+/** The chat request every kimi-routed test posts: the moonshot-routed claude model. */
+function kimiChatRequest(content = "hi"): Request {
+  return scratchChatRequest("@/claude/kimi-k3", content);
+}
+
+/** claude routed to moonshot for kimi-k3, plus whatever other routes a test needs. */
+function kimiRoutedConfig(...extraRoutes: ReturnType<typeof route>[]): Config {
+  return config({
+    engines: [claudeEngine()],
+    upstreams: [moonshotUpstream()],
+    routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }), ...extraRoutes],
+  });
+}
+
+/** A door over claude whose spawn is faked and whose secret lookup resolves to `secret` (or is left real when absent). */
+function createClaudeDoor(cfg: Config, root: string, spawn: AgenticSpawn, secret?: string): Door {
+  return createDoor(
+    cfg,
+    { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+    {
+      agenticSpawn: spawn,
+      ...(secret === undefined ? {} : { secretExec: fakeExec(secret) }),
+      write: () => undefined,
+    },
+  );
+}
+
 /** A real door over claude, routed to moonshot for one model, its resolved secret and every spawned argv/env recorded rather than actually launched. */
 function createKimiDoor(ambientSibling = false): {
   door: Door;
@@ -1288,11 +1316,7 @@ function createKimiDoor(ambientSibling = false): {
   const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
   const spawn: AgenticSpawn = (spawnArgv, opts) => {
     spawnCalls.push({ argv: spawnArgv, env: opts.env });
-    return Promise.resolve({
-      stdout: '{"is_error":false,"result":"answered via kimi"}',
-      stderr: "",
-      exitCode: 0,
-    });
+    return Promise.resolve(KIMI_ANSWER);
   };
   const door = createDoor(
     cfg,
@@ -1311,33 +1335,34 @@ function createKimiDoor(ambientSibling = false): {
   return { door, spawnCalls };
 }
 
-describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
+/** The stream-json lines a claude CLI prints for a two-chunk "pong". */
+const STREAMED_PONG_LINES = [
+  '{"type":"system","subtype":"init"}',
+  '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
+  '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ng"}}}',
+  '{"type":"result","subtype":"success","is_error":false,"result":"pong"}',
+];
+
+/** A spawn that prints `lines` to stdout as it goes, recording each argv it was launched with. */
+function streamingSpawn(lines: string[], argvSeen: string[][]): AgenticSpawn {
+  return (spawnArgv, opts) => {
+    argvSeen.push(spawnArgv);
+    for (const line of lines) {
+      opts.onStdout?.(`${line}\n`);
+    }
+    return Promise.resolve({ stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 });
+  };
+}
+
+describe("the door: remote-agentic redirect streams as the CLI prints", () => {
   test("stream: true on an agentic hop is SSE chunks as the CLI prints them, launched in its streamed format", async () => {
     clearVerifiedVersion("claude");
-    const root = redirectDoorRoot();
-    const cfg = config({
-      engines: [claudeEngine()],
-      upstreams: [moonshotUpstream()],
-      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
-    });
-    const lines = [
-      '{"type":"system","subtype":"init"}',
-      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
-      '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ng"}}}',
-      '{"type":"result","subtype":"success","is_error":false,"result":"pong"}',
-    ];
     const argvSeen: string[][] = [];
-    const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      argvSeen.push(spawnArgv);
-      for (const line of lines) {
-        opts.onStdout?.(`${line}\n`);
-      }
-      return Promise.resolve({ stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 });
-    };
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, secretExec: fakeExec("k"), write: () => undefined },
+    const door = createClaudeDoor(
+      kimiRoutedConfig(),
+      redirectDoorRoot(),
+      streamingSpawn(STREAMED_PONG_LINES, argvSeen),
+      "k",
     );
     const res = await door.fetch(
       chatRequest({
@@ -1357,7 +1382,9 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
     expect(argvSeen[0]).toContain("--include-partial-messages");
     expect(argvSeen[0]).not.toContain("json");
   });
+});
 
+describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
   test("the upstream segment picks the route: beside an ambient route on the same model, the three-segment address still redirects and the two-segment one runs ambient with the model in its env", async () => {
     clearVerifiedVersion("claude");
     const { door, spawnCalls } = createKimiDoor(true);
@@ -1381,13 +1408,7 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
   test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
     clearVerifiedVersion("claude");
     const { door, spawnCalls } = createKimiDoor();
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
-      }),
-    );
+    const res = await door.fetch(kimiChatRequest());
     const body = (await res.json()) as { choices: { message: { content: string } }[] };
     expect(res.status).toBe(200);
     expect(body.choices[0]?.message.content).toBe("answered via kimi");
@@ -1436,18 +1457,6 @@ function bearerGatewayUpstream(): Upstream {
     egress: "remote",
     wire: "anthropic",
   };
-}
-
-/** `resolveRedirect` for claude's kimi-k3 route onto `upstream`, with the secret lookup faked to `secret`. */
-function redirectKimi(upstream: Upstream, cfg: Config, secret: string | undefined) {
-  return resolveRedirect({
-    upstream,
-    engineId: "claude",
-    modelSeg: "kimi-k3",
-    config: cfg,
-    doorUrl: TEST_DOOR_URL,
-    secretExec: fakeExec(secret),
-  });
 }
 
 describe("the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)", () => {
@@ -1544,23 +1553,27 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
   });
 });
 
+/** `resolveRedirect` for claude's kimi-k3 route onto `upstream`, with the secret lookup faked to `secret`. */
+function redirectKimi(upstream: Upstream, cfg: Config, secret: string | undefined) {
+  return resolveRedirect({
+    upstream,
+    engineId: "claude",
+    modelSeg: "kimi-k3",
+    config: cfg,
+    doorUrl: TEST_DOOR_URL,
+    secretExec: fakeExec(secret),
+  });
+}
+
 describe("the door: remote-agentic redirect, missing secret", () => {
   test("a missing secret's HopResult carries the secret-tool store command", async () => {
     // Direct: runChain's own exhaustion wrapper replaces a lone hop's body
     // with a generic "every engine in this chain failed" once it classifies
-    // a 5xx as advance-and-nothing-left-to-advance-to (chain.ts is not this
-    // worker's file to change), so the fix text is only observable on the
-    // HopResult resolveRedirect itself produces, before runChain ever sees it.
-    // resolveRedirect takes the upstream directly now -- an engine has no
-    // address of its own to substitute onto; this test exercises it alone.
-    const redirect = await resolveRedirect(
-      moonshotUpstream(),
-      "claude",
-      "kimi-k3",
-      config(),
-      TEST_DOOR_URL,
-      fakeExec(undefined),
-    );
+    // a 5xx as advance-and-nothing-left-to-advance-to, so the fix text is
+    // only observable on the HopResult resolveRedirect itself produces,
+    // before runChain ever sees it. resolveRedirect takes the upstream
+    // directly -- an engine has no address of its own to substitute onto.
+    const redirect = await redirectKimi(moonshotUpstream(), config(), undefined);
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
       throw new Error("expected resolveRedirect to fail for a missing secret");
@@ -1576,14 +1589,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // this shape is legal and must not reach the child as an undefined
     // upstream.
     const addressless: Upstream = { ...moonshotUpstream(), base_url: undefined };
-    const redirect = await resolveRedirect(
-      addressless,
-      "claude",
-      "kimi-k3",
-      config(),
-      TEST_DOOR_URL,
-      fakeExec("k"),
-    );
+    const redirect = await redirectKimi(addressless, config(), "k");
     expect(redirect.ok).toBe(false);
     if (redirect.ok) {
       throw new Error("expected resolveRedirect to fail without a base_url");
@@ -1603,14 +1609,7 @@ describe("the door: remote-agentic redirect, missing secret", () => {
         }),
       ],
     });
-    const redirect = await resolveRedirect(
-      moonshotUpstream(),
-      "claude",
-      "kimi-k3",
-      cfg,
-      TEST_DOOR_URL,
-      fakeExec("k"),
-    );
+    const redirect = await redirectKimi(moonshotUpstream(), cfg, "k");
     expect(redirect.ok).toBe(true);
     if (!redirect.ok) {
       throw new Error("expected resolveRedirect to succeed");
@@ -1666,6 +1665,63 @@ function scopedChatRequest(doorUrl: string, body: unknown): Request {
   });
 }
 
+/** The URL `redirectEnv` hands a child: the door on loopback, scoped by a 32-hex launch nonce. */
+const RX_LAUNCH_SCOPED_DOOR_URL = /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/;
+
+/** What a faked opencode spawn prints when it answers. */
+const OPENCODE_ANSWER: ExecResult = {
+  stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
+  stderr: "",
+  exitCode: 0,
+};
+
+/** An engines root carrying opencode's spec, and a config with its one local route. */
+function opencodeDoorConfig(): { cfg: Config; root: string } {
+  const root = redirectDoorRoot();
+  writeEngineSpec(root, "opencode", OPENCODE_SPEC);
+  const cfg = config({
+    engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
+    routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
+  });
+  return { cfg, root };
+}
+
+/** The door URL `renderOpencodeConfig` wrote into the rendered file at `path`. */
+function renderedOpencodeBaseUrl(path: string): string {
+  const rendered = JSON.parse(readFileSync(path, "utf8")) as {
+    provider: { engined: { options: { baseURL: string } } };
+  };
+  return rendered.provider.engined.options.baseURL;
+}
+
+/**
+ * `agent.configure` -- `renderOpencodeConfig` -- runs before `runAgentic`'s
+ * own `bwrap` gate, so the rendered file carries the scoped URL whether or
+ * not this box has a real `bwrap` at all. `ENGINED_BWRAP` is pointed at
+ * `/bin/true`, present on every POSIX box, purely so the spawn (faked
+ * regardless) is reached deterministically in CI. State lands in a fresh
+ * `XDG_STATE_HOME` so no launch reads a file another test left behind.
+ */
+async function withOpencodeLaunchEnv(body: () => Promise<void>): Promise<void> {
+  const previous = {
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+    ENGINED_BWRAP: process.env.ENGINED_BWRAP,
+  };
+  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, "engined-state-"));
+  process.env.ENGINED_BWRAP = "/bin/true";
+  try {
+    await body();
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  }
+}
+
 describe("the launch-scoped door", () => {
   /**
    * claude routed at moonshot: `redirectEnv`'s own path, and the one that
@@ -1674,112 +1730,78 @@ describe("the launch-scoped door", () => {
    * with nothing faked but the spawn.
    */
   test("redirectEnv's own output carries the launch-scoped door URL, and a child POSTing back to it naming an agentic engine is refused", async () => {
-    const root = redirectDoorRoot();
-    const cfg = config({
-      engines: [claudeEngine()],
-      upstreams: [moonshotUpstream()],
-      routes: [
-        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
-        route({ engine: "claude", model: "sonnet-5", upstream: null }),
-      ],
-    });
+    const cfg = kimiRoutedConfig(route({ engine: "claude", model: "sonnet-5", upstream: null }));
     let capturedEnv: Record<string, string> = {};
     // The nonce lives only until runAgentic returns, so the recursive call
     // naming another agentic engine has to be made FROM INSIDE the fake
     // spawn, while the launch it belongs to is still in flight -- exactly
     // where a real child's own traffic would originate.
-    let recursiveStatus: number | undefined;
-    let recursiveBody = "";
+    let recursive: { status: number; body: string } | undefined;
     const spawn: AgenticSpawn = async (_argv, opts) => {
       capturedEnv = opts.env;
       const doorUrl = opts.env.ENGINED_DOOR_URL ?? "";
       // The refusal is keyed on the RESOLVED engine, not the literal
       // string -- a one-segment address that resolves to claude is the
       // same attack as naming "claude" outright.
-      const recursive = await door.fetch(
+      const res = await door.fetch(
         scopedChatRequest(doorUrl, {
           model: "@/claude/sonnet-5",
           messages: [{ role: "user", content: "escape" }],
         }),
       );
-      recursiveStatus = recursive.status;
-      recursiveBody = await recursive.text();
-      return {
-        stdout: '{"is_error":false,"result":"answered via kimi"}',
-        stderr: "",
-        exitCode: 0,
-      };
+      recursive = { status: res.status, body: await res.text() };
+      return KIMI_ANSWER;
     };
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, secretExec: fakeExec("kimi-secret-value"), write: () => undefined },
-    );
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn, "kimi-secret-value");
     clearVerifiedVersion("claude");
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
-      }),
-    );
+    const res = await door.fetch(kimiChatRequest());
     expect(res.status).toBe(200);
 
     // redirectEnv's own output: the launch-scoped URL, not the plain door.
-    expect(capturedEnv.ENGINED_DOOR_URL).toMatch(
-      /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/,
-    );
+    expect(capturedEnv.ENGINED_DOOR_URL).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
     // The redirect itself is untouched by the door URL's addition.
     expect(capturedEnv.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
 
-    expect(recursiveStatus).toBe(403);
-    expect(recursiveBody).toContain("agentic");
+    expect(recursive?.status).toBe(403);
+    expect(recursive?.body).toContain("agentic");
     clearVerifiedVersion("claude");
   });
 
   test("the same address, off the launch-scoped prefix, is an ordinary request -- refused only on the scoped URL", async () => {
-    const root = redirectDoorRoot();
     const cfg = config({
       engines: [claudeEngine()],
       routes: [route({ engine: "claude", model: "sonnet-5", upstream: null })],
     });
     const spawn: AgenticSpawn = () =>
-      Promise.resolve({
-        stdout: '{"is_error":false,"result":"answered ambiently"}',
-        stderr: "",
-        exitCode: 0,
-      });
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, write: () => undefined },
-    );
+      Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' });
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn);
     clearVerifiedVersion("claude");
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/sonnet-5",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
-      }),
-    );
+    const res = await door.fetch(scratchChatRequest("@/claude/sonnet-5"));
     expect(res.status).toBe(200);
     clearVerifiedVersion("claude");
   });
+});
 
+/** claude routed to moonshot beside a local llama, so a launched child has a non-agentic engine to call back to. */
+function kimiBesideLlamaConfig(root: string): Config {
+  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+  return config({
+    engines: [
+      claudeEngine(),
+      engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+    ],
+    upstreams: [moonshotUpstream()],
+    routes: [
+      route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
+      route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+    ],
+  });
+}
+
+describe("the launch-scoped door: what a child may call back to", () => {
   test("a non-agentic engine's request is served on the launch-scoped URL, and still recorded", async () => {
     const root = redirectDoorRoot();
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-    const cfg = config({
-      engines: [
-        claudeEngine(),
-        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
-      ],
-      upstreams: [moonshotUpstream()],
-      routes: [
-        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
-        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
-      ],
-    });
+    const cfg = kimiBesideLlamaConfig(root);
     const recorded: { body: string }[] = [];
     const lines: string[] = [];
     // The nonce lives only until `runAgentic` returns, so the recursive,
@@ -1799,11 +1821,7 @@ describe("the launch-scoped door", () => {
       // (readHopBody), and its provenance line is not emitted until the
       // stream is actually drained -- consume it or the line never lands.
       await inner.text();
-      return {
-        stdout: '{"is_error":false,"result":"answered via kimi"}',
-        stderr: "",
-        exitCode: 0,
-      };
+      return KIMI_ANSWER;
     };
     const door = createDoor(
       cfg,
@@ -1823,13 +1841,7 @@ describe("the launch-scoped door", () => {
       },
     );
     clearVerifiedVersion("claude");
-    const outer = await door.fetch(
-      chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
-      }),
-    );
+    const outer = await door.fetch(kimiChatRequest());
     expect(outer.status).toBe(200);
     // The inner, non-agentic request succeeded (200) from inside the launch.
     expect(innerStatus).toBe(200);
@@ -1838,36 +1850,23 @@ describe("the launch-scoped door", () => {
     expect(lines.some((l) => JSON.parse(l).attempts?.[0]?.engine === "local-llama")).toBe(true);
     clearVerifiedVersion("claude");
   });
+});
 
+describe("the launch-scoped door: a nonce outlives nothing", () => {
   test("a request on a retired nonce is refused, regardless of which engine it names", async () => {
-    const root = redirectDoorRoot();
-    const cfg = config({
-      engines: [claudeEngine()],
-      upstreams: [moonshotUpstream()],
-      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
-    });
     let capturedDoorUrl = "";
     const spawn: AgenticSpawn = (_argv, opts) => {
       capturedDoorUrl = opts.env.ENGINED_DOOR_URL ?? "";
-      return Promise.resolve({
-        stdout: '{"is_error":false,"result":"answered via kimi"}',
-        stderr: "",
-        exitCode: 0,
-      });
+      return Promise.resolve(KIMI_ANSWER);
     };
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, secretExec: fakeExec("kimi-secret-value"), write: () => undefined },
+    const door = createClaudeDoor(
+      kimiRoutedConfig(),
+      redirectDoorRoot(),
+      spawn,
+      "kimi-secret-value",
     );
     clearVerifiedVersion("claude");
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
-      }),
-    );
+    const res = await door.fetch(kimiChatRequest());
     expect(res.status).toBe(200);
 
     // The launch this nonce belonged to has already finished by the time
@@ -1884,106 +1883,50 @@ describe("the launch-scoped door", () => {
     expect(JSON.stringify(await stale.json())).toContain("expired");
     clearVerifiedVersion("claude");
   });
+});
 
+describe("the launch-scoped door: opencode's rendered config", () => {
   /**
-   * `agent.configure` -- `renderOpencodeConfig` -- runs before `runAgentic`'s
-   * own `bwrap` gate, so the rendered file carries the scoped URL whether or
-   * not this box has a real `bwrap` at all. `ENGINED_BWRAP` is pointed at
-   * `/bin/true`, present on every POSIX box, purely so the spawn (faked
-   * regardless) is reached deterministically in CI.
-   *
    * The path itself is read from `OPENCODE_CONFIG` rather than a fixed
-   * `stateDir()` filename -- `renderOpencodeConfig` now `mkdtemp`s a fresh
+   * `stateDir()` filename -- `renderOpencodeConfig` `mkdtemp`s a fresh
    * directory per call, precisely so two launches in flight together never
    * share one file. The read happens from inside the fake spawn, before
    * `runAgentic`'s `finally` deletes it -- that deletion is asserted
    * separately, once `door.fetch` has returned.
    */
-  test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL, and is gone once the call ends", async () => {
-    const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
-    const previousStateHome = process.env.XDG_STATE_HOME;
-    const previousBwrap = process.env.ENGINED_BWRAP;
-    process.env.XDG_STATE_HOME = stateHome;
-    process.env.ENGINED_BWRAP = "/bin/true";
-    try {
-      const root = redirectDoorRoot();
-      writeEngineSpec(root, "opencode", OPENCODE_SPEC);
-      const cfg = config({
-        engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
-        routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
-      });
+  test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL, and is gone once the call ends", () =>
+    withOpencodeLaunchEnv(async () => {
+      const { cfg, root } = opencodeDoorConfig();
       let renderedPath = "";
       let capturedBaseUrl = "";
-      const door = createDoor(
-        cfg,
-        { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-        {
-          agenticSpawn: (_argv, opts) => {
-            renderedPath = opts.env.OPENCODE_CONFIG ?? "";
-            const rendered = JSON.parse(readFileSync(renderedPath, "utf8")) as {
-              provider: { engined: { options: { baseURL: string } } };
-            };
-            capturedBaseUrl = rendered.provider.engined.options.baseURL;
-            return Promise.resolve({
-              stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
-              stderr: "",
-              exitCode: 0,
-            });
-          },
-          write: () => undefined,
-        },
-      );
+      const spawn: AgenticSpawn = (_argv, opts) => {
+        renderedPath = opts.env.OPENCODE_CONFIG ?? "";
+        capturedBaseUrl = renderedOpencodeBaseUrl(renderedPath);
+        return Promise.resolve(OPENCODE_ANSWER);
+      };
+      const door = createClaudeDoor(cfg, root, spawn);
       clearVerifiedVersion("opencode");
-      const res = await door.fetch(
-        chatRequest({
-          model: "@/opencode/code",
-          messages: [{ role: "user", content: "hi" }],
-          workdir: "/tmp/scratch",
-        }),
-      );
+      const res = await door.fetch(scratchChatRequest("@/opencode/code"));
       expect(res.status).toBe(200);
-      expect(capturedBaseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/);
+      expect(capturedBaseUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
       // `runAgentic`'s `finally` already ran by the time `door.fetch` above
       // resolved: neither the file nor its `mkdtemp` directory survive it.
       expect(existsSync(renderedPath)).toBe(false);
       expect(existsSync(dirname(renderedPath))).toBe(false);
       clearVerifiedVersion("opencode");
-    } finally {
-      if (previousStateHome === undefined) {
-        delete process.env.XDG_STATE_HOME;
-      } else {
-        process.env.XDG_STATE_HOME = previousStateHome;
-      }
-      if (previousBwrap === undefined) {
-        delete process.env.ENGINED_BWRAP;
-      } else {
-        process.env.ENGINED_BWRAP = previousBwrap;
-      }
-    }
-  });
+    }));
 
   /**
-   * Before `renderOpencodeConfig` keyed its rendered file per launch, two
-   * opencode calls in flight together shared one fixed `stateDir()` path --
-   * last writer wins, so whichever spawn read the file after the other
-   * launch's own write would run against a door URL that was never minted
-   * for it. Both fake spawns here overlap on purpose (each awaits a beat
-   * before reading its file) so that race window is actually exercised, not
-   * just assumed closed.
+   * Two opencode calls in flight together sharing one fixed `stateDir()`
+   * path would be last-writer-wins: whichever spawn read the file after the
+   * other launch's own write would run against a door URL never minted for
+   * it. Both fake spawns here overlap on purpose (each awaits a beat before
+   * reading its file) so that race window is actually exercised, not just
+   * assumed closed.
    */
-  test("two concurrent opencode launches never read each other's rendered config", async () => {
-    const stateHome = mkdtempSync(join(TEST_ROOT, "engined-state-"));
-    const previousStateHome = process.env.XDG_STATE_HOME;
-    const previousBwrap = process.env.ENGINED_BWRAP;
-    process.env.XDG_STATE_HOME = stateHome;
-    process.env.ENGINED_BWRAP = "/bin/true";
-    try {
-      const root = redirectDoorRoot();
-      writeEngineSpec(root, "opencode", OPENCODE_SPEC);
-      const cfg = config({
-        engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
-        routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
-      });
+  test("two concurrent opencode launches never read each other's rendered config", () =>
+    withOpencodeLaunchEnv(async () => {
+      const { cfg, root } = opencodeDoorConfig();
       const paths: string[] = [];
       const baseUrls: string[] = [];
       const spawn: AgenticSpawn = async (_argv, opts) => {
@@ -1992,36 +1935,15 @@ describe("the launch-scoped door", () => {
         // Overlaps the other launch's own write-then-read window rather
         // than racing to read immediately, which would pass by luck alone.
         await new Promise((resolve) => setTimeout(resolve, 50));
-        const rendered = JSON.parse(readFileSync(path, "utf8")) as {
-          provider: { engined: { options: { baseURL: string } } };
-        };
-        baseUrls.push(rendered.provider.engined.options.baseURL);
-        return {
-          stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
-          stderr: "",
-          exitCode: 0,
-        };
+        baseUrls.push(renderedOpencodeBaseUrl(path));
+        return OPENCODE_ANSWER;
       };
-      const door = createDoor(
-        cfg,
-        { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-        { agenticSpawn: spawn, write: () => undefined },
-      );
+      const door = createClaudeDoor(cfg, root, spawn);
       clearVerifiedVersion("opencode");
       const results = await Promise.all(
-        [1, 2].map((n) =>
-          door.fetch(
-            chatRequest({
-              model: "@/opencode/code",
-              messages: [{ role: "user", content: `hi ${n}` }],
-              workdir: "/tmp/scratch",
-            }),
-          ),
-        ),
+        [1, 2].map((n) => door.fetch(scratchChatRequest("@/opencode/code", `hi ${n}`))),
       );
-      for (const res of results) {
-        expect(res.status).toBe(200);
-      }
+      expect(results.map((res) => res.status)).toEqual([200, 200]);
       // Each launch minted its own nonce, so a fixed shared file would have
       // shown the same door URL read back for both -- whichever write lost
       // the race. Two distinct paths and two distinct URLs is the proof
@@ -2031,19 +1953,7 @@ describe("the launch-scoped door", () => {
       expect(existsSync(paths[0] as string)).toBe(false);
       expect(existsSync(paths[1] as string)).toBe(false);
       clearVerifiedVersion("opencode");
-    } finally {
-      if (previousStateHome === undefined) {
-        delete process.env.XDG_STATE_HOME;
-      } else {
-        process.env.XDG_STATE_HOME = previousStateHome;
-      }
-      if (previousBwrap === undefined) {
-        delete process.env.ENGINED_BWRAP;
-      } else {
-        process.env.ENGINED_BWRAP = previousBwrap;
-      }
-    }
-  });
+    }));
 });
 
 describe("GET /openai/v1/models: an agentic engine's per-route state factors in that route's own upstream secret", () => {
@@ -2145,6 +2055,45 @@ function startRequest(model: string): Request {
   });
 }
 
+const WHISPER_SMALL_ROUTE = route({
+  engine: "whisper-like",
+  upstream: "local",
+  model: "small",
+  filename: "small.bin",
+});
+
+/** A fresh engines root carrying whisper's spec, and a config with its `small` route plus `extraRoutes`. */
+function whisperDoorConfig(...extraRoutes: ReturnType<typeof route>[]): {
+  cfg: Config;
+  root: string;
+} {
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  writeEngineSpec(root, "whisper-like", STT_SPEC);
+  const cfg = config({
+    engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
+    routes: [WHISPER_SMALL_ROUTE, ...extraRoutes],
+  });
+  return { cfg, root };
+}
+
+/** llama and whisper side by side, chained llama-first, so a start on the chain has a second hop it must NOT warm. */
+function llamaThenWhisperChainConfig(): { cfg: Config; root: string } {
+  const { root } = llamaDoorConfig();
+  writeEngineSpec(root, "whisper-like", STT_SPEC);
+  const cfg = config({
+    engines: [
+      engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+      engine({ id: "whisper-like", models_dir: "/data/whisper" }),
+    ],
+    routes: [
+      route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+      WHISPER_SMALL_ROUTE,
+    ],
+    chains: { "chain-x": ["@/local-llama/ornith", "@/whisper-like/small"] },
+  });
+  return { cfg, root };
+}
+
 describe("POST /engined/v1/start", () => {
   test("an engine id is not a place: the old per-engine route is a 404", async () => {
     const { cfg, root } = llamaDoorConfig();
@@ -2156,19 +2105,7 @@ describe("POST /engined/v1/start", () => {
   });
 
   test("a chain name warms only its first hop's local engine, with no url in the response", async () => {
-    const { root } = llamaDoorConfig();
-    writeEngineSpec(root, "whisper-like", STT_SPEC);
-    const cfg = config({
-      engines: [
-        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
-        engine({ id: "whisper-like", models_dir: "/data/whisper" }),
-      ],
-      routes: [
-        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
-        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
-      ],
-      chains: { "chain-x": ["@/local-llama/ornith", "@/whisper-like/small"] },
-    });
+    const { cfg, root } = llamaThenWhisperChainConfig();
     const { client, urls } = makeRecordingLlamaClient();
     const runLog: string[][] = [];
     const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
@@ -2207,16 +2144,11 @@ describe("POST /engined/v1/start", () => {
     expect(String(row?.fix)).toContain("not local");
     expect(row).not.toHaveProperty("private_url");
   });
+});
 
+describe("POST /engined/v1/start: a roleless model on a container engine", () => {
   test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "whisper-like", STT_SPEC);
-    const cfg = config({
-      engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
-      routes: [
-        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
-      ],
-    });
+    const { cfg, root } = whisperDoorConfig();
     const { client, urls } = makeRecordingLlamaClient();
     const runLog: string[][] = [];
     const door = createLlamaDoor(cfg, root, { llamaHttpClient: client }, sttExec(runLog, []));
@@ -2233,15 +2165,9 @@ describe("POST /engined/v1/start", () => {
   });
 
   test("held leases return 409 and do not restart", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "whisper-like", STT_SPEC);
-    const cfg = config({
-      engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
-      routes: [
-        route({ engine: "whisper-like", upstream: "local", model: "small", filename: "small.bin" }),
-        route({ engine: "whisper-like", upstream: "local", model: "big", filename: "big.bin" }),
-      ],
-    });
+    const { cfg, root } = whisperDoorConfig(
+      route({ engine: "whisper-like", upstream: "local", model: "big", filename: "big.bin" }),
+    );
     const runLog: string[][] = [];
     const stopLog: string[][] = [];
     const lifecycle = new DockerLifecycle(sttExec(runLog, stopLog), READY_200);
@@ -2294,85 +2220,89 @@ describe("no response ever carries a container address", () => {
   });
 });
 
+/** Stands in for `globalThis.fetch`, keeping the JSON body of the last outgoing request; `restore` puts the real one back. */
+function captureOutgoingBody(): {
+  body: () => { model?: string } | undefined;
+  restore: () => void;
+} {
+  const originalFetch = globalThis.fetch;
+  let captured: { model?: string } | undefined;
+  globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    captured =
+      typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+    return Promise.resolve(
+      Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] }),
+    );
+  }) as typeof fetch;
+  return {
+    body: () => captured,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+/** A hosted openai-http engine behind an openrouter upstream, serving `hostedRoute`. */
+function openrouterHostedConfig(hostedRoute: ReturnType<typeof route>): Config {
+  return config({
+    upstreams: [
+      {
+        id: "openrouter",
+        egress: "remote",
+        base_url: "https://openrouter.example/api/v1",
+        secret: { service: "s", username: "u", header: "authorization" },
+      },
+    ],
+    engines: [engine({ id: "hosted", kind: "openai-http" })],
+    routes: [hostedRoute],
+  });
+}
+
+/** Posts one chat message for `model` to a door over `cfg`, with upstream `fetch` captured; resolves to the door's status and the model id that went out. */
+async function outgoingModelFor(
+  cfg: Config,
+  model: string,
+): Promise<{ status: number; sent: string | undefined }> {
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  const outgoing = captureOutgoingBody();
+  try {
+    const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
+    const res = await door.fetch(
+      chatRequest({ model, messages: [{ role: "user", content: "hi" }] }),
+    );
+    return { status: res.status, sent: outgoing.body()?.model };
+  } finally {
+    outgoing.restore();
+  }
+}
+
 describe("wire_model: the id sent upstream can differ from the address segment", () => {
   test("the remote openai-http proxy sends wire_model in the outgoing request body, not the address segment", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    const originalFetch = globalThis.fetch;
-    let capturedBody: { model?: string } | undefined;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      capturedBody =
-        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
-      return Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] });
-    }) as typeof fetch;
-    try {
-      const cfg = config({
-        upstreams: [
-          {
-            id: "openrouter",
-            egress: "remote",
-            base_url: "https://openrouter.example/api/v1",
-            secret: { service: "s", username: "u", header: "authorization" },
-          },
-        ],
-        engines: [engine({ id: "hosted", kind: "openai-http" })],
-        routes: [
-          route({
-            engine: "hosted",
-            model: "glm-5.2:free",
-            wire_model: "z-ai/glm-5.2:free",
-            upstream: "openrouter",
-          }),
-        ],
-      });
-      const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
-      const res = await door.fetch(
-        chatRequest({
-          model: "@/hosted/glm-5.2:free",
-          messages: [{ role: "user", content: "hi" }],
-        }),
-      );
-      expect(res.status).toBe(200);
-      // The config's own address segment must never leak onto the wire once
-      // a wire_model is configured -- the config-read trap this exists to
-      // catch is a test that asserts the route's `model` field and calls it
-      // proof of what was actually sent.
-      expect(capturedBody?.model).toBe("z-ai/glm-5.2:free");
-      expect(capturedBody?.model).not.toBe("glm-5.2:free");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    const cfg = openrouterHostedConfig(
+      route({
+        engine: "hosted",
+        model: "glm-5.2:free",
+        wire_model: "z-ai/glm-5.2:free",
+        upstream: "openrouter",
+      }),
+    );
+    const { status, sent } = await outgoingModelFor(cfg, "@/hosted/glm-5.2:free");
+    expect(status).toBe(200);
+    // The config's own address segment must never leak onto the wire once
+    // a wire_model is configured -- the config-read trap this exists to
+    // catch is a test that asserts the route's `model` field and calls it
+    // proof of what was actually sent.
+    expect(sent).toBe("z-ai/glm-5.2:free");
+    expect(sent).not.toBe("glm-5.2:free");
   });
 
   test("with no wire_model configured, the remote openai-http proxy still sends the address segment verbatim", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    const originalFetch = globalThis.fetch;
-    let capturedBody: { model?: string } | undefined;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      capturedBody =
-        typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
-      return Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] });
-    }) as typeof fetch;
-    try {
-      const cfg = config({
-        upstreams: [
-          {
-            id: "openrouter",
-            egress: "remote",
-            base_url: "https://openrouter.example/api/v1",
-            secret: { service: "s", username: "u", header: "authorization" },
-          },
-        ],
-        engines: [engine({ id: "hosted", kind: "openai-http" })],
-        routes: [route({ engine: "hosted", model: "sonnet-5", upstream: "openrouter" })],
-      });
-      const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
-      const res = await door.fetch(
-        chatRequest({ model: "@/hosted/sonnet-5", messages: [{ role: "user", content: "hi" }] }),
-      );
-      expect(res.status).toBe(200);
-      expect(capturedBody?.model).toBe("sonnet-5");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    const cfg = openrouterHostedConfig(
+      route({ engine: "hosted", model: "sonnet-5", upstream: "openrouter" }),
+    );
+    expect(await outgoingModelFor(cfg, "@/hosted/sonnet-5")).toEqual({
+      status: 200,
+      sent: "sonnet-5",
+    });
   });
 });
