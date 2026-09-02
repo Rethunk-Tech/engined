@@ -24,6 +24,12 @@
         // on any module-scope async arrow with an explicit return type.
         "useQwikValidLexicalScope": "off"
       },
+      "complexity": {
+        // A parse or resolve step reads several tables at once; bundling
+        // them into an options object to fit a count hides which one each
+        // function reads.
+        "useMaxParams": "off"
+      },
       "style": {
         // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
         "noProcessEnv": "off",
