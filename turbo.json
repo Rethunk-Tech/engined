@@ -15,6 +15,8 @@
     },
     "build": {
       "dependsOn": ["typecheck"],
+      // bun.lock is already part of turbo's dependency hash; naming it here is
+      // explicit, not load-bearing.
       "inputs": ["src/**/*.ts", "tsconfig.json", "package.json", "bun.lock"],
       "outputs": ["dist/**"],
       "env": ["ENGINED_COMMIT"]
