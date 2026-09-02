@@ -652,12 +652,22 @@ export class LlamaRouter {
     await this.loadAndWait(url, modelId);
   }
 
+  /**
+   * A refused unload is the one failure a swap must not ride past: the caller
+   * would load the incoming GGUF beside a ~25 GB one the child still holds,
+   * and `admitAfterSwap` would record the newcomer as the resident either way.
+   * Throwing fails only the request that asked for the swap and leaves the
+   * role's belief matching what the child actually holds.
+   */
   private async unload(baseUrl: string, modelId: string): Promise<void> {
-    await this.httpClient(`${baseUrl}/models/unload`, {
+    const res = await this.httpClient(`${baseUrl}/models/unload`, {
       method: "POST",
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
     });
+    if (!res.ok) {
+      throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`);
+    }
   }
 
   /**

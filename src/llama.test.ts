@@ -1336,6 +1336,30 @@ test("a request for the resident model arriving while a keep_resident re-warm un
   ]);
 });
 
+test("an unload the engine refuses fails that swap instead of loading the new GGUF beside the old one", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+  const b = model({ id: "b", filename: "b.gguf" });
+  const { client, calls } = fakeLlama((call) =>
+    call.path === UNLOAD_PATH
+      ? new Response("model is busy", { status: 500 })
+      : undefined,
+  );
+  const router = routerWithClient(e, [a, b], client);
+
+  await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
+
+  await expect(
+    router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }),
+  ).rejects.toThrow(/unload failed/);
+
+  // "b" was never loaded on top of a still-resident "a", and the role still
+  // believes what the child actually holds.
+  expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual(["a"]);
+  expect(router.residentModel("chat")).toBe("a");
+  expect(router.contention()).toEqual([]);
+});
+
 test("a keep_resident model is reloaded once its role drains", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf", keep_resident: true });
