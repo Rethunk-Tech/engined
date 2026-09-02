@@ -12,6 +12,7 @@ import {
   BUNX,
   CONFIG_EXAMPLE,
   ENGINES_ROOT,
+  imageBuilt,
   LOCAL,
   requireNoResidentEngine,
   specImage,
@@ -76,10 +77,6 @@ interface Fixture {
   chat?: ChatRoute;
   image?: string;
   error?: string;
-}
-
-function imageBuilt(image: string): boolean {
-  return Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
 }
 
 function loadFixture(): Fixture {

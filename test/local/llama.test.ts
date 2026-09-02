@@ -8,6 +8,7 @@ import {
   BUNX,
   CONFIG_EXAMPLE,
   ENGINES_ROOT,
+  imageBuilt,
   LOCAL,
   requireNoResidentEngine,
   specImage,
@@ -39,10 +40,6 @@ const IDLE_STOP_SECONDS = 900;
 const POLL_INTERVAL_MS = 500;
 const TEST_TIMEOUT_MS = 240_000;
 const EMBEDDING_DIMENSIONS = 1024;
-
-function imageBuilt(image: string): boolean {
-  return Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
-}
 
 interface Fixture {
   engine: EngineEntry;

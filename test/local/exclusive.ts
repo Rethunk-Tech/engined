@@ -43,6 +43,15 @@ export function specImage(engine: EngineEntry): string | undefined {
 }
 
 /**
+ * Whether docker really holds this image. `LOCAL` is part of the answer, not a
+ * caller's precondition: without the gate an ordinary `bun test` that reached
+ * this file would shell out to docker per image.
+ */
+export function imageBuilt(image: string): boolean {
+  return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
+}
+
+/**
  * Refuses while any engine of the installed unit is actually running.
  *
  * This is about the GPU, not the daemon: this workstation shares one, so a

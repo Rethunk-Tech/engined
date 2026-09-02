@@ -10,6 +10,7 @@ import {
   BUNX,
   CONFIG_EXAMPLE,
   ENGINES_ROOT,
+  imageBuilt,
   LOCAL,
   requireNoResidentEngine,
   specImage,
@@ -70,10 +71,6 @@ const MIN_RENDERED_PNG_BYTES = 20_000;
 /** Cold, this loads ~27 GB of weights before it samples anything. */
 const RENDER_BUDGET_MS = 600_000;
 const RENDER_TIMEOUT_MS = 900_000;
-
-function imageBuilt(image: string): boolean {
-  return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
-}
 
 interface Fixture {
   config: Config;

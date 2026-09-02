@@ -11,6 +11,7 @@ import {
   BUNX,
   CONFIG_EXAMPLE,
   ENGINES_ROOT,
+  imageBuilt,
   LOCAL,
   requireNoResidentEngine,
   specImage,
@@ -59,10 +60,6 @@ function whisperModelsDir(): string {
 }
 
 const WHISPER_MODELS_DIR = whisperModelsDir();
-
-function imageBuilt(image: string): boolean {
-  return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
-}
 
 /** `models_dir: "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to substitute cleanly; chatterbox-multi's spec has no such placeholder. */
 function ttsEngine(id: string): EngineEntry {
