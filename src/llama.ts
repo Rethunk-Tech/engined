@@ -75,6 +75,14 @@ export function reportedModelFrom(body: unknown): string | undefined {
 }
 
 /**
+ * The slot count llama.cpp's `parallel = -1` auto resolves to: measured at
+ * n_slots=4 on build b10637 (`engines/llama/spec.toml`), sharing one unified
+ * KV pool rather than four windows. The door needs a number to admit against
+ * when a role leaves the key at auto; this is the child's real one.
+ */
+const AUTO_PARALLEL = 4;
+
+/**
  * Precedence in one place: a route key beats the engine key naming it. The
  * preset INI and the door's own capacity ceiling must read the same merged
  * table, or the door admits a concurrency the child never agreed to.
@@ -163,8 +171,8 @@ interface RoleState {
    * as a real number rather than re-read from the loose args record at
    * every admission check. Recomputed each time `activeModelId` changes,
    * since a swap can move a role onto a differently-configured model.
-   * `Infinity` until the first model loads, and forever after for a role
-   * whose `parallel` never resolves to a positive integer.
+   * `Infinity` until the first model loads, since nothing is in flight to
+   * admit against before there is a resident model to read a `parallel` off.
    */
   capacity: number;
   queue: RoleWaiter[];
@@ -382,14 +390,13 @@ export class LlamaRouter {
   }
 
   /**
-   * `parallel <= 0` covers both llama.cpp's own `-1` ("auto": some
-   * server-decided slot count this door was never told, measured at 4 for
-   * one config on this box and not a portable constant) and a role that
-   * never set the key at all. Neither tells the door a real ceiling, and
-   * guessing one risks capping tighter than the child actually admits --
-   * which idles slots rather than protecting them. Both fall through to
-   * "uncapped", the same behaviour every role had before this door could
-   * enforce `parallel` at all.
+   * A merged `parallel` of `<= 0` -- llama.cpp's `-1` auto, or the key
+   * never set -- is not the absence of a ceiling; the child still admits a
+   * fixed number of slots, so the door caps at `AUTO_PARALLEL` rather than
+   * forwarding a burst to queue invisibly inside llama-server's scheduler.
+   * Capping here is the only place that cap belongs: writing a positive
+   * `parallel` into config to get one instead turns off the child's
+   * `kv_unified` and divides `ctx-size` across its slots.
    */
   private capacityFor(role: Role, modelId: string): number {
     const route = this.routes.find(
@@ -398,7 +405,7 @@ export class LlamaRouter {
     const { parallel } = mergedArgs(this.engine, route);
     return typeof parallel === "number" && Number.isInteger(parallel) && parallel > 0
       ? parallel
-      : Number.POSITIVE_INFINITY;
+      : AUTO_PARALLEL;
   }
 
   /** `private_url` from `getStatus` carries no scheme -- `docker.ts`'s own readiness poll prepends one too. */

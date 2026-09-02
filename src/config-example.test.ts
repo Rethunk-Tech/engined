@@ -159,22 +159,25 @@ test("a [[model]] row reaches the route naming it without stealing a neighbour's
   expect(ornith?.args["spec-type"]).toBe("draft-mtp");
 });
 
-// `capacityFor` reads a role's admission cap out of the merged
-// `parallel`, and treats `<= 0` as no cap at all rather than guessing at a
-// slot count llama.cpp never told it. So a route inheriting the engine's
-// `-1` runs uncapped at the door and a burst on it forwards straight through
-// to queue invisibly inside the child. Every llama route stating its own is
-// what stops that, and this file is what consumers copy.
-test("every llama route states a positive parallel rather than inheriting the engine's -1", () => {
+// A positive `parallel` turns off llama.cpp's kv_unified and divides
+// `ctx-size` across slots, so a route stating one without also stating the
+// ctx-size being divided silently serves a fraction of the engine-level
+// floor it was sized against. The door never needs that: `capacityFor` caps
+// an auto role at llama.cpp's own slot count regardless. This file is what
+// consumers copy, so the trap is worth pinning here.
+test("no llama route splits an inherited ctx-size by stating parallel without its own ctx-size", () => {
   const { config } = loadExample();
   const llamaRoutes = config.routes.filter((r) => r.engine === "llama");
   expect(llamaRoutes.length).toBeGreaterThan(0);
-  // Compared as a model list rather than per route, so a failure names which
-  // roles are uncapped instead of only the first one found.
-  const uncapped = llamaRoutes.filter(
-    (r) => !(typeof r.args.parallel === "number" && r.args.parallel > 0),
+  // Compared as a model list rather than per route, so a failure names every
+  // shrunk role instead of only the first one found.
+  const split = llamaRoutes.filter(
+    (r) =>
+      typeof r.args.parallel === "number" &&
+      r.args.parallel > 0 &&
+      r.args["ctx-size"] === undefined,
   );
-  expect(uncapped.map((r) => r.model)).toEqual([]);
+  expect(split.map((r) => r.model)).toEqual([]);
 });
 
 // The remote STT engine's whole shape spans an engine, an upstream and a

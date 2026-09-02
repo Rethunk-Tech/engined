@@ -130,11 +130,11 @@ idle_stop_seconds = 900
   # here untouched; a route's own [route.args] wins over the same key.
   [engine.args]
   parallel     = -1      # llama.cpp's auto: 4 slots sharing ONE unified ctx pool,
-                          # not 4 windows of ctx-size. Every route below states
-                          # its own instead -- the door reads this number as the
-                          # admission cap for that role, and -1 tells it nothing
-                          # a real slot count could be derived from, so it admits
-                          # without limit. Full reasoning: spec.toml.
+                          # not 4 windows of ctx-size. Fine as an engine-level
+                          # default for the small roles -- the door admits against
+                          # that same slot count without the child having to split
+                          # its pool. ornith overrides it below to buy real
+                          # context. Full reasoning: spec.toml.
   ctx-size     = 32768    # floor for any route whose own [route.args] omits it.
   cache-type-k = "q8_0"
   cache-type-v = "q8_0"
@@ -200,12 +200,6 @@ role     = "embedding"
   # 1024-length vector instead of 501.
   [route.args]
   embedding = true
-  # The door caps a role's in-flight requests at this number; -1 inherited
-  # from [engine.args] means it caps at nothing at all and a burst forwards
-  # straight through to queue invisibly inside llama-server. 4 is what
-  # llama.cpp's own auto resolves to, so this states the admission the child
-  # already has rather than changing it.
-  parallel  = 4
 
 # Vision: the GGUF and its mmproj both sit under models_dir, so the role is
 # registered like any other. mmproj is an ordinary [route.args] key, not
@@ -225,8 +219,6 @@ role     = "vision"
   # mmproj relative to the model file.
   mmproj            = "/models/Qwen/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
   no-mmproj-offload = true  # this GPU crashes llama-server on vision load without it.
-  parallel          = 4     # llama.cpp's auto, stated so the door has a real
-                             # slot count to admit against; see the embed route.
 
 # A second vision role: PaddleOCR reads a non-memorizable test string back
 # character for character -- real OCR, not a captioned guess. Loads in ~1.2s
@@ -245,9 +237,7 @@ role     = "vision"
   # Passed through verbatim, so this is the path as the CONTAINER sees it --
   # models_dir is bind-mounted at /models, and llama does not resolve
   # mmproj relative to the model file.
-  mmproj   = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
-  parallel = 4  # llama.cpp's auto, stated so the door has a real slot count
-                 # to admit against; see the embed route.
+  mmproj = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
 
 # ---------------------------------------------------------------------------
 # Agentic engines: a CLI launched with writing structurally disabled, read

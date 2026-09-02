@@ -1098,25 +1098,34 @@ test("6 concurrent same-model requests against a parallel=2 role: active caps at
   expect(router.contention()).toEqual([]);
 });
 
-test("parallel = -1 (llama.cpp's own auto) does not cap admission -- it is not a real slot count this door was told", async () => {
-  const e = engine();
-  const a = model({ id: "a", filename: "a.gguf", args: { parallel: -1 } });
-  const { client, release, inGate } = gatedAllChat();
-  const router = routerWithClient(e, [a], client);
+// `-1` and an unset key are the same instruction to llama.cpp -- take the
+// auto slot count -- so the door admits against that count instead of
+// without limit. A config buying the same cap by stating a positive
+// `parallel` would pay for it by splitting the child's unified KV pool.
+for (const [label, args] of [
+  ["parallel = -1 (llama.cpp's own auto)", { parallel: -1 }],
+  ["a route that never states parallel", {}],
+] as const) {
+  test(`${label} caps admission at the auto slot count the child really has`, async () => {
+    const e = engine();
+    const a = model({ id: "a", filename: "a.gguf", args });
+    const { client, release, inGate } = gatedAllChat();
+    const router = routerWithClient(e, [a], client);
 
-  const send = () =>
-    router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
-  const r1 = send();
-  await waitFor(() => inGate() === 1);
-  const r2 = send();
-  const r3 = send();
-  await waitFor(() => inGate() === 3);
+    const send = () =>
+      router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
+    const sent = [send(), send(), send(), send(), send()];
+    await waitFor(() => inGate() === 4);
 
-  expect(router.contention()).toEqual([{ role: "chat", active: 3, waiting: 0 }]);
+    await drainMicrotasks();
+    expect(inGate()).toBe(4);
+    expect(router.contention()).toEqual([{ role: "chat", active: 4, waiting: 1 }]);
 
-  release();
-  await Promise.all([text(r1), text(r2), text(r3)]);
-});
+    release();
+    await Promise.all(sent.map(text));
+    expect(router.contention()).toEqual([]);
+  });
+}
 
 test("a role nothing has touched is absent from contention rather than reported idle", () => {
   const e = engine();
