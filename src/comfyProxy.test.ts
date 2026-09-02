@@ -8,6 +8,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
 import { bindDualFamily, createDoor } from "./main.ts";
