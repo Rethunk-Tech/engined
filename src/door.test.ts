@@ -1248,7 +1248,9 @@ describe("the door: a tool call never falls back into prose", () => {
     expect(body.choices).toBeUndefined();
     clearVerifiedVersion("claude");
   });
+});
 
+describe("the door: a body that demands no tool call is answered", () => {
   test("the shapes that demand nothing -- empty tools, tool_choice none, text response_format -- are answered", async () => {
     const spawnCalls: string[][] = [];
     const door = toolFallbackDoor(spawnCalls);
@@ -1284,7 +1286,9 @@ describe("the door: a tool call never falls back into prose", () => {
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
   });
+});
 
+describe("the door: which addresses forward a tool call is discoverable", () => {
   test("the models menu says which addresses forward a tool call before the first one is sent", async () => {
     const door = toolFallbackDoor([]);
     const res = await door.fetch(new Request("http://engined/openai/v1/models"));

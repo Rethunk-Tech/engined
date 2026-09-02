@@ -6,6 +6,8 @@ import { loadConfig } from "./config.ts";
 import { makeTestRoot } from "./test-support.ts";
 import { ParseError } from "./types.ts";
 
+const RESERVED_FOR_THIS_BOX = /reserved for this box/;
+
 const TEST_ROOT = makeTestRoot("engined-config-test-");
 
 function writeConfig(toml: string): string {
@@ -1033,8 +1035,8 @@ describe("engine/upstream required/forbidden fields", () => {
   test("the reserved id local cannot carry a base_url or a secret", () => {
     const withUrl = `[[upstream]]\nid = "local"\negress = "none"\nbase_url = "https://elsewhere"\n`;
     const withSecret = `[[upstream]]\nid = "local"\negress = "remote"\n\n  [upstream.secret]\n  keyring = "x"\n`;
-    expect(() => loadConfig(writeConfig(withUrl))).toThrow(/reserved for this box/);
-    expect(() => loadConfig(writeConfig(withSecret))).toThrow(/reserved for this box/);
+    expect(() => loadConfig(writeConfig(withUrl))).toThrow(RESERVED_FOR_THIS_BOX);
+    expect(() => loadConfig(writeConfig(withSecret))).toThrow(RESERVED_FOR_THIS_BOX);
     expect(() =>
       loadConfig(writeConfig(`[[upstream]]\nid = "local"\negress = "none"\n`)),
     ).not.toThrow();

@@ -1767,6 +1767,25 @@ function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResul
   };
 }
 
+// Both checks wait on a workdir, so a caller who left one out gets
+// `runAgentic`'s 400 naming it: a request-shape rejection the caller owns
+// fires before anything this engine cannot do for them.
+async function preLaunchRefusal(
+  ctx: DoorContext,
+  engineId: string,
+  req: AgenticHop["req"],
+  workdir: string | undefined,
+): Promise<HopResult | null> {
+  if (workdir === undefined || workdir === "") {
+    return null;
+  }
+  const refusal = unhonourableRefusal(engineId, req);
+  if (refusal !== null) {
+    return refusal;
+  }
+  return await proveAgenticPin(ctx, engineId);
+}
+
 async function execAgentic(
   ctx: DoorContext,
   { engineId, modelSeg, route, req }: AgenticHop,
@@ -1804,18 +1823,9 @@ async function execAgentic(
     }
     const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route);
     const workdir = typeof req.rawBody.workdir === "string" ? req.rawBody.workdir : undefined;
-    // Both of the next two wait on a workdir, so a caller who left one out
-    // gets `runAgentic`'s 400 naming it: a request-shape rejection the caller
-    // owns fires before anything this engine cannot do for them.
-    if (workdir !== undefined && workdir !== "") {
-      const refusal = unhonourableRefusal(engineId, req);
-      if (refusal !== null) {
-        return refusal;
-      }
-      const unproved = await proveAgenticPin(ctx, engineId);
-      if (unproved !== null) {
-        return unproved;
-      }
+    const blocked = await preLaunchRefusal(ctx, engineId, req, workdir);
+    if (blocked !== null) {
+      return blocked;
     }
     return await launchAgentic(ctx, {
       spec,
