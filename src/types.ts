@@ -585,8 +585,8 @@ export interface EnginesResponse {
  * its own, the three-segment form when a sibling route shares its
  * `(engine, model)` pair on a different upstream. A chain row omits
  * `engine`/`upstream`/`model`/`egress`: no single one answers for every hop,
- * so `streaming`, `state` and `capabilities` are its first hop's instead --
- * that is the hop that actually answers.
+ * so `streaming` and `capabilities` are its first hop's instead -- that is
+ * the hop a request starts on.
  */
 export interface ModelRow {
   id: string;
@@ -611,7 +611,21 @@ export interface ModelRow {
    */
   tools: boolean;
   serves: string[];
+  /**
+   * Whether this address can answer at all. On a chain that is the first hop
+   * that can: a chain advances past a hop it cannot reach, so one reachable
+   * hop anywhere makes the chain `installed` even when earlier ones are not.
+   * `unavailable_hops` is what tells those two apart.
+   */
   state: EngineState;
+  /**
+   * The hops of a chain that cannot answer -- an engine that is not
+   * installed, or an upstream whose address or secret does not resolve.
+   * Absent when every hop can answer, and on every non-chain row. A chain
+   * whose hops are ALL listed here is one nothing can answer, and its
+   * `state` says `unavailable` to match.
+   */
+  unavailable_hops?: string[];
   capabilities: ModelCapabilities;
 }
 

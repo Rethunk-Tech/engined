@@ -12,7 +12,6 @@ import {
   type Config,
   type EngineState,
   type EngineStatus,
-  findModelOnEngine,
   type ModelCapabilities,
   type ModelRow,
   type ModelsResponse,
@@ -139,37 +138,74 @@ export function hopForwardsTools(
   return forwardsTools(statusOf(engine), routeForHop(routes, engine, model, upstream)?.role);
 }
 
+/** One hop of a chain, resolved once: the route it names, its engine's status, and whether it can answer at all. */
+interface ChainHop {
+  hop: string;
+  route: ResolvedRoute | undefined;
+  status: EngineStatus | undefined;
+  state: EngineState;
+}
+
+/** Every hop of one chain, each asked the same resolvable-address question a direct row is asked, so the menu cannot disagree with itself about the same address. */
+async function chainHops(
+  ctx: DoorContext,
+  hops: readonly string[],
+  config: Config,
+  statuses: ReadonlyMap<string, EngineStatus>,
+): Promise<ChainHop[]> {
+  return Promise.all(
+    hops.map(async (hop) => {
+      const { engine, upstream, model } = parseHop(hop);
+      const route = routeForHop(config.routes, engine, model, upstream);
+      const status = statuses.get(engine);
+      return {
+        hop,
+        route,
+        status,
+        state:
+          route === undefined
+            ? "unavailable"
+            : await remoteRouteState(ctx, route, status?.state ?? "unavailable"),
+      };
+    }),
+  );
+}
+
 /**
  * A chain is not any one engine's route, so it omits engine/upstream/model/
- * egress entirely. `streaming`, `state` and `capabilities` come from its
- * FIRST hop instead -- that is the hop that actually answers, the same rule
- * `classifyResult` uses to decide whether a chain keeps walking.
+ * egress entirely. `streaming` and `capabilities` come from its FIRST hop --
+ * that is the hop a request starts on, and the one whose shape a caller
+ * writes its request against.
  *
- * `tools` is the exception, and takes EVERY hop: a fallback is precisely
- * when a tool call would otherwise land on an agent that cannot honour it,
- * so one such hop anywhere in the list makes the whole chain unsafe to send
- * a tool loop to.
+ * `state` and `tools` both take EVERY hop, for opposite reasons. `runChain`
+ * advances past a hop that cannot answer rather than failing the chain, so
+ * the chain is usable exactly as long as one hop is: `state` is the first
+ * hop that can answer, and `unavailable_hops` names the ones that cannot --
+ * a chain limping on a fallback still says `installed`, and now says what it
+ * is limping on. When no hop can answer there is no such hop, the state is
+ * `unavailable`, and every hop is listed. `tools` instead demands every hop:
+ * a fallback is precisely when a tool call would otherwise land on an agent
+ * that cannot honour it, so one such hop anywhere makes the whole chain
+ * unsafe to send a tool loop to.
  */
-function chainRow(
+async function chainRow(
+  ctx: DoorContext,
   chainId: string,
   hops: readonly string[],
   config: Config,
   statuses: ReadonlyMap<string, EngineStatus>,
-): ModelRow {
-  const [firstHop] = hops;
-  const hop = firstHop === undefined ? undefined : parseHop(firstHop);
-  const route =
-    hop === undefined
-      ? undefined
-      : findModelOnEngine(config.routes, hop.engine, hop.model, hop.upstream);
-  const status = route === undefined ? undefined : statuses.get(route.engine);
+): Promise<ModelRow> {
+  const walked = await chainHops(ctx, hops, config, statuses);
+  const lead = walked[0];
+  const dead = walked.filter((h) => h.state === "unavailable").map((h) => h.hop);
   return {
     id: chainId,
-    streaming: route?.streaming ?? status?.streaming ?? false,
-    tools: hops.every((h) => hopForwardsTools(h, config.routes, (id) => statuses.get(id))),
+    streaming: lead?.route?.streaming ?? lead?.status?.streaming ?? false,
+    tools: walked.every((h) => forwardsTools(h.status, h.route?.role)),
     serves: [CONTENT_ENDPOINT_CHAT],
-    state: status?.state ?? "unavailable",
-    capabilities: route === undefined ? {} : routeCapabilities(route),
+    state: walked.find((h) => h.state !== "unavailable")?.state ?? "unavailable",
+    capabilities: lead?.route === undefined ? {} : routeCapabilities(lead.route),
+    unavailable_hops: dead.length === 0 ? undefined : dead,
   };
 }
 
@@ -205,7 +241,7 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
     rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }));
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
-    rows.push(chainRow(chainId, hops, config, statuses));
+    rows.push(await chainRow(ctx, chainId, hops, config, statuses));
   }
 
   return Response.json({ object: "list", data: rows } satisfies ModelsResponse);

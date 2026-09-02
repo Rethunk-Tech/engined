@@ -1155,3 +1155,75 @@ test("a route whose upstream has a secret and no base_url lists unavailable, age
     clearVerifiedVersion(agenticId);
   }
 });
+
+/**
+ * `runChain` advances past a hop that cannot answer rather than failing the
+ * whole chain, so one unreachable hop does not make the chain unusable and
+ * `state: "installed"` on a chain is an honest answer to "can I send this a
+ * request". It is not an answer to "is every hop healthy", and nothing else
+ * on the row was ever asked that -- `unavailable_hops` is. The dead hop here
+ * sits on an engine whose own image resolves: the engine is installed and the
+ * hop still cannot answer, which is the only way to tell a per-hop answer
+ * from an engine-wide one.
+ */
+test("a chain reports the first hop that can answer as its state and names every hop that cannot", async () => {
+  const config = baseConfig({
+    routes: [
+      route({ engine: "hop-a", model: "m", upstream: "local", filename: "a.gguf", role: "chat" }),
+      route({ engine: "hop-b", model: "m", upstream: "local", filename: "b.gguf", role: "chat" }),
+      route({ engine: "hop-dead", model: "m", upstream: "addressless" }),
+      route({ engine: "hop-dead", model: "m2", upstream: "addressless" }),
+    ],
+    engines: [
+      containerEngine("hop-a", OPENAI_SPEC),
+      containerEngine("hop-b", OPENAI_SPEC),
+      containerEngine("hop-dead", OPENAI_SPEC),
+    ],
+    upstreams: [
+      upstream({ id: "local", egress: "none" }),
+      upstream({
+        id: "addressless",
+        egress: "remote",
+        secret: { service: "svc", username: "u", header: "authorization" },
+      }),
+    ],
+    chains: {
+      "chain-healthy": ["@/hop-a/local/m", "@/hop-b/local/m"],
+      "chain-limping": ["@/hop-dead/addressless/m", "@/hop-b/local/m"],
+      "chain-dead": ["@/hop-dead/addressless/m", "@/hop-dead/addressless/m2"],
+    },
+  });
+  const door = createDoor(
+    config,
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec: buildExec({}) },
+    { secretExec: () => Promise.resolve({ stdout: "key\n", stderr: "", exitCode: 0 }) },
+  );
+
+  try {
+    const res = await door.fetch(req("GET", "/openai/v1/models"));
+    const body = (await res.json()) as {
+      data?: Array<{ id: string; state: string; unavailable_hops?: string[] }>;
+    };
+    const rows = body.data ?? [];
+    const row = (id: string) => rows.find((r) => r.id === id);
+
+    // Every hop reachable: nothing to report, and the field stays off the wire.
+    expect(row("chain-healthy")?.state).toBe("installed");
+    expect(row("chain-healthy")?.unavailable_hops).toBeUndefined();
+
+    // A dead first hop and a live second: still dispatchable, and now says
+    // what it lost on the way.
+    expect(row("chain-limping")?.state).toBe("installed");
+    expect(row("chain-limping")?.unavailable_hops).toEqual(["@/hop-dead/addressless/m"]);
+
+    // No hop can answer: `unavailable`, with every hop accounted for -- never
+    // `installed` off an engine that is installed but unaddressable.
+    expect(row("chain-dead")?.state).toBe("unavailable");
+    expect(row("chain-dead")?.unavailable_hops).toEqual([
+      "@/hop-dead/addressless/m",
+      "@/hop-dead/addressless/m2",
+    ]);
+  } finally {
+    await door.registry.shutdown();
+  }
+});
