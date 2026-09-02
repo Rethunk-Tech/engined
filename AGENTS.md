@@ -67,7 +67,8 @@ upstream and, where one applies, a model.
 | `[[engine]]`, every kind | `id` | — |
 | `[[upstream]]`, remote address | `id`, `egress`, `base_url`, `secret` | — |
 
-Origin/Host check, browser callers, and why `cursor-agent` did not ship:
+Origin/Host check, browser callers, and why `cursor-agent` ships disabled —
+nothing can thread a door URL into its launch:
 [docs/security-model.md](docs/security-model.md).
 
 ## Invariants
