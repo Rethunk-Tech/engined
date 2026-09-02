@@ -786,6 +786,21 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
   ],
 };
 
+/**
+ * A probe that throws is a floor that could not be proved, never a runner
+ * fault: `Bun.spawn` throws outright when the binary is missing, and callers
+ * memoize what this returns -- a rejection would be cached in place of an
+ * outcome and every later poll would be handed the same rejected promise,
+ * with nothing left to replace it but a daemon restart.
+ */
+async function runProbe(probe: Probe, input: ProbeInput): Promise<ProbeResult> {
+  try {
+    return await probe.run(input);
+  } catch (err) {
+    return { ok: false, detail: `probe threw: ${errMessage(err)}` };
+  }
+}
+
 export function buildAgenticProbeRunner(
   bunx: string,
   deps: AgenticProbeRunnerDeps = {},
@@ -794,7 +809,7 @@ export function buildAgenticProbeRunner(
     // Ordered, and stopped at the first failure: each run is a real billed
     // call, and a pin already proven broken should not pay for the next one.
     for (const probe of AGENT_PROBES[agent] ?? []) {
-      const outcome = await probe.run({ agent, agentVersion, bunx, deps, roundTrip });
+      const outcome = await runProbe(probe, { agent, agentVersion, bunx, deps, roundTrip });
       if (!outcome.ok) {
         return { ok: false, failedProbe: probe.name, detail: outcome.detail };
       }

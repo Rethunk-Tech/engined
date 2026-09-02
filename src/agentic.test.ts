@@ -459,6 +459,22 @@ test("buildAgenticProbeRunner: a clean completion under both probes yields ok --
   expect(cwds).toHaveLength(2);
 });
 
+test("buildAgenticProbeRunner: a probe that throws becomes a failed outcome, never a rejection", async () => {
+  // `Bun.spawn` throws outright on a missing binary, which is what a
+  // `ENGINED_BWRAP` naming a bwrap this box does not have produces. A
+  // rejection here is memoized by `engines.ts` in place of an outcome and
+  // handed to every later poll, so the throw has to land as an outcome.
+  const outcome = await runProbe(() => {
+    throw new Error("ENOENT: no such file or directory, posix_spawn '/nonexistent/bwrap'");
+  });
+
+  expect(outcome).toMatchObject({
+    ok: false,
+    failedProbe: "byte-identical",
+    detail: expect.stringContaining("ENOENT"),
+  });
+});
+
 test("buildAgenticProbeRunner: a completion that writes into the scratch worktree fails byte-identical, and the hook probe never runs", async () => {
   const calls: string[] = [];
   const spawn: AgenticSpawn = (_argv, opts) => {
