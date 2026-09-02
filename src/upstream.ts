@@ -43,7 +43,7 @@ const LEADING_SLASHES = /^\/+/;
 const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/;
 
 /** One wording for the missing-secret refusal, shared by the resolver and by `GET /v1/engines`'s `fix`. */
-export function noSecretConfiguredFix(upstreamId: string): string {
+function noSecretConfiguredFix(upstreamId: string): string {
   return `upstream "${upstreamId}" has no configured secret`;
 }
 

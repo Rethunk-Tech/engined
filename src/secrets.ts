@@ -9,7 +9,7 @@ import { binExec, type Exec } from "./exec.ts";
 
 import type { SecretRef } from "./types.ts";
 
-export type SecretOutcome =
+type SecretOutcome =
   | { ok: true; value: string }
   | { ok: false; reason: "missing"; fix: string }
   | { ok: false; reason: "locked"; fix: string };

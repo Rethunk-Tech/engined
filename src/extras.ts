@@ -36,7 +36,7 @@ function injectModel(bodyText: string | undefined, model: string): string {
  * body's `timings`/`timings_per_token` fields reach the caller unmodified.
  */
 /** Where the request goes: the engine's own base URL, and its own path for this verb. */
-export interface ExtrasTarget {
+interface ExtrasTarget {
   baseUrl: string;
   enginePath: string;
 }

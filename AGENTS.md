@@ -45,6 +45,9 @@ mounted files). `config.toml` names it and supplies install-specific values.
 An engine has no address of its own — a remote-address engine names its
 `[[upstream]]` instead, which carries `base_url`, `secret`, `egress`.
 
+`chatterbox-en` and `chatterbox-multi` stay separate images by operator
+decision: one image failing to build never blocks the other's launch.
+
 Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
 in spec, not operator config. Tunables go in `[engine.args]` / `[route.args]`;

@@ -48,7 +48,7 @@ export type UpstreamTrait = "self" | "optional" | "required";
 export type Disposition = "required" | "forbidden" | "allowed";
 
 /** `filename`/`role`/`args` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
-export interface RouteFieldRules {
+interface RouteFieldRules {
   filename: Disposition;
   role: Disposition;
   args: Disposition;
@@ -172,7 +172,7 @@ export interface EngineCapability extends ModelCapabilities {
   serves: string[];
 }
 
-export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
+const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
 
 /**
  * The door paths one route answers, which its engine's own `serves` cannot
@@ -324,7 +324,7 @@ export interface ReadyProbe {
  * has to re-derive. Segment count alone decides the reading; that is
  * `qualifiedSegments`'s job, not this pattern's.
  */
-export const QUALIFIED_MODEL_RE = /^@\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/;
+const QUALIFIED_MODEL_RE = /^@\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/;
 
 /** `QUALIFIED_MODEL_RE`'s match, as the one, two or three non-empty segments it captured. `undefined` when `model` is not a qualified `@/...` address at all. */
 export function qualifiedSegments(model: string): string[] | undefined {

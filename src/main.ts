@@ -1325,7 +1325,7 @@ type RedirectResolution =
  * The resolved value only ever reaches the child's environment below --
  * never a log line, an error body, or anything this function returns.
  */
-export interface RedirectOptions {
+interface RedirectOptions {
   upstream: Upstream;
   engineId: string;
   modelSeg: string;

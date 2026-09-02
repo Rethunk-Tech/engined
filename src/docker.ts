@@ -33,7 +33,7 @@ const NO_SUCH_CONTAINER = /no such container/i;
  * Carries `specDigest` on every container engined starts, so a container
  * found running after an unclean exit can say what it was launched from.
  */
-export const SPEC_LABEL = "engined.spec";
+const SPEC_LABEL = "engined.spec";
 
 export const dockerExec: Exec = binExec("docker");
 
@@ -116,7 +116,7 @@ export function parseHostPort(portOutput: string): number | null {
  * left of each arrow is the host side, which is the shape `parseHostPort`
  * already reads — including the `[::]` line it declines to match.
  */
-export function hostBindings(ports: string): string {
+function hostBindings(ports: string): string {
   return ports
     .split(",")
     .map((mapping) => mapping.split("->")[0]?.trim() ?? "")

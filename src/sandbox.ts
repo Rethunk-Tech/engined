@@ -41,7 +41,7 @@ export function sandboxHome(agentId: string): string {
   return home;
 }
 
-export interface SandboxInput {
+interface SandboxInput {
   /** Absolute `bwrap` path, resolved by the install script the way `bunx` is. */
   bwrap: string;
   /** The agent's writable state directory, from `sandboxHome`. */
