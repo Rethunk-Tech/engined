@@ -1,24 +1,33 @@
 # llama.cpp server, Vulkan/RADV, gfx1151 (Strix Halo). Ported verbatim from
 # sagaforge-ts's docker/llama-cpp/Dockerfile (read from source, not a
 # summary), so that the image this box runs is built from this tree rather
-# than a sibling project's. llama-grammar.patch is vendored alongside it
-# unchanged.
+# than a sibling project's.
 #
-# Builds from Nathanw1014/llama.cpp's `strix-halo-vulkan` branch (a fork of
-# upstream llama.cpp, MIT), which carries Strix-Halo-specific Vulkan
-# performance work not yet upstream. Recipe (source repo, branch, build
-# flags, grammar patch) verified against
-# kyuz0/amd-strix-halo-toolboxes:vulkan-radv-performance, which benchmarked
-# best-of-both-worlds on this box: ROCm-tier prefill (~1050-1090 tok/s on an
-# 8006-token prompt) with Vulkan-tier decode (~49 tok/s). Vendored and owned
-# here (kyuz0's repo carries no LICENSE file) rather than depending on their
-# prebuilt image indefinitely.
+# What this tree owns is the recipe and llama-grammar.patch. The source is
+# fetched from Nathanw1014/llama.cpp (a fork of upstream llama.cpp, MIT),
+# which carries Strix-Halo-specific Vulkan performance work not yet upstream,
+# at the exact commit LLAMA_COMMIT names below -- the built image labels that
+# commit, so a throughput measurement can be tied back to the source it was
+# taken on. Recipe (source repo, commit, build flags, grammar patch) verified
+# against kyuz0/amd-strix-halo-toolboxes:vulkan-radv-performance, which
+# benchmarked best-of-both-worlds on this box: ROCm-tier prefill (~1050-1090
+# tok/s on an 8006-token prompt) with Vulkan-tier decode (~49 tok/s). The
+# recipe is kept here (kyuz0's repo carries no LICENSE file) rather than
+# depending on their prebuilt image indefinitely.
 #
 # Fedora, not rocm/dev-ubuntu like the sibling engines -- this is a Vulkan
 # build (mesa-vulkan-drivers + the loader), not a ROCm/PyTorch one, so it
 # doesn't need and doesn't take the ROCm base. See spec.toml: this engine
 # takes only /dev/dri and deliberately not /dev/kfd, which is the same split
 # reflected in the base image choice here.
+
+# Global, so the final stage can label the same values without repeating them.
+ARG REPO=https://github.com/Nathanw1014/llama.cpp.git
+# The head of the fork's `strix-halo-vulkan` branch as of this pin. A branch
+# name here would let two builds of the same tree produce different llama.cpp
+# with nothing recording which one the figures above were measured on.
+ARG LLAMA_COMMIT=df1671a03f746d7c657d4242fd75b9fba98afd38
+
 FROM registry.fedoraproject.org/fedora:46 AS builder
 
 RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
@@ -29,9 +38,11 @@ RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
   && dnf clean all && rm -rf /var/cache/dnf/*
 
 WORKDIR /opt/llama.cpp
-ARG REPO=https://github.com/Nathanw1014/llama.cpp.git
-ARG BRANCH=strix-halo-vulkan
-RUN git clone -b "${BRANCH}" --single-branch --recursive "${REPO}" .
+ARG REPO
+ARG LLAMA_COMMIT
+RUN git clone "${REPO}" . \
+    && git checkout --detach "${LLAMA_COMMIT}" \
+    && git submodule update --init --recursive
 
 # MAX_REPETITION_THRESHOLD 2000 -> 100000: too low for complex tool-call
 # grammars (json-schema-derived GBNF can legitimately need more repetitions).
@@ -55,6 +66,10 @@ RUN cmake -S . -B build -G Ninja \
 RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; && ldconfig
 
 FROM registry.fedoraproject.org/fedora-minimal:46
+ARG REPO
+ARG LLAMA_COMMIT
+LABEL org.opencontainers.image.source="${REPO}" \
+      org.opencontainers.image.revision="${LLAMA_COMMIT}"
 
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 install \
   bash ca-certificates libatomic libstdc++ libgcc libgomp libibverbs \
