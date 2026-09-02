@@ -244,16 +244,28 @@ reason comfy's `/interrupt` is never forwarded at all: `/interrupt` stops
 whatever the container is currently processing and carries no id to scope it.
 A caller sends `{"prompt_id": "<id>"}` — an id this door bound through
 `POST /prompt`, or the call is a 404 — and the door reads the container's queue
-itself, never handing that ledger out, to decide what to do with it. The reply
+itself, never handing that ledger out, to decide what to do with it. A success
 is `{prompt_id, cancelled}`, where `cancelled` reports what the container
-actually did rather than what was asked of it: `running` means the prompt was
-the one executing and it was interrupted, `pending` means it was still queued
-and was dropped without an interrupt, and `finished` means there was nothing
-left to stop and nothing was sent. The distinction is what a caller polling
-`/history` needs to read next — only a `running` cancel truncates work already
-done. A prompt that finishes between the queue read and the interrupt is the
-one window this leaves open: in that instant the interrupt lands on whichever
-job inherited the GPU.
+actually did rather than what was asked of it; anything the container refused
+is a 502 carrying comfy's own status, never a `cancelled` the door did not
+perform.
+
+| Reply | Meaning |
+| --- | --- |
+| 200 `{"cancelled": "running"}` | the prompt was the one executing, and it was interrupted |
+| 200 `{"cancelled": "pending"}` | it was still queued, and was dropped without an interrupt |
+| 200 `{"cancelled": "finished"}` | there was nothing left to stop, and nothing was sent |
+| 502 `comfy queue could not be read` | the queue did not answer as one, so nothing was proven and nothing sent |
+| 502 `comfy refused to interrupt "<id>" (http <status>)` | the prompt was the running one and is running still |
+| 502 `comfy refused to drop "<id>" from its queue (http <status>)` | the prompt was pending and is queued still |
+
+The distinction is what a caller polling `/history` needs to read next — only a
+`running` cancel truncates work already done. Two windows stay open, each one
+round trip wide, because the queue read and the act on it are separate calls: a
+prompt that finishes between them sends the interrupt to whichever job
+inherited the GPU, and one that starts rendering between them is reported
+`pending` while it holds the GPU, since comfy answers 200 to a queue delete
+that removed nothing.
 
 The binding table those verbs read is bounded by **count**, not age: the door
 keeps the most recent 1000 `prompt_id` bindings across every comfy engine and
