@@ -342,11 +342,10 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
       };
       return row;
     }
-    // Whether this call is the one that launched the engine, not merely whether
-    // it is running now: caught before `warm` acts, since `warm` is a no-op on
-    // an already-warm route.
-    const wasRunning = ctx.registry.get(engineId)?.state === "running";
-    await getLlamaRouter(ctx, engineEntry).warm(route);
+    // `warm` reports whether this call is the one that swapped the resident
+    // -- its own lease queue already knows, computed per caller -- so two
+    // concurrent starts on one cold model never both claim they started it.
+    const started = await getLlamaRouter(ctx, engineEntry).warm(route);
     const status = ctx.registry.get(engineId);
     const row = {
       address,
@@ -354,7 +353,7 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
       upstream,
       state: status?.state ?? "unavailable",
       fix: status?.fix,
-      started: !wasRunning,
+      started,
     };
     return row;
   }

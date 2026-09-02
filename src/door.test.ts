@@ -2193,6 +2193,34 @@ describe("POST /engined/v1/start: concurrent calls on a cold container engine", 
   });
 });
 
+describe("POST /engined/v1/start: concurrent calls on a cold llama model", () => {
+  /**
+   * Two `POST /start` calls racing on one never-warmed llama role. Before
+   * this fix `startRoute` read `state === "running"` off the registry
+   * before its own `warm()` call, so both saw "not running yet" and both
+   * reported `started: true` even though only one of them was the caller
+   * whose lease actually swapped the resident.
+   */
+  test("exactly one of two concurrent starts reports started: true", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const { client, urls } = makeRecordingLlamaClient();
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client });
+
+    const [first, second] = await Promise.all([
+      door.fetch(startRequest("@/local-llama/ornith")),
+      door.fetch(startRequest("@/local-llama/ornith")),
+    ]);
+    const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
+    const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+
+    expect(urls.filter((u) => u.endsWith("/models/load"))).toHaveLength(1);
+    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started];
+    expect(started.sort()).toEqual([false, true]);
+    expect(firstBody.data[0]?.state).toBe("running");
+    expect(secondBody.data[0]?.state).toBe("running");
+  });
+});
+
 describe("POST /engined/v1/start: a roleless model on a container engine", () => {
   test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
     const { cfg, root } = whisperDoorConfig();

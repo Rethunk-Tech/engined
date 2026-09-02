@@ -131,7 +131,8 @@ export function buildLlamaSpec(
 
 interface RoleWaiter {
   modelId: string;
-  resolve: () => void;
+  /** `true` when this waiter's own grant is the one that swapped the resident. */
+  resolve: (swapped: boolean) => void;
   reject: (err: unknown) => void;
 }
 
@@ -309,13 +310,14 @@ export class LlamaRouter {
    * armed as usual and this buys a head start rather than permanent
    * residency -- `keep_resident` is what makes residency survive.
    */
-  async warm(route: ResolvedRoute, signal?: AbortSignal | null): Promise<void> {
+  async warm(route: ResolvedRoute, signal?: AbortSignal | null): Promise<boolean> {
     const { role, model } = route;
     if (role === undefined || model === undefined) {
       throw new Error(`route on engine "${route.engine}" has no role or model to warm`);
     }
-    await this.beginLease(role, model, signal);
+    const swapped = await this.beginLease(role, model, signal);
     this.finishLease(role);
+    return swapped;
   }
 
   /**
@@ -457,17 +459,22 @@ export class LlamaRouter {
    * swap (or behind capacity) must never receive that swap's `pump()` work
    * on nobody's behalf, so an abort splices the waiter back out instead of
    * letting it resolve late.
+   *
+   * Resolves to whether *this* grant was the one that swapped the resident
+   * in `pump()`'s `admitAfterSwap` -- never a shared flag, since a joiner
+   * admitted moments later onto the same now-resident model must report
+   * false even though the model was cold when it asked.
    */
-  private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<void> {
+  private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<boolean> {
     const state = this.roleState(role);
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       if (
         state.queue.length === 0 &&
         state.activeModelId === modelId &&
         state.activeCount < state.capacity
       ) {
         state.activeCount++;
-        resolve();
+        resolve(false);
         return;
       }
       let onAbort: (() => void) | undefined;
@@ -478,9 +485,9 @@ export class LlamaRouter {
       };
       const waiter: RoleWaiter = {
         modelId,
-        resolve: () => {
+        resolve: (swapped) => {
           cleanup();
-          resolve();
+          resolve(swapped);
         },
         reject: (err) => {
           cleanup();
@@ -577,7 +584,7 @@ export class LlamaRouter {
           }
           state.queue.shift();
           state.activeCount++;
-          front.resolve();
+          front.resolve(false);
           continue;
         }
         if (state.activeCount > 0) {
@@ -602,7 +609,7 @@ export class LlamaRouter {
     state.activeModelId = front.modelId;
     state.capacity = this.capacityFor(role, front.modelId);
     state.activeCount++;
-    front.resolve();
+    front.resolve(true);
   }
 
   private async swapResident(role: Role, modelId: string): Promise<void> {
@@ -729,19 +736,24 @@ export class LlamaRouter {
       : this.fetchBuffered(role, model, path, init);
   }
 
-  /** The acquire half of a lease. Paired with `finishLease`, which every path must call exactly once however it ends. */
+  /**
+   * The acquire half of a lease. Paired with `finishLease`, which every path
+   * must call exactly once however it ends. Resolves to `acquireLease`'s own
+   * answer: whether this call is the one that swapped the resident.
+   */
   private async beginLease(
     role: Role,
     modelId: string,
     signal?: AbortSignal | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     await this.ensureStarted();
-    await this.acquireLease(role, modelId, signal);
+    const swapped = await this.acquireLease(role, modelId, signal);
     this.totalActive++;
     if (this.totalActive === 1) {
       this.lifecycle.beginLease(this.engine.id);
     }
     this.pinContainer();
+    return swapped;
   }
 
   private finishLease(role: Role): void {
