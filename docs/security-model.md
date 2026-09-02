@@ -148,9 +148,12 @@ headers object onto an attempt cannot leak one into journald.
 
 No door logs a prompt. The only line engined writes per call is `recordCall`'s
 provenance record — engine, model, outcome, timing — which has no field for
-request content. An agentic child's stderr is dropped rather than forwarded to
-journald: it is the one stream that can echo the prompt or the worktree the
-child read, and a stream cannot be told apart from a diagnostic.
+request content. The stderr of a child running a caller's prompt is dropped
+rather than forwarded to journald: it is the one stream that can echo the prompt
+or the worktree the child read, and an echo cannot be told apart from a
+diagnostic. The one stderr that does surface is a probe's, in the engine's `fix`
+line: that child runs a fixed write instruction in a scratch worktree, never a
+caller's prompt.
 
 ## Which agents ship, and why
 

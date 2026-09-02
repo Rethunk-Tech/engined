@@ -3,7 +3,7 @@
 <div align="center">
 
 [![ci](https://github.com/Rethunk-Tech/engined/actions/workflows/ci.yml/badge.svg)](https://github.com/Rethunk-Tech/engined/actions/workflows/ci.yml)
-[![runtime: bun](https://img.shields.io/badge/runtime-bun%201.3-black)](https://bun.sh)
+[![runtime: bun](https://img.shields.io/badge/runtime-bun%201.4-black)](https://bun.sh)
 [![typescript](https://img.shields.io/badge/typescript-7.0-3178c6)](https://www.typescriptlang.org)
 [![license: proprietary](https://img.shields.io/badge/license-proprietary-red)](LICENSE)
 

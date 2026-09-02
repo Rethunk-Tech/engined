@@ -65,7 +65,7 @@ upstream and, where one applies, a model.
 | `[[route]]` on llama | `engine`, `upstream`, `model`, `filename`, `role` | — |
 | `[[route]]` on agentic | `engine` | `filename`, `role` |
 | `[[engine]]`, every kind | `id` | — |
-| `[[upstream]]`, remote address | `id`, `egress`, `base_url`, `secret` | — |
+| `[[upstream]]`, remote address | `id`, `egress`; a missing `base_url` parses and refuses at dispatch | — |
 
 Origin/Host check, browser callers, and why `cursor-agent` ships disabled —
 nothing can thread a door URL into its launch:
@@ -86,8 +86,8 @@ config is overridable from any ancestor of the workdir. An agent declared
 its stdout parser and the probe that re-proves its floor on every new pin.
 
 **No door logs a prompt.** The provenance line is the only per-call record and
-carries no request content; an agentic child's stderr is dropped, never
-forwarded. See [docs/security-model.md](docs/security-model.md).
+carries no request content; the stderr of a child running a caller's prompt is
+dropped, never forwarded. See [docs/security-model.md](docs/security-model.md).
 
 **The unit's read-only sandbox does not survive docker.** `docker run` writes as
 root; docker-group access is root-equivalent. A `spec_dir` override is a
