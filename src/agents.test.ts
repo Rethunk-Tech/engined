@@ -4,8 +4,7 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENT_IDS,
@@ -16,7 +15,10 @@ import {
   parseOpencodeEvents,
   resolveCursorBinary,
 } from "./agents.ts";
+import { makeTestRoot } from "./test-support.ts";
 import { AGENTIC_FLOOR } from "./types.ts";
+
+const TEST_ROOT = makeTestRoot("engined-agents-test-");
 
 /** Captured verbatim: `opencode run --format json "Reply with exactly the word: pong"`. */
 const OPENCODE_OK = [
@@ -173,27 +175,19 @@ it("resolveCursorBinary: agent on PATH wins outright, the versions directory nev
 });
 
 it("resolveCursorBinary: falls back to the newest versions directory by name when PATH has nothing", () => {
-  const root = mkdtempSync(join(tmpdir(), "engined-cursor-versions-"));
-  try {
-    for (const version of ["2026.01.01-aaa", "2026.02.15-bbb", "2026.02.01-ccc"]) {
-      const dir = join(root, version);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "cursor-agent"), "");
-    }
-    const resolved = resolveCursorBinary(() => null, root);
-    expect(resolved).toBe(join(root, "2026.02.15-bbb", "cursor-agent"));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+  const root = mkdtempSync(join(TEST_ROOT, "cursor-versions-"));
+  for (const version of ["2026.01.01-aaa", "2026.02.15-bbb", "2026.02.01-ccc"]) {
+    const dir = join(root, version);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "cursor-agent"), "");
   }
+  const resolved = resolveCursorBinary(() => null, root);
+  expect(resolved).toBe(join(root, "2026.02.15-bbb", "cursor-agent"));
 });
 
 it("resolveCursorBinary: neither PATH nor a versions directory has it -- throws naming both", () => {
-  const root = mkdtempSync(join(tmpdir(), "engined-cursor-versions-empty-"));
-  try {
-    expect(() => resolveCursorBinary(() => null, root)).toThrow(root);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  const root = mkdtempSync(join(TEST_ROOT, "cursor-versions-empty-"));
+  expect(() => resolveCursorBinary(() => null, root)).toThrow(root);
 });
 
 it("resolveCursorBinary: a versions directory that does not exist at all is treated the same as an empty one", () => {

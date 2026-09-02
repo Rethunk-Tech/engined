@@ -5,7 +5,7 @@ import { handleSpeech, handleTranscription } from "./audio.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { loadSpec } from "./spec.ts";
-import { containerRunning, makeTestRoot } from "./test-support.ts";
+import { containerRunning, makeTestRoot, startFakeUpstream } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 import { isContainerSpec } from "./types.ts";
 
@@ -60,19 +60,17 @@ function makeLifecycle(exec: Exec): DockerLifecycle {
 
 /** A real `Bun.serve` fake chatterbox-multi, emitting real NDJSON: one frame with `audio`, alignment null. */
 function startFakeChatterboxMulti(): { base: string; stop: () => void } {
-  const server = Bun.serve({
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
-      if (url.pathname === "/v1/tts") {
-        return new Response(`${JSON.stringify({ audio: SAMPLE_WAV_BASE64, alignment: null })}\n`, {
-          headers: { "content-type": "application/x-ndjson" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    },
+  const fake = startFakeUpstream((req) => {
+    if (new URL(req.url).pathname === "/v1/tts") {
+      return new Response(`${JSON.stringify({ audio: SAMPLE_WAV_BASE64, alignment: null })}\n`, {
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }
+    return new Response("not found", { status: 404 });
   });
-  return { base: `127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+  // A `private_url` carries no scheme, so this one is built from the port
+  // rather than handed back as `startFakeUpstream`'s own schemed `base`.
+  return { base: `127.0.0.1:${fake.port}`, stop: fake.stop };
 }
 
 test("handleSpeech returns an OpenAI audio body, not the chatterbox-multi NDJSON envelope", async () => {
@@ -180,23 +178,20 @@ function startFakeWhisper(): {
   stop: () => void;
 } {
   const requests: Array<{ language?: string; response_format?: string }> = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const form = await req.formData();
-      const language = form.get("language");
-      const responseFormat = form.get("response_format");
-      requests.push({
-        language: typeof language === "string" ? language : undefined,
-        response_format: typeof responseFormat === "string" ? responseFormat : undefined,
-      });
-      if (responseFormat === "text") {
-        return new Response("hello world", { headers: { "content-type": "text/plain" } });
-      }
-      return Response.json({ text: "hello world" });
-    },
+  const fake = startFakeUpstream(async (req) => {
+    const form = await req.formData();
+    const language = form.get("language");
+    const responseFormat = form.get("response_format");
+    requests.push({
+      language: typeof language === "string" ? language : undefined,
+      response_format: typeof responseFormat === "string" ? responseFormat : undefined,
+    });
+    if (responseFormat === "text") {
+      return new Response("hello world", { headers: { "content-type": "text/plain" } });
+    }
+    return Response.json({ text: "hello world" });
   });
-  return { base: `127.0.0.1:${server.port}`, requests, stop: () => server.stop(true) };
+  return { base: `127.0.0.1:${fake.port}`, requests, stop: fake.stop };
 }
 
 const SAMPLE_AUDIO_BYTES = new Uint8Array([1, 2, 3, 4]);

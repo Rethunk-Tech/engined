@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import { handleSpeech, handleTranscription } from "./audio.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
-import { config as baseConfigFixture, route } from "./test-support.ts";
+import { config as baseConfigFixture, route, startFakeUpstream } from "./test-support.ts";
 import type { Config, Upstream } from "./types.ts";
 import { resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
 
@@ -117,26 +117,21 @@ interface RecordedForm {
 
 /** A real ElevenLabs-shaped upstream: `/speech-to-text`, multipart in, `{text}` out. */
 function startFakeElevenLabs(recorded: RecordedForm[]): { base: string; stop: () => void } {
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      const form = await req.formData();
-      recorded.push({
-        path: url.pathname,
-        modelId: form.get("model_id") as string | null,
-        languageCode: form.get("language_code") as string | null,
-        apiKey: req.headers.get("xi-api-key"),
-      });
-      return Response.json({
-        language_code: "eng",
-        language_probability: 0.99,
-        text: "the cutover is finished",
-        words: [],
-      });
-    },
+  return startFakeUpstream(async (req) => {
+    const form = await req.formData();
+    recorded.push({
+      path: new URL(req.url).pathname,
+      modelId: form.get("model_id") as string | null,
+      languageCode: form.get("language_code") as string | null,
+      apiKey: req.headers.get("xi-api-key"),
+    });
+    return Response.json({
+      language_code: "eng",
+      language_probability: 0.99,
+      text: "the cutover is finished",
+      words: [],
+    });
   });
-  return { base: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
 }
 
 // The whole point of this delivery: the door's own resolved model reaches
@@ -249,24 +244,17 @@ interface RecordedChat {
 }
 
 function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop: () => void } {
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      recorded.push({
-        path: url.pathname,
-        apiKey: req.headers.get("x-api-key"),
-        body: (await req.json()) as Record<string, unknown>,
-      });
-      return Response.json({
-        model: "upstream-model-7",
-        choices: [
-          { index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" },
-        ],
-      });
-    },
+  return startFakeUpstream(async (req) => {
+    recorded.push({
+      path: new URL(req.url).pathname,
+      apiKey: req.headers.get("x-api-key"),
+      body: (await req.json()) as Record<string, unknown>,
+    });
+    return Response.json({
+      model: "upstream-model-7",
+      choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }],
+    });
   });
-  return { base: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
 }
 
 function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {

@@ -6,26 +6,18 @@
  * is nothing to fake.
  */
 
-import { afterAll, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { expect, it } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sandboxArgv } from "./sandbox.ts";
+import { makeTestRoot } from "./test-support.ts";
 
 const BWRAP = "/usr/bin/bwrap";
-const roots: string[] = [];
+const TEST_ROOT = makeTestRoot("engined-sandbox-test-");
 
 function scratch(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  roots.push(dir);
-  return dir;
+  return mkdtempSync(join(TEST_ROOT, prefix));
 }
-
-afterAll(() => {
-  for (const dir of roots) {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 function run(argv: readonly string[]): { code: number; stderr: string } {
   const proc = Bun.spawnSync([...argv], { stdout: "pipe", stderr: "pipe" });
