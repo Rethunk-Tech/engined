@@ -32,7 +32,7 @@ import {
   wrapStream,
 } from "./chain.ts";
 import { loadConfig } from "./config.ts";
-import { type Dispatch, resolveEngineSegment, resolveModel } from "./dispatch.ts";
+import { type Dispatch, resolveModel } from "./dispatch.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import {
   DEFAULT_IDLE_STOP_SECONDS,
@@ -272,8 +272,7 @@ function resolveStartRoutes(
       return { ok: false, error: `chain "${model}" has no hops` };
     }
     const hop = parseHop(first);
-    const engineId = resolveEngineSegment(hop.engine, config) ?? hop.engine;
-    const route = findModelOnEngine(config.routes, engineId, hop.model, hop.upstream);
+    const route = findModelOnEngine(config.routes, hop.engine, hop.model, hop.upstream);
     return route === undefined
       ? { ok: false, error: `chain "${model}"'s first hop "${first}" does not resolve to a route` }
       : { ok: true, routes: [route] };
@@ -1063,8 +1062,7 @@ function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
  */
 function egressOf(ctx: DoorContext, hop: string): Egress {
   const config = ctx.getConfig();
-  const { engine: seg, upstream: upstreamSeg, model } = parseHop(hop);
-  const engineId = resolveEngineSegment(seg, config) ?? seg;
+  const { engine: engineId, upstream: upstreamSeg, model } = parseHop(hop);
   const route = routeForHop(config.routes, engineId, model, upstreamSeg);
   return route === undefined ? "remote" : routeEgress(route, config.upstreams);
 }
@@ -1760,8 +1758,7 @@ async function execRemoteHttp(
 
 function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean): HopExec {
   return async (hop, signal) => {
-    const { engine: seg, upstream: upstreamSeg, model: modelSeg } = parseHop(hop);
-    const engineId = resolveEngineSegment(seg, ctx.getConfig()) ?? seg;
+    const { engine: engineId, upstream: upstreamSeg, model: modelSeg } = parseHop(hop);
     const kind = ctx.registry.get(engineId)?.kind;
     // Which of the two openai-http proxies applies is the resolved route's
     // question, not the engine's: `upstream === "local"` is this box's own
@@ -1846,8 +1843,7 @@ export function timeoutSecondsForKind(kind: EngineKind | undefined, config: Conf
 function chatTimeoutMs(ctx: DoorContext): (hop: string) => number {
   const config = ctx.getConfig();
   return (hop) => {
-    const { engine: seg } = parseHop(hop);
-    const engineId = resolveEngineSegment(seg, config) ?? seg;
+    const { engine: engineId } = parseHop(hop);
     return timeoutSecondsForKind(ctx.registry.get(engineId)?.kind, config) * MS_PER_SECOND;
   };
 }

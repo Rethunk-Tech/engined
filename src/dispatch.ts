@@ -27,11 +27,6 @@ function fail(error: string): Dispatch {
   return { ok: false, error };
 }
 
-/** The engine segment, resolved to a real id -- `undefined` when nothing configured carries it. Exported so the door can resolve the same segment for chain hops, extras and `egressOf`. */
-export function resolveEngineSegment(seg: string, config: Config): string | undefined {
-  return config.engines.some((e) => e.id === seg) ? seg : undefined;
-}
-
 interface EndpointCheckOptions {
   engineId: string;
   model?: string;
