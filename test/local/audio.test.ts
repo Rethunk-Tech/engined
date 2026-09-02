@@ -9,6 +9,7 @@ import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
 import {
   BUNX,
+  CONFIG_EXAMPLE,
   ENGINES_ROOT,
   LOCAL,
   requireNoResidentEngine,
@@ -33,21 +34,28 @@ const TEST_TIMEOUT_MS = 180_000;
 const ROUND_TRIP_TIMEOUT_MS = 600_000;
 
 /**
- * whisper's real weights, read from `config.example.toml` rather than
- * hardcoded -- the same reason `llama.test.ts` loads it as-is: it is this
- * operator's own configuration, so a clean read here is also a live check
- * that the example still matches the model tree on disk.
+ * whisper's real weights, read from `config.example.toml` against the repo's
+ * own `engines/` tree -- the same file and root every sibling suite reads, and
+ * the same reason `llama.test.ts` loads it as-is: it is this operator's own
+ * configuration, so a clean read here is also a live check that the example
+ * still matches the model tree on disk.
+ *
+ * Nothing is caught. Every engine the example names ships its spec in this
+ * repo, so a failure here is a broken fixture rather than an absent engine --
+ * and a caught one degrades this suite into transcribing against a path that
+ * holds no models, which is green and proves nothing.
  */
 function whisperModelsDir(): string {
   if (!LOCAL) {
     return "/unused";
   }
-  try {
-    const cfg = loadConfig(join(import.meta.dir, "..", "..", "config.example.toml"));
-    return cfg.engines.find((e) => e.id === "whisper")?.models_dir ?? "/unused";
-  } catch {
-    return "/unused";
+  const modelsDir = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT).engines.find(
+    (e) => e.id === "whisper",
+  )?.models_dir;
+  if (modelsDir === undefined) {
+    throw new Error(`${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir`);
   }
+  return modelsDir;
 }
 
 const WHISPER_MODELS_DIR = whisperModelsDir();
