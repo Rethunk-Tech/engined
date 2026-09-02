@@ -36,8 +36,8 @@ interface Behavior {
 /** One fake upstream shared by every hop in a test, keyed by engine id; `requestLog` is the only proof a hop was never called. */
 function startBehaviorUpstream(behaviors: Record<string, Behavior>) {
   const up = startFakeUpstream(async (req) => {
-    const engine = new URL(req.url).pathname.slice(1);
-    const behavior = behaviors[engine];
+    const engineId = new URL(req.url).pathname.slice(1);
+    const behavior = behaviors[engineId];
     if (!behavior) {
       return new Response("no route", { status: 404 });
     }
@@ -87,12 +87,12 @@ function startFlakyStreamUpstream(): { base: string; stop: () => void } {
 
 function makeExec(bases: Record<string, string>): HopExec {
   return async (hop, signal) => {
-    const engine = engineOf(hop);
-    const base = bases[engine];
+    const engineId = engineOf(hop);
+    const base = bases[engineId];
     if (base === undefined) {
-      throw new Error(`test exec: no route registered for ${engine}`);
+      throw new Error(`test exec: no route registered for ${engineId}`);
     }
-    const res = await fetch(`${base}/${engine}`, { signal });
+    const res = await fetch(`${base}/${engineId}`, { signal });
     if (res.headers.get("content-type") === "text/event-stream") {
       return { status: res.status, stream: res.body ?? undefined };
     }
