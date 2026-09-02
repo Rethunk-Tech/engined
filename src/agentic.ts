@@ -20,7 +20,6 @@
  * agent's own parser decides success.
  */
 
-import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -498,23 +497,22 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
 export const PROBE_ENV_ALLOWLIST = ["HOME", "BUN_INSTALL", "BUN_TMPDIR"] as const;
 const WITNESS_ID_RADIX = 36;
 
-export function hashTree(root: string): string {
-  const hash = createHash("sha256");
-  hashWalk(root, root, hash);
-  return hash.digest("hex");
-}
-
-function hashWalk(root: string, dir: string, hash: ReturnType<typeof createHash>): void {
-  for (const name of readdirSync(dir).sort()) {
-    const full = join(dir, name);
-    const stat = statSync(full);
-    hash.update(full.slice(root.length));
-    if (stat.isDirectory()) {
-      hashWalk(root, full, hash);
-    } else {
-      hash.update(readFileSync(full));
+/** Every path under `root` (relative, sorted -- what a failed byte-identical probe names) and one digest over their names and contents. */
+function walkTree(root: string): { paths: string[]; hash: string } {
+  const hasher = new Bun.CryptoHasher("sha256");
+  const paths = readdirSync(root, { recursive: true, encoding: "utf8" }).sort();
+  for (const rel of paths) {
+    hasher.update(rel);
+    const full = join(root, rel);
+    if (!statSync(full).isDirectory()) {
+      hasher.update(readFileSync(full));
     }
   }
+  return { paths, hash: hasher.digest("hex") };
+}
+
+export function hashTree(root: string): string {
+  return walkTree(root).hash;
 }
 
 /** Always a fresh directory under the OS temp directory — never a real repository this box happens to have checked out. */
@@ -623,7 +621,8 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
   try {
     const before = hashTree(workdir);
     const outcome = await probeLaunch(input, workdir, WRITE_INSTRUCTION);
-    const unchanged = hashTree(workdir) === before;
+    const after = walkTree(workdir);
+    const unchanged = after.hash === before;
     if (wroteNothing(outcome, floorOf(input.agent), unchanged)) {
       return { ok: true };
     }
@@ -634,24 +633,11 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
       ok: false,
       detail: unchanged
         ? `launch answered ${outcome.status}: ${outcome.failure ?? outcome.result ?? "no result"}${outcome.stderrTail === undefined ? "" : ` (stderr: ${outcome.stderrTail})`}`
-        : `worktree changed: ${listTree(workdir).join(", ")}`,
+        : `worktree changed: ${after.paths.join(", ")}`,
     };
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }
-}
-
-/** Every path under `root`, relative, sorted -- what a failed byte-identical probe names. */
-function listTree(root: string, dir: string = root): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir).sort()) {
-    const full = join(dir, name);
-    out.push(full.slice(root.length + 1));
-    if (statSync(full).isDirectory()) {
-      out.push(...listTree(root, full));
-    }
-  }
-  return out;
 }
 
 /** Shared by every `flags` agent's hook-silence probe -- only which hook file gets planted differs. */
