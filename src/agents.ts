@@ -335,7 +335,16 @@ function renderOpencodeConfig(upstream: AgentTarget): {
   };
 }
 
-/** Where cursor's own installer and self-updater keep every version it has ever unpacked, newest last once sorted by name: `YYYY.MM.DD-hash`. */
+/**
+ * Where cursor's own installer and self-updater keep every version it has
+ * ever unpacked, newest last once sorted by name: `YYYY.MM.DD-hash`.
+ *
+ * `$HOME` literally, not `dataHome()`. This is cursor's directory, so the
+ * base is whatever cursor's installer picked; routing it through engined's
+ * own XDG resolution would point the lookup at engined's data root the
+ * moment `XDG_DATA_HOME` is set and find nothing there. The opposite rule
+ * from `config.ts`'s `~/.local/share/` prefix, which IS engined's own data.
+ */
 function cursorVersionsDir(): string {
   return join(homedir(), ".local/share/cursor-agent/versions");
 }

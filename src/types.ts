@@ -785,3 +785,28 @@ export function errMessage(err: unknown): string {
 }
 
 export const MS_PER_SECOND = 1000;
+
+/**
+ * Every "wait for the engine to become able to serve" loop: check, then give
+ * up only if the deadline has already passed, then sleep. `true` means the
+ * check passed, `false` that the deadline did -- what to do about a `false`
+ * differs at each call site, so it is the caller's to decide.
+ *
+ * The check runs before the deadline is ever consulted, so a deadline of
+ * `Date.now()` is one probe rather than none.
+ */
+export async function pollUntil(
+  check: () => Promise<boolean>,
+  deadline: number,
+  intervalMs: number,
+): Promise<boolean> {
+  for (;;) {
+    if (await check()) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await Bun.sleep(intervalMs);
+  }
+}

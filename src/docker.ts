@@ -18,7 +18,7 @@ import type { EngineResources } from "./resources.ts";
 import { parseResources, RESOURCE_PROBE_SH } from "./resources.ts";
 import type { Artifact, EngineState, ReadyProbe, RunnableContainerSpec, Volume } from "./types.ts";
 
-import { errMessage, MS_PER_SECOND, probeSaysReady } from "./types.ts";
+import { errMessage, MS_PER_SECOND, pollUntil, probeSaysReady } from "./types.ts";
 
 /** The prefix on every container engined starts, so a stray one is identifiable by name alone. */
 export const NAME_PREFIX = "engined-";
@@ -794,24 +794,22 @@ export class DockerLifecycle {
    * only matters once the previous one has failed -- so the awaits belong in a
    * loop rather than a promise chain per interval.
    */
-  private async pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
-    for (;;) {
-      try {
-        const res = await this.httpProbe(
-          `http://127.0.0.1:${hostPort}${ready.path}`,
-          ready.method ?? "GET",
-        );
-        if (probeSaysReady(ready, res.status)) {
-          return true;
+  private pollReady(hostPort: number, ready: ReadyProbe, deadline: number): Promise<boolean> {
+    return pollUntil(
+      async () => {
+        try {
+          const res = await this.httpProbe(
+            `http://127.0.0.1:${hostPort}${ready.path}`,
+            ready.method ?? "GET",
+          );
+          return probeSaysReady(ready, res.status);
+        } catch {
+          return false; // not listening yet
         }
-      } catch {
-        // not listening yet
-      }
-      if (Date.now() >= deadline) {
-        return false;
-      }
-      await Bun.sleep(READY_POLL_INTERVAL_MS);
-    }
+      },
+      deadline,
+      READY_POLL_INTERVAL_MS,
+    );
   }
 
   /** A failed `docker stop` leaves the container's real state (still running) alone and records why. Returns whether it actually stopped. */

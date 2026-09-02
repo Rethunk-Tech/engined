@@ -17,7 +17,13 @@ import { CONTENT_TYPE, type HttpClient, JSON_CONTENT_TYPE, SSE_CONTENT_TYPE } fr
 import { llamaPresetPath } from "./paths.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
 import type { EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
-import { isContainerSpec, MS_PER_SECOND, ParseError, type RunnableContainerSpec } from "./types.ts";
+import {
+  isContainerSpec,
+  MS_PER_SECOND,
+  ParseError,
+  pollUntil,
+  type RunnableContainerSpec,
+} from "./types.ts";
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
 const PRESET_CONTAINER_PATH = "/preset.ini";
@@ -664,16 +670,15 @@ export class LlamaRouter {
     } else if (!triggerRes.ok) {
       throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`);
     }
-    for (;;) {
-      if ((await this.modelStatus(baseUrl, modelId)) === "loaded") {
-        return;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
-        );
-      }
-      await Bun.sleep(this.pollIntervalMs);
+    const resident = await pollUntil(
+      async () => (await this.modelStatus(baseUrl, modelId)) === "loaded",
+      deadline,
+      this.pollIntervalMs,
+    );
+    if (!resident) {
+      throw new Error(
+        `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
+      );
     }
   }
 
@@ -902,13 +907,11 @@ export class LlamaRouter {
    * than a timeout here would be.
    */
   private async awaitInstanceGone(baseUrl: string, modelId: string): Promise<void> {
-    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
-    while ((await this.modelStatus(baseUrl, modelId)) === "loaded") {
-      if (Date.now() >= deadline) {
-        return;
-      }
-      await Bun.sleep(this.pollIntervalMs);
-    }
+    await pollUntil(
+      async () => (await this.modelStatus(baseUrl, modelId)) !== "loaded",
+      Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND,
+      this.pollIntervalMs,
+    );
   }
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
