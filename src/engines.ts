@@ -195,7 +195,6 @@ interface AgenticProbeOutcome {
  * this module calls out to a subprocess.
  */
 export type AgenticProbeRunner = (
-  engine: EngineEntry,
   agentVersion: string,
   /** From the spec, never the engine entry: the floor is a property of the agent. */
   agent: string,
@@ -552,17 +551,6 @@ function buildEntries(
 }
 
 /**
- * Whether `"stream": true` is servable here. Every kind can now declare it
- * (`spec.ts`'s `streaming` key is no longer tts-only), so a container spec's
- * own boolean is the honest answer, and an agentic-cli or spec-less-proxy
- * spec -- neither of which can declare it at all -- is truthfully `false`
- * rather than unknown.
- */
-function streamingOf(spec: Spec): boolean {
-  return spec.streaming;
-}
-
-/**
  * What `id`'s own routes can be asked for: one entry per non-disabled route
  * that names a model or declares a capability field directly, in the
  * precedence `config.ts`'s `mergeCapabilities` already resolved (a route's
@@ -605,7 +593,7 @@ function statusFrom(
     id: engine.id,
     kind: spec.kind,
     serves: spec.serves,
-    streaming: streamingOf(spec),
+    streaming: spec.streaming,
     state: runtime.state,
     fix: runtime.fix,
     last_error: runtime.last_error,
@@ -796,7 +784,7 @@ export class EngineRegistry {
         id: engine.id,
         kind: spec.kind,
         serves: spec.serves,
-        streaming: streamingOf(spec),
+        streaming: spec.streaming,
         state: "installed",
         capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
       };
@@ -818,7 +806,7 @@ export class EngineRegistry {
       id: engine.id,
       kind: spec.spec.kind,
       serves: this.serves(engine.id),
-      streaming: streamingOf(spec.spec),
+      streaming: spec.spec.streaming,
       state: "unavailable",
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
@@ -881,7 +869,7 @@ export class EngineRegistry {
       id: engine.id,
       kind: spec.kind,
       serves: spec.serves,
-      streaming: streamingOf(spec),
+      streaming: spec.streaming,
       capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
     };
     if (engine.agent_version === undefined) {
@@ -961,7 +949,7 @@ export class EngineRegistry {
         return Promise.resolve(cached.outcome);
       }
     }
-    const promise = runner(engine, version, agent, roundTripTargetFor(engine.id, this.config)).then(
+    const promise = runner(version, agent, roundTripTargetFor(engine.id, this.config)).then(
       (outcome) => {
         this.agenticProbeState.set(engine.id, {
           version,

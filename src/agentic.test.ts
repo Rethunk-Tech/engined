@@ -19,12 +19,7 @@ import { agentCli, parseClaudeEnvelope as parseEnvelope } from "./agents.ts";
 import { loadConfig } from "./config.ts";
 import type { ExecResult } from "./exec.ts";
 import { BUNX, makeTestRoot } from "./test-support.ts";
-import {
-  AGENTIC_FLOOR,
-  assertNoForbiddenFlags,
-  type EngineEntry,
-  FORBIDDEN_AGENTIC_FLAGS,
-} from "./types.ts";
+import { AGENTIC_FLOOR, assertNoForbiddenFlags, FORBIDDEN_AGENTIC_FLAGS } from "./types.ts";
 
 const PIN = "1.2.3";
 const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
@@ -414,8 +409,6 @@ test("runAgentic: a successful result's version is the pin that was launched, no
   expect(result.version).toBe(PIN);
 });
 
-const PROBE_ENGINE: EngineEntry = { id: "probe-engine", args: {} };
-
 /** Reads the witness path back out of the hook the hook-silence probe planted, the way a hook that actually fired would target it. */
 function witnessPathFromCwd(cwd: string): string | undefined {
   const settingsPath = join(cwd, ".claude", "settings.json");
@@ -443,7 +436,7 @@ function cleanEnvelopeSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 /** Every probe test below wires the same engine and pin through buildAgenticProbeRunner, varying only the injected spawn. */
 function runProbe(spawn: AgenticSpawn) {
   const runner = buildAgenticProbeRunner(BUNX, { spawn });
-  return runner(PROBE_ENGINE, PIN, "claude");
+  return runner(PIN, "claude");
 }
 
 test("buildAgenticProbeRunner: a clean completion under both probes yields ok -- no real spawn, only the injected fake", async () => {
@@ -526,7 +519,7 @@ function cleanCursorSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 
 function runCursorProbe(spawn: AgenticSpawn) {
   const runner = buildAgenticProbeRunner(BUNX, { spawn });
-  return runner(PROBE_ENGINE, PIN, "cursor");
+  return runner(PIN, "cursor");
 }
 
 test("buildAgenticProbeRunner: cursor's own probes pass against a clean stream-json result", async () => {

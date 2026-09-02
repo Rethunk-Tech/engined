@@ -873,10 +873,8 @@ describe("the door: chain skips an engine that fails its version proof", () => {
     });
     // Only claude-b's pin is provable -- claude-unproved's proof always
     // fails, the same as the standalone "unproved agentic engine" test above.
-    const probeRunner: AgenticProbeRunner = (probedEngine) =>
-      Promise.resolve(
-        probedEngine.id === "claude-b" ? { ok: true } : { ok: false, failedProbe: "boom" },
-      );
+    const probeRunner: AgenticProbeRunner = (version) =>
+      Promise.resolve(version === "4.5.6" ? { ok: true } : { ok: false, failedProbe: "boom" });
     const hopBCalls: string[][] = [];
     const spawn: AgenticSpawn = (argv) => {
       hopBCalls.push(argv);

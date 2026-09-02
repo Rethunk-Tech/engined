@@ -487,11 +487,11 @@ describe("a declared capability whose endpoint is unserved fails at startup", ()
 
 function trackingRunner(outcome: { ok: boolean; failedProbe?: string }): {
   runner: AgenticProbeRunner;
-  calls: Array<{ engineId: string; version: string }>;
+  calls: string[];
 } {
-  const calls: Array<{ engineId: string; version: string }> = [];
-  const runner: AgenticProbeRunner = (eng, version) => {
-    calls.push({ engineId: eng.id, version });
+  const calls: string[] = [];
+  const runner: AgenticProbeRunner = (version) => {
+    calls.push(version);
     return Promise.resolve(outcome);
   };
   return { runner, calls };
@@ -627,9 +627,9 @@ describe("agentic engines: the verified_version gate", () => {
     clearVerifiedVersion(id);
     const root = newEnginesRoot();
     writeEngineSpec(root, id, AGENTIC);
-    const calls: Array<{ engineId: string; version: string }> = [];
-    const failingRunner: AgenticProbeRunner = (eng, version) => {
-      calls.push({ engineId: eng.id, version });
+    const calls: string[] = [];
+    const failingRunner: AgenticProbeRunner = (version) => {
+      calls.push(version);
       return Promise.resolve({ ok: false, failedProbe: "byte-identical" });
     };
     const reg = registry(config({ engines: [agenticEngine(id, "2.0.0")] }), root, {
@@ -638,7 +638,7 @@ describe("agentic engines: the verified_version gate", () => {
 
     const listed = (await reg.list()).engines.find((e) => e.id === id);
 
-    expect(calls).toEqual([{ engineId: id, version: "2.0.0" }]);
+    expect(calls).toEqual(["2.0.0"]);
     expect(listed?.state).toBe("unavailable");
     expect(listed?.fix).toContain("byte-identical");
     expect(listed?.fix).toContain("2.0.0");
@@ -650,9 +650,9 @@ describe("agentic engines: the verified_version gate", () => {
     clearVerifiedVersion(id);
     const root = newEnginesRoot();
     writeEngineSpec(root, id, AGENTIC);
-    const calls: Array<{ engineId: string; version: string }> = [];
-    const passingRunner: AgenticProbeRunner = (eng, version) => {
-      calls.push({ engineId: eng.id, version });
+    const calls: string[] = [];
+    const passingRunner: AgenticProbeRunner = (version) => {
+      calls.push(version);
       return Promise.resolve({ ok: true });
     };
     const reg = registry(config({ engines: [agenticEngine(id, "3.0.0")] }), root, {
@@ -685,9 +685,9 @@ describe("agentic engines: the round-trip probe target follows the route's own e
     const root = newEnginesRoot();
     writeEngineSpec(root, localId, AGENTIC);
     writeEngineSpec(root, ambientId, AGENTIC);
-    const calls: Array<{ engineId: string; roundTrip: AgentTarget | undefined }> = [];
-    const runner: AgenticProbeRunner = (eng, _version, _agent, roundTrip) => {
-      calls.push({ engineId: eng.id, roundTrip });
+    const calls: Array<AgentTarget | undefined> = [];
+    const runner: AgenticProbeRunner = (_version, _agent, roundTrip) => {
+      calls.push(roundTrip);
       return Promise.resolve({ ok: true });
     };
     const cfg = config({
@@ -707,13 +707,12 @@ describe("agentic engines: the round-trip probe target follows the route's own e
 
     await reg.list();
 
-    expect(calls.find((c) => c.engineId === localId)?.roundTrip).toEqual({
-      baseUrl: "http://127.0.0.1:39200/openai/v1",
-      model: "code",
-    });
+    // "code" is only ever the local route's model, so the target below can only be localId's.
+    expect(calls).toHaveLength(2);
+    expect(calls).toContainEqual({ baseUrl: "http://127.0.0.1:39200/openai/v1", model: "code" });
     // A billed/remote route (claude's ambient shape here) never gets a
     // dial target -- a status poll must never pay for one.
-    expect(calls.find((c) => c.engineId === ambientId)?.roundTrip).toBeUndefined();
+    expect(calls).toContain(undefined);
 
     clearVerifiedVersion(localId);
     clearVerifiedVersion(ambientId);
@@ -731,7 +730,7 @@ function fixedObservedVersion(
 function freshAgenticPin(id: string): {
   root: string;
   passingRunner: AgenticProbeRunner;
-  calls: Array<{ engineId: string; version: string }>;
+  calls: string[];
 } {
   clearVerifiedVersion(id);
   const root = newEnginesRoot();
@@ -752,7 +751,7 @@ async function proveThenDrift(
 ): Promise<{
   first: EngineStatus | undefined;
   drifted: EngineStatus | undefined;
-  calls: Array<{ engineId: string; version: string }>;
+  calls: string[];
 }> {
   const { root, passingRunner, calls } = freshAgenticPin(id);
   const cfg = config({ engines: [agenticEngine(id, "1.0.0")] });
@@ -798,8 +797,8 @@ describe("agentic engines: the observed-version gate (a self-updating binary dri
     const { runner: passingRunner, calls: reproveCalls } = trackingRunner({ ok: true });
     const { drifted, calls } = await proveThenDrift(id, passingRunner);
     expect(drifted?.state).toBe("installed");
-    expect(calls).toEqual([{ engineId: id, version: "1.0.0" }]);
-    expect(reproveCalls).toEqual([{ engineId: id, version: "1.0.1" }]);
+    expect(calls).toEqual(["1.0.0"]);
+    expect(reproveCalls).toEqual(["1.0.1"]);
     const recorded = readFileSync(join(stateDir(), "agentic", id, "verified_version"), "utf8");
     expect(recorded.trim()).toBe("1.0.1");
     clearVerifiedVersion(id);
@@ -826,7 +825,7 @@ function setupAgenticVerify(
   id: string,
   version: string,
   outcome: { ok: boolean; failedProbe?: string },
-): { reg: EngineRegistry; calls: Array<{ engineId: string; version: string }> } {
+): { reg: EngineRegistry; calls: string[] } {
   clearVerifiedVersion(id);
   const root = newEnginesRoot();
   writeEngineSpec(root, id, AGENTIC);

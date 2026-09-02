@@ -46,7 +46,7 @@ import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from "./sandbox.ts";
-import { argvFromArgs, type EngineEntry, errMessage } from "./types.ts";
+import { argvFromArgs, errMessage } from "./types.ts";
 
 /**
  * `--strict-mcp-config` closes the MCP door only against a config that
@@ -797,13 +797,8 @@ const AGENT_PROBES: Record<string, readonly Probe[]> = {
 export function buildAgenticProbeRunner(
   bunx: string,
   deps: AgenticProbeRunnerDeps = {},
-): (
-  engine: EngineEntry,
-  agentVersion: string,
-  agent: string,
-  roundTrip?: AgentTarget,
-) => Promise<AgenticProbeOutcome> {
-  return async (_engine, agentVersion, agent, roundTrip) => {
+): (agentVersion: string, agent: string, roundTrip?: AgentTarget) => Promise<AgenticProbeOutcome> {
+  return async (agentVersion, agent, roundTrip) => {
     // Ordered, and stopped at the first failure: each run is a real billed
     // call, and a pin already proven broken should not pay for the next one.
     for (const probe of AGENT_PROBES[agent] ?? []) {

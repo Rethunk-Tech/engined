@@ -10,7 +10,6 @@ import {
   PROBE_ENV_ALLOWLIST,
   runAgentic,
 } from "../../src/agentic.ts";
-import type { EngineEntry } from "../../src/types.ts";
 import { LOCAL } from "./exclusive.ts";
 
 /**
@@ -126,9 +125,8 @@ describe.skipIf(!READY)(title("opencode, through this door, under the sandbox"),
     "the version-proof gate passes, and does it without a model round trip",
     async () => {
       const runner = buildAgenticProbeRunner(BUNX as string);
-      const engine = { id: "opencode", args: {} } as EngineEntry;
       const startedAt = Date.now();
-      expect(await runner(engine, VERSION as string, "opencode")).toEqual({ ok: true });
+      expect(await runner(VERSION as string, "opencode")).toEqual({ ok: true });
       // The point of the sandbox probe, not incidental: an agentic status poll
       // waits on this, and an LLM in it made the gate take minutes.
       expect(Date.now() - startedAt).toBeLessThan(PROBE_GATE_TIMEOUT_MS);
