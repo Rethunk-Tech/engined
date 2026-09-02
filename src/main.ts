@@ -1174,21 +1174,13 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
  * completion from spawning machinery nobody asked for against a billing
  * account this call was never going to use.
  */
-interface RedirectEnvOptions {
-  baseUrl: string;
-  secretHeader: string;
-  apiKey: string;
-  model: string | undefined;
-  doorUrl: string;
-}
-
-function redirectEnv({
-  baseUrl,
-  secretHeader,
-  apiKey,
-  model,
-  doorUrl,
-}: RedirectEnvOptions): Record<string, string> {
+function redirectEnv(
+  baseUrl: string,
+  secretHeader: string,
+  apiKey: string,
+  model: string | undefined,
+  doorUrl: string,
+): Record<string, string> {
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: baseUrl,
     ...(secretHeader === "authorization"
@@ -1290,13 +1282,7 @@ export async function resolveRedirect({
   const model = resolveUpstreamModelId(config, engineId, modelSeg, upstream.id);
   return {
     ok: true,
-    env: redirectEnv({
-      baseUrl: base_url,
-      secretHeader: resolved.header,
-      apiKey: resolved.value,
-      model,
-      doorUrl,
-    }),
+    env: redirectEnv(base_url, resolved.header, resolved.value, model, doorUrl),
   };
 }
 

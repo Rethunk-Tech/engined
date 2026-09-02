@@ -432,7 +432,8 @@ function defaultUpstreamFor(
   engineId: string,
   trait: UpstreamTrait,
   site: string,
-  ctx: Pick<RouteResolveCtx, "allRaws" | "file">,
+  allRaws: readonly RawRoute[],
+  file: string,
 ): string | null {
   if (trait === "optional") {
     return null;
@@ -440,12 +441,12 @@ function defaultUpstreamFor(
   if (trait === "self") {
     return "local";
   }
-  const distinct = distinctDeclaredUpstreams(engineId, ctx.allRaws);
+  const distinct = distinctDeclaredUpstreams(engineId, allRaws);
   if (distinct.size !== 1) {
     const names = [...distinct].join(", ") || "none";
     throw new ParseError(
       `${site} names no "upstream" and engine "${engineId}" is "required" to have exactly one across its routes; found: ${names}`,
-      ctx.file,
+      file,
     );
   }
   return [...distinct][0] as string;
@@ -475,22 +476,19 @@ function localFileForbiddenReason(
   return undefined;
 }
 
-/** Everything route resolution reads beyond the raw route itself; one object so neither function above runs past the parameter budget. */
-interface RouteResolveCtx {
-  allRaws: readonly RawRoute[];
-  engines: Map<string, EngineEntry>;
-  upstreams: Map<string, Upstream>;
-  models: Map<string, ModelEntry>;
-  traitFor: (engine: EngineEntry) => UpstreamTrait;
-  file: string;
-}
-
-function resolveRoute(raw: RawRoute, ctx: RouteResolveCtx): ResolvedRoute {
-  const { engines, upstreams, models, traitFor, file } = ctx;
+function resolveRoute(
+  raw: RawRoute,
+  allRaws: readonly RawRoute[],
+  engines: Map<string, EngineEntry>,
+  upstreams: Map<string, Upstream>,
+  models: Map<string, ModelEntry>,
+  traitFor: (engine: EngineEntry) => UpstreamTrait,
+  file: string,
+): ResolvedRoute {
   const engine = engines.get(raw.engine) as EngineEntry;
   const upstreamId =
     raw.declaredUpstream === undefined
-      ? defaultUpstreamFor(raw.engine, traitFor(engine), raw.site, ctx)
+      ? defaultUpstreamFor(raw.engine, traitFor(engine), raw.site, allRaws, file)
       : raw.declaredUpstream;
   if (upstreamId !== null && !upstreams.has(upstreamId)) {
     throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, file);
@@ -670,21 +668,6 @@ function checkCollisions(items: readonly { id: string }[], label: string, file: 
   }
 }
 
-/** Everything chain-hop resolution reads; one object so neither half runs past the parameter budget. */
-interface ChainCtx {
-  engines: EngineEntry[];
-  routes: ResolvedRoute[];
-  file: string;
-}
-
-/** The engine segment, resolved to a real id. `local` is a real upstream id, never an engine one -- a chain hop names an engine by its actual id, same as every other address form. */
-function resolveEngineSegmentForChain(seg: string, ctx: ChainCtx, hop: string): string {
-  if (!ctx.engines.some((e) => e.id === seg)) {
-    throw new ParseError(`chain hop "${hop}": engine "${seg}" does not exist`, ctx.file);
-  }
-  return seg;
-}
-
 /** The route a resolved (engine, [upstream,] model) hop names. */
 function findRouteForHop(
   segs: readonly string[],
@@ -701,8 +684,13 @@ function findRouteForHop(
  * address is disabled -- through the engine, the upstream, or the route
  * itself. Split out of `parseChains` so each half is one job.
  */
-function parseChainHops(name: string, hops: readonly string[], ctx: ChainCtx): string[] {
-  const { file, routes } = ctx;
+function parseChainHops(
+  name: string,
+  hops: readonly string[],
+  engines: readonly EngineEntry[],
+  routes: readonly ResolvedRoute[],
+  file: string,
+): string[] {
   const kept: string[] = [];
   for (const [i, hop] of hops.entries()) {
     // `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes.
@@ -713,13 +701,17 @@ function parseChainHops(name: string, hops: readonly string[], ctx: ChainCtx): s
         file,
       );
     }
-    const resolvedEngine = resolveEngineSegmentForChain(segs[0] as string, ctx, hop);
-    const resolvedSegs = [resolvedEngine, ...segs.slice(1)];
-    const route = findRouteForHop(resolvedSegs, routes);
+    // `local` is a real upstream id, never an engine one: a hop names an
+    // engine by its actual id, same as every other address form.
+    const engineId = segs[0] as string;
+    if (!engines.some((e) => e.id === engineId)) {
+      throw new ParseError(`chain hop "${hop}": engine "${engineId}" does not exist`, file);
+    }
+    const route = findRouteForHop(segs, routes);
     if (route === undefined) {
       const model = segs.at(-1);
       throw new ParseError(
-        `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${resolvedEngine}"`,
+        `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
         file,
       );
     }
@@ -760,10 +752,15 @@ function parseChainRaw(raw: unknown, index: number, file: string): RawChain {
   return { id, hops, disabled: parseDisable(raw, site, file) === true };
 }
 
-function parseChains(raw: unknown, ctx: ChainCtx): Record<string, string[]> {
-  const rawChains = asArray(raw, "chain", ctx.file).map((c, i) => parseChainRaw(c, i, ctx.file));
+function parseChains(
+  raw: unknown,
+  engines: readonly EngineEntry[],
+  routes: readonly ResolvedRoute[],
+  file: string,
+): Record<string, string[]> {
+  const rawChains = asArray(raw, "chain", file).map((c, i) => parseChainRaw(c, i, file));
 
-  checkCollisions(rawChains, "chain", ctx.file);
+  checkCollisions(rawChains, "chain", file);
 
   const chains: Record<string, string[]> = {};
   for (const c of rawChains) {
@@ -772,7 +769,7 @@ function parseChains(raw: unknown, ctx: ChainCtx): Record<string, string[]> {
     if (c.disabled) {
       continue;
     }
-    const hops = parseChainHops(c.id, c.hops, ctx);
+    const hops = parseChainHops(c.id, c.hops, engines, routes, file);
     // Nothing left to route to: the chain goes with its hops rather than
     // resolving to an empty list a request would fall off the end of.
     if (hops.length > 0) {
@@ -810,22 +807,17 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     parseRouteRaw(r, i, file, engineMap),
   );
 
-  const routeCtx: RouteResolveCtx = {
-    allRaws: rawRoutes,
-    engines: engineMap,
-    upstreams: upstreamMap,
-    models: modelMap,
-    traitFor: cachedTraitFor(root),
-    file,
-  };
-  const routes = rawRoutes.map((r) => resolveRoute(r, routeCtx));
+  const traitFor = cachedTraitFor(root);
+  const routes = rawRoutes.map((r) =>
+    resolveRoute(r, rawRoutes, engineMap, upstreamMap, modelMap, traitFor, file),
+  );
 
   checkModellessMixing(routes, file);
   validateFilenameUnderModelsDir(routes, engineMap, file);
   validateKeepResident(engines, routes, file);
   validateModelsMax(engines, routes, file);
 
-  const chains = parseChains(raw.chain, { engines, routes, file });
+  const chains = parseChains(raw.chain, engines, routes, file);
 
   return {
     ...parseTopLevelSettings(raw, file),
