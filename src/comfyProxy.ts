@@ -344,21 +344,31 @@ type ComfyHistoryEntry = Record<string, unknown>;
 /** The media kinds a comfy node can emit an output filename under. */
 const COMFY_MEDIA_KEYS = ["images", "gifs", "video"];
 
-/** Every output filename a history entry names, across every node and every media kind comfy can emit one under. */
-function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
-  const outputs = entry?.outputs;
+/** Every output filename one node emitted, across every media kind comfy can name one under. */
+function filenamesInOutput(output: unknown): string[] {
+  if (!isRecord(output)) {
+    return [];
+  }
   const names: string[] = [];
-  for (const output of Object.values(isRecord(outputs) ? outputs : {})) {
-    for (const key of COMFY_MEDIA_KEYS) {
-      const media = isRecord(output) ? output[key] : undefined;
-      for (const item of Array.isArray(media) ? media : []) {
-        if (isRecord(item) && typeof item.filename === "string") {
-          names.push(item.filename);
-        }
+  for (const key of COMFY_MEDIA_KEYS) {
+    const media = output[key];
+    for (const item of Array.isArray(media) ? media : []) {
+      if (isRecord(item) && typeof item.filename === "string") {
+        names.push(item.filename);
       }
     }
   }
   return names;
+}
+
+/**
+ * Every output filename a history entry names, across every node. `outputs`
+ * is comfy's node-id table, so anything that is not one -- an array
+ * included -- names nothing, and `/view` refuses what it never bound.
+ */
+function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
+  const outputs = entry?.outputs;
+  return Object.values(isRecord(outputs) ? outputs : {}).flatMap(filenamesInOutput);
 }
 
 /** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
