@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "./config.ts";
 import { makeTestRoot } from "./test-support.ts";
-import { ParseError } from "./types.ts";
+import { FORBIDDEN_AGENTIC_FLAGS, ParseError } from "./types.ts";
 
 const RESERVED_FOR_THIS_BOX = /reserved for this box/;
 const EGRESS_MUST_BE_ONE_OF = /upstream "x" "egress" must be one of: none, lan, remote/;
@@ -1118,20 +1118,28 @@ role = "vision"
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MODELS_MAX_ROLES);
 });
 
-test("a forbidden agentic flag in [engine.args] is fatal wherever it appears", () => {
-  const toml = `
+// Both config sites validate KEYS, so every one of these declares its flag
+// the only way a config can -- as a key -- and gives it the value that would
+// be most tempting to wave through. A value beside the key must not change
+// the verdict at either site.
+describe("a forbidden agentic flag is fatal by its key alone", () => {
+  for (const flag of FORBIDDEN_AGENTIC_FLAGS) {
+    const key = flag.slice("--".length);
+
+    test(`${flag} in [engine.args]`, () => {
+      const toml = `
 [[engine]]
 id = "claude"
 kind = "agentic-cli"
 
   [engine.args]
-  add-dir = "/etc"
+  "${key}" = "bypassPermissions"
 `;
-  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
-});
+      expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
+    });
 
-test("a forbidden agentic flag in [route.args] is fatal, on an ambient agentic route", () => {
-  const toml = `
+    test(`${flag} in [route.args]`, () => {
+      const toml = `
 [[engine]]
 id = "claude"
 kind = "agentic-cli"
@@ -1141,9 +1149,11 @@ engine = "claude"
 model = "sonnet-5"
 
   [route.args]
-  add-dir = "/etc"
+  "${key}" = "disabled"
 `;
-  expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
+      expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
+    });
+  }
 });
 
 test("loadConfig throws ParseError, not a bare Error, on a fatal rule", () => {

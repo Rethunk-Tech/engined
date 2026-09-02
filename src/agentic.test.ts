@@ -24,6 +24,7 @@ import { AGENTIC_FLOOR, assertNoForbiddenFlags, FORBIDDEN_AGENTIC_FLAGS } from "
 const PIN = "1.2.3";
 const MCP_CONFIG_PATH = "/state/agentic-mcp-empty.json";
 const RX_TOOLS_FLAG = /--tools/;
+const RX_DISSOLVES_FLOOR = /dissolves the read-only floor/;
 
 const TEST_ROOT = makeTestRoot("engined-agentic-test-");
 
@@ -96,14 +97,24 @@ test("assertNoForbiddenFlags: cursor's own ways to say yes are all refused by na
   expect(() => assertNoForbiddenFlags(["--mode", "ask"], "config.toml")).toThrow("--mode");
 });
 
-test("assertNoForbiddenFlags: --sandbox disabled dissolves the floor in either spelling, --sandbox enabled does not", () => {
-  expect(() => assertNoForbiddenFlags(["--sandbox", "disabled"], "config.toml")).toThrow(
-    "--sandbox disabled",
-  );
-  expect(() => assertNoForbiddenFlags(["--sandbox=disabled"], "config.toml")).toThrow(
-    "--sandbox disabled",
-  );
-  expect(() => assertNoForbiddenFlags(["--sandbox", "enabled"], "config.toml")).not.toThrow();
+// config.ts validates `argKeysAsFlags(args)` -- keys with no values beside
+// them -- so a rule that decided on the following token would be reading the
+// next KEY, or nothing at all. These are the two flags that used to be judged
+// that way, in every spelling a config or a spec can reach this with.
+test("assertNoForbiddenFlags: --sandbox and --permission-mode are refused by name, value or not", () => {
+  for (const argv of [
+    ["--sandbox"],
+    ["--sandbox", "enabled"],
+    ["--sandbox=disabled"],
+    ["--permission-mode"],
+    ["--permission-mode", "plan"],
+    ["--permission-mode=bypassPermissions"],
+    // The keys-only shape config.ts actually passes: two forbidden keys in a
+    // row, where the second was the first's "value" under the old rule.
+    ["--permission-mode", "--sandbox"],
+  ]) {
+    expect(() => assertNoForbiddenFlags(argv, "config.toml")).toThrow(RX_DISSOLVES_FLOOR);
+  }
 });
 
 test("loadConfig: an agentic engine's [engine.args] tools duplicate is rejected at real config parse", () => {

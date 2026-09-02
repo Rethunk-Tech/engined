@@ -694,6 +694,13 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
   // does.
   "--force",
   "--yolo",
+  // cursor's own escape hatch from its sandbox. Only `disabled` dissolves
+  // anything, but the config sites validate a KEY -- `argKeysAsFlags` renders
+  // no values at all -- so a value-conditional refusal is a distinction the
+  // caller structurally cannot make, and the one written here silently let
+  // every value through. The key is the whole danger: engined decides this
+  // posture, not a config.
+  "--sandbox",
   // cursor's own floor flag. `AGENTIC_FLOOR_FLAG_NAMES` below only knows
   // claude's flag names, so without this a config `[engine.args]` entry
   // could set `--mode ask` and, by last-wins argument parsing, silently
@@ -714,11 +721,6 @@ const AGENTIC_FLOOR_FLAG_NAMES = new Set<string>(
   AGENTIC_FLOOR.filter((token) => token.startsWith("--")),
 );
 
-/** `--permission-mode=X` or a separate `--permission-mode X` pair — same lookup either spelling takes on the CLI. */
-function permissionModeValue(arg: string, next: string | undefined): string | undefined {
-  return arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : next;
-}
-
 /** The two ways a bare flag name can dissolve the floor: it's outright forbidden, or it duplicates one the floor already set. */
 function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
   if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
@@ -733,38 +735,18 @@ function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
 }
 
 /**
- * `--permission-mode` and `--sandbox` are forbidden only with the one value
- * that dissolves the floor (`bypassPermissions`, `disabled`); the rest are
- * forbidden outright, as is any flag that duplicates one the floor itself
- * sets. Throws `ParseError` naming the flag and the file.
+ * Every forbidden flag is forbidden by its name alone, and so is any flag
+ * that duplicates one the floor itself sets. No value is consulted: the
+ * config call sites hand this `argKeysAsFlags`, keys with no values at all,
+ * so a rule that read `argv[i + 1]` would be reading the next KEY there and
+ * would wave the flag through. A flag whose danger depends on its value is a
+ * flag this function cannot honestly judge, so none is admitted.
+ *
+ * Throws `ParseError` naming the flag and the file.
  */
 export function assertNoForbiddenFlags(argv: readonly string[], file: string): void {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === undefined) {
-      continue;
-    }
-    const bare = arg.split("=", 1)[0] ?? arg;
-    if (bare === "--permission-mode") {
-      if (permissionModeValue(arg, argv[i + 1]) === "bypassPermissions") {
-        throw new ParseError(
-          "--permission-mode bypassPermissions dissolves the read-only floor",
-          file,
-        );
-      }
-      continue;
-    }
-    // cursor's own escape hatch: `enabled` is the default posture and
-    // harmless, so only `disabled` is refused. Whether it actually
-    // overrides `--mode plan` was never tested -- the assertion costs
-    // nothing either way, the same reasoning `--force`/`--yolo` above rest on.
-    if (bare === "--sandbox") {
-      if (permissionModeValue(arg, argv[i + 1]) === "disabled") {
-        throw new ParseError("--sandbox disabled dissolves the read-only floor", file);
-      }
-      continue;
-    }
-    assertNotForbiddenOrFloorDuplicate(bare, file);
+  for (const arg of argv) {
+    assertNotForbiddenOrFloorDuplicate(arg.split("=", 1)[0] ?? arg, file);
   }
 }
 
