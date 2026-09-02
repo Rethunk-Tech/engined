@@ -12,8 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import type { DockerLifecycle } from "./docker.ts";
-import type { EngineRegistry } from "./engines.ts";
+import type { ComfyBindings, DoorContext } from "./doorContext.ts";
 import {
   CONTENT_TYPE,
   type HttpClient,
@@ -26,7 +25,6 @@ import {
 } from "./http.ts";
 import { stateDir } from "./paths.ts";
 import { readJsonBody } from "./requestBody.ts";
-import type { Config } from "./types.ts";
 import { errMessage, isRecord, parseRecord } from "./types.ts";
 
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/;
@@ -35,19 +33,6 @@ export const COMFY_WS_SUFFIX = "ws";
 const HTTP_SCHEME_RE = /^http/;
 /** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
 const COMFY_UPLOAD_PREFIX_LEN = 12;
-
-/**
- * The slice of the door's context this proxy reads, narrow on purpose:
- * `DoorContext` names `ComfyBindings`, which is declared here, so the
- * context sits above this module and taking it whole would be a cycle.
- */
-export interface ComfyDoor {
-  getConfig: () => Config;
-  registry: EngineRegistry;
-  lifecycle: DockerLifecycle;
-  doorOpts: { comfyHttpClient?: HttpClient };
-  comfyBindings: ComfyBindings;
-}
 
 /** The three path segments `COMFY_PROXY_RE` captures. */
 interface ComfyMatch {
@@ -65,7 +50,7 @@ export function matchComfyPath(pathname: string): ComfyMatch | undefined {
 
 /** One resolved comfy engine plus the client every forwarded call goes through. */
 interface ComfyProxy {
-  ctx: ComfyDoor;
+  ctx: DoorContext;
   engineId: string;
   /** Who submitted the prompt: half the binding key, so no rekey is needed the day a call arrives from somewhere other than this box. */
   origin: string;
@@ -82,19 +67,6 @@ export interface ComfyWsData {
 
 /** `Bun.serve`'s own return type, parameterized on the one websocket payload this door ever mounts -- `bindDualFamily`'s real listeners and `Door.fetch`'s optional second argument must agree on it, or `server.upgrade`'s `data` stops typechecking. */
 export type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>;
-
-/**
- * What this door has actually seen pass through a comfy engine's proxy:
- * every `prompt_id` `POST /prompt` handed back, keyed on the origin that
- * submitted it as well as the engine, and under each one the output
- * filenames a completed `/history` read surfaced for THAT prompt. `GET
- * /view` and `POST /queue` are mediated against this table rather than
- * against anything the caller merely claims -- comfy's output directory is
- * shared, so a caller-supplied filename must never become a URL on its own
- * say-so, and one engine-wide filename set would hand every origin every
- * other origin's outputs.
- */
-export type ComfyBindings = Map<string, string[]>;
 
 /** Every caller reaching this door reached it directly, so far; a federated hop will supply its own origin instead of this constant. */
 const COMFY_LOCAL_ORIGIN = "local";
@@ -190,7 +162,7 @@ interface ComfyTarget {
 
 /** The engine+upstream segments of a comfy proxy path, resolved to a running comfy container -- `undefined` for anything that is not one: an unknown engine, a non-comfy kind, a route that does not exist, or a container that is not up. */
 function resolveComfyTarget(
-  ctx: ComfyDoor,
+  ctx: DoorContext,
   engineSeg: string,
   upstreamSeg: string,
 ): ComfyTarget | undefined {
@@ -298,7 +270,7 @@ async function proxyComfyUpload(
 // ponytail: linear over the table, which COMFY_BINDINGS_MAX holds at a
 // thousand entries; index by filename only if that cap is ever raised.
 function comfyFilenameBound(
-  ctx: ComfyDoor,
+  ctx: DoorContext,
   engineId: string,
   origin: string,
   filename: string,
@@ -542,7 +514,7 @@ async function proxyComfyQueueDelete(
  * to forward nothing at all.
  */
 export function handleComfyProxy(
-  ctx: ComfyDoor,
+  ctx: DoorContext,
   req: Request,
   { engineSeg, upstreamSeg, rest }: ComfyMatch,
 ): Response | Promise<Response> {
@@ -616,7 +588,7 @@ function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Respo
  * correlate the two.
  */
 export function handleComfyWsUpgrade(
-  ctx: ComfyDoor,
+  ctx: DoorContext,
   req: Request,
   server: EnginedServer,
   { engineSeg, upstreamSeg }: ComfyMatch,

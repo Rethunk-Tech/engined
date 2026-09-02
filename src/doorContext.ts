@@ -1,12 +1,12 @@
 /**
- * The two shapes every door handler is written against: what an installer or
- * a test may inject, and the live state a handler reads. They live here
- * rather than in `src/main.ts` because the door's verb modules are imported
- * BY main -- a type declared there could only reach them as an import cycle.
+ * The shapes every door handler is written against: what an installer or a
+ * test may inject, the live state a handler reads, and the comfy mediation
+ * table that state carries. They live here rather than in `src/main.ts`
+ * because the door's verb modules are imported BY main -- a type declared
+ * there could only reach them as an import cycle.
  */
 
 import type { AgenticSpawn } from "./agentic.ts";
-import type { ComfyBindings } from "./comfyProxy.ts";
 import type { DockerLifecycle } from "./docker.ts";
 import type { EngineRegistry, RegistryOptions } from "./engines.ts";
 import type { Exec as SecretExec } from "./exec.ts";
@@ -59,6 +59,19 @@ export interface DoorContext {
    * it names an agentic engine: a leaked or reused URL is not a standing key.
    */
   launchNonces: Set<string>;
-  /** Comfy proxy mediation state, reload-durable -- see `ComfyBindings`. */
+  /** Comfy proxy mediation state, reload-durable. */
   comfyBindings: ComfyBindings;
 }
+
+/**
+ * What this door has actually seen pass through a comfy engine's proxy:
+ * every `prompt_id` `POST /prompt` handed back, keyed on the origin that
+ * submitted it as well as the engine, and under each one the output
+ * filenames a completed `/history` read surfaced for THAT prompt. `GET
+ * /view` and `POST /queue` are mediated against this table rather than
+ * against anything the caller merely claims -- comfy's output directory is
+ * shared, so a caller-supplied filename must never become a URL on its own
+ * say-so, and one engine-wide filename set would hand every origin every
+ * other origin's outputs.
+ */
+export type ComfyBindings = Map<string, string[]>;
