@@ -31,6 +31,7 @@ const CHAT_PATH = "/openai/v1/chat/completions";
 const EMBED_PATH = "/openai/v1/embeddings";
 const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
+const UNLOAD_FAILED_ERROR = /unload failed/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return baseEngine({ id: "llama", models_dir: "/models-host", models_max: 3, ...overrides });
@@ -1341,9 +1342,7 @@ test("an unload the engine refuses fails that swap instead of loading the new GG
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
   const { client, calls } = fakeLlama((call) =>
-    call.path === UNLOAD_PATH
-      ? new Response("model is busy", { status: 500 })
-      : undefined,
+    call.path === UNLOAD_PATH ? new Response("model is busy", { status: 500 }) : undefined,
   );
   const router = routerWithClient(e, [a, b], client);
 
@@ -1351,7 +1350,7 @@ test("an unload the engine refuses fails that swap instead of loading the new GG
 
   await expect(
     router.proxy(b, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "b" }) }),
-  ).rejects.toThrow(/unload failed/);
+  ).rejects.toThrow(UNLOAD_FAILED_ERROR);
 
   // "b" was never loaded on top of a still-resident "a", and the role still
   // believes what the child actually holds.
