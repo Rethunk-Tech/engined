@@ -1147,6 +1147,97 @@ describe("the door: a llama hop's real status decides chain advance", () => {
   });
 });
 
+const TOOL_FALLBACK_LLAMA_PORT = 46_003;
+
+/**
+ * A chain that falls back off a tool-capable llama hop onto an agentic one.
+ * `chain-public` in `config.example.toml` has this exact shape, and a
+ * consumer running a real tool loop over it (majordomo does) gets whatever
+ * the last hop returns.
+ */
+function toolFallbackDoor(spawnCalls: string[][]): Door {
+  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  writeEngineSpec(root, "llama-dead", LOCAL_LLAMA_SPEC);
+  writeEngineSpec(root, "claude", CLAUDE_SPEC);
+  clearVerifiedVersion("claude");
+  const cfg = config({
+    engines: [
+      engine({ id: "llama-dead", models_dir: "/data/dead", models_max: 1 }),
+      claudeEngine(),
+    ],
+    routes: [
+      route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
+    ],
+    chains: { "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"] },
+  });
+  const control = llamaControlPlane();
+  const llamaHttpClient: HttpClient = (url, init) =>
+    Promise.resolve(control(url, init) ?? Response.json({ error: "dead" }, { status: 500 }));
+  return createDoor(
+    cfg,
+    {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec: buildExec({
+        portByContainer: { [`${NAME_PREFIX}llama-dead`]: TOOL_FALLBACK_LLAMA_PORT },
+      }),
+      probe: READY_200,
+      agenticProbeRunner: PASSING_PROBE,
+    },
+    {
+      llamaPresetHostPath: tempPresetPath(TEST_ROOT),
+      llamaHttpClient,
+      agenticSpawn: (argv) => {
+        spawnCalls.push(argv);
+        return Promise.resolve({
+          stdout: '{"is_error":false,"result":"here is prose"}',
+          stderr: "",
+          exitCode: 0,
+        });
+      },
+      write: () => undefined,
+    },
+  );
+}
+
+describe("the door: a tool call never falls back into prose", () => {
+  test("a chain falling off a llama hop onto an agentic one refuses the tools it cannot honour instead of answering", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "chain-tools",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
+        parallel_tool_calls: true,
+      }),
+    );
+    const body = (await res.json()) as { choices?: unknown; error?: { message: string } };
+    // The agent is never launched at all, so there is no prose to return:
+    // the chain exhausts on the refusal rather than committing to an answer.
+    expect(spawnCalls).toHaveLength(0);
+    expect(res.status).not.toBe(200);
+    expect(body.choices).toBeUndefined();
+    clearVerifiedVersion("claude");
+  });
+
+  test("the same chain without tool-calling fields still falls back and answers", async () => {
+    const spawnCalls: string[][] = [];
+    const door = toolFallbackDoor(spawnCalls);
+    const res = await door.fetch(
+      chatRequest({
+        model: "chain-tools",
+        messages: [{ role: "user", content: "what time is it" }],
+        workdir: "/tmp",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    clearVerifiedVersion("claude");
+  });
+});
+
 describe("the door: extras injects the resident model for the right role", () => {
   test("with a vision model and a chat model both resident, an extras call injects the chat model", async () => {
     const { cfg, root } = llamaDoorConfig();

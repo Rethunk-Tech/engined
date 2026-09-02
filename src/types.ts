@@ -576,6 +576,17 @@ export interface ModelRow {
   model?: string;
   egress?: Egress;
   streaming: boolean;
+  /**
+   * Whether a request carrying `tools`/`tool_choice`/`parallel_tool_calls`/
+   * `response_format` is forwarded rather than refused here. An agent CLI
+   * takes a prompt string and prints answer text, so it has no channel for
+   * either half of a tool loop and the door refuses those fields outright --
+   * a chain row is `true` only when EVERY hop forwards them, since a
+   * fallback onto a hop that cannot is exactly what turns a tool call into
+   * prose. `false` never means the upstream model is bad at tool calling;
+   * that is the upstream's own answer to give.
+   */
+  tools: boolean;
   serves: string[];
   state: EngineState;
   capabilities: ModelCapabilities;

@@ -1039,6 +1039,26 @@ function promptFromMessages(body: Record<string, unknown>): string {
     .join("\n");
 }
 
+/**
+ * Tool-calling fields no agent CLI has a channel for: `agents.ts`'s whole
+ * contract is a prompt string in and answer text out (`parse` yields a
+ * `result` string, `delta` an answer fragment), and an agent's own `tools`
+ * are engined's read-only floor rather than the caller's. So neither half of
+ * a tool loop can cross the boundary in either direction, and dropping these
+ * silently hands a caller's tool loop prose it will parse as an answer.
+ */
+const AGENTIC_UNHONOURABLE = [
+  "tools",
+  "tool_choice",
+  "parallel_tool_calls",
+  "response_format",
+] as const;
+
+/** Which of those fields this body actually carries, in the order a caller would read them back. */
+function unhonourableFields(body: Record<string, unknown>): string[] {
+  return AGENTIC_UNHONOURABLE.filter((key) => body[key] !== undefined && body[key] !== null);
+}
+
 let agenticCallSeq = 0;
 
 /**
@@ -1676,6 +1696,21 @@ async function execAgentic(
   ctx: DoorContext,
   { engineId, modelSeg, route, req }: AgenticHop,
 ): Promise<HopResult> {
+  // A plain 502, so a chain still advances to a hop that CAN forward these:
+  // the refusal is about this engine's shape, not about the caller's
+  // request, which is the same reason a credential-shaped status advances.
+  // A chain with no such hop left exhausts and says so; which chains those
+  // are is `tools` on the `/openai/v1/models` row, discoverable before the
+  // first call rather than after it.
+  const unhonourable = unhonourableFields(req.rawBody);
+  if (unhonourable.length > 0) {
+    return {
+      status: STATUS_BAD_GATEWAY,
+      body: jsonErrorBody(
+        `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(", ")} -- an agent CLI answers in prose, never in tool calls`,
+      ),
+    };
+  }
   const config = ctx.getConfig();
   const entry = agenticEntry(ctx, engineId);
   if (!entry.ok) {
@@ -2537,6 +2572,7 @@ async function modelRow(
     model: route.model,
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
+    tools: forwardsTools(status?.kind),
     serves: routeServes(route.role, status?.serves ?? []),
     state,
     capabilities: routeCapabilities(route),
@@ -2544,10 +2580,26 @@ async function modelRow(
 }
 
 /**
+ * Whether the door hands this kind's upstream the request body it was given,
+ * tool-calling fields and all. Only `openai-http` does: an agentic hop is
+ * refused those fields outright (`unhonourableFields`), and no other kind
+ * serves chat at all. It says nothing about whether the upstream then
+ * honours them -- that answer is the upstream's own.
+ */
+function forwardsTools(kind: EngineKind | undefined): boolean {
+  return kind === "openai-http";
+}
+
+/**
  * A chain is not any one engine's route, so it omits engine/upstream/model/
  * egress entirely. `streaming`, `state` and `capabilities` come from its
  * FIRST hop instead -- that is the hop that actually answers, the same rule
  * `classifyResult` uses to decide whether a chain keeps walking.
+ *
+ * `tools` is the exception, and takes EVERY hop: a fallback is precisely
+ * when a tool call would otherwise land on an agent that cannot honour it,
+ * so one such hop anywhere in the list makes the whole chain unsafe to send
+ * a tool loop to.
  */
 function chainRow(
   chainId: string,
@@ -2565,6 +2617,7 @@ function chainRow(
   return {
     id: chainId,
     streaming: route?.streaming ?? status?.streaming ?? false,
+    tools: hops.every((h) => forwardsTools(statuses.get(parseHop(h).engine)?.kind)),
     serves: [CONTENT_ENDPOINT_CHAT],
     state: status?.state ?? "unavailable",
     capabilities: route === undefined ? {} : routeCapabilities(route),
