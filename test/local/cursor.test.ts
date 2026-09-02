@@ -16,6 +16,7 @@ import {
 import { EngineRegistry } from "../../src/engines.ts";
 import { stateDir } from "../../src/paths.ts";
 import type { Config, EngineEntry } from "../../src/types.ts";
+import { LOCAL } from "./exclusive.ts";
 
 /**
  * A real round trip against the real `agent -p` CLI, resolved on this box's
@@ -41,7 +42,6 @@ import type { Config, EngineEntry } from "../../src/types.ts";
  */
 const CURSOR_VERSION = process.env.ENGINED_TEST_CURSOR_VERSION;
 const BUNX = process.env.ENGINED_BUNX;
-const LOCAL = process.env.ENGINED_LOCAL === "1";
 
 /** A real observed round trip through `agent -p` took 3-9s; genuine headroom over that. */
 const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;

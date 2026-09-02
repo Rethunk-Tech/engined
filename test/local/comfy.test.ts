@@ -1,19 +1,20 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { LlamaRouter } from "../../src/llama.ts";
-import { loadSpec } from "../../src/spec.ts";
+import type { Config, EngineEntry, ResolvedRoute } from "../../src/types.ts";
 import {
-  type Config,
-  type EngineEntry,
-  isContainerSpec,
-  type ResolvedRoute,
-} from "../../src/types.ts";
-import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
+  BUNX,
+  CONFIG_EXAMPLE,
+  ENGINES_ROOT,
+  LOCAL,
+  requireNoResidentEngine,
+  specImage,
+  TEST_NAME_PREFIX,
+} from "./exclusive.ts";
 
 type ChatRoute = ResolvedRoute & { model: string };
 
@@ -32,10 +33,6 @@ type ChatRoute = ResolvedRoute & { model: string };
  * box, so a hardcoded copy would run green against the wrong artifact
  * instead of failing loudly.
  */
-const LOCAL = process.env.ENGINED_LOCAL === "1";
-const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
-const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
-const BUNX = process.env.ENGINED_BUNX ?? "bunx";
 const READY_TIMEOUT_S = 240;
 const LLAMA_IDLE_STOP_SECONDS = 900;
 // Short enough to observe within the test's own timeout; comfy's real
@@ -76,24 +73,6 @@ const RENDER_TIMEOUT_MS = 900_000;
 
 function imageBuilt(image: string): boolean {
   return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** See llama.test.ts's identical helper: /unused + the real models_max satisfy the placeholders enough to read `.image` back. */
-function specImage(engine: EngineEntry): string | undefined {
-  try {
-    const loaded = loadSpec(engine, {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-      presetIni: "/unused",
-    });
-    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
-  } catch {
-    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
-  }
 }
 
 interface Fixture {
@@ -251,7 +230,7 @@ async function runComfyJob(
         (o.images ?? []).map((i) => i.filename),
       );
     }
-    await sleep(IDLE_POLL_INTERVAL_MS);
+    await Bun.sleep(IDLE_POLL_INTERVAL_MS);
   }
   throw new Error("comfy job did not complete within its budget");
 }
@@ -350,7 +329,7 @@ async function waitUntil(
     if (check()) {
       return true;
     }
-    await sleep(intervalMs);
+    await Bun.sleep(intervalMs);
   }
   return check();
 }

@@ -15,6 +15,7 @@ import {
 import { EngineRegistry } from "../../src/engines.ts";
 import { stateDir } from "../../src/paths.ts";
 import type { Config, EngineEntry } from "../../src/types.ts";
+import { LOCAL } from "./exclusive.ts";
 
 /**
  * A real round trip against the real `claude` CLI through `bunx`, costing an
@@ -25,7 +26,6 @@ import type { Config, EngineEntry } from "../../src/types.ts";
 const CLAUDE_VERSION = process.env.ENGINED_TEST_CLAUDE_VERSION;
 // Set by the `test:local` script, alongside ENGINED_LOCAL that gates this tier.
 const BUNX = process.env.ENGINED_BUNX;
-const LOCAL = process.env.ENGINED_LOCAL === "1";
 
 /** A real observed round trip through `bunx claude -p` took ~6s; 60s is genuine headroom over that, not a number picked to match bun's 5s default. */
 const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;

@@ -1,16 +1,22 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter } from "../../src/llama.ts";
-import { loadSpec } from "../../src/spec.ts";
-import { type EngineEntry, isContainerSpec, type ResolvedRoute } from "../../src/types.ts";
+import type { EngineEntry, ResolvedRoute } from "../../src/types.ts";
 
 type ChatRoute = ResolvedRoute & { model: string };
 
-import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
+import {
+  BUNX,
+  CONFIG_EXAMPLE,
+  ENGINES_ROOT,
+  LOCAL,
+  requireNoResidentEngine,
+  specImage,
+  TEST_NAME_PREFIX,
+} from "./exclusive.ts";
 
 /**
  * Proves `resources.ts` against a real loaded engine rather than a recorded
@@ -42,10 +48,6 @@ import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
  * fold is a no-op here and no container-based test can catch its removal.
  * Only the unit tier's recorded multi-fd fixture covers that half.
  */
-const LOCAL = process.env.ENGINED_LOCAL === "1";
-const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
-const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
-const BUNX = process.env.ENGINED_BUNX ?? "bunx";
 const READY_TIMEOUT_S = 240;
 const IDLE_STOP_SECONDS = 900;
 const POLL_INTERVAL_MS = 500;
@@ -78,19 +80,6 @@ interface Fixture {
 
 function imageBuilt(image: string): boolean {
   return Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
-}
-
-function specImage(engine: EngineEntry): string | undefined {
-  try {
-    const loaded = loadSpec(engine, {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-      presetIni: "/unused",
-    });
-    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
-  } catch {
-    // Unresolved placeholder or a spec parse failure: undefined is a clean skip.
-  }
 }
 
 function loadFixture(): Fixture {

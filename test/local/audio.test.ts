@@ -2,14 +2,19 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import process from "node:process";
 import { handleSpeech, handleTranscription } from "../../src/audio.ts";
 import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { loadSpec } from "../../src/spec.ts";
-import type { EngineEntry } from "../../src/types.ts";
-import { isContainerSpec } from "../../src/types.ts";
-import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
+import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
+import {
+  BUNX,
+  ENGINES_ROOT,
+  LOCAL,
+  requireNoResidentEngine,
+  specImage,
+  TEST_NAME_PREFIX,
+} from "./exclusive.ts";
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox-multi container
@@ -21,9 +26,6 @@ import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
  * NDJSON-speaking process, or proved the "unavailable, naming the artifact's
  * obtain command" status against a real image.
  */
-const LOCAL = process.env.ENGINED_LOCAL === "1";
-const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
-const BUNX = process.env.ENGINED_BUNX ?? "bunx";
 const READY_TIMEOUT_S = 120;
 const IDLE_STOP_SECONDS = 60;
 const TEST_TIMEOUT_MS = 180_000;
@@ -54,30 +56,15 @@ function imageBuilt(image: string): boolean {
   return LOCAL && Bun.spawnSync(["docker", "image", "inspect", image]).exitCode === 0;
 }
 
-/**
- * Read from the real spec.toml rather than hardcoded -- llama's own
- * image tag drifted mid-session (see llama.test.ts), and a hardcoded copy
- * here would be exactly the same risk for chatterbox-multi/whisper the next time
- * either gets its own vendored Dockerfile and a fresh tag. `models_dir:
- * "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to
- * substitute cleanly; chatterbox-multi's spec has no such placeholder.
- */
-function specImage(id: string): string | undefined {
-  try {
-    const loaded = loadSpec(
-      { id, args: {}, models_dir: "/unused" },
-      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
-    );
-    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
-  } catch {
-    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
-  }
+/** `models_dir: "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to substitute cleanly; chatterbox-multi's spec has no such placeholder. */
+function ttsEngine(id: string): EngineEntry {
+  return { id, args: {}, models_dir: "/unused" };
 }
 
-const KOKORO_IMAGE = LOCAL ? specImage("kokoro") : undefined;
-const PIPER_IMAGE = LOCAL ? specImage("piper") : undefined;
-const CHATTERBOX_IMAGE = LOCAL ? specImage("chatterbox-multi") : undefined;
-const WHISPER_IMAGE = LOCAL ? specImage("whisper") : undefined;
+const KOKORO_IMAGE = LOCAL ? specImage(ttsEngine("kokoro")) : undefined;
+const PIPER_IMAGE = LOCAL ? specImage(ttsEngine("piper")) : undefined;
+const CHATTERBOX_IMAGE = LOCAL ? specImage(ttsEngine("chatterbox-multi")) : undefined;
+const WHISPER_IMAGE = LOCAL ? specImage(ttsEngine("whisper")) : undefined;
 const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
 const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE);
 const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);

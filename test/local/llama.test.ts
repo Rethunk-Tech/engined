@@ -1,17 +1,18 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
-import { loadSpec } from "../../src/spec.ts";
+import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
 import {
-  type EngineEntry,
-  isContainerSpec,
-  type ResolvedRoute,
-  type Role,
-} from "../../src/types.ts";
-import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
+  BUNX,
+  CONFIG_EXAMPLE,
+  ENGINES_ROOT,
+  LOCAL,
+  requireNoResidentEngine,
+  specImage,
+  TEST_NAME_PREFIX,
+} from "./exclusive.ts";
 
 /**
  * Drives the real `LlamaRouter` against llama's real container and
@@ -33,12 +34,6 @@ import { requireNoResidentEngine, TEST_NAME_PREFIX } from "./exclusive.ts";
  * real child's own `/proc/<pid>/cmdline` rather than the rendered preset
  * file (second describe block).
  */
-const LOCAL = process.env.ENGINED_LOCAL === "1";
-const ENGINES_ROOT = join(import.meta.dir, "..", "..", "engines");
-const CONFIG_EXAMPLE = join(import.meta.dir, "..", "..", "config.example.toml");
-// {bunx} never appears in llama's own command; only agentic specs
-// substitute it, so any non-empty string satisfies LlamaBuildOptions here.
-const BUNX = process.env.ENGINED_BUNX ?? "bunx";
 const READY_TIMEOUT_S = 240;
 const IDLE_STOP_SECONDS = 900;
 const POLL_INTERVAL_MS = 500;
@@ -57,25 +52,6 @@ interface Fixture {
 }
 
 const EMPTY_ENGINE: EngineEntry = { id: "llama", args: {} };
-
-/**
- * `loadSpec` needs `{models_max}` and `{preset_ini}` resolved to substitute
- * cleanly -- "/unused" and the real configured models_max (borrowed from
- * `engine`) satisfy the placeholders without needing a real router build;
- * only `.image` is read back.
- */
-function specImage(engine: EngineEntry): string | undefined {
-  try {
-    const loaded = loadSpec(engine, {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-      presetIni: "/unused",
-    });
-    return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined;
-  } catch {
-    // Spec parse failure, or an unresolved placeholder: undefined falls through to a clean skip.
-  }
-}
 
 /**
  * Loaded once at module scope, guarded by `LOCAL` so an ordinary `bun test`
