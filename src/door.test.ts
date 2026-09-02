@@ -27,6 +27,7 @@ import {
   collectLines,
   config,
   containerRunning,
+  deadPort,
   engine,
   inspectSinglePort,
   llamaControlPlane,
@@ -53,17 +54,12 @@ function chatRequest(body: unknown): Request {
   });
 }
 
-/** Never 29200: a real workstation daemon may hold it. */
-function ephemeralPort(): number {
-  return 40_000 + Math.floor(Math.random() * 10_000);
-}
-
 /**
  * Binds the door on both loopback families on `port`, through `main.ts`'s
  * own `bindDualFamily` rather than a hand-rolled `Bun.serve` pair — a
  * substitute here would pass even with the real `::1` listener deleted. The
  * check needs `config.listen_port` to equal it, so the caller picks the port
- * first via `ephemeralPort()` and builds both the config and this bind from it.
+ * first via `deadPort()` and builds both the config and this bind from it.
  */
 function startDualBind(fetch: Door["fetch"], port: number): { stop: () => void } {
   const { v4, v6 } = bindDualFamily(fetch, port);
@@ -113,7 +109,7 @@ describe("the door: Origin/Host check", () => {
   // integration.test.ts's own Origin guard test; `Host` is Fetch-forbidden,
   // so only this real-socket, raw `node:http` request can exercise it.
   test("a Host outside the loopback set is refused, on a GET", async () => {
-    const port = ephemeralPort();
+    const port = deadPort();
     await withBoundDoor(config({ listen_port: port }), async () => {
       const res = await rawRequest(port, "/openai/v1/models", { Host: `evil.example:${port}` });
       expect(res.status).toBe(403);
@@ -123,7 +119,7 @@ describe("the door: Origin/Host check", () => {
 
 describe("the door: dual-family bind", () => {
   test("both 127.0.0.1 and [::1] answer on the same configured port", async () => {
-    const port = ephemeralPort();
+    const port = deadPort();
     await withBoundDoor(config({ listen_port: port }), async () => {
       const v4 = await fetch(`http://127.0.0.1:${port}/openai/v1/models`);
       const v6 = await fetch(`http://[::1]:${port}/openai/v1/models`);

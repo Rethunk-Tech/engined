@@ -22,9 +22,7 @@ import {
   containerRunning,
   ENGINES_ROOT,
   engine,
-  inspectSinglePort,
   makeTestRoot,
-  portResult,
   route,
   upstream,
   writeEngineSpec,
@@ -951,6 +949,9 @@ describe("the kind-dependent filename/role split runs at registry construction, 
   });
 });
 
+/** ComfyUI's own listen port, which its image is the one to `EXPOSE`. */
+const COMFY_CONTAINER_PORT = 8188;
+
 describe("comfy: shipped spec", () => {
   test("the run argv takes GPU_FLAGS, label=disable and latent2rgb, and publishes to no wildcard interface", () => {
     const loaded = loadSpec(engine({ id: "comfy" }), {
@@ -961,7 +962,7 @@ describe("comfy: shipped spec", () => {
     if (!isContainerSpec(spec)) {
       throw new Error("engines/comfy/spec.toml must be a container spec");
     }
-    const argv = buildRunArgs("engined-comfy", spec, 8188);
+    const argv = buildRunArgs("engined-comfy", spec, COMFY_CONTAINER_PORT);
     expect(argv).toContain("--preview-method");
     expect(argv).toContain("latent2rgb");
     expect(argv).toContain("/dev/kfd");
@@ -972,20 +973,9 @@ describe("comfy: shipped spec", () => {
   });
 });
 
+/** The docker calls the registry makes to get `comfy` into `state: "running"`; each `docker port` lookup answers a different host port, none of which any assertion reads. */
 function comfyExec(): Exec {
-  let port = 40_000;
-  return (args) => {
-    if (args[0] === "image" && args[1] === "inspect") {
-      return Promise.resolve(inspectSinglePort(8188));
-    }
-    if (args[0] === "port") {
-      return Promise.resolve(portResult(++port));
-    }
-    if (args[0] === "inspect") {
-      return Promise.resolve(containerRunning());
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
+  return buildExec({ portSeed: 40_000, containerPort: COMFY_CONTAINER_PORT });
 }
 
 const READY_PROBE: Probe = () => Promise.resolve({ status: 200 });
@@ -1093,31 +1083,15 @@ describe("comfy: resolved URL outlives its container by exactly nothing", () => 
   });
 });
 
-/** Image present at `containerPort`, a fresh host port per "port" lookup, capturing every "run" argv. */
-function capturingExec(containerPort: number, runArgvCalls: string[][]): Exec {
-  let port = 50_000;
-  return (args) => {
-    if (args[0] === "image" && args[1] === "inspect") {
-      return Promise.resolve(inspectSinglePort(containerPort));
-    }
-    if (args[0] === "start") {
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 }); // never already created: fall through to "run"
-    }
-    if (args[0] === "run") {
-      runArgvCalls.push([...args]);
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-    }
-    if (args[0] === "port") {
-      return Promise.resolve(portResult(++port));
-    }
-    if (args[0] === "inspect") {
-      return Promise.resolve(containerRunning());
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
+/** A lifecycle whose every `docker run -d` argv lands in `runArgvCalls`; the host port it hands back is never read. */
+function capturingLifecycle(runArgvCalls: string[][], containerPort = 8080): DockerLifecycle {
+  return new DockerLifecycle(
+    buildExec({ portSeed: 50_000, containerPort, runLog: runArgvCalls }),
+    READY_PROBE,
+  );
 }
 
-/** A registry over one engine, its lifecycle wired to `capturingExec` so `runArgvCalls` fills in as `start()` runs it. */
+/** A registry over one engine, its lifecycle wired to `capturingLifecycle` so `runArgvCalls` fills in as `start()` runs it. */
 function capturingRegistry(
   entry: EngineEntry,
   containerPort: number,
@@ -1126,7 +1100,7 @@ function capturingRegistry(
   const reg = new EngineRegistry(config({ engines: [entry] }), {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
-    lifecycle: new DockerLifecycle(capturingExec(containerPort, runArgvCalls), READY_PROBE),
+    lifecycle: capturingLifecycle(runArgvCalls, containerPort),
   });
   return { reg, runArgvCalls };
 }
@@ -1135,7 +1109,7 @@ describe("spec construction is routed through the per-engine builder", () => {
   test("comfy started through the registry carries its models bind mount in the run argv", async () => {
     const { reg, runArgvCalls } = capturingRegistry(
       engine({ id: "comfy", models_dir: "/data/comfy-models", ready_timeout_s: 5 }),
-      8188,
+      COMFY_CONTAINER_PORT,
     );
     try {
       await reg.start("comfy");
@@ -1195,7 +1169,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
       {
         enginesRoot: root,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
+        lifecycle: capturingLifecycle(runArgvCalls),
       },
     );
     try {
@@ -1244,7 +1218,7 @@ describe("a container kind with no dedicated builder still gets [engine.args]", 
       {
         enginesRoot: root,
         bunx: BUNX,
-        lifecycle: new DockerLifecycle(capturingExec(8080, runArgvCalls), READY_PROBE),
+        lifecycle: capturingLifecycle(runArgvCalls),
       },
     );
     try {

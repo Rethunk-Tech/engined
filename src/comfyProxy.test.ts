@@ -9,17 +9,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
 import { bindDualFamily, createDoor } from "./main.ts";
 import {
   BUNX,
+  buildExec,
   config,
-  containerRunning,
+  deadPort,
   engine,
-  inspectSinglePort,
   makeTestRoot,
-  portResult,
   route,
   writeEngineSpec,
 } from "./test-support.ts";
@@ -51,21 +49,8 @@ path = "/queue"
 status = 200
 `;
 
-/** A running-comfy-container exec fake: the docker calls the registry makes to get `comfy` into `state: "running"`, none of which this suite's `comfyHttpClient` intercepts. */
-function comfyExec(port: number): Exec {
-  return (args): Promise<ExecResult> => {
-    if (args[0] === "image" && args[1] === "inspect") {
-      return Promise.resolve(inspectSinglePort(8188));
-    }
-    if (args[0] === "port") {
-      return Promise.resolve(portResult(port));
-    }
-    if (args[0] === "inspect") {
-      return Promise.resolve(containerRunning());
-    }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 0 });
-  };
-}
+/** ComfyUI's own listen port, which its image is the one to `EXPOSE`. */
+const COMFY_CONTAINER_PORT = 8188;
 
 const PROXY_PATH = "/engined/v1/comfy/comfy/local";
 /** A real ComfyUI node type: the proxy must forward the segment untouched, so the test needs one that actually exists. */
@@ -91,7 +76,7 @@ async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999, stateHome?
     {
       enginesRoot: root,
       bunx: BUNX,
-      exec: comfyExec(port),
+      exec: buildExec({ port, containerPort: COMFY_CONTAINER_PORT }),
       probe: () => Promise.resolve({ status: 200 }),
     },
     { comfyHttpClient },
@@ -408,10 +393,6 @@ function fakeComfyWsContainer(): {
   };
 }
 
-function ephemeralPort(): number {
-  return 41_000 + Math.floor(Math.random() * 5000);
-}
-
 /** A running comfy engine behind a door bound on a REAL socket -- the one thing a websocket upgrade needs. */
 async function startWsDoor(): Promise<{
   fakeComfy: ReturnType<typeof fakeComfyWsContainer>;
@@ -421,7 +402,7 @@ async function startWsDoor(): Promise<{
   const fakeComfy = fakeComfyWsContainer();
   const root = mkdtempSync(join(TEST_ROOT, "door-ws-"));
   writeEngineSpec(root, "comfy", COMFY_SPEC);
-  const doorPort = ephemeralPort();
+  const doorPort = deadPort();
   // `checkOrigin` refuses any `Host` outside `config.listen_port`, so the
   // config must agree with the port the door is actually bound on.
   const cfg = config({
@@ -432,7 +413,7 @@ async function startWsDoor(): Promise<{
   const door = createDoor(cfg, {
     enginesRoot: root,
     bunx: BUNX,
-    exec: comfyExec(fakeComfy.port),
+    exec: buildExec({ port: fakeComfy.port, containerPort: COMFY_CONTAINER_PORT }),
     probe: () => Promise.resolve({ status: 200 }),
   });
   await door.registry.start("comfy");

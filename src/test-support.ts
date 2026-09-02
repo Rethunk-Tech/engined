@@ -140,11 +140,13 @@ interface BuildExecOptions {
   portSeed?: number;
   runLog?: string[][];
   stopLog?: string[][];
+  /** The single port the image `EXPOSE`s, when a test's engine kind has a real one. Never asserted on: `docker port` answers from `port`/`portByContainer` regardless. */
+  containerPort?: number;
   /** Holds `run -d` pending this long before resolving -- a genuine tick for a start-lock race test to prove overlap against, not sequencing. */
   runDelayMs?: number;
 }
 
-/** Never asserted on directly: real host ports come from `portByContainer`, so this container port is an arbitrary placeholder. */
+/** Stands in wherever the test's engine kind has no meaningful exposed port of its own. */
 const PLACEHOLDER_CONTAINER_PORT = 80;
 
 function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
@@ -152,7 +154,7 @@ function execImageInspect(argv: string[], opts: BuildExecOptions): ExecResult {
   if (image !== undefined && opts.missingImages?.has(image)) {
     return { stdout: "", stderr: "", exitCode: 1 };
   }
-  return inspectSinglePort(PLACEHOLDER_CONTAINER_PORT);
+  return inspectSinglePort(opts.containerPort ?? PLACEHOLDER_CONTAINER_PORT);
 }
 
 /** `portState.next`, when set, wins over both `port` and `portByContainer` -- an incrementing seed answers every lookup regardless of container. */
