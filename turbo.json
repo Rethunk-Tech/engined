@@ -10,7 +10,7 @@
       "outputs": []
     },
     "test": {
-      "inputs": ["src/**/*.ts", "package.json"],
+      "inputs": ["src/**/*.ts", "scripts/install.sh", "package.json"],
       "outputs": []
     },
     "build": {

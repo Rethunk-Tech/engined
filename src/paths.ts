@@ -12,7 +12,8 @@ function xdg(name: string, fallback: string): string {
   return v !== undefined && v !== "" ? v : join(homedir(), fallback);
 }
 
-function configHome(): string {
+/** Exported for `scripts/install.sh`, which renders the systemd user unit under it. */
+export function configHome(): string {
   return xdg("XDG_CONFIG_HOME", ".config");
 }
 

@@ -8,20 +8,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Same resolution as src/paths.ts: the env var when set and non-empty, else
-# the fallback under $HOME. All three XDG vars are unset on this box, so the
-# fallback is the normal path, not the edge -- and skipping it would resolve
-# to "/engined" off an empty XDG_DATA_HOME, installing at the filesystem root.
-xdg() {
-  local var="$1" fallback="$2"
-  local val="${!var:-}"
-  if [[ -n "$val" ]]; then
-    printf '%s\n' "$val"
-  else
-    printf '%s\n' "$HOME/$fallback"
-  fi
-}
-
 # The unit-facing spelling of a resolved directory: %h/... when it falls
 # under $HOME (the systemd specifier, not a literal path, so the same unit
 # works if rendered for another user), or the literal path when it doesn't --
@@ -35,19 +21,30 @@ to_unit_path() {
   fi
 }
 
+# Where engined lives is src/paths.ts's answer, asked rather than restated: the
+# daemon reads config and writes state at whatever that module returns, so a
+# second implementation here can only ever be the one that is wrong. Only the
+# systemd spelling below is install-side knowledge.
 resolve_paths() {
-  DATA_HOME="$(xdg XDG_DATA_HOME .local/share)"
-  STATE_HOME="$(xdg XDG_STATE_HOME .local/state)"
-  CONFIG_HOME="$(xdg XDG_CONFIG_HOME .config)"
+  local resolved
+  resolved="$(bun -e "
+    import { configHome, installDir, stateDir } from '$REPO_ROOT/src/paths.ts';
+    console.log([installDir(), stateDir(), configHome()].join('\n'));
+  ")"
+  { read -r INSTALL_DIR && read -r STATE_DIR && read -r CONFIG_HOME; } <<<"$resolved"
 
-  if [[ -z "$DATA_HOME" || "$DATA_HOME" == "/" || -z "$STATE_HOME" || "$STATE_HOME" == "/" ||
-    -z "$CONFIG_HOME" || "$CONFIG_HOME" == "/" ]]; then
-    echo "install.sh: resolved data/state/config home is empty or filesystem root, refusing" >&2
-    exit 1
-  fi
+  # rsync --delete runs inside INSTALL_DIR and the unit file lands under
+  # CONFIG_HOME, so neither may sit at the top of the filesystem -- which is
+  # where an empty XDG var used to land them. Two segments deep is the
+  # shallowest any of these can legitimately be.
+  local dir
+  for dir in "$INSTALL_DIR" "$STATE_DIR" "$CONFIG_HOME"; do
+    if [[ "$dir" != /?*/?* ]]; then
+      echo "install.sh: src/paths.ts resolved \"$dir\", too shallow to install into" >&2
+      exit 1
+    fi
+  done
 
-  INSTALL_DIR="$DATA_HOME/engined"
-  STATE_DIR="$STATE_HOME/engined"
   UNIT_DIR="$CONFIG_HOME/systemd/user"
   UNIT_PATH="$UNIT_DIR/engined.service"
 
@@ -99,14 +96,15 @@ render_unit_file() {
 }
 
 main() {
-  resolve_paths
-
   for tool in bun bunx rsync; do
     command -v "$tool" >/dev/null || {
       echo "install.sh: $tool not found on PATH" >&2
       exit 1
     }
   done
+
+  resolve_paths
+
   BUN_PATH="$(command -v bun)"
   BUNX_PATH="$(command -v bunx)"
 
