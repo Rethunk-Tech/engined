@@ -34,6 +34,12 @@ where the body omits one. Any other engine id is refused with a 400 naming it
 unknown — they are llama.cpp routes, not a general engine surface, and that is
 true of every kind that is not llama, not only ids that never existed.
 
+`/openai/v1/audio/transcriptions` forwards `language`, `response_format` and
+`prompt` to the engine. `prompt` is whisper's initial prompt: a short list of
+vocabulary the caller expects to hear, which is the only lever that moves a
+proper noun the model has never seen. The remote STT dialect has no equivalent,
+so it is dropped there rather than translated.
+
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
 serves nothing today: an unclaimed prefix 404s like any other unmatched path.

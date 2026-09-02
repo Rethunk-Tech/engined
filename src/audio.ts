@@ -124,6 +124,12 @@ export interface TranscriptionRequestBody {
   /** Reaches the engine on the wire, per request; never written into its spec. */
   language?: string;
   response_format?: string;
+  /**
+   * Vocabulary the caller expects to hear -- whisper's `initial_prompt`. It is
+   * the only lever that moves a proper noun the model has never seen, so a
+   * door that drops it silently costs every caller that error class.
+   */
+  prompt?: string;
 }
 
 /**
@@ -537,6 +543,8 @@ async function transcribeRemote(
     );
   }
 
+  // No prompt here: this speaks the remote STT dialect (`model_id`,
+  // `language_code`), which has no equivalent of whisper's initial prompt.
   const form = new FormData();
   form.append("file", new Blob([req.file]), "audio");
   form.append("model_id", model);
@@ -612,6 +620,10 @@ export async function handleTranscription(
   }
   if (req.response_format !== undefined) {
     form.append("response_format", req.response_format);
+  }
+
+  if (req.prompt !== undefined) {
+    form.append("prompt", req.prompt);
   }
 
   const res = await fetchImpl(`http://${engine.private_url}/v1/audio/transcriptions`, {

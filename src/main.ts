@@ -2130,6 +2130,7 @@ interface TranscriptionForm {
   file: Uint8Array<ArrayBuffer>;
   language: string | undefined;
   responseFormat: string | undefined;
+  prompt: string | undefined;
 }
 
 /** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
@@ -2144,11 +2145,13 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
   const file = form.get("file");
   const language = form.get("language");
   const responseFormat = form.get("response_format");
+  const prompt = form.get("prompt");
   return {
     rawModel: typeof rawModel === "string" ? rawModel : null,
     file: file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0),
     language: typeof language === "string" ? language : undefined,
     responseFormat: typeof responseFormat === "string" ? responseFormat : undefined,
+    prompt: typeof prompt === "string" ? prompt : undefined,
   };
 }
 
@@ -2199,6 +2202,7 @@ async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise
     file: form.file,
     language: form.language,
     response_format: form.responseFormat,
+    prompt: form.prompt,
   };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);

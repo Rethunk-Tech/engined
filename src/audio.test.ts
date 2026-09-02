@@ -174,17 +174,19 @@ test("a request against a stopped engine starts it on demand through the real do
 /** A real `Bun.serve` fake whisper: echoes back the multipart fields it received. */
 function startFakeWhisper(): {
   base: string;
-  requests: Array<{ language?: string; response_format?: string }>;
+  requests: Array<{ language?: string; response_format?: string; prompt?: string }>;
   stop: () => void;
 } {
-  const requests: Array<{ language?: string; response_format?: string }> = [];
+  const requests: Array<{ language?: string; response_format?: string; prompt?: string }> = [];
   const fake = startFakeUpstream(async (req) => {
     const form = await req.formData();
     const language = form.get("language");
     const responseFormat = form.get("response_format");
+    const prompt = form.get("prompt");
     requests.push({
       language: typeof language === "string" ? language : undefined,
       response_format: typeof responseFormat === "string" ? responseFormat : undefined,
+      prompt: typeof prompt === "string" ? prompt : undefined,
     });
     if (responseFormat === "text") {
       return new Response("hello world", { headers: { "content-type": "text/plain" } });
@@ -238,6 +240,29 @@ test("a per-request language reaches the engine, asserted against the fake upstr
 
   expect(fake.requests).toHaveLength(1);
   expect(fake.requests[0]?.language).toBe("fr");
+});
+
+test("a per-request prompt reaches the engine, which is what biases a proper noun", async () => {
+  const fake = startFakeWhisper();
+
+  await handleTranscription(
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, prompt: "Priya, nginx, sekhmet" },
+    async () => ({ private_url: fake.base }),
+  );
+  fake.stop();
+
+  expect(fake.requests[0]?.prompt).toBe("Priya, nginx, sekhmet");
+});
+
+test("no prompt means the field is absent, not an empty initial prompt", async () => {
+  const fake = startFakeWhisper();
+
+  await handleTranscription({ engine: "whisper", file: SAMPLE_AUDIO_BYTES }, async () => ({
+    private_url: fake.base,
+  }));
+  fake.stop();
+
+  expect(fake.requests[0]?.prompt).toBeUndefined();
 });
 
 test("a route's model reaches EngineStart as its own argument, not folded into the engine id", async () => {
