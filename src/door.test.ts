@@ -1303,36 +1303,27 @@ describe("the door: an agentic engine named directly refuses the tool field by n
 
 describe("the door: a body that demands no tool call is answered", () => {
   test("the shapes that demand nothing -- empty tools, tool_choice none, text response_format -- are answered", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/x",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
-        tools: [],
-        tool_choice: "none",
-        parallel_tool_calls: false,
-        response_format: { type: "text" },
-      }),
-    );
-    expect(res.status).toBe(200);
+    const { status, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+      workdir: "/tmp",
+      tools: [],
+      tool_choice: "none",
+      parallel_tool_calls: false,
+      response_format: { type: "text" },
+    });
+    expect(status).toBe(200);
     expect(spawnCalls).toHaveLength(1);
     clearVerifiedVersion("claude");
   });
 
   test("a caller who also forgot workdir is told about the workdir, which is the mistake they own first", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/x",
-        messages: [{ role: "user", content: "what time is it" }],
-        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
-      }),
-    );
-    const body = (await res.json()) as { error?: string };
-    expect(res.status).toBe(400);
+    const { status, body, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+      tools: [TOOL_NOW],
+    });
+    expect(status).toBe(400);
     expect(body.error).toContain("workdir is required");
     expect(spawnCalls).toHaveLength(0);
     clearVerifiedVersion("claude");
@@ -1342,18 +1333,14 @@ describe("the door: a body that demands no tool call is answered", () => {
   // client that carries tools and wants words actually sends, so refusing it
   // would refuse the traffic this whole refusal exists to keep serving.
   test('a real tool list under tool_choice "none" is answered, not refused for carrying one', async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
-    const res = await door.fetch(
-      chatRequest({
-        model: "@/claude/x",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
-        tools: [{ type: "function", function: { name: "now", parameters: {} } }],
-        tool_choice: "none",
-      }),
-    );
-    expect(res.status).toBe(200);
+    const { status, spawnCalls } = await toolFallbackCall({
+      model: "@/claude/x",
+      messages: [{ role: "user", content: "what time is it" }],
+      workdir: "/tmp",
+      tools: [TOOL_NOW],
+      tool_choice: "none",
+    });
+    expect(status).toBe(200);
     expect(spawnCalls).toHaveLength(1);
     clearVerifiedVersion("claude");
   });
