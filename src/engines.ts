@@ -634,6 +634,11 @@ export class EngineRegistry {
     string,
     { version: string; outcome?: AgenticProbeOutcome; promise?: Promise<AgenticProbeOutcome> }
   >();
+  /** Last version observation per agentic engine id, and the one refresh in flight for it; see `observedVersion`. */
+  private readonly versionObservations = new Map<
+    string,
+    { configured: string; last?: ObservedVersion; inFlight?: Promise<ObservedVersion> }
+  >();
   /**
    * The model each container-kind engine's own `start()` last requested --
    * whisper's only consumer today. Compared against a fresh `start(id, model)`
@@ -833,14 +838,14 @@ export class EngineRegistry {
    * reports `unavailable` on the very first `GET /engined/v1/engines` rather than
    * waiting for a start attempt to notice.
    */
-  private async statusFor(entry: Entry): Promise<EngineStatus> {
+  private async statusFor(entry: Entry, fresh = true): Promise<EngineStatus> {
     if (entry.engine.disabled) {
       return this.disabledStatus(entry);
     }
     const { spec, source } = entry.spec;
     if (!isContainerSpec(spec)) {
       if (spec.kind === "agentic-cli") {
-        return this.agenticStatus(entry.engine, spec);
+        return this.agenticStatus(entry.engine, spec, fresh);
       }
       // A spec-less proxy: nothing to probe and nothing resident -- an
       // address is either configured or it is not, and syncStatus's
@@ -881,7 +886,11 @@ export class EngineRegistry {
    * one in-flight probe instead of each billing their own — see
    * `runAgenticProbe`.
    */
-  private async agenticStatus(engine: EngineEntry, spec: AgenticSpec): Promise<EngineStatus> {
+  private async agenticStatus(
+    engine: EngineEntry,
+    spec: AgenticSpec,
+    fresh: boolean,
+  ): Promise<EngineStatus> {
     const base = {
       id: engine.id,
       kind: spec.kind,
@@ -889,25 +898,11 @@ export class EngineRegistry {
       streaming: spec.streaming,
       capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
     };
-    if (engine.agent_version === undefined) {
-      return { ...base, state: "unavailable", fix: noAgentVersionConfiguredFix(engine.id) };
+    const provable = await this.provableVersion(engine, spec.agent, fresh);
+    if ("fix" in provable) {
+      return { ...base, state: "unavailable", fix: provable.fix };
     }
-    const observed = await this.observeAgentVersion(spec.agent, engine.agent_version);
-    if (!observed.ok) {
-      return {
-        ...base,
-        state: "unavailable",
-        fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? "unknown"),
-      };
-    }
-    const { version } = observed;
-    if (version === undefined) {
-      return {
-        ...base,
-        state: "unavailable",
-        fix: agentBinaryUnresolvedFix(engine.id, "no version reported"),
-      };
-    }
+    const { version } = provable;
     const proved = readVerifiedVersion(engine.id);
     if (proved === version) {
       return { ...base, state: "installed" };
@@ -941,6 +936,70 @@ export class EngineRegistry {
     writeVerifiedVersion(engine.id, version);
     this.agenticProbeState.delete(engine.id);
     return { ...base, state: "installed" };
+  }
+
+  /**
+   * The version the agent's binary reports right now, or the `fix` naming
+   * why nothing can be proved for it at all. Three ways to have no version
+   * and one to have one, which is the whole reason this is not inline.
+   */
+  private async provableVersion(
+    engine: EngineEntry,
+    agent: string,
+    fresh: boolean,
+  ): Promise<{ version: string } | { fix: string }> {
+    if (engine.agent_version === undefined) {
+      return { fix: noAgentVersionConfiguredFix(engine.id) };
+    }
+    const observed = await this.observedVersion(engine.id, agent, engine.agent_version, fresh);
+    if (!observed.ok) {
+      return { fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? "unknown") };
+    }
+    return observed.version === undefined
+      ? { fix: agentBinaryUnresolvedFix(engine.id, "no version reported") }
+      : { version: observed.version };
+  }
+
+  /**
+   * An agent that resolves its own binary observes its version by running
+   * that binary, and cursor's reaches the network on `--version` -- so the
+   * worst case is a stall nothing here bounds, and it lands inside whatever
+   * asked for the status.
+   *
+   * A launch pays it regardless: `proveAgenticPin` starts the engine before
+   * every agentic call, and a version read that is anything but current
+   * would let a self-updated binary run on a proof of the one it replaced.
+   * A listing does not -- it reports state rather than acting on it, and
+   * every consumer polls it -- so it answers from the last observation and
+   * refreshes behind itself, converging one poll later. One refresh per
+   * engine is in flight at a time, which is what keeps a stalled binary
+   * from accumulating a spawn per poll.
+   *
+   * Keyed by the configured pin, so a bump misses this on its own: for an
+   * agent whose pin already IS its observed version, config is the only
+   * thing an observation could report, and a reload must not be answered
+   * from what the previous pin said.
+   */
+  private observedVersion(
+    engineId: string,
+    agent: string,
+    configuredVersion: string,
+    fresh: boolean,
+  ): Promise<ObservedVersion> {
+    const cached = this.versionObservations.get(engineId);
+    const state =
+      cached?.configured === configuredVersion ? cached : { configured: configuredVersion };
+    this.versionObservations.set(engineId, state);
+    if (state.inFlight === undefined) {
+      state.inFlight = this.observeAgentVersion(agent, configuredVersion)
+        .catch((err): ObservedVersion => ({ ok: false, error: errMessage(err) }))
+        .then((observed) => {
+          state.last = observed;
+          state.inFlight = undefined;
+          return observed;
+        });
+    }
+    return fresh || state.last === undefined ? state.inFlight : Promise.resolve(state.last);
   }
 
   /**
@@ -980,7 +1039,7 @@ export class EngineRegistry {
   }
 
   async list(): Promise<EnginesResponse> {
-    const engines = await Promise.all(this.entries.map((e) => this.statusFor(e)));
+    const engines = await Promise.all(this.entries.map((e) => this.statusFor(e, false)));
     return {
       contract: CONTRACT,
       commit: typeof ENGINED_COMMIT === "string" ? ENGINED_COMMIT : "unknown",

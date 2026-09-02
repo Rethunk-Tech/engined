@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import type { ObservedVersion } from "./agentic.ts";
 import type { AgentTarget } from "./agents.ts";
 import { buildRunArgs, DockerLifecycle, type Probe, type RuntimeStatus } from "./docker.ts";
 import {
@@ -983,6 +984,83 @@ describe("agentic engines: a failed probe is cached, not retried, until the pin 
     expect(b.engines.find((e) => e.id === id)?.state).toBe("installed");
     expect(calls).toHaveLength(1);
 
+    clearVerifiedVersion(id);
+  });
+});
+
+/** The version the door has actually proved for an agentic engine, as recorded on disk. */
+function provedVersion(id: string): string {
+  return readFileSync(join(stateDir(), "agentic", id, "verified_version"), "utf8").trim();
+}
+
+/** A registry over one just-cleared agentic pin whose version observation is the caller's own. */
+function setupAgenticObserve(
+  id: string,
+  observeAgentVersion: () => Promise<ObservedVersion>,
+): EngineRegistry {
+  clearVerifiedVersion(id);
+  const root = newEnginesRoot();
+  writeEngineSpec(root, id, AGENTIC);
+  return registry(config({ engines: [agenticEngine(id, "1.0.0")] }), root, {
+    agenticProbeRunner: trackingRunner({ ok: true }).runner,
+    observeAgentVersion,
+  });
+}
+
+describe("a listing never blocks on the version observation; a launch always does", () => {
+  test("the listing answers from the last observation and refreshes behind itself; start() re-observes", async () => {
+    const id = "agentic-observe-off-listing";
+    const observations: string[] = [];
+    let observed = "1.0.0";
+    const reg = setupAgenticObserve(id, () => {
+      observations.push(observed);
+      return Promise.resolve({ ok: true, version: observed });
+    });
+
+    // The first listing has nothing to answer from and pays the observation.
+    await reg.list();
+    expect(observations).toEqual(["1.0.0"]);
+    expect(provedVersion(id)).toBe("1.0.0");
+
+    // A self-update the door has not observed yet: the listing answers from
+    // the version it knows rather than waiting, so the proof on file is still
+    // the old one even though the refresh it kicked has seen the new one.
+    observed = "1.0.1";
+    await reg.list();
+    expect(provedVersion(id)).toBe("1.0.0");
+
+    // A launch is the proof point and re-observes, so what it proves is what
+    // the binary reports at that moment -- never what a poll cached earlier.
+    observed = "1.0.2";
+    await reg.start(id);
+    expect(provedVersion(id)).toBe("1.0.2");
+
+    clearVerifiedVersion(id);
+  });
+
+  test("a stalled observation blocks neither a listing nor a second poll, and only one is in flight", async () => {
+    const id = "agentic-observe-stalled";
+    let spawns = 0;
+    let release: (() => void) | undefined;
+    const reg = setupAgenticObserve(id, () => {
+      spawns += 1;
+      return spawns === 1
+        ? Promise.resolve({ ok: true, version: "1.0.0" })
+        : new Promise((resolve) => {
+            release = () => resolve({ ok: true, version: "1.0.0" });
+          });
+    });
+
+    await reg.list();
+    expect(spawns).toBe(1);
+
+    // Both polls answer while the refresh the first one kicked is still stuck.
+    const stalled = (await reg.list()).engines.find((e) => e.id === id);
+    expect(stalled?.state).toBe("installed");
+    expect((await reg.list()).engines.find((e) => e.id === id)?.state).toBe("installed");
+    expect(spawns).toBe(2);
+
+    release?.();
     clearVerifiedVersion(id);
   });
 });
