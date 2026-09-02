@@ -7,6 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import process from "node:process";
 import { type ObservedVersion, observeAgentVersion } from "./agentic.ts";
 import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
@@ -31,6 +32,7 @@ import {
   type EngineKind,
   type EngineStatus,
   type EnginesResponse,
+  errMessage,
   FatalError,
   findModelOnEngine,
   isContainerSpec,
@@ -538,10 +540,15 @@ function buildEntries(
 ): Entry[] {
   return config.engines.map((engine) => {
     const spec = loadEngineSpec(engine, specOptions, presetHostPath);
-    checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
-    checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
-    checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
-    checkCapabilityServed(engine, spec.spec, config.routes);
+    // `disable = true` is the operator's escape hatch, so it has to reach the
+    // checks that would otherwise refuse the boot: an engine nothing may
+    // start or route to cannot be the reason the daemon will not come up.
+    if (!engine.disabled) {
+      checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
+      checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
+      checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
+      checkCapabilityServed(engine, spec.spec, config.routes);
+    }
     return { engine, spec };
   });
 }
@@ -636,6 +643,15 @@ export class EngineRegistry {
    * "unknown" rather than any real model id.
    */
   private readonly residentModel = new Map<string, string | undefined>();
+
+  /**
+   * How many `start()` calls are inside their own container work for each
+   * engine. A lease is taken by the caller only once `start` has RETURNED,
+   * and the last thing `start` does is a status probe worth several docker
+   * round trips -- a competing model switch reading leases in that window
+   * sees zero and would stop the container under a request already admitted.
+   */
+  private readonly startsInFlight = new Map<string, number>();
 
   constructor(config: Config, opts: RegistryOptions) {
     this.exec = opts.exec ?? dockerExec;
@@ -835,7 +851,12 @@ export class EngineRegistry {
     return statusFrom(
       engine,
       spec,
-      await this.lifecycle.probe(engine.id, spec, source),
+      await this.lifecycle.probe(
+        engine.id,
+        spec,
+        source,
+        engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
+      ),
       this.config.routes,
     );
   }
@@ -1013,6 +1034,11 @@ export class EngineRegistry {
     if (model === undefined || this.residentModel.get(id) === model) {
       return;
     }
+    if ((this.startsInFlight.get(id) ?? 0) > 0) {
+      throw new EngineBusyError(
+        `engine "${id}" is starting for another request; switching to model "${model}" would stop it under a request already admitted`,
+      );
+    }
     const current = this.lifecycle.getStatus(id);
     if (current.state !== "running") {
       return;
@@ -1058,16 +1084,31 @@ export class EngineRegistry {
         ? withModelFile(entry.spec.spec, route.filename)
         : entry.spec.spec;
     await this.stopForModelSwitch(id, model);
-    // `launched` is the lifecycle start lock's own answer to "did this call
-    // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
-    // engine resolve to exactly one `true`.
-    const { launched } = await this.lifecycle.start(id, spec, {
-      idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-      readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
-      specSource: entry.spec.source,
-    });
-    this.residentModel.set(id, model);
-    return { ...(await this.statusFor(entry)), launched: launched ?? false };
+    this.startsInFlight.set(id, (this.startsInFlight.get(id) ?? 0) + 1);
+    try {
+      // `launched` is the lifecycle start lock's own answer to "did this call
+      // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
+      // engine resolve to exactly one `true`.
+      const { launched } = await this.lifecycle.start(id, spec, {
+        idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
+        readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+        specSource: entry.spec.source,
+      });
+      this.residentModel.set(id, model);
+      return { ...(await this.statusFor(entry)), launched: launched ?? false };
+    } finally {
+      this.leaveStart(id);
+    }
+  }
+
+  /** The `finally` half of `startsInFlight`: the entry is dropped at zero rather than left holding a 0. */
+  private leaveStart(id: string): void {
+    const left = (this.startsInFlight.get(id) ?? 1) - 1;
+    if (left > 0) {
+      this.startsInFlight.set(id, left);
+    } else {
+      this.startsInFlight.delete(id);
+    }
   }
 
   /**
@@ -1175,6 +1216,18 @@ export class EngineRegistry {
   }
 
   /**
+   * A reload's teardown, in the background because `reload` is synchronous.
+   * A teardown that fails is reported rather than swallowed: whatever it did
+   * not stop is no longer in the lifecycle's map, so `shutdown` will not
+   * reach it either and this line is the only trace it outlived the reload.
+   */
+  private teardown(id: string): void {
+    this.lifecycle.removeEngine(id).catch((err: unknown) => {
+      process.stderr.write(`${id}: teardown after reload failed: ${errMessage(err)}\n`);
+    });
+  }
+
+  /**
    * In-flight work keeps using the entries captured at call time; only new
    * lookups see the rebuilt map. An engine dropped from `config` is stopped
    * in the background rather than left orphaned; a running container whose
@@ -1187,7 +1240,7 @@ export class EngineRegistry {
     const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id));
     for (const old of this.entries) {
       if (!newIds.has(old.engine.id)) {
-        this.lifecycle.removeEngine(old.engine.id).catch(() => undefined);
+        this.teardown(old.engine.id);
       }
     }
     // A second, independent pass: an engine present in BOTH configs -- the
@@ -1206,7 +1259,7 @@ export class EngineRegistry {
       const hadLocal = hasLocalBinding(old.engine.id, this.config.routes);
       const hasLocal = hasLocalBinding(old.engine.id, config.routes);
       if (hadLocal && !hasLocal) {
-        this.lifecycle.removeEngine(old.engine.id).catch(() => undefined);
+        this.teardown(old.engine.id);
       }
     }
     this.config = config;

@@ -301,7 +301,8 @@ model    = "k3"
 # routes above with a different upstream, the wire-compatible pairing rather
 # than a protocol translation. Off because openrouter-anthropic is -- pairing
 # "claude" with the OpenAI-wire "openrouter" upstream instead is a wire
-# mismatch and is refused at registry construction, not declared here at all.
+# mismatch, refused at registry construction the moment the engine is
+# enabled, and so is not declared here at all.
 [[route]]
 engine   = "claude"
 upstream = "openrouter-anthropic"

@@ -20,7 +20,7 @@ const TEST_ROOT = makeTestRoot("engined-example-");
  * weights on disk just to run the suite.
  */
 const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
-const WIRE_MISMATCH_RE = /wire "openai".*speaks "anthropic"/;
+const WIRE_MISMATCH_RE = /wire "anthropic".*speaks "openai"/;
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
@@ -231,18 +231,20 @@ test("openrouter's openai wire is on and its anthropic wire is off, each with it
 });
 
 /**
- * The pairing this example deliberately does NOT declare: "claude" speaks
- * anthropic wire natively, and forwards it to whatever upstream a route
- * names unchanged (no translation) -- pointed at "openrouter" (openai wire)
- * that is a mismatch no request could ever survive. Caught at registry
- * construction (engines.ts's checkAgenticWire), not at loadConfig() parse,
- * because the agent's own wire comes from its spec, loaded a step later.
+ * The pairing this example deliberately does NOT declare: "opencode" speaks
+ * openai wire natively, and forwards it to whatever upstream a route names
+ * unchanged (no translation) -- pointed at "openrouter-anthropic" that is a
+ * mismatch no request could ever survive. Caught at registry construction
+ * (engines.ts's checkAgenticWire), not at loadConfig() parse, because the
+ * agent's own wire comes from its spec, loaded a step later. Asked of an
+ * ENABLED engine: the example's "claude" is disabled, and a disabled engine
+ * is not held to checks it can never reach a request through.
  */
-test("claude routed at openrouter's openai wire is refused at registry construction", () => {
+test("opencode routed at an anthropic-wire upstream is refused at registry construction", () => {
   const { config } = loadExample(`
 [[route]]
-engine   = "claude"
-upstream = "openrouter"
+engine   = "opencode"
+upstream = "openrouter-anthropic"
 model    = "openrouter-mismatch"
 `);
 

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import type { AgentTarget } from "./agents.ts";
-import { buildRunArgs, DockerLifecycle, type Probe } from "./docker.ts";
+import { buildRunArgs, DockerLifecycle, type Probe, type RuntimeStatus } from "./docker.ts";
 import {
   type AgenticProbeRunner,
   EngineBusyError,
@@ -33,6 +33,7 @@ import {
   type EngineStatus,
   FatalError,
   isContainerSpec,
+  type RunnableContainerSpec,
 } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-engines-test-");
@@ -261,6 +262,23 @@ describe("disabled engines", () => {
     expect(execLog).toEqual([]);
   });
 
+  test("a route shape that would fail the boot is not checked on a disabled engine", () => {
+    // The escape hatch has to reach the check that refuses the boot: an
+    // engine nothing may start or route to cannot be why the daemon is down.
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama-like", PULLED_CONTAINER);
+    const reg = registry(
+      config({
+        engines: [engine({ id: "llama-like", models_dir: "/data/gguf", disabled: true })],
+        routes: [
+          route({ engine: "llama-like", upstream: "local", model: "x", filename: "x.gguf" }),
+        ],
+      }),
+      root,
+    );
+    expect(reg.get("llama-like")?.disabled).toBe(true);
+  });
+
   test("a reload that disables an engine tears its container down like a removal", () => {
     // The entry survives a disabling reload, so the removal that a dropped
     // engine gets for free has to be asked for -- this is that ask.
@@ -270,6 +288,66 @@ describe("disabled engines", () => {
     );
     expect(removed).toEqual(["llama"]);
   });
+});
+
+/** Records the idle-stop each status probe is handed -- what an adopted orphan's countdown is armed from. */
+class ProbeSpy extends DockerLifecycle {
+  readonly idleStops: (number | undefined)[] = [];
+  override probe(
+    id: string,
+    spec: RunnableContainerSpec,
+    specSource?: string,
+    idleStopSeconds?: number,
+  ): Promise<RuntimeStatus> {
+    this.idleStops.push(idleStopSeconds);
+    return super.probe(id, spec, specSource, idleStopSeconds);
+  }
+}
+
+test("a status probe carries the engine's own idle-stop, so an adopted orphan counts down on the configured one", async () => {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "llama", PULLED_CONTAINER);
+  const lifecycle = new ProbeSpy(OK_EXEC, READY_PROBE);
+  const reg = registry(
+    config({ engines: [engine({ id: "llama", idle_stop_seconds: 42 })] }),
+    root,
+    { lifecycle },
+  );
+
+  await reg.list();
+
+  expect(lifecycle.idleStops).toEqual([42]);
+});
+
+/** Every teardown a reload asks for fails, the way an unreachable docker daemon fails one. */
+class FailingRemoval extends DockerLifecycle {
+  override removeEngine(): Promise<void> {
+    return Promise.reject(new Error("docker daemon unreachable"));
+  }
+}
+
+test("a reload teardown that fails is reported, not swallowed", async () => {
+  const root = newEnginesRoot();
+  writeEngineSpec(root, "llama", PULLED_CONTAINER);
+  const written: string[] = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    written.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    registry(config({ engines: [engine({ id: "llama" })] }), root, {
+      lifecycle: new FailingRemoval(OK_EXEC),
+    }).reload(config({ engines: [] }));
+    // The teardown runs in the background: `reload` is synchronous.
+    await Promise.resolve();
+  } finally {
+    process.stderr.write = realWrite;
+  }
+
+  expect(written.join("")).toContain("llama");
+  expect(written.join("")).toContain("docker daemon unreachable");
 });
 
 /** Builds a registry over a pulled `llama` from `before`, reloads it with `after`, and reports what was torn down. */
@@ -1363,7 +1441,7 @@ status = 200
 `;
 
 /** A registry over one stt-kind engine with two model-bearing routes, its lifecycle wired to a stop-and-restart-tracking exec fake and handed back so a test can drive leases directly. */
-function sttSwitchRegistry(): {
+function sttSwitchRegistry(wrap: (base: Exec) => Exec = (base) => base): {
   reg: EngineRegistry;
   lifecycle: DockerLifecycle;
   runLog: string[][];
@@ -1374,7 +1452,7 @@ function sttSwitchRegistry(): {
   const runLog: string[][] = [];
   const stopLog: string[][] = [];
   const lifecycle = new DockerLifecycle(
-    buildExec({ runLog, stopLog, portSeed: 51_000 }),
+    wrap(buildExec({ runLog, stopLog, portSeed: 51_000 })),
     READY_PROBE,
   );
   const reg = new EngineRegistry(
@@ -1453,4 +1531,49 @@ describe("model-bearing stt: switching models is a stop-and-restart", () => {
       await reg.shutdown();
     }
   });
+});
+
+/**
+ * Holds the first `docker inspect` that follows the container's own `run`:
+ * the status probe `start` ends with, which is the window a caller's lease
+ * has not been taken in yet.
+ */
+function holdingProbe(reached: () => void, held: Promise<void>): (base: Exec) => Exec {
+  let ran = false;
+  let holding = false;
+  return (base) => async (args) => {
+    if (args[0] === "run") {
+      ran = true;
+    }
+    if (ran && !holding && args[0] === "inspect") {
+      holding = true;
+      reached();
+      await held;
+    }
+    return base(args);
+  };
+}
+
+test("a model switch cannot stop a container out from under a start still in flight", async () => {
+  const atProbe = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const { reg, runLog, stopLog } = sttSwitchRegistry(
+    holdingProbe(atProbe.resolve, release.promise),
+  );
+  try {
+    const first = reg.start("whisper-like", "small");
+    await atProbe.promise;
+
+    // The first start has its container up and is inside its closing probe;
+    // its caller takes a lease only once that returns.
+    await expect(reg.start("whisper-like", "big")).rejects.toThrow(EngineBusyError);
+    release.resolve();
+    await first;
+
+    expect(runLog).toHaveLength(1);
+    expect(stopLog).toHaveLength(0);
+  } finally {
+    release.resolve();
+    await reg.shutdown();
+  }
 });
