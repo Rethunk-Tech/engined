@@ -447,7 +447,13 @@ interface TranscriptionForm {
  */
 function liveTranscription(req: Request): TranscriptionForm | undefined {
   const query = new URL(req.url).searchParams;
-  if (query.get("stream") !== "true" || req.body === null) {
+  // A multipart body is a form however the query is spelled: reading its parts
+  // as raw audio would send whisper the boundaries too.
+  if (
+    query.get("stream") !== "true" ||
+    req.body === null ||
+    (req.headers.get(CONTENT_TYPE) ?? "").startsWith("multipart/")
+  ) {
     return undefined;
   }
   return {
