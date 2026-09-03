@@ -614,6 +614,40 @@ test('stream: "ndjson" skips a literal null line instead of throwing mid-body', 
   expect(out).toEqual([{ phase: "done", audio: SAMPLE_WAV_BASE64 }]);
 });
 
+test("a caller who hangs up mid-stream cancels the engine's own body", async () => {
+  // An upstream body left open holds a live response against a running engine,
+  // and nothing later closes it -- the caller is already gone.
+  let cancelled = false;
+  const encoder = new TextEncoder();
+  const line = `${JSON.stringify({ phase: "synthesizing", step: 1, step_limit: 1000 })}\n`;
+  // Never closes: synthesis is still in flight when the caller lets go.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode(line));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  const res = await handleSpeech(
+    { engine: "chatterbox-multi", input: "hi", stream: "ndjson" },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(body)),
+  );
+  const forwarded = res.stream;
+  if (forwarded === undefined) {
+    throw new Error('stream: "ndjson" returned no stream to hang up on');
+  }
+
+  const reader = forwarded.getReader();
+  await reader.read();
+  await reader.cancel();
+  await Bun.sleep(1);
+
+  expect(cancelled).toBe(true);
+});
+
 test("a buffered speech failure reports the engine's own reason, not just missing audio", async () => {
   // kokoro refuses an unknown voice with {phase:"error", detail}. Reporting
   // "carried no audio" sends the caller looking at the door instead.

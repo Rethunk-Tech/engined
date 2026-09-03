@@ -205,38 +205,32 @@ interface Frame {
   audio?: unknown;
 }
 
-/** Every parseable NDJSON line, including a last one the engine did not newline-terminate. */
-async function* ndjsonFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<Frame> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
+/**
+ * Every parseable NDJSON line, including a last one the engine did not
+ * newline-terminate.
+ *
+ * A consumer that stops early — `frames.return()`, or a `break` — cancels the
+ * upstream body, so a caller who hangs up does not leave a response open
+ * against a running engine. That is the async iterator's own `return()`
+ * reaching the source through the pipe, not something this loop arranges.
+ */
+async function* ndjsonFrames(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<Frame> {
   let pending = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      pending += decoder.decode(value, { stream: true });
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        const frame = parseFrame(line);
-        if (frame !== undefined) {
-          yield frame;
-        }
+  for await (const text of body.pipeThrough(new TextDecoderStream())) {
+    pending += text;
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) {
+      const frame = parseRecord(line);
+      if (frame !== null) {
+        yield frame;
       }
     }
-    const last = parseFrame(pending);
-    if (last !== undefined) {
-      yield last;
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
   }
-}
-
-function parseFrame(line: string): Frame | undefined {
-  return parseRecord(line) ?? undefined;
+  const last = parseRecord(pending);
+  if (last !== null) {
+    yield last;
+  }
 }
 
 /**
@@ -257,7 +251,7 @@ function parseFrame(line: string): Frame | undefined {
  */
 async function streamedSpeech(
   engineId: string,
-  body: ReadableStream<Uint8Array>,
+  body: ReadableStream<Uint8Array<ArrayBuffer>>,
 ): Promise<DoorResponse> {
   const frames = ndjsonFrames(body);
   for (;;) {
@@ -302,7 +296,7 @@ async function streamedSpeech(
  * commits immediately and a synthesis that never produces audio ends as a
  * final `error` frame instead of a 502.
  */
-function ndjsonSpeech(body: ReadableStream<Uint8Array>): DoorResponse {
+function ndjsonSpeech(body: ReadableStream<Uint8Array<ArrayBuffer>>): DoorResponse {
   const frames = ndjsonFrames(body);
   const encoder = new TextEncoder();
   let sentChunk = false;
