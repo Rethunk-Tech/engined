@@ -20,6 +20,7 @@ treated as a caller.
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
+| `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
 | `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
@@ -39,6 +40,29 @@ true of every kind that is not llama, not only ids that never existed.
 vocabulary the caller expects to hear, which is the only lever that moves a
 proper noun the model has never seen. The remote STT dialect has no equivalent,
 so it is dropped there rather than translated.
+
+### Cloning a voice
+
+A `tts` engine that clones (both chatterbox images) conditions on a reference
+recording, and a container reads only what the door mounted into it — so the
+reference is uploaded, never named:
+
+```
+curl -F file=@reference.wav http://127.0.0.1:29200/engined/v1/audio/voices
+{"voice":"vc_cef8305b2eb7c0bf8766de6b1f5d0fab.wav","bytes":176684}
+```
+
+Send that `voice` back on `POST /openai/v1/audio/speech` and the door turns it
+into the path it chose, under the read-only mount the engine's spec declares.
+The handle is the only thing a caller ever holds: a `vc_` string the door did
+not issue is refused with a 400 rather than reaching an engine, and a `voice`
+that is not a handle — a voice name, or a path baked into an engine image —
+is forwarded untouched, so an engine that cannot resolve it still answers 502
+naming the path rather than quietly speaking in the wrong voice.
+
+The store keeps the 64 least-recently-spoken-with references, 16 MB each at
+most; a handle that has fallen off the end is refused, and re-uploading the
+file issues a new one.
 
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
