@@ -219,6 +219,21 @@ function extraBuildContexts(specSource: string): string {
 }
 
 /**
+ * The Dockerfile a spec builds from: its own, or the path named in
+ * `<specSource>/dockerfile-path` (relative to the spec dir) when several
+ * specs build one recipe into distinct images. `-f` is read from the
+ * filesystem, not from the context, so the context stays the spec dir and the
+ * shared file's neighbours reach neither build.
+ */
+function specDockerfile(specSource: string): string {
+  const pointer = posix.join(specSource, "dockerfile-path");
+  if (existsSync(pointer)) {
+    return posix.resolve(specSource, readFileSync(pointer, "utf8").trim());
+  }
+  return posix.join(specSource, "Dockerfile");
+}
+
+/**
  * The `--build-arg` flags a spec's Dockerfile needs, one `name=value` per
  * line in `<specSource>/build-args`.
  *
@@ -722,17 +737,18 @@ export class DockerLifecycle {
    * `pull` always has a runnable fix: the image name is the whole command.
    * `build` does not by default -- `docker build <image>` treats the image
    * name as a context PATH and fails. A real fix needs the spec's own
-   * directory, which is where a spec's Dockerfile lives when it has one.
-   * `obtain = "build"` with no Dockerfile there means the image was built
-   * elsewhere and only tagged locally, so naming a path that does not exist
-   * would be the same defect in a new costume.
+   * directory, which is the build context and where its Dockerfile lives
+   * unless `dockerfile-path` names another. `obtain = "build"` with no
+   * Dockerfile to be found means the image was built elsewhere and only
+   * tagged locally, so naming a path that does not exist would be the same
+   * defect in a new costume.
    */
   private buildImageFix(spec: RunnableContainerSpec, specSource?: string): string {
     if (spec.obtain === "pull") {
       return `docker pull ${spec.image}`;
     }
     if (specSource !== undefined) {
-      const dockerfile = posix.join(specSource, "Dockerfile");
+      const dockerfile = specDockerfile(specSource);
       if (existsSync(dockerfile)) {
         return `docker build -t ${spec.image}${extraBuildContexts(specSource)}${extraBuildArgs(specSource)} -f ${dockerfile} ${specSource}`;
       }

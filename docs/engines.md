@@ -9,7 +9,9 @@ the engine and supplies only what varies by install — see
 ## Container images (this box: AMD Strix Halo / gfx1151, ROCm 7.2+)
 
 Own Dockerfile per engine — no gfx1151-validated pre-built image exists for
-any of them. All are two-stage: build tools (compilers, venv creation, git)
+any of them. The exception is the two chatterbox images, which build one
+`engines/chatterbox-shared/Dockerfile` twice with different `--build-arg`
+values. All are two-stage: build tools (compilers, venv creation, git)
 never reach the runtime image.
 
 ### llama.cpp

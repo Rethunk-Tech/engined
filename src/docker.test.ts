@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   buildRunArgs,
@@ -1003,6 +1003,24 @@ describe("a spec dir's declared build flags", () => {
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("dockerfile-path points -f at a recipe outside the context, which stays the spec dir", async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, "dockerfile-path-"));
+    try {
+      writeFileSync(join(dir, "dockerfile-path"), "../shared/Dockerfile\n");
+      mkdirSync(resolve(dir, "../shared"), { recursive: true });
+      writeFileSync(resolve(dir, "../shared/Dockerfile"), "FROM scratch\n");
+
+      // A symlink in the spec dir would not do: buildkit reads `-f` off the
+      // filesystem but refuses to follow one out of the context.
+      expect(await buildFix(dir)).toBe(
+        `docker build -t ${BUILD_SPEC.image} -f ${resolve(dir, "../shared/Dockerfile")} ${dir}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(resolve(dir, "../shared"), { recursive: true, force: true });
     }
   });
 

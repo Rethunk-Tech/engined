@@ -54,9 +54,9 @@ An engine has no address of its own — a remote-address engine names its
 `chatterbox-en` and `chatterbox-multi` stay separate images by operator
 decision: one image failing to build never blocks the other's launch. They
 build from one wrapper, `engines/chatterbox-shared/chatterbox_app.py`, and one
-`engines/chatterbox-shared/Dockerfile` each spec dir symlinks; each `app.py`
-supplies only its own checkpoint and `generate()` call, and each `build-args`
-only the checkpoint to bake and the port to serve.
+`engines/chatterbox-shared/Dockerfile`; each `app.py` supplies only its own
+checkpoint and `generate()` call, and each `build-args` only the checkpoint to
+bake and the port to serve.
 
 A build's context is the spec's own directory, so a file two images share is
 in neither context. Two files in a spec dir declare what its build needs, both
@@ -67,6 +67,10 @@ missing image names as its fix -- which stays one runnable command:
   as `--build-context` and read by the Dockerfile with `COPY --from=<name>`.
 - `build-args`: `name=value` lines, emitted as `--build-arg`, which is how one
   Dockerfile produces two distinct images from two separate builds.
+- `dockerfile-path`: the recipe to build, relative to the spec dir, when it is
+  not the spec dir's own `Dockerfile`. It is `-f`, read off the filesystem
+  rather than out of the context -- a symlink in the spec dir does not work,
+  buildkit refuses to follow one out of the context.
 
 Each image still builds from its own context and reads nothing of the other's.
 
