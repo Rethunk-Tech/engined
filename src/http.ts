@@ -62,3 +62,19 @@ export const HTTP_SERVER_ERROR_MAX = 600;
 
 /** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */
 export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Releases a response whose body this door will not read.
+ *
+ * Dropping an unread body does not tell the far side to stop: measured against
+ * a source stream that records its own cancellation, twenty-five dropped
+ * bodies produced zero cancellations, while an explicit `cancel()` produced
+ * one each. An engine answering an error still holds its producer open until
+ * something collects it, so the door releases it on the way out.
+ *
+ * Suppressed rather than surfaced: a cancel that rejects must not replace the
+ * engine's own error with a cleanup one.
+ */
+export async function discardBody(res: Response): Promise<void> {
+  await res.body?.cancel().catch(() => undefined);
+}

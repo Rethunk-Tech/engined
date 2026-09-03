@@ -27,6 +27,7 @@
 
 import {
   CONTENT_TYPE,
+  discardBody,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonErrorBody,
@@ -494,6 +495,7 @@ export async function handleSpeech(
     }),
   });
   if (!res.ok) {
+    await discardBody(res);
     return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts returned ${res.status}`);
   }
 
@@ -559,6 +561,7 @@ async function transcribeRemote(
     body: form,
   });
   if (!res.ok) {
+    await discardBody(res);
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: /speech-to-text returned ${res.status}`,
@@ -632,6 +635,7 @@ export async function handleTranscription(
     body: form,
   });
   if (!res.ok) {
+    await discardBody(res);
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: /v1/audio/transcriptions returned ${res.status}`,

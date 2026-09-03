@@ -13,7 +13,7 @@ import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import type { Exec } from "./exec.ts";
-import { CONTENT_TYPE, JSON_CONTENT_TYPE, STATUS_OK } from "./http.ts";
+import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_OK } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
 import { llamaPresetPath, stateDir } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
@@ -90,6 +90,8 @@ async function defaultReleaseFetch(
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
   });
+  // The status is the whole answer here; the body is never read, so release it.
+  await discardBody(res);
   return { ok: res.ok, status: res.status };
 }
 
