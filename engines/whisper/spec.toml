@@ -33,10 +33,13 @@ serves = ["/openai/v1/audio/transcriptions"]
 #
 # ./whisper_app.py is that surface. It holds the exposed port, proxies the
 # OpenAI verb to whisper-server on loopback untouched, and answers its own
-# `POST /v1/audio/transcriptions/stream` by driving whisper-cli and forwarding
-# each segment line as an NDJSON frame as it is printed. So `streaming` is a
-# true statement about this engine as it ships, and it stays true only as long
-# as that wrapper is the entrypoint.
+# `POST /v1/audio/transcriptions/stream` by driving whisper-cli over the audio
+# as it arrives -- a body still being uploaded is decoded four seconds at a
+# time -- and forwarding each segment line as an NDJSON frame. The terminal
+# frame comes from whisper-server's own answer to the completed upload, so the
+# streamed transcript is the buffered one rather than a second decode beside
+# it. So `streaming` is a true statement about this engine as it ships, and it
+# stays true only as long as that wrapper is the entrypoint.
 streaming = true
 
 # GPU, load-bearing: ./Dockerfile now pins ghcr.io/ggml-org/whisper.cpp's

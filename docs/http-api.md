@@ -45,12 +45,41 @@ A `stream=true` form field on that verb answers in NDJSON instead: one
 `{"phase":"segment", "text", "start", "end"}` frame per segment as the model
 decodes it, then a terminal `{"phase":"done", "text"}` carrying the whole
 transcript, or `{"phase":"error", "detail"}`. The frames are the engine's own
-intermediate output -- a consumer reading them has partial text long before the
-recording is finished, and hanging up mid-body stops the decode rather than
+intermediate output, and hanging up mid-body stops the decode rather than
 leaving it running. `response_format` names a whole-transcript format, so
 asking for `srt`/`vtt`/`text` alongside `stream` is a 400 rather than a
 silently ignored field, and the remote STT dialect refuses to stream for the
 same reason it drops `prompt`: it has no equivalent.
+
+A form cannot carry a recording that is still being made -- a multipart part is
+only readable once the boundary after it has arrived, so the door holds the
+whole upload before the engine sees a byte of it. The live shape is the same
+verb with `?stream=true` and the audio as the request body:
+
+```
+record | curl -sN --no-buffer -X POST -T - -H 'Content-Type: audio/wav' \
+  'http://127.0.0.1:29200/openai/v1/audio/transcriptions?stream=true&model=@/whisper/medium.en'
+```
+
+`-T -` rather than `--data-binary @-`, which reads all of stdin before it sends
+anything and so streams nothing.
+
+`model`, `language`, `prompt` and `response_format` ride in the query string,
+and the reply is the same NDJSON. The engine decodes what has arrived rather
+than waiting for the end of it: fed at 1x realtime, a 20.09s recording's first
+frame lands 4.59s in, against 0.95s *after* the upload finishes for the same
+audio sent as a form. Sub-second uploads gain nothing from it -- there is
+nothing to decode ahead of -- and a body that is not a WAV has no sample
+boundaries to cut windows on, so it streams no intermediate frames either way.
+
+The `segment` frames on a live body are provisional: a decode of the first four
+seconds of a sentence is not a decode of the sentence, and each pass holds back
+the phrase its window cut in half rather than emitting a fragment nothing
+completes. The `done` frame is not provisional. It is the buffered verb's own
+answer to the completed upload, produced by the handler that answers it, so a
+streamed transcript and a buffered one are the same string -- identical byte
+for byte over 15 clips from 2.4s to 41.6s, where matching the two decodes by
+flags alone left 6 of them disagreeing.
 
 ### Cloning a voice
 
