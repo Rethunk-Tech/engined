@@ -11,6 +11,32 @@ upstream = "self"
 image = "engined-whisper:local"
 obtain = "build"                             # pull | build; build reads ./Dockerfile here
 serves = ["/openai/v1/audio/transcriptions"]
+
+# No `streaming` key, and it is not an oversight: whisper-server cannot stream,
+# so the capability table's `false` for this engine is the honest answer rather
+# than an unimplemented door. The image ships its own examples/server/server.cpp
+# -- it registers exactly four handlers (GET /, OPTIONS + POST {inference-path},
+# POST /load, GET /health) and every one of them answers through
+# `res.set_content`, a single buffered body written after `whisper_full_parallel`
+# has returned the complete transcript. There is no `set_chunked_content_provider`
+# anywhere in it, in this pinned digest or upstream master. Confirmed live too:
+# the same 121-byte `Content-Length` JSON comes back for a plain POST, for
+# `stream=true`, `stream=1`, `response_format=stream`, `response_format=sse`, and
+# for `Accept: text/event-stream` -- unknown multipart fields are silently
+# ignored, and no response ever carries `Transfer-Encoding: chunked`.
+#
+# whisper.cpp's incremental transcription lives in two places, neither reachable
+# over this port. `--print-realtime` arms a new-segment callback that fprintf's
+# to the server's own stderr, not into the HTTP response, so it is process-wide
+# log text with no request to attribute it to. examples/stream (the whisper-stream
+# sliding-window tool) is SDL2 microphone capture writing to stdout, carries no
+# HTTP server at all, and is not among the binaries this image builds.
+#
+# Partial transcription therefore needs a wrapper process holding an audio buffer
+# and calling whisper repeatedly -- the shape engines/chatterbox-shared uses --
+# not a spec flag or a door change. The image already carries python3, ffmpeg and
+# libSDL2, so that wrapper has somewhere to stand if it is ever wanted.
+
 # GPU, load-bearing: ./Dockerfile now pins ghcr.io/ggml-org/whisper.cpp's
 # published main-vulkan tag (see its own comment for how that was found and
 # verified), so these are what the Vulkan/RADV backend actually opens at
