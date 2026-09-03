@@ -9,6 +9,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 import type { DoorOptions } from "./doorContext.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { HTTP_CLIENT_ERROR_MIN } from "./http.ts";
@@ -1232,6 +1233,86 @@ test("a chain reports the first hop that can answer as its state and names every
       "@/hop-dead/addressless/m2",
     ]);
   } finally {
+    await door.registry.shutdown();
+  }
+});
+
+/** The shape `handleVoiceUpload` issues: the door's own name for the file, never the caller's. */
+const VOICE_HANDLE = /^vc_[0-9a-f]{32}\.wav$/;
+
+/** Points the voice store at a scratch directory for one test, returning the undo -- the real one holds the operator's own uploads. */
+function redirectStateHome(): () => void {
+  const prior = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, "engined-voices-"));
+  return () => {
+    if (prior === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = prior;
+    }
+  };
+}
+
+/**
+ * The upload verb, end to end. A voice clone only works if the engine can
+ * read the reference, so what matters is the string the engine is finally
+ * handed: the door's own mount path for a handle it issued, and a refusal
+ * for one it did not -- never the caller's own string either way.
+ */
+test("an uploaded reference voice reaches the engine as the door's own path, and a handle the door never issued is refused", async () => {
+  const seen: Array<Record<string, unknown>> = [];
+  const fake = startFakeUpstream(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    seen.push((await request.json()) as Record<string, unknown>);
+    const audio = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
+    return new Response(`${JSON.stringify({ phase: "done", audio, alignment: null })}\n`);
+  });
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": fake.port } });
+  const door = createDoor(
+    baseConfig({
+      routes: CHATTERBOX_ROUTES,
+      engines: [containerEngine("chatterbox-multi", ttsSpec())],
+    }),
+    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+  );
+  const restoreStateHome = redirectStateHome();
+
+  try {
+    const form = new FormData();
+    form.set("file", new File([Buffer.from("RIFF0000WAVEfmt ")], "reference.wav"));
+    const upload = await door.fetch(
+      new Request(`http://127.0.0.1:${TEST_LISTEN_PORT}/engined/v1/audio/voices`, {
+        method: "POST",
+        body: form,
+      }),
+    );
+    expect(upload.status).toBe(200);
+    const { voice } = (await upload.json()) as { voice: string };
+    expect(voice).toMatch(VOICE_HANDLE);
+
+    const spoken = await door.fetch(
+      req("POST", "/openai/v1/audio/speech", { body: { model: CHATTERBOX, input: "hi", voice } }),
+    );
+    expect(spoken.status).toBe(200);
+    expect(seen[0]?.voice).toBe(`/voices/${voice}`);
+
+    // A well-formed handle for a file this door does not hold, and a
+    // malformed one: neither may reach the engine as a path.
+    for (const bogus of [`vc_${"0".repeat(32)}.wav`, "vc_../../etc/passwd"]) {
+      const refused = await door.fetch(
+        req("POST", "/openai/v1/audio/speech", {
+          body: { model: CHATTERBOX, input: "hi", voice: bogus },
+        }),
+      );
+      expect(refused.status).toBe(400);
+    }
+    expect(seen).toHaveLength(1);
+  } finally {
+    restoreStateHome();
+    fake.stop();
     await door.registry.shutdown();
   }
 });
