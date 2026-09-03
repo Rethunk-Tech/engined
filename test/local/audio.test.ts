@@ -275,6 +275,41 @@ for (const tts of TTS_ROUND_TRIPS) {
         },
         ROUND_TRIP_TIMEOUT_MS,
       );
+
+      test(
+        `${tts.id}'s phrase streams as segments and ends on the buffered transcript, exactly`,
+        async () => {
+          const spoken = await handleSpeech(
+            { engine: tts.id, input: "The quick brown fox jumps over the lazy dog." },
+            startFor(tts.id),
+          );
+          const wav = spoken.bytes as Uint8Array<ArrayBuffer>;
+
+          const buffered = await handleTranscription(
+            { engine: "whisper", model: "medium.en", file: wav },
+            startFor("whisper"),
+          );
+          const streamed = await handleTranscription(
+            { engine: "whisper", model: "medium.en", file: wav, stream: true },
+            startFor("whisper"),
+          );
+          expect(streamed.status).toBe(200);
+
+          const frames = (await new Response(streamed.stream).text())
+            .split("\n")
+            .filter((line) => line.length > 0)
+            .map((line) => JSON.parse(line) as { phase: string; text?: string });
+          expect(frames.filter((frame) => frame.phase === "segment").length).toBeGreaterThan(0);
+
+          // Byte for byte, not "close enough": a consumer should not be able to
+          // tell which of the engine's two decode paths answered it, and the
+          // two binaries behind them do not share sampling defaults.
+          const done = frames.at(-1);
+          expect(done?.phase).toBe("done");
+          expect(done?.text).toBe((buffered.body as { text: string }).text);
+        },
+        ROUND_TRIP_TIMEOUT_MS,
+      );
     },
   );
 }

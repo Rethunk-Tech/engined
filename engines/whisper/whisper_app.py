@@ -119,8 +119,10 @@ READ_BYTES = 65536
 # the abandonment; long enough not to be a spin loop.
 POLL_SECONDS = 0.25
 
-# One WAV frame's worth of fields, and where its samples begin.
 class Wav(NamedTuple):
+    """One WAV header's fields, and where its samples begin."""
+
+    encoding: int
     rate: int
     channels: int
     bits: int
@@ -239,11 +241,14 @@ def _parse_wav(buf: bytes | bytearray) -> Wav | None:
         chunk_id = bytes(buf[pos : pos + 4])
         size = struct.unpack("<I", buf[pos + 4 : pos + 8])[0]
         if chunk_id == b"data":
-            return None if fmt is None else Wav(*fmt, pos + 8)
+            if fmt is None:
+                return None
+            encoding, channels, rate, bits = fmt
+            return Wav(encoding, rate, channels, bits, pos + 8)
         if chunk_id == b"fmt " and pos + 24 <= len(buf):
-            channels, rate = struct.unpack("<HI", buf[pos + 10 : pos + 16])
+            encoding, channels, rate = struct.unpack("<HHI", buf[pos + 8 : pos + 16])
             bits = struct.unpack("<H", buf[pos + 22 : pos + 24])[0]
-            fmt = (rate, channels, bits)
+            fmt = (encoding, channels, rate, bits)
         pos += 8 + size + (size & 1)
     return None
 
@@ -260,7 +265,9 @@ def _wav_header(wav: Wav, n_bytes: int) -> bytes:
             struct.pack(
                 "<IHHIIHH",
                 16,
-                1,
+                # The source's own encoding: relabelling float samples as PCM
+                # hands whisper-cli a file it reads as noise.
+                wav.encoding,
                 wav.channels,
                 wav.rate,
                 wav.per_second,
@@ -417,7 +424,13 @@ class Handler(BaseHTTPRequestHandler):
     def _transcribe(self) -> None:
         params = parse_qs(urlparse(self.path).query)
         chunks, live = self._audio_chunks()
-        audio = bytearray(next(chunks, b""))
+        try:
+            audio = bytearray(next(chunks, b""))
+        except DecodeFailed as err:
+            # Nothing has been sent yet, so a malformed body is still a status
+            # rather than an error frame.
+            self._error(400, str(err))
+            return
         if not audio:
             self._error(400, "request body carried no audio")
             return
