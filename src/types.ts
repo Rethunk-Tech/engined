@@ -375,18 +375,19 @@ export function findModelOnEngine<
  * The one route a resolved `@/engine/[upstream/]model` hop names. Two
  * segments default the upstream the way the dispatcher does -- ambient, then
  * this box's own `local` -- never whichever matching route was declared
- * first, which would run an ambient dispatch on a keyed upstream.
+ * first, which would run an ambient dispatch on a keyed upstream. A disabled
+ * route is configured but not served, so it is never the resolved hop --
+ * every caller reads the same served set through here rather than filtering
+ * for itself.
  */
-export function routeForHop<T extends { engine: string; model?: string; upstream: string | null }>(
-  routes: readonly T[],
-  engineId: string,
-  model: string,
-  upstream?: string,
-): T | undefined {
+export function routeForHop<
+  T extends { engine: string; model?: string; upstream: string | null; disabled?: boolean },
+>(routes: readonly T[], engineId: string, model: string, upstream?: string): T | undefined {
+  const served = routes.filter((r) => r.disabled !== true);
   if (upstream !== undefined) {
-    return findModelOnEngine(routes, engineId, model, upstream);
+    return findModelOnEngine(served, engineId, model, upstream);
   }
-  const matches = routes.filter((r) => r.engine === engineId && r.model === model);
+  const matches = served.filter((r) => r.engine === engineId && r.model === model);
   return matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
 }
 

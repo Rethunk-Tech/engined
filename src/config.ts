@@ -709,16 +709,24 @@ function parseChainHops(
     }
     const route = routeForHop(routes, engineId, model, upstream);
     if (route === undefined) {
+      // A hop onto a disabled engine, upstream or route drops out rather than
+      // failing parse: the point of disabling one is that the chains naming it
+      // keep working on what is left. An address that names nothing at all,
+      // or resolves to nothing served for any other reason, is still a parse
+      // error.
+      const declared = routes.filter(
+        (r) =>
+          r.engine === engineId &&
+          r.model === model &&
+          (upstream === undefined || r.upstream === upstream),
+      );
+      if (declared.length > 0 && declared.every((r) => r.disabled === true)) {
+        continue;
+      }
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
         file,
       );
-    }
-    // A hop onto a disabled engine, upstream or route drops out rather than
-    // failing parse: the point of disabling one is that the chains naming it
-    // keep working on what is left.
-    if (route.disabled === true) {
-      continue;
     }
     kept.push(hop);
   }

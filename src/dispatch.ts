@@ -9,8 +9,8 @@ import type { Config, Egress, ResolvedRoute } from "./types.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
   EGRESS_RANK,
-  pickDefaultUpstream,
   qualifiedSegments,
+  routeForHop,
   routeServes,
 } from "./types.ts";
 
@@ -103,7 +103,7 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Mo
   if (matches.length === 0) {
     return fail(`"@/${engineSeg}/${seg}": model "${seg}" does not exist on "${engineSeg}"`);
   }
-  const route = matches.length === 1 ? matches[0] : pickDefaultUpstream(matches);
+  const route = routeForHop(engineRoutes, engineSeg, seg);
   if (route === undefined) {
     const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
     return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);

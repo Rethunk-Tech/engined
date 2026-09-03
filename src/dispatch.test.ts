@@ -3,6 +3,7 @@ import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
 import { BUNX, config, ENGINES_ROOT, engine, route } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
+import { routeForHop } from "./types.ts";
 
 const CHAT = "/openai/v1/chat/completions";
 const SPEECH = "/openai/v1/audio/speech";
@@ -333,5 +334,22 @@ describe("chains", () => {
     const cfg = config({ chains: { "chain-private": ["@/claude/sonnet"] } });
     const reg = registry(cfg);
     expect(resolveModel("chain-private", SPEECH, cfg, reg).ok).toBe(false);
+  });
+});
+
+describe("routeForHop", () => {
+  const AMBIENT_OFF = { ...route({ engine: "e", model: "m", upstream: null }), disabled: true };
+  const LOCAL_ON = route({ engine: "e", model: "m", upstream: "local" });
+
+  test("a disabled route is never the resolved hop", () => {
+    const routes = [AMBIENT_OFF, LOCAL_ON];
+    // Ambient outranks local among served routes -- but this ambient one is
+    // not served, so local is the whole served set.
+    expect(routeForHop(routes, "e", "m")?.upstream).toBe("local");
+    expect(routeForHop(routes, "e", "m", "local")?.upstream).toBe("local");
+  });
+
+  test("a hop whose only route is disabled resolves to nothing", () => {
+    expect(routeForHop([AMBIENT_OFF], "e", "m")).toBeUndefined();
   });
 });
