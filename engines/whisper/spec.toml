@@ -102,6 +102,21 @@ command = [
   "16",
   "--no-timestamps",
 ]
+# --no-timestamps is not merely a print setting: it pushes <|notimestamps|>
+# into the prompt, drives every timestamp token's logit to -inf, and collapses
+# each 30-second decode window to one segment. On its own that would lose most
+# of any recording past the first window.
+#
+# It does not, because --vad above splits the audio into speech segments before
+# any of it is decoded, so no single decode ever spans the window. Measured
+# through the door on this spec: a 35.2s clip of ten distinct sentences
+# returned all ten, and a 72.6s clip of twenty-five returned all twenty-five,
+# with the flag in place. Dropping it changed no content -- only segment
+# boundaries, which arrive as newlines.
+#
+# So the flag stays, and the pairing is what makes it safe: removing --vad
+# without also removing this one would start silently truncating anything
+# longer than thirty seconds.
 # No -l: language is a per-request field, so pinning one here would make
 # changing it a wholesale spec override. The weights below are English-only,
 # so a request naming another language is decoded by an English model -- that
