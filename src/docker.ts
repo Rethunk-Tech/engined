@@ -10,7 +10,7 @@
  * network installed.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
 import process from "node:process";
 import { binExec, type Exec } from "./exec.ts";
@@ -173,6 +173,34 @@ function specRunArgs(spec: RunnableContainerSpec): string[] {
  */
 export function specDigest(spec: RunnableContainerSpec): string {
   return Bun.SHA256.hash(JSON.stringify(specRunArgs(spec)), "hex");
+}
+
+/**
+ * The `--build-context` flags a spec's Dockerfile needs, one `name=path` per
+ * line in `<specSource>/build-contexts`, each path relative to the spec dir.
+ *
+ * A build's context is the spec's own directory, so a file two images share
+ * is in neither of their contexts, and rooting the context higher would pull
+ * every other engine's files into both images. A named context is the third
+ * option: the shared directory reaches the build under its own name, each
+ * image still builds from its own context, and neither build reads anything
+ * of the other's.
+ */
+function extraBuildContexts(specSource: string): string {
+  const file = posix.join(specSource, "build-contexts");
+  if (!existsSync(file)) {
+    return "";
+  }
+  return readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => line.includes("="))
+    .map((line) => {
+      const eq = line.indexOf("=");
+      const name = line.slice(0, eq).trim();
+      const dir = posix.resolve(specSource, line.slice(eq + 1).trim());
+      return ` --build-context ${name}=${dir}`;
+    })
+    .join("");
 }
 
 /** The flags docker never receives from config: the container name and both ports are read back, not written. */
@@ -676,9 +704,11 @@ export class DockerLifecycle {
     if (spec.obtain === "pull") {
       return `docker pull ${spec.image}`;
     }
-    const dockerfile = specSource === undefined ? undefined : posix.join(specSource, "Dockerfile");
-    if (dockerfile !== undefined && existsSync(dockerfile)) {
-      return `docker build -t ${spec.image} -f ${dockerfile} ${specSource}`;
+    if (specSource !== undefined) {
+      const dockerfile = posix.join(specSource, "Dockerfile");
+      if (existsSync(dockerfile)) {
+        return `docker build -t ${spec.image}${extraBuildContexts(specSource)} -f ${dockerfile} ${specSource}`;
+      }
     }
     const where = specSource === undefined ? "" : ` at ${specSource}`;
     return `${spec.image}: no Dockerfile${where} to build from -- this image must already exist locally, built some other way`;

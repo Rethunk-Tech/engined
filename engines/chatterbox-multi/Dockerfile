@@ -3,10 +3,13 @@
 # minimal rocm/dev-ubuntu-24.04 (not rocm/pytorch or "-complete" -- the
 # official PyTorch ROCm wheel already bundles MIOpen/rocBLAS/etc., so a base
 # that also ships those just duplicates them). Build tools never reach the
-# runtime image. app.py and requirements.txt are vendored verbatim from that
-# same directory -- app.py is sagaforge's own FastAPI wrapper speaking the
-# NDJSON /v1/tts contract src/audio.ts translates; the upstream devnen repo
-# has no compatible HTTP surface of its own.
+# runtime image. The wrapper is sagaforge's own FastAPI app speaking the
+# NDJSON /v1/tts contract src/audio.ts translates -- the upstream devnen repo
+# has no compatible HTTP surface of its own. Its model-agnostic half and
+# requirements.txt come from the `shared` build context
+# (engines/chatterbox-shared, named in this spec dir's build-contexts file),
+# which engines/chatterbox-en builds from too; each image still builds on
+# its own, from its own context.
 FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +35,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN pip install --no-cache-dir torch torchvision torchaudio \
       --index-url https://download.pytorch.org/whl/rocm7.2
 
-COPY requirements.txt /tmp/requirements.txt
+COPY --from=shared requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
 # and torch==2.5.1, both older than what this build actually installs above.
@@ -81,7 +84,7 @@ _load = torch.load; \
 torch.load = lambda *a, **k: _load(*a, **{**k, 'map_location': 'cpu'}); \
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS; \
 ChatterboxMultilingualTTS.from_pretrained(device='cpu')"
-# The forced aligner app.py places words with, baked beside the voice under
+# The forced aligner chatterbox_app.py places words with, baked beside the voice under
 # the same cache so the runtime downloads nothing.
 ENV TORCH_HOME=/app/hf_cache/torch
 RUN python3 -c "from torchaudio.pipelines import MMS_FA; MMS_FA.get_model()"
@@ -107,6 +110,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app/hf_cache /app/hf_cache
 
 WORKDIR /app
+COPY --from=shared chatterbox_app.py .
 COPY app.py .
 
 EXPOSE 8004

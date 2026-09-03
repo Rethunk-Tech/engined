@@ -46,7 +46,16 @@ An engine has no address of its own — a remote-address engine names its
 `[[upstream]]` instead, which carries `base_url`, `secret`, `egress`.
 
 `chatterbox-en` and `chatterbox-multi` stay separate images by operator
-decision: one image failing to build never blocks the other's launch.
+decision: one image failing to build never blocks the other's launch. They
+build from one wrapper, `engines/chatterbox-shared/chatterbox_app.py`, and
+each `app.py` supplies only its own checkpoint and `generate()` call.
+
+A build's context is the spec's own directory, so a file two images share is
+in neither context. `engines/<id>/build-contexts` fixes that: `name=path`
+lines, path relative to the spec dir, which `src/docker.ts` turns into
+`--build-context` flags on the `docker build` a missing image names as its
+fix, and the Dockerfile reads with `COPY --from=<name>`. Each image still
+builds from its own context and reads nothing of the other's.
 
 Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
