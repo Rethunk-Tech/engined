@@ -313,23 +313,18 @@ model    = "sonnet-5"
 # accounted for like every other call here. Its route names the `local`
 # upstream for that reason: the prompt does not leave the machine.
 #
-# opencode is configured by file rather than by flags: engined resolves the
-# request's own model (below, "code") back through listen_port and writes
-# opencode's provider config naming it, so opencode POSTs `model: "code"` --
-# bare, no "@/" prefix -- back to THIS SAME door when it actually answers.
-# An OpenAI-compatible client has no notion of engined's qualified addressing.
-#
+# opencode is configured by file rather than by flags: engined writes its
+# provider config pointing back at listen_port, naming the route's
+# `wire_model` as the model to dial. That is why `wire_model` here is the
+# qualified `@/llama/ornith` and not the route's own segment -- the segment
+# names THIS route, so handing it back would point opencode at itself, and
 # `dispatch.ts`'s resolveModel never falls through a bare string to an
-# engine/model match -- only a `[[chain]]` id resolves one. So the
-# `[[chain]] id = "code"` near the bottom of this file is NOT a redundant
-# duplicate of the route below: it is the only thing that makes opencode's
-# own callback resolve at all. The two "code"s mean different things --
-# `@/opencode/code` (qualified, below) selects the opencode ENGINE; bare
-# `code` (what opencode itself sends back) selects that CHAIN, which is what
-# actually answers the prompt. One name, two meanings, told apart only by the
-# "@/" prefix. This is LOAD-BEARING, not elegant: delete the chain because it
-# looks redundant sitting next to this route, and every opencode request
-# starts failing with `unknown model "code"`.
+# engine/model match. A qualified address resolves on its own, so no
+# `[[chain]]` has to exist to redirect the callback.
+#
+# `model` names the brain rather than the job: `@/opencode/ornith` reads as
+# "opencode running on ornith", and a second local brain is another route
+# beside this one rather than another alias.
 #
 # The floor: opencode exposes NO flag that restricts its tools, and its config
 # floor is overridable by an opencode.json in the workdir or any ancestor of
@@ -342,11 +337,13 @@ model    = "sonnet-5"
 id            = "opencode"
 agent_version = "1.18.26"
 
-# The model a caller names to run an opencode task.
+# The model a caller names to run an opencode task, and -- via `wire_model` --
+# the address opencode is handed to dial back for its own answers.
 [[route]]
-engine   = "opencode"
-upstream = "local"
-model    = "code"
+engine     = "opencode"
+upstream   = "local"
+model      = "ornith"
+wire_model = "@/llama/ornith"
 
 # cursor's floor is a mode (--mode plan), not a tool allowlist -- measured
 # clean against 2026.08.28-50f0823 in docs/security-model.md. Ambient only:
@@ -616,22 +613,3 @@ hops = [
   "@/claude/sonnet-5",
   "@/openai/gpt-5.4-mini",
 ]
-
-# LOAD-BEARING, see the long comment on the opencode `[[engine]]` above: this
-# id has to equal the opencode route's own `model` value, because that value
-# is exactly what opencode POSTs back here, bare, when its provider config
-# resolves. It exists to make ONE caller-invisible round trip work, not to be
-# addressed directly -- a caller reaches opencode through the qualified
-# `@/opencode/code`, never through this bare name.
-[[chain]]
-id   = "code"
-hops = ["@/llama/ornith"]
-
-# The plain dial for this box's own local chat model, addressed by its bare
-# name rather than through chain-private/chain-public's fallback framing --
-# what test/local/opencode.test.ts's default ENGINED_TEST_AGENT_MODEL dials
-# to prove a bare-chain round trip end to end, independent of the opencode
-# route above.
-[[chain]]
-id   = "ornith"
-hops = ["@/llama/ornith"]

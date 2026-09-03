@@ -53,8 +53,11 @@ const EXPECTED_DISABLED_IDS = ["claude", "cursor", "elevenlabs", "openai"];
 // "sonnet-5" appears twice: the ambient claude route and the claude route
 // onto openrouter-anthropic. The openrouter engine's own openai-wire route
 // addresses a different model ("north-mini-code:free") than either.
+// "ornith" appears twice for a different reason: the llama route that serves
+// it, and the opencode route that names the brain it thinks with. Those are
+// distinct addresses (`@/llama/ornith`, `@/opencode/ornith`) on distinct
+// engines, so neither shadows the other.
 const EXPECTED_ROUTE_MODEL_IDS = [
-  "code",
   "composer-2.5",
   "embed",
   "gpt-5.4",
@@ -63,6 +66,7 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "medium.en",
   "north-mini-code:free",
   "ocr",
+  "ornith",
   "ornith",
   "scribe_v1",
   "small.en",

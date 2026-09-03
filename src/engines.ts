@@ -234,7 +234,13 @@ function roundTripTargetFor(engineId: string, config: Config): AgentTarget | und
   if (route?.model === undefined) {
     return undefined;
   }
-  return { baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`, model: route.model };
+  // `wire_model` first, for the same reason the real launch dials it: this
+  // route's own segment names the agent, so handing it back points the child
+  // at itself rather than at a model that answers.
+  return {
+    baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`,
+    model: route.wire_model ?? route.model,
+  };
 }
 
 function noAgentVersionConfiguredFix(engineId: string): string {

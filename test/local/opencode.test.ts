@@ -29,7 +29,9 @@ import { missingEnv, missingEnvReason, requireEnv, seedWorktree, skipTitle } fro
 const VERSION = process.env.ENGINED_TEST_OPENCODE_VERSION;
 const BUNX = process.env.ENGINED_BUNX;
 const DOOR = process.env.ENGINED_TEST_DOOR ?? "http://127.0.0.1:29200/openai/v1";
-const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? "ornith";
+// Qualified, not a bare name: a bare id resolves only through a `[[chain]]`,
+// and this round trip must not depend on the example config declaring one.
+const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? "@/llama/ornith";
 
 /** A warm round trip measured ~11s; a cold one also resolves the npm package. */
 const ROUND_TRIP_TIMEOUT_MS = 240_000;

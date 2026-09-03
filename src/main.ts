@@ -973,7 +973,16 @@ interface AgenticLaunch {
   engineEntry: EngineEntry;
   agentVersion: string;
   doorUrl: string;
-  modelSeg: string;
+  /**
+   * The model id this agent is told to dial back through the door -- its
+   * route's `wire_model` when it declared one, else the address segment.
+   * NOT the address a caller used: `@/opencode/code` names the opencode
+   * route, and handing that route's own segment back to the child points it
+   * at itself, so the name has to resolve to a model on its own. A
+   * slash-bearing address cannot be a `model` segment (`config.ts` refuses
+   * one), which is exactly why `wire_model` is where it goes.
+   */
+  dialModel: string;
   workdir: string | undefined;
   extraEnv: Record<string, string> | undefined;
   req: AgenticHop["req"];
@@ -982,7 +991,7 @@ interface AgenticLaunch {
 }
 
 async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<HopResult> {
-  const { spec, engineEntry, agentVersion, doorUrl, modelSeg, workdir, extraEnv, req } = launch;
+  const { spec, engineEntry, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch;
   const { rawBody, signal } = req;
   const wantsStream = rawBody.stream === true;
   const deltas: string[] = [];
@@ -996,10 +1005,9 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     agentVersion,
     // An agent CLI reaches its model back through engined's own door, so an
     // opencode turn is dispatched, chained and accounted for like any other
-    // -- always on the launch-scoped URL, never the plain one. The model is
-    // always the one this request itself resolved -- an agent with no
-    // `configure` (claude) simply never reads this.
-    upstream: { baseUrl: doorUrl, model: modelSeg },
+    // -- always on the launch-scoped URL, never the plain one. An agent with
+    // no `configure` (claude) simply never reads this.
+    upstream: { baseUrl: doorUrl, model: dialModel },
     args: engineEntry.args,
     envAllowlist: spec.env,
     workdir,
@@ -1181,7 +1189,7 @@ async function execAgentic(
       engineEntry,
       agentVersion,
       doorUrl,
-      modelSeg,
+      dialModel: route?.wire_model ?? modelSeg,
       workdir,
       extraEnv,
       req,
