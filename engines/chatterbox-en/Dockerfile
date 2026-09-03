@@ -1,1 +1,0 @@
-../chatterbox-shared/Dockerfile
