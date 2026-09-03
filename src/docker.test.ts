@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   buildRunArgs,
   DockerLifecycle,
@@ -951,4 +951,54 @@ test("removeEngine keeps a container it could not stop, so shutdown still reache
 
   await lifecycle.shutdown();
   expect(stopLog.length).toBe(2);
+});
+
+describe("a spec dir's build-contexts file", () => {
+  const BUILD_SPEC: RunnableContainerSpec = {
+    ...SPEC,
+    image: "engined/chatterbox-en:local",
+    obtain: "build",
+  };
+
+  /** The `fix` a missing image reports for a spec dir: the whole `docker build` command. */
+  async function buildFix(dir: string): Promise<string | undefined> {
+    const lifecycle = new DockerLifecycle(
+      inspectCountingExec({ count: 0 }, inspectMissing),
+      readyProbe,
+    );
+    return (await lifecycle.probe("build-contexts", BUILD_SPEC, dir)).fix;
+  }
+
+  test("each name=path line becomes a --build-context resolved against the spec dir", async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, "build-contexts-"));
+    try {
+      writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(dir, "build-contexts"), "shared=../shared\n");
+
+      // The path is relative to the spec dir in the file and absolute in the
+      // command: docker resolves a relative one against its own cwd, which is
+      // wherever the operator happens to be standing.
+      expect(await buildFix(dir)).toBe(
+        `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, "../shared")} -f ${join(dir, "Dockerfile")} ${dir}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no such file leaves the build command byte-identical", async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, "build-contexts-"));
+    try {
+      writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
+
+      // Every spec without the file -- which is nearly all of them -- must get
+      // the command it would get if the mechanism did not exist: not a stray
+      // space, not an empty flag.
+      expect(await buildFix(dir)).toBe(
+        `docker build -t ${BUILD_SPEC.image} -f ${join(dir, "Dockerfile")} ${dir}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
