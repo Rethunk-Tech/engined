@@ -176,6 +176,32 @@ export function specDigest(spec: RunnableContainerSpec): string {
 }
 
 /**
+ * One flag per `name=value` line of `<specSource>/<file>`, appended to the
+ * spec's own `docker build`. A spec declares what its Dockerfile needs in the
+ * spec dir; nothing here knows which engine is asking or what the names mean.
+ * `value` maps the right-hand side where it is not taken literally.
+ */
+function declaredBuildFlags(
+  specSource: string,
+  file: string,
+  flag: string,
+  value: (raw: string) => string = (raw) => raw,
+): string {
+  const path = posix.join(specSource, file);
+  if (!existsSync(path)) {
+    return "";
+  }
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.includes("="))
+    .map((line) => {
+      const eq = line.indexOf("=");
+      return ` ${flag} ${line.slice(0, eq).trim()}=${value(line.slice(eq + 1).trim())}`;
+    })
+    .join("");
+}
+
+/**
  * The `--build-context` flags a spec's Dockerfile needs, one `name=path` per
  * line in `<specSource>/build-contexts`, each path relative to the spec dir.
  *
@@ -187,20 +213,21 @@ export function specDigest(spec: RunnableContainerSpec): string {
  * of the other's.
  */
 function extraBuildContexts(specSource: string): string {
-  const file = posix.join(specSource, "build-contexts");
-  if (!existsSync(file)) {
-    return "";
-  }
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter((line) => line.includes("="))
-    .map((line) => {
-      const eq = line.indexOf("=");
-      const name = line.slice(0, eq).trim();
-      const dir = posix.resolve(specSource, line.slice(eq + 1).trim());
-      return ` --build-context ${name}=${dir}`;
-    })
-    .join("");
+  return declaredBuildFlags(specSource, "build-contexts", "--build-context", (raw) =>
+    posix.resolve(specSource, raw),
+  );
+}
+
+/**
+ * The `--build-arg` flags a spec's Dockerfile needs, one `name=value` per
+ * line in `<specSource>/build-args`.
+ *
+ * Two images built from one Dockerfile differ only in what they pass here, so
+ * each stays a separate tag from a separate `docker build` and neither
+ * build's failure can hold up the other's.
+ */
+function extraBuildArgs(specSource: string): string {
+  return declaredBuildFlags(specSource, "build-args", "--build-arg");
 }
 
 /** The flags docker never receives from config: the container name and both ports are read back, not written. */
@@ -707,7 +734,7 @@ export class DockerLifecycle {
     if (specSource !== undefined) {
       const dockerfile = posix.join(specSource, "Dockerfile");
       if (existsSync(dockerfile)) {
-        return `docker build -t ${spec.image}${extraBuildContexts(specSource)} -f ${dockerfile} ${specSource}`;
+        return `docker build -t ${spec.image}${extraBuildContexts(specSource)}${extraBuildArgs(specSource)} -f ${dockerfile} ${specSource}`;
       }
     }
     const where = specSource === undefined ? "" : ` at ${specSource}`;

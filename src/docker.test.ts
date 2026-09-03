@@ -953,7 +953,7 @@ test("removeEngine keeps a container it could not stop, so shutdown still reache
   expect(stopLog.length).toBe(2);
 });
 
-describe("a spec dir's build-contexts file", () => {
+describe("a spec dir's declared build flags", () => {
   const BUILD_SPEC: RunnableContainerSpec = {
     ...SPEC,
     image: "engined/chatterbox-en:local",
@@ -980,6 +980,26 @@ describe("a spec dir's build-contexts file", () => {
       // wherever the operator happens to be standing.
       expect(await buildFix(dir)).toBe(
         `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, "../shared")} -f ${join(dir, "Dockerfile")} ${dir}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("each name=value line of build-args becomes a --build-arg, after the contexts", async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, "build-args-"));
+    try {
+      writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
+      writeFileSync(join(dir, "build-contexts"), "shared=../shared\n");
+      writeFileSync(join(dir, "build-args"), "PORT=8005\nCHECKPOINT_CLASS=Turbo\n");
+
+      // Values are taken literally -- unlike a context's path, which is a
+      // location this has to resolve; a build arg is whatever the Dockerfile
+      // means by it.
+      expect(await buildFix(dir)).toBe(
+        `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, "../shared")}` +
+          " --build-arg PORT=8005 --build-arg CHECKPOINT_CLASS=Turbo" +
+          ` -f ${join(dir, "Dockerfile")} ${dir}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -1,0 +1,3 @@
+CHECKPOINT_MODULE=chatterbox.mtl_tts
+CHECKPOINT_CLASS=ChatterboxMultilingualTTS
+PORT=8004

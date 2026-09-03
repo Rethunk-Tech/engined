@@ -1,0 +1,3 @@
+CHECKPOINT_MODULE=chatterbox.tts_turbo
+CHECKPOINT_CLASS=ChatterboxTurboTTS
+PORT=8005

@@ -53,15 +53,22 @@ An engine has no address of its own — a remote-address engine names its
 
 `chatterbox-en` and `chatterbox-multi` stay separate images by operator
 decision: one image failing to build never blocks the other's launch. They
-build from one wrapper, `engines/chatterbox-shared/chatterbox_app.py`, and
-each `app.py` supplies only its own checkpoint and `generate()` call.
+build from one wrapper, `engines/chatterbox-shared/chatterbox_app.py`, and one
+`engines/chatterbox-shared/Dockerfile` each spec dir symlinks; each `app.py`
+supplies only its own checkpoint and `generate()` call, and each `build-args`
+only the checkpoint to bake and the port to serve.
 
 A build's context is the spec's own directory, so a file two images share is
-in neither context. `engines/<id>/build-contexts` fixes that: `name=path`
-lines, path relative to the spec dir, which `src/docker.ts` turns into
-`--build-context` flags on the `docker build` a missing image names as its
-fix, and the Dockerfile reads with `COPY --from=<name>`. Each image still
-builds from its own context and reads nothing of the other's.
+in neither context. Two files in a spec dir declare what its build needs, both
+read generically by `src/docker.ts` and appended to the `docker build` a
+missing image names as its fix -- which stays one runnable command:
+
+- `build-contexts`: `name=path` lines, path relative to the spec dir, emitted
+  as `--build-context` and read by the Dockerfile with `COPY --from=<name>`.
+- `build-args`: `name=value` lines, emitted as `--build-arg`, which is how one
+  Dockerfile produces two distinct images from two separate builds.
+
+Each image still builds from its own context and reads nothing of the other's.
 
 Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
