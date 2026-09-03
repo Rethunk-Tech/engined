@@ -149,6 +149,32 @@ export interface TranscriptionRequestBody {
 }
 
 /**
+ * The same request with the recording still arriving. A multipart part cannot
+ * be read before the part after it exists, so a form is a buffer by
+ * construction — the shape that carries a live recording is the audio itself
+ * as the body, and every other field in the query string.
+ *
+ * `stream` is not optional here: a body with no declared end has no whole
+ * transcript to wait for, and nothing to answer a buffered request with.
+ */
+export interface StreamedTranscriptionRequestBody
+  extends Omit<TranscriptionRequestBody, "file" | "stream"> {
+  file: ReadableStream<Uint8Array>;
+  stream: true;
+}
+
+/** Either shape of the same verb; `liveUpload` tells them apart. */
+export type AnyTranscriptionRequestBody =
+  | TranscriptionRequestBody
+  | StreamedTranscriptionRequestBody;
+
+export function liveUpload(
+  req: AnyTranscriptionRequestBody,
+): req is StreamedTranscriptionRequestBody {
+  return req.file instanceof ReadableStream;
+}
+
+/**
  * Whatever starts an engine on demand and reports where it landed —
  * `EngineRegistry.start`, in production. `model` selects which of the
  * engine's own model-bearing routes should be resident (whisper's
@@ -660,7 +686,7 @@ function vettedTranscriptFrame(frame: Frame): Record<string, unknown> | undefine
  * takes ride in the query string instead of earning a parser on the far side.
  */
 async function transcribeStreamed(
-  req: TranscriptionRequestBody,
+  req: AnyTranscriptionRequestBody,
   privateUrl: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
@@ -695,11 +721,13 @@ async function transcribeStreamed(
 }
 
 /** `undefined` when the request is well-formed; a 400 response otherwise. */
-function invalidTranscriptionRequest(req: TranscriptionRequestBody): DoorResponse | undefined {
+function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResponse | undefined {
   if (!req.engine) {
     return errorResponse(STATUS_BAD_REQUEST, "engine is required");
   }
-  if (req.file.length === 0) {
+  // A live body's emptiness is not knowable here -- the engine answers a body
+  // that turned out to carry nothing with its own 400.
+  if (!liveUpload(req) && req.file.length === 0) {
     return errorResponse(STATUS_BAD_REQUEST, "file is required");
   }
   // srt/vtt/text format a whole transcript, and a streamed reply has no whole
@@ -755,7 +783,7 @@ async function transcribeLocal(
 }
 
 export async function handleTranscription(
-  req: TranscriptionRequestBody,
+  req: AnyTranscriptionRequestBody,
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
@@ -770,7 +798,7 @@ export async function handleTranscription(
     return conflict;
   }
   if (engine.remote !== undefined) {
-    if (req.stream === true) {
+    if (liveUpload(req) || req.stream === true) {
       // Said out loud rather than answered with the buffered transcript: a
       // caller that asked for frames and silently got one body cannot tell
       // the engine from the door.
@@ -793,7 +821,8 @@ export async function handleTranscription(
       engine.unavailable ?? `${req.engine} is not available`,
     );
   }
-  return req.stream === true
-    ? await transcribeStreamed(req, engine.private_url, fetchImpl)
-    : await transcribeLocal(req, engine.private_url, fetchImpl);
+  if (liveUpload(req) || req.stream === true) {
+    return await transcribeStreamed(req, engine.private_url, fetchImpl);
+  }
+  return await transcribeLocal(req, engine.private_url, fetchImpl);
 }

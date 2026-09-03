@@ -10,13 +10,13 @@ import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } f
 import { join } from "node:path";
 import process from "node:process";
 import {
+  type AnyTranscriptionRequestBody,
   type DoorResponse,
   type EngineStart,
   handleSpeech,
   handleTranscription,
   SPEECH_DOOR_KEYS,
   type SpeechRequestBody,
-  type TranscriptionRequestBody,
 } from "./audio.ts";
 import { classifyResult, wrapStream } from "./chain.ts";
 import { resolveModel } from "./dispatch.ts";
@@ -428,11 +428,36 @@ export async function handleAudioSpeech(
 
 interface TranscriptionForm {
   rawModel: string | null;
-  file: Uint8Array<ArrayBuffer>;
+  /** A stream when the recording is still being made; the bytes of one that is not. */
+  file: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>;
   language: string | undefined;
   responseFormat: string | undefined;
   prompt: string | undefined;
   stream: boolean;
+}
+
+/**
+ * The live shape of the same verb: `?stream=true` with the recording as the
+ * request body, and the fields a form would have carried in the query string.
+ *
+ * Not multipart, because multipart is a buffering point -- a part is only
+ * readable once the boundary after it has arrived, so a form cannot deliver
+ * audio that is still being spoken. `undefined` for every other request, which
+ * leaves the multipart verb exactly as it was.
+ */
+function liveTranscription(req: Request): TranscriptionForm | undefined {
+  const query = new URL(req.url).searchParams;
+  if (query.get("stream") !== "true" || req.body === null) {
+    return undefined;
+  }
+  return {
+    rawModel: query.get("model"),
+    file: req.body,
+    language: query.get("language") ?? undefined,
+    responseFormat: query.get("response_format") ?? undefined,
+    prompt: query.get("prompt") ?? undefined,
+    stream: true,
+  };
 }
 
 /** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
@@ -463,10 +488,13 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
 }
 
 /**
- * An upload is read into memory whole, so a request larger than this is
- * refused before it is read rather than after. Generous enough for any
+ * A multipart upload is read into memory whole, so a request larger than this
+ * is refused before it is read rather than after. Generous enough for any
  * recording a caller has reason to transcribe in one request; a longer one
  * belongs in segments, which is what every consumer already sends.
+ *
+ * A live body declares no length and is never held here, so the same ceiling
+ * is the engine wrapper's to enforce as the audio arrives.
  */
 const MAX_AUDIO_UPLOAD_BYTES = 268_435_456;
 
@@ -478,20 +506,22 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
       `upload is ${declared} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
     );
   }
-  const form = await parseTranscriptionForm(req);
+  const form = liveTranscription(req) ?? (await parseTranscriptionForm(req));
   if (form === undefined) {
     return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
   }
-  // Zero bytes reaches whisper as a valid-looking empty upload and comes back
-  // as an empty transcript, which reads like silence rather than a bad request.
-  if (form.file.byteLength === 0) {
-    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
-  }
-  if (form.file.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
-    );
+  if (!(form.file instanceof ReadableStream)) {
+    // Zero bytes reaches whisper as a valid-looking empty upload and comes back
+    // as an empty transcript, which reads like silence rather than a bad request.
+    if (form.file.byteLength === 0) {
+      return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
+    }
+    if (form.file.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
+      return jsonError(
+        STATUS_PAYLOAD_TOO_LARGE,
+        `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
+      );
+    }
   }
   const audio = resolveAudioEngine(
     ctx,
@@ -504,15 +534,17 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
   const { engineId, model } = audio;
   const leased: AudioLease = { held: false };
   const start = audioStart(ctx, leased);
-  const transcriptionReq: TranscriptionRequestBody = {
+  const common = {
     engine: engineId,
     model,
-    file: form.file,
     language: form.language,
     response_format: form.responseFormat,
     prompt: form.prompt,
-    stream: form.stream,
   };
+  const transcriptionReq: AnyTranscriptionRequestBody =
+    form.file instanceof ReadableStream
+      ? { ...common, file: form.file, stream: true }
+      : { ...common, file: form.file, stream: form.stream };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
   armAudioIdleStop(ctx, engineId, leased);
