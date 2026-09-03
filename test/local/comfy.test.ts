@@ -336,16 +336,10 @@ interface Rig {
   lifecycle: DockerLifecycle;
   registry: EngineRegistry;
   router: LlamaRouter;
+  fixture: Fixture;
 }
 
-/**
- * Built in `beforeAll`, not the `describe` body: bun still calls a skipped
- * describe's own body to enumerate its tests (confirmed empirically -- only
- * `beforeAll`/`afterAll`/`test` bodies are actually skipped), and
- * `EngineRegistry`'s constructor loads every engine's spec eagerly, which
- * would throw on the `FIXTURE`-less path the moment this file is merely
- * collected, ENGINED_LOCAL or not.
- */
+/** The lifecycle, registry and router one describe block drives, all sharing the one `DockerLifecycle`. */
 function buildRig(fixture: Fixture): Rig {
   const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
   const registry = new EngineRegistry(fixture.config, {
@@ -361,33 +355,59 @@ function buildRig(fixture: Fixture): Rig {
     readyTimeoutS: READY_TIMEOUT_S,
     presetHostPath: join(import.meta.dir, ".scratch-preset-comfy.ini"),
   });
-  return { lifecycle, registry, router };
+  return { lifecycle, registry, router, fixture };
+}
+
+/**
+ * One rig per describe block, built and torn down with it, reached through
+ * the returned accessor.
+ *
+ * Built in `beforeAll`, never in the `describe` body: bun still calls a
+ * skipped describe's own body to enumerate its tests (confirmed empirically
+ * -- only `beforeAll`/`afterAll`/`test` bodies are actually skipped), and
+ * `EngineRegistry`'s constructor loads every engine's spec eagerly, which
+ * would throw on the `FIXTURE`-less path the moment this file is merely
+ * collected, ENGINED_LOCAL or not.
+ *
+ * The accessor throws rather than handing back `undefined`, so a `beforeAll`
+ * that never ran surfaces as itself instead of as a property access on
+ * nothing; narrowing `FIXTURE` here, once, is what lets every test body below
+ * read it as a plain `Fixture`.
+ */
+function withRig(): () => Rig {
+  let rig: Rig | undefined;
+
+  beforeAll(() => {
+    if (!FIXTURE) {
+      throw new Error("this suite registered without a fixture -- its readiness gate is broken");
+    }
+    rig = buildRig(FIXTURE);
+  });
+
+  afterAll(async () => {
+    await rig?.registry.shutdown();
+    await rig?.lifecycle.shutdown();
+  }, SHUTDOWN_TIMEOUT_MS);
+
+  return () => {
+    if (!rig) {
+      throw new Error("beforeAll did not run -- rig is unset");
+    }
+    return rig;
+  };
 }
 
 describe.skipIf(!READY)(
   skipTitle("comfy + llama co-residency (local)", READY, skipReason()),
   () => {
-    let rig: Rig | undefined;
-
-    beforeAll(() => {
-      rig = buildRig(FIXTURE as Fixture);
-    });
-
-    afterAll(async () => {
-      await rig?.registry.shutdown();
-      await rig?.lifecycle.shutdown();
-    }, SHUTDOWN_TIMEOUT_MS);
+    const useRig = withRig();
 
     test(
       "a chat completion and a comfy start co-reside with no reload of either, and comfy idle-stops off its own /queue poll while llama stays running",
       async () => {
-        if (!rig) {
-          throw new Error("beforeAll did not run -- rig is unset");
-        }
-        const { registry, router, lifecycle } = rig;
-        const { chatRoute } = FIXTURE as Fixture;
+        const { registry, router, lifecycle, fixture } = useRig();
 
-        expect(await chatCompletes(router, chatRoute)).toBe(true);
+        expect(await chatCompletes(router, fixture.chatRoute)).toBe(true);
         const comfyStatus = await registry.start("comfy");
         expect(comfyStatus.state).toBe("running");
         expect(await comfyQueueReachable(lifecycle.getStatus("comfy").private_url)).toBe(true);
@@ -395,7 +415,7 @@ describe.skipIf(!READY)(
         // Co-residency, not a reload: the SAME chat completion still answers
         // with comfy now also running, through the identical router instance
         // -- a reload would have needed a fresh container.
-        expect(await chatCompletes(router, chatRoute)).toBe(true);
+        expect(await chatCompletes(router, fixture.chatRoute)).toBe(true);
         expect(registry.get("llama")?.state).toBe("running");
 
         // Nothing submits a comfy job, so its own /queue poll should observe
@@ -426,27 +446,14 @@ describe.skipIf(!READY)(
 describe.skipIf(!READY)(
   skipTitle("comfy runs a real job beside a resident chat GGUF (local)", READY, skipReason()),
   () => {
-    let rig: Rig | undefined;
-
-    beforeAll(() => {
-      rig = buildRig(FIXTURE as Fixture);
-    });
-
-    afterAll(async () => {
-      await rig?.registry.shutdown();
-      await rig?.lifecycle.shutdown();
-    }, SHUTDOWN_TIMEOUT_MS);
+    const useRig = withRig();
 
     test(
       "a comfy job produces an image while the chat model stays resident, and the chat after it pays no reload",
       async () => {
-        if (!rig) {
-          throw new Error("beforeAll did not run -- rig is unset");
-        }
-        const { registry, router, lifecycle } = rig;
-        const { chatRoute } = FIXTURE as Fixture;
+        const { registry, router, lifecycle, fixture } = useRig();
 
-        expect(await chatCompletes(router, chatRoute)).toBe(true);
+        expect(await chatCompletes(router, fixture.chatRoute)).toBe(true);
         const before = lifecycle.getStatus("llama").private_url;
 
         const comfy = await registry.start("comfy");
@@ -461,7 +468,7 @@ describe.skipIf(!READY)(
         // Same container, same published port: a reload would have replaced
         // both, and engined proxied none of the job -- it went straight to the
         // private_url above.
-        expect(await chatCompletes(router, chatRoute)).toBe(true);
+        expect(await chatCompletes(router, fixture.chatRoute)).toBe(true);
         expect(registry.get("llama")?.state).toBe("running");
         expect(lifecycle.getStatus("llama").private_url).toBe(before);
       },
@@ -480,23 +487,12 @@ describe.skipIf(!READY)(
 describe.skipIf(!CAN_RENDER)(
   skipTitle("comfy renders through a real checkpoint (local)", CAN_RENDER, renderSkipReason()),
   () => {
-    let rig: Rig | undefined;
-
-    beforeAll(() => {
-      rig = buildRig(FIXTURE as Fixture);
-    });
-
-    afterAll(async () => {
-      await rig?.registry.shutdown();
-      await rig?.lifecycle.shutdown();
-    }, SHUTDOWN_TIMEOUT_MS);
+    const useRig = withRig();
 
     test(
       "a prompted checkpoint render decodes a real 512x512 PNG, not a flat image",
       async () => {
-        if (!rig) {
-          throw new Error("beforeAll did not run -- rig is unset");
-        }
+        const rig = useRig();
         const comfy = await rig.registry.start("comfy");
         expect(comfy.state).toBe("running");
         const comfyUrl = rig.lifecycle.getStatus("comfy").private_url as string;
