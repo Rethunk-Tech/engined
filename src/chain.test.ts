@@ -17,13 +17,13 @@ import {
   startFakeUpstream,
   writeEngineSpec,
 } from "./test-support.ts";
-import type { Egress } from "./types.ts";
+import { type Egress, qualifiedSegments } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 2000;
-const HOP_ENGINE = /^@\//;
 
+/** The engine a hop names, whether written qualified (`@/engine/...`) or as a bare engine id. */
 function engineOf(hop: string): string {
-  return hop.replace(HOP_ENGINE, "").split("/")[0] ?? hop;
+  return qualifiedSegments(hop)?.[0] ?? hop;
 }
 
 interface Behavior {

@@ -1,12 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
 import {
   BUNX,
-  CONFIG_EXAMPLE,
   ENGINES_ROOT,
   imageBuilt,
   LOCAL,
@@ -14,7 +12,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
-import { skipTitle } from "./fixtures.ts";
+import { loadLocalConfig, skipTitle } from "./fixtures.ts";
 
 /**
  * Drives the real `LlamaRouter` against llama's real container and
@@ -58,28 +56,20 @@ const EMPTY_ENGINE: EngineEntry = { id: "llama", args: {} };
  * entirely, not just the tests themselves.
  */
 function loadFixture(): Fixture {
-  if (!LOCAL) {
-    return { engine: EMPTY_ENGINE, routes: [] };
+  const { config, error } = loadLocalConfig();
+  if (!config) {
+    return { engine: EMPTY_ENGINE, routes: [], error };
   }
-  try {
-    const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const engine = config.engines.find((e) => e.id === "llama");
-    const routes = config.routes.filter((r) => r.engine === "llama" && r.upstream === "local");
-    if (!engine) {
-      return {
-        engine: EMPTY_ENGINE,
-        routes: [],
-        error: "config.example.toml has no llama engine",
-      };
-    }
-    return { engine, routes, image: specImage(engine) };
-  } catch (err) {
+  const engine = config.engines.find((e) => e.id === "llama");
+  if (!engine) {
     return {
       engine: EMPTY_ENGINE,
       routes: [],
-      error: err instanceof Error ? err.message : String(err),
+      error: "config.example.toml has no llama engine",
     };
   }
+  const routes = config.routes.filter((r) => r.engine === "llama" && r.upstream === "local");
+  return { engine, routes, image: specImage(engine) };
 }
 
 const FIXTURE = loadFixture();

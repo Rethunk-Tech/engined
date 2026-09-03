@@ -21,7 +21,7 @@ import {
   portResult,
   tempPresetPath,
 } from "./test-support.ts";
-import type { EngineEntry, ResolvedRoute } from "./types.ts";
+import { type EngineEntry, pollUntil, type ResolvedRoute } from "./types.ts";
 
 const CONTAINER_PORT = 8080;
 const HOST_PORT = 55_123;
@@ -31,6 +31,8 @@ const CHAT_PATH = "/openai/v1/chat/completions";
 const EMBED_PATH = "/openai/v1/embeddings";
 const MODELS_LIST_PATH = "/v1/models";
 const READY_TIMEOUT_ERROR = /readyTimeoutS/;
+/** Tight, because every `waitFor` below is waiting on in-process work, not on a container. */
+const WAIT_INTERVAL_MS = 5;
 const UNLOAD_FAILED_ERROR = /unload failed/;
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
@@ -283,12 +285,8 @@ async function startGatedChat(
 
 /** Polls a condition the router reaches on its own, for work no caller can await. */
 async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!cond()) {
-    if (Date.now() >= deadline) {
-      throw new Error("condition never became true");
-    }
-    await Bun.sleep(5);
+  if (!(await pollUntil(async () => cond(), Date.now() + timeoutMs, WAIT_INTERVAL_MS))) {
+    throw new Error("condition never became true");
   }
 }
 

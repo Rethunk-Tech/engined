@@ -1,16 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { LlamaRouter } from "../../src/llama.ts";
-import type { EngineEntry, ResolvedRoute } from "../../src/types.ts";
-
-type ChatRoute = ResolvedRoute & { model: string };
-
+import type { EngineEntry } from "../../src/types.ts";
 import {
   BUNX,
-  CONFIG_EXAMPLE,
   ENGINES_ROOT,
   imageBuilt,
   LOCAL,
@@ -18,7 +13,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
-import { skipTitle } from "./fixtures.ts";
+import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from "./fixtures.ts";
 
 /**
  * Proves `resources.ts` against a real loaded engine rather than a recorded
@@ -81,29 +76,19 @@ interface Fixture {
 }
 
 function loadFixture(): Fixture {
-  if (!LOCAL) {
-    return { engine: EMPTY_ENGINE };
+  const { config, error } = loadLocalConfig();
+  if (!config) {
+    return { engine: EMPTY_ENGINE, error };
   }
-  try {
-    const config = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const engine = config.engines.find((e) => e.id === "llama");
-    if (!engine) {
-      return { engine: EMPTY_ENGINE, error: "config.example.toml has no llama engine" };
-    }
-    return {
-      engine,
-      chat: config.routes.find(
-        (r): r is ChatRoute =>
-          r.engine === "llama" &&
-          r.upstream === "local" &&
-          r.role === "chat" &&
-          r.model !== undefined,
-      ),
-      image: specImage(engine),
-    };
-  } catch (err) {
-    return { engine: EMPTY_ENGINE, error: err instanceof Error ? err.message : String(err) };
+  const engine = config.engines.find((e) => e.id === "llama");
+  if (!engine) {
+    return { engine: EMPTY_ENGINE, error: "config.example.toml has no llama engine" };
   }
+  return {
+    engine,
+    chat: config.routes.find(isChatRoute),
+    image: specImage(engine),
+  };
 }
 
 /**

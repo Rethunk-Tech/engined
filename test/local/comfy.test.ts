@@ -1,14 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { LlamaRouter } from "../../src/llama.ts";
-import type { Config, EngineEntry, ResolvedRoute } from "../../src/types.ts";
+import { type Config, type EngineEntry, pollUntil } from "../../src/types.ts";
 import {
   BUNX,
-  CONFIG_EXAMPLE,
   ENGINES_ROOT,
   imageBuilt,
   LOCAL,
@@ -16,9 +14,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
-import { skipTitle } from "./fixtures.ts";
-
-type ChatRoute = ResolvedRoute & { model: string };
+import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from "./fixtures.ts";
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -84,40 +80,30 @@ interface Fixture {
 
 /** Never throws: a stale or unreachable config.example.toml is a clean skip, not a crash before any test registers. */
 function loadFixture(): Fixture | undefined {
-  if (!LOCAL) {
+  const { config: loaded } = loadLocalConfig();
+  if (!loaded) {
     return;
   }
-  try {
-    const loaded = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT);
-    const llamaEngine = loaded.engines.find((e) => e.id === "llama");
-    const comfyEngine = loaded.engines.find((e) => e.id === "comfy");
-    const chatRoute = loaded.routes.find(
-      (r): r is ChatRoute =>
-        r.engine === "llama" &&
-        r.upstream === "local" &&
-        r.role === "chat" &&
-        r.model !== undefined,
-    );
-    if (!(llamaEngine && comfyEngine && chatRoute)) {
-      return;
-    }
-    const config: Config = {
-      ...loaded,
-      engines: [llamaEngine, { ...comfyEngine, idle_stop_seconds: COMFY_IDLE_STOP_SECONDS }],
-      routes: [chatRoute],
-      chains: {},
-    };
-    return {
-      config,
-      llamaEngine,
-      chatRoute,
-      llamaImage: specImage(llamaEngine),
-      comfyImage: specImage(comfyEngine),
-      comfyModelsDir: comfyEngine.models_dir,
-    };
-  } catch {
-    // No GGUF at the declared path, or any other parse failure: undefined falls through to a clean skip.
+  const llamaEngine = loaded.engines.find((e) => e.id === "llama");
+  const comfyEngine = loaded.engines.find((e) => e.id === "comfy");
+  const chatRoute = loaded.routes.find(isChatRoute);
+  if (!(llamaEngine && comfyEngine && chatRoute)) {
+    return;
   }
+  const config: Config = {
+    ...loaded,
+    engines: [llamaEngine, { ...comfyEngine, idle_stop_seconds: COMFY_IDLE_STOP_SECONDS }],
+    routes: [chatRoute],
+    chains: {},
+  };
+  return {
+    config,
+    llamaEngine,
+    chatRoute,
+    llamaImage: specImage(llamaEngine),
+    comfyImage: specImage(comfyEngine),
+    comfyModelsDir: comfyEngine.models_dir,
+  };
 }
 
 const FIXTURE = loadFixture();
@@ -212,25 +198,33 @@ async function runComfyJob(
   }
   const { prompt_id: promptId } = (await submit.json()) as { prompt_id: string };
 
-  const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
-    const res = await fetch(`http://${privateUrl}/history/${promptId}`);
-    const history = (await res.json()) as Record<
-      string,
-      {
-        status?: { completed?: boolean };
-        outputs?: Record<string, { images?: { filename: string }[] }>;
+  let images: string[] | undefined;
+  const completed = await pollUntil(
+    async () => {
+      const res = await fetch(`http://${privateUrl}/history/${promptId}`);
+      const history = (await res.json()) as Record<
+        string,
+        {
+          status?: { completed?: boolean };
+          outputs?: Record<string, { images?: { filename: string }[] }>;
+        }
+      >;
+      const entry = history[promptId];
+      if (entry?.status?.completed !== true) {
+        return false;
       }
-    >;
-    const entry = history[promptId];
-    if (entry?.status?.completed === true) {
-      return Object.values(entry.outputs ?? {}).flatMap((o) =>
+      images = Object.values(entry.outputs ?? {}).flatMap((o) =>
         (o.images ?? []).map((i) => i.filename),
       );
-    }
-    await Bun.sleep(IDLE_POLL_INTERVAL_MS);
+      return true;
+    },
+    Date.now() + budgetMs,
+    IDLE_POLL_INTERVAL_MS,
+  );
+  if (!(completed && images)) {
+    throw new Error("comfy job did not complete within its budget");
   }
-  throw new Error("comfy job did not complete within its budget");
+  return images;
 }
 
 /**
@@ -314,22 +308,6 @@ async function chatCompletes(router: LlamaRouter, route: ChatRoute): Promise<boo
     }),
   });
   return res.status === 200;
-}
-
-/** Polls `check` until it returns true or the budget elapses; returns whether it settled true in time. */
-async function waitUntil(
-  check: () => boolean,
-  budgetMs: number,
-  intervalMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
-    if (check()) {
-      return true;
-    }
-    await Bun.sleep(intervalMs);
-  }
-  return check();
 }
 
 interface Rig {
@@ -422,9 +400,9 @@ describe.skipIf(!READY)(
         // emptiness and arm idle-stop -- request traffic to llama never
         // reaches comfy's lease, and no request went to comfy's own door
         // either, since comfy's idle timer must be driven by the poll alone.
-        const comfyIdled = await waitUntil(
-          () => registry.get("comfy")?.state === "installed",
-          IDLE_WAIT_BUDGET_MS,
+        const comfyIdled = await pollUntil(
+          async () => registry.get("comfy")?.state === "installed",
+          Date.now() + IDLE_WAIT_BUDGET_MS,
           IDLE_POLL_INTERVAL_MS,
         );
         expect(comfyIdled).toBe(true);

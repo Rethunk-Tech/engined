@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleSpeech, handleTranscription } from "../../src/audio.ts";
-import { loadConfig } from "../../src/config.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
@@ -17,7 +16,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
-import { skipTitle } from "./fixtures.ts";
+import { loadLocalConfig, skipTitle } from "./fixtures.ts";
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox-multi container
@@ -52,19 +51,14 @@ const ROUND_TRIP_TIMEOUT_MS = 600_000;
  * proves nothing.
  */
 function whisperModelsDir(): { dir?: string; error?: string } {
-  if (!LOCAL) {
-    return { error: 'ENGINED_LOCAL is not "1"' };
+  const { config, error } = loadLocalConfig();
+  if (!config) {
+    return { error };
   }
-  try {
-    const dir = loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT).engines.find(
-      (e) => e.id === "whisper",
-    )?.models_dir;
-    return dir === undefined
-      ? { error: `${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir` }
-      : { dir };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
+  const dir = config.engines.find((e) => e.id === "whisper")?.models_dir;
+  return dir === undefined
+    ? { error: `${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir` }
+    : { dir };
 }
 
 const WHISPER_MODELS = whisperModelsDir();
