@@ -814,6 +814,81 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
   }
 });
 
+test("a streamed audio call holds its lease until the body ends, not until the handler returns", async () => {
+  let release: (() => void) | undefined;
+  const fake = startFakeUpstream((request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (pathname === "/v1/tts") {
+      // Stays open until the test lets go, standing in for an engine still
+      // producing into a body the caller has not finished reading.
+      const audio = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            // A first frame so headers and the relay are live, the way a real
+            // engine reports progress before it has finished synthesizing.
+            controller.enqueue(
+              new TextEncoder().encode(`${JSON.stringify({ phase: "progress", step: 1 })}\n`),
+            );
+            release = () => {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `${JSON.stringify({ phase: "done", audio, alignment: null })}\n`,
+                ),
+              );
+              controller.close();
+            };
+          },
+        }),
+      );
+    }
+    return new Response("", { status: 404 });
+  });
+  const { port } = fake;
+  const exec = buildExec({ portByContainer: { "engined-chatterbox-multi": port } });
+  const IDLE_STOP_SECONDS = 0.03;
+  const config = baseConfig({
+    routes: CHATTERBOX_ROUTES,
+    engines: [
+      containerEngine("chatterbox-multi", ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS }),
+    ],
+  });
+  const door = createDoor(config, {
+    enginesRoot: "/nonexistent/engines",
+    bunx: "/opt/test/bunx",
+    exec,
+  });
+
+  try {
+    const speech = await door.fetch(
+      req("POST", "/openai/v1/audio/speech", {
+        body: { model: CHATTERBOX, input: "hi", stream: "ndjson" },
+      }),
+    );
+    expect(speech.status).toBe(200);
+
+    // The handler has returned, but the engine is still producing. Arming the
+    // countdown here would aim it at a request in flight.
+    await Bun.sleep(60);
+    const during = await door.fetch(req("GET", "/engined/v1/engines"));
+    const held = (await during.json()) as { engines: Array<{ id: string; state: string }> };
+    expect(held.engines.find((e) => e.id === "chatterbox-multi")?.state).toBe("running");
+
+    release?.();
+    await speech.text();
+    await Bun.sleep(60);
+    const after = await door.fetch(req("GET", "/engined/v1/engines"));
+    const ended = (await after.json()) as { engines: Array<{ id: string; state: string }> };
+    expect(ended.engines.find((e) => e.id === "chatterbox-multi")?.state).toBe("installed");
+  } finally {
+    fake.stop();
+    await door.registry.shutdown();
+  }
+});
+
 test("a failed audio call records why it failed, not merely that it did", async () => {
   const fake = startFakeUpstream((request) => {
     const { pathname } = new URL(request.url);

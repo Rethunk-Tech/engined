@@ -157,6 +157,31 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease
 }
 
 /**
+ * Ends the call's lease when the call actually ends.
+ *
+ * A streamed response returns as soon as its headers and stream are handed
+ * back, while the engine is still producing into it -- a transcription decoded
+ * during upload runs for as long as the caller keeps talking. Arming the
+ * countdown at that moment aims it at a request still in flight, so the lease
+ * ends on the same signal the provenance line waits for: the body finishing.
+ */
+function endAudioLease(
+  ctx: DoorContext,
+  engineId: string,
+  leased: AudioLease,
+  result: DoorResponse,
+): DoorResponse {
+  if (!result.stream) {
+    armAudioIdleStop(ctx, engineId, leased);
+    return result;
+  }
+  return {
+    ...result,
+    stream: wrapStream(result.stream, () => armAudioIdleStop(ctx, engineId, leased)),
+  };
+}
+
+/**
  * Both audio endpoints take an engine, and a model where the resolved
  * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
  * "scribe_v1" -- never a chain. Resolution and that refusal are one step.
@@ -420,9 +445,13 @@ export async function handleAudioSpeech(
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);
-  armAudioIdleStop(ctx, engineId, leased);
   return doorResponseToResponse(
-    recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt }),
+    endAudioLease(
+      ctx,
+      engineId,
+      leased,
+      recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt }),
+    ),
   );
 }
 
@@ -553,8 +582,12 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
       : { ...common, file: form.file, stream: form.stream };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
-  armAudioIdleStop(ctx, engineId, leased);
   return doorResponseToResponse(
-    recordAudioCall(ctx, { engineId, model, requested: form.rawModel ?? "", result, startedAt }),
+    endAudioLease(
+      ctx,
+      engineId,
+      leased,
+      recordAudioCall(ctx, { engineId, model, requested: form.rawModel ?? "", result, startedAt }),
+    ),
   );
 }
