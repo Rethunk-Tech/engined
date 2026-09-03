@@ -161,15 +161,26 @@ function asArgs(v: unknown, site: string, file: string): Record<string, unknown>
   return v;
 }
 
-function parseSecret(v: unknown, site: string, file: string): SecretRef {
-  if (!isRecord(v)) {
-    throw new ParseError(`${site} "secret" must be a table`, file);
+/** Every `[[table]]` entry is checked the same way before any of its fields are read: it must be a table, and an unrecognised key is a typo the operator wants named rather than silently ignored. */
+function requireTable(
+  raw: unknown,
+  site: string,
+  keys: ReadonlySet<string>,
+  file: string,
+): Record<string, unknown> {
+  if (!isRecord(raw)) {
+    throw new ParseError(`${site} must be a table`, file);
   }
-  for (const key of Object.keys(v)) {
-    if (!SECRET_KEYS.has(key)) {
-      throw new ParseError(`${site} "secret" has unrecognised key "${key}"`, file);
+  for (const key of Object.keys(raw)) {
+    if (!keys.has(key)) {
+      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
     }
   }
+  return raw;
+}
+
+function parseSecret(value: unknown, site: string, file: string): SecretRef {
+  const v = requireTable(value, `${site} "secret"`, SECRET_KEYS, file);
   return {
     service: requireString(v.service, `${site} "secret.service"`, file),
     username: requireString(v.username, `${site} "secret.username"`, file),
@@ -198,16 +209,9 @@ function parseEgress(raw: unknown, label: string, file: string): Egress | undefi
   return v;
 }
 
-function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
+function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`;
-  if (!isRecord(raw)) {
-    throw new ParseError(`${posSite} must be a table`, file);
-  }
-  for (const key of Object.keys(raw)) {
-    if (!ENGINE_KEYS.has(key)) {
-      throw new ParseError(`${posSite} has unrecognised key "${key}"`, file);
-    }
-  }
+  const raw = requireTable(value, posSite, ENGINE_KEYS, file);
   const id = requireString(raw.id, `${posSite} "id"`, file);
   const site = `engine "${id}"`;
   const rawModelsDir = optional(raw.models_dir, "string", `${site} "models_dir"`, file);
@@ -234,16 +238,9 @@ function parseEngine(raw: unknown, index: number, file: string): EngineEntry {
   };
 }
 
-function parseUpstream(raw: unknown, index: number, file: string): Upstream {
+function parseUpstream(value: unknown, index: number, file: string): Upstream {
   const posSite = `upstream[${index}]`;
-  if (!isRecord(raw)) {
-    throw new ParseError(`${posSite} must be a table`, file);
-  }
-  for (const key of Object.keys(raw)) {
-    if (!UPSTREAM_KEYS.has(key)) {
-      throw new ParseError(`${posSite} has unrecognised key "${key}"`, file);
-    }
-  }
+  const raw = requireTable(value, posSite, UPSTREAM_KEYS, file);
   const id = requireString(raw.id, `${posSite} "id"`, file);
   const site = `upstream "${id}"`;
   const egress = parseEgress(raw.egress, `${site} "egress"`, file);
@@ -309,16 +306,9 @@ function mergeCapabilities(...layers: readonly ModelCapabilities[]): ModelCapabi
   return merged;
 }
 
-function parseModel(raw: unknown, index: number, file: string): ModelEntry {
+function parseModel(value: unknown, index: number, file: string): ModelEntry {
   const posSite = `model[${index}]`;
-  if (!isRecord(raw)) {
-    throw new ParseError(`${posSite} must be a table`, file);
-  }
-  for (const key of Object.keys(raw)) {
-    if (!MODEL_KEYS.has(key)) {
-      throw new ParseError(`${posSite} has unrecognised key "${key}"`, file);
-    }
-  }
+  const raw = requireTable(value, posSite, MODEL_KEYS, file);
   const id = requireString(raw.id, `${posSite} "id"`, file);
   return { id, ...parseCapabilities(raw, `model "${id}"`, file) };
 }
@@ -340,20 +330,13 @@ interface RawRoute {
 }
 
 function parseRouteRaw(
-  raw: unknown,
+  value: unknown,
   index: number,
   file: string,
   engines: Map<string, EngineEntry>,
 ): RawRoute {
   const posSite = `route[${index}]`;
-  if (!isRecord(raw)) {
-    throw new ParseError(`${posSite} must be a table`, file);
-  }
-  for (const key of Object.keys(raw)) {
-    if (!ROUTE_KEYS.has(key)) {
-      throw new ParseError(`${posSite} has unrecognised key "${key}"`, file);
-    }
-  }
+  const raw = requireTable(value, posSite, ROUTE_KEYS, file);
   const engineId = requireString(raw.engine, `${posSite} "engine"`, file);
   const modelStr = optional(raw.model, "string", `${posSite} "model"`, file);
   const site = `route[${index}] on engine "${engineId}"${modelStr === undefined ? "" : ` model "${modelStr}"`}`;
@@ -739,16 +722,9 @@ interface RawChain {
   disabled: boolean;
 }
 
-function parseChainRaw(raw: unknown, index: number, file: string): RawChain {
+function parseChainRaw(value: unknown, index: number, file: string): RawChain {
   const posSite = `chain[${index}]`;
-  if (!isRecord(raw)) {
-    throw new ParseError(`${posSite} must be a table`, file);
-  }
-  for (const key of Object.keys(raw)) {
-    if (!CHAIN_KEYS.has(key)) {
-      throw new ParseError(`${posSite} has unrecognised key "${key}"`, file);
-    }
-  }
+  const raw = requireTable(value, posSite, CHAIN_KEYS, file);
   const id = requireString(raw.id, `${posSite} "id"`, file);
   const site = `chain "${id}"`;
   const hopsRaw = asArray(raw.hops, `${site} "hops"`, file);

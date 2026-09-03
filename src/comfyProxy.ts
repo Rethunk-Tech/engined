@@ -191,6 +191,11 @@ function noSuchComfyEngine(engineSeg: string, upstreamSeg: string): Response {
   );
 }
 
+/** comfy's own status and body handed straight back, re-declared as JSON: the body is already read, so nothing but the door's own content type is imposed on it. */
+function jsonForward(res: Response, text: string): Response {
+  return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
+}
+
 /** `GET /object_info/{nodeType}` and `GET /system_stats`: a static node schema and the container's own stats, nobody's data either way. */
 async function forwardComfyGet(
   base: string,
@@ -228,7 +233,7 @@ async function proxyComfyPrompt(
     ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), []);
     saveComfyBindings(ctx.comfyBindings);
   }
-  return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
+  return jsonForward(res, text);
 }
 
 /** `POST /upload/image`, forwarded with the stored filename namespaced -- comfy's input directory is shared across every caller, and two callers uploading "reference.png" the same second must not silently overwrite one another. */
@@ -256,10 +261,7 @@ async function proxyComfyUpload(
     }
   }
   const res = await httpClient(`${base}/upload/image`, { method: "POST", body: outgoing });
-  return new Response(await res.text(), {
-    status: res.status,
-    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-  });
+  return jsonForward(res, await res.text());
 }
 
 /**
@@ -378,7 +380,7 @@ async function proxyComfyHistory(
       saveComfyBindings(ctx.comfyBindings);
     }
   }
-  return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
+  return jsonForward(res, text);
 }
 
 /** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
@@ -491,10 +493,7 @@ async function proxyComfyQueueDelete(
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
   });
-  return new Response(await res.text(), {
-    status: res.status,
-    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-  });
+  return jsonForward(res, await res.text());
 }
 
 /**

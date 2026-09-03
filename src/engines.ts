@@ -585,6 +585,17 @@ function engineCapabilities(
   return capabilities.length > 0 ? capabilities : undefined;
 }
 
+/** The identity an engine reports whatever produced its runtime state: everything an `EngineStatus` carries that a probe cannot change. */
+function baseStatus(engine: EngineEntry, spec: Spec, routes: readonly ResolvedRoute[]) {
+  return {
+    id: engine.id,
+    kind: spec.kind,
+    serves: spec.serves,
+    streaming: spec.streaming,
+    capabilities: engineCapabilities(engine.id, routes, spec.serves),
+  };
+}
+
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
 function statusFrom(
   engine: EngineEntry,
@@ -593,15 +604,11 @@ function statusFrom(
   routes: readonly ResolvedRoute[],
 ): EngineStatus {
   return {
-    id: engine.id,
-    kind: spec.kind,
-    serves: spec.serves,
-    streaming: spec.streaming,
+    ...baseStatus(engine, spec, routes),
     state: runtime.state,
     fix: runtime.fix,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
-    capabilities: engineCapabilities(engine.id, routes, spec.serves),
   };
 }
 
@@ -797,14 +804,7 @@ export class EngineRegistry {
 
     const { spec } = entry.spec;
     if (!isContainerSpec(spec)) {
-      return {
-        id: engine.id,
-        kind: spec.kind,
-        serves: spec.serves,
-        streaming: spec.streaming,
-        state: "installed",
-        capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
-      };
+      return { ...baseStatus(engine, spec, this.config.routes), state: "installed" };
     }
 
     return statusFrom(engine, spec, this.lifecycle.getStatus(engine.id), this.config.routes);
@@ -820,14 +820,10 @@ export class EngineRegistry {
   private disabledStatus(entry: Entry): EngineStatus {
     const { engine, spec } = entry;
     return {
-      id: engine.id,
-      kind: spec.spec.kind,
-      serves: this.serves(engine.id),
-      streaming: spec.spec.streaming,
+      ...baseStatus(engine, spec.spec, this.config.routes),
       state: "unavailable",
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
-      capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
     };
   }
 
@@ -891,13 +887,7 @@ export class EngineRegistry {
     spec: AgenticSpec,
     fresh: boolean,
   ): Promise<EngineStatus> {
-    const base = {
-      id: engine.id,
-      kind: spec.kind,
-      serves: spec.serves,
-      streaming: spec.streaming,
-      capabilities: engineCapabilities(engine.id, this.config.routes, this.serves(engine.id)),
-    };
+    const base = baseStatus(engine, spec, this.config.routes);
     const provable = await this.provableVersion(engine, spec.agent, fresh);
     if ("fix" in provable) {
       return { ...base, state: "unavailable", fix: provable.fix };
