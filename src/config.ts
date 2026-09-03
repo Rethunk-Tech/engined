@@ -14,7 +14,6 @@ import { parseHop } from "./chain.ts";
 import { configPath, dataHome, expandTilde, installDir } from "./paths.ts";
 import type {
   Config,
-  Egress,
   EngineEntry,
   EngineKind,
   ModelCapabilities,
@@ -201,14 +200,6 @@ function parseKind(
   return kindStr as EngineKind | undefined;
 }
 
-function parseEgress(raw: unknown, label: string, file: string): Egress | undefined {
-  const v = optional(raw, "string", label, file);
-  if (v !== undefined && !isEgress(v)) {
-    throw new ParseError(`${label} must be one of: ${Object.keys(EGRESS_RANK).join(", ")}`, file);
-  }
-  return v;
-}
-
 function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`;
   const raw = requireTable(value, posSite, ENGINE_KEYS, file);
@@ -243,9 +234,15 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   const raw = requireTable(value, posSite, UPSTREAM_KEYS, file);
   const id = requireString(raw.id, `${posSite} "id"`, file);
   const site = `upstream "${id}"`;
-  const egress = parseEgress(raw.egress, `${site} "egress"`, file);
+  const egress = optional(raw.egress, "string", `${site} "egress"`, file);
   if (egress === undefined) {
     throw new ParseError(`${site} is missing required "egress"`, file);
+  }
+  if (!isEgress(egress)) {
+    throw new ParseError(
+      `${site} "egress" must be one of: ${Object.keys(EGRESS_RANK).join(", ")}`,
+      file,
+    );
   }
   // "local" always means this box, so a learned upstream name can never point it
   // off-machine. Refused here, before route defaulting reads the literal.
@@ -291,7 +288,6 @@ function parseCapabilities(
   };
 }
 
-/** A route's own declared capability wins field by field; an undeclared field falls through to the `[[model]]` row's. */
 /** Later layers win field by field: the `[[model]]` row, then what the role implies, then the route's own declaration. */
 function mergeCapabilities(...layers: readonly ModelCapabilities[]): ModelCapabilities {
   const merged: ModelCapabilities = {};

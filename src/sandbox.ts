@@ -97,15 +97,12 @@ export function sandboxArgv(input: SandboxInput): string[] {
  * caller -- there is no unsandboxed fallback, because the fallback would be
  * running a write-capable agent loose in someone's repository.
  */
-export function resolveBwrap(
-  env: NodeJS.ProcessEnv = process.env,
-  which: (cmd: string) => string | null = Bun.which,
-): string | null {
-  const configured = env.ENGINED_BWRAP;
+export function resolveBwrap(): string | null {
+  const configured = process.env.ENGINED_BWRAP;
   if (configured !== undefined && configured !== "") {
     return configured;
   }
-  return which("bwrap");
+  return Bun.which("bwrap");
 }
 
 /**

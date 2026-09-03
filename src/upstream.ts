@@ -42,11 +42,6 @@ const LEADING_SLASHES = /^\/+/;
 /** Anchored on the segment boundary so `/v1beta/...` is left alone. */
 const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/;
 
-/** One wording for the missing-secret refusal, shared by the resolver and by `GET /v1/engines`'s `fix`. */
-function noSecretConfiguredFix(upstreamId: string): string {
-  return `upstream "${upstreamId}" has no configured secret`;
-}
-
 /**
  * The raw secret, for the one caller that needs the value itself rather than
  * a header: the agentic redirect hands it to a child process as an
@@ -69,7 +64,7 @@ export async function resolveUpstreamSecret(
       // keyring entry earns below, which resolves at the operator's next
       // sign-in.
       status: STATUS_BAD_GATEWAY,
-      error: noSecretConfiguredFix(upstream.id),
+      error: `upstream "${upstream.id}" has no configured secret`,
     };
   }
   const outcome = await resolveSecret(upstream.secret, secretExec);

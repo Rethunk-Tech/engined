@@ -21,10 +21,6 @@ export function dataHome(): string {
   return xdg("XDG_DATA_HOME", ".local/share");
 }
 
-function stateHome(): string {
-  return xdg("XDG_STATE_HOME", ".local/state");
-}
-
 export function configPath(): string {
   return join(configHome(), "engined", "config.toml");
 }
@@ -36,7 +32,7 @@ export function installDir(): string {
 
 /** The one writable path under `ProtectSystem=strict`. */
 export function stateDir(): string {
-  return join(stateHome(), "engined");
+  return join(xdg("XDG_STATE_HOME", ".local/state"), "engined");
 }
 
 /** A bind-mount needs the absolute path, not the tilde. */
@@ -53,10 +49,6 @@ export function expandTilde(p: string): string {
  * default — both take the path as an option and the door hands them the same
  * one, so a test can redirect the pair together and neither writes here.
  */
-function llamaPresetDir(): string {
-  return `${stateDir()}/llama`;
-}
-
 export function llamaPresetPath(): string {
-  return `${llamaPresetDir()}/preset.ini`;
+  return `${stateDir()}/llama/preset.ini`;
 }

@@ -157,10 +157,8 @@ async function teeText(
   if (onChunk === undefined) {
     return new Response(stream).text();
   }
-  const decoder = new TextDecoder();
   let all = "";
-  for await (const chunk of stream) {
-    const text = decoder.decode(chunk, { stream: true });
+  for await (const text of stream.pipeThrough(new TextDecoderStream())) {
     all += text;
     onChunk(text);
   }
@@ -618,10 +616,6 @@ function probeLaunch(
   });
 }
 
-function floorOf(agent: string): FloorKind {
-  return agentCli(agent)?.floor ?? "flags";
-}
-
 async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
   const workdir = scratchWorktree();
   try {
@@ -629,7 +623,7 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
     const outcome = await probeLaunch(input, workdir, WRITE_INSTRUCTION);
     const after = walkTree(workdir);
     const unchanged = after.hash === before;
-    if (wroteNothing(outcome, floorOf(input.agent), unchanged)) {
+    if (wroteNothing(outcome, agentCli(input.agent)?.floor ?? "flags", unchanged)) {
       return { ok: true };
     }
     // Which of the two conditions failed is the whole diagnosis: a launch

@@ -91,10 +91,6 @@ export function parseHop(hop: string): { engine: string; upstream?: string; mode
     : { engine, upstream: second, model: third };
 }
 
-function bodyIsEmpty(body: unknown): boolean {
-  return body === undefined || body === "";
-}
-
 /**
  * A 4xx naming a problem with THIS hop's own credential -- missing or bad
  * auth, no balance, rate-limited -- is not a problem with the caller's
@@ -149,7 +145,7 @@ export function classifyResult(result: HopResult): {
   if (result.status >= HTTP_CLIENT_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MIN) {
     return { advance: false, ok: false, failure: failureOf(result) };
   }
-  if (!result.stream && bodyIsEmpty(result.body)) {
+  if (!result.stream && (result.body === undefined || result.body === "")) {
     return { advance: true, ok: false, failure: "empty body" };
   }
   return { advance: false, ok: true };
