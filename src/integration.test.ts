@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DoorOptions } from "./doorContext.ts";
 import type { Exec, ExecResult } from "./exec.ts";
+import { HTTP_CLIENT_ERROR_MIN } from "./http.ts";
 import { createDoor, type Door } from "./main.ts";
 import {
   buildExec,
@@ -411,7 +412,7 @@ function fakeLlamaUpstream(
       return Response.json({ error: `fake llama: unexpected path ${pathname}` }, { status: 404 });
     }
     chatBodies?.push((await request.json()) as Record<string, unknown>);
-    return chatStatus >= 400
+    return chatStatus >= HTTP_CLIENT_ERROR_MIN
       ? Response.json({ error: content }, { status: chatStatus })
       : Response.json({ choices: [{ message: { content } }] });
   };
