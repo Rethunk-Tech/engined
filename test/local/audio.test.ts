@@ -12,7 +12,6 @@ import {
   ENGINES_ROOT,
   imageBuilt,
   LOCAL,
-  requireNoResidentEngine,
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
@@ -77,10 +76,10 @@ const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE);
 const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
 const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
 
-// See llama.test.ts: chatterbox-multi's test starts the very container the unit owns.
-if (HAVE_CHATTERBOX || HAVE_WHISPER || HAVE_KOKORO || HAVE_PIPER) {
-  requireNoResidentEngine();
-}
+// No room check: every engine here is a TTS or STT one, all under ~3.5 GiB and
+// resident together without contention, and this tier's own containers take
+// TEST_NAME_PREFIX so they never name one the unit owns. Only the suites that
+// load comfy or llama have to size the pool -- see `requireMemoryFor`.
 
 describe.skipIf(!HAVE_CHATTERBOX)(
   skipTitle(

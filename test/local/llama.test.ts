@@ -8,7 +8,7 @@ import {
   ENGINES_ROOT,
   imageBuilt,
   LOCAL,
-  requireNoResidentEngine,
+  requireMemoryFor,
   specImage,
   TEST_NAME_PREFIX,
 } from "./exclusive.ts";
@@ -81,7 +81,7 @@ const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 // Module scope, guarded by READY: it must fire only when these tests would
 // really drive containers, and it must be loud rather than another clean skip.
 if (READY) {
-  requireNoResidentEngine();
+  requireMemoryFor("llama");
 }
 
 function skipReason(): string {

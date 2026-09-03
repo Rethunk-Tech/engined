@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { loadSpec } from "../../src/spec.ts";
@@ -52,30 +52,49 @@ export function imageBuilt(image: string): boolean {
 }
 
 /**
- * Refuses while any engine of the installed unit is actually running.
+ * Measured resident cost, in GiB, of the only engines large enough to contend.
+ * comfy is ~42 GiB of checkpoints and llama ~30 GiB with its 262k-token KV
+ * cache; every TTS and STT engine is under ~3.5 GiB (piper 0.3, kokoro ~1,
+ * chatterbox ~3.3, whisper smaller still) and several are resident together
+ * without contention, so a suite that loads only those needs no room check.
+ */
+export const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const;
+
+/** How much of the pool to leave for everything that is not this suite's engines. */
+const RESERVE_GIB = 4;
+
+/**
+ * Refuses unless the box has room for the engines this suite is about to load.
  *
- * This is about the GPU, not the daemon: this workstation shares one, so a
- * resident model plus a test loading its own is the second instance
- * `AGENTS.md` forbids outright. A unit that is merely *active* with every
- * engine idle-stopped holds nothing and is no obstacle, which is why the
- * check reads docker rather than systemd.
+ * **A running container is not a resident model.** llama-server idles with
+ * nothing loaded until a request arrives, so `docker ps` routinely reports an
+ * engine holding a few hundred MiB and no weights at all -- an installed unit
+ * is an obstacle only while it actually holds memory this suite needs, which
+ * is why this reads the pool rather than a container list or systemd.
+ *
+ * This APU shares one unified pool between CPU and GPU, so `MemAvailable` is
+ * the constraint itself rather than a proxy for it: a model the GPU has
+ * resident is already subtracted from it.
  *
  * Throws rather than skipping. A skip here would be indistinguishable from
  * the clean skips the rest of this tier uses for a missing image, and the
  * whole point is that this one must not pass unnoticed.
  */
-export function requireNoResidentEngine(): void {
-  const res = spawnSync("docker", ["ps", "--filter", "name=^engined-", "--format", "{{.Names}}"], {
-    encoding: "utf8",
-  });
-  const running = res.stdout
-    .split("\n")
-    .map((n) => n.trim())
-    .filter((n) => n.length > 0 && !n.startsWith(TEST_NAME_PREFIX));
-  if (running.length > 0) {
+export function requireMemoryFor(...engines: (keyof typeof ENGINE_RESIDENT_GIB)[]): void {
+  // The largest, not the sum: comfy and llama are never co-resident -- a suite
+  // naming both drives the swap between them, which is the one thing this box
+  // has no room to do twice over.
+  const needGib = Math.max(...engines.map((id) => ENGINE_RESIDENT_GIB[id])) + RESERVE_GIB;
+  const meminfo = readFileSync("/proc/meminfo", "utf8");
+  const kb = Number(/^MemAvailable:\s+(\d+) kB$/m.exec(meminfo)?.[1]);
+  if (!Number.isFinite(kb)) {
+    throw new Error("/proc/meminfo reported no MemAvailable, so this tier cannot size the pool");
+  }
+  const availableGib = kb / 1024 / 1024;
+  if (availableGib < needGib) {
     throw new Error(
-      `engined containers are running and hold the GPU: ${running.join(", ")}. ` +
-        "Stop them (or `systemctl --user stop engined.service`) and run again.",
+      `${engines.join(" + ")} needs ~${needGib} GiB but only ${availableGib.toFixed(1)} GiB is available. ` +
+        "Release what is resident (`systemctl --user stop engined.service` stops the unit's engines) and run again.",
     );
   }
 }

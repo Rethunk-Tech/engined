@@ -18,11 +18,17 @@ Three tiers:
 - `src/*.test.ts` — CI: parse, dispatch, chain-advance, provenance against a
   fake upstream. Nothing installed.
 - `test/local/*.test.ts` — `ENGINED_LOCAL=1`, serial against real containers.
-  Never in CI. **No engined container may be holding the GPU** —
-  `requireNoResidentEngine` (`test/local/exclusive.ts`) reads `docker ps`, not
-  systemd, so a unit that is merely active with every engine idle-stopped is no
-  obstacle. `systemctl --user stop engined.service` is one way to clear it, not
-  the requirement. Run as `bun run test:local` (not by pointing `bun` at the
+  Never in CI. **The constraint is free memory, not a running container.**
+  `requireMemoryFor` (`test/local/exclusive.ts`) reads `MemAvailable` and
+  refuses only when the pool cannot hold what the suite is about to load. A
+  running container is not a resident model: llama-server idles with nothing
+  loaded until a request arrives, so `docker ps` routinely shows an engine
+  holding a few hundred MiB and no weights. Only comfy (~42 GiB) and llama
+  (~30 GiB with its 262k-token KV cache) are large enough to contend, and only
+  the suites loading them check at all — every TTS and STT engine is under
+  ~3.5 GiB and several are resident together without contention, so the audio
+  suite needs no check. Stopping the unit is one way to free the pool, never
+  a precondition. Run as `bun run test:local` (not by pointing `bun` at the
   directory).
 - No mocks — traps are tool behaviour; substitutes are injected functions with
   real defaults and recorded output.
