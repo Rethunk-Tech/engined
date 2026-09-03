@@ -178,9 +178,15 @@ def _stream(
     def worker():
         _progress_local.queue = q
         try:
-            audio_prompt = (
-                req.voice if req.voice and os.path.exists(req.voice) else None
-            )
+            # A reference voice that does not resolve is refused rather than
+            # ignored: falling back to the default voice returns confident
+            # audio in the wrong voice, which no caller can distinguish from
+            # a successful clone.
+            if req.voice and not os.path.exists(req.voice):
+                raise ValueError(
+                    f"reference voice {req.voice!r} does not resolve inside this container"
+                )
+            audio_prompt = req.voice or None
             pieces = _sentences(req.text) if req.chunks else [req.text]
             wavs: list[np.ndarray] = []
             with _model_lock:
