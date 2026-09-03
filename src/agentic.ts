@@ -151,7 +151,7 @@ export async function defaultAgenticSpawn(
 
 /** The whole stream as text, with each chunk also handed to `onChunk` as it lands. */
 async function teeText(
-  stream: ReadableStream<Uint8Array>,
+  stream: ReadableStream<Uint8Array<ArrayBuffer>>,
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
   if (onChunk === undefined) {
