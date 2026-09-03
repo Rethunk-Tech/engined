@@ -472,16 +472,11 @@ describe("resolveBunx: the ENGINED_BUNX invariant", () => {
   });
 
   /**
-   * A bare `?? "bunx"` fallback is always a truthy string, so it can never be
-   * fatal however unresolvable bunx actually is. This asserts the two halves
-   * side by side: that expression against the exact env/PATH state that should
-   * refuse, and `resolveBunx` refusing it.
+   * An unresolvable bunx has to be fatal here. A `?? "bunx"` style fallback is
+   * always a truthy string, so it would defer the failure to spawn time with no
+   * indication of which of the two lookups came up empty.
    */
-  test("neither ENGINED_BUNX nor a PATH bunx is fatal -- the old bare fallback would have silently produced a truthy string here", () => {
-    const env: Record<string, string | undefined> = {};
-    const oldFallback = env.ENGINED_BUNX ?? "bunx";
-    expect(oldFallback).toBe("bunx"); // truthy: the old code never threw for this exact case.
-
+  test("neither ENGINED_BUNX nor a PATH bunx is fatal", () => {
     expect(() => resolveBunx({}, noBunxOnPath)).toThrow(RX_ENGINED_BUNX_UNSET);
   });
 });
