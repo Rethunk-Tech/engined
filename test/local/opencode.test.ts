@@ -11,7 +11,7 @@ import {
   runAgentic,
 } from "../../src/agentic.ts";
 import { LOCAL } from "./exclusive.ts";
-import { missingEnv, missingEnvReason, seedWorktree, skipTitle } from "./fixtures.ts";
+import { missingEnv, missingEnvReason, requireEnv, seedWorktree, skipTitle } from "./fixtures.ts";
 
 /**
  * A real opencode round trip: `bunx opencode-ai@<pin> run --format json`, under
@@ -35,6 +35,9 @@ const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? "ornith";
 const ROUND_TRIP_TIMEOUT_MS = 240_000;
 /** The sandbox probe is a mount and a failed write: milliseconds, no model. */
 const PROBE_GATE_TIMEOUT_MS = 10_000;
+
+const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
+const agentVersion = (): string => requireEnv("ENGINED_TEST_OPENCODE_VERSION", VERSION);
 
 const MISSING = missingEnv({
   ENGINED_TEST_OPENCODE_VERSION: VERSION,
@@ -62,13 +65,13 @@ function scratchRepo(permissive: boolean): { root: string; workdir: string } {
 function call(workdir: string, prompt: string) {
   return runAgentic({
     agent: "opencode",
-    agentVersion: VERSION as string,
+    agentVersion: agentVersion(),
     args: {},
     envAllowlist: [...PROBE_ENV_ALLOWLIST, "PATH"],
     workdir,
     prompt,
     spawn: defaultAgenticSpawn,
-    bunx: BUNX as string,
+    bunx: bunx(),
     upstream: { baseUrl: DOOR, model: MODEL },
   });
 }
@@ -85,7 +88,7 @@ describe.skipIf(!READY)(
           expect(outcome.failure).toBeUndefined();
           expect(outcome.ok).toBe(true);
           expect(outcome.result?.toLowerCase()).toContain("pong");
-          expect(outcome.version).toBe(VERSION as string);
+          expect(outcome.version).toBe(agentVersion());
         } finally {
           rmSync(root, { recursive: true, force: true });
         }
@@ -105,7 +108,7 @@ describe.skipIf(!READY)(
           );
           // A process really ran: without this, "nothing was written" would also
           // be true of a launch that never happened at all.
-          expect(outcome.version).toBe(VERSION as string);
+          expect(outcome.version).toBe(agentVersion());
           expect(hashTree(root)).toBe(before);
           expect(existsSync(join(workdir, "proof.txt"))).toBe(false);
         } finally {
@@ -118,9 +121,9 @@ describe.skipIf(!READY)(
     test(
       "the version-proof gate passes, and does it without a model round trip",
       async () => {
-        const runner = buildAgenticProbeRunner(BUNX as string);
+        const runner = buildAgenticProbeRunner(bunx());
         const startedAt = Date.now();
-        expect(await runner(VERSION as string, "opencode")).toEqual({ ok: true });
+        expect(await runner(agentVersion(), "opencode")).toEqual({ ok: true });
         // The point of the sandbox probe, not incidental: an agentic status poll
         // waits on this, and an LLM in it made the gate take minutes.
         expect(Date.now() - startedAt).toBeLessThan(PROBE_GATE_TIMEOUT_MS);
