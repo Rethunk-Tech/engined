@@ -1696,7 +1696,7 @@ test("a model switch cannot stop a container out from under a start still in fli
 test("a model switch one microtask after a leased start resolves finds the lease already held", async () => {
   const { reg, runLog, stopLog } = sttSwitchRegistry();
   try {
-    // `startsInFlight` no longer covers the engine here -- `start` has
+    // `startsInFlight` does not cover the engine here -- `start` has already
     // returned -- so the only thing standing between the container and a
     // competing switch is a lease the start itself took.
     const started = await reg.start("whisper-like", "small", { lease: true });

@@ -99,8 +99,8 @@ test("assertNoForbiddenFlags: cursor's own ways to say yes are all refused by na
 
 // config.ts validates `argKeysAsFlags(args)` -- keys with no values beside
 // them -- so a rule that decided on the following token would be reading the
-// next KEY, or nothing at all. These are the two flags that used to be judged
-// that way, in every spelling a config or a spec can reach this with.
+// next KEY, or nothing at all. These two are refused on the key alone, in every
+// spelling a config or a spec can reach this with.
 test("assertNoForbiddenFlags: --sandbox and --permission-mode are refused by name, value or not", () => {
   for (const argv of [
     ["--sandbox"],
@@ -110,7 +110,8 @@ test("assertNoForbiddenFlags: --sandbox and --permission-mode are refused by nam
     ["--permission-mode", "plan"],
     ["--permission-mode=bypassPermissions"],
     // The keys-only shape config.ts actually passes: two forbidden keys in a
-    // row, where the second was the first's "value" under the old rule.
+    // row, where a value-reading rule would swallow the second as the first's
+    // argument.
     ["--permission-mode", "--sandbox"],
   ]) {
     expect(() => assertNoForbiddenFlags(argv, "config.toml")).toThrow(RX_DISSOLVES_FLOOR);

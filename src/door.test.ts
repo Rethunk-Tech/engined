@@ -365,16 +365,13 @@ function makeReloadRaceClient(
 
 describe("the door: reload mid in-flight request", () => {
   /**
-   * In-flight leases finish against the old engine list.
-   * Reloading used to clear every cached `LlamaRouter` unconditionally
-   * (main.ts's old `ctx.llamaRouters.clear()`), so a request that arrived
-   * after the reload but while an earlier one was still mid-lease got a
-   * brand-new router with empty occupancy bookkeeping -- a second, ignorant
-   * tracker over the same container that could unload/load without ever
-   * knowing the first request's model was still being read from. The fix
-   * must keep routing new requests through the old router until its own
-   * leases drain, so a same-role request for a different model still queues
-   * behind the one in flight instead of racing it on a second tracker.
+   * In-flight leases finish against the engine list they started on. A reload
+   * must keep routing new requests through the existing `LlamaRouter` until
+   * that router's own leases drain: a replacement router starts with empty
+   * occupancy bookkeeping, so it would be a second, ignorant tracker over the
+   * same container, free to unload/load a model the first request is still
+   * being served from. A same-role request for a different model therefore
+   * queues behind the one in flight rather than racing it on a second tracker.
    */
   test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
     const { root, configFilePath } = setupReloadRaceConfig();
@@ -483,11 +480,11 @@ describe("resolveBunx: the ENGINED_BUNX invariant", () => {
 
 describe("the door: chain timeout follows the hop, not the chain", () => {
   /**
-   * `chat_timeout_seconds` is scoped to "one engine," per
-   * attempt. `chatTimeoutMs` used to pick `agent_timeout_seconds` for EVERY
-   * hop of ANY chain (`chainName !== null`), even one with no agentic hop
-   * anywhere in it -- an all-local-llama chain inherited the long agentic
-   * budget it never needed. `chat_timeout_seconds` is set well under the
+   * `chat_timeout_seconds` is scoped to "one engine," per attempt, and being
+   * part of a chain does not widen it: `chatTimeoutMs` owes
+   * `agent_timeout_seconds` only to a hop that is itself agentic, so a chain
+   * with no agentic hop anywhere in it never inherits the long agentic budget
+   * it does not need. `chat_timeout_seconds` is set well under the
    * upstream's artificial delay and `agent_timeout_seconds` well over it, so
    * the outcome (timeout vs success) proves which budget actually applied.
    */
@@ -569,7 +566,8 @@ function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
 
 describe("the door: a JSON body that is not a table is a 400", () => {
   // Each of these is valid JSON, so parsing cannot reject them -- only the
-  // table check can. `null` is the one that used to reach a property read.
+  // table check can. `null` is the one a `typeof body === "object"` guard
+  // would wave through to a property read.
   const NOT_A_TABLE = ["null", "[]", "42", '"hi"'];
   const BODY_ROUTES = ["/openai/v1/chat/completions", "/engined/v1/start"];
 
@@ -858,9 +856,9 @@ describe("the door: chain skips an engine that fails its version proof", () => {
    * cannot prove its agent_version pin is exactly "unavailable" -- the
    * same 503 the secret-resolution path already produces (`resolveRedirect`,
    * plain 503, no `envelopeFailure`) and the chain advances past that one.
-   * The version-proof 503 used to set `envelopeFailure: true`, which
-   * `classifyResult` treats as never-advancing regardless of status --
-   * terminal at the first hop instead of skipped.
+   * The version-proof 503 has to stay envelope-free for the same reason:
+   * `classifyResult` treats `envelopeFailure` as never-advancing regardless of
+   * status, which would make the first hop terminal instead of skipped.
    */
   test("a chain whose first hop fails its version proof advances to the second hop", async () => {
     const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));

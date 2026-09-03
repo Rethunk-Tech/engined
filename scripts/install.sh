@@ -35,8 +35,8 @@ resolve_paths() {
 
   # rsync --delete runs inside INSTALL_DIR and the unit file lands under
   # CONFIG_HOME, so neither may sit at the top of the filesystem -- which is
-  # where an empty XDG var used to land them. Two segments deep is the
-  # shallowest any of these can legitimately be.
+  # where an empty XDG var resolves to. Two segments deep is the shallowest any
+  # of these can legitimately be.
   local dir
   for dir in "$INSTALL_DIR" "$STATE_DIR" "$CONFIG_HOME"; do
     if [[ "$dir" != /?*/?* ]]; then
