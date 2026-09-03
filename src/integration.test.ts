@@ -1069,6 +1069,102 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
   expect(sent).not.toHaveProperty("instructions");
 });
 
+/** whisper's shape, reduced to what the door reads: an STT engine that streams. */
+function sttSpec(): string {
+  return `
+kind = "stt"
+upstream = "self"
+image = "test-stt:local"
+obtain = "pull"
+serves = ["/openai/v1/audio/transcriptions"]
+streaming = true
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`;
+}
+
+const STT = "@/whisper/local";
+const STT_ROUTES = [route({ engine: "whisper", model: undefined, upstream: "local" })];
+
+test("a live transcription reaches the engine while the caller is still uploading", async () => {
+  // The claim is about ordering, not about frames: a door that reads the body
+  // to the end before dispatching cannot deliver a caption while the speaker
+  // is still talking, however well it streams the reply. So the engine's first
+  // read is timed against the caller's second write, and the caller does not
+  // make that write until the engine has the first one.
+  const engineRead = Promise.withResolvers<void>();
+  let engineReadAt = Number.POSITIVE_INFINITY;
+  let secondWriteAt = Number.NEGATIVE_INFINITY;
+  let query = "";
+
+  const fake = startFakeUpstream(async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      return new Response("", { status: 200 });
+    }
+    if (url.pathname !== "/v1/audio/transcriptions/stream" || request.body === null) {
+      return new Response("", { status: 404 });
+    }
+    query = url.search;
+    const reader = request.body.getReader();
+    await reader.read();
+    engineReadAt = performance.now();
+    engineRead.resolve();
+    while (!(await reader.read()).done) {
+      // Drain: the caller's remaining audio.
+    }
+    return new Response(
+      `${JSON.stringify({ phase: "segment", text: "half a", start: 0, end: 1 })}\n${JSON.stringify({ phase: "done", text: "half a sentence" })}\n`,
+      { headers: { "content-type": "application/x-ndjson" } },
+    );
+  });
+
+  const door = createDoor(
+    baseConfig({ routes: STT_ROUTES, engines: [containerEngine("whisper", sttSpec())] }),
+    {
+      enginesRoot: "/nonexistent/engines",
+      bunx: "/opt/test/bunx",
+      exec: buildExec({ portByContainer: { "engined-whisper": fake.port } }),
+    },
+  );
+
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      // A door that buffers never lets this resolve, so the wait is bounded
+      // and the assertion below reads the ordering rather than hanging on it.
+      await Promise.race([engineRead.promise, Bun.sleep(2000)]);
+      secondWriteAt = performance.now();
+      controller.enqueue(new Uint8Array([5, 6, 7, 8]));
+      controller.close();
+    },
+  });
+
+  try {
+    const res = await door.fetch(
+      new Request(
+        `http://engined/openai/v1/audio/transcriptions?stream=true&model=${encodeURIComponent(STT)}&language=en`,
+        { method: "POST", headers: { "content-type": "audio/wav" }, body },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const lines = (await res.text()).split("\n").filter((line) => line.length > 0);
+    expect(JSON.parse(lines[1] ?? "{}")).toEqual({ phase: "done", text: "half a sentence" });
+    // The per-request fields ride in the query string, since a multipart part
+    // is only readable once the boundary after it has arrived.
+    expect(query).toContain("language=en");
+    expect(engineReadAt).toBeLessThan(secondWriteAt);
+  } finally {
+    fake.stop();
+    await door.registry.shutdown();
+  }
+});
+
 test("a transcription request with no multipart body is a JSON 400, not Bun's HTML 500", async () => {
   // req.formData() throws on an empty POST. Uncaught, that surfaced as Bun's
   // own HTML error page -- the one door response a JSON client cannot read.
