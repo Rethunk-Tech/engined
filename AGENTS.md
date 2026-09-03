@@ -58,6 +58,12 @@ build from one wrapper, `engines/chatterbox-shared/chatterbox_app.py`, and one
 checkpoint and `generate()` call, and each `build-args` only the checkpoint to
 bake and the port to serve.
 
+`whisper` also runs a wrapper, `engines/whisper/whisper_app.py`, but it is
+bind-mounted through `{spec_dir}` rather than baked: it is PID 1, proxies the
+OpenAI verb to whisper-server on loopback, and adds the streaming route
+whisper-server has no handler for. Editing it needs a container restart, never
+an image rebuild.
+
 A build's context is the spec's own directory, so a file two images share is
 in neither context. Two files in a spec dir declare what its build needs, both
 read generically by `src/docker.ts` and appended to the `docker build` a
