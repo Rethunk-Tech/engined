@@ -484,6 +484,70 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
   expect(res.body).toEqual({ error: "piper: /v1/tts failed: text produced no audio" });
 });
 
+test("an error exit cancels the engine's own body, not only the caller's request", async () => {
+  // A 502 hands back no stream, so nothing later reads the upstream body: one
+  // left open holds a live response against a running engine forever.
+  let cancelled = false;
+  const encoder = new TextEncoder();
+  const line = `${JSON.stringify({ phase: "error", detail: "text produced no audio" })}\n`;
+  // Never closes: the engine keeps the connection open past its own error frame.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode(line));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  const res = await handleSpeech(
+    { engine: "piper", input: ".", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(body)),
+  );
+  await Bun.sleep(1);
+
+  expect(res.status).toBe(502);
+  expect(res.body).toEqual({ error: "piper: /v1/tts failed: text produced no audio" });
+  expect(cancelled).toBe(true);
+});
+
+test("an error frame mid-stream cancels the engine's own body as the caller's stream ends", async () => {
+  // Closing the caller's stream does not reach the source it was built over,
+  // so the same open body outlives a failure that arrives after the first chunk.
+  let cancelled = false;
+  const encoder = new TextEncoder();
+  const chunk = `${JSON.stringify({
+    phase: "chunk",
+    pcm: Buffer.from([1, 2]).toString("base64"),
+    rate: 24_000,
+  })}\n`;
+  const failure = `${JSON.stringify({ phase: "error", detail: "vocoder died" })}\n`;
+  let sentChunk = false;
+  // Never closes: the engine keeps the connection open past its own error frame.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode(sentChunk ? failure : chunk));
+      sentChunk = true;
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  const res = await handleSpeech(
+    { engine: "piper", input: "hi", stream: true },
+    () => Promise.resolve({ private_url: "127.0.0.1:1", remote: undefined }),
+    () => Promise.resolve(new Response(body)),
+  );
+
+  const out = Buffer.from(await new Response(res.stream).arrayBuffer());
+  await Bun.sleep(1);
+
+  expect([...out]).toEqual([1, 2]);
+  expect(cancelled).toBe(true);
+});
+
 test("a buffered speech request is unchanged and never asks for chunks", async () => {
   let asked: unknown;
   const res = await handleSpeech(

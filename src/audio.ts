@@ -254,20 +254,33 @@ async function streamedSpeech(
   body: ReadableStream<Uint8Array<ArrayBuffer>>,
 ): Promise<DoorResponse> {
   const frames = ndjsonFrames(body);
+  /**
+   * Only the success path hands `frames` on to a consumer that will cancel it.
+   * Every other exit abandons the generator mid-yield, and an abandoned
+   * generator skips a `finally` block exactly as it skips `return()` -- so the
+   * explicit call is what releases the engine's body, not any wrapper around
+   * the loop. Awaited so the body is released before the door replies, and
+   * suppressed so a cleanup that throws cannot replace the reason the request
+   * failed with an unrelated one.
+   */
+  const fail = async (message: string): Promise<DoorResponse> => {
+    await frames.return(undefined).catch(() => undefined);
+    return errorResponse(STATUS_BAD_GATEWAY, message);
+  };
   for (;;) {
     const { done, value } = await frames.next();
     if (done) {
-      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts streamed no audio`);
+      return await fail(`${engineId}: /v1/tts streamed no audio`);
     }
     if (value.phase === "error") {
       const detail = typeof value.detail === "string" ? value.detail : "no detail";
-      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts failed: ${detail}`);
+      return await fail(`${engineId}: /v1/tts failed: ${detail}`);
     }
     if (value.phase !== "chunk" || typeof value.pcm !== "string") {
       continue;
     }
     if (typeof value.rate !== "number") {
-      return errorResponse(STATUS_BAD_GATEWAY, `${engineId}: /v1/tts chunk carried no sample rate`);
+      return await fail(`${engineId}: /v1/tts chunk carried no sample rate`);
     }
     return {
       status: STATUS_OK,
@@ -380,6 +393,10 @@ function pcmStream(first: Uint8Array, frames: AsyncGenerator<Frame>): ReadableSt
       for (;;) {
         const { done, value } = await frames.next();
         if (done || value.phase === "error") {
+          // Closing the caller's stream does not reach the source, so an error
+          // frame has to release the engine's body itself; a `done` generator
+          // takes this as a no-op.
+          await frames.return(undefined).catch(() => undefined);
           controller.close();
           return;
         }
