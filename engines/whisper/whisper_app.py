@@ -106,14 +106,39 @@ def _cli_argv(audio_path: str, params: dict[str, list[str]]) -> list[str]:
 
     Built from the named flags rather than by filtering the server's argv, so a
     flag that means something different to the two binaries cannot leak across.
-    `--no-timestamps` is deliberately not carried: the segment line's timestamps
-    are what give each frame its place in the recording.
+
+    The two binaries do not share defaults, and the ones that differ change the
+    text rather than only its formatting. whisper-server samples greedily
+    (`best_of 2`, `beam_size -1`); whisper-cli beam-searches (`best_of 5`,
+    `beam_size 5`). Over 15 clips that alone put the two transcripts at odds on
+    6 -- "four minutes" against "4 minutes", "Daman" against "Damen", an added
+    comma -- so the server's sampling is named here explicitly.
+
+    `--no-timestamps` is the one server flag this cannot carry. It is not a
+    print setting inside whisper: it pushes `<|notimestamps|>` into the prompt,
+    drives every timestamp token's logit to -inf, and makes each 30s window
+    decode as a single segment. Carrying it would leave a frame with no place
+    in the recording and no segment smaller than a window, which is the whole
+    of what streaming delivers. It is the one decode difference between the two
+    paths that survives, and it is the reason a streamed transcript of a
+    recording longer than 30s is not the buffered path's transcript.
 
     `stdbuf -oL` because whisper-cli's stdout is a pipe here rather than a
     terminal, and a segment held in libc's buffer until the buffer fills is a
     segment that did not stream.
     """
-    argv = ["stdbuf", "-oL", f"{BIN_DIR}/whisper-cli", "-f", audio_path, "-np"]
+    argv = [
+        "stdbuf",
+        "-oL",
+        f"{BIN_DIR}/whisper-cli",
+        "-f",
+        audio_path,
+        "-np",
+        "-bo",
+        "2",
+        "-bs",
+        "-1",
+    ]
     model = _value(SERVER_ARGV, "-m")
     if model is not None:
         argv += ["-m", model]
