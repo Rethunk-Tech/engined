@@ -6,6 +6,7 @@
  * process: binds, signal handlers, and the fatal-at-startup exit.
  */
 
+import { mkdirSync } from "node:fs";
 import process from "node:process";
 import {
   buildAgenticProbeRunner,
@@ -13,7 +14,12 @@ import {
   type RunAgenticResult,
   runAgentic,
 } from "./agentic.ts";
-import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
+import {
+  handleAudioSpeech,
+  handleAudioTranscription,
+  handleVoiceUpload,
+  VOICE_UPLOAD_PATH,
+} from "./audioDoor.ts";
 import { type HopExec, type HopResult, parseHop, runChain } from "./chain.ts";
 import {
   COMFY_WS_SUFFIX,
@@ -54,7 +60,7 @@ import {
 } from "./http.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { hopForwardsTools, modelsMenu } from "./modelsMenu.ts";
-import { configPath, installDir } from "./paths.ts";
+import { configPath, installDir, voicesDir } from "./paths.ts";
 import { readJsonBody } from "./requestBody.ts";
 import { loadSpec } from "./spec.ts";
 import {
@@ -1641,6 +1647,9 @@ function routePost(
   if (releaseMatch !== undefined) {
     return handleRelease(ctx.registry, releaseMatch);
   }
+  if (pathname === VOICE_UPLOAD_PATH) {
+    return handleVoiceUpload(req);
+  }
   if (CONTENT_ENDPOINTS.has(pathname)) {
     return handleContent(ctx, req, pathname, launchScoped);
   }
@@ -1852,6 +1861,10 @@ if (import.meta.main) {
   try {
     const bunx = resolveBunx();
     startupConfig = loadConfig();
+    // The mount source a chatterbox spec names must exist before any
+    // container starts: docker creates a missing bind source itself, owned by
+    // root, and the door would then never be able to write an upload into it.
+    mkdirSync(voicesDir(), { recursive: true });
     door = createDoor(startupConfig, {
       enginesRoot: `${installDir()}/engines`,
       bunx,

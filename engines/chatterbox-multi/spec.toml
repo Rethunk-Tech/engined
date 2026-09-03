@@ -19,3 +19,13 @@ security_opt = ["label=disable"]
 [ready]
 path = "/health"
 status = 200
+
+# Where an uploaded reference voice becomes visible to this container. The
+# door writes into {state_dir}/voices and hands the caller an opaque handle;
+# only a handle it issued is turned back into a path under this mount, so a
+# caller can never name a host file for the container to read. The container
+# path here and VOICE_CONTAINER_DIR in src/audioDoor.ts are one pair.
+[[volume]]
+name = "{state_dir}/voices"
+path = "/voices"
+read_only = true

@@ -44,6 +44,16 @@ export function expandTilde(p: string): string {
 }
 
 /**
+ * Uploaded voice-clone references. The door names every file in here and
+ * hands the caller only an opaque handle, so no caller string ever becomes
+ * a path a container reads. Mounted read-only into the TTS engines that
+ * clone (each engines/chatterbox-* spec.toml) via the `{state_dir}` placeholder.
+ */
+export function voicesDir(): string {
+  return join(stateDir(), "voices");
+}
+
+/**
  * The llama preset INI: `EngineRegistry` writes it, `LlamaRouter` mounts it,
  * and llama-server reads it once at its own process start. This is only the
  * default — both take the path as an option and the door hands them the same

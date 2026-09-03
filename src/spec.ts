@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_IDS, agentCli } from "./agents.ts";
 import { asArray, optional, requireString } from "./config.ts";
+import { stateDir } from "./paths.ts";
 import {
   type AgenticSpec,
   type Artifact,
@@ -87,7 +88,15 @@ function buildSubs(
   opts: SpecLoadOptions,
   specDir: string,
 ): Record<string, string> {
-  const subs: Record<string, string> = { spec_dir: specDir, bunx: opts.bunx };
+  // `state_dir` needs no config key: it is the daemon's own writable
+  // directory, the same one every engine's state already lives under, so a
+  // spec that mounts a door-owned directory names it rather than being
+  // configured with a host path an operator could point anywhere.
+  const subs: Record<string, string> = {
+    spec_dir: specDir,
+    bunx: opts.bunx,
+    state_dir: stateDir(),
+  };
   if (opts.presetIni !== undefined) {
     subs.preset_ini = opts.presetIni;
   }
