@@ -12,30 +12,32 @@ image = "engined-whisper:local"
 obtain = "build"                             # pull | build; build reads ./Dockerfile here
 serves = ["/openai/v1/audio/transcriptions"]
 
-# No `streaming` key, and it is not an oversight: whisper-server cannot stream,
-# so the capability table's `false` for this engine is the honest answer rather
-# than an unimplemented door. The image ships its own examples/server/server.cpp
-# -- it registers exactly four handlers (GET /, OPTIONS + POST {inference-path},
-# POST /load, GET /health) and every one of them answers through
-# `res.set_content`, a single buffered body written after `whisper_full_parallel`
-# has returned the complete transcript. There is no `set_chunked_content_provider`
-# anywhere in it, in this pinned digest or upstream master. Confirmed live too:
-# the same 121-byte `Content-Length` JSON comes back for a plain POST, for
-# `stream=true`, `stream=1`, `response_format=stream`, `response_format=sse`, and
-# for `Accept: text/event-stream` -- unknown multipart fields are silently
-# ignored, and no response ever carries `Transfer-Encoding: chunked`.
+# whisper.cpp streams. The binary this image ships does not expose it. Both
+# halves have to be said, because either one alone is read as the other.
 #
-# whisper.cpp's incremental transcription lives in two places, neither reachable
-# over this port. `--print-realtime` arms a new-segment callback that fprintf's
-# to the server's own stderr, not into the HTTP response, so it is process-wide
-# log text with no request to attribute it to. examples/stream (the whisper-stream
-# sliding-window tool) is SDL2 microphone capture writing to stdout, carries no
-# HTTP server at all, and is not among the binaries this image builds.
+# The library half: `whisper_full` fires a new-segment callback as each segment
+# is decoded, and whisper-cli installs that callback and prints the segment the
+# moment it lands. Intermediate transcription is real, and it is real on this
+# image's own binaries -- not a feature waiting upstream.
 #
-# Partial transcription therefore needs a wrapper process holding an audio buffer
-# and calling whisper repeatedly -- the shape engines/chatterbox-shared uses --
-# not a spec flag or a door change. The image already carries python3, ffmpeg and
-# libSDL2, so that wrapper has somewhere to stand if it is ever wanted.
+# The server half: examples/server/server.cpp registers exactly four handlers
+# (GET /, OPTIONS + POST {inference-path}, POST /load, GET /health) and every
+# one answers through `res.set_content` -- a single buffered body written after
+# `whisper_full_parallel` has returned the complete transcript. There is no
+# `set_chunked_content_provider` anywhere in it. On the wire, the same 121-byte
+# `Content-Length` JSON comes back for a plain POST, for `stream=true`,
+# `stream=1`, `response_format=stream`, `response_format=sse`, and for
+# `Accept: text/event-stream`: unknown multipart fields are silently ignored,
+# and no response ever carries `Transfer-Encoding: chunked`. What is missing is
+# the HTTP surface, not the capability.
+#
+# ./whisper_app.py is that surface. It holds the exposed port, proxies the
+# OpenAI verb to whisper-server on loopback untouched, and answers its own
+# `POST /v1/audio/transcriptions/stream` by driving whisper-cli and forwarding
+# each segment line as an NDJSON frame as it is printed. So `streaming` is a
+# true statement about this engine as it ships, and it stays true only as long
+# as that wrapper is the entrypoint.
+streaming = true
 
 # GPU, load-bearing: ./Dockerfile now pins ghcr.io/ggml-org/whisper.cpp's
 # published main-vulkan tag (see its own comment for how that was found and
@@ -127,9 +129,10 @@ name = "{models_dir}"
 path = "/models"
 read_only = true
 
-# quiet.sh (this repo's whisper-server log filter) has to reach the
-# container the same bind-mount way: `entrypoint` above is the fixed
-# container path /spec/quiet.sh, which resolves only because this volume's
+# quiet.sh (this repo's log filter, and what launches whisper_app.py) has to
+# reach the container the same bind-mount way, and whisper_app.py beside it:
+# `entrypoint` above is the fixed container path /spec/quiet.sh, which
+# resolves only because this volume's
 # {spec_dir} substitutes to the HOST path install.sh synced it to and mounts
 # it at /spec -- run without this, the container's real PID 1 is bash
 # reporting the entrypoint path "No such file or directory" and exiting

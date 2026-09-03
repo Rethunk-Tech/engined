@@ -41,6 +41,17 @@ vocabulary the caller expects to hear, which is the only lever that moves a
 proper noun the model has never seen. The remote STT dialect has no equivalent,
 so it is dropped there rather than translated.
 
+A `stream=true` form field on that verb answers in NDJSON instead: one
+`{"phase":"segment", "text", "start", "end"}` frame per segment as the model
+decodes it, then a terminal `{"phase":"done", "text"}` carrying the whole
+transcript, or `{"phase":"error", "detail"}`. The frames are the engine's own
+intermediate output -- a consumer reading them has partial text long before the
+recording is finished, and hanging up mid-body stops the decode rather than
+leaving it running. `response_format` names a whole-transcript format, so
+asking for `srt`/`vtt`/`text` alongside `stream` is a 400 rather than a
+silently ignored field, and the remote STT dialect refuses to stream for the
+same reason it drops `prompt`: it has no equivalent.
+
 ### Cloning a voice
 
 A `tts` engine that clones (both chatterbox images) conditions on a reference
@@ -195,14 +206,14 @@ committed, rather than a 200 whose body never arrives.
 
 **Ask, rather than hardcoding that list.** Every engine in
 `GET /engined/v1/engines` carries `streaming`, a boolean saying whether it can serve a
-streamed request -- chunked audio from a `tts` app, SSE from an `openai-http`
-server, deltas from an agent CLI's streamed output format -- declared in the
-engine's own `spec.toml` (see [engines.md](engines.md)) and overridable per
-route. A consumer carrying its own list of streaming engine ids is stale the
-moment engined gains one. `whisper` and `comfy` report `false`: whisper.cpp
-answers a transcription whole, and comfy's proxy is not a content endpoint. A
-remote-address TTS engine reports `false` — engined ships no remote TTS dialect
-to chunk through.
+streamed request -- chunked audio from a `tts` app, per-segment transcript
+frames from `whisper`, SSE from an `openai-http` server, deltas from an agent
+CLI's streamed output format -- declared in the engine's own `spec.toml` (see
+[engines.md](engines.md)) and overridable per route. A consumer carrying its
+own list of streaming engine ids is stale the moment engined gains one.
+`comfy` reports `false`: its proxy is not a content endpoint. A remote-address
+TTS or STT engine reports `false` — engined ships no remote dialect to stream
+through.
 
 An agentic hop with `"stream": true` is one `chat.completion.chunk` per text
 delta the CLI prints, a terminal chunk with `finish_reason: "stop"`, then

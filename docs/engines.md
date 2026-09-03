@@ -272,8 +272,12 @@ stream sentence by sentence from their pipelines; `chatterbox-multi` and
 chunks, so the first sentence's audio goes out while the rest is still
 sampling -- a single-sentence request is one call either way. `llama` streams
 SSE; `claude`, `opencode` and `cursor` stream their answer text as the CLI
-prints it. `whisper` and `comfy` do not: whisper.cpp answers a transcription
-whole, and comfy's proxy is not a content endpoint.
+prints it. `whisper` streams one NDJSON frame per segment as it decodes
+(`"stream": "true"` on `POST /openai/v1/audio/transcriptions`), which is
+whisper.cpp's own new-segment callback rather than a finished transcript cut
+into pieces -- its wrapper reaches that callback through whisper-cli, because
+whisper-server buffers the whole body. `comfy` does not: its proxy is not a
+content endpoint.
 
 It lives in `spec.toml` because it is a property of the engine's own app, not
 of an install — the same reason `serves` does — and a `[[route]]` may override
