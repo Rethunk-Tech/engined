@@ -786,3 +786,155 @@ test("a speech body refused before the engine is started does not release anothe
   // idle-stop against the synthesis that is still running.
   expect(lifecycle.getStatus("chatterbox-multi").active_leases).toBe(1);
 });
+
+/**
+ * A whisper wrapper mid-decode: one segment frame is available now, and the
+ * terminal transcript does not exist until `release` is called. Reading the
+ * segment before then is the only thing that distinguishes streaming from
+ * cutting up a transcript the engine already finished.
+ */
+function decodingWhisperBody(): { body: ReadableStream<Uint8Array>; release: () => void } {
+  const encoder = new TextEncoder();
+  const { promise: stillDecoding, resolve: release } = Promise.withResolvers<void>();
+  let segmentSent = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!segmentSent) {
+        segmentSent = true;
+        // `decoder` is the engine inventing a field beside the door's own list.
+        controller.enqueue(
+          encoder.encode(
+            `${JSON.stringify({ phase: "segment", text: "set a timer", start: 2.59, end: 5.49, decoder: "greedy" })}\n`,
+          ),
+        );
+        return;
+      }
+      await stillDecoding;
+      controller.enqueue(
+        encoder.encode(
+          `${JSON.stringify({ phase: "done", text: "set a timer for 25 minutes" })}\n`,
+        ),
+      );
+      controller.close();
+    },
+  });
+  return { body, release };
+}
+
+test("a streamed transcription forwards each segment as it lands, ahead of the terminal transcript", async () => {
+  const { body, release } = decodingWhisperBody();
+  let asked: { url: string; body: unknown } | undefined;
+  const res = await handleTranscription(
+    {
+      engine: "whisper",
+      file: SAMPLE_AUDIO_BYTES,
+      language: "en",
+      prompt: "Priya",
+      stream: true,
+    },
+    async () => ({ private_url: "127.0.0.1:1" }),
+    (url, init) => {
+      asked = { url, body: init?.body };
+      return Promise.resolve(new Response(body));
+    },
+  );
+
+  // The streamed route is the door's own, and takes the recording as a bare
+  // body -- the OpenAI verb's multipart path is left exactly as it was.
+  const asJson = new URL(asked?.url ?? "");
+  expect(asJson.pathname).toBe("/v1/audio/transcriptions/stream");
+  expect(asJson.searchParams.get("language")).toBe("en");
+  expect(asJson.searchParams.get("prompt")).toBe("Priya");
+  expect(asked?.body).toBe(SAMPLE_AUDIO_BYTES);
+  expect(res.contentType).toBe("application/x-ndjson");
+
+  const reader = (res.stream ?? new ReadableStream<Uint8Array>()).getReader();
+  const first = await reader.read();
+  expect(JSON.parse(new TextDecoder().decode(first.value))).toEqual({
+    phase: "segment",
+    text: "set a timer",
+    start: 2.59,
+    end: 5.49,
+  });
+
+  release();
+  const rest: string[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    rest.push(new TextDecoder().decode(value));
+  }
+  expect(rest.join("").trim()).toBe(
+    JSON.stringify({ phase: "done", text: "set a timer for 25 minutes" }),
+  );
+});
+
+test("a caller who hangs up mid-transcript cancels the engine's own decode", async () => {
+  // A dropped body does not reach the far side, so nothing else stops whisper
+  // from decoding a recording whose caller is already gone.
+  let cancelled = false;
+  const encoder = new TextEncoder();
+  const line = `${JSON.stringify({ phase: "segment", text: "still decoding", start: 0, end: 1 })}\n`;
+  // Never closes: the recording is still being decoded when the caller lets go.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode(line));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  const res = await handleTranscription(
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, stream: true },
+    async () => ({ private_url: "127.0.0.1:1" }),
+    () => Promise.resolve(new Response(body)),
+  );
+  const forwarded = res.stream;
+  if (forwarded === undefined) {
+    throw new Error("a streamed transcription returned no stream to hang up on");
+  }
+
+  const reader = forwarded.getReader();
+  await reader.read();
+  await reader.cancel();
+  await Bun.sleep(1);
+
+  expect(cancelled).toBe(true);
+});
+
+test("a streamed transcription refuses a whole-body response_format instead of ignoring it", async () => {
+  let asked = false;
+  const res = await handleTranscription(
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, stream: true, response_format: "srt" },
+    async () => ({ private_url: "127.0.0.1:1" }),
+    () => {
+      asked = true;
+      return Promise.resolve(new Response(""));
+    },
+  );
+
+  expect(res.status).toBe(400);
+  expect((res.body as { error: string }).error).toContain("NDJSON frames");
+  expect(asked).toBe(false);
+});
+
+test("a remote STT engine refuses to stream rather than answering one buffered body", async () => {
+  const res = await handleTranscription(
+    { engine: "elevenlabs", model: "scribe_v1", file: SAMPLE_AUDIO_BYTES, stream: true },
+    async () => ({
+      private_url: null,
+      remote: { base_url: "https://api.elevenlabs.io/v1", headers: { "xi-api-key": "k" } },
+    }),
+    () => {
+      throw new Error("a refused stream must never reach the upstream");
+    },
+  );
+
+  expect(res.status).toBe(400);
+  expect((res.body as { error: string }).error).toContain(
+    "no remote transcription dialect streams",
+  );
+});

@@ -17,6 +17,13 @@
  * passed through as JSON. `language` is a per-request field that reaches the
  * engine on the wire; it never touches the shipped spec.
  *
+ * `stream` on that verb takes a different route on the same engine, and the
+ * reply is NDJSON: one frame per segment as the model decodes it, then a
+ * terminal frame carrying the whole transcript. The frames are the engine's
+ * own intermediate output, not a finished transcript cut into pieces — a
+ * consumer that wants partial text has one place to get it instead of three
+ * reimplementations of provisional-transcribe-and-abort.
+ *
  * A **remote** STT engine is the one place this door translates the request
  * as well as the reply. ElevenLabs is not OpenAI-shaped: the path is
  * `/speech-to-text`, the model field is `model_id`, the language field is
@@ -32,6 +39,7 @@ import {
   JSON_CONTENT_TYPE,
   jsonErrorBody,
   NDJSON_CONTENT_TYPE,
+  OCTET_STREAM_CONTENT_TYPE,
   pcmContentType,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -107,7 +115,7 @@ export interface DoorResponse {
   /** A JSON error body, a transcription's bare-text/srt/vtt body, or its parsed JSON — never set on a speech success, which is `bytes` or `stream`. */
   body?: unknown;
   bytes?: Uint8Array;
-  /** Set instead of `bytes` on a streamed speech response. */
+  /** Set instead of `bytes` on a streamed reply: speech samples, or a transcript's NDJSON frames. */
   stream?: ReadableStream<Uint8Array>;
 }
 
@@ -132,6 +140,12 @@ export interface TranscriptionRequestBody {
    * door that drops it silently costs every caller that error class.
    */
   prompt?: string;
+  /**
+   * Deliver each segment as the model decodes it instead of the transcript
+   * after all of it exists. Opt-in because it changes what comes back: NDJSON
+   * frames rather than one JSON body, and so no `response_format` to apply.
+   */
+  stream?: boolean;
 }
 
 /**
@@ -204,6 +218,10 @@ interface Frame {
   step?: unknown;
   step_limit?: unknown;
   audio?: unknown;
+  /** A transcription frame: one decoded segment, and where it sits in the recording. */
+  text?: unknown;
+  start?: unknown;
+  end?: unknown;
 }
 
 /**
@@ -311,9 +329,35 @@ async function streamedSpeech(
  * final `error` frame instead of a 502.
  */
 function ndjsonSpeech(body: ReadableStream<Uint8Array<ArrayBuffer>>): DoorResponse {
-  const frames = ndjsonFrames(body);
-  const encoder = new TextEncoder();
   let sentChunk = false;
+  return ndjsonRelay(ndjsonFrames(body), (frame) => {
+    const out = vettedFrame(frame, sentChunk);
+    if (out?.phase === "chunk") {
+      sentChunk = true;
+    }
+    return out;
+  });
+}
+
+/**
+ * The engine's own frames, re-serialized one at a time through `vet` and
+ * forwarded as they land. A frame `vet` rejects is dropped rather than
+ * forwarded, so an engine gaining a field does not silently become part of
+ * this door's contract.
+ *
+ * The response commits before the first frame: there is no header here that
+ * depends on something only a later frame knows, so an engine that produces
+ * nothing ends as its own terminal `error` frame rather than as a status code.
+ *
+ * `cancel` is the whole cancellation path. A caller that stops reading reaches
+ * `frames.return()`, which cancels the engine's body -- dropping it instead
+ * would leave the engine decoding for nobody.
+ */
+function ndjsonRelay(
+  frames: AsyncGenerator<Frame>,
+  vet: (frame: Frame) => Record<string, unknown> | undefined,
+): DoorResponse {
+  const encoder = new TextEncoder();
   return {
     status: STATUS_OK,
     contentType: NDJSON_CONTENT_TYPE,
@@ -324,11 +368,8 @@ function ndjsonSpeech(body: ReadableStream<Uint8Array<ArrayBuffer>>): DoorRespon
           controller.close();
           return;
         }
-        const out = vettedFrame(value, sentChunk);
+        const out = vet(value);
         if (out !== undefined) {
-          if (out.phase === "chunk") {
-            sentChunk = true;
-          }
           controller.enqueue(encoder.encode(`${JSON.stringify(out)}\n`));
         }
       },
@@ -584,39 +625,105 @@ async function transcribeRemote(
   return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text } };
 }
 
-export async function handleTranscription(
+/**
+ * The path the wrapper in front of whisper answers with frames. Not the
+ * OpenAI verb's own path: that one stays exactly what whisper-server has
+ * always served, so a caller that does not ask to stream reaches the same
+ * handler it always did.
+ */
+const TRANSCRIPTION_STREAM_PATH = "/v1/audio/transcriptions/stream";
+
+/** The transcription fields the door forwards, and nothing an engine invents beside them. */
+function vettedTranscriptFrame(frame: Frame): Record<string, unknown> | undefined {
+  if (typeof frame.phase !== "string") {
+    return undefined;
+  }
+  const out: Record<string, unknown> = { phase: frame.phase };
+  if (typeof frame.text === "string") {
+    out.text = frame.text;
+  }
+  if (typeof frame.start === "number") {
+    out.start = frame.start;
+  }
+  if (typeof frame.end === "number") {
+    out.end = frame.end;
+  }
+  if (typeof frame.detail === "string") {
+    out.detail = frame.detail;
+  }
+  return out;
+}
+
+/**
+ * The upload goes up as its own body rather than inside a multipart form: this
+ * route is the door's, not OpenAI's, and the two per-request levers whisper
+ * takes ride in the query string instead of earning a parser on the far side.
+ */
+async function transcribeStreamed(
   req: TranscriptionRequestBody,
-  start: EngineStart,
-  fetchImpl: HttpClient = fetch,
+  privateUrl: string,
+  fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
+  const query = new URLSearchParams();
+  if (req.language !== undefined) {
+    query.set("language", req.language);
+  }
+  if (req.prompt !== undefined) {
+    query.set("prompt", req.prompt);
+  }
+  const suffix = query.size > 0 ? `?${query}` : "";
+  const res = await fetchImpl(`http://${privateUrl}${TRANSCRIPTION_STREAM_PATH}${suffix}`, {
+    method: "POST",
+    headers: { [CONTENT_TYPE]: OCTET_STREAM_CONTENT_TYPE },
+    body: req.file,
+  });
+  if (!res.ok) {
+    await discardBody(res);
+    return errorResponse(
+      STATUS_BAD_GATEWAY,
+      `${req.engine}: ${TRANSCRIPTION_STREAM_PATH} returned ${res.status}`,
+    );
+  }
+  const { body } = res;
+  if (body === null) {
+    return errorResponse(
+      STATUS_BAD_GATEWAY,
+      `${req.engine}: ${TRANSCRIPTION_STREAM_PATH} streamed no body`,
+    );
+  }
+  return ndjsonRelay(ndjsonFrames(body), vettedTranscriptFrame);
+}
+
+/** `undefined` when the request is well-formed; a 400 response otherwise. */
+function invalidTranscriptionRequest(req: TranscriptionRequestBody): DoorResponse | undefined {
   if (!req.engine) {
     return errorResponse(STATUS_BAD_REQUEST, "engine is required");
   }
   if (req.file.length === 0) {
     return errorResponse(STATUS_BAD_REQUEST, "file is required");
   }
-
-  const engine = await start(req.engine, req.model);
-  const conflict = conflictResponse(engine);
-  if (conflict) {
-    return conflict;
-  }
-  if (engine.remote !== undefined) {
-    if (req.model === undefined) {
-      return errorResponse(
-        STATUS_BAD_GATEWAY,
-        `${req.engine} requires a model, and none was named`,
-      );
-    }
-    return await transcribeRemote(req, engine.remote, req.model, fetchImpl);
-  }
-  if (engine.private_url === null) {
+  // srt/vtt/text format a whole transcript, and a streamed reply has no whole
+  // transcript to format. Refused rather than ignored: honouring neither the
+  // format nor the refusal is how a caller ends up parsing frames as subtitles.
+  if (
+    req.stream === true &&
+    req.response_format !== undefined &&
+    TEXT_RESPONSE_FORMATS.has(req.response_format)
+  ) {
     return errorResponse(
-      STATUS_UNAVAILABLE,
-      engine.unavailable ?? `${req.engine} is not available`,
+      STATUS_BAD_REQUEST,
+      `a streamed transcription answers in NDJSON frames, so response_format "${req.response_format}" does not apply`,
     );
   }
+  return undefined;
+}
 
+/** The OpenAI verb as whisper-server has always answered it: one multipart form up, one whole body back. */
+async function transcribeLocal(
+  req: TranscriptionRequestBody,
+  privateUrl: string,
+  fetchImpl: HttpClient,
+): Promise<DoorResponse> {
   const form = new FormData();
   form.append("file", new Blob([req.file]), "audio");
   if (req.language !== undefined) {
@@ -625,12 +732,11 @@ export async function handleTranscription(
   if (req.response_format !== undefined) {
     form.append("response_format", req.response_format);
   }
-
   if (req.prompt !== undefined) {
     form.append("prompt", req.prompt);
   }
 
-  const res = await fetchImpl(`http://${engine.private_url}/v1/audio/transcriptions`, {
+  const res = await fetchImpl(`http://${privateUrl}/v1/audio/transcriptions`, {
     method: "POST",
     body: form,
   });
@@ -646,4 +752,48 @@ export async function handleTranscription(
     return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: await res.text() };
   }
   return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: await res.json() };
+}
+
+export async function handleTranscription(
+  req: TranscriptionRequestBody,
+  start: EngineStart,
+  fetchImpl: HttpClient = fetch,
+): Promise<DoorResponse> {
+  const invalid = invalidTranscriptionRequest(req);
+  if (invalid) {
+    return invalid;
+  }
+
+  const engine = await start(req.engine, req.model);
+  const conflict = conflictResponse(engine);
+  if (conflict) {
+    return conflict;
+  }
+  if (engine.remote !== undefined) {
+    if (req.stream === true) {
+      // Said out loud rather than answered with the buffered transcript: a
+      // caller that asked for frames and silently got one body cannot tell
+      // the engine from the door.
+      return errorResponse(
+        STATUS_BAD_REQUEST,
+        `${req.engine} is a remote address, and no remote transcription dialect streams`,
+      );
+    }
+    if (req.model === undefined) {
+      return errorResponse(
+        STATUS_BAD_GATEWAY,
+        `${req.engine} requires a model, and none was named`,
+      );
+    }
+    return await transcribeRemote(req, engine.remote, req.model, fetchImpl);
+  }
+  if (engine.private_url === null) {
+    return errorResponse(
+      STATUS_UNAVAILABLE,
+      engine.unavailable ?? `${req.engine} is not available`,
+    );
+  }
+  return req.stream === true
+    ? await transcribeStreamed(req, engine.private_url, fetchImpl)
+    : await transcribeLocal(req, engine.private_url, fetchImpl);
 }

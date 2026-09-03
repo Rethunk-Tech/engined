@@ -432,6 +432,7 @@ interface TranscriptionForm {
   language: string | undefined;
   responseFormat: string | undefined;
   prompt: string | undefined;
+  stream: boolean;
 }
 
 /** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
@@ -447,12 +448,17 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
   const language = form.get("language");
   const responseFormat = form.get("response_format");
   const prompt = form.get("prompt");
+  const stream = form.get("stream");
   return {
     rawModel: typeof rawModel === "string" ? rawModel : null,
     file: file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0),
     language: typeof language === "string" ? language : undefined,
     responseFormat: typeof responseFormat === "string" ? responseFormat : undefined,
     prompt: typeof prompt === "string" ? prompt : undefined,
+    // A multipart field is a string, so the flag arrives spelled out. Only the
+    // one spelling counts: treating every non-empty value as true would make
+    // `stream=false` stream.
+    stream: stream === "true",
   };
 }
 
@@ -505,6 +511,7 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
     language: form.language,
     response_format: form.responseFormat,
     prompt: form.prompt,
+    stream: form.stream,
   };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
