@@ -379,9 +379,9 @@ function findModelOnEngine<T extends { engine: string; model?: string; upstream:
  * segments default the upstream the way the dispatcher does -- ambient, then
  * this box's own `local` -- never whichever matching route was declared
  * first, which would run an ambient dispatch on a keyed upstream. A disabled
- * route is configured but not served, so it is never the resolved hop --
- * every caller reads the same served set through here rather than filtering
- * for itself.
+ * route is configured but not served, so it is never the resolved hop. A
+ * lookup this cannot express -- a modelless route has no model segment to
+ * match on -- excludes the same set itself rather than serving a wider one.
  */
 export function routeForHop<
   T extends { engine: string; model?: string; upstream: string | null; disabled?: boolean },

@@ -173,14 +173,14 @@ function resolveAudioEngine(
   return { ok: true, engineId: resolved.route.engine, model: resolved.route.model };
 }
 
-/** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone. */
+/** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone, excluding disabled routes exactly as `routeForHop` does for the rest. */
 function audioRoute(
   config: Config,
   id: string,
   model: string | undefined,
 ): ResolvedRoute | undefined {
   return model === undefined
-    ? config.routes.find((r) => r.engine === id && r.model === undefined)
+    ? config.routes.find((r) => r.disabled !== true && r.engine === id && r.model === undefined)
     : routeForHop(config.routes, id, model);
 }
 
