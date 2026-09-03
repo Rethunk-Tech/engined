@@ -2473,6 +2473,32 @@ describe("POST /engined/v1/start", () => {
   });
 });
 
+describe("POST /engined/v1/start: which of an engine's routes", () => {
+  test("a chain hop warms the route it will dispatch to, not the first declared", async () => {
+    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+    const cfg = config({
+      upstreams: [
+        { id: "openrouter", egress: "remote", base_url: "https://openrouter.example/v1" },
+      ],
+      engines: [engine({ id: "hosted", kind: "openai-http" })],
+      // Declaration order puts the keyed upstream first; the ambient route is
+      // the one a dispatch of "@/hosted/gpt-x" runs.
+      routes: [
+        route({ engine: "hosted", model: "gpt-x", upstream: "openrouter" }),
+        route({ engine: "hosted", model: "gpt-x", upstream: null }),
+      ],
+      chains: { "chain-x": ["@/hosted/gpt-x"] },
+    });
+    const door = createLlamaDoor(cfg, root);
+    const res = await door.fetch(startRequest("chain-x"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    const [row] = body.data;
+    expect(row?.upstream).toBeNull();
+  });
+});
+
 describe("POST /engined/v1/start: the started field", () => {
   test("is true only on the call that launches the engine", async () => {
     const flags = await startedFlagsAcrossTwoCalls();

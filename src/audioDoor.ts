@@ -30,8 +30,8 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
-  findModelOnEngine,
   type ResolvedRoute,
+  routeForHop,
 } from "./types.ts";
 import { resolveUpstream } from "./upstream.ts";
 
@@ -181,7 +181,7 @@ function audioRoute(
 ): ResolvedRoute | undefined {
   return model === undefined
     ? config.routes.find((r) => r.engine === id && r.model === undefined)
-    : findModelOnEngine(config.routes, id, model);
+    : routeForHop(config.routes, id, model);
 }
 
 async function remoteAudioStart(

@@ -360,9 +360,12 @@ export function qualifiedSegments(model: string): string[] | undefined {
  * matches: `model` here is always a real string, and `undefined === model`
  * is never true.
  */
-export function findModelOnEngine<
-  T extends { engine: string; model?: string; upstream: string | null },
->(routes: readonly T[], engineId: string, model: string, upstream?: string): T | undefined {
+function findModelOnEngine<T extends { engine: string; model?: string; upstream: string | null }>(
+  routes: readonly T[],
+  engineId: string,
+  model: string,
+  upstream?: string,
+): T | undefined {
   return routes.find(
     (r) =>
       r.engine === engineId &&
@@ -392,7 +395,7 @@ export function routeForHop<
 }
 
 /** Among routes sharing one `(engine, model)`, the default upstream: ambient first, then this box's own `local`. Anything else is a real ambiguity the caller must break with the three-segment form. */
-export function pickDefaultUpstream<T extends { upstream: string | null }>(
+function pickDefaultUpstream<T extends { upstream: string | null }>(
   matches: readonly T[],
 ): T | undefined {
   return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === "local");

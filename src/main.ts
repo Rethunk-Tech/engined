@@ -70,7 +70,6 @@ import {
   type EngineKind,
   errMessage,
   FatalError,
-  findModelOnEngine,
   isEgress,
   isRecord,
   MS_PER_SECOND,
@@ -205,7 +204,7 @@ function resolveStartRoutes(
       return { ok: false, error: `chain "${model}" has no hops` };
     }
     const hop = parseHop(first);
-    const route = findModelOnEngine(config.routes, hop.engine, hop.model, hop.upstream);
+    const route = routeForHop(config.routes, hop.engine, hop.model, hop.upstream);
     return route === undefined
       ? { ok: false, error: `chain "${model}"'s first hop "${first}" does not resolve to a route` }
       : { ok: true, routes: [route] };
@@ -795,7 +794,7 @@ function resolveUpstreamModelId(
   if (modelSeg === "") {
     return;
   }
-  const route = findModelOnEngine(config.routes, engineId, modelSeg, upstream);
+  const route = routeForHop(config.routes, engineId, modelSeg, upstream);
   return route?.wire_model ?? route?.model ?? modelSeg;
 }
 

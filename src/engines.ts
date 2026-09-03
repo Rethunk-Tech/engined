@@ -34,7 +34,6 @@ import {
   type EnginesResponse,
   errMessage,
   FatalError,
-  findModelOnEngine,
   isContainerSpec,
   KIND_LOCAL_FILE_RULES,
   KIND_UPSTREAM_TRAIT,
@@ -42,6 +41,7 @@ import {
   type ReadyProbe,
   type ResolvedRoute,
   type RunnableContainerSpec,
+  routeForHop,
   routeServes,
   type Spec,
   type Upstream,
@@ -1074,7 +1074,7 @@ export class EngineRegistry {
     if (model === undefined) {
       return undefined;
     }
-    const route = findModelOnEngine(this.config.routes, id, model);
+    const route = routeForHop(this.config.routes, id, model);
     if (route === undefined) {
       throw new Error(`model "${model}" not found on "${id}"`);
     }
