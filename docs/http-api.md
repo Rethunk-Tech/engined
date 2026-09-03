@@ -142,7 +142,18 @@ either side.
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, egress, streaming, tools, serves, state,
-capabilities}`, plus `unavailable_hops` on a chain that has any.
+capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
+that has any.
+
+`hops` is where a chain says what it resolves to, and the only place it can:
+a chain is not any one engine's route, so `engine`, `upstream`, `model` and
+`egress` are all absent from its row. It carries the hop addresses in order,
+and it is present on exactly the chain rows -- a route row never has it, so
+its presence is also what tells the two kinds of address apart. Without it a
+healthy chain is the least informative row in the menu, since
+`unavailable_hops` is absent precisely when nothing is broken; with it, a
+caller can see that `chain-private` and `@/llama/ornith` are one destination
+listed twice rather than two models.
 
 `serves` is the route's own, not its engine's: an `embedding`
 role answers only `/openai/v1/embeddings`, any other role everything but that,

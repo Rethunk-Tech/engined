@@ -1382,7 +1382,7 @@ test("a chain reports the first hop that can answer as its state and names every
   try {
     const res = await door.fetch(req("GET", "/openai/v1/models"));
     const body = (await res.json()) as {
-      data?: Array<{ id: string; state: string; unavailable_hops?: string[] }>;
+      data?: Array<{ id: string; state: string; hops?: string[]; unavailable_hops?: string[] }>;
     };
     const rows = body.data ?? [];
     const row = (id: string) => rows.find((r) => r.id === id);
@@ -1390,6 +1390,19 @@ test("a chain reports the first hop that can answer as its state and names every
     // Every hop reachable: nothing to report, and the field stays off the wire.
     expect(row("chain-healthy")?.state).toBe("installed");
     expect(row("chain-healthy")?.unavailable_hops).toBeUndefined();
+
+    // ...which is exactly why `hops` is unconditional: with the destination
+    // fields all absent from a chain row, a healthy chain would otherwise say
+    // nothing about where it goes. Every hop, in order, dead ones included.
+    expect(row("chain-healthy")?.hops).toEqual(["@/hop-a/local/m", "@/hop-b/local/m"]);
+    expect(row("chain-dead")?.hops).toEqual([
+      "@/hop-dead/addressless/m",
+      "@/hop-dead/addressless/m2",
+    ]);
+
+    // Present on chains, absent on routes -- that difference is what tells a
+    // caller the two kinds of address apart.
+    expect(row("@/hop-a/m")?.hops).toBeUndefined();
 
     // A dead first hop and a live second: still dispatchable, and now says
     // what it lost on the way.

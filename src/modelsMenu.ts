@@ -173,9 +173,17 @@ function chainHops(
 
 /**
  * A chain is not any one engine's route, so it omits engine/upstream/model/
- * egress entirely. `streaming` and `capabilities` come from its FIRST hop --
- * that is the hop a request starts on, and the one whose shape a caller
- * writes its request against.
+ * egress entirely, and `hops` is what stands in for them: the ordered
+ * addresses this id actually resolves to, present here and on no route row.
+ * Without it a healthy chain is the least informative row in the address
+ * book -- every field naming a destination absent, and `unavailable_hops`
+ * absent too precisely because nothing is broken -- so a caller cannot tell
+ * a chain from a bare model id, nor that `ornith` and `@/llama/ornith` are
+ * one destination listed twice.
+ *
+ * `streaming` and `capabilities` come from its FIRST hop -- that is the hop
+ * a request starts on, and the one whose shape a caller writes its request
+ * against.
  *
  * `state` and `tools` both take EVERY hop, for opposite reasons. `runChain`
  * advances past a hop that cannot answer rather than failing the chain, so
@@ -205,6 +213,7 @@ async function chainRow(
     serves: [CONTENT_ENDPOINT_CHAT],
     state: walked.find((h) => h.state !== "unavailable")?.state ?? "unavailable",
     capabilities: lead?.route === undefined ? {} : routeCapabilities(lead.route),
+    hops: walked.map((h) => h.hop),
     unavailable_hops: dead.length === 0 ? undefined : dead,
   };
 }

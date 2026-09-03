@@ -623,11 +623,22 @@ export interface ModelRow {
    */
   state: EngineState;
   /**
+   * A chain's hops, in order, and the only thing on the row that says where
+   * it goes: a chain is not any one engine's route, so `engine`, `upstream`,
+   * `model` and `egress` are all absent from it. Present on every chain row
+   * and absent on every route row, which is what tells the two apart -- and
+   * what lets a caller see that a chain and a route it wraps are the same
+   * destination rather than two models. A healthy chain reports nothing at
+   * all about itself without this, since `unavailable_hops` is absent
+   * exactly when nothing is broken.
+   */
+  hops?: string[];
+  /**
    * The hops of a chain that cannot answer -- an engine that is not
    * installed, or an upstream whose address or secret does not resolve.
-   * Absent when every hop can answer, and on every non-chain row. A chain
-   * whose hops are ALL listed here is one nothing can answer, and its
-   * `state` says `unavailable` to match.
+   * A subset of `hops`. Absent when every hop can answer, and on every
+   * non-chain row. A chain whose hops are ALL listed here is one nothing can
+   * answer, and its `state` says `unavailable` to match.
    */
   unavailable_hops?: string[];
   capabilities: ModelCapabilities;
