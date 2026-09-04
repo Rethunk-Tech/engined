@@ -53,12 +53,15 @@ or reused URL past that window is refused as unknown or expired, not treated
 as a standing key.
 
 **`cursor` is not covered by this, because nothing ever threads a door URL
-into its launch at all.** Where a channel exists it carries the nonce --
-opencode's provider config always names it as the base URL its own model
-calls go through, since opencode's one route stays local, and a claude route
-naming a real (non-ambient) upstream gets it alongside that upstream's own
-redirect, so a tool reaching back into engined lands on the scoped surface
-rather than the plain one. `cursor` declares no `configure`, and no route
+into its launch at all.** Where a channel exists it carries the nonce:
+
+- opencode's provider config always names it as the base URL its own model
+  calls go through, since opencode's one route stays local.
+- A claude route naming a real (non-ambient) upstream gets it alongside that
+  upstream's own redirect, so a tool reaching back into engined lands on the
+  scoped surface rather than the plain one.
+
+`cursor` has neither. It declares no `configure`, and no route
 pairs it with a real upstream either: `CURSOR_API_KEY` is checked against
 Cursor's own key format client-side before any network attempt, and no key
 this box holds passes it, so redirecting cursor's own inference through
