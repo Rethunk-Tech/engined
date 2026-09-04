@@ -363,6 +363,14 @@ const CHATTERBOX_ROUTES = [
   route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
 ];
 
+/** llama-server's `/v1/models`: empty until a load, then the one resident GGUF. */
+function loadedModelsResponse(lastLoadedModel: string | undefined): Response {
+  return Response.json({
+    data:
+      lastLoadedModel === undefined ? [] : [{ id: lastLoadedModel, status: { value: "loaded" } }],
+  });
+}
+
 /**
  * A fake llama upstream good enough for `LlamaRouter.loadAndWait`: it
  * triggers via `/models/load` (real b10354 contract, probed live: answers
@@ -377,14 +385,6 @@ const CHATTERBOX_ROUTES = [
  * `/openai/v1/chat/completions`-style call -- the only way to prove what `model`
  * field engined forwarded upstream, as opposed to merely what it responded.
  */
-/** llama-server's `/v1/models`: empty until a load, then the one resident GGUF. */
-function loadedModelsResponse(lastLoadedModel: string | undefined): Response {
-  return Response.json({
-    data:
-      lastLoadedModel === undefined ? [] : [{ id: lastLoadedModel, status: { value: "loaded" } }],
-  });
-}
-
 function fakeLlamaUpstream(
   content: string,
   chatStatus = 200,

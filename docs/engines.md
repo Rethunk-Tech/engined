@@ -263,21 +263,18 @@ is one file on disk, not two.
 
 ## `streaming`, a spec key on every kind
 
-Whether the engine can serve a streamed request: per-chunk NDJSON frames from
-a `tts` app (`"stream": true` on `POST /openai/v1/audio/speech`), SSE from an
-`openai-http` server, text deltas from an agent CLI's streamed output format
-(`"stream": true` on `POST /openai/v1/chat/completions`). `piper` and `kokoro`
-stream sentence by sentence from their pipelines; `chatterbox-multi` and
-`chatterbox-en` run one `generate()` per sentence when the door asks for
-chunks, so the first sentence's audio goes out while the rest is still
-sampling -- a single-sentence request is one call either way. `llama` streams
-SSE; `claude`, `opencode` and `cursor` stream their answer text as the CLI
-prints it. `whisper` streams one NDJSON frame per segment as it decodes
-(`"stream": "true"` on `POST /openai/v1/audio/transcriptions`), which is
-whisper.cpp's own new-segment callback rather than a finished transcript cut
-into pieces -- its wrapper reaches that callback through whisper-cli, because
-whisper-server buffers the whole body. `comfy` does not: its proxy is not a
-content endpoint.
+Whether the engine can serve a streamed request:
+
+| kind / engine | streams as | notes |
+| ------ | ------ | ------ |
+| `tts` app | per-chunk NDJSON frames | `"stream": true` on `POST /openai/v1/audio/speech` |
+| `openai-http` server | SSE | |
+| agent CLI (`claude`, `opencode`, `cursor`) | text deltas | `"stream": true` on `POST /openai/v1/chat/completions`; streams the answer text as the CLI prints it |
+| `piper`, `kokoro` | sentence by sentence | streams from their own pipelines |
+| `chatterbox-multi`, `chatterbox-en` | one `generate()` call per sentence | runs when the door asks for chunks, so the first sentence's audio goes out while the rest is still sampling -- a single-sentence request is one call either way |
+| `llama` | SSE | |
+| `whisper` | one NDJSON frame per segment as it decodes | `"stream": "true"` on `POST /openai/v1/audio/transcriptions`; this is whisper.cpp's own new-segment callback, not a finished transcript cut into pieces -- its wrapper reaches that callback through whisper-cli, because whisper-server buffers the whole body |
+| `comfy` | does not stream | its proxy is not a content endpoint |
 
 It lives in `spec.toml` because it is a property of the engine's own app, not
 of an install — the same reason `serves` does — and a `[[route]]` may override

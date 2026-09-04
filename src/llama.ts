@@ -39,11 +39,11 @@ const PRESET_CONTAINER_PATH = "/preset.ini";
 const MODELS_CONTAINER_PATH = "/models";
 const DEFAULT_POLL_INTERVAL_MS = 250;
 /**
- * The message bodies llama-server SENDS. The statuses they ride on are the
- * registry's in `http.ts`; only the wording is llama-server's own, so only the
- * wording is named here.
+ * The message bodies llama-server SENDS: the statuses they ride on are the
+ * registry's in `http.ts`, only the wording is llama-server's own, so only
+ * the wording is named here. This one is llama-server's answer once its own
+ * residency disagrees with this router's.
  */
-/** llama-server's answer once its own residency disagrees with this router's. */
 const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
 /** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
 const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";

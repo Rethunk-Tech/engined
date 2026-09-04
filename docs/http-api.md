@@ -168,15 +168,17 @@ no single one answers for every hop, and reports `streaming` and
 `streaming` is the engine spec's answer unless the route itself declares one.
 
 `state` on a chain answers "can I send this a request", not "is every hop
-healthy". A chain advances past a hop it cannot reach, so it is usable as
-long as one hop is: `state` is the first hop that can answer, and
-`state: "installed"` therefore means *some* hop can answer -- possibly not
-the first. `unavailable_hops` is the other half of that answer: the hop
-addresses that cannot, each for the reason a direct row to it would give --
-an engine that is not installed, or an upstream whose address or secret does
-not resolve. It is absent when every hop can answer, and absent on every
-non-chain row. When it lists every hop of the chain, nothing can answer and
-`state` reads `unavailable`.
+healthy":
+
+- A chain advances past a hop it cannot reach, so it is usable as long as one
+  hop is: `state` is the first hop that can answer, and `state: "installed"`
+  therefore means *some* hop can answer -- possibly not the first.
+- `unavailable_hops` is the other half of that answer: the hop addresses that
+  cannot, each for the reason a direct row to it would give -- an engine that
+  is not installed, or an upstream whose address or secret does not resolve.
+- It is absent when every hop can answer, and absent on every non-chain row.
+- When it lists every hop of the chain, nothing can answer and `state` reads
+  `unavailable`.
 
 ## Chains
 

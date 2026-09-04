@@ -575,12 +575,6 @@ interface HopRequest {
   inChain: boolean;
 }
 
-/**
- * The `openai-http` case: proxy through this engine's `LlamaRouter`, `workdir`
- * stripped. `req.signal` is `runOneHop`'s own per-hop timeout/caller-abort --
- * forwarded into `RequestInit` so a slow upstream is actually cut off at the
- * budget `chatTimeoutMs` picked, not just marked aborted after the fact.
- */
 /** One `openai-http` hop, resolved: the engine answering it, the model segment it was addressed by, and the route (if any) that segment resolved to. */
 interface HttpHop {
   engineEntry: EngineEntry;
@@ -589,6 +583,12 @@ interface HttpHop {
   req: HopRequest & { signal: AbortSignal };
 }
 
+/**
+ * The `openai-http` case: proxy through this engine's `LlamaRouter`, `workdir`
+ * stripped. `req.signal` is `runOneHop`'s own per-hop timeout/caller-abort --
+ * forwarded into `RequestInit` so a slow upstream is actually cut off at the
+ * budget `chatTimeoutMs` picked, not just marked aborted after the fact.
+ */
 async function execLlama(
   ctx: DoorContext,
   { engineEntry, modelSeg, route, req }: HttpHop,
