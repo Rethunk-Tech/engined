@@ -162,7 +162,7 @@ _model_lock = threading.Lock()
 
 # hexgrad/kokoro's own American + British English voice-pack catalog. misaki's G2P doesn't
 # validate the voice id itself, so an unknown one must be rejected here rather than silently
-# substituted (adapters.md MUST).
+# substituted.
 KNOWN_VOICES = {
     "af_heart",
     "af_alloy",

@@ -10,9 +10,8 @@ alignment}.
 
 No existing Chatterbox wrapper (including devnen/Chatterbox-TTS-Server, which
 both images' system/model setup is based on) returns word-level alignment —
-that's a Phase 8 compositor concern (docs/modules/adapters.md types it as
-`unknown` on our side deliberately). alignment is null here until that phase
-defines the real shape.
+that's a compositor concern: alignment is typed `unknown` on our side
+deliberately, and is null here until the shape is defined.
 
 Real progress: generate() is a single blocking call, but its dominant phase
 (T3 autoregressive token sampling, up to 1000 steps) already reports step
