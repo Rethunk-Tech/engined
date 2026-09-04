@@ -166,6 +166,14 @@ role     = "chat"  # chat | vision | embedding. Required: occupancy is one
   # on a headless (non-draft) GGUF: naming them there is llama-server exiting
   # 1 at load, and that failure isn't checkable at config parse time.
   [route.args]
+  # Every chat route wants this. Without it llama-server does not use the
+  # GGUF's own chat template, so its native tool-call parser is not the one in
+  # play and the model's own call format -- Qwen's `<tool_call>` block, for one
+  # -- can reach the client as ordinary content instead of as `tool_calls`.
+  # A consumer then has a call it cannot see; a voice front-end reads the tags
+  # out loud. `chat_template_kwargs` (enable_thinking) is only honoured under
+  # it too. Verified in the child's argv, the same way `embedding` below was.
+  jinja            = true
   spec-type        = "draft-mtp"
   spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
   spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
