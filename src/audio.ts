@@ -7,9 +7,6 @@
  * wrong content type. Alignment is not on this door — chatterbox's own value
  * is null until a later sagaforge phase, so nothing here surfaces or invents
  * a field for it.
- * sagaforge itself bypasses this file entirely and reads the native NDJSON
- * straight from the engine's `private_url`; that path is accepted, not
- * something this module needs to guard against.
  *
  * `POST /openai/v1/audio/transcriptions`: whisper's own `--inference-path` is the
  * OpenAI path itself, so the request needs no translation — only
