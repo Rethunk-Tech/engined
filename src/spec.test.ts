@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSpec } from "./spec.ts";
 import {
@@ -304,4 +304,54 @@ test("agent_version resolving to latest is fatal", () => {
   expect(() =>
     loadSpec(engine({ agent_version: "latest" }), { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
   ).toThrow("latest");
+});
+
+test.each([
+  [
+    "a top-level key on a container spec",
+    `${VALID_CONTAINER}\nimages_worklow = "graph.json"\n`,
+    "images_worklow",
+  ],
+  [
+    "a top-level key on an agentic spec",
+    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}"]\ntotally_bogus_key = 1\n`,
+    "totally_bogus_key",
+  ],
+  [
+    "a [ready] key",
+    `${VALID_CONTAINER}\n[ready.accept]\nmin = 200\nmax = 204\n`.replace(
+      "status = 200",
+      'status = 200\nmethd = "POST"',
+    ),
+    "methd",
+  ],
+  [
+    "a [[volume]] key",
+    VALID_CONTAINER.replace('path = "/models"', 'path = "/models"\nread_onyl = true'),
+    "read_onyl",
+  ],
+  [
+    "a [[artifact]] key",
+    `${VALID_CONTAINER}\n[[artifact]]\npath = "/models/m.bin"\nobtain = "curl -o m.bin https://example.invalid/m.bin"\nsha = "deadbeef"\n`,
+    "sha",
+  ],
+])("an unrecognised %s is fatal, naming the key", (_label, toml, key) => {
+  const root = specDir("x", toml);
+  expect(() =>
+    loadSpec(engine({ id: "x", agent_version: "1.0.0" }), { enginesRoot: root, bunx: BUNX }),
+  ).toThrow(`unrecognised key "${key}"`);
+});
+
+test("every shipped spec parses against the closed key sets", () => {
+  const ids = readdirSync(ENGINES_ROOT).filter((id) =>
+    existsSync(join(ENGINES_ROOT, id, "spec.toml")),
+  );
+  expect(ids.length).toBeGreaterThan(0);
+  for (const id of ids) {
+    const loaded = loadSpec(
+      engine({ id, agent_version: "1.0.0", models_dir: "/data/models", models_max: 4 }),
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX, presetIni: "/tmp/presets.ini" },
+    );
+    expect(loaded.spec.kind).toBeString();
+  }
 });

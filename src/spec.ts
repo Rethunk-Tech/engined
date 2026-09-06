@@ -53,6 +53,40 @@ const CONTAINER_ONLY_KEYS = [
 /** A spec declares no port: the container side is the image's EXPOSE, the host side is docker's. */
 const PORT_KEYS = new Set(["port", "ports", "expose"]);
 
+/** Keys both dialects read. */
+const COMMON_KEYS = ["kind", "upstream", "serves", "env", "command", "streaming"] as const;
+
+const AGENTIC_KEYS: ReadonlySet<string> = new Set([...COMMON_KEYS, "agent"]);
+const CONTAINER_KEYS: ReadonlySet<string> = new Set([
+  ...COMMON_KEYS,
+  ...CONTAINER_ONLY_KEYS,
+  "images_workflow",
+]);
+const READY_KEYS: ReadonlySet<string> = new Set(["path", "status", "method", "accept"]);
+const ACCEPT_KEYS: ReadonlySet<string> = new Set(["min", "max"]);
+const VOLUME_KEYS: ReadonlySet<string> = new Set(["name", "path", "read_only"]);
+const ARTIFACT_KEYS: ReadonlySet<string> = new Set(["path", "obtain"]);
+
+/**
+ * Every spec table is closed, the way config.ts's `requireTable` closes the
+ * config ones: a key engined does not read is a typo, and dropping it silently
+ * defers the failure to whatever the missing value was load-bearing for --
+ * a misspelt `images_workflow` surfaces as the door refusing an image request
+ * against an engine that looks configured for one.
+ */
+function assertKnownKeys(
+  raw: Record<string, unknown>,
+  site: string,
+  keys: ReadonlySet<string>,
+  file: string,
+): void {
+  for (const key of Object.keys(raw)) {
+    if (!keys.has(key)) {
+      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
+    }
+  }
+}
+
 export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec {
   const overridden = engine.spec_dir !== undefined;
   const specDir = overridden ? (engine.spec_dir as string) : join(opts.enginesRoot, engine.id);
@@ -194,6 +228,7 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
       );
     }
   }
+  assertKnownKeys(raw, "spec", AGENTIC_KEYS, file);
   const agentId = requireString(raw.agent, '"agent"', file);
   const agent = agentCli(agentId);
   if (agent === undefined) {
@@ -234,6 +269,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
   if (!(CONTAINER_KINDS as ReadonlySet<string>).has(kind)) {
     throw new ParseError(`unknown engine kind "${kind}"`, file);
   }
+  assertKnownKeys(raw, "spec", CONTAINER_KEYS, file);
   const image = requireString(raw.image, '"image"', file);
   if (raw.obtain !== "pull" && raw.obtain !== "build") {
     throw new ParseError('"obtain" must be "pull" or "build"', file);
@@ -276,6 +312,7 @@ function parseReady(raw: unknown, file: string): ReadyProbe {
       file,
     );
   }
+  assertKnownKeys(raw, "[ready]", READY_KEYS, file);
   const path = requireString(raw.path, '[ready] "path"', file);
   if (typeof raw.status !== "number") {
     throw new ParseError('[ready] "status" must be a number', file);
@@ -295,6 +332,7 @@ function parseReady(raw: unknown, file: string): ReadyProbe {
     ) {
       throw new ParseError('[ready.accept] needs numeric "min" and "max"', file);
     }
+    assertKnownKeys(raw.accept, "[ready.accept]", ACCEPT_KEYS, file);
     probe.accept = { min: raw.accept.min, max: raw.accept.max };
   }
   return probe;
@@ -305,6 +343,7 @@ function parseVolumes(raw: unknown, file: string): Volume[] {
     if (!isRecord(v)) {
       throw new ParseError("malformed [[volume]] entry", file);
     }
+    assertKnownKeys(v, "[[volume]]", VOLUME_KEYS, file);
     return {
       name: requireString(v.name, '[[volume]] "name"', file),
       path: requireString(v.path, '[[volume]] "path"', file),
@@ -318,6 +357,7 @@ function parseArtifacts(raw: unknown, file: string): Artifact[] {
     if (!isRecord(a)) {
       throw new ParseError("malformed [[artifact]] entry", file);
     }
+    assertKnownKeys(a, "[[artifact]]", ARTIFACT_KEYS, file);
     return {
       path: requireString(a.path, '[[artifact]] "path"', file),
       obtain: requireString(a.obtain, '[[artifact]] "obtain"', file),
