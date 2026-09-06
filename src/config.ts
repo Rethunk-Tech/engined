@@ -23,6 +23,7 @@ import type {
   SecretRef,
   Upstream,
   UpstreamTrait,
+  VisionKind,
   Wire,
 } from "./types.ts";
 import {
@@ -42,6 +43,7 @@ const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
 const ROLES: readonly Role[] = ["chat", "vision", "embedding"];
+const VISION_KINDS: readonly VisionKind[] = ["describe", "read"];
 
 /**
  * `~/.local/share/` in a config path means "wherever engined's own data
@@ -82,6 +84,7 @@ const ROUTE_KEYS = new Set([
   "upstream",
   "filename",
   "role",
+  "vision",
   "keep_resident",
   "streaming",
   "args",
@@ -316,6 +319,7 @@ interface RawRoute {
   declaredUpstream?: string;
   filename?: string;
   role?: Role;
+  vision?: VisionKind;
   keep_resident?: boolean;
   streaming?: boolean;
   args: Record<string, unknown>;
@@ -350,6 +354,15 @@ function parseRouteRaw(
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {
     throw new ParseError(`${site} has invalid "role" "${roleStr}"`, file);
   }
+  const visionStr = optional(raw.vision, "string", `${site} "vision"`, file);
+  if (visionStr !== undefined && !VISION_KINDS.includes(visionStr as VisionKind)) {
+    throw new ParseError(`${site} has invalid "vision" "${visionStr}"`, file);
+  }
+  // Fatal rather than ignored: a `vision` on a chat route is someone believing
+  // it does something, and a silently dropped key never corrects them.
+  if (visionStr !== undefined && roleStr !== "vision") {
+    throw new ParseError(`${site} has "vision" but is not role = "vision"`, file);
+  }
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
   return {
@@ -359,6 +372,7 @@ function parseRouteRaw(
     declaredUpstream: optional(raw.upstream, "string", `${site} "upstream"`, file),
     filename: rawFilename === undefined ? undefined : expandConfigPath(rawFilename),
     role: roleStr as Role | undefined,
+    vision: visionStr as VisionKind | undefined,
     keep_resident: optional(raw.keep_resident, "boolean", `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, "boolean", `${site} "streaming"`, file),
     args,
@@ -508,6 +522,7 @@ function resolveRoute(
     upstream: upstreamId,
     filename: raw.filename,
     role: raw.role,
+    vision: raw.vision,
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
     args: raw.args,

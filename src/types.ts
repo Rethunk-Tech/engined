@@ -12,6 +12,17 @@ import { STATUS_NOT_FOUND } from "./http.ts";
 export type Role = "chat" | "vision" | "embedding";
 
 /**
+ * What a vision route's model actually does with an image, which `role` does
+ * not say: `describe` reads a scene back in prose, `read` recognises the
+ * characters printed in it. Both take an image and answer in text, so nothing
+ * else on a route or its capabilities tells them apart -- and asking a reader
+ * to describe a scene gets degenerate output, measured against PaddleOCR-VL.
+ *
+ * Only meaningful on a `vision` route, and `describe` when one does not say.
+ */
+export type VisionKind = "describe" | "read";
+
+/**
  * Where an upstream's bytes travel, ordered least to most exposed. Lives on
  * `Upstream` now, not on an engine -- an engine has no address of its own
  * to leak from, only the upstream it is paired with does. An ambient route
@@ -184,6 +195,8 @@ export interface EngineCapability extends ModelCapabilities {
   serves: string[];
   /** This route's inference role -- the same field, for the same reason, as `ModelRow.role`. */
   role?: Role;
+  /** See `VisionKind`. Absent unless this route is `role = "vision"`. */
+  vision?: VisionKind;
 }
 
 /**
@@ -238,6 +251,8 @@ export interface ResolvedRoute extends ModelCapabilities {
   /** Absent by construction whenever `upstream` is not `"local"`: a route proxied elsewhere has no local file to describe. */
   filename?: string;
   role?: Role;
+  /** See `VisionKind`. Absent on any route that is not `role = "vision"`. */
+  vision?: VisionKind;
   /**
    * Load this GGUF when its engine starts, and reload it whenever its role
    * falls idle again — warmth guaranteed against idleness, never against
@@ -625,6 +640,13 @@ export interface ModelRow {
    * route to take one from.
    */
   role?: Role;
+  /**
+   * See `VisionKind`. A vision address that reads characters and one that
+   * describes a scene are the same `role` and the same `serves`, so this is
+   * what a consumer picks on -- and what decides which ground-truth check
+   * `src/visionProbe.ts` sends it.
+   */
+  vision?: VisionKind;
   /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable

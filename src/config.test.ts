@@ -99,6 +99,8 @@ const RX_MISSING_FILENAME_UNDER_DIR = /"filename" does not exist at/;
 const RX_UNKNOWN_ENGINE_LOCAL = /engine "local" does not exist/;
 const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
+const RX_INVALID_VISION = /has invalid "vision" "reed"/;
+const RX_VISION_WITHOUT_ROLE = /has "vision" but is not role = "vision"/;
 const RX_MISSING_EGRESS = /is missing required "egress"/;
 const RX_STREAMING_KEY = /"streaming"/;
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/;
@@ -722,6 +724,39 @@ model = "x"
 filename = "should-not-be-here.gguf"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MUST_NOT_FILENAME);
+  });
+
+  // `vision` says what a vision model DOES with an image -- describes a scene,
+  // or reads the characters in one -- which nothing else on a route says. On a
+  // route that is not a vision route it means nothing, and a key that means
+  // nothing must not be quietly accepted: someone wrote it believing it did
+  // something.
+  test('a "vision" on a route that is not role = "vision" is fatal, not ignored', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "x"
+vision = "read"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_VISION_WITHOUT_ROLE);
+  });
+
+  test('a "vision" that is not one of the two kinds is fatal', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "x"
+vision = "reed"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_INVALID_VISION);
   });
 
   test("a route on an engine with no models_dir must not declare role", () => {

@@ -108,6 +108,7 @@ async function modelRow(
     tools: forwardsTools(status, route.role),
     serves: routeServes(route.role, status?.serves ?? []),
     role: route.role,
+    vision: route.vision,
     state,
     capabilities: routeCapabilities(route),
   };

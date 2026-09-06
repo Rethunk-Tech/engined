@@ -141,7 +141,7 @@ either side.
 
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
-is `{id, engine, upstream, model, egress, streaming, tools, serves, role, state,
+is `{id, engine, upstream, model, egress, streaming, tools, serves, role, vision, state,
 capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
 that has any.
 
@@ -168,6 +168,12 @@ separates an embedding route from everything else and nothing more. It is
 absent on a route that declares none, and on a chain row for the same reason
 `engine` is. It rides on each `capabilities[]` entry in
 `GET /engined/v1/engines` too.
+
+`vision` splits the vision role in two, and is present only on it:
+`"describe"` names a model that reads a scene back in prose, `"read"` one that
+recognises the characters printed in an image. They serve the same path and
+declare the same capabilities, so this is the only thing a consumer can pick
+on — see [configuration.md](configuration.md).
 
 A chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming` and

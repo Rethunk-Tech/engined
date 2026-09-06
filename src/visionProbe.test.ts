@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runVisionProbe, splitColorPng, visionVerdict } from "./visionProbe.ts";
+import {
+  digitsPng,
+  readProbeText,
+  runVisionProbe,
+  splitColorPng,
+  visionReadVerdict,
+  visionVerdict,
+} from "./visionProbe.ts";
 
 /** The ExecStart flag, read once: a regex rebuilt per call is a lint warning and a wasted compile. */
 const RX_EXEC_START_FLAG = /^ExecStart=.*?(--[a-z-]+)\s*$/m;
@@ -43,6 +50,77 @@ test("the verdict needs both halves and their order, not one colour", () => {
   // The detail carries the reply, because a failure nobody can read is a
   // failure nobody acts on.
   expect(visionVerdict("Blue, red.").detail).toContain("Blue, red.");
+});
+
+test("the read probe draws the digits it will check for, as a real PNG", () => {
+  const png = digitsPng("40718352");
+  expect([...png.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  // 8 glyphs of 5 cells plus a gap between each, and 2 cells of margin all
+  // round, at 14 image pixels per cell.
+  expect(view.getUint32(16)).toBe((8 * 6 - 1 + 4) * 14);
+  expect(view.getUint32(20)).toBe((7 + 4) * 14);
+  // A different string is a different image, or the probe would be sending
+  // one picture and checking for another string.
+  expect(Buffer.from(digitsPng("11111111")).equals(Buffer.from(png))).toBe(false);
+});
+
+test("a fresh digit string every run, so no answer comes from having seen the image", () => {
+  const runs = new Set(Array.from({ length: 32 }, () => readProbeText()));
+  expect([...runs].every((t) => /^\d{8}$/.test(t))).toBe(true);
+  // Not a distribution test: one repeated string across 32 draws would mean a
+  // constant, which is the property that matters here.
+  expect(runs.size).toBeGreaterThan(1);
+});
+
+test("the read verdict wants the digits, not the wrapper a model puts round them", () => {
+  expect(visionReadVerdict("40718352", "40718352").ok).toBe(true);
+  // A reader that framed its answer still read the image.
+  expect(visionReadVerdict("40718352", "The digits are 4071 8352.").ok).toBe(true);
+  expect(visionReadVerdict("40718352", "40718353").ok).toBe(false);
+  expect(visionReadVerdict("40718352", "4071835").ok).toBe(false);
+  expect(visionReadVerdict("40718352", "a photograph of a cat").detail).toContain("40718352");
+});
+
+test("a read route is asked to read and a describe route to describe, from the same menu", async () => {
+  const bodies: string[] = [];
+  const rows = [
+    VISION_ROW,
+    { id: "@/llama/ocr", role: "vision", vision: "read", state: "installed" },
+  ];
+  const client = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/openai/v1/models")) {
+      return Promise.resolve(Response.json({ object: "list", data: rows }));
+    }
+    bodies.push(String(init?.body ?? ""));
+    // Neither check's right answer, so the assertion below is about which
+    // question was asked and not about which reply happened to satisfy it.
+    return Promise.resolve(Response.json({ choices: [{ message: { content: "" } }] }));
+  }) as typeof fetch;
+
+  await runVisionProbe("http://door", client);
+
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toContain("two vertical halves");
+  expect(bodies[1]).toContain("Read the digits");
+  expect(bodies[1]).not.toContain("two vertical halves");
+});
+
+test("a route with no vision kind gets the describe check, which is what a vision route usually is", async () => {
+  const bodies: string[] = [];
+  const client = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/openai/v1/models")) {
+      return Promise.resolve(Response.json({ object: "list", data: [VISION_ROW] }));
+    }
+    bodies.push(String(init?.body ?? ""));
+    return Promise.resolve(Response.json({ choices: [{ message: { content: "red blue" } }] }));
+  }) as typeof fetch;
+
+  const report = await runVisionProbe("http://door", client);
+  expect(report.ok).toBe(true);
+  expect(bodies[0]).toContain("two vertical halves");
 });
 
 test("a vision address that answers correctly proves", async () => {
