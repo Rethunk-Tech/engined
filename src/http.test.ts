@@ -31,9 +31,10 @@ test("a body the door will not read is cancelled rather than left to a collector
  * reach the producer, so an engine answering an error keeps its side open.
  */
 test("dropping the reference instead never reaches the producer", async () => {
-  const { res, cancelled } = watchedResponse();
+  // The reference is dropped by never binding it, which is the case under
+  // test -- a `void res` would have kept one alive to satisfy the linter.
+  const { cancelled } = watchedResponse();
 
-  void res;
   await Bun.sleep(1);
 
   expect(cancelled()).toBe(false);

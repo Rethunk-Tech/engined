@@ -78,6 +78,13 @@
       "linter": {
         "rules": {
           "style": { "noMagicNumbers": "off" },
+          // One test is one scenario, and the long ones here are long because
+          // the scenario is: a concurrent cross-role decode, a build invocation
+          // asserted argument by argument. Splitting a body to hit a count
+          // moves the setup away from the assertion that depends on it, which
+          // is the same reason noExcessiveLinesPerFile is off above. The rule
+          // stays on for src/, where it has never fired.
+          "complexity": { "noExcessiveLinesPerFunction": "off" },
           // A test skipped with its blocker named is this project's way of
           // shipping an unmet acceptance criterion honestly. The rule's unsafe
           // fix removes the marker, which turns a documented gap into a

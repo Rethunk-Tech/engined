@@ -991,14 +991,18 @@ describe("a spec dir's declared build flags", () => {
     try {
       writeFileSync(join(dir, "Dockerfile"), "FROM scratch\n");
       writeFileSync(join(dir, "build-contexts"), "shared=../shared\n");
-      writeFileSync(join(dir, "build-args"), "PORT=8005\nCHECKPOINT_CLASS=Turbo\n");
+      // One entry per line, the way a real `build-args` is written -- the two
+      // values mirror `engines/chatterbox-en/build-args` rather than inventing
+      // a shape the loader never sees.
+      const buildArgs = ["PORT=8005", "CHECKPOINT_MODULE=chatterbox.tts_turbo"];
+      writeFileSync(join(dir, "build-args"), `${buildArgs.join("\n")}\n`);
 
       // Values are taken literally -- unlike a context's path, which is a
       // location this has to resolve; a build arg is whatever the Dockerfile
       // means by it.
       expect(await buildFix(dir)).toBe(
         `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, "../shared")}` +
-          " --build-arg PORT=8005 --build-arg CHECKPOINT_CLASS=Turbo" +
+          " --build-arg PORT=8005 --build-arg CHECKPOINT_MODULE=chatterbox.tts_turbo" +
           ` -f ${join(dir, "Dockerfile")} ${dir}`,
       );
     } finally {

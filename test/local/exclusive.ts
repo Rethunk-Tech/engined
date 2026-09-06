@@ -63,6 +63,12 @@ export const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const;
 /** How much of the pool to leave for everything that is not this suite's engines. */
 const RESERVE_GIB = 4;
 
+/** `/proc/meminfo` reports in kB (kibibytes, despite the spelling), which is what the pool comparison converts from. */
+const KIB_PER_GIB = 1_048_576;
+
+/** Compiled once: this runs on every local-tier suite entry, and the pattern never varies. */
+const MEM_AVAILABLE = /^MemAvailable:\s+(\d+) kB$/m;
+
 /**
  * Refuses unless the box has room for the engines this suite is about to load.
  *
@@ -86,11 +92,11 @@ export function requireMemoryFor(...engines: (keyof typeof ENGINE_RESIDENT_GIB)[
   // has no room to do twice over.
   const needGib = Math.max(...engines.map((id) => ENGINE_RESIDENT_GIB[id])) + RESERVE_GIB;
   const meminfo = readFileSync("/proc/meminfo", "utf8");
-  const kb = Number(/^MemAvailable:\s+(\d+) kB$/m.exec(meminfo)?.[1]);
+  const kb = Number(MEM_AVAILABLE.exec(meminfo)?.[1]);
   if (!Number.isFinite(kb)) {
     throw new Error("/proc/meminfo reported no MemAvailable, so this tier cannot size the pool");
   }
-  const availableGib = kb / 1024 / 1024;
+  const availableGib = kb / KIB_PER_GIB;
   if (availableGib < needGib) {
     throw new Error(
       `${engines.join(" + ")} needs ~${needGib} GiB but only ${availableGib.toFixed(1)} GiB is available. ` +
