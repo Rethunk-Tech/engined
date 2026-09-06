@@ -32,7 +32,8 @@ export interface CallRecord {
   upstream_used: string | null;
 }
 
-function writeToStdout(line: string): void {
+/** Exported so everything engined puts on the record shares one writer, rather than growing a second `process.stdout` site per caller. */
+export function writeToStdout(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 

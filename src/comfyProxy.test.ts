@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { loadComfyBindings } from "./comfyProxy.ts";
 import type { HttpClient } from "./http.ts";
 import { bindDualFamily, createDoor } from "./main.ts";
 import {
@@ -1072,5 +1073,66 @@ describe("comfy proxy: a binding ages out", () => {
       readFileSync(join(stateHome, "engined", "comfy-bindings.json"), "utf8"),
     ) as Record<string, unknown>;
     expect(Object.keys(onDisk)).toEqual([`${KEY_PREFIX}job-fresh`]);
+  });
+});
+
+describe("loading the binding table", () => {
+  /** A scratch state home holding `body` as its binding table, or holding no table at all. */
+  function stateWith(body?: string): void {
+    const home = mkdtempSync(join(TEST_ROOT, "load-"));
+    if (body !== undefined) {
+      mkdirSync(join(home, "engined"), { recursive: true });
+      writeFileSync(join(home, "engined", "comfy-bindings.json"), body);
+    }
+    process.env.XDG_STATE_HOME = home;
+  }
+
+  test("entries this build cannot read are counted, not dropped in silence", () => {
+    stateWith(
+      JSON.stringify({
+        "comfy local old-a": [],
+        "comfy local old-b": [],
+        "comfy local current": { at: Date.now(), filenames: ["a.png"] },
+      }),
+    );
+    const lines: string[] = [];
+    const table = loadComfyBindings((line) => lines.push(line));
+    expect(table.size).toBe(1);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] as string)).toEqual({
+      comfy_bindings: "partial",
+      dropped: 2,
+      kept: 1,
+    });
+  });
+
+  test("the line carries counts only: a key is the prompt id that produced it", () => {
+    stateWith(JSON.stringify({ "comfy local job-2f9c": [] }));
+    const lines: string[] = [];
+    loadComfyBindings((line) => lines.push(line));
+    expect(lines[0]).not.toContain("job-2f9c");
+  });
+
+  test("a table voided whole is told apart from a first start", () => {
+    stateWith("{ not json at all");
+    const broken: string[] = [];
+    expect(loadComfyBindings((line) => broken.push(line)).size).toBe(0);
+    expect(JSON.parse(broken[0] as string)).toEqual({
+      comfy_bindings: "unreadable",
+      dropped: "all",
+      kept: 0,
+    });
+
+    stateWith();
+    const absent: string[] = [];
+    expect(loadComfyBindings((line) => absent.push(line)).size).toBe(0);
+    expect(absent).toEqual([]);
+  });
+
+  test("a table this build can read in full writes nothing", () => {
+    stateWith(JSON.stringify({ "comfy local j": { at: Date.now(), filenames: [] } }));
+    const lines: string[] = [];
+    expect(loadComfyBindings((line) => lines.push(line)).size).toBe(1);
+    expect(lines).toEqual([]);
   });
 });

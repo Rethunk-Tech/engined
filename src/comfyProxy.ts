@@ -24,6 +24,7 @@ import {
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { stateDir } from "./paths.ts";
+import { writeToStdout } from "./provenance.ts";
 import { readJsonBody } from "./requestBody.ts";
 import { errMessage, isRecord, parseRecord } from "./types.ts";
 
@@ -88,7 +89,14 @@ function comfyBindingsPath(): string {
   return join(stateDir(), "comfy-bindings.json");
 }
 
-export function loadComfyBindings(): ComfyBindings {
+/**
+ * Dropping what this build cannot read is the safe direction, but doing it
+ * without a line is what makes a state-format change indistinguishable from
+ * comfy having produced nothing: every stored output stops resolving and the
+ * table looks the way an idle week looks. The line is a count, never a key --
+ * a key carries the prompt id that produced it.
+ */
+export function loadComfyBindings(write: (line: string) => void = writeToStdout): ComfyBindings {
   let text = "";
   try {
     text = readFileSync(comfyBindingsPath(), "utf8");
@@ -98,18 +106,25 @@ export function loadComfyBindings(): ComfyBindings {
   }
   const raw = parseRecord(text);
   if (raw === null) {
+    // An absent table is the ordinary first start; one that will not parse is
+    // a table voided whole, which is worth telling apart from it.
+    if (text !== "") {
+      write(JSON.stringify({ comfy_bindings: "unreadable", dropped: "all", kept: 0 }));
+    }
     return new Map();
   }
   // Age is not filtered here. Every read goes through `liveBinding`, so an
   // aged entry read back is refused all the same and the next save drops it --
   // one mechanism deciding what is servable, rather than two that can disagree
   // about where the boundary is.
-  return new Map(
+  let dropped = 0;
+  const table = new Map(
     Object.entries(raw).flatMap(([key, value]): [string, ComfyBinding][] => {
       // Anything not of this shape is dropped rather than repaired: an entry
       // this build cannot read is an entry it cannot vouch for, and an empty
       // table refuses stored outputs, which is the safe direction to fail.
       if (!isRecord(value) || typeof value.at !== "number" || !Array.isArray(value.filenames)) {
+        dropped++;
         return [];
       }
       return [
@@ -117,6 +132,10 @@ export function loadComfyBindings(): ComfyBindings {
       ];
     }),
   );
+  if (dropped > 0) {
+    write(JSON.stringify({ comfy_bindings: "partial", dropped, kept: table.size }));
+  }
+  return table;
 }
 
 /**
