@@ -318,6 +318,14 @@ image, the GGUF or the mmproj build changes. Treat vision as unproven until
 you have done that for your own consumer; the other roles carry no equivalent
 caveat.
 
+`test/local/llama.test.ts` runs exactly this check against the door's vision
+route: a solid-colour PNG built in-test (no fixture file to go stale, a fresh
+image every run) sent through the door's OpenAI chat verb as an `image_url`
+data URI, asserting the reply names the known colour. That proves fidelity
+for this GGUF, this mmproj build and this one synthetic image -- re-check
+with your own consumer's real images before trusting the vision role for
+them.
+
 ## Occupancy
 
 One resident model per role (`chat`, `vision`, `embedding`), with explicit

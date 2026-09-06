@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { AUTO_PARALLEL, LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
@@ -196,6 +197,62 @@ function chatCompletionBody(modelId: string): string {
   });
 }
 
+/** One PNG chunk: 4-byte length, 4-byte ASCII type, data, 4-byte CRC32 over type+data. */
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const typeBytes = Buffer.from(type, "ascii");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(Number(crc32(Buffer.concat([typeBytes, data]))), 0);
+  return Buffer.concat([length, typeBytes, data, crc]);
+}
+
+/**
+ * A minimal PNG encoder rather than a fixture file: no image library is
+ * installed in node_modules (checked), and a solid-colour square is the
+ * smallest deterministic image whose expected description is knowable ahead
+ * of the request -- what a fidelity check needs. `deflateSync` (node:zlib)
+ * already produces the zlib-wrapped stream IDAT requires; `Bun.deflateSync`
+ * does not -- it emits raw deflate with no header/adler32, confirmed by a
+ * failed `inflateSync` round trip, which is why this uses the node import.
+ */
+function solidColorPng(size: number, rgb: readonly [number, number, number]): Uint8Array {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit depth, RGB colour type, defaults for the rest
+  const row = Buffer.alloc(1 + size * 3); // leading filter-type-0 byte per scanline
+  for (let x = 0; x < size; x++) {
+    row.set(rgb, 1 + x * 3);
+  }
+  const raw = Buffer.concat(new Array(size).fill(row));
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  return Buffer.concat([
+    signature,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const RED_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(solidColorPng(64, [220, 20, 20])).toString("base64")}`;
+
+function visionRequestBody(modelId: string): string {
+  return JSON.stringify({
+    model: modelId,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What single color fills this image? Answer with one word." },
+          { type: "image_url", image_url: { url: RED_PNG_DATA_URI } },
+        ],
+      },
+    ],
+    max_tokens: 16,
+  });
+}
+
 async function proxyStatus(
   router: LlamaRouter,
   route: ResolvedRoute,
@@ -225,6 +282,12 @@ async function proxyEmbedding(
     body: JSON.stringify({ model: route.model, input: "hello world" }),
   });
   return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
+}
+
+/** The door's OpenAI chat verb response to a vision request, narrowed to the one field a fidelity check reads. */
+async function visionReplyContent(response: Response): Promise<string> {
+  const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+  return body.choices?.[0]?.message?.content ?? "";
 }
 
 describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), () => {
@@ -269,6 +332,23 @@ describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), 
       const vector = embedResult.value.body.data?.[0]?.embedding;
       expect(vector).toBeDefined();
       expect(vector?.length).toBe(EMBEDDING_DIMENSIONS);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "vision fidelity: a synthetic solid-red PNG built in-test is named correctly through the door's OpenAI chat verb",
+    async () => {
+      if (!VISION) {
+        throw new Error("fixture is missing vision -- READY should have been false");
+      }
+      const { response } = await router.proxy(VISION, "/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: visionRequestBody(VISION.model),
+      });
+      expect(response.status).toBe(200);
+      expect((await visionReplyContent(response)).toLowerCase()).toContain("red");
     },
     TEST_TIMEOUT_MS,
   );
