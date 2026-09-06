@@ -123,7 +123,7 @@ one of four spellings:
 | `@/engine/model` | `@/llama/ornith` | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one) |
 | `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit — the only form a chain hop may use |
 | `@/engine/upstream` | `@/comfy/local` | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
-| chain name | `chain-private` | an ordered fallback list |
+| chain name | `chain-private` | an ordered fallback list — chat, speech and transcription |
 
 A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
 an unqualified string resolves only as a chain name, and anything else is a
@@ -187,6 +187,28 @@ on a 5xx, an empty body, or a 401/402/403/429 — those four are credential- and
 rate-shaped, not the caller's fault, so a sibling engine gets a turn. Every
 other 4xx still stops the chain: a caller's own bad request is not something a
 second engine can fix.
+
+### Which endpoints take one
+
+`/chat/completions`, `/audio/speech` and `/audio/transcriptions`. Embeddings do
+not: a vector from a second engine is not comparable with the first's, so
+falling back would answer with something the caller cannot use against what it
+already stored.
+
+Hops are not pre-checked against the endpoint. A hop that does not serve it
+fails as itself and the next one is tried, so a chain of chat engines posted to
+`/audio/speech` comes back with each hop's own reason rather than one sentence
+about the chain.
+
+**A recording streamed as the request body cannot use a chain.** The upload *is*
+the request, and the first hop consumes it; a second hop would be handed a
+drained body and would transcribe silence while reporting success. That is
+refused with a 400 naming the fix — send the recording as a multipart upload,
+whose bytes can be replayed. A buffered transcription and every speech request
+chain normally.
+
+A chain across audio engines records one provenance line carrying every hop,
+the same as a chat chain.
 
 `chain-private` is one hop on purpose: it is the name a consumer points at to
 say *this prompt does not leave the box*, and keeping it a chain means adding

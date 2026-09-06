@@ -8,6 +8,8 @@ import type { EngineRegistry } from "./engines.ts";
 import type { Config, Egress, ResolvedRoute } from "./types.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
   EGRESS_RANK,
   qualifiedSegments,
   routeForHop,
@@ -150,14 +152,30 @@ export function resolveQualified(segments: readonly string[], ctx: ResolveCtx): 
   return resolveThreeSegments(first as string, second as string, third as string, ctx);
 }
 
+/**
+ * The endpoints a fallback list means anything on. Embeddings are absent
+ * deliberately: a vector from a second engine is not interchangeable with the
+ * first's, so falling back would answer with something the caller cannot
+ * compare against what it already stored.
+ *
+ * Whether each individual hop serves the endpoint is not checked here. A chain
+ * advances past a hop it cannot use, so a hop that does not serve this endpoint
+ * fails as itself and the next one is tried -- and if none serves it, the
+ * caller gets every hop's own reason rather than one sentence about the chain.
+ */
+export const CHAIN_ENDPOINTS: ReadonlySet<string> = new Set([
+  CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
+]);
+
 function resolveChain(model: string, endpoint: string, config: Config): Dispatch | undefined {
   const hops = config.chains[model];
   if (hops === undefined) {
     return;
   }
-  // Chains exist to route a chat prompt hop by hop; no other endpoint takes one.
-  if (endpoint !== CONTENT_ENDPOINT_CHAT) {
-    return fail(`chain "${model}" only serves ${CONTENT_ENDPOINT_CHAT}`);
+  if (!CHAIN_ENDPOINTS.has(endpoint)) {
+    return fail(`chain "${model}" does not serve ${endpoint}`);
   }
   return { ok: true, kind: "chain", chain: model, hops };
 }

@@ -1524,7 +1524,9 @@ async function handleContent(
     return body;
   }
   if (pathname === CONTENT_ENDPOINT_SPEECH) {
-    return handleAudioSpeech(ctx, body);
+    // The signal is what stops a speech chain advancing to a second engine for
+    // an answer the caller is no longer there to receive.
+    return handleAudioSpeech(ctx, body, req.signal);
   }
   const rawModel = typeof body.model === "string" ? body.model : undefined;
   const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry);

@@ -18,13 +18,16 @@ import {
   SPEECH_DOOR_KEYS,
   type SpeechRequestBody,
 } from "./audio.ts";
-import { classifyResult, wrapStream } from "./chain.ts";
-import { resolveModel } from "./dispatch.ts";
+import { classifyResult, type HopExec, runChain, wrapStream } from "./chain.ts";
+import { resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
 import { DEFAULT_IDLE_STOP_SECONDS, EngineBusyError } from "./engines.ts";
 import {
   CONTENT_TYPE,
+  JSON_CONTENT_TYPE,
   jsonError,
+  jsonErrorBody,
+  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
   TEXT_CONTENT_TYPE,
@@ -35,7 +38,10 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
+  type Egress,
   errMessage,
+  MS_PER_SECOND,
+  qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
 } from "./types.ts";
@@ -199,33 +205,142 @@ function finishAudioCall(ctx: DoorContext, leased: AudioLease, info: AudioCallIn
 }
 
 /**
+ * One audio verb aimed at one engine. The chain path calls it once per hop and
+ * the single-address path once; each supplies the engine and model the hop
+ * resolved to, so nothing below has to know which of the two it is serving.
+ */
+type AudioAttempt = (
+  engineId: string,
+  model: string | undefined,
+  start: EngineStart,
+) => Promise<DoorResponse>;
+
+/**
+ * What one chain hop resolves to for an audio endpoint. `resolveQualified` is
+ * reused rather than `parseHop` because an audio engine is usually modelless:
+ * `@/chatterbox-multi/local` names an upstream in its second segment, not a
+ * model, and only the engine's own routes say which reading applies. It also
+ * carries the per-hop `serves` check, so a chat-only hop in a speech chain
+ * fails as itself rather than being dispatched to an engine that cannot answer.
+ */
+function audioHopRoute(ctx: DoorContext, hop: string, endpoint: string) {
+  const segments = qualifiedSegments(hop);
+  if (segments === undefined) {
+    return { ok: false as const, error: `chain hop "${hop}" is not a qualified @/ address` };
+  }
+  return resolveQualified(segments, {
+    endpoint,
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+  });
+}
+
+/**
+ * One hop of an audio chain: its own engine, its own lease, its own attempt in
+ * the provenance line. The lease is per hop rather than per call -- a hop that
+ * failed must give its engine back before the next one is asked, or a chain of
+ * three would hold three engines open to answer once.
+ *
+ * A hop that will not resolve answers 502 rather than 400, because a 5xx is
+ * what advances: another hop may serve the endpoint this one does not.
+ */
+function audioHopExec(
+  ctx: DoorContext,
+  endpoint: string,
+  attempt: AudioAttempt,
+  setContentType: (ct: string) => void,
+): HopExec {
+  return async (hop) => {
+    const dispatch = audioHopRoute(ctx, hop, endpoint);
+    if (!dispatch.ok) {
+      return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(dispatch.error) };
+    }
+    const { route } = dispatch;
+    const leased: AudioLease = { held: false };
+    const result = endAudioLease(
+      ctx,
+      route.engine,
+      leased,
+      await attempt(route.engine, route.model, audioStart(ctx, leased)),
+    );
+    setContentType(result.contentType);
+    return {
+      status: result.status,
+      body: result.body,
+      bytes: result.bytes,
+      stream: result.stream,
+      upstreamUsed: route.upstream ?? undefined,
+    };
+  };
+}
+
+interface AudioChain {
+  chain: string;
+  hops: readonly string[];
+  requested: string;
+  endpoint: string;
+  attempt: AudioAttempt;
+  signal?: AbortSignal;
+}
+
+/**
+ * A chain across audio engines, walked by the same `runChain` a chat prompt
+ * uses: one provenance line carrying every hop, and the first hop that answers
+ * is the answer.
+ *
+ * No `maxEgress`. The chat door reads a `max_egress` field off the request
+ * body, and an audio body has no room for one -- a speech field engined does
+ * not recognise is forwarded to the engine as a wire parameter, so claiming
+ * the name here would change what an engine receives.
+ */
+async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Response> {
+  let contentType = JSON_CONTENT_TYPE;
+  const config = ctx.getConfig();
+  const result = await runChain([...opts.hops], {
+    chain: opts.chain,
+    requested: opts.requested,
+    egressOf: (hop): Egress => {
+      const dispatch = audioHopRoute(ctx, hop, opts.endpoint);
+      // Fail closed, the same reading the chat door's own egressOf takes: a hop
+      // that resolves to no route could be anything, so it is treated as remote.
+      return dispatch.ok ? routeEgress(dispatch.route, config) : "remote";
+    },
+    // Every audio hop is a container or a vendor's HTTP endpoint; none is an
+    // agentic CLI, so there is one budget rather than a per-kind lookup.
+    timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
+    signal: opts.signal,
+    exec: audioHopExec(ctx, opts.endpoint, opts.attempt, (ct) => {
+      contentType = ct;
+    }),
+    write: ctx.doorOpts.write,
+  });
+  return doorResponseToResponse({
+    status: result.status,
+    // Nothing answered, so the body is the chain's own JSON refusal rather than
+    // audio -- the content type a failed hop happened to set last would type it
+    // as the sound it never produced.
+    contentType: result.engineUsed === null ? JSON_CONTENT_TYPE : contentType,
+    body: result.body,
+    bytes: result.bytes,
+    stream: result.stream,
+  });
+}
+
+/**
  * Both audio endpoints take an engine, and a model where the resolved
  * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
- * "scribe_v1" -- never a chain. Resolution and that refusal are one step.
+ * "scribe_v1".
  */
-function resolveAudioEngine(
-  ctx: DoorContext,
-  rawModel: string | undefined,
-  endpoint: string,
-):
-  | { ok: true; engineId: string; model?: string; upstream?: string }
-  | { ok: false; response: Response } {
-  const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry);
-  if (!resolved.ok) {
-    return { ok: false, response: jsonError(STATUS_BAD_REQUEST, resolved.error) };
-  }
-  if (resolved.kind === "chain") {
-    return {
-      ok: false,
-      response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
-    };
-  }
+function singleAudioRoute(route: ResolvedRoute): {
+  engineId: string;
+  model?: string;
+  upstream?: string;
+} {
   return {
-    ok: true,
-    engineId: resolved.route.engine,
-    model: resolved.route.model,
+    engineId: route.engine,
+    model: route.model,
     // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
-    upstream: resolved.route.upstream ?? undefined,
+    upstream: route.upstream ?? undefined,
   };
 }
 
@@ -442,34 +557,51 @@ function resolveVoice(voice: string | undefined): string | undefined | Response 
 export async function handleAudioSpeech(
   ctx: DoorContext,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const audio = resolveAudioEngine(ctx, rawModel, CONTENT_ENDPOINT_SPEECH);
-  if (!audio.ok) {
-    return audio.response;
+  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, ctx.getConfig(), ctx.registry);
+  if (!resolved.ok) {
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
-  const { engineId, upstream } = audio;
   const voice = resolveVoice(typeof body.voice === "string" ? body.voice : undefined);
   if (voice instanceof Response) {
     return voice;
   }
-  const leased: AudioLease = { held: false };
-  const start = audioStart(ctx, leased);
   const extra = Object.fromEntries(
     Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
   );
-  const speechReq: SpeechRequestBody = {
-    engine: engineId,
-    input: typeof body.input === "string" ? body.input : "",
-    response_format: typeof body.response_format === "string" ? body.response_format : undefined,
-    stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
-    voice,
-    speed: typeof body.speed === "number" ? body.speed : undefined,
-    instructions: typeof body.instructions === "string" ? body.instructions : undefined,
-    ...(Object.keys(extra).length > 0 ? { extra } : {}),
+  // A speech request carries no model of its own -- every TTS route is
+  // modelless -- so the only thing a hop changes is which engine it names.
+  const attempt: AudioAttempt = (hopEngine, _model, start) => {
+    const speechReq: SpeechRequestBody = {
+      engine: hopEngine,
+      input: typeof body.input === "string" ? body.input : "",
+      response_format: typeof body.response_format === "string" ? body.response_format : undefined,
+      stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
+      voice,
+      speed: typeof body.speed === "number" ? body.speed : undefined,
+      instructions: typeof body.instructions === "string" ? body.instructions : undefined,
+      ...(Object.keys(extra).length > 0 ? { extra } : {}),
+    };
+    return handleSpeech(speechReq, start);
   };
+
+  if (resolved.kind === "chain") {
+    return runAudioChain(ctx, {
+      chain: resolved.chain,
+      hops: resolved.hops,
+      requested: rawModel ?? "",
+      endpoint: CONTENT_ENDPOINT_SPEECH,
+      attempt,
+      signal,
+    });
+  }
+
+  const { engineId, upstream } = singleAudioRoute(resolved.route);
+  const leased: AudioLease = { held: false };
   const startedAt = Date.now();
-  const result = await handleSpeech(speechReq, start);
+  const result = await attempt(engineId, undefined, audioStart(ctx, leased));
   return finishAudioCall(ctx, leased, {
     engineId,
     upstream,
@@ -557,55 +689,106 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
  */
 const MAX_AUDIO_UPLOAD_BYTES = 268_435_456;
 
+/** One wording for the ceiling, so the declared length and what actually arrived cannot drift apart. */
+function tooLarge(bytes: number): Response {
+  return jsonError(
+    STATUS_PAYLOAD_TOO_LARGE,
+    `upload is ${bytes} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
+  );
+}
+
+/**
+ * Whether this upload is refused before anything is dispatched. The ceiling is
+ * checked twice against the same limit: once on the declared length, so an
+ * oversized body is turned away before it is read, and again on what actually
+ * arrived, because a multipart form need not declare one. A live body is
+ * neither -- it declares no length and is never held here, so the engine
+ * wrapper enforces the ceiling as the audio arrives.
+ */
+function uploadRefusal(file: TranscriptionForm["file"]): Response | undefined {
+  if (file instanceof ReadableStream) {
+    return undefined;
+  }
+  // Zero bytes reaches whisper as a valid-looking empty upload and comes back
+  // as an empty transcript, which reads like silence rather than a bad request.
+  if (file.byteLength === 0) {
+    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
+  }
+  return file.byteLength > MAX_AUDIO_UPLOAD_BYTES ? tooLarge(file.byteLength) : undefined;
+}
+
+/**
+ * This upload aimed at one engine. A live body is always `stream: true` -- there
+ * is no buffered reading of a recording still being made -- while a multipart
+ * one streams only if the caller asked for segments as they are decoded.
+ */
+function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
+  return (hopEngine, hopModel, start) => {
+    const common = {
+      engine: hopEngine,
+      model: hopModel,
+      language: form.language,
+      response_format: form.responseFormat,
+      prompt: form.prompt,
+    };
+    const transcriptionReq: AnyTranscriptionRequestBody =
+      form.file instanceof ReadableStream
+        ? { ...common, file: form.file, stream: true }
+        : { ...common, file: form.file, stream: form.stream };
+    return handleTranscription(transcriptionReq, start);
+  };
+}
+
 export async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise<Response> {
   const declared = Number(req.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `upload is ${declared} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
-    );
+    return tooLarge(declared);
   }
   const form = liveTranscription(req) ?? (await parseTranscriptionForm(req));
   if (form === undefined) {
     return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
   }
-  if (!(form.file instanceof ReadableStream)) {
-    // Zero bytes reaches whisper as a valid-looking empty upload and comes back
-    // as an empty transcript, which reads like silence rather than a bad request.
-    if (form.file.byteLength === 0) {
-      return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
-    }
-    if (form.file.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
-      return jsonError(
-        STATUS_PAYLOAD_TOO_LARGE,
-        `upload is ${form.file.byteLength} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
-      );
-    }
+  const refusal = uploadRefusal(form.file);
+  if (refusal !== undefined) {
+    return refusal;
   }
-  const audio = resolveAudioEngine(
-    ctx,
+  const resolved = resolveModel(
     form.rawModel ?? undefined,
     CONTENT_ENDPOINT_TRANSCRIPTIONS,
+    ctx.getConfig(),
+    ctx.registry,
   );
-  if (!audio.ok) {
-    return audio.response;
+  if (!resolved.ok) {
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
-  const { engineId, model, upstream } = audio;
+  const live = form.file instanceof ReadableStream;
+  if (resolved.kind === "chain" && live) {
+    // The upload is the request, and it is consumed by the hop that reads it.
+    // A second hop would be handed a body already drained -- it would transcribe
+    // silence and report success, which is worse than refusing here. The
+    // buffered form of this verb chains, because its bytes can be sent twice.
+    return jsonError(
+      STATUS_BAD_REQUEST,
+      "a recording streamed as the request body cannot be replayed on a second hop; send it as a multipart upload to use a chain",
+    );
+  }
+  const attempt = transcriptionAttempt(form);
+
+  if (resolved.kind === "chain") {
+    return runAudioChain(ctx, {
+      chain: resolved.chain,
+      hops: resolved.hops,
+      requested: form.rawModel ?? "",
+      endpoint: CONTENT_ENDPOINT_TRANSCRIPTIONS,
+      attempt,
+      signal: req.signal,
+    });
+  }
+
+  const { engineId, model, upstream } = singleAudioRoute(resolved.route);
   const leased: AudioLease = { held: false };
-  const start = audioStart(ctx, leased);
-  const common = {
-    engine: engineId,
-    model,
-    language: form.language,
-    response_format: form.responseFormat,
-    prompt: form.prompt,
-  };
-  const transcriptionReq: AnyTranscriptionRequestBody =
-    form.file instanceof ReadableStream
-      ? { ...common, file: form.file, stream: true }
-      : { ...common, file: form.file, stream: form.stream };
   const startedAt = Date.now();
-  const result = await handleTranscription(transcriptionReq, start);
+  const result = await attempt(engineId, model, audioStart(ctx, leased));
   return finishAudioCall(ctx, leased, {
     engineId,
     model,

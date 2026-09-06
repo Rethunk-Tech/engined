@@ -7,6 +7,8 @@ import { routeForHop } from "./types.ts";
 
 const CHAT = "/openai/v1/chat/completions";
 const SPEECH = "/openai/v1/audio/speech";
+const TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
+const EMBEDDINGS = "/openai/v1/embeddings";
 
 /**
  * A spec-less, model-bearing engine that serves chat. Stands in wherever a
@@ -330,10 +332,17 @@ describe("chains", () => {
     });
   });
 
-  test("a chain posted to a non-chat endpoint is 400", () => {
+  test("a chain resolves for speech and transcription, the endpoints fallback means something on", () => {
     const cfg = config({ chains: { "chain-private": ["@/claude/sonnet"] } });
     const reg = registry(cfg);
-    expect(resolveModel("chain-private", SPEECH, cfg, reg).ok).toBe(false);
+    expect(resolveModel("chain-private", SPEECH, cfg, reg).ok).toBe(true);
+    expect(resolveModel("chain-private", TRANSCRIPTIONS, cfg, reg).ok).toBe(true);
+  });
+
+  test("a chain posted to embeddings is 400: a second engine's vector is not the first's", () => {
+    const cfg = config({ chains: { "chain-private": ["@/claude/sonnet"] } });
+    const reg = registry(cfg);
+    expect(resolveModel("chain-private", EMBEDDINGS, cfg, reg).ok).toBe(false);
   });
 });
 

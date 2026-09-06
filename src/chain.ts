@@ -19,7 +19,7 @@ import {
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
 import type { Egress } from "./types.ts";
-import { errMessage, qualifiedSegments, withinCeiling } from "./types.ts";
+import { errMessage, qualifiedSegments, routeForHop, withinCeiling } from "./types.ts";
 
 export interface HopResult {
   status: number;
@@ -48,6 +48,12 @@ export interface HopResult {
   version?: string;
   /** This hop's resolved upstream id, or `"local"`. Absent for an ambient hop. Passed straight to the attempt's `upstream_used`. */
   upstreamUsed?: string;
+  /**
+   * A binary body, which an audio hop answers with instead of `body` -- synthesized
+   * speech is bytes, not JSON. Counts as a body for advance-vs-terminal below: a 200
+   * carrying audio and no `body` is an answer, not the empty reply that advances.
+   */
+  bytes?: Uint8Array;
 }
 
 export type HopExec = (hop: string, signal: AbortSignal) => Promise<HopResult>;
@@ -80,6 +86,8 @@ interface ChainResult {
   status: number;
   body?: unknown;
   stream?: ReadableStream;
+  /** The answering hop's binary body, where it had one. Only an audio hop sets it. */
+  bytes?: Uint8Array;
   engineUsed: string | null;
 }
 
@@ -89,6 +97,57 @@ export function parseHop(hop: string): { engine: string; upstream?: string; mode
   return third === undefined
     ? { engine, model: second }
     : { engine, upstream: second, model: third };
+}
+
+/**
+ * Every route one chain hop names, before any disabled filter decides what is
+ * left of them.
+ *
+ * A **modelless** engine's two-segment hop names an upstream in its second
+ * segment, not a model. Every audio engine's routes declare no model, so read
+ * the other way `@/piper/local` resolves to nothing and no such engine could
+ * be a chain hop at all. Config parse refuses an engine that mixes modelless
+ * and model-bearing routes, so one route answers the question for the engine.
+ *
+ * Config parse, the models menu and dispatch all ask this, and a hop that
+ * three callers read three ways is a hop the menu reports unavailable while
+ * the door happily dispatches it.
+ */
+export function chainHopRoutes<
+  T extends { engine: string; model?: string; upstream: string | null; disabled?: boolean },
+>(routes: readonly T[], hop: string): { candidates: T[]; modelless: boolean } {
+  const { engine: engineId, upstream, model } = parseHop(hop);
+  const engineRoutes = routes.filter((r) => r.engine === engineId);
+  if (engineRoutes.some((r) => r.model === undefined)) {
+    // A third segment on a modelless engine names a model it has no room for,
+    // so nothing matches and the caller reports the address as naming nothing.
+    return {
+      candidates: engineRoutes.filter(
+        (r) => r.model === undefined && upstream === undefined && r.upstream === model,
+      ),
+      modelless: true,
+    };
+  }
+  return {
+    candidates: engineRoutes.filter(
+      (r) => r.model === model && (upstream === undefined || r.upstream === upstream),
+    ),
+    modelless: false,
+  };
+}
+
+/** The one served route a chain hop resolves to, or `undefined` when the address names nothing servable. */
+export function routeForChainHop<
+  T extends { engine: string; model?: string; upstream: string | null; disabled?: boolean },
+>(routes: readonly T[], hop: string): T | undefined {
+  const { engine: engineId, upstream, model } = parseHop(hop);
+  const { candidates, modelless } = chainHopRoutes(routes, hop);
+  if (modelless) {
+    return candidates.find((r) => r.disabled !== true);
+  }
+  // Model-bearing hops keep `routeForHop`'s upstream defaulting, which decides
+  // between sibling routes that share one (engine, model).
+  return routeForHop(routes, engineId, model, upstream);
 }
 
 /**
@@ -145,7 +204,11 @@ export function classifyResult(result: HopResult): {
   if (result.status >= HTTP_CLIENT_ERROR_MIN && result.status < HTTP_SERVER_ERROR_MIN) {
     return { advance: false, ok: false, failure: failureOf(result) };
   }
-  if (!result.stream && (result.body === undefined || result.body === "")) {
+  // Bytes are a body: a speech hop answers 200 with audio and no `body` at all,
+  // which would otherwise read as the empty reply that advances to the next hop.
+  const carriesBytes = (result.bytes?.byteLength ?? 0) > 0;
+  const emptyBody = result.body === undefined || result.body === "";
+  if (!(result.stream || carriesBytes) && emptyBody) {
     return { advance: true, ok: false, failure: "empty body" };
   }
   return { advance: false, ok: true };
@@ -286,7 +349,7 @@ function finalizeTerminal(
   const upstreamUsed = attempt.upstream_used ?? null;
   if (!result.stream) {
     emit(opts, attempts, engine, upstreamUsed);
-    return { status: result.status, body: result.body, engineUsed: engine };
+    return { status: result.status, body: result.body, bytes: result.bytes, engineUsed: engine };
   }
   const stream = wrapStream(result.stream, (ok, streamFailure) => {
     if (!ok) {

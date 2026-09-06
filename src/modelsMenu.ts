@@ -4,8 +4,8 @@
  * its own capabilities, state and whether a tool call survives it.
  */
 
-import { parseHop } from "./chain.ts";
-import { routeEgress } from "./dispatch.ts";
+import { parseHop, routeForChainHop } from "./chain.ts";
+import { CHAIN_ENDPOINTS, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
@@ -155,8 +155,11 @@ function chainHops(
 ): Promise<ChainHop[]> {
   return Promise.all(
     hops.map(async (hop) => {
-      const { engine, upstream, model } = parseHop(hop);
-      const route = routeForHop(config.routes, engine, model, upstream);
+      const { engine } = parseHop(hop);
+      // The chain reading, not `routeForHop`'s: an audio hop names an upstream
+      // where a chat hop names a model, and the menu must not report a route
+      // unavailable that the door will dispatch without complaint.
+      const route = routeForChainHop(config.routes, hop);
       const status = statuses.get(engine);
       return {
         hop,
@@ -196,6 +199,24 @@ function chainHops(
  * that cannot honour it, so one such hop anywhere makes the whole chain
  * unsafe to send a tool loop to.
  */
+/**
+ * What a chain can be sent: the union of what its hops serve, kept to the
+ * endpoints a chain is dispatchable on at all. Union rather than intersection
+ * because a chain is usable while any one hop can answer -- the hops that do
+ * not serve an endpoint are exactly the ones it advances past.
+ */
+function chainServes(walked: readonly ChainHop[]): string[] {
+  const union = new Set<string>();
+  for (const hop of walked) {
+    for (const path of routeServes(hop.route?.role, hop.status?.serves ?? [])) {
+      if (CHAIN_ENDPOINTS.has(path)) {
+        union.add(path);
+      }
+    }
+  }
+  return [...union];
+}
+
 async function chainRow(
   ctx: DoorContext,
   chainId: string,
@@ -210,7 +231,7 @@ async function chainRow(
     id: chainId,
     streaming: lead?.route?.streaming ?? lead?.status?.streaming ?? false,
     tools: walked.every((h) => forwardsTools(h.status, h.route?.role)),
-    serves: [CONTENT_ENDPOINT_CHAT],
+    serves: chainServes(walked),
     state: walked.find((h) => h.state !== "unavailable")?.state ?? "unavailable",
     capabilities: lead?.route === undefined ? {} : routeCapabilities(lead.route),
     hops: walked.map((h) => h.hop),

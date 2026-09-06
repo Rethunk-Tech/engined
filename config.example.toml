@@ -621,3 +621,15 @@ hops = [
   "@/claude/sonnet-5",
   "@/openai/gpt-5.4-mini",
 ]
+
+# Speech and transcription take a chain too. This one degrades on purpose:
+# chatterbox is the voice worth having, kokoro is the fallback, and piper is
+# the one that still speaks when the GPU is entirely spoken for -- it asks for
+# no GPU at all. A consumer names "chain-speech" once and stops caring which
+# of the three is free.
+#
+# Every hop of an audio chain is the modelless two-segment form, because every
+# TTS route here declares no model.
+[[chain]]
+id   = "chain-speech"
+hops = ["@/chatterbox-multi/local", "@/kokoro/local", "@/piper/local"]

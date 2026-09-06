@@ -10,7 +10,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, sep as pathSep, resolve as resolvePath } from "node:path";
-import { parseHop } from "./chain.ts";
+import { chainHopRoutes, parseHop, routeForChainHop } from "./chain.ts";
 import { configPath, dataHome, expandTilde, installDir } from "./paths.ts";
 import type {
   Config,
@@ -35,7 +35,6 @@ import {
   KIND_UPSTREAM_TRAIT,
   ParseError,
   qualifiedSegments,
-  routeForHop,
 } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
@@ -682,28 +681,25 @@ function parseChainHops(
     }
     // `local` is a real upstream id, never an engine one: a hop names an
     // engine by its actual id, same as every other address form.
-    const { engine: engineId, upstream, model } = parseHop(hop);
+    const { engine: engineId, model } = parseHop(hop);
     if (!engines.some((e) => e.id === engineId)) {
       throw new ParseError(`chain hop "${hop}": engine "${engineId}" does not exist`, file);
     }
-    const route = routeForHop(routes, engineId, model, upstream);
+    const { candidates: declared, modelless } = chainHopRoutes(routes, hop);
+    const route = routeForChainHop(routes, hop);
     if (route === undefined) {
       // A hop onto a disabled engine, upstream or route drops out rather than
       // failing parse: the point of disabling one is that the chains naming it
       // keep working on what is left. An address that names nothing at all,
       // or resolves to nothing served for any other reason, is still a parse
       // error.
-      const declared = routes.filter(
-        (r) =>
-          r.engine === engineId &&
-          r.model === model &&
-          (upstream === undefined || r.upstream === upstream),
-      );
       if (declared.length > 0 && declared.every((r) => r.disabled === true)) {
         continue;
       }
       throw new ParseError(
-        `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
+        modelless
+          ? `chain "${name}"[${i}] "${hop}": "${engineId}" is modelless and has no route with upstream "${model}"`
+          : `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
         file,
       );
     }

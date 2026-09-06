@@ -208,6 +208,33 @@ function chatToEmbeddingRoute(door: Door): Response | Promise<Response> {
   );
 }
 
+test("a chain over audio engines lists the endpoint its hops serve, not chat", async () => {
+  const door = offlineDoor(
+    baseConfig({
+      routes: [route({ engine: "chatterbox-multi", model: undefined, upstream: "local" })],
+      engines: [containerEngine("chatterbox-multi", ttsSpec())],
+      chains: { "chain-speech": ["@/chatterbox-multi/local"] },
+    }),
+  );
+  try {
+    const res = await door.fetch(req("GET", "/openai/v1/models"));
+    const body = (await res.json()) as {
+      data?: { id: string; serves?: string[]; hops?: string[] }[];
+    };
+    const chain = (body.data ?? []).find((r) => r.id === "chain-speech");
+
+    // A hop onto a modelless engine names an upstream in its second segment.
+    // Read as a model it resolves to nothing, and the menu would report the
+    // whole chain as naming no route while the door dispatched it happily.
+    expect(chain?.hops).toEqual(["@/chatterbox-multi/local"]);
+    // Hardcoding chat here would tell a TTS consumer the one address built for
+    // it is the one address it cannot use.
+    expect(chain?.serves).toEqual(["/openai/v1/audio/speech"]);
+  } finally {
+    await door.registry.shutdown();
+  }
+});
+
 test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every route's own address plus chain names -- comfy's modelless route lists like any other engine's", async () => {
   const door = offlineDoor(modelsListConfig());
   try {

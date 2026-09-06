@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { handleSpeech, handleTranscription } from "./audio.ts";
-import { handleAudioSpeech } from "./audioDoor.ts";
+import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { DoorContext } from "./doorContext.ts";
 import { EngineRegistry } from "./engines.ts";
@@ -13,6 +13,7 @@ import {
   collectLines,
   config,
   containerRunning,
+  deadPort,
   ENGINES_ROOT,
   engine,
   makeTestRoot,
@@ -22,7 +23,7 @@ import {
   upstream,
 } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
-import { isContainerSpec } from "./types.ts";
+import { CONTENT_ENDPOINT_TRANSCRIPTIONS, isContainerSpec } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-audio-");
 
@@ -784,6 +785,103 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
   };
   return { ctx, lifecycle, lines };
 }
+
+/**
+ * Two real TTS specs side by side, each container mapped to whichever host
+ * port the caller names for it, so one hop can be pointed at a live fake and
+ * the other at a port nothing listens on. `chains` is what the door resolves a
+ * bare name to.
+ */
+function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; lines: string[] } {
+  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 }, (argv) => {
+    if (argv[0] === "port") {
+      const id = Object.keys(ports).find((engineId) => argv[1]?.includes(engineId));
+      return { stdout: `127.0.0.1:${ports[id ?? ""]}`, stderr: "", exitCode: 0 };
+    }
+  });
+  const lifecycle = makeLifecycle(exec);
+  const cfg = config({
+    engines: Object.keys(ports).map((id) => engine({ id, idle_stop_seconds: 60 })),
+    upstreams: [upstream()],
+    routes: Object.keys(ports).map((id) => route({ engine: id, model: undefined })),
+    chains: { "chain-tts": Object.keys(ports).map((id) => `@/${id}/local`) },
+  });
+  const registry = new EngineRegistry(cfg, { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle });
+  const { lines, write } = collectLines();
+  const ctx: DoorContext = {
+    getConfig: () => cfg,
+    registry,
+    lifecycle,
+    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
+    doorOpts: { write },
+    llamaRouters: new Map(),
+    staleLlamaRouters: new Set(),
+    launchNonces: new Set(),
+    comfyBindings: new Map(),
+  };
+  return { ctx, lines };
+}
+
+test("a speech chain advances past an engine that cannot answer and the next one synthesizes", async () => {
+  const fake = startFakeChatterboxMulti();
+  const { ctx, lines } = chainDoorContext({
+    "chatterbox-multi": deadPort(),
+    "chatterbox-en": Number(fake.base.split(":")[1]),
+  });
+
+  const res = await handleAudioSpeech(ctx, { model: "chain-tts", input: "hello there" });
+  fake.stop();
+
+  // The point of the whole feature: a local TTS that cannot answer used to be
+  // the end of the request, because audio had no fallback to advance to.
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toBe("audio/wav");
+  expect(Buffer.from(await res.arrayBuffer()).equals(SAMPLE_WAV_BYTES)).toBe(true);
+
+  const record = soleProvenanceRecord(lines);
+  expect(record.chain).toBe("chain-tts");
+  expect(record.attempts.map((a) => a.engine)).toEqual(["chatterbox-multi", "chatterbox-en"]);
+  expect(record.attempts[0]?.ok).toBe(false);
+  expect(record.engine_used).toBe("chatterbox-en");
+});
+
+test("a speech chain whose every hop fails answers JSON, not a content type promising audio", async () => {
+  const { ctx, lines } = chainDoorContext({
+    "chatterbox-multi": deadPort(),
+    "chatterbox-en": deadPort(),
+  });
+
+  const res = await handleAudioSpeech(ctx, { model: "chain-tts", input: "hello there" });
+
+  expect(res.status).toBe(503);
+  // A hop that failed still set a content type on its way out; typing this body
+  // as audio would hand the caller a JSON error to play.
+  expect(res.headers.get("content-type")).toContain("application/json");
+
+  const record = soleProvenanceRecord(lines);
+  expect(record.engine_used).toBeNull();
+  expect(record.attempts).toHaveLength(2);
+});
+
+test("a recording streamed as the request body is refused a chain rather than replayed into silence", async () => {
+  const { ctx } = chainDoorContext({ "chatterbox-multi": deadPort() });
+  const query = new URLSearchParams({ stream: "true", model: "chain-tts" });
+  const req = new Request(`http://engined${CONTENT_ENDPOINT_TRANSCRIPTIONS}?${query}`, {
+    method: "POST",
+    headers: { "content-type": "audio/wav" },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(SAMPLE_WAV_BYTES));
+        controller.close();
+      },
+    }),
+  });
+
+  const res = await handleAudioTranscription(ctx, req);
+
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain("cannot be replayed");
+});
 
 test("a speech call records the upstream its route resolved to, not a bare null", async () => {
   const fake = startFakeChatterboxMulti();

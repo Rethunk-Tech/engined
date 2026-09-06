@@ -617,6 +617,25 @@ describe("chain hops", () => {
     expect(message).toContain('"@/claude/ornith"');
   });
 
+  test("a modelless engine is a chain hop by its upstream, which is the only address it has", () => {
+    // Every TTS route declares no model, so "@/piper/local" names an upstream
+    // in its second segment. Read as a model it resolves to nothing, and no
+    // audio engine could be a hop at all.
+    const cfg = loadConfig(
+      writeConfig(
+        `${LOCAL_UPSTREAM}\n[[engine]]\nid = "piper"\nkind = "tts"\n\n[[route]]\nengine = "piper"\nupstream = "local"\n\n[[chain]]\nid = "chain-speech"\nhops = ["@/piper/local"]\n`,
+      ),
+    );
+    expect(cfg.chains["chain-speech"]).toEqual(["@/piper/local"]);
+  });
+
+  test("a modelless hop naming an upstream the engine has no route on fails, and says so as an upstream", () => {
+    const message = parseMessage(
+      `${LOCAL_UPSTREAM}\n[[engine]]\nid = "piper"\nkind = "tts"\n\n[[route]]\nengine = "piper"\nupstream = "local"\n\n[[chain]]\nid = "c"\nhops = ["@/piper/nope"]\n`,
+    );
+    expect(message).toContain('"piper" is modelless and has no route with upstream "nope"');
+  });
+
   test("a three-segment hop resolves by (engine, upstream, model), not just the last two", () => {
     const toml = `
 ${LOCAL_UPSTREAM}
