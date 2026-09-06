@@ -16,6 +16,7 @@ import json
 import logging
 import threading
 import time
+import types
 
 import numpy as np
 import soundfile as sf
@@ -53,18 +54,116 @@ logger = logging.getLogger(__name__)
 # against 0.527s warm, so the cost is per-process, not per-disk-cache. And a
 # startup sweep cannot cover the space -- roughly 400 distinct phoneme counts
 # at ~1.1s each is ~7 minutes on EVERY start, against a 120s ready timeout.
-#
-# The only fix that would work is padding each of those four modules the way
-# this one pads the decoder. It cannot be done by padding `input_ids` alone:
-# `KModel.forward_with_tokens` derives `input_lengths` from
-# `input_ids.shape[-1]`, so a padded tensor leaves `text_mask` masking nothing,
-# and the pad tokens then draw real durations from `duration_proj` (clamped
-# min=1) and generate audible frames. Four wrappers, each with its own mask and
-# trim semantics. Left undone deliberately: the practical cost is bounded by
-# the warm-up below, which covers the conversational range, and real turns land
-# near the warm number rather than the cold one.
 
 _DECODER_BUCKET_FRAMES = 32
+# bert's self-attention and KModel.text_encoder's CNN stack are the two
+# modules a padded, correctly-masked `input_ids` can genuinely fix: both are
+# non-recurrent over the token axis, so padding to a fixed bucket with
+# per-position masking is the standard, exact (not approximate) transformer
+# padding trick -- unlike the decoder's zero-pad-and-trim, no correctness
+# margin is spent here at all. 16 tokens keeps the padding waste small against
+# the ~2-140 phoneme range the warm-up below already spans.
+_INPUT_ID_BUCKET = 16
+
+
+@torch.no_grad()
+def _padded_forward_with_tokens(self, input_ids, ref_s, speed=1):
+    """Replaces `KModel.forward_with_tokens` (kokoro 0.9.4) so `self.bert` and
+    `self.text_encoder` see one padded shape per `_INPUT_ID_BUCKET` bucket
+    instead of one per exact phoneme count, the same JIT-bucketing this file
+    already does for the decoder.
+
+    Reimplemented rather than wrapped: the original derives `input_lengths`
+    from `input_ids.shape[-1]`, so simply padding the tensor before calling it
+    would leave `text_mask` masking nothing and let the pad tokens draw real
+    durations (`duration_proj` clamps min=1) and generate audible frames. This
+    version keeps `input_lengths` at the true, pre-pad count for every masked
+    or packed step, and forces the padded tail's predicted duration to exactly
+    0 (never the clamped-to-1 original) so `pred_aln_trg` -- and therefore
+    every frame the decoder ever sees -- is built only from real phonemes.
+
+    `self.predictor.lstm` is the one call in the original this does NOT
+    bucket: it is bidirectional and un-packed, so its backward pass starts at
+    the sequence's last step and would run across the padded tail before
+    reaching real content, changing the real positions' predicted durations
+    depending on how much padding follows them -- a correctness break, not a
+    speed tradeoff. Packing it to the true length here avoids that at the
+    cost of leaving its own shape (and therefore its own JIT cost) exactly as
+    variable as before. `F0Ntrain` has the identical bidirectional-LSTM shape
+    (`self.shared`) and is left untouched for the same reason: bucketing it
+    safely means reimplementing it with the same packing fix, which is a
+    separate change with its own correctness pass, not a padding tweak.
+    """
+    true_len = input_ids.shape[-1]
+    bucket_len = -(-true_len // _INPUT_ID_BUCKET) * _INPUT_ID_BUCKET
+    pad = bucket_len - true_len
+    if pad:
+        # Token id 0 is kokoro's own boundary token -- KModel.forward already
+        # wraps every input as [0, *ids, 0], so this reuses an id the vocab
+        # already treats as content-free rather than inventing a new one.
+        input_ids = F.pad(input_ids, (0, pad), value=0)
+
+    input_lengths = torch.full(
+        (input_ids.shape[0],), true_len, device=input_ids.device, dtype=torch.long
+    )
+    text_mask = (
+        torch.arange(input_ids.shape[-1])
+        .unsqueeze(0)
+        .expand(input_ids.shape[0], -1)
+        .type_as(input_lengths)
+    )
+    text_mask = torch.gt(text_mask + 1, input_lengths.unsqueeze(1)).to(self.device)
+    bert_dur = self.bert(input_ids, attention_mask=(~text_mask).int())
+    d_en = self.bert_encoder(bert_dur).transpose(-1, -2)
+    s = ref_s[:, 128:]
+    d = self.predictor.text_encoder(d_en, s, input_lengths, text_mask)
+
+    # See docstring: pack to the true length so the backward LSTM pass never
+    # runs across the zero-padded tail before reaching real positions.
+    packed = torch.nn.utils.rnn.pack_padded_sequence(
+        d, [true_len], batch_first=True, enforce_sorted=False
+    )
+    self.predictor.lstm.flatten_parameters()
+    packed_out, _ = self.predictor.lstm(packed)
+    x, _ = torch.nn.utils.rnn.pad_packed_sequence(
+        packed_out, batch_first=True, total_length=true_len
+    )
+    duration = self.predictor.duration_proj(x)
+    duration = torch.sigmoid(duration).sum(axis=-1) / speed
+    pred_dur_true = torch.round(duration).clamp(min=1).long().squeeze(0)
+    pred_dur = (
+        torch.cat(
+            [
+                pred_dur_true,
+                torch.zeros(
+                    pad, dtype=pred_dur_true.dtype, device=pred_dur_true.device
+                ),
+            ]
+        )
+        if pad
+        else pred_dur_true
+    )
+
+    indices = torch.repeat_interleave(
+        torch.arange(input_ids.shape[1], device=self.device), pred_dur
+    )
+    pred_aln_trg = torch.zeros(
+        (input_ids.shape[1], indices.shape[0]), device=self.device
+    )
+    pred_aln_trg[indices, torch.arange(indices.shape[0])] = 1
+    pred_aln_trg = pred_aln_trg.unsqueeze(0).to(self.device)
+    en = d.transpose(-1, -2) @ pred_aln_trg
+    # Untouched: en's frame count is sum(pred_dur), driven by real phoneme
+    # content, not by input_ids' padded length -- F0Ntrain gets no bucketing
+    # benefit or penalty from this function either way. See docstring.
+    F0_pred, N_pred = self.predictor.F0Ntrain(en, s)
+    t_en = self.text_encoder(input_ids, input_lengths, text_mask)
+    asr = t_en @ pred_aln_trg
+    audio = self.decoder(asr, F0_pred, N_pred, ref_s[:, :128]).squeeze()
+    # join_timestamps (kokoro/pipeline.py) indexes pred_dur per real token and
+    # expects exactly bos+phonemes+eos entries -- the bucket tail must not
+    # reach it.
+    return audio, pred_dur_true
 
 
 class _BucketedDecoder(torch.nn.Module):
@@ -153,6 +252,12 @@ def _warm_decoder_buckets(pipeline: KPipeline) -> None:
 pipeline = KPipeline(lang_code="a")
 print(f"Kokoro pipeline resolved device: {pipeline.model.device}")
 pipeline.model.decoder = _BucketedDecoder(pipeline.model.decoder)
+pipeline.model.forward_with_tokens = types.MethodType(
+    _padded_forward_with_tokens, pipeline.model
+)
+# The warm-up loop below drives every call through the patched
+# forward_with_tokens too, so it pre-pays both the decoder's frame buckets and
+# the input-id buckets in the same pass -- no separate sweep needed.
 _warm_decoder_buckets(pipeline)
 SAMPLE_RATE = 24_000
 # One lock per process serializes concurrent TTS on this container. Correct for a single

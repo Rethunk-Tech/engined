@@ -192,15 +192,59 @@ synthesis unit. The TTFB floor is ~1.24s even for a 12-character input, so a
 shorter first chunk buys almost nothing — the floor was never about how much
 text the first chunk holds.
 
-**Not fixed here, and worth naming so it isn't re-investigated as a mystery:**
-bucketing only covers the decoder. `KModel.bert`, `predictor.text_encoder`,
-`predictor.lstm` and `F0Ntrain` each pay their own smaller MIOpen JIT cost
-(measured ~0.1-0.3s each) on a novel *input* phoneme length, unbucketed —
-which is why medium/long inputs above still show real, if reduced, variance.
-Closing that gap means padding `input_ids` the same way, which the model's
-existing `text_mask`/`attention_mask` plumbing could plausibly support, but
-touches the alignment construction (`pred_aln_trg`) and needs its own
-correctness pass — left as a follow-up rather than folded into this change.
+**`input_ids` bucketing, closing part of the gap above.** `app.py` also
+replaces `KModel.forward_with_tokens` (`_padded_forward_with_tokens`) so
+`KModel.bert`'s self-attention and `KModel.text_encoder`'s CNN stack see a
+padded, `_INPUT_ID_BUCKET`-rounded (16 tokens) shape with a correctly-sized
+`text_mask`, instead of one shape per exact phoneme count. Padding is exact
+for these two (standard transformer attention-masking plus zero-padding
+ahead of small-receptive-field convs), not an approximation the way the
+decoder's zero-pad-and-trim is: `pred_aln_trg` is built by forcing every
+padded position's predicted duration to exactly 0 (never the original's
+`clamp(min=1)`), so a padded token can never draw a real frame.
+
+`predictor.lstm` and `F0Ntrain` are NOT bucketed and stay exactly as
+variable as before, on purpose: both run a bidirectional LSTM directly on
+the un-packed sequence (`predictor.lstm`, and `F0Ntrain`'s own `self.shared`),
+so its backward pass would start at the padded tail and run across it before
+reaching real content, changing real positions' predicted durations by how
+much padding follows them — a correctness break, not a speed tradeoff.
+`predictor.lstm` is packed to the true length here to avoid that (matching
+its pre-patch behavior exactly, with none of the bucketing benefit).
+`F0Ntrain` is untouched entirely: bucketing it safely means reimplementing
+it with the same packing fix, a separate change with its own correctness
+pass, same as this one needed.
+
+Correctness: `engines/kokoro/verify_padding.py` compares three pipelines per
+text — two unpatched instances against each other (this box's own
+call-to-call ROCm/MIOpen noise floor, which itself grows with input length:
+measured 0.066/0.078/0.15 absolute across short/medium/long) and an
+unpatched instance against a patched one. Sample counts matched exactly on
+all three lengths tested (`sample_diff=0`); the patched/unpatched max-abs
+diff (0.07/0.08/0.14) stayed within the same run's own control noise, in one
+case below it.
+
+Measured in-process (`pipeline(text)`, `torch.cuda.synchronize()` around the
+call, avoiding HTTP/docker overhead) on 8 distinct novel medium/long inputs,
+each container warm from its own startup sweep: **GPU was at 87-90%
+utilization throughout from a concurrent llama session** (a colleague's
+in-flight decode), so absolute numbers include some of that contention — but
+the gap below is 1-1.8s, an order of magnitude larger than the ~0.1-0.3s
+contention swings seen elsewhere, so the direction and rough size of the win
+are trustworthy despite the noisy floor:
+
+| input | before (1st call, novel length) | after (1st call, novel length) | warm floor (both) |
+| ------ | ------ | ------ | ------ |
+| 8 texts, 90-115 chars | 1.37-2.21s | 0.42-0.59s | 0.35-0.46s |
+
+Before this patch, a novel input length paid nearly the same cost as a truly
+cold container on every request (matching the `bert`/`text_encoder`/`lstm`/
+`F0Ntrain` combined ~0.1-0.3s-each estimate this section used to cite). After
+it, the first call to a novel length already lands close to the warm floor,
+because its `_INPUT_ID_BUCKET` was pre-compiled by the startup warm-up sweep
+along with the decoder's frame buckets. `predictor.lstm` and `F0Ntrain`'s own
+share of that cost is still real and still unbucketed (see above) — it is
+what keeps "after" from reaching the warm floor exactly.
 
 ### Piper
 
