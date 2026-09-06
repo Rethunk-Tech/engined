@@ -15,14 +15,22 @@
  */
 
 import { readFileSync } from "node:fs";
+import { classifyResult } from "./chain.ts";
 import { submitComfyPrompt } from "./comfyProxy.ts";
 import { resolveModel } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
 import { DEFAULT_IDLE_STOP_SECONDS } from "./engines.ts";
-import { type HttpClient, jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from "./http.ts";
+import {
+  type HttpClient,
+  jsonError,
+  jsonErrorBody,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+} from "./http.ts";
 import { recordCall } from "./provenance.ts";
 import {
   CONTENT_ENDPOINT_IMAGES,
+  errMessage,
   isContainerSpec,
   isRecord,
   parseRecord,
@@ -80,6 +88,17 @@ export function fillWorkflow(node: unknown, values: Record<string, unknown>): un
     );
   }
   return node;
+}
+
+/**
+ * A refusal on its way out: the status and the words a `jsonError` will carry,
+ * kept as data because provenance needs those words and a Response body reads
+ * exactly once -- classifying by re-reading it would hand the caller a drained
+ * body.
+ */
+interface Refusal {
+  status: number;
+  error: string;
 }
 
 interface ImageRequest {
@@ -142,7 +161,7 @@ async function submitAll(
   workflow: unknown,
   request: ImageRequest,
   checkpoints: Record<string, unknown>,
-): Promise<string[] | Response> {
+): Promise<string[] | Refusal> {
   const ids: string[] = [];
   for (let index = 0; index < request.n; index++) {
     // One prompt per image rather than a batch: the door submits one at a time
@@ -177,10 +196,10 @@ async function submitAll(
       },
     );
     if (promptId === undefined) {
-      return jsonError(
-        answered.status === 200 ? STATUS_BAD_GATEWAY : answered.status,
-        `@/${route.engine} refused the render: ${(await answered.text()).slice(0, 300)}`,
-      );
+      return {
+        status: answered.status === 200 ? STATUS_BAD_GATEWAY : answered.status,
+        error: `@/${route.engine} refused the render: ${(await answered.text()).slice(0, 300)}`,
+      };
     }
     ids.push(promptId);
   }
@@ -204,6 +223,26 @@ function finishedFilenames(text: string, promptId: string): string[] | undefined
   return names.length > 0 ? names : undefined;
 }
 
+/** Every output comfy recorded, base64 -- or the refusal for the first one it will not hand back. */
+async function fetchImages(
+  base: string,
+  httpClient: HttpClient,
+  names: string[],
+): Promise<string[] | Refusal> {
+  const images: string[] = [];
+  for (const filename of names) {
+    const view = await httpClient(`${base}/view?filename=${encodeURIComponent(filename)}`);
+    if (!view.ok) {
+      return {
+        status: STATUS_BAD_GATEWAY,
+        error: `comfy produced "${filename}" but would not serve it`,
+      };
+    }
+    images.push(Buffer.from(await view.arrayBuffer()).toString("base64"));
+  }
+  return images;
+}
+
 /** Waits for one render and returns its image bytes, base64. */
 async function collect(
   base: string,
@@ -211,30 +250,30 @@ async function collect(
   promptId: string,
   deadline: number,
   signal?: AbortSignal,
-): Promise<string[] | Response> {
-  while (Date.now() < deadline) {
+): Promise<string[] | Refusal> {
+  // Ask before the deadline is ever consulted, the order `pollUntil` documents:
+  // the queue drain `submitAll` waits through can outlast this call's whole
+  // budget, and a render comfy has already finished is still an answer.
+  for (;;) {
     if (signal?.aborted === true) {
-      return jsonError(STATUS_BAD_GATEWAY, "the caller hung up before the render finished");
+      return {
+        status: STATUS_BAD_GATEWAY,
+        error: "the caller hung up before the render finished",
+      };
     }
     const history = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`);
     const names = history.ok ? finishedFilenames(await history.text(), promptId) : undefined;
     if (names !== undefined) {
-      const images: string[] = [];
-      for (const filename of names) {
-        const view = await httpClient(`${base}/view?filename=${encodeURIComponent(filename)}`);
-        if (!view.ok) {
-          return jsonError(
-            STATUS_BAD_GATEWAY,
-            `comfy produced "${filename}" but would not serve it`,
-          );
-        }
-        images.push(Buffer.from(await view.arrayBuffer()).toString("base64"));
-      }
-      return images;
+      return fetchImages(base, httpClient, names);
+    }
+    if (Date.now() >= deadline) {
+      return {
+        status: STATUS_BAD_GATEWAY,
+        error: "the render did not finish before this call's deadline",
+      };
     }
     await Bun.sleep(HISTORY_POLL_MS);
   }
-  return jsonError(STATUS_BAD_GATEWAY, `the render did not finish before this call's deadline`);
 }
 
 /**
@@ -279,37 +318,58 @@ export async function handleImageGeneration(
 
   const startedAt = Date.now();
   let leased = false;
+  /**
+   * Every failure return goes through `refuse`, so the line written below names
+   * the same words the caller was given rather than reporting a render that
+   * never happened as a success.
+   */
+  let refusal: Refusal | undefined;
+  const refuse = (r: Refusal): Response => {
+    refusal = r;
+    return jsonError(r.status, r.error);
+  };
   try {
     await ctx.registry.start(route.engine, undefined, { lease: true });
     leased = true;
     const privateUrl = ctx.lifecycle.getStatus(route.engine).private_url;
     if (privateUrl === null) {
-      return jsonError(STATUS_BAD_GATEWAY, `@/${route.engine} started but published no address`);
+      return refuse({
+        status: STATUS_BAD_GATEWAY,
+        error: `@/${route.engine} started but published no address`,
+      });
     }
     const base = `http://${privateUrl}`;
     const httpClient = ctx.doorOpts.comfyHttpClient ?? fetch;
     const workflow = JSON.parse(readFileSync(spec.images_workflow, "utf8")) as unknown;
 
     const ids = await submitAll(ctx, route, base, httpClient, workflow, request, checkpoints);
-    if (ids instanceof Response) {
-      return ids;
+    if (!Array.isArray(ids)) {
+      return refuse(ids);
     }
     const deadline = Date.now() + ctx.getConfig().chat_timeout_seconds * 1000;
     const data: { b64_json: string }[] = [];
     for (const id of ids) {
       const images = await collect(base, httpClient, id, deadline, signal);
-      if (images instanceof Response) {
-        return images;
+      if (!Array.isArray(images)) {
+        return refuse(images);
       }
       data.push(...images.map((b64_json) => ({ b64_json })));
     }
     return Response.json({ created: Math.floor(startedAt / 1000), data });
   } catch (err) {
-    return jsonError(STATUS_BAD_GATEWAY, err instanceof Error ? err.message : String(err));
+    return refuse({ status: STATUS_BAD_GATEWAY, error: errMessage(err) });
   } finally {
     if (leased) {
       ctx.lifecycle.endLease(route.engine, entry?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
     }
+    const ok = refusal === undefined;
+    // One place words a failure, so an image refusal reads in journald exactly
+    // as a chat hop's or an audio call's does.
+    const failure =
+      refusal === undefined
+        ? undefined
+        : (classifyResult({ status: refusal.status, body: jsonErrorBody(refusal.error) }).failure ??
+          `http ${refusal.status}`);
     recordCall(
       {
         chain: null,
@@ -320,13 +380,16 @@ export async function handleImageGeneration(
             // A comfy route is modelless, so the engine id is the whole
             // address a provenance reader can match on.
             model: route.engine,
-            ok: true,
+            ok,
+            ...(failure === undefined ? {} : { failure }),
             duration_ms: Date.now() - startedAt,
             upstream_used: route.upstream ?? undefined,
           },
         ],
-        engine_used: route.engine,
-        upstream_used: route.upstream ?? null,
+        // The record's fields name what actually answered, so both are null
+        // when nothing did; the attempt above keeps the resolved ids either way.
+        engine_used: ok ? route.engine : null,
+        upstream_used: ok ? (route.upstream ?? null) : null,
       },
       ctx.doorOpts.write,
     );

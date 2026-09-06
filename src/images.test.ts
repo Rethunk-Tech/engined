@@ -76,6 +76,7 @@ const PIXEL = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 async function imagesDoor(
   comfyHttpClient: HttpClient,
   routeArgs: Record<string, unknown> = CHECKPOINTS,
+  opts: { write?: (line: string) => void; chatTimeoutSeconds?: number } = {},
 ) {
   process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, "state-"));
   const root = mkdtempSync(join(TEST_ROOT, "door-"));
@@ -85,6 +86,9 @@ async function imagesDoor(
   const cfg = config({
     engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
     routes: [route({ engine: "comfy", model: undefined, upstream: "local", args: routeArgs })],
+    ...(opts.chatTimeoutSeconds === undefined
+      ? {}
+      : { chat_timeout_seconds: opts.chatTimeoutSeconds }),
   });
   const door = createDoor(
     cfg,
@@ -94,7 +98,7 @@ async function imagesDoor(
       exec: buildExec({ port: 41_100, containerPort: COMFY_CONTAINER_PORT }),
       probe: () => Promise.resolve({ status: 200 }),
     },
-    { comfyHttpClient },
+    { comfyHttpClient, write: opts.write },
   );
   await door.registry.start("comfy");
   return door;
@@ -284,5 +288,87 @@ describe("the shipped comfy engine", () => {
       scheduler: "simple",
     };
     expect(() => fillWorkflow(graph, supplied)).not.toThrow();
+  });
+});
+
+interface ProvenanceLine {
+  attempts: { engine: string; ok: boolean; failure?: string }[];
+  engine_used: string | null;
+  upstream_used: string | null;
+}
+
+/** The one line the call is entitled to, parsed back out of what the door wrote. */
+function lastRecord(lines: string[]): ProvenanceLine {
+  return JSON.parse(lines.at(-1) as string) as ProvenanceLine;
+}
+
+describe("the one line this call is entitled to", () => {
+  test("a render answered is recorded as a success, naming the engine that answered", async () => {
+    const lines: string[] = [];
+    const door = await imagesDoor(rendersInstantly(), CHECKPOINTS, {
+      write: (line) => lines.push(line),
+    });
+    const res = await generate(door, { model: "@/comfy/local", prompt: "a red cube" });
+    const record = lastRecord(lines);
+
+    expect(res.status).toBe(200);
+    expect(record.attempts[0]?.ok).toBe(true);
+    expect(record.attempts[0]?.failure).toBeUndefined();
+    expect(record.engine_used).toBe("comfy");
+  });
+
+  // journald is the whole observability surface for this verb, and a failed
+  // render indistinguishable from a rendered one is no surface at all.
+  test("a container that refuses the prompt is recorded as a failure, in its own words", async () => {
+    const lines: string[] = [];
+    const refusesThePrompt: HttpClient = (url) =>
+      Promise.resolve(
+        String(url).includes("/prompt")
+          ? Response.json({ error: "node 4 has no input named sampler" }, { status: 400 })
+          : Response.json({ queue_running: [], queue_pending: [] }),
+      );
+    const door = await imagesDoor(refusesThePrompt, CHECKPOINTS, {
+      write: (line) => lines.push(line),
+    });
+    const res = await generate(door, { model: "@/comfy/local", prompt: "a red cube" });
+    const record = lastRecord(lines);
+
+    expect(res.status).toBe(400);
+    expect(record.attempts[0]?.ok).toBe(false);
+    expect(record.attempts[0]?.failure).toContain("no input named sampler");
+    // Nothing answered, so nothing is named as having answered.
+    expect(record.engine_used).toBeNull();
+    expect(record.upstream_used).toBeNull();
+  });
+
+  test("an image comfy will not serve is a failure, not an empty success", async () => {
+    const lines: string[] = [];
+    const rendersThenHides: HttpClient = (url, init) =>
+      String(url).includes("/view")
+        ? Promise.resolve(new Response("gone", { status: 404 }))
+        : rendersInstantly()(url, init);
+    const door = await imagesDoor(rendersThenHides, CHECKPOINTS, {
+      write: (line) => lines.push(line),
+    });
+    const res = await generate(door, { model: "@/comfy/local", prompt: "a red cube" });
+    const record = lastRecord(lines);
+
+    expect(res.status).toBe(502);
+    expect(record.attempts[0]?.ok).toBe(false);
+    expect(record.attempts[0]?.failure).toContain("would not serve it");
+  });
+});
+
+// The deadline is computed before the queue drain is waited through, so a
+// budget already spent by the time the prompt is submitted must still buy one
+// look at /history -- the render it asks about may have finished.
+describe("collect asks before it gives up", () => {
+  test("a deadline already passed is one probe, not none", async () => {
+    const door = await imagesDoor(rendersInstantly(), CHECKPOINTS, { chatTimeoutSeconds: 0 });
+    const res = await generate(door, { model: "@/comfy/local", prompt: "a red cube" });
+    const body = (await res.json()) as { data: { b64_json: string }[] };
+
+    expect(res.status).toBe(200);
+    expect(body.data[0]?.b64_json).toBe(Buffer.from(PIXEL).toString("base64"));
   });
 });
