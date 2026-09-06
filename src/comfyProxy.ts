@@ -216,24 +216,82 @@ function comfyPromptId(text: string): string | undefined {
   return typeof id === "string" ? id : undefined;
 }
 
+/** How often a held submission re-asks the container whether it has drained. A render is seconds to minutes, so a tighter poll buys nothing and costs a round trip. */
+const COMFY_DRAIN_POLL_MS = 500;
+
+/**
+ * How long a submission waits for the container to drain before giving up.
+ * Not a render-length estimate: it is the ceiling that stops a wedged
+ * container from parking every later submission on this door forever. A real
+ * render that legitimately exceeds it answers 503 naming the engine, which is
+ * recoverable; an unbounded wait is not.
+ */
+const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * Runs `fn` with this engine's submission gate held, so the read-then-act
+ * sequences that decide what the container is holding cannot interleave.
+ *
+ * The chain is kept alive across a rejection deliberately: a handler that
+ * throws must not reject every later holder of the same gate.
+ */
+function withComfySlot<T>(ctx: DoorContext, engineId: string, fn: () => Promise<T>): Promise<T> {
+  const settled = () => undefined;
+  const run = (ctx.comfySlots.get(engineId) ?? Promise.resolve()).then(fn, fn);
+  ctx.comfySlots.set(engineId, run.then(settled, settled));
+  return run;
+}
+
+/** Whether the container is holding nothing at all -- neither running nor queued. */
+async function comfyDrained(base: string, httpClient: HttpClient): Promise<boolean> {
+  const queue = await readComfyQueue(base, httpClient);
+  if (queue === undefined) {
+    return false;
+  }
+  return (
+    queuedPromptIds(queue.queue_running).length === 0 &&
+    queuedPromptIds(queue.queue_pending).length === 0
+  );
+}
+
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
 async function proxyComfyPrompt(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
   const body = await req.text();
-  const res = await httpClient(`${base}/prompt`, {
-    method: "POST",
-    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body,
-  });
-  const text = await res.text();
-  const promptId = res.ok ? comfyPromptId(text) : undefined;
-  if (promptId !== undefined) {
-    ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), []);
-    saveComfyBindings(ctx.comfyBindings);
+  const deadline = Date.now() + COMFY_DRAIN_TIMEOUT_MS;
+  // Compare-and-swap rather than one long hold: the gate is taken only for the
+  // drain check and the forward that follows it, so a `/cancel` -- which is
+  // how a caller ends the render this is waiting on -- is never queued behind
+  // a submission that is waiting for that same render to end.
+  while (Date.now() < deadline) {
+    const forwarded = await withComfySlot(ctx, engineId, async () => {
+      if (!(await comfyDrained(base, httpClient))) {
+        return;
+      }
+      const res = await httpClient(`${base}/prompt`, {
+        method: "POST",
+        headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+        body,
+      });
+      const text = await res.text();
+      const promptId = res.ok ? comfyPromptId(text) : undefined;
+      if (promptId !== undefined) {
+        ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), []);
+        saveComfyBindings(ctx.comfyBindings);
+      }
+      return jsonForward(res, text);
+    });
+    if (forwarded !== undefined) {
+      return forwarded;
+    }
+    await Bun.sleep(COMFY_DRAIN_POLL_MS);
   }
-  return jsonForward(res, text);
+  return jsonError(
+    STATUS_UNAVAILABLE,
+    `"@/${engineId}" has been rendering for over ${COMFY_DRAIN_TIMEOUT_MS / 60_000} minutes and this door submits one prompt at a time -- cancel the running prompt or restart the engine`,
+  );
 }
 
 /** `POST /upload/image`, forwarded with the stored filename namespaced -- comfy's input directory is shared across every caller, and two callers uploading "reference.png" the same second must not silently overwrite one another. */
@@ -414,17 +472,23 @@ async function readComfyQueue(
  * a refusal comes back as comfy's own status, never as a cancel this door
  * did not perform.
  *
- * ponytail: the running check and the interrupt are two calls, so a prompt
- * that finishes between them yields to a successor this cancel then stops.
- * The window is one round trip against a local container and comfy offers
- * no id-scoped interrupt to close it; close it with a door-held execution
- * lease if that is ever observed to bite.
+ * Both of the windows this used to carry are closed, and by different means.
  *
- * ponytail: the pending branch has the mirror window -- a prompt that starts
- * rendering between the queue read and the delete is still reported
- * "pending", because comfy answers 200 to a queue delete that removed
- * nothing. Same one round trip wide; a second queue read after the delete
- * would confirm what it actually did, at a round trip on every cancel.
+ * An unscoped `/interrupt` could stop whichever job inherited the GPU from a
+ * prompt that finished between the queue read and the interrupt. It cannot
+ * now: `POST /prompt` holds submissions until the container has drained, so
+ * nothing is ever queued behind the running prompt to inherit anything. The
+ * interrupt either stops the caller's own prompt or arrives late and stops
+ * nothing at all.
+ *
+ * A pending prompt that started rendering between the queue read and the
+ * queue delete used to be reported "pending" while it held the GPU, because
+ * comfy answers 200 to a delete that removed nothing. The delete is now
+ * confirmed against a second queue read, and a prompt that slipped into
+ * `queue_running` is interrupted and reported as what it became.
+ *
+ * The gate is held across the whole sequence, so a submission cannot enter
+ * the container between this read and the act on it.
  */
 async function proxyComfyCancel(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
@@ -441,35 +505,58 @@ async function proxyComfyCancel(
   if (!ctx.comfyBindings.has(comfyKey(engineId, origin, promptId))) {
     return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
   }
-  const queue = await readComfyQueue(base, httpClient);
-  if (queue === undefined) {
-    return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
-  }
-  if (queuedPromptIds(queue.queue_running).includes(promptId)) {
-    const interrupted = await httpClient(`${base}/interrupt`, { method: "POST" });
-    if (!interrupted.ok) {
-      return jsonError(
-        STATUS_BAD_GATEWAY,
-        `comfy refused to interrupt "${promptId}" (http ${interrupted.status})`,
-      );
+  return withComfySlot(ctx, engineId, async () => {
+    const queue = await readComfyQueue(base, httpClient);
+    if (queue === undefined) {
+      return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
     }
-    return Response.json({ prompt_id: promptId, cancelled: "running" });
-  }
-  if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
-    const dropped = await httpClient(`${base}/queue`, {
-      method: "POST",
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: JSON.stringify({ delete: [promptId] }),
-    });
-    if (!dropped.ok) {
-      return jsonError(
-        STATUS_BAD_GATEWAY,
-        `comfy refused to drop "${promptId}" from its queue (http ${dropped.status})`,
-      );
+    if (queuedPromptIds(queue.queue_running).includes(promptId)) {
+      return interruptComfyRunning(base, httpClient, promptId);
     }
-    return Response.json({ prompt_id: promptId, cancelled: "pending" });
+    if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
+      const dropped = await httpClient(`${base}/queue`, {
+        method: "POST",
+        headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+        body: JSON.stringify({ delete: [promptId] }),
+      });
+      if (!dropped.ok) {
+        return jsonError(
+          STATUS_BAD_GATEWAY,
+          `comfy refused to drop "${promptId}" from its queue (http ${dropped.status})`,
+        );
+      }
+      // comfy answers 200 whether or not the delete removed anything, so the
+      // reply it earns is decided by what the queue says afterwards, never by
+      // that status. A prompt that started rendering in the window between the
+      // read above and this delete is still holding the GPU and is stopped
+      // here rather than reported dropped.
+      const after = await readComfyQueue(base, httpClient);
+      if (after === undefined) {
+        return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
+      }
+      if (queuedPromptIds(after.queue_running).includes(promptId)) {
+        return interruptComfyRunning(base, httpClient, promptId);
+      }
+      return Response.json({ prompt_id: promptId, cancelled: "pending" });
+    }
+    return Response.json({ prompt_id: promptId, cancelled: "finished" });
+  });
+}
+
+/** The interrupt, and the one reply it earns. Safe to send unscoped because the submission gate keeps the container's pending queue empty: nothing can have inherited the GPU from the prompt named here. */
+async function interruptComfyRunning(
+  base: string,
+  httpClient: HttpClient,
+  promptId: string,
+): Promise<Response> {
+  const interrupted = await httpClient(`${base}/interrupt`, { method: "POST" });
+  if (!interrupted.ok) {
+    return jsonError(
+      STATUS_BAD_GATEWAY,
+      `comfy refused to interrupt "${promptId}" (http ${interrupted.status})`,
+    );
   }
-  return Response.json({ prompt_id: promptId, cancelled: "finished" });
+  return Response.json({ prompt_id: promptId, cancelled: "running" });
 }
 
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */

@@ -1744,6 +1744,7 @@ function createDoorContext(
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
     comfyBindings: loadComfyBindings(),
+    comfySlots: new Map(),
   };
 }
 

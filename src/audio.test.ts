@@ -782,6 +782,7 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
     comfyBindings: new Map(),
+    comfySlots: new Map(),
   };
   return { ctx, lifecycle, lines };
 }
@@ -818,6 +819,7 @@ function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; li
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
     comfyBindings: new Map(),
+    comfySlots: new Map(),
   };
   return { ctx, lines };
 }

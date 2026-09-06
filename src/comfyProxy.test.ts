@@ -85,6 +85,21 @@ async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999, stateHome?
   return door;
 }
 
+/**
+ * The container's answer for "holding nothing at all". `POST /prompt` reads
+ * the queue before it forwards -- the door submits one prompt at a time -- so
+ * every fake that expects a submission to land has to say the container is
+ * free, and a fake that says nothing readable is correctly made to wait.
+ */
+function idleQueue(): Response {
+  return Response.json({ queue_running: [], queue_pending: [] });
+}
+
+/** Whether this forwarded call is the door reading the container's queue, rather than deleting from it. */
+function isQueueRead(url: string, init?: RequestInit): boolean {
+  return url.includes("/queue") && init?.method !== "POST";
+}
+
 /** Records every call a fake comfy container's `HttpClient` receives, answering with `respond`'s own per-URL logic. */
 function recordingComfyClient(
   respond: (url: string, init?: RequestInit) => Promise<Response> | Response,
@@ -177,7 +192,10 @@ describe("comfy proxy: GET /view is mediated", () => {
   });
 
   test("a filename a completed history read actually surfaced is served", async () => {
-    const { client } = recordingComfyClient((url) => {
+    const { client } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
       if (url.includes("/prompt")) {
         return Response.json({ prompt_id: "job-2" });
       }
@@ -215,7 +233,10 @@ describe("comfy proxy: GET /view is mediated", () => {
 // a caller read out of a malformed history entry.
 describe("comfy proxy: a history entry only binds what its node table names", () => {
   test("an outputs that is not a node table binds no filename", async () => {
-    const { client, calls } = recordingComfyClient((url) => {
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
       if (url.includes("/prompt")) {
         return Response.json({ prompt_id: "job-o" });
       }
@@ -258,7 +279,10 @@ describe("comfy proxy: a filename belongs to the prompt that produced it", () =>
    * prompt's output into a servable filename.
    */
   test("a filename surfaced under prompt A is not viewable by way of prompt B", async () => {
-    const { client } = recordingComfyClient((url) => {
+    const { client } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
       if (url.includes("/prompt")) {
         return Response.json({ prompt_id: "job-a" });
       }
@@ -297,7 +321,10 @@ describe("comfy proxy: the binding table outlives the process", () => {
   /** A restart that forgot its bindings would refuse a stored output to the caller that created it. */
   test("a filename bound before a restart is still served after one", async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, "state-restart-"));
-    const respond = (url: string): Response => {
+    const respond = (url: string, init?: RequestInit): Response => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
       if (url.includes("/prompt")) {
         return Response.json({ prompt_id: "job-r" });
       }
@@ -348,7 +375,10 @@ describe("comfy proxy: control verbs never forwarded", () => {
   });
 
   test("POST /queue delete is refused for a prompt_id this door never bound, and forwarded for one it did", async () => {
-    const { client, calls } = recordingComfyClient((url) => {
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
       if (url.includes("/prompt")) {
         return Response.json({ prompt_id: "job-3" });
       }
@@ -366,7 +396,10 @@ describe("comfy proxy: control verbs never forwarded", () => {
       }),
     );
     expect(foreign.status).toBe(404);
-    expect(calls.filter((c) => c.url.includes("/queue"))).toHaveLength(0);
+    // Deletes, not every `/queue` call: submission reads the queue too.
+    expect(calls.filter((c) => c.url.includes("/queue") && c.init?.method === "POST")).toHaveLength(
+      0,
+    );
 
     const own = await door.fetch(
       new Request(`http://engined${PROXY_PATH}/queue`, {
@@ -375,7 +408,9 @@ describe("comfy proxy: control verbs never forwarded", () => {
       }),
     );
     expect(own.status).toBe(200);
-    expect(calls.filter((c) => c.url.includes("/queue"))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.includes("/queue") && c.init?.method === "POST")).toHaveLength(
+      1,
+    );
   });
 });
 
@@ -537,18 +572,26 @@ function cancellingComfyClient(
   deleteStatus = 200,
   interruptStatus = 200,
 ) {
+  let submitted = false;
   return recordingComfyClient((url, init) => {
     if (url.includes("/prompt")) {
+      submitted = true;
       return Response.json({ prompt_id: "job-c" });
     }
     if (url.includes("/interrupt")) {
       return Response.json({}, { status: interruptStatus });
     }
-    if (url.includes("/queue") && init?.method !== "POST") {
-      return Response.json({
-        queue_running: running.map((id) => [0, id]),
-        queue_pending: pending.map((id) => [0, id]),
-      });
+    if (isQueueRead(url, init)) {
+      // The container holds nothing until the door's own submission lands:
+      // a submission reads the queue before it forwards, and a fake that
+      // reported the job already queued would be describing a state this
+      // door cannot produce.
+      return submitted
+        ? Response.json({
+            queue_running: running.map((id) => [0, id]),
+            queue_pending: pending.map((id) => [0, id]),
+          })
+        : idleQueue();
     }
     return Response.json({}, { status: deleteStatus });
   });
@@ -637,11 +680,18 @@ describe("comfy proxy: a scoped cancel the door refuses", () => {
   // Whatever comfy answered, it was not a queue: the door cannot prove the
   // prompt is the caller's own, so it interrupts nothing and says so.
   test("POST /cancel refuses when comfy's queue does not read as one", async () => {
-    const { client, calls } = recordingComfyClient((url) =>
-      url.includes("/prompt")
-        ? Response.json({ prompt_id: "job-c" })
-        : new Response("null", { headers: { "content-type": "application/json" } }),
-    );
+    let submitted = false;
+    const { client, calls } = recordingComfyClient((url) => {
+      if (url.includes("/prompt")) {
+        submitted = true;
+        return Response.json({ prompt_id: "job-c" });
+      }
+      // Readable for the submission's own drain check, then not: it is the
+      // cancel's queue read that has to find something that is not a queue.
+      return submitted
+        ? new Response("null", { headers: { "content-type": "application/json" } })
+        : idleQueue();
+    });
     const res = await cancel(await boundDoor(client), "job-c");
 
     expect(res.status).toBe(502);
@@ -653,6 +703,144 @@ describe("comfy proxy: a scoped cancel the door refuses", () => {
     const res = await cancel(await boundDoor(client), "someone-elses-job");
 
     expect(res.status).toBe(404);
+    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
+  });
+});
+
+// comfy's `/interrupt` stops whatever is running and carries no id to scope
+// it, so a cancel is only safe when nothing can inherit the GPU behind the
+// prompt being cancelled. Holding submissions is what makes that true.
+describe("comfy proxy: one prompt in the container at a time", () => {
+  /** A fake whose queue the test drives: `holding` is what the container reports until the test empties it. */
+  function gatedComfyClient(holding: string[]) {
+    return recordingComfyClient((url, init) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: `job-${holding.length}` });
+      }
+      if (isQueueRead(url, init)) {
+        return Response.json({
+          queue_running: holding.map((id) => [0, id]),
+          queue_pending: [],
+        });
+      }
+      return Response.json({});
+    });
+  }
+
+  test("a submission is not forwarded while the container is still rendering, and lands once it drains", async () => {
+    const holding: string[] = [];
+    const { client, calls } = gatedComfyClient(holding);
+    const door = await comfyDoor(client);
+    const submit = () =>
+      door.fetch(new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }));
+
+    const first = await submit();
+    expect(first.status).toBe(200);
+    // The container now holds it, exactly as it would after a real submission.
+    holding.push("job-0");
+
+    const second = submit();
+    // Long enough to cover several drain polls: if the gate did not hold, the
+    // second prompt would already be sitting in the container beside the first.
+    await Bun.sleep(300);
+    expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(1);
+
+    holding.length = 0;
+    expect((await second).status).toBe(200);
+    expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(2);
+  });
+
+  /**
+   * The race the gate exists to close. A cancel confirms the caller's prompt
+   * is running and then sends an unscoped interrupt; the interrupt is only
+   * safe because nothing else can be queued to inherit the GPU when that
+   * prompt ends. A submission arriving in that window must wait, not queue.
+   */
+  test("a submission cannot enter the container between a cancel's queue read and its interrupt", async () => {
+    const holding: string[] = [];
+    const { client, calls } = gatedComfyClient(holding);
+    const door = await comfyDoor(client);
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    holding.push("job-0");
+
+    const queued = door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    const cancelled = await cancel(door, "job-0");
+    expect(await cancelled.json()).toEqual({ prompt_id: "job-0", cancelled: "running" });
+
+    const order = calls.map((c) => c.url);
+    const interrupt = order.findIndex((u) => u.includes("/interrupt"));
+    const secondPrompt = order.filter((u) => u.includes("/prompt")).length;
+    expect(interrupt).toBeGreaterThanOrEqual(0);
+    // Nothing was forwarded to `/prompt` a second time before the interrupt,
+    // so there was no successor in the container to inherit the GPU.
+    expect(secondPrompt).toBe(1);
+
+    holding.length = 0;
+    expect((await queued).status).toBe(200);
+  });
+});
+
+// comfy answers 200 to a queue delete that removed nothing, so the status of
+// the delete cannot decide what the caller is told.
+describe("comfy proxy: a cancel reports what the container did, not what was asked", () => {
+  test("a pending prompt that started rendering during the delete is interrupted, not reported dropped", async () => {
+    let reads = 0;
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-c" });
+      }
+      if (url.includes("/interrupt")) {
+        return Response.json({});
+      }
+      if (isQueueRead(url, init)) {
+        reads += 1;
+        // 1: the submission's own drain check. 2: the cancel finds it pending.
+        // 3: after the delete, it has started rendering -- the window this
+        // second read exists to see.
+        if (reads === 1) {
+          return idleQueue();
+        }
+        return reads === 2
+          ? Response.json({ queue_running: [], queue_pending: [[0, "job-c"]] })
+          : Response.json({ queue_running: [[0, "job-c"]], queue_pending: [] });
+      }
+      return Response.json({});
+    });
+    const door = await comfyDoor(client);
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+
+    const res = await cancel(door, "job-c");
+    expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "running" });
+    expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(1);
+  });
+
+  test("a pending prompt the delete really removed is still reported pending", async () => {
+    let reads = 0;
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (url.includes("/prompt")) {
+        return Response.json({ prompt_id: "job-c" });
+      }
+      if (isQueueRead(url, init)) {
+        reads += 1;
+        return reads === 2
+          ? Response.json({ queue_running: [], queue_pending: [[0, "job-c"]] })
+          : idleQueue();
+      }
+      return Response.json({});
+    });
+    const door = await comfyDoor(client);
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+
+    const res = await cancel(door, "job-c");
+    expect(await res.json()).toEqual({ prompt_id: "job-c", cancelled: "pending" });
     expect(calls.filter((c) => c.url.includes("/interrupt"))).toHaveLength(0);
   });
 });

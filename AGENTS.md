@@ -108,6 +108,12 @@ nothing can thread a door URL into its launch:
 **No port is written down for anything engined starts** except the door and a
 remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.
 
+**One comfy prompt is in a container at a time.** `POST /prompt` holds until
+the container's queue drains (`src/comfyProxy.ts`), which is the whole reason
+`POST /cancel` may send comfy's unscoped `/interrupt`: with nothing queued
+behind the running job, an interrupt cannot stop a successor. Removing the gate
+silently reopens that race, and the reply a caller gets stops being provable.
+
 **Agentic guarantee is integrity, not confidentiality.** An agentic call cannot
 change a worktree; it can read anything this uid can open.
 

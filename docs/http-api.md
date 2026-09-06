@@ -377,12 +377,26 @@ perform.
 | 502 `comfy refused to drop "<id>" from its queue (http <status>)` | the prompt was pending and is queued still |
 
 The distinction is what a caller polling `/history` needs to read next — only a
-`running` cancel truncates work already done. Two windows stay open, each one
-round trip wide, because the queue read and the act on it are separate calls: a
-prompt that finishes between them sends the interrupt to whichever job
-inherited the GPU, and one that starts rendering between them is reported
-`pending` while it holds the GPU, since comfy answers 200 to a queue delete
-that removed nothing.
+`running` cancel truncates work already done. Neither reply can be wrong about
+what the container did:
+
+- A `pending` cancel is confirmed by a second queue read after the delete,
+  because comfy answers 200 to a delete that removed nothing. A prompt that
+  started rendering in that window is interrupted and reported `running`.
+- A `running` cancel sends comfy's unscoped `/interrupt`, which is safe here
+  only because **this door keeps one prompt in a comfy container at a time**.
+  `POST /prompt` waits for the container's queue to drain before it forwards,
+  so nothing is ever queued behind the running job to inherit the GPU from it.
+  An interrupt that arrives after the prompt finished stops nothing at all.
+
+That gate is the one behaviour change a comfy consumer sees. With the container
+free — the ordinary case on a one-GPU box — a submission forwards immediately
+and answers with comfy's own `prompt_id`, exactly as before. With a render in
+flight, `POST /prompt` holds until it ends rather than returning an id for a
+job queued behind it, so the wait moves from comfy's queue to the request. The
+GPU was serial either way; what changes is where the caller waits, and that the
+door can now say what is running. A container that has not drained in 15
+minutes answers 503 naming the engine rather than holding the request forever.
 
 The binding table those verbs read is bounded by **count**, not age: the door
 keeps the most recent 1000 `prompt_id` bindings across every comfy engine and

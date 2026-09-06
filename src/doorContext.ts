@@ -61,7 +61,26 @@ export interface DoorContext {
   launchNonces: Set<string>;
   /** Comfy proxy mediation state, reload-durable. */
   comfyBindings: ComfyBindings;
+  /** One submission gate per comfy engine -- see `ComfySlots`. */
+  comfySlots: ComfySlots;
 }
+
+/**
+ * The gate that keeps a comfy container holding at most one prompt at a time,
+ * one promise chain per engine id.
+ *
+ * comfy's `/interrupt` stops whatever is running and carries no id to scope
+ * it, so a cancel is only ever safe when nothing can inherit the GPU from the
+ * prompt being cancelled. Holding submissions here is what makes that true by
+ * construction: `POST /prompt` waits for the container's queue to drain before
+ * it forwards, so there is never a successor queued behind the running job.
+ *
+ * In memory only, and deliberately: every submission re-reads the container's
+ * own queue rather than trusting this map, so a door restart mid-render costs
+ * one round trip and not a wrong answer. The GPU is one, so the gate is per
+ * engine and not per origin.
+ */
+export type ComfySlots = Map<string, Promise<unknown>>;
 
 /**
  * What this door has actually seen pass through a comfy engine's proxy:
