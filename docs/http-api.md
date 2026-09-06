@@ -19,6 +19,7 @@ treated as a caller.
 | `/openai/v1/embeddings` | POST | `openai-http` |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
+| `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed}` in, `{created, data:[{b64_json}]}` out — see [Images](#images) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
@@ -351,6 +352,48 @@ theirs can load. It is the difference between "the model is still loading" and
 "three requests are ahead of you", which `state` alone cannot express. A role
 with nothing running and nothing queued is omitted rather than reported as
 zero, and a kind with no roles carries no `roles` at all.
+
+## Images
+
+`POST /openai/v1/images/generations` is the one OpenAI-shaped verb a comfy
+engine answers, for the caller that wants a prompt turned into an image and
+should not have to learn a workflow format to get one.
+
+```sh
+curl -s localhost:29200/openai/v1/images/generations \
+  -H 'content-type: application/json' \
+  -d '{"model":"@/comfy/local","prompt":"a red cube on a white table","size":"512x512"}' \
+  | jq -r '.data[0].b64_json' | base64 -d > cube.png
+```
+
+| Field | Meaning |
+| --- | --- |
+| `prompt` | required, non-empty |
+| `size` | `<width>x<height>`, default `1024x1024` |
+| `n` | 1–10, default 1. One render each, with consecutive seeds — the door submits one prompt at a time, so `n` images take `n` renders' worth of wall clock |
+| `negative_prompt` | not an OpenAI field, forwarded because a caller driving a diffusion model has no other way to say it |
+| `seed` | honoured when given; random otherwise, so asking twice is not the same image |
+
+The reply is always `b64_json`: there is no URL to hand out, because a URL
+would be an address into the container's shared output directory and this door
+does not hand those out.
+
+**It does not replace the mediated proxy below, and is not meant to.** A node
+graph, a custom sampler, an upscale chain, a video job — none of those is
+expressible as an OpenAI image request. A consumer that needs them speaks comfy
+through `/engined/v1/comfy/...` exactly as before; this verb is the simple case
+given one shape.
+
+The graph it renders ships with the engine (`images_workflow` in
+`engines/comfy/spec.toml`), because a mis-wired node fails silently — a black
+image, or a shape error from inside comfy naming a node rather than the graph.
+Which checkpoints it loads is install-specific and comes from the comfy route's
+`[route.args]` (`unet`, `clip`, `clip_type`, `vae`); a missing one is a 400
+naming it, never a bad render.
+
+**An image request cannot name a chain.** A second engine's render is a
+different image, not a retry of the first, so there is nothing a fallback could
+hand the caller that answers the request they made.
 
 ## Comfy
 

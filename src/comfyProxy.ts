@@ -320,12 +320,44 @@ async function proxyComfyPrompt(
   req: Request,
 ): Promise<Response> {
   const body = await req.text();
+  return submitComfyPrompt(ctx, engineId, base, httpClient, body, (res, text) => {
+    const promptId = res.ok ? comfyPromptId(text) : undefined;
+    if (promptId !== undefined) {
+      ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
+        at: Date.now(),
+        filenames: [],
+      });
+      saveComfyBindings(ctx.comfyBindings);
+    }
+    return jsonForward(res, text);
+  });
+}
+
+/**
+ * Forwards one `/prompt` with this engine's submission gate held, and hands
+ * `onAnswered` whatever the container said.
+ *
+ * Shared by the mediated proxy and the OpenAI image verb, so both go through
+ * the one gate: it is per engine and not per surface, and a second submission
+ * path that did not take it would put a prompt in the container beside a
+ * running one and quietly reopen the race `POST /cancel` depends on being
+ * closed.
+ *
+ * Compare-and-swap rather than one long hold: the gate is taken only for the
+ * drain check and the forward that follows it, so a `/cancel` -- which is how
+ * a caller ends the render this is waiting on -- is never queued behind a
+ * submission waiting for that same render to end.
+ */
+export async function submitComfyPrompt(
+  ctx: DoorContext,
+  engineId: string,
+  base: string,
+  httpClient: HttpClient,
+  body: string,
+  onAnswered: (res: Response, text: string) => Response,
+): Promise<Response> {
   const timeoutMs = comfyDrainTimeoutMs(ctx, engineId);
   const deadline = Date.now() + timeoutMs;
-  // Compare-and-swap rather than one long hold: the gate is taken only for the
-  // drain check and the forward that follows it, so a `/cancel` -- which is
-  // how a caller ends the render this is waiting on -- is never queued behind
-  // a submission that is waiting for that same render to end.
   while (Date.now() < deadline) {
     const forwarded = await withComfySlot(ctx, engineId, async () => {
       if (!(await comfyDrained(base, httpClient))) {
@@ -336,16 +368,7 @@ async function proxyComfyPrompt(
         headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
         body,
       });
-      const text = await res.text();
-      const promptId = res.ok ? comfyPromptId(text) : undefined;
-      if (promptId !== undefined) {
-        ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
-          at: Date.now(),
-          filenames: [],
-        });
-        saveComfyBindings(ctx.comfyBindings);
-      }
-      return jsonForward(res, text);
+      return onAnswered(res, await res.text());
     });
     if (forwarded !== undefined) {
       return forwarded;

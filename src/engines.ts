@@ -1113,6 +1113,11 @@ export class EngineRegistry {
     return this.byId.get(id)?.engine;
   }
 
+  /** This engine's resolved spec, for a door verb that reads something the spec ships (a comfy engine's `images_workflow`). */
+  specFor(id: string): Spec | undefined {
+    return this.byId.get(id)?.spec.spec;
+  }
+
   /** Sync accessor: reports the lifecycle's cached state — no image probe, no keyring lookup. */
   get(id: string): EngineStatus | undefined {
     const entry = this.byId.get(id);

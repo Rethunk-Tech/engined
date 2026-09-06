@@ -408,9 +408,16 @@ function parseRouteRaw(
  * this one flat key needs, and engine parsing must finish before spec loading
  * (`engines.ts`'s `buildEntries`) ever starts.
  */
-function upstreamTraitFor(engine: EngineEntry, enginesRoot: string): UpstreamTrait {
+/** What a route's own validation needs to know about the engine it names, read from the one place that carries it. */
+interface SpecFacts {
+  trait: UpstreamTrait;
+  /** A spec-full engine's kind, which config does not restate. `undefined` only when the config's own `kind` already answered. */
+  kind?: string;
+}
+
+function specFactsFor(engine: EngineEntry, enginesRoot: string): SpecFacts {
   if (engine.kind !== undefined) {
-    return KIND_UPSTREAM_TRAIT[engine.kind];
+    return { trait: KIND_UPSTREAM_TRAIT[engine.kind], kind: engine.kind };
   }
   const specDir = engine.spec_dir ?? join(enginesRoot, engine.id);
   const specFile = join(specDir, "spec.toml");
@@ -431,7 +438,7 @@ function upstreamTraitFor(engine: EngineEntry, enginesRoot: string): UpstreamTra
       specFile,
     );
   }
-  return trait;
+  return { trait, kind: isRecord(raw) && typeof raw.kind === "string" ? raw.kind : undefined };
 }
 
 /** Every upstream some OTHER route on this engine already names explicitly -- the basis a `required`-trait engine's own default is drawn from. */
@@ -503,13 +510,13 @@ function resolveRoute(
   engines: Map<string, EngineEntry>,
   upstreams: Map<string, Upstream>,
   models: Map<string, ModelEntry>,
-  traitFor: (engine: EngineEntry) => UpstreamTrait,
+  traitFor: (engine: EngineEntry) => SpecFacts,
   file: string,
 ): ResolvedRoute {
   const engine = engines.get(raw.engine) as EngineEntry;
   const upstreamId =
     raw.declaredUpstream === undefined
-      ? defaultUpstreamFor(raw.engine, traitFor(engine), raw.site, allRaws, file)
+      ? defaultUpstreamFor(raw.engine, traitFor(engine).trait, raw.site, allRaws, file)
       : raw.declaredUpstream;
   if (upstreamId !== null && !upstreams.has(upstreamId)) {
     throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, file);
@@ -524,7 +531,12 @@ function resolveRoute(
     if (raw.role !== undefined) {
       throw new ParseError(`${raw.site} must not declare "role": ${reason}`, file);
     }
-    if (Object.keys(raw.args).length > 0) {
+    // A comfy route is the exception, and only for args: it is modelless, so
+    // there is no GGUF for these to describe, but `POST /openai/v1/images/
+    // generations` reads them as the checkpoint names its shipped graph loads.
+    // `filename` and `role` above stay forbidden -- those really are about a
+    // local weights file, and comfy has none.
+    if (Object.keys(raw.args).length > 0 && traitFor(engine).kind !== "comfy") {
       throw new ParseError(`${raw.site} declares "args" that nothing reads: ${reason}`, file);
     }
   }
@@ -859,15 +871,15 @@ function readConfigTable(file: string): Record<string, unknown> {
 }
 
 /** A spec is read at most once per engine no matter how many routes name it. */
-function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => UpstreamTrait {
-  const cache = new Map<string, UpstreamTrait>();
+function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => SpecFacts {
+  const cache = new Map<string, SpecFacts>();
   return (engine) => {
-    let t = cache.get(engine.id);
-    if (t === undefined) {
-      t = upstreamTraitFor(engine, enginesRoot);
-      cache.set(engine.id, t);
+    let facts = cache.get(engine.id);
+    if (facts === undefined) {
+      facts = specFactsFor(engine, enginesRoot);
+      cache.set(engine.id, facts);
     }
-    return t;
+    return facts;
   };
 }
 

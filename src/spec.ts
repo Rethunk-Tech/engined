@@ -259,6 +259,10 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
       raw.entrypoint === undefined
         ? undefined
         : requireStringArray(raw.entrypoint, "entrypoint", file),
+    images_workflow:
+      raw.images_workflow === undefined
+        ? undefined
+        : requireString(raw.images_workflow, '"images_workflow"', file),
     volumes: parseVolumes(raw.volume, file),
     artifacts: parseArtifacts(raw.artifact, file),
     ready: parseReady(raw.ready, file),

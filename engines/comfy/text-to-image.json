@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "The graph POST /openai/v1/images/generations renders. It ships here rather",
+    "than in operator config because the wiring is the part that fails silently:",
+    "a mis-wired node returns a black image or a shape error from deep inside",
+    "comfy, not a message naming the graph. What varies by install is only the",
+    "checkpoint filenames, which come from the comfy route's [route.args].",
+    "",
+    "Every string of the form ${name} is replaced by the door before submission,",
+    "with the substituted value keeping its own type -- ${width} becomes a",
+    "number, not the string \"512\". An unfilled placeholder is refused rather",
+    "than sent, so a graph edit that names something the door does not supply",
+    "fails at the request instead of rendering something wrong.",
+    "",
+    "Node ids are strings because that is comfy's own prompt format."
+  ],
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": { "unet_name": "${unet}", "weight_dtype": "default" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": { "clip_name": "${clip}", "type": "${clip_type}" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "${vae}" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "${prompt}", "clip": ["2", 0] }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "${negative}", "clip": ["2", 0] }
+  },
+  "6": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": { "width": "${width}", "height": "${height}", "batch_size": "${batch}" }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "latent_image": ["6", 0],
+      "seed": "${seed}",
+      "steps": "${steps}",
+      "cfg": "${cfg}",
+      "sampler_name": "${sampler}",
+      "scheduler": "${scheduler}",
+      "denoise": 1.0
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["7", 0], "vae": ["3", 0] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["8", 0], "filename_prefix": "engined_images" }
+  }
+}

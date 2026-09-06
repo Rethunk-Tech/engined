@@ -210,6 +210,7 @@ export const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
 export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
 export const CONTENT_ENDPOINT_SPEECH = "/openai/v1/audio/speech";
 export const CONTENT_ENDPOINT_TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
+export const CONTENT_ENDPOINT_IMAGES = "/openai/v1/images/generations";
 
 /**
  * The door paths one route answers, which its engine's own `serves` cannot
@@ -490,6 +491,14 @@ export interface ContainerSpec extends SpecCommon {
    */
   init: boolean;
   entrypoint?: string[];
+  /**
+   * The comfy workflow `POST /openai/v1/images/generations` renders, as a path
+   * this spec's own `{spec_dir}` resolves. Shipped with the engine because the
+   * graph's wiring is what fails silently -- a mis-wired node yields a black
+   * image or an error from inside comfy, never one naming the graph. Only the
+   * checkpoint filenames vary by install, and those come from the route.
+   */
+  images_workflow?: string;
   volumes: Volume[];
   artifacts: Artifact[];
   ready: ReadyProbe;

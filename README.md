@@ -25,7 +25,8 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 
 ## Highlights
 
-- **One door for four modalities** — chat, embeddings, speech, transcription.
+- **One door for five modalities** — chat, embeddings, speech, transcription,
+  images.
 - **Start on demand, stop when idle** — leases counted; idle 35B returns ~27 GiB.
 - **One resident model per role** — occupancy is engined's job.
 - **Chains with provenance** — fallback lists record which engine answered.

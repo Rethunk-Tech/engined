@@ -58,6 +58,7 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
+import { handleImageGeneration } from "./images.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { hopForwardsTools, modelsMenu } from "./modelsMenu.ts";
 import { configPath, installDir, voicesDir } from "./paths.ts";
@@ -67,6 +68,7 @@ import {
   type AgenticSpec,
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
@@ -98,6 +100,7 @@ import { runVisionProbe } from "./visionProbe.ts";
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
 ]);
@@ -1528,6 +1531,11 @@ async function handleContent(
     // The signal is what stops a speech chain advancing to a second engine for
     // an answer the caller is no longer there to receive.
     return handleAudioSpeech(ctx, body, req.signal);
+  }
+  if (pathname === CONTENT_ENDPOINT_IMAGES) {
+    // The signal ends a render nobody is waiting for: a diffusion job holds the
+    // GPU, and this door runs one at a time.
+    return handleImageGeneration(ctx, body, req.signal);
   }
   const rawModel = typeof body.model === "string" ? body.model : undefined;
   const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry);

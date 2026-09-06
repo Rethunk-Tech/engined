@@ -13,6 +13,11 @@ obtain = "build"
 # unresolved one is a parse error -- these params are resolved by the door
 # at request time, never by this loader.
 serves = [
+  # The one OpenAI-shaped verb comfy answers. Every other path here is the
+  # mediated proxy, which stays the way a caller reaches a node graph, a
+  # custom sampler or a video job -- none of which an OpenAI image request
+  # can express. This is for the caller that only wants prompt to image.
+  "/openai/v1/images/generations",
   "/engined/v1/comfy/:engine/:upstream/object_info/:nodeType",
   "/engined/v1/comfy/:engine/:upstream/prompt",
   "/engined/v1/comfy/:engine/:upstream/upload/image",
@@ -40,6 +45,13 @@ command = ["--preview-method", "latent2rgb"]
 # without this, 0.128s and a clean exit 143 with it. Every other engine here
 # handles SIGTERM itself and needs nothing.
 init = true
+
+# The graph the OpenAI image verb renders, resolved against this directory.
+# It ships here, not in operator config, because a mis-wired node fails
+# silently -- a black image, or a shape error from inside comfy that names
+# no graph. What varies by install is only which checkpoints it loads, and
+# those come from the comfy route's [route.args].
+images_workflow = "{spec_dir}/text-to-image.json"
 
 # engined polls this for both readiness and the idle timer: Comfy is the one
 # engine whose idleness engined cannot observe from request traffic, because

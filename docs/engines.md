@@ -29,6 +29,10 @@ override. ~938 MB.
 
 ### ComfyUI
 
+Answers `POST /openai/v1/images/generations` from the graph it ships
+(`text-to-image.json`), and everything that graph cannot express through the
+mediated proxy — see [http-api.md](http-api.md#images).
+
 `engines/comfy/`. Bases on `rocm/dev-ubuntu-24.04:7.2.4` — the minimal
 ROCm/HIP runtime, not `rocm/pytorch` or the `-complete` tag — plus the
 official PyTorch ROCm wheels, which are self-contained and would otherwise

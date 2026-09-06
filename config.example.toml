@@ -506,11 +506,13 @@ model    = "scribe_v1" # ElevenLabs' own model id, sent on the wire verbatim: th
 
 [[engine]]
 id                = "comfy"
-# Comfy's model tree is a host directory like llama's, not baked into
-# the image -- but Comfy has no OpenAI shape and no [[model]] entries here:
-# it's a modelless engine, addressed only as @/comfy/local, and reached
-# entirely through the mediated proxy under /engined/v1/comfy/:engine/:upstream/...
-# -- never at a raw container address, and never dispatched to by a model id.
+# Comfy's model tree is a host directory like llama's, not baked into the
+# image, and it carries no [[model]] entries: it is a modelless engine,
+# addressed only as @/comfy/local and never at a raw container address.
+# It answers one OpenAI verb, POST /openai/v1/images/generations, and
+# everything a graph can express that the verb cannot -- a custom sampler,
+# a node graph, a video job -- goes through the mediated proxy under
+# /engined/v1/comfy/:engine/:upstream/... instead.
 models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 
@@ -554,6 +556,16 @@ highvram = true
 [[route]]
 engine   = "comfy"
 upstream = "local"
+
+  # Which checkpoints the shipped image graph (engines/comfy/text-to-image.json)
+  # loads. The graph's wiring is spec because a mis-wired node fails silently;
+  # these names are config because they are what this box happens to have on
+  # disk. Missing any of them is a 400 naming which, never a black image.
+  [route.args]
+  unet      = "Chroma1-HD.safetensors"
+  clip      = "t5xxl_fp16.safetensors"
+  clip_type = "chroma"
+  vae       = "ae.safetensors"
 
 # A remote OpenAI-shaped engine: no spec directory, no container, nothing to
 # start -- its upstream's base_url is the whole shape, the same as the remote
