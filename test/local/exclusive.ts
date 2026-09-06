@@ -58,7 +58,7 @@ export function imageBuilt(image: string): boolean {
  * chatterbox ~3.3, whisper smaller still) and several are resident together
  * without contention, so a suite that loads only those needs no room check.
  */
-export const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const;
+const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const;
 
 /** How much of the pool to leave for everything that is not this suite's engines. */
 const RESERVE_GIB = 4;

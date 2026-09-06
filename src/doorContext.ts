@@ -80,7 +80,7 @@ export interface DoorContext {
  * one round trip and not a wrong answer. The GPU is one, so the gate is per
  * engine and not per origin.
  */
-export type ComfySlots = Map<string, Promise<unknown>>;
+type ComfySlots = Map<string, Promise<unknown>>;
 
 /**
  * What this door has actually seen pass through a comfy engine's proxy:

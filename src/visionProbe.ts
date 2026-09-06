@@ -176,7 +176,7 @@ const SPLIT_PNG_LEFT = [220, 20, 20] as const;
 const SPLIT_PNG_RIGHT = [20, 20, 220] as const;
 
 /** Red on the left, blue on the right. */
-export const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(SPLIT_PNG_SIZE, SPLIT_PNG_LEFT, SPLIT_PNG_RIGHT)).toString("base64")}`;
+const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(SPLIT_PNG_SIZE, SPLIT_PNG_LEFT, SPLIT_PNG_RIGHT)).toString("base64")}`;
 
 /** Two words is the whole answer this asks for; anything longer is tokens spent on prose the verdict discards. */
 const VISION_MAX_TOKENS = 16;
@@ -212,7 +212,7 @@ export function readProbeText(): string {
 }
 
 /** The chat body for a `read` route: the digits as an image, and an instruction with no scene in it to describe. */
-export function visionReadRequestBody(modelId: string, text: string): string {
+function visionReadRequestBody(modelId: string, text: string): string {
   return JSON.stringify({
     model: modelId,
     messages: [
@@ -281,13 +281,13 @@ export function visionVerdict(reply: string): { ok: boolean; detail: string } {
 const ERROR_BODY_CHARS = 200;
 
 /** One line per vision address the door offers, in the order the menu listed them. */
-export interface VisionProbeLine {
+interface VisionProbeLine {
   address: string;
   ok: boolean;
   detail: string;
 }
 
-export interface VisionProbeReport {
+interface VisionProbeReport {
   /** False only when a vision address answered and got it wrong, or could not be reached at all. A door offering no vision address is `true` with one line saying so. */
   ok: boolean;
   lines: VisionProbeLine[];

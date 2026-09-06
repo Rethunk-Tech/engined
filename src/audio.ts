@@ -116,7 +116,7 @@ export interface DoorResponse {
   stream?: ReadableStream<Uint8Array>;
 }
 
-export interface TranscriptionRequestBody {
+interface TranscriptionRequestBody {
   /** The engine to dispatch through. */
   engine: string;
   /**
@@ -154,7 +154,7 @@ export interface TranscriptionRequestBody {
  * `stream` is not optional here: a body with no declared end has no whole
  * transcript to wait for, and nothing to answer a buffered request with.
  */
-export interface StreamedTranscriptionRequestBody
+interface StreamedTranscriptionRequestBody
   extends Omit<TranscriptionRequestBody, "file" | "stream"> {
   file: ReadableStream<Uint8Array>;
   stream: true;
@@ -165,9 +165,7 @@ export type AnyTranscriptionRequestBody =
   | TranscriptionRequestBody
   | StreamedTranscriptionRequestBody;
 
-export function liveUpload(
-  req: AnyTranscriptionRequestBody,
-): req is StreamedTranscriptionRequestBody {
+function liveUpload(req: AnyTranscriptionRequestBody): req is StreamedTranscriptionRequestBody {
   return req.file instanceof ReadableStream;
 }
 

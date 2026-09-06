@@ -41,7 +41,7 @@ export function skipTitle(base: string, ready: boolean, reason: string): string 
 }
 
 /** The whole tier's gate, as the reason a suite names when it is unset. */
-export const NOT_LOCAL_REASON = 'ENGINED_LOCAL is not "1"';
+const NOT_LOCAL_REASON = 'ENGINED_LOCAL is not "1"';
 
 /** Why an env-gated suite cannot run: the tier's own gate first, since an unset `ENGINED_LOCAL` leaves every other var unset too. */
 export function missingEnvReason(missing: string[]): string {
