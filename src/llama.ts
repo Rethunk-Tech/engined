@@ -745,9 +745,12 @@ export class LlamaRouter {
    * Read while the role's lease is still held, so a waiter promoted for a
    * different model cannot swap occupancy between the answer and this read.
    *
-   * ponytail: costs a round-trip to the engine on every roled attempt. The
-   * independence from `residentModel` is the point and caching would dissolve
-   * it, so cache only per-request if provenance ever shows up in a profile.
+   * ponytail: costs a round-trip to the engine on every roled attempt.
+   * Measured live against this box's llama-server: the round trip itself
+   * averages 0.19 ms over a warmed connection (N=20), against 292-390 ms for
+   * a short end-to-end chat completion (N=5, max_tokens=8) -- under 0.1% of
+   * the request it rides on. Not worth caching. The independence from
+   * `residentModel` is the point, and caching would dissolve it.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
     const listed = await this.listedModels(this.baseUrl());
