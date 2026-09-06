@@ -101,6 +101,7 @@ const RX_MUST_NOT_FILENAME = /must not declare "filename"/;
 const RX_MUST_NOT_ROLE = /must not declare "role"/;
 const RX_INVALID_VISION = /has invalid "vision" "reed"/;
 const RX_VISION_WITHOUT_ROLE = /has "vision" but is not role = "vision"/;
+const RX_VISION_REQUIRED = /is role = "vision" and must declare "vision"/;
 const RX_MISSING_EGRESS = /is missing required "egress"/;
 const RX_STREAMING_KEY = /"streaming"/;
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/;
@@ -236,6 +237,7 @@ upstream = "local"
 model    = "vision"
 filename = "${visionFile}"
 role     = "vision"
+vision = "describe"
 
 [[engine]]
 id            = "claude"
@@ -456,6 +458,7 @@ upstream = "local"
 model = "b"
 filename = "b.gguf"
 role = "vision"
+vision = "describe"
 `;
   const cfg = loadConfig(writeConfig(toml));
   expect(cfg.routes.find((r) => r.model === "a")?.disabled).toBe(true);
@@ -743,6 +746,25 @@ model = "x"
 vision = "read"
 `;
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_VISION_WITHOUT_ROLE);
+  });
+
+  // The default used to be "describe", and it was the wrong answer for half the
+  // vision routes on this box: a reader sent the describe check fails it while
+  // working correctly, and nothing in that failure says the config is at fault.
+  test("a vision route that does not say which kind it is refuses to parse", () => {
+    const toml = `
+[[engine]]
+id = "local-llama"
+models_dir = "${tempModelsDir("v.gguf")}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "v"
+filename = "v.gguf"
+role = "vision"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_VISION_REQUIRED);
   });
 
   test('a "vision" that is not one of the two kinds is fatal', () => {
@@ -1168,6 +1190,7 @@ upstream = "local"
 model = "vis"
 filename = "vis.gguf"
 role = "vision"
+vision = "describe"
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MODELS_MAX_ROLES);
 });

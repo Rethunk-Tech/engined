@@ -62,8 +62,10 @@ role itself does not: `"describe"` reads a scene back in prose, `"read"`
 recognises the characters printed in one. Both take an image and answer in
 text, so nothing else on a route tells them apart — a consumer wiring up OCR
 and one wiring up captioning are picking between two addresses that otherwise
-look identical. Absent means `"describe"`, and it is a parse error on a route
-that is not a vision route rather than a key that quietly does nothing.
+look identical. It is required on a vision route and a parse error on any
+other — not defaulted, because the default would be wrong for whichever kind
+it did not name, and a reader sent the describer's check fails it while working
+correctly with nothing in that failure pointing at the config.
 
 It is also what decides which ground-truth check the vision probe sends
 ([engines.md](engines.md#vision-fidelity-llama-vulkan)): a describer is asked

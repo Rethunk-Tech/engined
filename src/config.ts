@@ -363,6 +363,17 @@ function parseRouteRaw(
   if (visionStr !== undefined && roleStr !== "vision") {
     throw new ParseError(`${site} has "vision" but is not role = "vision"`, file);
   }
+  // Required rather than defaulted, because the default was the wrong answer
+  // for half the vision routes on this box. A reader model left undeclared is
+  // sent the describe check and fails it while working correctly, and nothing
+  // about that failure says the config is what is wrong. Refusing at parse is
+  // the only place that can say so.
+  if (roleStr === "vision" && visionStr === undefined) {
+    throw new ParseError(
+      `${site} is role = "vision" and must declare "vision" ("describe" for a model that reads a scene back, "read" for one that recognises the characters in an image)`,
+      file,
+    );
+  }
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
   return {

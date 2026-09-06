@@ -169,7 +169,8 @@ absent on a route that declares none, and on a chain row for the same reason
 `engine` is. It rides on each `capabilities[]` entry in
 `GET /engined/v1/engines` too.
 
-`vision` splits the vision role in two, and is present only on it:
+`vision` splits the vision role in two, and is present on every vision row and
+no other:
 `"describe"` names a model that reads a scene back in prose, `"read"` one that
 recognises the characters printed in an image. They serve the same path and
 declare the same capabilities, so this is the only thing a consumer can pick

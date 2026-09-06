@@ -220,6 +220,7 @@ upstream = "local"
 model    = "vision"
 filename = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf"
 role     = "vision"
+vision   = "describe"  # reads a scene back in prose; see the ocr route below
 
   [route.args]
   # Passed through verbatim, so this is the path as the CONTAINER sees it --

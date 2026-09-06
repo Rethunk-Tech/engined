@@ -18,7 +18,10 @@ export type Role = "chat" | "vision" | "embedding";
  * else on a route or its capabilities tells them apart -- and asking a reader
  * to describe a scene gets degenerate output, measured against PaddleOCR-VL.
  *
- * Only meaningful on a `vision` route, and `describe` when one does not say.
+ * Required on a `vision` route and a parse error on any other. Not defaulted:
+ * the default was "describe", and it was the wrong answer for half the vision
+ * routes on this box -- a reader sent the describe check fails it while
+ * working correctly, and nothing in that failure says the config is at fault.
  */
 export type VisionKind = "describe" | "read";
 

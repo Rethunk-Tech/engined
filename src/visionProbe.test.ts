@@ -26,7 +26,7 @@ function fakeDoor(rows: unknown[], reply: string, menuStatus = 200): typeof fetc
   }) as typeof fetch;
 }
 
-const VISION_ROW = { id: "@/llama/see", role: "vision", state: "installed" };
+const VISION_ROW = { id: "@/llama/see", role: "vision", vision: "describe", state: "installed" };
 
 test("the probe sends a real PNG: signature, and IHDR carrying the size it was asked for", () => {
   const png = splitColorPng(64, [220, 20, 20], [20, 20, 220]);
@@ -149,7 +149,7 @@ test("only vision rows are probed: a chat row serves the same path and is left a
 });
 
 test("an unavailable vision address is not probed: /engined/v1/engines already names its fix", async () => {
-  const rows = [{ id: "@/llama/see", role: "vision", state: "unavailable" }];
+  const rows = [{ id: "@/llama/see", role: "vision", vision: "describe", state: "unavailable" }];
   const report = await runVisionProbe("http://door", fakeDoor(rows, "a cat"));
   expect(report.ok).toBe(true);
   expect(report.lines[0]?.detail).toBe("no installed vision address to prove");
@@ -159,6 +159,13 @@ test("an unavailable vision address is not probed: /engined/v1/engines already n
 // built before `role` answers with every vision route present and no role on
 // any of them, and reading only "is any row vision?" reports a pass it never
 // earned. The failure names the install command because that is the fix.
+test("a vision address with no declared kind fails rather than being guessed at", async () => {
+  const rows = [{ id: "@/llama/see", role: "vision", state: "installed" }];
+  const report = await runVisionProbe("http://door", fakeDoor(rows, "red then blue"));
+  expect(report.ok).toBe(false);
+  expect(report.lines[0]?.detail).toContain("install.sh");
+});
+
 test("a door too old to report role fails rather than reporting nothing to prove", async () => {
   const rows = [
     { id: "@/llama/ornith", state: "installed" },
@@ -170,7 +177,10 @@ test("a door too old to report role fails rather than reporting nothing to prove
 });
 
 test("every installed vision address is probed, not just the first", async () => {
-  const rows = [VISION_ROW, { id: "@/llama/ocr", role: "vision", state: "installed" }];
+  const rows = [
+    VISION_ROW,
+    { id: "@/llama/ocr", role: "vision", vision: "describe", state: "installed" },
+  ];
   const report = await runVisionProbe("http://door", fakeDoor(rows, "blue then red"));
   expect(report.lines.map((l) => l.address)).toEqual(["@/llama/see", "@/llama/ocr"]);
   expect(report.ok).toBe(false);

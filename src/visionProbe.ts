@@ -397,10 +397,12 @@ export async function runVisionProbe(
  * fails a model that is working -- measured against PaddleOCR-VL, which
  * answers the colour question with degenerate repetition.
  */
-function checkFor(row: MenuRow & { id: string }): {
-  body: string;
-  verdict: (reply: string) => { ok: boolean; detail: string };
-} {
+function checkFor(row: MenuRow & { id: string }):
+  | {
+      body: string;
+      verdict: (reply: string) => { ok: boolean; detail: string };
+    }
+  | undefined {
   if (row.vision === "read") {
     const text = readProbeText();
     return {
@@ -408,7 +410,14 @@ function checkFor(row: MenuRow & { id: string }): {
       verdict: (reply) => visionReadVerdict(text, reply),
     };
   }
-  return { body: visionRequestBody(row.id), verdict: visionVerdict };
+  if (row.vision === "describe") {
+    return { body: visionRequestBody(row.id), verdict: visionVerdict };
+  }
+  // Config requires a kind on every vision route, so a row without one came
+  // from a door older than that rule. Guessing here is what this whole module
+  // exists to stop: the wrong guess fails a working model and reads as a
+  // vision defect.
+  return undefined;
 }
 
 async function probeOne(
@@ -417,6 +426,13 @@ async function probeOne(
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
   const check = checkFor(row);
+  if (check === undefined) {
+    return {
+      ok: false,
+      detail:
+        "the running door reports no `vision` kind for this address, so there is no way to tell which check it can answer. It predates this probe -- run scripts/install.sh to bring the daemon up to the bundle this probe ships with.",
+    };
+  }
   try {
     const res = await fetchImpl(`${doorUrl}/openai/v1/chat/completions`, {
       method: "POST",

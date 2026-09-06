@@ -372,8 +372,8 @@ as an `image_url` data URI.
 Which image depends on the route's `vision` kind, because a vision role says
 an address takes an image and not what its model does with one:
 
-- `describe` (the default) gets the two-colour PNG, and must name both halves
-  **and their order**.
+- `describe` gets the two-colour PNG, and must name both halves **and their
+  order**.
 - `read` gets a freshly generated 8-digit string drawn by a 5x7 bitmap font,
   and must read it back.
 
