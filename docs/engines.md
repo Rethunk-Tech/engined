@@ -365,10 +365,23 @@ caveat.
 drives it against the router directly, and the install ships it as a weekly
 `systemd --user` timer (`engined-vision-probe.timer`) that runs
 `main.js --vision-probe` against the live door -- every vision address the
-model menu lists, found by its `role`. Either way it is a two-colour PNG built
-in code (no fixture file to go stale, a fresh image every run) sent through
-the OpenAI chat verb as an `image_url` data URI, asserting the reply names
-both halves **and their order**.
+model menu lists, found by its `role`. Both send an image built in code (no
+fixture file to go stale, a fresh one every run) through the OpenAI chat verb
+as an `image_url` data URI.
+
+Which image depends on the route's `vision` kind, because a vision role says
+an address takes an image and not what its model does with one:
+
+- `describe` (the default) gets the two-colour PNG, and must name both halves
+  **and their order**.
+- `read` gets a freshly generated 8-digit string drawn by a 5x7 bitmap font,
+  and must read it back.
+
+Sending either question to the other model fails a model that is working.
+Measured live: asked to name the two colours, PaddleOCR-VL answers "the color
+of the right half is the color of the right half on the second" -- it reads
+characters, it does not describe scenes. Both routes on this box prove through
+their own check.
 
 The timer is why this criterion no longer depends on someone remembering it.
 A failure is a failed unit with the reply in journald; a box with no vision
