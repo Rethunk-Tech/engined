@@ -72,10 +72,29 @@ function loadFixture(): Fixture {
   return { engine, routes, image: specImage(engine) };
 }
 
+/** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
+function findRoleRoute(
+  routes: readonly ResolvedRoute[],
+  role: Role,
+): (ResolvedRoute & { model: string }) | undefined {
+  return routes.find(
+    (r): r is ResolvedRoute & { model: string } => r.role === role && r.model !== undefined,
+  );
+}
+
 const FIXTURE = loadFixture();
 const CONTAINER_NAME = `${TEST_NAME_PREFIX}${FIXTURE.engine.id}`;
 const HAVE_IMAGE = LOCAL && FIXTURE.image !== undefined && imageBuilt(FIXTURE.image);
-const HAVE_MODELS = FIXTURE.error === undefined && FIXTURE.routes.length === 3;
+const CHAT = findRoleRoute(FIXTURE.routes, "chat");
+const VISION = findRoleRoute(FIXTURE.routes, "vision");
+const EMBED = findRoleRoute(FIXTURE.routes, "embedding");
+// Not an exact route count: config.example.toml carries a second vision-role
+// route (OCR) beside the one this suite drives, and a route count pinned to
+// today's config breaks the moment an operator adds another sibling on an
+// already-proven role. What this suite actually needs is one usable route
+// per role it exercises.
+const HAVE_MODELS =
+  FIXTURE.error === undefined && CHAT !== undefined && VISION !== undefined && EMBED !== undefined;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 
 // Module scope, guarded by READY: it must fire only when these tests would
@@ -94,22 +113,8 @@ function skipReason(): string {
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
-  return `expected exactly 3 llama routes (chat, vision, embedding) in config.example.toml, found ${FIXTURE.routes.length}`;
+  return "config.example.toml has no usable chat, vision or embedding route on the llama engine's local routes";
 }
-
-/** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
-function findRoleRoute(
-  routes: readonly ResolvedRoute[],
-  role: Role,
-): (ResolvedRoute & { model: string }) | undefined {
-  return routes.find(
-    (r): r is ResolvedRoute & { model: string } => r.role === role && r.model !== undefined,
-  );
-}
-
-const CHAT = findRoleRoute(FIXTURE.routes, "chat");
-const VISION = findRoleRoute(FIXTURE.routes, "vision");
-const EMBED = findRoleRoute(FIXTURE.routes, "embedding");
 
 function buildRouter(
   engine: EngineEntry,
