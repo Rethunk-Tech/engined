@@ -834,8 +834,8 @@ test("a speech chain advances past an engine that cannot answer and the next one
   const res = await handleAudioSpeech(ctx, { model: "chain-tts", input: "hello there" });
   fake.stop();
 
-  // The point of the whole feature: a local TTS that cannot answer used to be
-  // the end of the request, because audio had no fallback to advance to.
+  // The point of the whole feature: without a chain, a local TTS that cannot
+  // answer is the end of the request -- audio has nothing else to advance to.
   expect(res.status).toBe(200);
   expect(res.headers.get("content-type")).toBe("audio/wav");
   expect(Buffer.from(await res.arrayBuffer()).equals(SAMPLE_WAV_BYTES)).toBe(true);

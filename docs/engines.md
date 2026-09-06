@@ -241,8 +241,8 @@ are trustworthy despite the noisy floor:
 | 8 texts, 90-115 chars | 1.37-2.21s | 0.42-0.59s | 0.35-0.46s |
 
 Before this patch, a novel input length paid nearly the same cost as a truly
-cold container on every request (matching the `bert`/`text_encoder`/`lstm`/
-`F0Ntrain` combined ~0.1-0.3s-each estimate this section used to cite). After
+cold container on every request (matching the ~0.1-0.3s each that `bert`,
+`text_encoder`, `lstm` and `F0Ntrain` are estimated to cost, combined). After
 it, the first call to a novel length already lands close to the warm floor,
 because its `_INPUT_ID_BUCKET` was pre-compiled by the startup warm-up sweep
 along with the decoder's frame buckets. `predictor.lstm` and `F0Ntrain`'s own

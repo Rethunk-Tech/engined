@@ -400,6 +400,13 @@ function parseRouteRaw(
   };
 }
 
+/** What a route's own validation needs to know about the engine it names, read from the one place that carries it. */
+interface SpecFacts {
+  trait: UpstreamTrait;
+  /** A spec-full engine's kind, which config does not restate. `undefined` only when the config's own `kind` already answered. */
+  kind?: string;
+}
+
 /**
  * A spec-less engine's trait comes from the built-in table keyed by `kind`;
  * a spec-full one declares its own in `engines/<id>/spec.toml`, read directly
@@ -408,13 +415,6 @@ function parseRouteRaw(
  * this one flat key needs, and engine parsing must finish before spec loading
  * (`engines.ts`'s `buildEntries`) ever starts.
  */
-/** What a route's own validation needs to know about the engine it names, read from the one place that carries it. */
-interface SpecFacts {
-  trait: UpstreamTrait;
-  /** A spec-full engine's kind, which config does not restate. `undefined` only when the config's own `kind` already answered. */
-  kind?: string;
-}
-
 function specFactsFor(engine: EngineEntry, enginesRoot: string): SpecFacts {
   if (engine.kind !== undefined) {
     return { trait: KIND_UPSTREAM_TRAIT[engine.kind], kind: engine.kind };

@@ -560,20 +560,20 @@ async function readComfyQueue(
  * a refusal comes back as comfy's own status, never as a cancel this door
  * did not perform.
  *
- * Both of the windows this used to carry are closed, and by different means.
+ * Two windows sit in this sequence, and each is closed by a different means.
  *
- * An unscoped `/interrupt` could stop whichever job inherited the GPU from a
- * prompt that finished between the queue read and the interrupt. It cannot
- * now: `POST /prompt` holds submissions until the container has drained, so
- * nothing is ever queued behind the running prompt to inherit anything. The
+ * An unscoped `/interrupt` could otherwise stop whichever job inherited the
+ * GPU from a prompt that finished between the queue read and the interrupt.
+ * `POST /prompt` holds submissions until the container has drained, so
+ * nothing is ever queued behind the running prompt to inherit anything: the
  * interrupt either stops the caller's own prompt or arrives late and stops
  * nothing at all.
  *
- * A pending prompt that started rendering between the queue read and the
- * queue delete used to be reported "pending" while it held the GPU, because
- * comfy answers 200 to a delete that removed nothing. The delete is now
- * confirmed against a second queue read, and a prompt that slipped into
- * `queue_running` is interrupted and reported as what it became.
+ * comfy answers 200 to a delete that removed nothing, so a pending prompt
+ * that starts rendering between the queue read and the queue delete would be
+ * reported "pending" while it holds the GPU. The delete is confirmed against
+ * a second queue read instead, and a prompt that slipped into `queue_running`
+ * is interrupted and reported as what it became.
  *
  * The gate is held across the whole sequence, so a submission cannot enter
  * the container between this read and the act on it.

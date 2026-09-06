@@ -748,9 +748,9 @@ vision = "read"
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_VISION_WITHOUT_ROLE);
   });
 
-  // The default used to be "describe", and it was the wrong answer for half the
-  // vision routes on this box: a reader sent the describe check fails it while
-  // working correctly, and nothing in that failure says the config is at fault.
+  // Defaulting to "describe" is the wrong answer for half the vision routes on
+  // this box: a reader sent the describe check fails it while working
+  // correctly, and nothing in that failure says the config is at fault.
   test("a vision route that does not say which kind it is refuses to parse", () => {
     const toml = `
 [[engine]]
