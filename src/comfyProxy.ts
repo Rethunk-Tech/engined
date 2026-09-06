@@ -225,6 +225,12 @@ const COMFY_DRAIN_POLL_MS = 500;
  * container from parking every later submission on this door forever. A real
  * render that legitimately exceeds it answers 503 naming the engine, which is
  * recoverable; an unbounded wait is not.
+ *
+ * ponytail: a wall-clock ceiling, and the one path here with no test -- a
+ * suite that proves it would have to wait it out or take an injected clock,
+ * and neither is worth it for a 503 whose whole job is to be recoverable.
+ * A render that legitimately runs past 15 minutes is refused rather than
+ * queued; make this a per-engine config key if one ever does.
  */
 const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
 
