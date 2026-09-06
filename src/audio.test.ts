@@ -17,6 +17,7 @@ import {
   engine,
   makeTestRoot,
   route,
+  soleProvenanceRecord,
   startFakeUpstream,
   upstream,
 } from "./test-support.ts";
@@ -734,40 +735,76 @@ test("a buffered speech failure reports the engine's own reason, not just missin
 
 const CHATTERBOX_HOST_PORT = 41_100;
 
-/** A door context over one real chatterbox-multi spec, started and running: enough for the two audio verbs, and nothing else. */
-function speechDoorContext(): { ctx: DoorContext; lifecycle: DockerLifecycle } {
+/**
+ * A door context over one real chatterbox-multi spec, started and running:
+ * enough for the two audio verbs, and nothing else. `hostPort` is what
+ * `docker port` reports, so a caller with a fake engine listening somewhere
+ * points the container's mapping at it; the default reaches nothing, which is
+ * what every test asserting a refusal wants.
+ *
+ * `upstreamId` names the `[[upstream]]` the route pairs with, so a suite can
+ * tell a local engine from a remote one in what the door records.
+ */
+function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}): {
+  ctx: DoorContext;
+  lifecycle: DockerLifecycle;
+  lines: string[];
+} {
+  const { hostPort = CHATTERBOX_HOST_PORT, upstreamId = "local" } = opts;
   const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: "", exitCode: 0 }, (argv) => {
     if (argv[0] === "start") {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
     if (argv[0] === "port") {
-      return { stdout: `127.0.0.1:${CHATTERBOX_HOST_PORT}`, stderr: "", exitCode: 0 };
+      return { stdout: `127.0.0.1:${hostPort}`, stderr: "", exitCode: 0 };
     }
   });
   const lifecycle = makeLifecycle(exec);
   const cfg = config({
     engines: [engine({ id: "chatterbox-multi", idle_stop_seconds: 60 })],
-    upstreams: [upstream()],
-    routes: [route({ engine: "chatterbox-multi", model: undefined })],
+    upstreams: [upstream({ id: upstreamId })],
+    routes: [route({ engine: "chatterbox-multi", model: undefined, upstream: upstreamId })],
   });
   const registry = new EngineRegistry(cfg, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
     lifecycle,
   });
+  const { lines, write } = collectLines();
   const ctx: DoorContext = {
     getConfig: () => cfg,
     registry,
     lifecycle,
     registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
-    doorOpts: { write: collectLines().write },
+    doorOpts: { write },
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
     comfyBindings: new Map(),
   };
-  return { ctx, lifecycle };
+  return { ctx, lifecycle, lines };
 }
+
+test("a speech call records the upstream its route resolved to, not a bare null", async () => {
+  const fake = startFakeChatterboxMulti();
+  const { ctx, lines } = speechDoorContext({ hostPort: Number(fake.base.split(":")[1]) });
+
+  const res = await handleAudioSpeech(ctx, {
+    model: "@/chatterbox-multi/local",
+    input: "hello there",
+  });
+  fake.stop();
+  expect(res.status).toBe(200);
+
+  // Which upstream answered is the whole question an audio provenance line is
+  // asked: one engine id fronts a local container and a metered vendor alike,
+  // so the engine alone cannot say whether the call was billed. The id comes
+  // off the resolved route, so the local answer here and a vendor's travel the
+  // same field -- what this guards is that the field is filled at all.
+  const record = soleProvenanceRecord(lines);
+  expect(record.upstream_used).toBe("local");
+  expect(record.attempts[0]?.upstream_used).toBe("local");
+});
 
 test("a speech body refused before the engine is started does not release another request's lease", async () => {
   const { ctx, lifecycle } = speechDoorContext();

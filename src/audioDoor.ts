@@ -45,6 +45,8 @@ interface AudioCallInfo {
   engineId: string;
   /** The model segment of the resolved address, when the engine's routes carry one. Absent for a modelless engine. */
   model?: string;
+  /** The resolved route's `[[upstream]]` id, or `"local"`. Absent for an ambient route, the same disposition a chat hop's carries. */
+  upstream?: string;
   requested: string;
   result: DoorResponse;
   startedAt: number;
@@ -59,7 +61,7 @@ interface AudioCallInfo {
  * success, and one that died mid-body is not.
  */
 function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
-  const { engineId, model, requested, result, startedAt } = info;
+  const { engineId, model, upstream, requested, result, startedAt } = info;
   const emit = (audioBytes: number, streamFailure?: string): void => {
     const verdict = classifyResult({
       status: result.status,
@@ -81,12 +83,14 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
             ok,
             ...(failure === undefined ? {} : { failure }),
             duration_ms: Date.now() - startedAt,
+            upstream_used: upstream,
           },
         ],
         engine_used: ok ? engineId : null,
-        // Audio provenance does not resolve or track an upstream id today --
-        // this is the chat/agentic path's field.
-        upstream_used: null,
+        // The record's field names the upstream that actually answered, so it
+        // is null wherever `engine_used` is -- the attempt above keeps the
+        // resolved id either way.
+        upstream_used: ok ? (upstream ?? null) : null,
       },
       ctx.doorOpts.write,
     );
@@ -182,6 +186,19 @@ function endAudioLease(
 }
 
 /**
+ * How every audio call ends: the one provenance line is recorded, the lease
+ * ends when the body actually does, and what is left is an HTTP response.
+ * Both verbs share the sequence because the order within it is load-bearing --
+ * `endAudioLease` wraps the stream `recordAudioCall` already wrapped, so the
+ * countdown is armed after the line is written rather than racing it.
+ */
+function finishAudioCall(ctx: DoorContext, leased: AudioLease, info: AudioCallInfo): Response {
+  return doorResponseToResponse(
+    endAudioLease(ctx, info.engineId, leased, recordAudioCall(ctx, info)),
+  );
+}
+
+/**
  * Both audio endpoints take an engine, and a model where the resolved
  * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
  * "scribe_v1" -- never a chain. Resolution and that refusal are one step.
@@ -190,7 +207,9 @@ function resolveAudioEngine(
   ctx: DoorContext,
   rawModel: string | undefined,
   endpoint: string,
-): { ok: true; engineId: string; model?: string } | { ok: false; response: Response } {
+):
+  | { ok: true; engineId: string; model?: string; upstream?: string }
+  | { ok: false; response: Response } {
   const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry);
   if (!resolved.ok) {
     return { ok: false, response: jsonError(STATUS_BAD_REQUEST, resolved.error) };
@@ -201,7 +220,13 @@ function resolveAudioEngine(
       response: jsonError(STATUS_BAD_REQUEST, "audio endpoints do not take a chain"),
     };
   }
-  return { ok: true, engineId: resolved.route.engine, model: resolved.route.model };
+  return {
+    ok: true,
+    engineId: resolved.route.engine,
+    model: resolved.route.model,
+    // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
+    upstream: resolved.route.upstream ?? undefined,
+  };
 }
 
 /** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone, excluding disabled routes exactly as `routeForHop` does for the rest. */
@@ -423,7 +448,7 @@ export async function handleAudioSpeech(
   if (!audio.ok) {
     return audio.response;
   }
-  const { engineId } = audio;
+  const { engineId, upstream } = audio;
   const voice = resolveVoice(typeof body.voice === "string" ? body.voice : undefined);
   if (voice instanceof Response) {
     return voice;
@@ -445,14 +470,13 @@ export async function handleAudioSpeech(
   };
   const startedAt = Date.now();
   const result = await handleSpeech(speechReq, start);
-  return doorResponseToResponse(
-    endAudioLease(
-      ctx,
-      engineId,
-      leased,
-      recordAudioCall(ctx, { engineId, requested: rawModel ?? "", result, startedAt }),
-    ),
-  );
+  return finishAudioCall(ctx, leased, {
+    engineId,
+    upstream,
+    requested: rawModel ?? "",
+    result,
+    startedAt,
+  });
 }
 
 interface TranscriptionForm {
@@ -566,7 +590,7 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
   if (!audio.ok) {
     return audio.response;
   }
-  const { engineId, model } = audio;
+  const { engineId, model, upstream } = audio;
   const leased: AudioLease = { held: false };
   const start = audioStart(ctx, leased);
   const common = {
@@ -582,12 +606,12 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
       : { ...common, file: form.file, stream: form.stream };
   const startedAt = Date.now();
   const result = await handleTranscription(transcriptionReq, start);
-  return doorResponseToResponse(
-    endAudioLease(
-      ctx,
-      engineId,
-      leased,
-      recordAudioCall(ctx, { engineId, model, requested: form.rawModel ?? "", result, startedAt }),
-    ),
-  );
+  return finishAudioCall(ctx, leased, {
+    engineId,
+    model,
+    upstream,
+    requested: form.rawModel ?? "",
+    result,
+    startedAt,
+  });
 }
