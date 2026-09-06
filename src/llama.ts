@@ -83,9 +83,14 @@ export function reportedModelFrom(body: unknown): string | undefined {
  * The slot count llama.cpp's `parallel = -1` auto resolves to: measured at
  * n_slots=4 on build b10637 (`engines/llama/spec.toml`), sharing one unified
  * KV pool rather than four windows. The door needs a number to admit against
- * when a role leaves the key at auto; this is the child's real one.
+ * when a role leaves the key at auto; this is the child's real one. Proven
+ * against the live child by `test/local/llama.test.ts`, which reads this
+ * same number back from llama-server's own `GET /props?model=<id>` for a
+ * route left at auto rather than trusting the measurement above to still
+ * hold. Exported so that test can compare against it rather than a second
+ * copy of the constant.
  */
-const AUTO_PARALLEL = 4;
+export const AUTO_PARALLEL = 4;
 
 /**
  * Precedence in one place: a route key beats the engine key naming it. The

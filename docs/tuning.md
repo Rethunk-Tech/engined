@@ -66,6 +66,9 @@ by turning off kv_unified, which is not worth that footgun.
 The door's admission cap follows that auto: a role whose merged `parallel` is
 `-1`, `0`, or unset is admitted four at a time rather than uncapped, so the
 queue forms at the door where it is visible instead of inside llama-server's
-scheduler. Whether four is still the child's real slot count on a bumped
-`LLAMA_COMMIT` is unproven — `engines/llama/spec.toml` carries that criterion
-and what a bump owes it.
+scheduler. That four is proven against the child's own `/props?model=<id>`
+`total_slots`, asserted by `test/local/llama.test.ts` against the embed
+route (whose merged `parallel` is left at the engine's `-1` auto rather than
+overridden). A LLAMA_COMMIT bump re-measures the geometry table above AND
+re-runs that assertion — a moved auto would otherwise desynchronise the two
+silently, admitting more or fewer than the child agreed to.

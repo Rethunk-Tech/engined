@@ -137,19 +137,16 @@ security_opt = ["label=disable"]
 # queue into llama-server's scheduler where the door cannot see it. The
 # door caps; the child keeps its one unified pool.
 #
-# That cap rests on an unproven equality, recorded here because nothing in
-# tree proves it: the door's AUTO_PARALLEL (src/llama.ts) is the constant 4
-# from the table above, and no test reads the child's real slot count back.
-# The CI admission test and the door read the same constant, so it proves
-# the door's arithmetic and nothing about the child's geometry, and the
-# local tier never asks llama-server for its own total_slots. What IS proven
-# is the measurement -- n_slots=4, tied to the LLAMA_COMMIT the Dockerfile
-# pins -- and that pin is a value meant to be bumped. A bump that moved the
-# auto would desynchronise the two silently, admitting more or fewer than
-# the child agreed to with nothing said. So a LLAMA_COMMIT bump re-measures
-# the geometry table above AND asserts llama-server's own total_slots
-# against AUTO_PARALLEL in the local tier; that assertion is what turns this
-# comment into a guard.
+# That cap now rests on a proven equality: test/local/llama.test.ts reads
+# llama-server's own `GET /props?model=<id>` total_slots for the embed
+# route -- whose merged parallel inherits the engine's `-1` auto rather than
+# overriding it the way ornith's route.args does -- and asserts it equals
+# the door's AUTO_PARALLEL (src/llama.ts). n_slots=4 is tied to the
+# LLAMA_COMMIT the Dockerfile pins, and that pin is a value meant to be
+# bumped. A bump that moved the auto would desynchronise the two silently,
+# admitting more or fewer than the child agreed to with nothing said, so a
+# LLAMA_COMMIT bump re-measures the geometry table above AND re-runs that
+# assertion.
 #
 # One combination neither the table above nor docs/tuning.md measured:
 # `parallel = 0` set explicitly. The door reads `<= 0` as auto and admits

@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
-import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
+import { AUTO_PARALLEL, LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
 import {
   BUNX,
@@ -269,6 +269,26 @@ describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), 
       const vector = embedResult.value.body.data?.[0]?.embedding;
       expect(vector).toBeDefined();
       expect(vector?.length).toBe(EMBEDDING_DIMENSIONS);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "llama-server's own /props total_slots matches the door's AUTO_PARALLEL for a route left at auto",
+    async () => {
+      if (!EMBED) {
+        throw new Error("fixture is missing embedding -- READY should have been false");
+      }
+      // EMBED, not CHAT: ornith's route.args overrides parallel to 2, so it
+      // proves nothing about the auto path. Embed's route.args carries no
+      // parallel key, so it inherits the engine's `-1` -- the case this cap
+      // exists for.
+      const { response } = await router.proxy(EMBED, `/props?model=${EMBED.model}`, {
+        method: "GET",
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { total_slots?: number };
+      expect(body.total_slots).toBe(AUTO_PARALLEL);
     },
     TEST_TIMEOUT_MS,
   );
