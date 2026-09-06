@@ -203,14 +203,13 @@ decoder's zero-pad-and-trim is: `pred_aln_trg` is built by forcing every
 padded position's predicted duration to exactly 0 (never the original's
 `clamp(min=1)`), so a padded token can never draw a real frame.
 
-`predictor.lstm` and `F0Ntrain` are NOT bucketed and stay exactly as
-variable as before, on purpose: both run a bidirectional LSTM directly on
+`predictor.lstm` and `F0Ntrain` are NOT bucketed, on purpose: both run a bidirectional LSTM directly on
 the un-packed sequence (`predictor.lstm`, and `F0Ntrain`'s own `self.shared`),
 so its backward pass would start at the padded tail and run across it before
 reaching real content, changing real positions' predicted durations by how
 much padding follows them — a correctness break, not a speed tradeoff.
-`predictor.lstm` is packed to the true length here to avoid that (matching
-its pre-patch behavior exactly, with none of the bucketing benefit).
+`predictor.lstm` is packed to the true length here to avoid that, so it
+gains nothing from the bucket.
 `F0Ntrain` is untouched entirely: bucketing it safely means reimplementing
 it with the same packing fix, a separate change with its own correctness
 pass, same as this one needed.
