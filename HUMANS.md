@@ -76,6 +76,19 @@ the old engine list. A running container keeps its old shape until next start
 (idle-stop or `POST /engined/v1/start`) — llama-server reads presets INI
 once at startup. See [docs/configuration.md](docs/configuration.md).
 
+`install.sh` also enables `engined-vision-probe.timer`, which runs weekly and
+re-checks the one thing a vision response cannot tell you itself — see
+[docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan). Run it now:
+
+```sh
+systemctl --user start engined-vision-probe.service
+journalctl --user -u engined-vision-probe -n 20
+```
+
+It sends a two-colour image through every vision address the model menu
+lists and fails if the reply does not name both halves in order. A box with
+no vision route configured gets one line saying so and a clean exit.
+
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
 ```sh
@@ -95,12 +108,15 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | config change had no effect on a running engine | takes effect at the engine's next start |
 | an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
 | `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
+| `engined-vision-probe` failed with "reports no `role`" | the running daemon predates the probe — re-run `scripts/install.sh` |
+| `engined-vision-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |
 
 ## Uninstall
 
 ```sh
-systemctl --user disable --now engined
-rm ~/.config/systemd/user/engined.service && systemctl --user daemon-reload
+systemctl --user disable --now engined engined-vision-probe.timer
+rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-vision-probe.*
+systemctl --user daemon-reload
 rm -rf ~/.local/share/engined
 ```
 

@@ -93,6 +93,7 @@ import {
   upstreamPath,
   upstreamUrl,
 } from "./upstream.ts";
+import { runVisionProbe } from "./visionProbe.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
@@ -1860,7 +1861,39 @@ export function resolveBunx(
   );
 }
 
+/**
+ * `main.js --vision-probe`: a one-shot run of the vision-fidelity probe
+ * against the door this install is already serving, which is why it never
+ * builds a `Door` of its own -- it is an ordinary caller on loopback, and the
+ * container it needs starts on demand the same way any other request starts
+ * one. The port comes from the config the daemon itself read, so the probe
+ * writes down no port the invariant does not already allow.
+ *
+ * Shipped as a mode of the daemon bundle rather than a second script because
+ * `install.sh` already syncs that bundle: a separate artifact would be one
+ * more thing to keep in step with the install, for a check that is one
+ * request long.
+ */
+async function visionProbeExit(): Promise<number> {
+  let port: number;
+  try {
+    port = loadConfig().listen_port;
+  } catch (err) {
+    process.stderr.write(`${errMessage(err)}\n`);
+    return FatalError.EXIT_CODE;
+  }
+  const report = await runVisionProbe(`http://127.0.0.1:${port}`);
+  for (const line of report.lines) {
+    process.stdout.write(`${line.ok ? "ok" : "FAIL"} ${line.address}: ${line.detail}\n`);
+  }
+  return report.ok ? 0 : 1;
+}
 if (import.meta.main) {
+  // Before anything that binds or starts: this mode talks to the door that is
+  // already running, so creating one here would take the port from it.
+  if (process.argv.includes("--vision-probe")) {
+    process.exit(await visionProbeExit());
+  }
   let startupConfig: Config;
   let door: Door;
   // `createDoor` loads every engine spec eagerly, so a `ParseError` from an

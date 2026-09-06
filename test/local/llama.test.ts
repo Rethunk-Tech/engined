@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { crc32, deflateSync } from "node:zlib";
+
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { AUTO_PARALLEL, LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
 import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
+import { visionRequestBody, visionVerdict } from "../../src/visionProbe.ts";
 import {
   BUNX,
   ENGINES_ROOT,
@@ -94,14 +95,23 @@ const EMBED = findRoleRoute(FIXTURE.routes, "embedding");
 // today's config breaks the moment an operator adds another sibling on an
 // already-proven role. What this suite actually needs is one usable route
 // per role it exercises.
-const HAVE_MODELS =
-  FIXTURE.error === undefined && CHAT !== undefined && VISION !== undefined && EMBED !== undefined;
+const HAVE_MODELS = FIXTURE.error === undefined && CHAT !== undefined && EMBED !== undefined;
 const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 
 // Module scope, guarded by READY: it must fire only when these tests would
 // really drive containers, and it must be loud rather than another clean skip.
 if (READY) {
   requireMemoryFor("llama");
+  // Vision is deliberately not part of HAVE_MODELS, which would demote a lost
+  // vision route to a clean skip alongside a missing image. The fidelity check
+  // below is the only acceptance criterion this repo records as unproven
+  // (docs/engines.md), so a run that never reaches it must say so rather than
+  // report a green tier that proved nothing about it.
+  if (VISION === undefined) {
+    throw new Error(
+      "config.example.toml has no vision-role route on llama's local routes, so the one unproven acceptance criterion in this repo cannot be checked here. Restore the route rather than running this tier without it.",
+    );
+  }
 }
 
 function skipReason(): string {
@@ -114,7 +124,7 @@ function skipReason(): string {
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`;
   }
-  return "config.example.toml has no usable chat, vision or embedding route on the llama engine's local routes";
+  return "config.example.toml has no usable chat or embedding route on the llama engine's local routes";
 }
 
 function buildRouter(
@@ -197,76 +207,6 @@ function chatCompletionBody(modelId: string): string {
   });
 }
 
-/** One PNG chunk: 4-byte length, 4-byte ASCII type, data, 4-byte CRC32 over type+data. */
-function pngChunk(type: string, data: Uint8Array): Uint8Array {
-  const typeBytes = Buffer.from(type, "ascii");
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(Number(crc32(Buffer.concat([typeBytes, data]))), 0);
-  return Buffer.concat([length, typeBytes, data, crc]);
-}
-
-/**
- * A minimal PNG encoder rather than a fixture file: no image library is
- * installed in node_modules (checked). `deflateSync` (node:zlib) already
- * produces the zlib-wrapped stream IDAT requires; `Bun.deflateSync` does not
- * -- it emits raw deflate with no header/adler32, confirmed by a failed
- * `inflateSync` round trip, which is why this uses the node import.
- *
- * Two vertical halves, not one flat colour. The defect this image exists to
- * catch returns a confident, plausible, WRONG description, and against a
- * single colour a wrong answer still lands on the expected word often enough
- * to pass: there are only a handful of words a model reaches for, so the
- * check is barely better than a coin flip. Naming two colours AND their order
- * is something a description that did not read the image cannot get right by
- * reaching for a likely word.
- */
-function splitColorPng(
-  size: number,
-  left: readonly [number, number, number],
-  right: readonly [number, number, number],
-): Uint8Array {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
-  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit depth, RGB colour type, defaults for the rest
-  const row = Buffer.alloc(1 + size * 3); // leading filter-type-0 byte per scanline
-  for (let x = 0; x < size; x++) {
-    row.set(x < size / 2 ? left : right, 1 + x * 3);
-  }
-  const raw = Buffer.concat(new Array(size).fill(row));
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  return Buffer.concat([
-    signature,
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", deflateSync(raw)),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-/** Red on the left, blue on the right -- two hues no description confuses for one another, at full saturation so neither reads as a shade of the other. */
-const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(64, [220, 20, 20], [20, 20, 220])).toString("base64")}`;
-
-function visionRequestBody(modelId: string): string {
-  return JSON.stringify({
-    model: modelId,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.",
-          },
-          { type: "image_url", image_url: { url: SPLIT_PNG_DATA_URI } },
-        ],
-      },
-    ],
-    max_tokens: 16,
-  });
-}
-
 async function proxyStatus(
   router: LlamaRouter,
   route: ResolvedRoute,
@@ -296,12 +236,6 @@ async function proxyEmbedding(
     body: JSON.stringify({ model: route.model, input: "hello world" }),
   });
   return { status: res.status, body: (await res.json()) as EmbeddingResponse["body"] };
-}
-
-/** The door's OpenAI chat verb response to a vision request, narrowed to the one field a fidelity check reads. */
-async function visionReplyContent(response: Response): Promise<string> {
-  const body = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-  return body.choices?.[0]?.message?.content ?? "";
 }
 
 describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), () => {
@@ -362,16 +296,16 @@ describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), 
         body: visionRequestBody(VISION.model),
       });
       expect(response.status).toBe(200);
-      const reply = (await visionReplyContent(response)).toLowerCase();
+      const body = (await response.json()) as {
+        choices?: { message?: { content?: string } }[];
+      };
 
-      // Both halves, and the order between them. Naming one colour proves the
-      // mmproj path carried SOMETHING; naming both in the image's own order is
-      // the part a plausible-but-wrong description cannot reach by guessing.
-      const red = reply.indexOf("red");
-      const blue = reply.indexOf("blue");
-      expect(red).toBeGreaterThanOrEqual(0);
-      expect(blue).toBeGreaterThanOrEqual(0);
-      expect(red).toBeLessThan(blue);
+      // The same verdict the installed timer's probe reaches, from the same
+      // module: this tier drives the router directly and the probe goes
+      // through the door, and a second spelling of "named both, in order"
+      // would let the two disagree about what passing means.
+      const verdict = visionVerdict(body.choices?.[0]?.message?.content ?? "");
+      expect(verdict.ok, verdict.detail).toBe(true);
     },
     TEST_TIMEOUT_MS,
   );

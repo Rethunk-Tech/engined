@@ -1,0 +1,18 @@
+[Unit]
+Description=engined — weekly vision fidelity probe
+
+[Timer]
+# Weekly, not daily: a probe run is a real vision request, so it loads the
+# GGUF and its mmproj the way any caller would and holds them until idle-stop.
+# What it guards against is a defect that arrives with a new image, GGUF or
+# mmproj build, and those do not change daily.
+OnCalendar=weekly
+# The box is not always up at the scheduled hour, and a missed week is a week
+# nothing was proved.
+Persistent=true
+# Nothing else is waiting on this, and a probe that starts the moment the
+# desktop finishes booting competes with everything else that does.
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

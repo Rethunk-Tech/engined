@@ -47,6 +47,8 @@ resolve_paths() {
 
   UNIT_DIR="$CONFIG_HOME/systemd/user"
   UNIT_PATH="$UNIT_DIR/engined.service"
+  PROBE_SERVICE_PATH="$UNIT_DIR/engined-vision-probe.service"
+  PROBE_TIMER_PATH="$UNIT_DIR/engined-vision-probe.timer"
 
   UNIT_INSTALL_DIR="$(to_unit_path "$INSTALL_DIR")"
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
@@ -67,11 +69,15 @@ assert_unit_names_no_user() {
     exit 1
   fi
 
-  exec_line="$(grep '^ExecStart=' "$out")"
-  daemon_path="${exec_line#*ExecStart=* }"
-  if [[ "$daemon_path" == "$HOME"* || "$daemon_path" == *"$user"* ]]; then
-    echo "install.sh: ExecStart's daemon path names \$HOME or the user, refusing" >&2
-    exit 1
+  # A timer unit has no ExecStart at all, and grep exiting 1 under `set -e`
+  # would take the install down before the whole-file check below ever ran.
+  exec_line="$(grep '^ExecStart=' "$out" || true)"
+  if [[ -n "$exec_line" ]]; then
+    daemon_path="${exec_line#*ExecStart=* }"
+    if [[ "$daemon_path" == "$HOME"* || "$daemon_path" == *"$user"* ]]; then
+      echo "install.sh: ExecStart's daemon path names \$HOME or the user, refusing" >&2
+      exit 1
+    fi
   fi
 
   if grep -qE -- "$HOME|$user" "$out"; then
@@ -80,8 +86,10 @@ assert_unit_names_no_user() {
   fi
 }
 
+# Every generated unit goes through here, so the %h rewrite and the no-user
+# assertion below cover the probe timer exactly as they cover the daemon.
 render_unit_file() {
-  local out="$1"
+  local template="$1" out="$2"
   : "${BUN_PATH:?BUN_PATH must be resolved before rendering}"
   : "${BUNX_PATH:?BUNX_PATH must be resolved before rendering}"
 
@@ -90,7 +98,7 @@ render_unit_file() {
     -e "s|@BUNX_PATH@|$(to_unit_path "$BUNX_PATH")|g" \
     -e "s|@INSTALL_DIR@|$UNIT_INSTALL_DIR|g" \
     -e "s|@STATE_DIR@|$UNIT_STATE_DIR|g" \
-    "$REPO_ROOT/scripts/engined.service.in" >"$out"
+    "$REPO_ROOT/scripts/$template" >"$out"
 
   assert_unit_names_no_user "$out"
 }
@@ -147,13 +155,21 @@ main() {
   rsync -a --delete "$REPO_ROOT/engines/" "$INSTALL_DIR/engines/"
 
   mkdir -p "$UNIT_DIR"
-  render_unit_file "$UNIT_PATH"
+  render_unit_file engined.service.in "$UNIT_PATH"
+  # The vision probe is the only thing that re-proves the one acceptance
+  # criterion docs/engines.md records as unproven, and a wrong description is
+  # invisible in the response, so it ships enabled rather than as something to
+  # remember. A box with no vision route configured gets a probe that says so
+  # and exits 0 -- no red unit for a capability nobody asked for.
+  render_unit_file engined-vision-probe.service.in "$PROBE_SERVICE_PATH"
+  render_unit_file engined-vision-probe.timer.in "$PROBE_TIMER_PATH"
 
   systemctl --user daemon-reload
   # enable, not just restart: without it the unit is only ever running because
   # someone ran this script, and a logout takes it down for good.
   systemctl --user enable engined.service
   systemctl --user restart engined.service
+  systemctl --user enable --now engined-vision-probe.timer
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

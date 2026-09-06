@@ -361,10 +361,18 @@ image, the GGUF or the mmproj build changes. Treat vision as unproven until
 you have done that for your own consumer; the other roles carry no equivalent
 caveat.
 
-`test/local/llama.test.ts` runs exactly this check against the door's vision
-route: a two-colour PNG built in-test (no fixture file to go stale, a fresh
-image every run) sent through the door's OpenAI chat verb as an `image_url`
-data URI, asserting the reply names both halves **and their order**.
+`src/visionProbe.ts` is that check, and two things run it. `test/local/llama.test.ts`
+drives it against the router directly, and the install ships it as a weekly
+`systemd --user` timer (`engined-vision-probe.timer`) that runs
+`main.js --vision-probe` against the live door -- every vision address the
+model menu lists, found by its `role`. Either way it is a two-colour PNG built
+in code (no fixture file to go stale, a fresh image every run) sent through
+the OpenAI chat verb as an `image_url` data URI, asserting the reply names
+both halves **and their order**.
+
+The timer is why this criterion no longer depends on someone remembering it.
+A failure is a failed unit with the reply in journald; a box with no vision
+route configured gets a line saying so and a clean exit, not a standing red.
 
 The order is the point. A single flat colour is a weak probe for this defect
 specifically: a description that never read the image still has only a handful

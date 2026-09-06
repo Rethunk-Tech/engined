@@ -1,0 +1,23 @@
+[Unit]
+Description=engined — vision fidelity probe
+# The probe is an ordinary caller on loopback, so there is nothing to talk to
+# until the door is up. Not Requires=: a box where the door is deliberately
+# stopped should skip a probe run, not drag the daemon back up to answer it.
+After=engined.service
+ConditionPathExists=@INSTALL_DIR@/main.js
+
+[Service]
+Type=oneshot
+ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js --vision-probe
+
+# The probe reads the same config the daemon does, and dispatches through the
+# door rather than launching anything itself, so it needs neither the door's
+# state directory nor its docker access.
+Environment=ENGINED_BUNX=@BUNX_PATH@
+Environment=BUN_INSTALL=@STATE_DIR@/bun-install
+Environment=BUN_TMPDIR=@STATE_DIR@/tmp
+ProtectSystem=strict
+ReadWritePaths=@STATE_DIR@
+ProtectHome=read-only
+NoNewPrivileges=yes
+PrivateTmp=yes
