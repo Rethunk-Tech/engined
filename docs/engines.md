@@ -362,12 +362,19 @@ you have done that for your own consumer; the other roles carry no equivalent
 caveat.
 
 `test/local/llama.test.ts` runs exactly this check against the door's vision
-route: a solid-colour PNG built in-test (no fixture file to go stale, a fresh
+route: a two-colour PNG built in-test (no fixture file to go stale, a fresh
 image every run) sent through the door's OpenAI chat verb as an `image_url`
-data URI, asserting the reply names the known colour. That proves fidelity
-for this GGUF, this mmproj build and this one synthetic image -- re-check
-with your own consumer's real images before trusting the vision role for
-them.
+data URI, asserting the reply names both halves **and their order**.
+
+The order is the point. A single flat colour is a weak probe for this defect
+specifically: a description that never read the image still has only a handful
+of colour words to reach for, so a confident wrong answer lands on the
+expected one often enough that passing means little. Two halves in a stated
+left-to-right order is not something guessing reaches.
+
+That still proves fidelity only for this GGUF, this mmproj build and this one
+synthetic image -- re-check with your own consumer's real images before
+trusting the vision role for them.
 
 ## Occupancy
 

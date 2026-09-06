@@ -209,21 +209,31 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
 
 /**
  * A minimal PNG encoder rather than a fixture file: no image library is
- * installed in node_modules (checked), and a solid-colour square is the
- * smallest deterministic image whose expected description is knowable ahead
- * of the request -- what a fidelity check needs. `deflateSync` (node:zlib)
- * already produces the zlib-wrapped stream IDAT requires; `Bun.deflateSync`
- * does not -- it emits raw deflate with no header/adler32, confirmed by a
- * failed `inflateSync` round trip, which is why this uses the node import.
+ * installed in node_modules (checked). `deflateSync` (node:zlib) already
+ * produces the zlib-wrapped stream IDAT requires; `Bun.deflateSync` does not
+ * -- it emits raw deflate with no header/adler32, confirmed by a failed
+ * `inflateSync` round trip, which is why this uses the node import.
+ *
+ * Two vertical halves, not one flat colour. The defect this image exists to
+ * catch returns a confident, plausible, WRONG description, and against a
+ * single colour a wrong answer still lands on the expected word often enough
+ * to pass: there are only a handful of words a model reaches for, so the
+ * check is barely better than a coin flip. Naming two colours AND their order
+ * is something a description that did not read the image cannot get right by
+ * reaching for a likely word.
  */
-function solidColorPng(size: number, rgb: readonly [number, number, number]): Uint8Array {
+function splitColorPng(
+  size: number,
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): Uint8Array {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
   ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit depth, RGB colour type, defaults for the rest
   const row = Buffer.alloc(1 + size * 3); // leading filter-type-0 byte per scanline
   for (let x = 0; x < size; x++) {
-    row.set(rgb, 1 + x * 3);
+    row.set(x < size / 2 ? left : right, 1 + x * 3);
   }
   const raw = Buffer.concat(new Array(size).fill(row));
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -235,7 +245,8 @@ function solidColorPng(size: number, rgb: readonly [number, number, number]): Ui
   ]);
 }
 
-const RED_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(solidColorPng(64, [220, 20, 20])).toString("base64")}`;
+/** Red on the left, blue on the right -- two hues no description confuses for one another, at full saturation so neither reads as a shade of the other. */
+const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(64, [220, 20, 20], [20, 20, 220])).toString("base64")}`;
 
 function visionRequestBody(modelId: string): string {
   return JSON.stringify({
@@ -244,8 +255,11 @@ function visionRequestBody(modelId: string): string {
       {
         role: "user",
         content: [
-          { type: "text", text: "What single color fills this image? Answer with one word." },
-          { type: "image_url", image_url: { url: RED_PNG_DATA_URI } },
+          {
+            type: "text",
+            text: "This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.",
+          },
+          { type: "image_url", image_url: { url: SPLIT_PNG_DATA_URI } },
         ],
       },
     ],
@@ -337,7 +351,7 @@ describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), 
   );
 
   test(
-    "vision fidelity: a synthetic solid-red PNG built in-test is named correctly through the door's OpenAI chat verb",
+    "vision fidelity: a synthetic two-colour PNG built in-test is named in the right order through the door's OpenAI chat verb",
     async () => {
       if (!VISION) {
         throw new Error("fixture is missing vision -- READY should have been false");
@@ -348,7 +362,16 @@ describe.skipIf(!READY)(skipTitle("llama router (local)", READY, skipReason()), 
         body: visionRequestBody(VISION.model),
       });
       expect(response.status).toBe(200);
-      expect((await visionReplyContent(response)).toLowerCase()).toContain("red");
+      const reply = (await visionReplyContent(response)).toLowerCase();
+
+      // Both halves, and the order between them. Naming one colour proves the
+      // mmproj path carried SOMETHING; naming both in the image's own order is
+      // the part a plausible-but-wrong description cannot reach by guessing.
+      const red = reply.indexOf("red");
+      const blue = reply.indexOf("blue");
+      expect(red).toBeGreaterThanOrEqual(0);
+      expect(blue).toBeGreaterThanOrEqual(0);
+      expect(red).toBeLessThan(blue);
     },
     TEST_TIMEOUT_MS,
   );
