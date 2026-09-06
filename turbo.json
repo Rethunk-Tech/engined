@@ -6,11 +6,19 @@
       "outputs": ["*.tsbuildinfo"]
     },
     "lint": {
-      "inputs": ["src/**/*.ts", "test/**/*.ts", "biome.jsonc", "package.json"],
+      // biome.jsonc's `files.includes` is the scope `biome check .` walks, so
+      // these globs mirror it exactly -- tsconfig.json and turbo.json are
+      // linted too, and a key set only to src/**/*.ts replayed a green over an
+      // edit to either.
+      "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
       "outputs": []
     },
     "test": {
-      "inputs": ["src/**/*.ts", "scripts/install.sh", "package.json"],
+      // The suite reads three trees off disk that no source import reveals:
+      // shipped specs under engines/, config.example.toml, and the install
+      // script and unit templates under scripts/. Left out of the key, an edit
+      // to any of them replays a green from assertions that never re-ran.
+      "inputs": ["src/**/*.ts", "engines/**", "config.example.toml", "scripts/**", "package.json"],
       "outputs": []
     },
     "build": {
