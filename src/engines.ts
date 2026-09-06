@@ -583,6 +583,7 @@ function engineCapabilities(
       (r): EngineCapability => ({
         model: r.model,
         serves: routeServes(r.role, engineServes),
+        role: r.role,
         input: r.input,
         output: r.output,
         context_in: r.context_in,

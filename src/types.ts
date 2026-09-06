@@ -182,6 +182,8 @@ export interface EngineCapability extends ModelCapabilities {
   model?: string;
   /** The door paths this one route answers -- see `routeServes`. */
   serves: string[];
+  /** This route's inference role -- the same field, for the same reason, as `ModelRow.role`. */
+  role?: Role;
 }
 
 /**
@@ -615,6 +617,14 @@ export interface ModelRow {
    */
   tools: boolean;
   serves: string[];
+  /**
+   * The route's inference role, and the only field that says an address does
+   * vision: `serves` separates an embedding route from everything else and
+   * nothing more, because chat and vision answer the same door path. Absent
+   * on a route declaring no role, and on a chain row, which names no single
+   * route to take one from.
+   */
+  role?: Role;
   /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable

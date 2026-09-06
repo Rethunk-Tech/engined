@@ -171,6 +171,15 @@ function modelsListConfig(): Config {
         role: "chat",
         streaming: false,
       }),
+      // Same engine, same `serves` as the chat route above -- chat and vision
+      // answer one door path. This row is why `role` exists on the menu at all.
+      route({
+        engine: "local",
+        model: "see",
+        upstream: "local",
+        filename: "see.gguf",
+        role: "vision",
+      }),
       route({ engine: "claude", model: "sonnet-5", upstream: null }),
       route({ engine: "chatterbox-multi", model: undefined, upstream: "local" }),
       route({ engine: "comfy", model: undefined, upstream: "local" }),
@@ -243,7 +252,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     // `?? []` below is only a real fallback if the type admits its absence.
     const body = (await res.json()) as {
       object: string;
-      data?: Array<{ id: string; streaming: boolean; serves: string[] }>;
+      data?: Array<{ id: string; streaming: boolean; serves: string[]; role?: string }>;
     };
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
@@ -259,6 +268,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
         "@/local/ornith",
         "@/local/embed",
         "@/local/quiet",
+        "@/local/see",
         "@/claude/sonnet-5",
         "@/chatterbox-multi/local",
         "@/comfy/local",
@@ -277,6 +287,18 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(rows.find((r) => r.id === "@/local/ornith")?.serves).toEqual([
       "/openai/v1/chat/completions",
     ]);
+    // `role` is the only field that tells a vision address from a chat one.
+    // Both rows serve the same door path, so a consumer wiring up vision has
+    // nothing else in the menu to pick on.
+    const chatRow = rows.find((r) => r.id === "@/local/ornith");
+    const visionRow = rows.find((r) => r.id === "@/local/see");
+    expect(visionRow?.serves).toEqual(chatRow?.serves);
+    expect(chatRow?.role).toBe("chat");
+    expect(visionRow?.role).toBe("vision");
+    // A route declaring no role, and a chain, which names no single route to
+    // take one from, both report none rather than guessing at one.
+    expect(rows.find((r) => r.id === "@/claude/sonnet-5")?.role).toBeUndefined();
+    expect(rows.find((r) => r.id === "chain-x")?.role).toBeUndefined();
     const chatToEmbed = await chatToEmbeddingRoute(door);
     expect(chatToEmbed.status).toBe(400);
     expect(await chatToEmbed.text()).toContain("does not serve");

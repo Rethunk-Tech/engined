@@ -141,7 +141,7 @@ either side.
 
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
-is `{id, engine, upstream, model, egress, streaming, tools, serves, state,
+is `{id, engine, upstream, model, egress, streaming, tools, serves, role, state,
 capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
 that has any.
 
@@ -161,6 +161,13 @@ and a route with no role whatever its engine serves -- so `@/llama/embed` is
 never offered as a chat model, and a chat request to it is a 400. The same
 per-route `serves` rides on each entry of an engine's `capabilities[]` in
 `GET /engined/v1/engines`.
+
+`role` is the route's inference role, and the only field that tells a vision
+address from a chat one: both serve `/openai/v1/chat/completions`, so `serves`
+separates an embedding route from everything else and nothing more. It is
+absent on a route that declares none, and on a chain row for the same reason
+`engine` is. It rides on each `capabilities[]` entry in
+`GET /engined/v1/engines` too.
 
 A chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming` and

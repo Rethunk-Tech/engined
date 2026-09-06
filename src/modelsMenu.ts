@@ -107,6 +107,7 @@ async function modelRow(
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),
     serves: routeServes(route.role, status?.serves ?? []),
+    role: route.role,
     state,
     capabilities: routeCapabilities(route),
   };
