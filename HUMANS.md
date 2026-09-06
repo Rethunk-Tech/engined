@@ -76,6 +76,16 @@ the old engine list. A running container keeps its old shape until next start
 (idle-stop or `POST /engined/v1/start`) — llama-server reads presets INI
 once at startup. See [docs/configuration.md](docs/configuration.md).
 
+That is no longer silent: an engine still running under a replaced config
+generation reports a `superseded` field carrying the literal call that brings
+it forward, and the door never acts on it by itself — restarting an engine
+would reload whatever it had resident, up to ~30 GiB for llama, over an edit
+that may not have named it.
+
+```sh
+curl -s localhost:29200/engined/v1/engines | jq '.engines[] | select(.superseded) | {id, superseded}'
+```
+
 `install.sh` also enables `engined-vision-probe.timer`, which runs weekly and
 re-checks the one thing a vision response cannot tell you itself — see
 [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan). Run it now:
@@ -105,7 +115,7 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | engine stuck `unavailable` | read its `fix` field and run that command |
 | a 400 saying `unknown model` | bare model or engine id — every address needs `@/`, e.g. `@/<engine>/<model>` |
 | a 400 listing qualified upstream forms | `@/<engine>/<model>` names a model two upstreams share on that engine — use `@/<engine>/<upstream>/<model>` |
-| config change had no effect on a running engine | takes effect at the engine's next start |
+| config change had no effect on a running engine | takes effect at the engine's next start — the engine's `superseded` field names the call that brings it forward now |
 | an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
 | `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
 | `engined-vision-probe` failed with "reports no `role`" | the running daemon predates the probe — re-run `scripts/install.sh` |

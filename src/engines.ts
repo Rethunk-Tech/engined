@@ -612,14 +612,34 @@ function statusFrom(
   spec: Spec,
   runtime: RuntimeStatus,
   routes: readonly ResolvedRoute[],
+  superseded?: string,
 ): EngineStatus {
   return {
     ...baseStatus(engine, spec, routes),
     state: runtime.state,
     fix: runtime.fix,
+    superseded,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
   };
+}
+
+/**
+ * Everything a container start bakes in, as one comparable string: the
+ * resolved spec that becomes the `docker run`, the two lifecycle timings, and
+ * this engine's own routes, whose args render the presets INI that
+ * llama-server reads exactly once at startup.
+ *
+ * Compared, never parsed. Both sides are built here, so key order is the same
+ * on both and a plain `JSON.stringify` is a faithful comparison.
+ */
+function engineShape(engine: EngineEntry, spec: Spec, routes: readonly ResolvedRoute[]): string {
+  return JSON.stringify({
+    spec,
+    idle: engine.idle_stop_seconds,
+    ready: engine.ready_timeout_s,
+    routes: routes.filter((r) => r.engine === engine.id),
+  });
 }
 
 export class EngineRegistry {
@@ -635,6 +655,13 @@ export class EngineRegistry {
     configuredVersion: string,
   ) => Promise<ObservedVersion>;
   private readonly presetHostPath: string;
+  /**
+   * The shape each running container was started under, set when this registry
+   * starts one. A later start overwrites it and only a running engine is ever
+   * asked, so a leftover entry for something stopped cannot report a
+   * supersession that is not there.
+   */
+  private readonly launchedShape = new Map<string, string>();
   private config: Config;
   private entries: Entry[];
   private byId: Map<string, Entry>;
@@ -817,7 +844,30 @@ export class EngineRegistry {
       return { ...baseStatus(engine, spec, this.config.routes), state: "installed" };
     }
 
-    return statusFrom(engine, spec, this.lifecycle.getStatus(engine.id), this.config.routes);
+    const runtime = this.lifecycle.getStatus(engine.id);
+    return statusFrom(engine, spec, runtime, this.config.routes, this.supersededBy(entry, runtime));
+  }
+
+  /**
+   * The literal call that brings a running container up to the config now in
+   * force, or `undefined` when it is already on it.
+   *
+   * Only ever asked of something running: a stopped engine reads its current
+   * config at its next start by construction, and reporting supersession for
+   * one would be reporting a problem that does not exist.
+   */
+  private supersededBy(entry: Entry, runtime: RuntimeStatus): string | undefined {
+    if (runtime.state !== "running") {
+      return undefined;
+    }
+    const launched = this.launchedShape.get(entry.engine.id);
+    if (
+      launched === undefined ||
+      launched === engineShape(entry.engine, entry.spec.spec, this.config.routes)
+    ) {
+      return undefined;
+    }
+    return `curl -s -X POST localhost:${this.config.listen_port}/engined/v1/engines/${entry.engine.id}/stop`;
   }
 
   /**
@@ -1166,6 +1216,7 @@ export class EngineRegistry {
         specSource: entry.spec.source,
       });
       this.residentModel.set(id, model);
+      this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes));
       if (opts?.lease === true) {
         this.lifecycle.beginLease(id);
       }
@@ -1296,6 +1347,7 @@ export class EngineRegistry {
    * reach it either and this line is the only trace it outlived the reload.
    */
   private teardown(id: string): void {
+    this.launchedShape.delete(id);
     this.lifecycle.removeEngine(id).catch((err: unknown) => {
       process.stderr.write(`${id}: teardown after reload failed: ${errMessage(err)}\n`);
     });

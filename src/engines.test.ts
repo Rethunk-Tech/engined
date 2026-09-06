@@ -1709,3 +1709,76 @@ test("a model switch one microtask after a leased start resolves finds the lease
     await reg.shutdown();
   }
 });
+
+// A running container keeps the shape it was started with until it next
+// starts, so an operator who edits config and reloads sees no effect and
+// nothing tells them why. HUMANS.md has a whole troubleshoot row for it. The
+// engine row is where that answer belongs.
+describe("a running engine whose config generation has been replaced", () => {
+  /** The same comfy engine with one launch-affecting value changed. */
+  function comfyConfigWith(readyTimeoutS: number): Config {
+    return config({
+      engines: [engine({ id: "comfy", idle_stop_seconds: 9999, ready_timeout_s: readyTimeoutS })],
+    });
+  }
+
+  test("says so, and names the call that resolves it", async () => {
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfigWith(5),
+        queueFetch: () => Promise.resolve(BUSY_QUEUE),
+        comfyPollIntervalMs: 10_000,
+      },
+      async (reg) => {
+        const started = await reg.start("comfy");
+        expect(started.state).toBe("running");
+        // Nothing has changed yet, so nothing is superseded.
+        expect(reg.get("comfy")?.superseded).toBeUndefined();
+
+        reg.reload(comfyConfigWith(6));
+
+        const after = reg.get("comfy");
+        expect(after?.state).toBe("running");
+        // The remedy, not a boolean: stopping it is what makes the next call
+        // start it on the config now in force.
+        expect(after?.superseded).toContain("/engined/v1/engines/comfy/stop");
+      },
+    );
+  });
+
+  test("a reload that changes nothing about this engine leaves it alone", async () => {
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfigWith(5),
+        queueFetch: () => Promise.resolve(BUSY_QUEUE),
+        comfyPollIntervalMs: 10_000,
+      },
+      async (reg) => {
+        await reg.start("comfy");
+        // An equal config is a new object every time; comparing identity
+        // rather than shape would report every reload as a supersession.
+        reg.reload(comfyConfigWith(5));
+        expect(reg.get("comfy")?.superseded).toBeUndefined();
+      },
+    );
+  });
+
+  test("an engine that is not running reports none: it reads current config at its next start", async () => {
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfigWith(5),
+        queueFetch: () => Promise.resolve(BUSY_QUEUE),
+        comfyPollIntervalMs: 10_000,
+      },
+      async (reg) => {
+        reg.reload(comfyConfigWith(6));
+        const never = reg.get("comfy");
+        expect(never?.state).not.toBe("running");
+        expect(never?.superseded).toBeUndefined();
+      },
+    );
+  });
+});

@@ -234,7 +234,15 @@ unauditable egress is not one this design accepts.
 
 ## Engine state
 
-`GET /engined/v1/engines` is the whole operator surface. Each engine reports its
+`GET /engined/v1/engines` is the whole operator surface. A running engine also
+reports `superseded` when its container was started under a config generation
+`reload` has since replaced — the value is the literal call that brings it
+forward, and nothing acts on it automatically, because restarting an engine
+reloads whatever it had resident over an edit that may not have named it. It is
+absent on anything not running, and on a running engine still on the config in
+force.
+
+Each engine reports its
 `state` and — when it cannot run — `unavailable` plus the literal command that
 fixes it: `docker pull …`, `docker build …`, or a `secret-tool store` line for
 a missing key. There is no `private_url` on this wire: where a managed

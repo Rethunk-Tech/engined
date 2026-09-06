@@ -580,6 +580,18 @@ export interface EngineStatus {
    * goes stale the moment engined gains an engine.
    */
   streaming: boolean;
+  /**
+   * This container is running under a config generation `reload` has since
+   * replaced, and will keep its old shape until it next starts. Absent on
+   * anything not running, and on a running engine whose shape still matches.
+   *
+   * The value is the literal call that resolves it. Nothing acts on this by
+   * itself: restarting an engine on an operator's behalf would reload
+   * whatever it had resident -- up to ~30 GiB for llama -- because of an edit
+   * that may not even have named it. Reporting it is what turns a silent
+   * "my config change did nothing" into an answer the operator surface gives.
+   */
+  superseded?: string;
   last_error?: string;
   /**
    * Requests holding this engine open right now. The audio engines serialize
