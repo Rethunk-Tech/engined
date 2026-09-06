@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import type { ComfyBindings, DoorContext } from "./doorContext.ts";
+import type { ComfyBinding, ComfyBindings, DoorContext } from "./doorContext.ts";
 import {
   CONTENT_TYPE,
   type HttpClient,
@@ -100,11 +100,53 @@ export function loadComfyBindings(): ComfyBindings {
   if (raw === null) {
     return new Map();
   }
+  // Age is not filtered here. Every read goes through `liveBinding`, so an
+  // aged entry read back is refused all the same and the next save drops it --
+  // one mechanism deciding what is servable, rather than two that can disagree
+  // about where the boundary is.
   return new Map(
-    Object.entries(raw).flatMap(([key, names]): [string, string[]][] =>
-      Array.isArray(names) ? [[key, names.filter((n) => typeof n === "string")]] : [],
-    ),
+    Object.entries(raw).flatMap(([key, value]): [string, ComfyBinding][] => {
+      // Anything not of this shape is dropped rather than repaired: an entry
+      // this build cannot read is an entry it cannot vouch for, and an empty
+      // table refuses stored outputs, which is the safe direction to fail.
+      if (!isRecord(value) || typeof value.at !== "number" || !Array.isArray(value.filenames)) {
+        return [];
+      }
+      return [
+        [key, { at: value.at, filenames: value.filenames.filter((n) => typeof n === "string") }],
+      ];
+    }),
   );
+}
+
+/**
+ * How long a binding is served for. The count bound below is not enough on its
+ * own: it is a bound on the TABLE, so a quiet week leaves a binding servable
+ * and a busy hour expires one minutes old, and neither is something a consumer
+ * can plan around. Age is, so `GET /view` can be described to a caller: fetch
+ * an output within a week of producing it.
+ *
+ * Long enough that a consumer generating today and fetching tomorrow is never
+ * surprised, short enough that the table does not accumulate a binding per
+ * prompt forever on a box that renders daily.
+ */
+const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Whether a binding bound at `at` has aged out. */
+function expired(at: number, now: number): boolean {
+  return now - at >= COMFY_BINDING_TTL_MS;
+}
+
+/**
+ * The binding for this key if it is still servable. Checked on read and not
+ * only at save time: eviction happens when something is written, so between
+ * two writes a table in memory still holds bindings that have aged out, and
+ * serving one because nothing has been saved lately would make expiry depend
+ * on unrelated traffic.
+ */
+function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undefined {
+  const bound = ctx.comfyBindings.get(key);
+  return bound !== undefined && !expired(bound.at, Date.now()) ? bound : undefined;
 }
 
 /**
@@ -119,10 +161,11 @@ export function loadComfyBindings(): ComfyBindings {
  */
 const COMFY_BINDINGS_MAX = 1000;
 
-// ponytail: the whole table is rewritten on every bind and every filename
-// this door had not already recorded -- bounded work now that
-// COMFY_BINDINGS_MAX bounds the table. An append log only earns its
-// complexity if that cap is ever raised far enough for the rewrite to be felt.
+// ponytail: the whole table is rewritten on every bind and every filename this
+// door had not already recorded -- bounded work, since COMFY_BINDINGS_MAX
+// bounds the table and the age bound only shrinks it further. An append log
+// only earns its complexity if that cap is ever raised far enough for the
+// rewrite to be felt.
 /**
  * The eviction lands only once the write has. A full disk or an unwritable
  * state dir would otherwise shrink the table in memory while the file keeps
@@ -135,21 +178,30 @@ const COMFY_BINDINGS_MAX = 1000;
  * unwritten bindings are lost, at the next restart.
  */
 function saveComfyBindings(bindings: ComfyBindings): void {
-  // Oldest first: a binding is inserted when its prompt is queued and only
-  // mutated in place afterwards, so insertion order is creation order.
-  const entries = [...bindings];
-  const evicted = entries.slice(0, Math.max(0, entries.length - COMFY_BINDINGS_MAX));
+  // Two bounds, age first and then count. A binding is inserted when its
+  // prompt is queued and only mutated in place afterwards, so insertion order
+  // is creation order and the oldest survivors are the ones the count drops.
+  const now = Date.now();
+  const live: [string, ComfyBinding][] = [];
+  const evicted: string[] = [];
+  for (const [key, bound] of bindings) {
+    if (expired(bound.at, now)) {
+      evicted.push(key);
+    } else {
+      live.push([key, bound]);
+    }
+  }
+  const overCount = Math.max(0, live.length - COMFY_BINDINGS_MAX);
+  const kept = live.slice(overCount);
+  evicted.push(...live.slice(0, overCount).map(([key]) => key));
   try {
     mkdirSync(stateDir(), { recursive: true });
-    writeFileSync(
-      comfyBindingsPath(),
-      JSON.stringify(Object.fromEntries(entries.slice(evicted.length))),
-    );
+    writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(kept)));
   } catch (err) {
     process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`);
     return;
   }
-  for (const [key] of evicted) {
+  for (const key of evicted) {
     bindings.delete(key);
   }
 }
@@ -287,7 +339,10 @@ async function proxyComfyPrompt(
       const text = await res.text();
       const promptId = res.ok ? comfyPromptId(text) : undefined;
       if (promptId !== undefined) {
-        ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), []);
+        ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
+          at: Date.now(),
+          filenames: [],
+        });
         saveComfyBindings(ctx.comfyBindings);
       }
       return jsonForward(res, text);
@@ -345,8 +400,9 @@ function comfyFilenameBound(
   filename: string,
 ): boolean {
   const prefix = `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}`;
-  for (const [key, filenames] of ctx.comfyBindings) {
-    if (key.startsWith(prefix) && filenames.includes(filename)) {
+  const now = Date.now();
+  for (const [key, bound] of ctx.comfyBindings) {
+    if (key.startsWith(prefix) && !expired(bound.at, now) && bound.filenames.includes(filename)) {
       return true;
     }
   }
@@ -430,7 +486,7 @@ async function proxyComfyHistory(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   promptId: string,
 ): Promise<Response> {
-  const bound = ctx.comfyBindings.get(comfyKey(engineId, origin, promptId));
+  const bound = liveBinding(ctx, comfyKey(engineId, origin, promptId));
   if (bound === undefined) {
     return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
   }
@@ -440,10 +496,10 @@ async function proxyComfyHistory(
     // A client polling a running prompt reads the same entry over and over,
     // so the whole table is only rewritten when this read taught it something.
     const added = filenamesIn(comfyHistoryEntry(text, promptId)).filter(
-      (filename) => !bound.includes(filename),
+      (filename) => !bound.filenames.includes(filename),
     );
     if (added.length > 0) {
-      bound.push(...added);
+      bound.filenames.push(...added);
       saveComfyBindings(ctx.comfyBindings);
     }
   }
@@ -511,7 +567,7 @@ async function proxyComfyCancel(
   if (typeof promptId !== "string") {
     return jsonError(STATUS_BAD_REQUEST, 'expected {"prompt_id": string}');
   }
-  if (!ctx.comfyBindings.has(comfyKey(engineId, origin, promptId))) {
+  if (liveBinding(ctx, comfyKey(engineId, origin, promptId)) === undefined) {
     return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
   }
   return withComfySlot(ctx, engineId, async () => {
@@ -581,7 +637,7 @@ async function proxyComfyQueueDelete(
     return jsonError(STATUS_BAD_REQUEST, 'expected {"delete": string[]}');
   }
   const ids = body.delete as string[];
-  if (!ids.every((id) => ctx.comfyBindings.has(comfyKey(engineId, origin, id)))) {
+  if (!ids.every((id) => liveBinding(ctx, comfyKey(engineId, origin, id)) !== undefined)) {
     return jsonError(STATUS_NOT_FOUND, "one or more prompt ids are not known to this door");
   }
   const res = await httpClient(`${base}/queue`, {

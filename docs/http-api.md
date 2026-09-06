@@ -406,15 +406,19 @@ door can now say what is running. A container that has not drained inside the
 engine's `drain_timeout_seconds` (15 minutes by default) answers 503 naming
 the engine and that key, rather than holding the request forever.
 
-The binding table those verbs read is bounded by **count**, not age: the door
-keeps the most recent 1000 `prompt_id` bindings across every comfy engine and
-caller, in memory and on disk, evicting oldest-first past that. A binding
-survives a door restart and expires only by being pushed out by 1000 newer
-prompts, however recent it is in wall-clock terms. Past that point `GET /view`
-refuses an output this door itself produced, and `/cancel` and `POST /queue`
-404 an id they once knew — so a consumer holding output filenames for later
-should fetch them while they are still within that window rather than treat an
-old filename as a durable URL.
+The binding table those verbs read is bounded twice, by **age** and by
+**count**. A binding is served for **seven days** from the moment its prompt was
+submitted — not from the last time anyone polled it, so a consumer cannot hold
+one open by polling — and the door keeps at most the 1000 most recent across
+every comfy engine and caller, in memory and on disk, evicting oldest-first
+past that. Both survive a door restart.
+
+The age is the bound a consumer can plan around: fetch an output within a week
+of producing it. The count is a bound on the table rather than on any one
+binding, so on a busy box it can drop something younger than that. Past either,
+`GET /view` refuses an output this door itself produced and `/cancel` and
+`POST /queue` 404 an id they once knew, so an old filename is not a durable
+URL.
 
 ## Provenance
 

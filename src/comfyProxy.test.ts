@@ -6,7 +6,15 @@
  * at all, so that one test binds a real door against a real fake container.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import type { HttpClient } from "./http.ts";
@@ -909,7 +917,7 @@ describe("comfy proxy: the binding table is bounded", () => {
 
     const onDisk = JSON.parse(
       readFileSync(join(stateHome, "engined", "comfy-bindings.json"), "utf8"),
-    ) as Record<string, string[]>;
+    ) as Record<string, unknown>;
     expect(Object.keys(onDisk)).toHaveLength(1000);
 
     // In memory: the first prompt bound is the one the door no longer knows,
@@ -987,5 +995,82 @@ describe("comfy proxy: the table is written only when it changed", () => {
 
     expect(repoll.status).toBe(200);
     expect(existsSync(file)).toBe(false);
+  });
+});
+
+// The count bound is a bound on the TABLE, so a quiet week leaves a binding
+// servable and a busy hour expires one minutes old. Neither is something a
+// consumer holding filenames can plan around; an age is.
+describe("comfy proxy: a binding ages out", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  /** `comfyKey`'s own separator: engine, origin, prompt id, NUL between each. */
+  const KEY_PREFIX = "comfy local ";
+
+  /** Writes the binding table directly, so a test can plant an age without waiting for one. */
+  function plantBindings(
+    stateHome: string,
+    table: Record<string, { at: number; filenames: string[] }>,
+  ) {
+    const dir = join(stateHome, "engined");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "comfy-bindings.json"), JSON.stringify(table));
+  }
+
+  test("a binding older than the ttl is refused, and a recent one beside it is still served", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-ttl-"));
+    plantBindings(stateHome, {
+      [`${KEY_PREFIX}job-old`]: { at: Date.now() - 8 * DAY_MS, filenames: ["old.png"] },
+      [`${KEY_PREFIX}job-new`]: { at: Date.now() - DAY_MS, filenames: ["new.png"] },
+    });
+    const { client } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
+      if (url.includes("/history/")) {
+        return Response.json({});
+      }
+      return new Response(new Uint8Array([1]), { headers: { "content-type": "image/png" } });
+    });
+    const door = await comfyDoor(client, 40_999, stateHome);
+
+    // Both halves of the mediation honour the age, not just one: /history keys
+    // on the binding itself and /view scans the filenames under it.
+    const oldHistory = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-old`));
+    const newHistory = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-new`));
+    const oldView = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=old.png`),
+    );
+    const newView = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/view?filename=new.png`),
+    );
+
+    expect(oldHistory.status).toBe(404);
+    expect(newHistory.status).toBe(200);
+    expect(oldView.status).toBe(404);
+    expect(newView.status).toBe(200);
+  });
+
+  test("the next save drops what aged out, so the file does not keep it forever", async () => {
+    const stateHome = mkdtempSync(join(TEST_ROOT, "state-ttl-save-"));
+    plantBindings(stateHome, {
+      [`${KEY_PREFIX}job-old`]: { at: Date.now() - 8 * DAY_MS, filenames: ["old.png"] },
+    });
+    const { client } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue();
+      }
+      return Response.json({ prompt_id: "job-fresh" });
+    });
+    const door = await comfyDoor(client, 40_999, stateHome);
+
+    // Any bind saves the table, which is when the aged entry goes.
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+
+    const onDisk = JSON.parse(
+      readFileSync(join(stateHome, "engined", "comfy-bindings.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(Object.keys(onDisk)).toEqual([`${KEY_PREFIX}job-fresh`]);
   });
 });

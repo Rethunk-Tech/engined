@@ -93,4 +93,17 @@ export type ComfySlots = Map<string, Promise<unknown>>;
  * say-so, and one engine-wide filename set would hand every origin every
  * other origin's outputs.
  */
-export type ComfyBindings = Map<string, string[]>;
+export type ComfyBindings = Map<string, ComfyBinding>;
+
+/**
+ * One bound prompt: when this door bound it, and the output filenames a
+ * completed `/history` read has surfaced for it since.
+ *
+ * `at` is creation time and is never refreshed by a later `/history` read, so
+ * age means "how long ago this prompt was submitted" and not "how recently
+ * someone polled it" -- a consumer cannot hold a binding open by polling.
+ */
+export interface ComfyBinding {
+  at: number;
+  filenames: string[];
+}
