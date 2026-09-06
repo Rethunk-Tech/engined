@@ -402,8 +402,9 @@ and answers with comfy's own `prompt_id`, exactly as before. With a render in
 flight, `POST /prompt` holds until it ends rather than returning an id for a
 job queued behind it, so the wait moves from comfy's queue to the request. The
 GPU was serial either way; what changes is where the caller waits, and that the
-door can now say what is running. A container that has not drained in 15
-minutes answers 503 naming the engine rather than holding the request forever.
+door can now say what is running. A container that has not drained inside the
+engine's `drain_timeout_seconds` (15 minutes by default) answers 503 naming
+the engine and that key, rather than holding the request forever.
 
 The binding table those verbs read is bounded by **count**, not age: the door
 keeps the most recent 1000 `prompt_id` bindings across every comfy engine and

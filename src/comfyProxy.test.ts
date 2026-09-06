@@ -21,6 +21,7 @@ import {
   route,
   writeEngineSpec,
 } from "./test-support.ts";
+import type { EngineEntry } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-comfy-proxy-");
 
@@ -63,12 +64,24 @@ const NODE_TYPE = "KSampler";
  * unless the caller names an existing one to reopen: sharing it would let one
  * test's bindings make another test's refusal pass for the wrong reason.
  */
-async function comfyDoor(comfyHttpClient?: HttpClient, port = 40_999, stateHome?: string) {
+async function comfyDoor(
+  comfyHttpClient?: HttpClient,
+  port = 40_999,
+  stateHome?: string,
+  engineOverrides: Partial<EngineEntry> = {},
+) {
   process.env.XDG_STATE_HOME = stateHome ?? mkdtempSync(join(TEST_ROOT, "state-"));
   const root = mkdtempSync(join(TEST_ROOT, "door-"));
   writeEngineSpec(root, "comfy", COMFY_SPEC);
   const cfg = config({
-    engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
+    engines: [
+      engine({
+        id: "comfy",
+        models_dir: "/data/comfy",
+        idle_stop_seconds: 9999,
+        ...engineOverrides,
+      }),
+    ],
     routes: [route({ engine: "comfy", model: undefined, upstream: "local" })],
   });
   const door = createDoor(
@@ -748,6 +761,34 @@ describe("comfy proxy: one prompt in the container at a time", () => {
     holding.length = 0;
     expect((await second).status).toBe(200);
     expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(2);
+  });
+
+  /**
+   * The ceiling that stops a wedged container parking every later submission
+   * on this door forever. Driven from config so this proves it in a second
+   * rather than the fifteen minutes the default would take -- which is the
+   * whole reason the default is a key and not a constant.
+   */
+  test("a container that never frees refuses the submission, naming the key that would allow it", async () => {
+    // Never drains: the queue always reports something running.
+    const { client, calls } = gatedComfyClient(["someone-elses-job"]);
+    const door = await comfyDoor(client, 40_999, undefined, { drain_timeout_seconds: 1 });
+
+    const started = Date.now();
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+    const body = (await res.json()) as { error?: string };
+
+    expect(res.status).toBe(503);
+    expect(body.error).toContain("drain_timeout_seconds");
+    expect(body.error).toContain("1s");
+    // It waited rather than refusing on the first look, and it did not wait
+    // the fifteen-minute default.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1000);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    // Nothing was ever handed to the container.
+    expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(0);
   });
 
   /**

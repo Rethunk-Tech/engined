@@ -297,6 +297,16 @@ export interface EngineEntry {
   models_dir?: string;
   models_max?: number;
   idle_stop_seconds?: number;
+  /**
+   * How long a submission waits for this engine to be free before it is
+   * refused. Only the comfy proxy holds submissions today: it keeps one prompt
+   * in a container at a time, which is what makes an unscoped `/interrupt`
+   * safe (see `src/comfyProxy.ts`). Not a render-length estimate -- it is the
+   * ceiling that stops a wedged container parking every later submission
+   * forever, so a render that legitimately runs longer is refused rather than
+   * queued, and this is the key to raise when one does.
+   */
+  drain_timeout_seconds?: number;
   ready_timeout_s?: number;
   agent_version?: string;
   /** An engine has no address of its own; every dialect it speaks comes from `kind` or a real shipped spec. */

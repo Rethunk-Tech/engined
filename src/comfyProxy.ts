@@ -220,19 +220,21 @@ function comfyPromptId(text: string): string | undefined {
 const COMFY_DRAIN_POLL_MS = 500;
 
 /**
- * How long a submission waits for the container to drain before giving up.
- * Not a render-length estimate: it is the ceiling that stops a wedged
+ * How long a submission waits for the container to drain when the engine does
+ * not say. Not a render-length estimate: it is the ceiling that stops a wedged
  * container from parking every later submission on this door forever. A real
- * render that legitimately exceeds it answers 503 naming the engine, which is
- * recoverable; an unbounded wait is not.
- *
- * ponytail: a wall-clock ceiling, and the one path here with no test -- a
- * suite that proves it would have to wait it out or take an injected clock,
- * and neither is worth it for a 503 whose whole job is to be recoverable.
- * A render that legitimately runs past 15 minutes is refused rather than
- * queued; make this a per-engine config key if one ever does.
+ * render that legitimately exceeds it answers 503 naming the engine and the
+ * key to raise, which is recoverable; an unbounded wait is not.
  */
 const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+const MS_PER_SECOND = 1000;
+
+/** This engine's own ceiling, or the default above. */
+function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {
+  const seconds = ctx.getConfig().engines.find((e) => e.id === engineId)?.drain_timeout_seconds;
+  return seconds === undefined ? COMFY_DRAIN_TIMEOUT_MS : seconds * MS_PER_SECOND;
+}
 
 /**
  * Runs `fn` with this engine's submission gate held, so the read-then-act
@@ -266,7 +268,8 @@ async function proxyComfyPrompt(
   req: Request,
 ): Promise<Response> {
   const body = await req.text();
-  const deadline = Date.now() + COMFY_DRAIN_TIMEOUT_MS;
+  const timeoutMs = comfyDrainTimeoutMs(ctx, engineId);
+  const deadline = Date.now() + timeoutMs;
   // Compare-and-swap rather than one long hold: the gate is taken only for the
   // drain check and the forward that follows it, so a `/cancel` -- which is
   // how a caller ends the render this is waiting on -- is never queued behind
@@ -296,7 +299,7 @@ async function proxyComfyPrompt(
   }
   return jsonError(
     STATUS_UNAVAILABLE,
-    `"@/${engineId}" has been rendering for over ${COMFY_DRAIN_TIMEOUT_MS / 60_000} minutes and this door submits one prompt at a time -- cancel the running prompt or restart the engine`,
+    `"@/${engineId}" has not been free for ${timeoutMs / MS_PER_SECOND}s and this door submits one prompt at a time -- cancel the running prompt, restart the engine, or raise its "drain_timeout_seconds"`,
   );
 }
 
