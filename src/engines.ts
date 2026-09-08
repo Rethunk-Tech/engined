@@ -37,6 +37,7 @@ import {
   isContainerSpec,
   KIND_TRAITS,
   type LoadedSpec,
+  MS_PER_SECOND,
   type ReadyProbe,
   type ResolvedRoute,
   type RunnableContainerSpec,
@@ -1221,6 +1222,15 @@ export class EngineRegistry {
     if (entry.engine.disabled) {
       throw new Error(`engine "${id}" is disabled in config`);
     }
+    // Refused rather than queued: the holder wants the weights out of the pool,
+    // and a start that waited would leave the caller blocked for as long as the
+    // hold stands with nothing said about why.
+    const heldMs = this.lifecycle.heldMsFor(id);
+    if (heldMs > 0) {
+      throw new Error(
+        `engine "${id}" is held for another ${Math.ceil(heldMs / MS_PER_SECOND)}s; whatever took the hold wants this engine's memory`,
+      );
+    }
     if (!isContainerSpec(entry.spec.spec)) {
       // Nothing to warm up: a spec-less proxy or an agentic-cli engine has
       // no standing container.
@@ -1334,6 +1344,35 @@ export class EngineRegistry {
       this.comfyQueueEmpty.delete(id);
       await this.lifecycle.stop(id);
     }
+    return this.statusFor(entry);
+  }
+
+  /**
+   * Stops this engine and keeps it stopped, so something outside this process
+   * can load the same weights without racing the door for the pool. Only a
+   * container engine can be held: nothing else occupies memory the holder
+   * could want back.
+   */
+  async hold(id: string, seconds: number): Promise<EngineStatus> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      throw new Error(`unknown engine "${id}"`);
+    }
+    if (!isContainerSpec(entry.spec.spec)) {
+      throw new Error(`engine "${id}" runs no container, so there is nothing to hold`);
+    }
+    this.comfyQueueEmpty.delete(id);
+    await this.lifecycle.hold(id, seconds * MS_PER_SECOND);
+    return this.statusFor(entry);
+  }
+
+  /** Ends a hold early. Idempotent, because the state the caller wants is "not held" either way. */
+  async unhold(id: string): Promise<EngineStatus> {
+    const entry = this.byId.get(id);
+    if (!entry) {
+      throw new Error(`unknown engine "${id}"`);
+    }
+    this.lifecycle.unhold(id);
     return this.statusFor(entry);
   }
 

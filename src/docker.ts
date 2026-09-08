@@ -314,6 +314,12 @@ interface Runtime {
    * docker round trip on every poll would buy nothing.
    */
   adoptChecked: boolean;
+  /**
+   * Epoch ms until which something outside this process wants this engine
+   * down. The local test tier takes one before it loads llama or comfy itself,
+   * because two copies of either is what this box has no room for.
+   */
+  heldUntil?: number;
 }
 
 export class DockerLifecycle {
@@ -412,6 +418,40 @@ export class DockerLifecycle {
     this.transition(rt, "installed");
     rt.hostPort = null;
     rt.activeLeases = 0;
+  }
+
+  /**
+   * Refuses to keep an engine down forever. A holder that dies mid-run would
+   * otherwise wedge the engine for the life of the process, and the caller
+   * that most wants a hold is a test run, which is exactly the caller most
+   * likely to die. Re-holding extends, so a long run refreshes rather than
+   * asking for an open-ended one up front.
+   */
+  heldMsFor(id: string): number {
+    const until = this.runtimes.get(id)?.heldUntil;
+    return until === undefined ? 0 : Math.max(0, until - Date.now());
+  }
+
+  /**
+   * Stops the engine and keeps it stopped for `ttlMs`, so a second process can
+   * load the same weights without racing this one for the pool. `start`
+   * refuses while the hold stands: a caller told "held" can wait or fail,
+   * where an OOM takes the whole box and everything else on it.
+   */
+  async hold(id: string, ttlMs: number): Promise<void> {
+    await this.stop(id);
+    // `runtime`, not a `runtimes.get`: an engine that has never started has no
+    // entry yet, and holding one down before its first start is exactly the
+    // case a second process asking for the pool is in.
+    this.runtime(id).heldUntil = Date.now() + ttlMs;
+  }
+
+  /** Ends a hold early. Idempotent: releasing one that has already expired is the state the caller wanted. */
+  unhold(id: string): void {
+    const rt = this.runtimes.get(id);
+    if (rt) {
+      rt.heldUntil = undefined;
+    }
   }
 
   /**

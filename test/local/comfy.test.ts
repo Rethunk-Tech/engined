@@ -117,7 +117,7 @@ const READY = LOCAL && HAVE_IMAGES && FIXTURE !== undefined;
 
 // See llama.test.ts: loud when this file would really drive containers.
 if (READY) {
-  requireMemoryFor("comfy", "llama");
+  await requireMemoryFor("comfy", "llama");
 }
 
 function skipReason(): string {

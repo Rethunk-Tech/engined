@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { loadConfig } from "../../src/config.ts";
 import { loadSpec } from "../../src/spec.ts";
 import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
 
@@ -92,7 +93,61 @@ const MEM_AVAILABLE = /^MemAvailable:\s+(\d+) kB$/m;
  * whole tier rather than relying on this call alone. The kernel drops that
  * lock if the run dies, which a lockfile this code wrote and deleted would not.
  */
-export function requireMemoryFor(...engines: (keyof typeof ENGINE_RESIDENT_GIB)[]): void {
+/**
+ * Short, and refreshed while the suite runs, so a run killed mid-hold costs the
+ * operator's door at most this long rather than the whole TTL. The refresh timer
+ * is unref'd: it must not be what keeps the test process alive.
+ */
+const HOLD_SECONDS = 120;
+const HOLD_REFRESH_MS = 60_000;
+
+/**
+ * Asks the running unit to stop these engines and keep them stopped.
+ *
+ * This is the half `requireMemoryFor` cannot do on its own. Reading
+ * `MemAvailable` is a check against one global number, so it says nothing about
+ * what the door is about to load: llama-server idles with nothing resident
+ * until a request arrives, so the pool can look ample at check time and the
+ * unit can take a live request and load ~30 GiB a moment later, beside this
+ * tier's own copy. A hold makes the door refuse that start instead.
+ *
+ * Best-effort by design: no unit running means nothing to contend with, and a
+ * door that cannot be reached is not a reason to refuse to test.
+ */
+async function holdAtDoor(ids: readonly string[]): Promise<void> {
+  let port: number;
+  try {
+    port = loadConfig(CONFIG_EXAMPLE).listen_port;
+  } catch {
+    return;
+  }
+  const ask = async (verb: string): Promise<void> => {
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await fetch(`http://127.0.0.1:${port}/engined/v1/engines/${id}/${verb}`, {
+            method: "POST",
+            signal: AbortSignal.timeout(30_000),
+          });
+        } catch {
+          // No door, or one that will not answer: nothing is holding the pool
+          // against us, so there is nothing to arrange.
+        }
+      }),
+    );
+  };
+  await ask(`hold?seconds=${HOLD_SECONDS}`);
+  setInterval(() => void ask(`hold?seconds=${HOLD_SECONDS}`), HOLD_REFRESH_MS).unref();
+}
+
+export async function requireMemoryFor(
+  ...engines: (keyof typeof ENGINE_RESIDENT_GIB)[]
+): Promise<void> {
+  // Held before the pool is read, not after: the hold is what stops the unit
+  // loading its own copy of these weights, and stopping them is also what makes
+  // the reading below mean anything.
+  await holdAtDoor(engines);
+
   // The largest, not the sum: comfy and llama are never co-resident -- a suite
   // naming both drives the swap between them, which is the one thing this box
   // has no room to do twice over.

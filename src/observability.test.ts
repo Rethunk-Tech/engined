@@ -276,3 +276,43 @@ test("the old engine-keyed start route is a 404", async () => {
   );
   expect(res.status).toBe(404);
 });
+
+// A hold is the door's answer to a second process wanting the same weights:
+// llama is ~30 GiB and comfy ~42 on this box, so two copies is not a slow
+// start, it is an OOM that takes every other process with it.
+test("a held engine refuses to start, and starts again once the hold is dropped", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const door = doorWith(exec);
+  const held = new Request("http://engined/engined/v1/engines/local-llama/hold?seconds=60", {
+    method: "POST",
+  });
+
+  expect((await door.fetch(held)).status).toBe(200);
+
+  const refused = await door.fetch(
+    new Request("http://engined/engined/v1/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "@/local-llama/chat-model" }),
+    }),
+  );
+  expect(refused.status).not.toBe(200);
+  expect(JSON.stringify(await refused.json())).toContain("held");
+
+  const dropped = await door.fetch(
+    new Request("http://engined/engined/v1/engines/local-llama/unhold", { method: "POST" }),
+  );
+  expect(dropped.status).toBe(200);
+});
+
+test("hold and unhold 404 on an engine that does not exist", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const door = doorWith(exec);
+
+  for (const verb of ["hold", "unhold"]) {
+    const res = await door.fetch(
+      new Request(`http://engined/engined/v1/engines/nope/${verb}`, { method: "POST" }),
+    );
+    expect(res.status).toBe(404);
+  }
+});

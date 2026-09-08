@@ -101,7 +101,7 @@ const READY = LOCAL && HAVE_IMAGE && HAVE_MODELS;
 // Module scope, guarded by READY: it must fire only when these tests would
 // really drive containers, and it must be loud rather than another clean skip.
 if (READY) {
-  requireMemoryFor("llama");
+  await requireMemoryFor("llama");
   // Vision is deliberately not part of HAVE_MODELS, which would demote a lost
   // vision route to a clean skip alongside a missing image. The fidelity check
   // below is the only acceptance criterion this repo records as unproven

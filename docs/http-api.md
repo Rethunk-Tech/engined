@@ -26,6 +26,8 @@ treated as a caller.
 | `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
+| `/engined/v1/engines/:id/hold` | POST | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands |
+| `/engined/v1/engines/:id/unhold` | POST | ends a hold early rather than waiting out its TTL |
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
 | `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
 | `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |

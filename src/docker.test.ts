@@ -1044,3 +1044,31 @@ describe("a spec dir's declared build flags", () => {
     }
   });
 });
+
+test("a hold stops the engine and keeps it stopped, and expires rather than wedging it", async () => {
+  const stopLog: string[][] = [];
+  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe);
+
+  await lifecycle.start("held-test", SPEC, START_OPTS);
+  expect(lifecycle.heldMsFor("held-test")).toBe(0);
+
+  // A hold is a stop that stays: the weights leave the pool, which is the whole
+  // reason a second process asks for one.
+  await lifecycle.hold("held-test", 60_000);
+  expect(stopLog.length).toBe(1);
+  expect(lifecycle.heldMsFor("held-test")).toBeGreaterThan(0);
+
+  // Re-holding extends rather than stacking, so a long run refreshes instead of
+  // asking for an open-ended hold up front.
+  await lifecycle.hold("held-test", 120_000);
+  expect(lifecycle.heldMsFor("held-test")).toBeGreaterThan(60_000);
+
+  lifecycle.unhold("held-test");
+  expect(lifecycle.heldMsFor("held-test")).toBe(0);
+
+  // A holder that dies must not keep the engine out of service forever: the TTL
+  // is what makes that impossible rather than merely unlikely.
+  await lifecycle.hold("held-test", 1);
+  await Bun.sleep(5);
+  expect(lifecycle.heldMsFor("held-test")).toBe(0);
+});

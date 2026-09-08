@@ -118,7 +118,7 @@ const HAVE_KERNEL_COUNTERS = LOCAL && kernelGraphicsBytes() !== undefined;
 const READY = LOCAL && HAVE_IMAGE && FIXTURE.chat !== undefined && HAVE_KERNEL_COUNTERS;
 
 if (READY) {
-  requireMemoryFor("llama");
+  await requireMemoryFor("llama");
 }
 
 function skipReason(): string {

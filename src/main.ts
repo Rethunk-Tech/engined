@@ -142,6 +142,17 @@ const STOP_RE = engineVerbRe("stop");
 const LOGS_RE = engineVerbRe("logs");
 const RESOURCES_RE = engineVerbRe("resources");
 const RELEASE_RE = engineVerbRe("release");
+const HOLD_RE = engineVerbRe("hold");
+const UNHOLD_RE = engineVerbRe("unhold");
+/**
+ * How long a hold stands without being renewed. Long enough for the slowest
+ * local suite that loads llama or comfy, short enough that a run killed
+ * mid-hold does not keep the engine out of service for an operator who never
+ * asked for it -- the caller most likely to want a hold is a test run, which is
+ * the caller most likely to die holding one.
+ */
+const DEFAULT_HOLD_SECONDS = 1800;
+const MAX_HOLD_SECONDS = 3600;
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
 const SSE_KEEPALIVE_MS = 30_000;
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
@@ -345,6 +356,37 @@ async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
       return jsonError(STATUS_CONFLICT, err.message);
     }
     return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
+  }
+}
+
+/**
+ * `POST /engined/v1/engines/<id>/hold`: stop this engine and keep it stopped,
+ * so a second process can load the same weights without racing the door for
+ * the pool. comfy is ~42 GiB and llama ~30 GiB on this box; two copies of
+ * either, or one of each, is what there is no room for.
+ *
+ * A hold degrades service deliberately -- a start refuses while it stands --
+ * which is the trade it exists to make: a caller told "held" retries, where an
+ * OOM takes the box and everything else running on it.
+ */
+async function handleHold(registry: EngineRegistry, id: string, url: URL): Promise<Response> {
+  const asked = Number(url.searchParams.get("seconds") ?? DEFAULT_HOLD_SECONDS);
+  const seconds = Number.isFinite(asked)
+    ? Math.min(Math.max(1, Math.trunc(asked)), MAX_HOLD_SECONDS)
+    : DEFAULT_HOLD_SECONDS;
+  try {
+    return Response.json(await registry.hold(id, seconds));
+  } catch (err) {
+    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+  }
+}
+
+/** `POST /engined/v1/engines/<id>/unhold`: ends a hold early rather than waiting out its TTL. */
+async function handleUnhold(registry: EngineRegistry, id: string): Promise<Response> {
+  try {
+    return Response.json(await registry.unhold(id));
+  } catch (err) {
+    return jsonError(STATUS_NOT_FOUND, errMessage(err));
   }
 }
 
@@ -1678,6 +1720,14 @@ function routePost(
   const releaseMatch = RELEASE_RE.exec(pathname)?.[1];
   if (releaseMatch !== undefined) {
     return handleRelease(ctx.registry, releaseMatch);
+  }
+  const holdMatch = HOLD_RE.exec(pathname)?.[1];
+  if (holdMatch !== undefined) {
+    return handleHold(ctx.registry, holdMatch, new URL(req.url));
+  }
+  const unholdMatch = UNHOLD_RE.exec(pathname)?.[1];
+  if (unholdMatch !== undefined) {
+    return handleUnhold(ctx.registry, unholdMatch);
   }
   if (pathname === VOICE_UPLOAD_PATH) {
     return handleVoiceUpload(req);
