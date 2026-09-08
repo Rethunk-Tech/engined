@@ -1,29 +1,18 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import process from "node:process";
+import { describe, expect, test } from "bun:test";
+import { readFileSync, rmSync } from "node:fs";
 import {
-  buildAgenticProbeRunner,
   defaultAgenticSpawn,
-  hashTree,
   PROBE_ENV_ALLOWLIST,
   plantUserPromptSubmitHook,
   type RunAgenticResult,
   runAgentic,
 } from "../../src/agentic.ts";
-import { EngineRegistry } from "../../src/engines.ts";
-import { clearVerifiedVersion } from "../../src/test-support.ts";
-import type { Config } from "../../src/types.ts";
-import { ENGINES_ROOT, LOCAL } from "./exclusive.ts";
 import {
-  missingEnv,
-  missingEnvReason,
-  probeGateConfig,
-  requireEnv,
+  agentEnv,
+  agenticIntegrityTests,
+  agenticProbeGateTest,
   scratchWorktree,
   skipTitle,
-  verifiedVersionPath,
 } from "./fixtures.ts";
 
 /**
@@ -32,24 +21,18 @@ import {
  * runs before an agentic engine serves a version engined has not proved yet,
  * so they are exercised here as the same executable code, not a checklist.
  */
-const CLAUDE_VERSION = process.env.ENGINED_TEST_CLAUDE_VERSION;
-// Set by the `test:local` script, alongside ENGINED_LOCAL that gates this tier.
-const BUNX = process.env.ENGINED_BUNX;
+const {
+  version: CLAUDE_VERSION,
+  bunx,
+  agentVersion,
+  ready: AGENTIC_READY,
+  skipReason: SKIP_REASON,
+} = agentEnv("ENGINED_TEST_CLAUDE_VERSION");
 
 /** A real observed round trip through `bunx claude -p` took ~6s; 60s is genuine headroom over that, not a number picked to match bun's 5s default. */
 const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;
 /** The probe-gate test below makes two real round trips sequentially. */
 const PROBE_GATE_TIMEOUT_MS = 180_000;
-
-const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
-const agentVersion = (): string => requireEnv("ENGINED_TEST_CLAUDE_VERSION", CLAUDE_VERSION);
-
-const MISSING_ENV_VARS = missingEnv({
-  ENGINED_TEST_CLAUDE_VERSION: CLAUDE_VERSION,
-  ENGINED_BUNX: BUNX,
-});
-const AGENTIC_READY = LOCAL && MISSING_ENV_VARS.length === 0;
-const SKIP_REASON = missingEnvReason(MISSING_ENV_VARS);
 
 /** Deliberately not the exported probe's own scratch dir: the two want distinguishable temp prefixes. */
 const WORKTREE_PREFIX = "engined-agentic-";
@@ -67,50 +50,16 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
   });
 }
 
-describe.skipIf(!AGENTIC_READY)(
-  skipTitle("agentic probes (local)", AGENTIC_READY, SKIP_REASON),
-  () => {
-    test(
-      "byte-identical: a completion instructed to create a file leaves the worktree untouched",
-      async () => {
-        const workdir = scratchWorktree(WORKTREE_PREFIX);
-        const before = hashTree(workdir);
-
-        const result = await callAgentic(
-          workdir,
-          "Create a file named proof.txt in the current directory containing the text 'hello'. Do nothing else.",
-        );
-
-        const after = hashTree(workdir);
-        rmSync(workdir, { recursive: true, force: true });
-
-        expect(result.status).toBe(200);
-        expect(after).toBe(before);
-      },
-      REAL_ROUND_TRIP_TIMEOUT_MS,
-    );
-
-    test(
-      "no hook fires: a planted UserPromptSubmit hook never appends to its witness file",
-      async () => {
-        const workdir = scratchWorktree(WORKTREE_PREFIX);
-        const witness = join(tmpdir(), `engined-agentic-witness-${Date.now()}.txt`);
-        rmSync(witness, { force: true });
-        plantUserPromptSubmitHook(workdir, witness);
-
-        const result = await callAgentic(workdir, "Say hello in one short sentence.");
-
-        const witnessExists = existsSync(witness);
-        rmSync(workdir, { recursive: true, force: true });
-        rmSync(witness, { force: true });
-
-        expect(result.status).toBe(200);
-        expect(witnessExists).toBe(false);
-      },
-      REAL_ROUND_TRIP_TIMEOUT_MS,
-    );
-  },
-);
+agenticIntegrityTests({
+  title: "agentic probes (local)",
+  ready: AGENTIC_READY,
+  skipReason: SKIP_REASON,
+  prefix: WORKTREE_PREFIX,
+  hookName: "UserPromptSubmit",
+  plantHook: plantUserPromptSubmitHook,
+  call: callAgentic,
+  timeoutMs: REAL_ROUND_TRIP_TIMEOUT_MS,
+});
 
 describe.skipIf(!AGENTIC_READY)(
   skipTitle("agentic streaming (local)", AGENTIC_READY, SKIP_REASON),
@@ -183,62 +132,17 @@ describe.skipIf(!AGENTIC_READY)(
 );
 
 /**
- * `runAgentic`'s own two tests above prove the probes work; this proves the
- * gate they exist to build -- `EngineRegistry`'s `agenticStatus` -- actually
- * withholds service without them and actually grants it once they pass, run
- * unattended by the registry itself rather than called directly. A
- * dedicated engine id under `spec_dir` (reusing the real shipped
+ * A dedicated engine id under `spec_dir` (reusing the real shipped
  * `engines/claude` spec) keeps this off the real "claude"/"claude-kimi"
  * `verified_version` files the live unit's own registry tracks.
  */
-const PROBE_GATE_ENGINE_ID = "engined-local-test-probe-gate";
-
-const gateConfig = (): Config => probeGateConfig(PROBE_GATE_ENGINE_ID, "claude", agentVersion());
-
-describe.skipIf(!AGENTIC_READY)(
-  skipTitle(
-    "agentic probes gate serving via the real registry (local)",
-    AGENTIC_READY,
-    SKIP_REASON,
-  ),
-  () => {
-    afterAll(() => {
-      clearVerifiedVersion(PROBE_GATE_ENGINE_ID);
-    });
-
-    test(
-      "unavailable with no probe runner configured; installed once the real probes run and pass",
-      async () => {
-        clearVerifiedVersion(PROBE_GATE_ENGINE_ID);
-
-        // No agenticProbeRunner: costs no billed call, and proves the engine
-        // does not serve on faith even with a syntactically valid pin.
-        const gated = new EngineRegistry(gateConfig(), {
-          enginesRoot: ENGINES_ROOT,
-          bunx: bunx(),
-        });
-        const beforeStatus = (await gated.list()).engines.find(
-          (e) => e.id === PROBE_GATE_ENGINE_ID,
-        );
-        expect(beforeStatus?.state).toBe("unavailable");
-        expect(beforeStatus?.fix).toContain("no agentic probe runner is configured");
-
-        // The real runner: two real billed calls to Anthropic, run unattended
-        // by start() itself, not called directly by this test.
-        const proven = new EngineRegistry(gateConfig(), {
-          enginesRoot: ENGINES_ROOT,
-          bunx: bunx(),
-          agenticProbeRunner: buildAgenticProbeRunner(bunx()),
-        });
-        const afterStatus = await proven.start(PROBE_GATE_ENGINE_ID);
-        expect(afterStatus.state).toBe("installed");
-
-        // The gate's own provenance: the version it just proved is on disk and
-        // matches the configured pin, verbatim.
-        const recorded = readFileSync(verifiedVersionPath(PROBE_GATE_ENGINE_ID), "utf8").trim();
-        expect(recorded).toBe(agentVersion());
-      },
-      PROBE_GATE_TIMEOUT_MS,
-    );
-  },
-);
+agenticProbeGateTest({
+  title: "agentic probes gate serving via the real registry (local)",
+  ready: AGENTIC_READY,
+  skipReason: SKIP_REASON,
+  engineId: "engined-local-test-probe-gate",
+  agent: "claude",
+  bunx,
+  agentVersion,
+  timeoutMs: PROBE_GATE_TIMEOUT_MS,
+});

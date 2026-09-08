@@ -10,8 +10,7 @@ import {
   PROBE_ENV_ALLOWLIST,
   runAgentic,
 } from "../../src/agentic.ts";
-import { LOCAL } from "./exclusive.ts";
-import { missingEnv, missingEnvReason, requireEnv, seedWorktree, skipTitle } from "./fixtures.ts";
+import { agentEnv, seedWorktree, skipTitle } from "./fixtures.ts";
 
 /**
  * A real opencode round trip: `bunx opencode-ai@<pin> run --format json`, under
@@ -26,8 +25,12 @@ import { missingEnv, missingEnvReason, requireEnv, seedWorktree, skipTitle } fro
  * did run its `write` tool and did fall back to `printf >`, and both came back
  * "Read-only file system".
  */
-const VERSION = process.env.ENGINED_TEST_OPENCODE_VERSION;
-const BUNX = process.env.ENGINED_BUNX;
+const {
+  bunx,
+  agentVersion,
+  ready: READY,
+  skipReason: SKIP_REASON,
+} = agentEnv("ENGINED_TEST_OPENCODE_VERSION");
 const DOOR = process.env.ENGINED_TEST_DOOR ?? "http://127.0.0.1:29200/openai/v1";
 // Qualified, not a bare name: a bare id resolves only through a `[[chain]]`,
 // and this round trip must not depend on the example config declaring one.
@@ -37,15 +40,6 @@ const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? "@/llama/ornith";
 const ROUND_TRIP_TIMEOUT_MS = 240_000;
 /** The sandbox probe is a mount and a failed write: milliseconds, no model. */
 const PROBE_GATE_TIMEOUT_MS = 10_000;
-
-const bunx = (): string => requireEnv("ENGINED_BUNX", BUNX);
-const agentVersion = (): string => requireEnv("ENGINED_TEST_OPENCODE_VERSION", VERSION);
-
-const MISSING = missingEnv({
-  ENGINED_TEST_OPENCODE_VERSION: VERSION,
-  ENGINED_BUNX: BUNX,
-});
-const READY = LOCAL && MISSING.length === 0;
 
 /** Everything opencode's config can say to undo a read-only posture. */
 const PERMISSIVE = JSON.stringify({
@@ -79,7 +73,7 @@ function call(workdir: string, prompt: string) {
 }
 
 describe.skipIf(!READY)(
-  skipTitle("opencode, through this door, under the sandbox", READY, missingEnvReason(MISSING)),
+  skipTitle("opencode, through this door, under the sandbox", READY, SKIP_REASON),
   () => {
     test(
       "answers from the local model, so the whole route works end to end",
