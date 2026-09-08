@@ -972,7 +972,8 @@ function ambientAgentEnv(
 
 interface AgenticLaunch {
   spec: AgenticSpec;
-  engineEntry: EngineEntry;
+  /** Already merged: the engine's own table with this route's on top. */
+  args: Record<string, unknown>;
   agentVersion: string;
   doorUrl: string;
   /**
@@ -993,7 +994,7 @@ interface AgenticLaunch {
 }
 
 async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<HopResult> {
-  const { spec, engineEntry, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch;
+  const { spec, args, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch;
   const { rawBody, signal } = req;
   const wantsStream = rawBody.stream === true;
   const deltas: string[] = [];
@@ -1010,7 +1011,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     // -- always on the launch-scoped URL, never the plain one. An agent with
     // no `configure` (claude) simply never reads this.
     upstream: { baseUrl: doorUrl, model: dialModel },
-    args: engineEntry.args,
+    args,
     envAllowlist: spec.env,
     workdir,
     prompt: promptFromMessages(rawBody),
@@ -1188,7 +1189,11 @@ async function execAgentic(
     }
     return await launchAgentic(ctx, {
       spec,
-      engineEntry,
+      // Route beats engine, the same merge `llama.ts` applies to a
+      // container's process flags. Both tables were checked against the
+      // read-only floor's forbidden flags at parse, so neither can unsay it
+      // here whichever wins a key.
+      args: { ...engineEntry.args, ...route?.args },
       agentVersion,
       doorUrl,
       dialModel: route?.wire_model ?? modelSeg,

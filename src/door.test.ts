@@ -2251,6 +2251,53 @@ describe("the launch-scoped door: the round-trip probe is a launch too", () => {
   });
 });
 
+describe("an agentic launch's args", () => {
+  /**
+   * `args` is legal on a `[[route]]` and passes the floor's own check at
+   * parse, so a route naming one has to reach the child rather than
+   * silently doing nothing -- and it beats the engine key it names, the
+   * precedence every other args table on this box follows.
+   */
+  test("a route's args reach the spawned argv and beat the engine's own key, floor still ahead of both", async () => {
+    const cfg = config({
+      engines: [
+        engine({
+          id: "claude",
+          agent_version: "1.2.3",
+          args: { model: "engine-pin", verbose: true },
+        }),
+      ],
+      routes: [
+        route({
+          engine: "claude",
+          model: "sonnet-5",
+          upstream: null,
+          args: { model: "route-pin" },
+        }),
+      ],
+    });
+    let argv: string[] = [];
+    const spawn: AgenticSpawn = (spawnArgv) => {
+      argv = spawnArgv;
+      return Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' });
+    };
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn);
+    clearVerifiedVersion("claude");
+    const res = await door.fetch(scratchChatRequest("@/claude/sonnet-5"));
+    expect(res.status).toBe(200);
+
+    // The engine key the route did not name still applies.
+    expect(argv).toContain("--verbose");
+    // One `--model`, carrying the route's value: a merge, not two copies
+    // left to last-wins argument parsing.
+    expect(argv.filter((a) => a === "--model")).toHaveLength(1);
+    expect(argv[argv.indexOf("--model") + 1]).toBe("route-pin");
+    // Neither table can get ahead of the read-only floor.
+    expect(argv.indexOf("--safe-mode")).toBeLessThan(argv.indexOf("--model"));
+    clearVerifiedVersion("claude");
+  });
+});
+
 describe("the launch-scoped door: opencode's rendered config", () => {
   /**
    * The path itself is read from `OPENCODE_CONFIG` rather than a fixed
