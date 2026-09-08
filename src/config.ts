@@ -30,9 +30,9 @@ import {
   argKeysAsFlags,
   assertNoForbiddenFlags,
   EGRESS_RANK,
-  ENGINE_KINDS,
   isEgress,
   isRecord,
+  KIND_TRAITS,
   KIND_UPSTREAM_TRAIT,
   ParseError,
   qualifiedSegments,
@@ -197,7 +197,11 @@ function parseKind(
   file: string,
 ): EngineKind | undefined {
   const kindStr = optional(raw.kind, "string", `${site} "kind"`, file);
-  if (kindStr !== undefined && !(ENGINE_KINDS as readonly string[]).includes(kindStr)) {
+  // `Object.hasOwn` against the trait table itself, the same idiom `isEgress`
+  // uses and for the same reason: the kinds a config may name are exactly the
+  // ones the table answers for, so a new kind is admitted here the moment it
+  // is given traits, with no second list to keep in step.
+  if (kindStr !== undefined && !Object.hasOwn(KIND_TRAITS, kindStr)) {
     throw new ParseError(`${site} has invalid "kind" "${kindStr}"`, file);
   }
   return kindStr as EngineKind | undefined;

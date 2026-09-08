@@ -86,7 +86,7 @@ interface RouteFieldRules {
  * this file gives the new one an explicit answer -- which is the whole point:
  * an inline `kind === "a" || kind === "b"` elsewhere silently omits it.
  */
-const KIND_TRAITS: Record<
+export const KIND_TRAITS: Record<
   EngineKind,
   { container: boolean; upstream: UpstreamTrait; localFile: RouteFieldRules }
 > = {
@@ -125,9 +125,6 @@ const KIND_ENTRIES = Object.entries(KIND_TRAITS) as [
   EngineKind,
   (typeof KIND_TRAITS)[EngineKind],
 ][];
-
-/** The complete kind list `parseKind` accepts; config.ts's source of truth. */
-export const ENGINE_KINDS: readonly EngineKind[] = KIND_ENTRIES.map(([kind]) => kind);
 
 /** Kinds whose spec is the container dialect. */
 export const CONTAINER_KINDS: ReadonlySet<EngineKind> = new Set(
