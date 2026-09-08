@@ -6,24 +6,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: Rethunk-Tech/gh-actions/setup-bun@64b30707d797eba0f94359fcb9981dd69cd5e200 # v1.8
         with:
-          bun-version: 1.4.0
-      - run: bun install --frozen-lockfile
-
-      # Turbo keys each task on its own inputs, so a docs-only push replays
-      # every check from cache instead of re-running it. The sha in the key
-      # saves a fresh entry every run; the prefix restore-key is what carries
-      # the previous run's entries forward. Neither can serve a stale green --
-      # turbo replays an entry only when the task's input hash matches, so a
-      # restored .turbo holding other hashes is inert. That leaves turbo.json's
-      # `inputs` as the whole staleness boundary.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
-
+          # Turbo keys each task on its own inputs, so a docs-only push replays
+          # every check from cache instead of re-running it. The sha in the key
+          # saves a fresh entry every run; the prefix restore-key is what carries
+          # the previous run's entries forward. Neither can serve a stale green --
+          # turbo replays an entry only when the task's input hash matches, so a
+          # restored .turbo holding other hashes is inert. That leaves turbo.json's
+          # `inputs` as the whole staleness boundary.
+          extra-cache-paths: .turbo
+          extra-cache-key: ${{ github.sha }}
       # Each check reports independently so one red does not mask the others;
       # the gate below is what actually fails the job.
       - id: lint
