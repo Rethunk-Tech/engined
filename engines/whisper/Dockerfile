@@ -25,4 +25,11 @@
 # below already passes (--vad, -vm, --request-path, --inference-path, -fa,
 # -t, --no-timestamps) -- this is a backend swap, not a flag migration.
 FROM ghcr.io/ggml-org/whisper.cpp@sha256:76aed25bba617d6956098bcb7be57594d01d2a3c5d326dfa426b2481553b28de
-EXPOSE 8080
+# ENV as well as EXPOSE, because the two readers of this port arrive by
+# different routes: docker.ts reads EXPOSE off the built image, while
+# whisper_app.py is bind-mounted through {spec_dir} and never rebuilt, so a
+# baked-in literal there could drift from this one on nothing more than a
+# container restart. The environment is the only channel that reaches both.
+ARG PORT=8080
+ENV PORT=${PORT}
+EXPOSE ${PORT}

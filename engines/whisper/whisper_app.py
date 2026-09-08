@@ -64,7 +64,9 @@ from typing import IO, Iterator, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 BIN_DIR = "/app/build/bin"
-LISTEN_PORT = 8080
+# The image sets PORT beside its own EXPOSE; a KeyError here is the wanted
+# failure, since a default would be the second spelling this reads it to avoid.
+LISTEN_PORT = int(os.environ["PORT"])
 # whisper-server is moved off the exposed port and onto loopback; nothing
 # outside the container can reach it except through this process.
 UPSTREAM = "127.0.0.1:8081"
