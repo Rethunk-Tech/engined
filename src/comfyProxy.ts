@@ -178,6 +178,10 @@ function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undefined {
  * itself produced, so this is set well above what a session plausibly
  * generates rather than as tight as the file could bear -- ~78 bytes per
  * binding measured, so the whole table stays under ~100 KB.
+ *
+ * Two shortcuts are held up by this cap and are what to revisit before
+ * raising it: the whole-table rewrite on every save just below, and
+ * `comfyFilenameBound`'s linear scan.
  */
 const COMFY_BINDINGS_MAX = 1000;
 
