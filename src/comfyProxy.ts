@@ -27,7 +27,7 @@ import {
 import { stateDir } from "./paths.ts";
 import { writeToStdout } from "./provenance.ts";
 import { readJsonBody } from "./requestBody.ts";
-import { errMessage, isRecord, parseRecord } from "./types.ts";
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord, pollUntil } from "./types.ts";
 
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/;
 export const COMFY_WS_SUFFIX = "ws";
@@ -300,8 +300,6 @@ const COMFY_DRAIN_POLL_MS = 500;
  */
 const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
 
-const MS_PER_SECOND = 1000;
-
 /** This engine's own ceiling, or the default above. */
 function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {
   const seconds = ctx.getConfig().engines.find((e) => e.id === engineId)?.drain_timeout_seconds;
@@ -377,23 +375,30 @@ export async function submitComfyPrompt(
   onAnswered: (res: Response, text: string) => Response,
 ): Promise<Response> {
   const timeoutMs = comfyDrainTimeoutMs(ctx, engineId);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const forwarded = await withComfySlot(ctx, engineId, async () => {
-      if (!(await comfyDrained(base, httpClient))) {
-        return;
-      }
-      const res = await httpClient(`${base}/prompt`, {
-        method: "POST",
-        headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-        body,
+  let forwarded: Response | undefined;
+  // `pollUntil`'s order is what makes the smallest legal budget still buy a
+  // submission: attempt, then consult the deadline. Checking it first would
+  // 503 an idle container that would have accepted immediately.
+  await pollUntil(
+    async () => {
+      forwarded = await withComfySlot(ctx, engineId, async () => {
+        if (!(await comfyDrained(base, httpClient))) {
+          return;
+        }
+        const res = await httpClient(`${base}/prompt`, {
+          method: "POST",
+          headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+          body,
+        });
+        return onAnswered(res, await res.text());
       });
-      return onAnswered(res, await res.text());
-    });
-    if (forwarded !== undefined) {
-      return forwarded;
-    }
-    await Bun.sleep(COMFY_DRAIN_POLL_MS);
+      return forwarded !== undefined;
+    },
+    Date.now() + timeoutMs,
+    COMFY_DRAIN_POLL_MS,
+  );
+  if (forwarded !== undefined) {
+    return forwarded;
   }
   return jsonError(
     STATUS_UNAVAILABLE,

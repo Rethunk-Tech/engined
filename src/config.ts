@@ -213,6 +213,19 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const args = asArgs(raw.args, site, file);
   assertNoForbiddenFlags(argKeysAsFlags(args), file);
   const rawSpecDir = optional(raw.spec_dir, "string", `${site} "spec_dir"`, file);
+  const drainTimeoutS = optional(
+    raw.drain_timeout_seconds,
+    "number",
+    `${site} "drain_timeout_seconds"`,
+    file,
+  );
+  // Zero reads as "no ceiling" and means the opposite: a single attempt, no
+  // wait for a busy container, and a 503 telling the caller the engine has
+  // not been free for 0s. Refused here rather than served as a wait nobody
+  // asked for.
+  if (drainTimeoutS !== undefined && drainTimeoutS <= 0) {
+    throw new ParseError(`${site} "drain_timeout_seconds" must be greater than 0`, file);
+  }
   return {
     id,
     disabled: parseDisable(raw, site, file),
@@ -225,12 +238,7 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
       `${site} "idle_stop_seconds"`,
       file,
     ),
-    drain_timeout_seconds: optional(
-      raw.drain_timeout_seconds,
-      "number",
-      `${site} "drain_timeout_seconds"`,
-      file,
-    ),
+    drain_timeout_seconds: drainTimeoutS,
     ready_timeout_s: optional(raw.ready_timeout_s, "number", `${site} "ready_timeout_s"`, file),
     agent_version: agentVersion,
     kind: parseKind(raw, site, file),

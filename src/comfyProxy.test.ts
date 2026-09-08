@@ -18,6 +18,7 @@ import {
 import { join } from "node:path";
 import process from "node:process";
 import { loadComfyBindings } from "./comfyProxy.ts";
+import { loadConfig } from "./config.ts";
 import type { HttpClient } from "./http.ts";
 import { bindDualFamily, createDoor } from "./main.ts";
 import {
@@ -33,6 +34,8 @@ import {
 import type { EngineEntry } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-comfy-proxy-");
+
+const RX_DRAIN_TIMEOUT_POSITIVE = /"drain_timeout_seconds" must be greater than 0/;
 
 // `comfyDoor` points XDG_STATE_HOME at a scratch dir and leaves it there for
 // the door it just built; restoring it here keeps that out of sibling suites
@@ -798,6 +801,32 @@ describe("comfy proxy: one prompt in the container at a time", () => {
     expect(Date.now() - started).toBeLessThan(10_000);
     // Nothing was ever handed to the container.
     expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(0);
+  });
+
+  /**
+   * The budget bounds how long a busy container is waited on, never whether
+   * the container is asked at all: the submit is attempted before the
+   * deadline is ever consulted, so an idle container answers on the first
+   * pass however small the budget is.
+   */
+  test("the smallest budget still buys one submission against an idle container", async () => {
+    const { client, calls } = gatedComfyClient([]);
+    const door = await comfyDoor(client, 40_999, undefined, { drain_timeout_seconds: 0.001 });
+
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: "POST", body: "{}" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls.filter((c) => c.url.includes("/prompt"))).toHaveLength(1);
+  });
+
+  /** Zero is the one number that reads as "no ceiling" and would mean the opposite, so config load refuses it rather than serving a wait nobody asked for. */
+  test("drain_timeout_seconds = 0 is refused at config load, naming the key", () => {
+    const path = join(mkdtempSync(join(TEST_ROOT, "drain-config-")), "config.toml");
+    writeFileSync(path, '[[engine]]\nid = "comfy"\ndrain_timeout_seconds = 0\n');
+
+    expect(() => loadConfig(path)).toThrow(RX_DRAIN_TIMEOUT_POSITIVE);
   });
 
   /**
