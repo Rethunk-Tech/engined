@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { handleSpeech, handleTranscription } from "./audio.ts";
+import { handleSpeech, handleTranscription, resetSpeechCache } from "./audio.ts";
 import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
 import { buildRunArgs, DockerLifecycle } from "./docker.ts";
 import type { DoorContext } from "./doorContext.ts";
@@ -24,6 +24,11 @@ import {
 } from "./test-support.ts";
 import type { EngineEntry } from "./types.ts";
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, isContainerSpec } from "./types.ts";
+
+// The synthesis cache is process-wide, which is the point in a daemon and a
+// hazard in a suite: without this, one test's rendition answers another's
+// request and a chain never reaches the hop it was written to prove.
+beforeEach(resetSpeechCache);
 
 const TEST_ROOT = makeTestRoot("engined-audio-");
 

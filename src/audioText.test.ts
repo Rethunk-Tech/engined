@@ -5,7 +5,7 @@
  * consumer, differently.
  */
 import { expect, test } from "bun:test";
-import { handleSpeech, handleTranscription } from "./audio.ts";
+import { handleSpeech, handleTranscription, resetSpeechCache } from "./audio.ts";
 import { startFakeUpstream } from "./test-support.ts";
 
 const SAMPLE_WAV_BASE64 = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
@@ -25,8 +25,15 @@ function startFakeTts(): { base: string; texts: string[]; stop: () => void } {
   return { base: `127.0.0.1:${fake.port}`, texts, stop: fake.stop };
 }
 
-/** The one text the fake engine was sent. */
+/**
+ * The one text the fake engine was sent. Resets the synthesis cache first: two
+ * inputs that differ only in markup are one utterance after normalization, so
+ * the second would be served from the first's rendition and reach no engine at
+ * all -- which is the cache working, and would leave this helper with nothing
+ * to report.
+ */
 async function spokenText(input: string): Promise<string> {
+  resetSpeechCache();
   const fake = startFakeTts();
   const res = await handleSpeech({ engine: "chatterbox-en", input }, async () => ({
     private_url: fake.base,
@@ -134,4 +141,67 @@ test("the streamed route caps the same way the buffered one does", async () => {
   const sent = await biasPromptSent(terms(30).join(", "), true);
 
   expect(sent).toBe(terms(30).slice(6).join(", "));
+});
+
+/** One fake engine, and a call against it that reports how many times it has actually synthesized. */
+function speechRuns() {
+  resetSpeechCache();
+  const fake = startFakeTts();
+  const say = (req: Partial<Parameters<typeof handleSpeech>[0]> = {}) =>
+    handleSpeech({ engine: "chatterbox-en", input: "Ready.", ...req }, async () => ({
+      private_url: fake.base,
+    }));
+  return { say, calls: () => fake.texts.length, stop: fake.stop };
+}
+
+test("the same utterance is synthesized once, and the second caller gets the same bytes", async () => {
+  const { say, calls, stop } = speechRuns();
+  const first = await say();
+  const second = await say();
+  stop();
+
+  expect(calls()).toBe(1);
+  expect(first.status).toBe(200);
+  expect(second.status).toBe(200);
+  expect(second.bytes).toEqual(first.bytes);
+});
+
+test("markup is not a second utterance: what normalizes alike shares one rendition", async () => {
+  const { say, calls, stop } = speechRuns();
+  await say({ input: "**Ready.**" });
+  await say({ input: "Ready." });
+  stop();
+
+  // The key is the normalized text, so these are one utterance -- the pair
+  // `speakableText` exists to make identical would otherwise miss each other.
+  expect(calls()).toBe(1);
+});
+
+test("anything that changes the audio changes the key", async () => {
+  for (const differing of [
+    { voice: "vc_00000000000000000000000000000000.wav" },
+    { speed: 1.5 },
+    { instructions: "whisper it" },
+    { engine: "chatterbox-multi" },
+  ]) {
+    const { say, calls, stop } = speechRuns();
+    await say();
+    await say(differing);
+    stop();
+
+    expect({ differing, calls: calls() }).toEqual({ differing, calls: 2 });
+  }
+});
+
+test("a streamed reply is frames, not a body, so it is never cached", async () => {
+  const { say, calls, stop } = speechRuns();
+  await say({ stream: true });
+  await say({ stream: true });
+  const buffered = await say();
+  stop();
+
+  // Three engine calls: neither streamed request was served from cache, and
+  // neither left an entry for the buffered one to find.
+  expect(calls()).toBe(3);
+  expect(buffered.status).toBe(200);
 });

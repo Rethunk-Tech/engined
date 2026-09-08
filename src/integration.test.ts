@@ -6,10 +6,11 @@
  * reached; a status code alone never is.
  */
 
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { resetSpeechCache } from "./audio.ts";
 import type { DoorOptions } from "./doorContext.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { HTTP_CLIENT_ERROR_MIN } from "./http.ts";
@@ -29,6 +30,11 @@ import {
   upstream,
 } from "./test-support.ts";
 import type { Config, EngineEntry } from "./types.ts";
+
+// One door per process in production, so the synthesis cache is module-level.
+// A suite builds many doors in one process, so without this an earlier test's
+// rendition answers a later one and a call that must fail succeeds instead.
+beforeEach(resetSpeechCache);
 
 /** Never 29200 — a real daemon may be installed on this box. This is only ever compared against a header, never bound. */
 const TEST_LISTEN_PORT = 39_217;
