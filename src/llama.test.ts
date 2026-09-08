@@ -206,13 +206,25 @@ async function warmUpAndCountLoads(
   return calls.filter((c) => c.path === LOAD_PATH).length;
 }
 
-/** Gates the fake client's very first CHAT_PATH call so a caller can prove a
- * second request is genuinely in flight (or queued) behind the first. */
-function gatedFirstChat(): {
+/**
+ * `fakeLlama()` with its calls to `path` parked at a gate, so a caller can
+ * prove work is genuinely in flight rather than already finished: `started`
+ * resolves once the first call is parked, `inGate` counts how many are parked,
+ * and `release` lets them all through. `once` gates only the first call, which
+ * is what holding one request open behind a second, distinguishing one needs;
+ * gating every call is what admission-control tests need, where several must
+ * be in flight together. `inGate` counts entries and never decrements -- every
+ * caller reads it before releasing.
+ */
+function gatedClient(
+  path: string,
+  { once = false }: { once?: boolean } = {},
+): {
   client: HttpClient;
   calls: RecordedCall[];
   release: () => void;
   started: Promise<void>;
+  inGate: () => number;
 } {
   let release: () => void = () => undefined;
   const gate = new Promise<void>((r) => {
@@ -222,45 +234,20 @@ function gatedFirstChat(): {
   const startedPromise = new Promise<void>((r) => {
     started = r;
   });
-  let sawFirstChat = false;
+  let sawFirst = false;
+  let waiting = 0;
   const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
+  const gated: HttpClient = async (input, init) => {
     const url = new URL(String(input));
-    if (url.pathname === CHAT_PATH && !sawFirstChat) {
-      sawFirstChat = true;
+    if (url.pathname === path && !(once && sawFirst)) {
+      sawFirst = true;
+      waiting++;
       started();
       await gate;
     }
     return client(input, init);
   };
-  return { client: gatedClient, calls, release, started: startedPromise };
-}
-
-/** Gates every CHAT_PATH call (not just the first) so a caller can hold
- * several leases open at once and prove how many concurrently reached the
- * upstream, for admission-control tests where more than one request must
- * be genuinely in flight together. */
-function gatedAllChat(): {
-  client: HttpClient;
-  calls: RecordedCall[];
-  release: () => void;
-  inGate: () => number;
-} {
-  let release: () => void = () => undefined;
-  const gate = new Promise<void>((r) => {
-    release = r;
-  });
-  let waiting = 0;
-  const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === CHAT_PATH) {
-      waiting++;
-      await gate;
-    }
-    return client(input, init);
-  };
-  return { client: gatedClient, calls, release, inGate: () => waiting };
+  return { client: gated, calls, release, started: startedPromise, inGate: () => waiting };
 }
 
 /** Wires `models` to a gated router, fires the first "a" chat, and waits
@@ -276,8 +263,8 @@ async function startGatedChat(
   release: () => void;
   res1: Promise<LlamaHop>;
 }> {
-  const { client: gatedClient, calls, release, started } = gatedFirstChat();
-  const router = routerWithClient(e, models, gatedClient);
+  const { client: gated, calls, release, started } = gatedClient(CHAT_PATH, { once: true });
+  const router = routerWithClient(e, models, gated);
   const res1 = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
   await started;
   return { router, calls, release, res1 };
@@ -1010,7 +997,7 @@ test("a container restarted under a live lease still counts that lease: the next
   });
   let chatCalls = 0;
   const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
+  const failThenGate: HttpClient = async (input, init) => {
     if (new URL(String(input)).pathname === CHAT_PATH) {
       chatCalls += 1;
       if (chatCalls === 1) {
@@ -1024,7 +1011,7 @@ test("a container restarted under a live lease still counts that lease: the next
   };
 
   const router = new LlamaRouter(e, [a], new DockerLifecycle(goneExec, fakeProbe), {
-    ...baseOpts(gatedClient),
+    ...baseOpts(failThenGate),
   });
   const res1 = router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) });
   await retryStarted;
@@ -1162,7 +1149,7 @@ test("contention reports the request holding a role's lease and the one queued b
 test("6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door", async () => {
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf", args: { parallel: 2 } });
-  const { client, calls, release, inGate } = gatedAllChat();
+  const { client, calls, release, inGate } = gatedClient(CHAT_PATH);
   const router = routerWithClient(e, [a], client);
 
   const send = () =>
@@ -1200,7 +1187,7 @@ for (const [label, args] of [
   test(`${label} caps admission at the auto slot count the child really has`, async () => {
     const e = engine();
     const a = model({ id: "a", filename: "a.gguf", args });
-    const { client, release, inGate } = gatedAllChat();
+    const { client, release, inGate } = gatedClient(CHAT_PATH);
     const router = routerWithClient(e, [a], client);
 
     const send = () =>
@@ -1225,38 +1212,6 @@ test("a role nothing has touched is absent from contention rather than reported 
   expect(router.contention()).toEqual([]);
 });
 
-/** Gates the fake client's very first `/models/unload` so a caller can park a
- * role's pump inside `swapResident` -- the old GGUF already unloaded, the new
- * one not yet loaded, `activeModelId` still naming the old one and the queue
- * already empty. */
-function gatedFirstUnload(): {
-  client: HttpClient;
-  calls: RecordedCall[];
-  release: () => void;
-  started: Promise<void>;
-} {
-  let release: () => void = () => undefined;
-  const gate = new Promise<void>((r) => {
-    release = r;
-  });
-  let started: () => void = () => undefined;
-  const startedPromise = new Promise<void>((r) => {
-    started = r;
-  });
-  let sawFirstUnload = false;
-  const { client, calls } = fakeLlama();
-  const gatedClient: HttpClient = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === UNLOAD_PATH && !sawFirstUnload) {
-      sawFirstUnload = true;
-      started();
-      await gate;
-    }
-    return client(input, init);
-  };
-  return { client: gatedClient, calls, release, started: startedPromise };
-}
-
 /**
  * Interleaving: "a" is resident and idle, so no lease is held and the queue is
  * empty. A request for "b" is shifted off the queue and parked inside
@@ -1268,7 +1223,7 @@ test("a request for the resident model arriving while that GGUF is mid-unload qu
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf" });
   const b = model({ id: "b", filename: "b.gguf" });
-  const { client, calls, release, started } = gatedFirstUnload();
+  const { client, calls, release, started } = gatedClient(UNLOAD_PATH, { once: true });
   const router = routerWithClient(e, [a, b], client);
 
   await text(router.proxy(a, CHAT_PATH, { method: "POST", body: JSON.stringify({ model: "a" }) }));
@@ -1307,7 +1262,7 @@ test("a request for the resident model arriving while a keep_resident re-warm un
   const e = engine();
   const a = model({ id: "a", filename: "a.gguf", keep_resident: true });
   const b = model({ id: "b", filename: "b.gguf" });
-  const { client, calls, release, started } = gatedFirstUnload();
+  const { client, calls, release, started } = gatedClient(UNLOAD_PATH, { once: true });
   const router = routerWithClient(e, [a, b], client);
 
   // Nothing is resident yet, so serving "b" loads it without an unload; the
