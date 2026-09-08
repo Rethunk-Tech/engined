@@ -35,6 +35,15 @@ const TEST_LISTEN_PORT = 39_217;
 
 const TEST_ROOT = makeTestRoot("engined-integration-test-");
 
+/**
+ * The registry options every door here is built with. Neither value is ever
+ * resolved: engines are named through `spec_dir`, and no agentic launch is
+ * spawned, so an `enginesRoot` that cannot exist is what proves it. Not
+ * `test-support.ts`'s `ENGINES_ROOT`/`BUNX` -- those name the repo's real
+ * `engines/` and a plausible bunx path, which is a different exercise.
+ */
+const REGISTRY_OPTS = { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" };
+
 /** `config()` with a port that is never 29200 and timeouts short enough to fail fast. */
 function baseConfig(overrides: Partial<Config> = {}): Config {
   return sharedConfig({
@@ -198,8 +207,7 @@ function modelsListConfig(): Config {
 function offlineDoor(config: Config): Door {
   const exec: Exec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
   return createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 }
@@ -311,8 +319,7 @@ test("GET /engined/v1/engines carries top-level contract and commit", async () =
   const config = baseConfig({ engines: [containerEngine("local", OPENAI_SPEC)] });
   const exec: Exec = async () => ({ stdout: "", stderr: "", exitCode: 1 });
   const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 
@@ -332,8 +339,7 @@ test("GET /engined/v1/engines answers 200 even when every engine is unavailable"
   // Every "image inspect" fails: no image ever resolves on this box.
   const exec: Exec = async (): Promise<ExecResult> => ({ stdout: "", stderr: "", exitCode: 1 });
   const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 
@@ -350,8 +356,7 @@ test("GET /engined/v1/engines answers 200 even when every engine is unavailable"
 
 test("the Origin guard applies to a GET: foreign Origin, Origin: null, and a non-loopback Host are refused; no Origin is served normally", async () => {
   const door = createDoor(baseConfig(), {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
   });
 
   try {
@@ -483,7 +488,7 @@ async function withChatDoor(
   const { exec, stoppables = [], doorOpts = {} } = setup;
   const door = createDoor(
     baseConfig(cfgOverrides),
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { ...REGISTRY_OPTS, exec },
     { llamaPresetHostPath: tempPresetPath(), ...doorOpts },
   );
   try {
@@ -801,7 +806,7 @@ test("an agentic attempt with no workdir returns 400", async () => {
     // execAgentic to reach the workdir check at all.
     engines: [containerEngine("claude", AGENTIC_SPEC, { agent_version: "1.0.0" })],
   });
-  const door = createDoor(config, { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx" });
+  const door = createDoor(config, { ...REGISTRY_OPTS });
 
   try {
     const res = await door.fetch(
@@ -838,8 +843,7 @@ test("a completed audio request arms idle-stop the same as a chat lease: the con
     ],
   });
   const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 
@@ -906,8 +910,7 @@ test("a streamed audio call holds its lease until the body ends, not until the h
     ],
   });
   const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 
@@ -955,11 +958,7 @@ test("a failed audio call records why it failed, not merely that it did", async 
     engines: [containerEngine("chatterbox-multi", ttsSpec())],
   });
   const { lines, write } = collectLines();
-  const door = createDoor(
-    config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
-    { write },
-  );
+  const door = createDoor(config, { ...REGISTRY_OPTS, exec }, { write });
 
   try {
     await door.fetch(
@@ -1011,7 +1010,7 @@ function streamingSpeechDoor(): StreamingSpeechDoor {
       routes: CHATTERBOX_ROUTES,
       engines: [containerEngine("chatterbox-multi", ttsSpec())],
     }),
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { ...REGISTRY_OPTS, exec },
     { write },
   );
   return {
@@ -1067,8 +1066,7 @@ test("a streamed audio call abandoned mid-body still records a failure", async (
 
 test("an oversized transcription upload is refused before it is read", async () => {
   const door = createDoor(baseConfig({}), {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec: buildExec({}),
   });
 
@@ -1117,8 +1115,7 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
     engines: [containerEngine("chatterbox-multi", ttsSpec())],
   });
   const door = createDoor(config, {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
     exec,
   });
 
@@ -1158,8 +1155,7 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
       engines: [containerEngine("chatterbox-multi", ttsSpec())],
     }),
     {
-      enginesRoot: "/nonexistent/engines",
-      bunx: "/opt/test/bunx",
+      ...REGISTRY_OPTS,
       exec,
     },
   );
@@ -1249,8 +1245,7 @@ test("a live transcription reaches the engine while the caller is still uploadin
   const door = createDoor(
     baseConfig({ routes: STT_ROUTES, engines: [containerEngine("whisper", sttSpec())] }),
     {
-      enginesRoot: "/nonexistent/engines",
-      bunx: "/opt/test/bunx",
+      ...REGISTRY_OPTS,
       exec: buildExec({ portByContainer: { "engined-whisper": fake.port } }),
     },
   );
@@ -1294,8 +1289,7 @@ test("a transcription request with no multipart body is a JSON 400, not Bun's HT
   // own HTML error page -- the one door response a JSON client cannot read.
   // No engines needed: both guards fire before the engine is ever resolved.
   const door = createDoor(baseConfig(), {
-    enginesRoot: "/nonexistent/engines",
-    bunx: "/opt/test/bunx",
+    ...REGISTRY_OPTS,
   });
 
   const empty = await door.fetch(
@@ -1359,8 +1353,7 @@ test("a route whose upstream has a secret and no base_url lists unavailable, age
   const door = createDoor(
     config,
     {
-      enginesRoot: "/nonexistent/engines",
-      bunx: "/opt/test/bunx",
+      ...REGISTRY_OPTS,
       exec: async () => ({ stdout: "", stderr: "", exitCode: 1 }),
       agenticProbeRunner: () => Promise.resolve({ ok: true }),
     },
@@ -1424,7 +1417,7 @@ test("a chain reports the first hop that can answer as its state and names every
   const config = chainHopConfig();
   const door = createDoor(
     config,
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec: buildExec({}) },
+    { ...REGISTRY_OPTS, exec: buildExec({}) },
     { secretExec: () => Promise.resolve({ stdout: "key\n", stderr: "", exitCode: 0 }) },
   );
 
@@ -1509,7 +1502,7 @@ test("an uploaded reference voice reaches the engine as the door's own path, and
       routes: CHATTERBOX_ROUTES,
       engines: [containerEngine("chatterbox-multi", ttsSpec())],
     }),
-    { enginesRoot: "/nonexistent/engines", bunx: "/opt/test/bunx", exec },
+    { ...REGISTRY_OPTS, exec },
   );
   const restoreStateHome = redirectStateHome();
 
