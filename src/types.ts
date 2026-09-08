@@ -121,26 +121,6 @@ export const KIND_TRAITS: Record<
   },
 };
 
-const KIND_ENTRIES = Object.entries(KIND_TRAITS) as [
-  EngineKind,
-  (typeof KIND_TRAITS)[EngineKind],
-][];
-
-/** Kinds whose spec is the container dialect. */
-export const CONTAINER_KINDS: ReadonlySet<EngineKind> = new Set(
-  KIND_ENTRIES.filter(([, t]) => t.container).map(([kind]) => kind),
-);
-
-/** A spec-less engine's upstream trait, keyed by its declared `kind`. A spec-full engine's trait comes from its own spec instead -- see `spec.ts`'s `upstream` key. */
-export const KIND_UPSTREAM_TRAIT: Record<EngineKind, UpstreamTrait> = Object.fromEntries(
-  KIND_ENTRIES.map(([kind, t]) => [kind, t.upstream]),
-) as Record<EngineKind, UpstreamTrait>;
-
-/** A spec-less engine's filename/role/args disposition, keyed by its declared `kind`. */
-export const KIND_LOCAL_FILE_RULES: Record<EngineKind, RouteFieldRules> = Object.fromEntries(
-  KIND_ENTRIES.map(([kind, t]) => [kind, t.localFile]),
-) as Record<EngineKind, RouteFieldRules>;
-
 /**
  * There is no `idle`: idle-stop leaves an engine `installed` with nothing
  * running, which reads identically to one that has never started because
@@ -455,7 +435,7 @@ interface SpecCommon {
    * How this engine gets an upstream when a route names none. Required on
    * every spec: a spec-full engine has no other source of truth for its
    * trait, unlike a spec-less one, which takes it from the built-in
-   * `KIND_UPSTREAM_TRAIT` table keyed by `kind` instead.
+   * `KIND_TRAITS` table keyed by `kind` instead.
    */
   upstream: UpstreamTrait;
 }

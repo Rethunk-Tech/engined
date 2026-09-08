@@ -14,11 +14,12 @@ import {
   type Artifact,
   argvFromArgs,
   assertNoForbiddenFlags,
-  CONTAINER_KINDS,
   type ContainerSpec,
   type EngineEntry,
+  type EngineKind,
   isContainerSpec,
   isRecord,
+  KIND_TRAITS,
   type LoadedSpec,
   ParseError,
   type ReadyProbe,
@@ -266,7 +267,7 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
 }
 
 function parseContainer(raw: Record<string, unknown>, file: string, kind: string): ContainerSpec {
-  if (!(CONTAINER_KINDS as ReadonlySet<string>).has(kind)) {
+  if (!(Object.hasOwn(KIND_TRAITS, kind) && KIND_TRAITS[kind as EngineKind].container)) {
     throw new ParseError(`unknown engine kind "${kind}"`, file);
   }
   assertKnownKeys(raw, "spec", CONTAINER_KEYS, file);

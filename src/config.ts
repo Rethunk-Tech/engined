@@ -33,7 +33,6 @@ import {
   isEgress,
   isRecord,
   KIND_TRAITS,
-  KIND_UPSTREAM_TRAIT,
   ParseError,
   qualifiedSegments,
 } from "./types.ts";
@@ -429,7 +428,7 @@ interface SpecFacts {
  */
 function specFactsFor(engine: EngineEntry, enginesRoot: string): SpecFacts {
   if (engine.kind !== undefined) {
-    return { trait: KIND_UPSTREAM_TRAIT[engine.kind], kind: engine.kind };
+    return { trait: KIND_TRAITS[engine.kind].upstream, kind: engine.kind };
   }
   const specDir = engine.spec_dir ?? join(enginesRoot, engine.id);
   const specFile = join(specDir, "spec.toml");

@@ -35,8 +35,7 @@ import {
   errMessage,
   FatalError,
   isContainerSpec,
-  KIND_LOCAL_FILE_RULES,
-  KIND_UPSTREAM_TRAIT,
+  KIND_TRAITS,
   type LoadedSpec,
   type ReadyProbe,
   type ResolvedRoute,
@@ -143,7 +142,7 @@ function builtInSpec(engine: EngineEntry, kind: EngineKind): Spec {
     serves: KIND_SERVES[kind],
     env: [],
     command: [],
-    upstream: KIND_UPSTREAM_TRAIT[kind],
+    upstream: KIND_TRAITS[kind].upstream,
     devices: [],
     group_add: [],
     security_opt: [],
@@ -429,7 +428,7 @@ function checkLocalFileDisposition(
   kind: EngineKind,
   routes: readonly ResolvedRoute[],
 ): void {
-  const rules = KIND_LOCAL_FILE_RULES[kind];
+  const rules = KIND_TRAITS[kind].localFile;
   for (const r of routes) {
     if (
       r.engine !== engine.id ||
