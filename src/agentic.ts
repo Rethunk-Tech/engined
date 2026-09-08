@@ -533,10 +533,18 @@ export function hashTree(root: string): string {
   return walkTree(root).hash;
 }
 
+/**
+ * Content nothing under test writes, so an unchanged tree hash means the
+ * agent touched nothing. Exported because the local tier seeds its own real
+ * worktrees with it: two spellings of "the file that must not change" is one
+ * edit away from a suite that proves nothing.
+ */
+export const WORKTREE_SEED = "unrelated pre-existing content\n";
+
 /** Always a fresh directory under the OS temp directory — never a real repository this box happens to have checked out. */
 function scratchWorktree(): string {
   const dir = mkdtempSync(join(tmpdir(), "engined-agentic-probe-"));
-  writeFileSync(join(dir, "seed.txt"), "unrelated pre-existing content\n");
+  writeFileSync(join(dir, "seed.txt"), WORKTREE_SEED);
   return dir;
 }
 

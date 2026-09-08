@@ -129,10 +129,19 @@ const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/;
 
 /** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = "/engined/v1/start";
-const STOP_RE = /^\/engined\/v1\/engines\/([^/]+)\/stop$/;
-const LOGS_RE = /^\/engined\/v1\/engines\/([^/]+)\/logs$/;
-const RESOURCES_RE = /^\/engined\/v1\/engines\/([^/]+)\/resources$/;
-const RELEASE_RE = /^\/engined\/v1\/engines\/([^/]+)\/release$/;
+/**
+ * `/engined/v1/engines/<id>/<verb>`, the shape every per-engine verb shares:
+ * written once so a path that drifts drifts for all of them at once. The id
+ * is capture 1; a `verb` carrying its own group (the extras route) adds a
+ * second.
+ */
+function engineVerbRe(verb: string): RegExp {
+  return new RegExp(`^/engined/v1/engines/([^/]+)/${verb}$`);
+}
+const STOP_RE = engineVerbRe("stop");
+const LOGS_RE = engineVerbRe("logs");
+const RESOURCES_RE = engineVerbRe("resources");
+const RELEASE_RE = engineVerbRe("release");
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
 const SSE_KEEPALIVE_MS = 30_000;
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
@@ -371,7 +380,7 @@ async function handleResources(registry: EngineRegistry, id: string): Promise<Re
 }
 
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
-const EXTRAS_RE = /^\/engined\/v1\/engines\/([^/]+)\/(tokenize|apply-template)$/;
+const EXTRAS_RE = engineVerbRe("(tokenize|apply-template)");
 
 /**
  * An explicit `null` from the caller unsets a wire default rather than being

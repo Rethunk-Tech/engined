@@ -9,7 +9,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { buildAgenticProbeRunner, hashTree, type RunAgenticResult } from "../../src/agentic.ts";
+import {
+  buildAgenticProbeRunner,
+  hashTree,
+  type RunAgenticResult,
+  WORKTREE_SEED,
+} from "../../src/agentic.ts";
 import { loadConfig } from "../../src/config.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { stateDir } from "../../src/paths.ts";
@@ -17,13 +22,10 @@ import { clearVerifiedVersion, config } from "../../src/test-support.ts";
 import { type Config, errMessage, type ResolvedRoute } from "../../src/types.ts";
 import { CONFIG_EXAMPLE, ENGINES_ROOT, LOCAL } from "./exclusive.ts";
 
-/** Content nothing under test writes, so an unchanged tree hash means the agent touched nothing. */
-const SEED = "unrelated pre-existing content\n";
-
 /** Seeds `dir`, creating it if absent, and hands it back so a caller can name it inline. */
 export function seedWorktree(dir: string): string {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "seed.txt"), SEED);
+  writeFileSync(join(dir, "seed.txt"), WORKTREE_SEED);
   return dir;
 }
 
