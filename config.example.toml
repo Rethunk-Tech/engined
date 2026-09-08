@@ -374,11 +374,11 @@ wire_model = "@/llama/ornith"
 id            = "cursor"
 disable       = true
 # Whatever pin you've actually proved on this box -- see claude's own
-# comment above for what "proved" means here. This one was proved 2026-09-01.
+# comment above for what "proved" means here. This one was proved 2026-09-07.
 # cursor self-updates in place, so this pin goes stale on its own schedule,
 # not on yours: test:local reads it and fails loudly the moment the installed
 # binary disagrees, which is the intended way to find out.
-agent_version = "2026.09.03-0d34408"
+agent_version = "2026.09.07-2bbdcc3"
 # No [engine.args] output-format or mode here: cursor's launch in agents.ts
 # sets --output-format stream-json and --mode plan unconditionally in code,
 # so both keys are never real tunables -- assertNoForbiddenFlags refuses a
