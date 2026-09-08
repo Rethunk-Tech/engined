@@ -16,7 +16,7 @@ import {
   resolveCursorBinary,
 } from "./agents.ts";
 import { makeTestRoot } from "./test-support.ts";
-import { AGENTIC_FLOOR } from "./types.ts";
+import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-agents-test-");
 
@@ -158,6 +158,32 @@ it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist 
   // No `configure`: see src/agents.ts for why redirecting cursor's own
   // inference through engined's door is worse than leaving it alone.
   expect(cursor?.configure).toBeUndefined();
+});
+
+it("every flag an agent's own launch prepends is one no config can re-supply", () => {
+  // The guard is derived from these same tables, so a flag added to any one of
+  // them is unbeatable with no second edit anywhere. Read back off the launches
+  // rather than off a written-down list, which is what would drift.
+  for (const [id, agent] of [
+    ["claude", agentCli("claude")],
+    ["cursor", agentCli("cursor")],
+  ] as const) {
+    const prepended = agent?.launch("/mcp.json", true) ?? [];
+    const declared = new Set((AGENT_PREPENDED_ARGV[id] ?? []).flatMap((tokens) => [...tokens]));
+    for (const flag of prepended.filter((tok) => tok.startsWith("--"))) {
+      expect(declared.has(flag)).toBe(true);
+      expect(() => assertNoForbiddenFlags([flag], "config.toml")).toThrow(flag);
+    }
+  }
+});
+
+it("a config re-supplying --output-format to cursor is refused, silencing no stream-json evidence", () => {
+  expect(() => assertNoForbiddenFlags(["--output-format"], "config.toml")).toThrow(
+    "--output-format",
+  );
+  expect(() => assertNoForbiddenFlags(["--output-format=text"], "config.toml")).toThrow(
+    "--output-format",
+  );
 });
 
 it("cursor declares a binary resolution strategy; claude and opencode -- both npm-fetched by bunx -- declare none", () => {

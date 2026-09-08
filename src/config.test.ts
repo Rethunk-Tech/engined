@@ -109,6 +109,7 @@ const RX_UNRECOGNISED_ROUTE_KEY = /unrecognised key "rolee"/;
 const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/;
 const RX_MODELS_MAX_ROLES = /below its 2 distinct configured roles/;
 const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/;
+const RX_PREPENDED_FLAG = /duplicates a flag engined prepends/;
 const RX_INVALID_TOML = /invalid TOML/;
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/;
 const RX_UNKNOWN_UPSTREAM = /names unknown upstream "nope"/;
@@ -243,9 +244,6 @@ vision = "describe"
 id            = "claude"
 kind          = "agentic-cli"
 agent_version = "2.1.247"
-
-  [engine.args]
-  output-format = "json"
 
 [[route]]
 engine = "claude"
@@ -1236,6 +1234,23 @@ model = "sonnet-5"
 `;
       expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FORBIDDEN_FLAG);
     });
+  }
+});
+
+test("a flag engined prepends in code is refused in [engine.args], floor or not", () => {
+  // Neither key is in FORBIDDEN_AGENTIC_FLAGS: both are refused only because
+  // an agent's own prepended argv names them, which is what makes adding a
+  // flag there enough on its own.
+  for (const key of ["output-format", "trust"]) {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+  [engine.args]
+  "${key}" = "stream-json"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_PREPENDED_FLAG);
   }
 });
 

@@ -770,6 +770,55 @@ export const AGENTIC_FLOOR = [
   "--strict-mcp-config",
 ] as const;
 
+/**
+ * Not part of any safety floor -- needed only so stdout is the JSON the parser
+ * expects. Unconditional in code on every call, the same as a floor: never
+ * write `output-format` into a `[engine.args]` table.
+ */
+export const CLAUDE_OUTPUT_FORMAT = ["--output-format", "json"] as const;
+
+/** The streamed form: `stream-json` needs `--verbose` in print mode, and partial messages are what make it a stream of deltas rather than one chunk per turn. */
+export const CLAUDE_STREAM_FORMAT = [
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--include-partial-messages",
+] as const;
+
+/**
+ * `--output-format text` emits an empty stream on a refused write -- the tool
+ * calls and the refusal itself are visible only in the `stream-json` event
+ * log, so this is part of the floor's own evidence, not a preference.
+ */
+export const CURSOR_OUTPUT_FORMAT = ["--output-format", "stream-json"] as const;
+
+/**
+ * cursor's floor: a mode, not a tool allowlist. Measured (docs/security-model.md)
+ * against 2026.08.28-50f0823: under `--mode plan` it read files and ran
+ * read-only shell commands, but a write instruction produced no file and the
+ * text "Plan mode blocks file writes", reaching for its plan tool instead --
+ * unmoved by a permissive `.cursor/cli-config.json` planted in the workdir and
+ * its parent. `--trust` carries no write capability of its own; without it a
+ * fresh workdir's workspace-trust prompt refuses the launch outright before
+ * plan mode is ever reached.
+ */
+export const CURSOR_FLOOR = ["--mode", "plan", "--trust"] as const;
+
+/**
+ * Everything engined itself prepends to an agentic launch, keyed by the agent
+ * it is prepended for -- the read-only floor and the output format alike,
+ * since a config that re-supplies either one reaches the child. Kept per
+ * agent rather than merged into one array because where the floor comes from
+ * is per-agent: claude's is argv, cursor's is a mode, and opencode's is the
+ * bwrap mount table, which has no argv to name here at all.
+ *
+ * `agents.ts` composes each launch from exactly these.
+ */
+export const AGENT_PREPENDED_ARGV: Record<string, readonly (readonly string[])[]> = {
+  claude: [CLAUDE_OUTPUT_FORMAT, CLAUDE_STREAM_FORMAT, AGENTIC_FLOOR],
+  cursor: [CURSOR_OUTPUT_FORMAT, CURSOR_FLOOR],
+};
+
 /** Each dissolves the guarantee. Fatal at parse wherever they appear. */
 export const FORBIDDEN_AGENTIC_FLAGS = [
   // opencode's own dangerous flag: "auto-approve permissions that are not
@@ -794,34 +843,40 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
   // every value through. The key is the whole danger: engined decides this
   // posture, not a config.
   "--sandbox",
-  // cursor's own floor flag. `AGENTIC_FLOOR_FLAG_NAMES` below only knows
-  // claude's flag names, so without this a config `[engine.args]` entry
-  // could set `--mode ask` and, by last-wins argument parsing, silently
-  // replace the `--mode plan` cursor's own launch already prepended.
-  "--mode",
 ] as const;
 
 /**
- * Derived from `AGENTIC_FLOOR` itself rather than hand-copied: a config
- * `[engine.args]` key that renders to `--tools` (or any other floor flag)
- * appends a SECOND copy after the floor's own, and last-wins argument
- * parsing means whatever the config supplied is what the child actually
- * gets — the floor was never really prepended, just overwritten. Deriving
- * from the floor array means any flag later added to it is automatically
- * unbeatable too, with nothing new to remember to blacklist.
+ * Derived from `AGENT_PREPENDED_ARGV` itself rather than hand-copied: a config
+ * `[engine.args]` key that renders to `--tools` (or any other prepended flag)
+ * appends a SECOND copy after engined's own, and last-wins argument parsing
+ * means whatever the config supplied is what the child actually gets — the
+ * flag was never really prepended, just overwritten. Deriving means any flag
+ * later added to any agent's own constants is automatically unbeatable too,
+ * with nothing new to remember to blacklist.
+ *
+ * The blast radius differs per agent, which is why the format flags are in
+ * here beside the floor: re-supplying `--output-format` to cursor silences the
+ * `stream-json` event log that IS that floor's evidence (docs/security-model.md),
+ * while on claude it only fails the envelope parser closed.
+ *
+ * Flattened across agents at the last step because the sites that ask cannot
+ * know which agent they are asking for: a config names an engine, and the
+ * agent id arrives later, out of that engine's spec.
  */
-const AGENTIC_FLOOR_FLAG_NAMES = new Set<string>(
-  AGENTIC_FLOOR.filter((token) => token.startsWith("--")),
+const AGENT_PREPENDED_FLAG_NAMES = new Set<string>(
+  Object.values(AGENT_PREPENDED_ARGV).flatMap((groups) =>
+    groups.flatMap((tokens) => tokens.filter((token) => token.startsWith("--"))),
+  ),
 );
 
-/** The two ways a bare flag name can dissolve the floor: it's outright forbidden, or it duplicates one the floor already set. */
+/** The two ways a bare flag name can dissolve the floor: it's outright forbidden, or it duplicates one engined already prepends. */
 function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
   if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
     throw new ParseError(`${bare} dissolves the read-only floor`, file);
   }
-  if (AGENTIC_FLOOR_FLAG_NAMES.has(bare)) {
+  if (AGENT_PREPENDED_FLAG_NAMES.has(bare)) {
     throw new ParseError(
-      `${bare} duplicates a flag the agentic read-only floor already sets; it cannot be overridden, only the floor's own value would apply`,
+      `${bare} duplicates a flag engined prepends on every agentic launch; it cannot be overridden, only engined's own value would apply`,
       file,
     );
   }

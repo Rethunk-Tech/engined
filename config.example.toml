@@ -274,10 +274,11 @@ disable       = true   # sends every prompt to Anthropic; leave off until that's
 agent_version = "2.1.258"
 # No [engine.args] output-format here: this agent's launch in agents.ts sets
 # --output-format json unconditionally in code on every launch, so this key
-# is never a real tunable -- and a config value that disagreed with it would
+# is never a real tunable -- a config value that disagreed with it would
 # silently break every parseEnvelope call, which is the same last-wins
-# duplication class as the read-only floor. [engine.args] still applies to
-# whatever claude flags actually ARE yours to set (max-turns, model, ...).
+# duplication class as the read-only floor, and assertNoForbiddenFlags refuses
+# it for exactly that reason. [engine.args] still applies to whatever claude
+# flags actually ARE yours to set (max-turns, model, ...).
 
 # A [[model]] is optional -- declared only where there's a capability worth
 # recording -- and unrelated to any engine or upstream; it names nothing

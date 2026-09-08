@@ -28,12 +28,11 @@ const RX_DISSOLVES_FLOOR = /dissolves the read-only floor/;
 
 const TEST_ROOT = makeTestRoot("engined-agentic-test-");
 
-/** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one of the three floor flags or a forbidden one. */
+/** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one engined itself prepends or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
   "max-turns": 8,
   model: "sonnet",
   "append-system-prompt": "be terse",
-  verbose: true,
   "no-color": false,
   cwd: undefined,
   "session-id": "abc-123",
@@ -84,7 +83,7 @@ test("assertNoForbiddenFlags: every floor flag is rejected if a config names it,
 });
 
 test("assertNoForbiddenFlags: a long list of ordinary args that name none of the floor's flags still passes clean", () => {
-  const argv = ["--max-turns", "8", "--model", "sonnet", "--verbose"];
+  const argv = ["--max-turns", "8", "--model", "sonnet", "--no-color"];
 
   expect(() => assertNoForbiddenFlags(argv, "config.toml")).not.toThrow();
 });
@@ -92,8 +91,8 @@ test("assertNoForbiddenFlags: a long list of ordinary args that name none of the
 test("assertNoForbiddenFlags: cursor's own ways to say yes are all refused by name", () => {
   expect(() => assertNoForbiddenFlags(["--force"], "config.toml")).toThrow("--force");
   expect(() => assertNoForbiddenFlags(["--yolo"], "config.toml")).toThrow("--yolo");
-  // --mode is cursor's own floor flag, not covered by AGENTIC_FLOOR_FLAG_NAMES
-  // (claude's flag names only), so it needs its own bare-forbid entry.
+  // --mode is cursor's own floor flag, refused because cursor's launch
+  // prepends it -- not by a blacklist entry of its own.
   expect(() => assertNoForbiddenFlags(["--mode", "ask"], "config.toml")).toThrow("--mode");
 });
 

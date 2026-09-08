@@ -15,7 +15,16 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
-import { AGENTIC_FLOOR, isRecord, parseRecord, type Wire } from "./types.ts";
+import {
+  AGENTIC_FLOOR,
+  CLAUDE_OUTPUT_FORMAT,
+  CLAUDE_STREAM_FORMAT,
+  CURSOR_FLOOR,
+  CURSOR_OUTPUT_FORMAT,
+  isRecord,
+  parseRecord,
+  type Wire,
+} from "./types.ts";
 
 export interface AgenticOutcome {
   ok: boolean;
@@ -86,20 +95,6 @@ export interface AgentTarget {
   /** The model id at that base, e.g. `ornith`. */
   model: string;
 }
-
-/**
- * Not part of any safety floor -- needed only so stdout is the JSON the parser
- * expects. Unconditional in code on every call, the same as a floor: never
- * write `output-format` into a `[engine.args]` table.
- */
-const CLAUDE_OUTPUT_FORMAT = ["--output-format", "json"] as const;
-/** The streamed form: `stream-json` needs `--verbose` in print mode, and partial messages are what make it a stream of deltas rather than one chunk per turn. */
-const CLAUDE_STREAM_FORMAT = [
-  "--output-format",
-  "stream-json",
-  "--verbose",
-  "--include-partial-messages",
-] as const;
 
 /**
  * Failure lives in the envelope, never in the exit code. Verified: `claude -p
@@ -246,25 +241,6 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
   }
   return { ok: true, result: text };
 }
-
-/**
- * `--output-format text` emits an empty stream on a refused write -- the tool
- * calls and the refusal itself are visible only in the `stream-json` event
- * log, so this is part of the floor's own evidence, not a preference.
- */
-const CURSOR_OUTPUT_FORMAT = ["--output-format", "stream-json"] as const;
-
-/**
- * cursor's floor: a mode, not a tool allowlist. Measured (docs/security-model.md)
- * against 2026.08.28-50f0823: under `--mode plan` it read files and ran
- * read-only shell commands, but a write instruction produced no file and the
- * text "Plan mode blocks file writes", reaching for its plan tool instead --
- * unmoved by a permissive `.cursor/cli-config.json` planted in the workdir and
- * its parent. `--trust` carries no write capability of its own; without it a
- * fresh workdir's workspace-trust prompt refuses the launch outright before
- * plan mode is ever reached.
- */
-const CURSOR_FLOOR = ["--mode", "plan", "--trust"] as const;
 
 /**
  * `stream-json` is one JSON object per line, and unlike opencode's stream it
