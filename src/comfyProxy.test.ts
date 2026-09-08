@@ -1005,7 +1005,7 @@ describe("comfy proxy: the table is written only when it changed", () => {
 describe("comfy proxy: a binding ages out", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   /** `comfyKey`'s own separator: engine, origin, prompt id, NUL between each. */
-  const KEY_PREFIX = "comfy local ";
+  const KEY_PREFIX = "comfy\u0000local\u0000";
 
   /** Writes the binding table directly, so a test can plant an age without waiting for one. */
   function plantBindings(
