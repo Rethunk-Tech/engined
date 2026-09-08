@@ -183,7 +183,9 @@ interface TranscriptionRequestBody {
   /**
    * Vocabulary the caller expects to hear -- whisper's `initial_prompt`. It is
    * the only lever that moves a proper noun the model has never seen, so a
-   * door that drops it silently costs every caller that error class.
+   * door that drops it silently costs every caller that error class. Comma
+   * separated, and capped to whisper's window by `cappedBiasPrompt` before it
+   * reaches the engine.
    */
   prompt?: string;
   /**
@@ -710,6 +712,56 @@ async function transcribeRemote(
  */
 const TRANSCRIPTION_STREAM_PATH = "/v1/audio/transcriptions/stream";
 
+/**
+ * Whisper's `initial_prompt` is a fixed window -- half the text context, 224
+ * tokens -- and vocabulary past it does not reach the decoder at all. The door
+ * has no tokenizer, so the window is held as terms and term length: 24 terms
+ * of at most 40 characters is ~960 characters, close under the window, and a
+ * term longer than that is a phrase, which biases a whole sentence rather than
+ * a name.
+ *
+ * The cap lives here because the limit is whisper's, not any caller's. Two
+ * consumers guessed it independently and disagreed about which vocabulary
+ * survives, which is the failure a shared door exists to prevent.
+ */
+const MAX_BIAS_TERMS = 24;
+const MAX_BIAS_TERM_LENGTH = 40;
+
+/**
+ * The comma-separated vocabulary the engine will actually see, or `undefined`
+ * when none of it is usable -- an empty `initial_prompt` is not the same as no
+ * initial prompt, and the field belongs absent rather than blank.
+ *
+ * Newest first: a bias prompt exists to carry a name the model has never seen,
+ * and corrections are appended as they are taught, so spending the cap on the
+ * front of the list drops exactly the terms just added for this conversation.
+ * Order within what survives is the caller's own, so a prompt already under
+ * the cap round-trips unchanged.
+ *
+ * Truncated rather than refused. The recording is already uploaded and the
+ * prompt is a hint, so a 400 costs the caller a transcription to protect a
+ * bias term, and the term it protects is the one the model needs least. What
+ * makes the drop honest is that the rule is one rule, stated here and the same
+ * for every caller, instead of a per-consumer guess.
+ */
+function cappedBiasPrompt(prompt: string | undefined): string | undefined {
+  if (prompt === undefined) {
+    return undefined;
+  }
+  const terms = prompt.split(",");
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (let i = terms.length - 1; i >= 0 && kept.length < MAX_BIAS_TERMS; i -= 1) {
+    const term = (terms[i] ?? "").trim().slice(0, MAX_BIAS_TERM_LENGTH);
+    const key = term.toLowerCase();
+    if (term !== "" && !seen.has(key)) {
+      seen.add(key);
+      kept.push(term);
+    }
+  }
+  return kept.length === 0 ? undefined : kept.reverse().join(", ");
+}
+
 /** The transcription fields the door forwards, and nothing an engine invents beside them. */
 function vettedTranscriptFrame(frame: Frame): Record<string, unknown> | undefined {
   if (typeof frame.phase !== "string") {
@@ -745,8 +797,9 @@ async function transcribeStreamed(
   if (req.language !== undefined) {
     query.set("language", req.language);
   }
-  if (req.prompt !== undefined) {
-    query.set("prompt", req.prompt);
+  const prompt = cappedBiasPrompt(req.prompt);
+  if (prompt !== undefined) {
+    query.set("prompt", prompt);
   }
   const suffix = query.size > 0 ? `?${query}` : "";
   const res = await fetchImpl(`http://${privateUrl}${TRANSCRIPTION_STREAM_PATH}${suffix}`, {
@@ -811,8 +864,9 @@ async function transcribeLocal(
   if (req.response_format !== undefined) {
     form.append("response_format", req.response_format);
   }
-  if (req.prompt !== undefined) {
-    form.append("prompt", req.prompt);
+  const prompt = cappedBiasPrompt(req.prompt);
+  if (prompt !== undefined) {
+    form.append("prompt", prompt);
   }
 
   const res = await fetchImpl(`http://${privateUrl}/v1/audio/transcriptions`, {

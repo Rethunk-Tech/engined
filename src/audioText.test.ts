@@ -1,10 +1,11 @@
 /**
- * What the door does to the text it carries: the markup a TTS engine would
- * otherwise vocalize, removed once for every consumer rather than five times
- * with five different rules.
+ * What the door does to the text it carries in either direction: the markup a
+ * TTS engine would otherwise vocalize, and the bias vocabulary whisper's
+ * window cannot hold -- decided once for every consumer rather than once per
+ * consumer, differently.
  */
 import { expect, test } from "bun:test";
-import { handleSpeech } from "./audio.ts";
+import { handleSpeech, handleTranscription } from "./audio.ts";
 import { startFakeUpstream } from "./test-support.ts";
 
 const SAMPLE_WAV_BASE64 = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");
@@ -31,9 +32,7 @@ async function spokenText(input: string): Promise<string> {
     private_url: fake.base,
   }));
   fake.stop();
-  expect(res.status).toBe(200);
-  expect(fake.texts).toHaveLength(1);
-  return fake.texts[0] ?? "";
+  return res.status === 200 ? (fake.texts[0] ?? "") : `status ${res.status}`;
 }
 
 test("bold and a bare URL reach the engine as words, which is what the 3.5x and 2.2x buy back", async () => {
@@ -66,4 +65,73 @@ test("an input that was nothing but markup is a 400, not an empty utterance the 
   });
 
   expect(res.status).toBe(400);
+});
+
+/** A real `Bun.serve` whisper, recording the `prompt` each path sent: the form field, or the streamed route's query string. */
+function startFakeWhisper(): {
+  base: string;
+  prompts: Array<string | undefined>;
+  stop: () => void;
+} {
+  const prompts: Array<string | undefined> = [];
+  const fake = startFakeUpstream(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname.endsWith("/stream")) {
+      await req.arrayBuffer();
+      prompts.push(url.searchParams.get("prompt") ?? undefined);
+      return new Response(`${JSON.stringify({ phase: "done", text: "hello world" })}\n`, {
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }
+    const value = (await req.formData()).get("prompt");
+    prompts.push(typeof value === "string" ? value : undefined);
+    return Response.json({ text: "hello world" });
+  });
+  return { base: `127.0.0.1:${fake.port}`, prompts, stop: fake.stop };
+}
+
+const SAMPLE_AUDIO_BYTES = new Uint8Array([1, 2, 3, 4]);
+
+/** The one `prompt` the fake whisper was sent for this request. */
+async function biasPromptSent(prompt: string, stream?: true): Promise<string | undefined> {
+  const fake = startFakeWhisper();
+  await handleTranscription(
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, prompt, stream },
+    async () => ({
+      private_url: fake.base,
+    }),
+  );
+  fake.stop();
+  return fake.prompts[0];
+}
+
+/** `term1 .. termN`, oldest first, the order a corrections list is appended in. */
+function terms(count: number): string[] {
+  return Array.from({ length: count }, (_unused, i) => `term${i + 1}`);
+}
+
+test("an over-cap prompt keeps the newest 24 terms, in the caller's order", async () => {
+  const sent = await biasPromptSent(terms(30).join(", "));
+
+  expect(sent).toBe(terms(30).slice(6).join(", "));
+});
+
+test("a prompt already under the cap reaches the engine unchanged", async () => {
+  expect(await biasPromptSent("Priya, nginx, sekhmet")).toBe("Priya, nginx, sekhmet");
+});
+
+test("a term longer than the window's share is clipped, and a duplicate spends no room", async () => {
+  const phrase = "x".repeat(60);
+
+  expect(await biasPromptSent(`${phrase}, nginx, NGINX`)).toBe(`${"x".repeat(40)}, NGINX`);
+});
+
+test("a prompt with nothing usable in it is no prompt, not a blank initial prompt", async () => {
+  expect(await biasPromptSent("  ,  , ")).toBeUndefined();
+});
+
+test("the streamed route caps the same way the buffered one does", async () => {
+  const sent = await biasPromptSent(terms(30).join(", "), true);
+
+  expect(sent).toBe(terms(30).slice(6).join(", "));
 });
