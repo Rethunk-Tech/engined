@@ -15,6 +15,7 @@ import { dirname } from "node:path";
 import type { DockerLifecycle } from "./docker.ts";
 import {
   CONTENT_TYPE,
+  discardBody,
   HTTP_SERVER_ERROR_MIN,
   type HttpClient,
   JSON_CONTENT_TYPE,
@@ -673,6 +674,7 @@ export class LlamaRouter {
     if (!res.ok) {
       throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`);
     }
+    await discardBody(res);
   }
 
   /**
@@ -707,7 +709,9 @@ export class LlamaRouter {
       }
       // Already running by another caller's race -- fall through to confirm
       // real readiness via /v1/models rather than trusting this 400 alone.
-    } else if (!triggerRes.ok) {
+    } else if (triggerRes.ok) {
+      await discardBody(triggerRes);
+    } else {
       throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`);
     }
     const resident = await pollUntil(

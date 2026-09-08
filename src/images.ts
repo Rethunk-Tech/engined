@@ -21,6 +21,7 @@ import { resolveModel } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
 import { DEFAULT_IDLE_STOP_SECONDS } from "./engines.ts";
 import {
+  discardBody,
   type HttpClient,
   jsonError,
   jsonErrorBody,
@@ -233,6 +234,7 @@ async function fetchImages(
   for (const filename of names) {
     const view = await httpClient(`${base}/view?filename=${encodeURIComponent(filename)}`);
     if (!view.ok) {
+      await discardBody(view);
       return {
         status: STATUS_BAD_GATEWAY,
         error: `comfy produced "${filename}" but would not serve it`,

@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
 import process from "node:process";
 import { binExec, type Exec } from "./exec.ts";
+import { discardBody } from "./http.ts";
 import type { EngineResources } from "./resources.ts";
 import { parseResources, RESOURCE_PROBE_SH } from "./resources.ts";
 import type { Artifact, EngineState, ReadyProbe, RunnableContainerSpec, Volume } from "./types.ts";
@@ -49,6 +50,7 @@ export type Probe = (url: string, method: "GET" | "POST") => Promise<{ status: n
 
 async function defaultProbe(url: string, method: "GET" | "POST"): Promise<{ status: number }> {
   const res = await fetch(url, { method });
+  await discardBody(res);
   return { status: res.status };
 }
 

@@ -15,6 +15,7 @@ import process from "node:process";
 import type { ComfyBinding, ComfyBindings, DoorContext } from "./doorContext.ts";
 import {
   CONTENT_TYPE,
+  discardBody,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
@@ -562,7 +563,11 @@ async function readComfyQueue(
   httpClient: HttpClient,
 ): Promise<Record<string, unknown> | undefined> {
   const res = await httpClient(`${base}/queue`);
-  return res.ok ? (parseRecord(await res.text()) ?? undefined) : undefined;
+  if (!res.ok) {
+    await discardBody(res);
+    return undefined;
+  }
+  return parseRecord(await res.text()) ?? undefined;
 }
 
 /**

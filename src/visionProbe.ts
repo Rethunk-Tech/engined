@@ -17,6 +17,7 @@
  */
 
 import { crc32, deflateSync } from "node:zlib";
+import { discardBody } from "./http.ts";
 
 /** PNG's own field widths, which the format fixes and this encoder cannot choose: a chunk's length and CRC are 4 bytes each, and IHDR's payload is 13. */
 const PNG_LENGTH_BYTES = 4;
@@ -335,6 +336,7 @@ export async function runVisionProbe(
   try {
     const menu = await fetchImpl(`${doorUrl}/openai/v1/models`);
     if (!menu.ok) {
+      await discardBody(menu);
       return {
         ok: false,
         lines: [
