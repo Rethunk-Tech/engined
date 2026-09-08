@@ -45,11 +45,22 @@ COPY --from=builder /opt/comfyui /opt/comfyui
 ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /opt/comfyui
 
-EXPOSE 8188
+# One spelling of the port: docker.ts derives the container side from EXPOSE
+# alone, so a second literal in the entrypoint below could drift from it and
+# leave the door dialling a port nothing listens on.
+ARG PORT=8188
+ENV PORT=${PORT}
+EXPOSE ${PORT}
 
 # --preview-method latent2rgb is not baked in here: it is spec.toml's
 # `command`, appended to this ENTRYPOINT by docker.ts's buildRunArgs. Its
 # absence is silent -- the relay never receives a binary preview frame
 # without it -- which is why it lives in the spec, not this image or an
 # operator's config.
-ENTRYPOINT ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188"]
+#
+# A shell is needed to expand $PORT, and a `sh -c` entrypoint receives that
+# appended command as positional parameters rather than on the command line:
+# `"$@"` puts them back, and the `--` fills $0 so the first one is not eaten.
+# `exec` keeps python3 as PID 1, which is what spec.toml's `init = true`
+# exists to hand a SIGTERM to.
+ENTRYPOINT ["sh", "-c", "exec python3 main.py --listen 0.0.0.0 --port $PORT \"$@\"", "--"]

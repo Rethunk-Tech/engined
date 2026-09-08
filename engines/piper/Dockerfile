@@ -74,9 +74,17 @@ COPY --from=builder /app/voices /app/voices
 WORKDIR /app
 COPY app.py .
 
-EXPOSE 8006
+# One spelling of the port: docker.ts derives the container side from EXPOSE
+# alone, so a second literal in the command below could drift from it and
+# leave the door dialling a port nothing listens on.
+ARG PORT=8006
+ENV PORT=${PORT}
+EXPOSE ${PORT}
 
 # --log-level explicit for the same reason kokoro's is: uvicorn's default
 # emits a per-request access line, and this engine is called once per spoken
 # reply in a voice channel.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8006", "--log-level", "warning"]
+#
+# `exec` so uvicorn, not the shell, is PID 1 and takes the stop signal itself.
+# Exec-form CMD would leave $PORT unexpanded.
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port $PORT --log-level warning"]

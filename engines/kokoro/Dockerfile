@@ -90,11 +90,19 @@ COPY --from=builder /app/hf_cache /app/hf_cache
 WORKDIR /app
 COPY app.py .
 
-EXPOSE 8005
+# One spelling of the port: docker.ts derives the container side from EXPOSE
+# alone, so a second literal in the command below could drift from it and
+# leave the door dialling a port nothing listens on.
+ARG PORT=8005
+ENV PORT=${PORT}
+EXPOSE ${PORT}
 
 # --log-level explicit rather than left to uvicorn's default: the vendor
 # kokoro-fastapi image this build replaces hardcoded --log-level debug in
 # its entrypoint.sh and flooded the log with a per-request access line;
 # warning drops that same class of noise here before it becomes the
 # identical problem under a different image.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8005", "--log-level", "warning"]
+#
+# `exec` so uvicorn, not the shell, is PID 1 and takes the stop signal itself.
+# Exec-form CMD would leave $PORT unexpanded.
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port $PORT --log-level warning"]
