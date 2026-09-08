@@ -85,6 +85,12 @@ const MEM_AVAILABLE = /^MemAvailable:\s+(\d+) kB$/m;
  * Throws rather than skipping. A skip here would be indistinguishable from
  * the clean skips the rest of this tier uses for a missing image, and the
  * whole point is that this one must not pass unnoticed.
+ *
+ * Reading the pool is a check against one global number, so it says nothing
+ * about a loader in another process: two runs that each pass here still load
+ * together and OOM the box, which is why `test:local` holds a `flock` for the
+ * whole tier rather than relying on this call alone. The kernel drops that
+ * lock if the run dies, which a lockfile this code wrote and deleted would not.
  */
 export function requireMemoryFor(...engines: (keyof typeof ENGINE_RESIDENT_GIB)[]): void {
   // The largest, not the sum: comfy and llama are never co-resident -- a suite
@@ -100,7 +106,9 @@ export function requireMemoryFor(...engines: (keyof typeof ENGINE_RESIDENT_GIB)[
   if (availableGib < needGib) {
     throw new Error(
       `${engines.join(" + ")} needs ~${needGib} GiB but only ${availableGib.toFixed(1)} GiB is available. ` +
-        "Release what is resident (`systemctl --user stop engined.service` stops the unit's engines) and run again.",
+        "Release what is resident and run again -- `systemctl --user stop engined.service` stops the unit's engines, " +
+        "and `systemctl --user start engined.service` puts the door back. Leaving it stopped takes the operator's door " +
+        "down for every consumer, not just this run.",
     );
   }
 }
