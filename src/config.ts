@@ -162,6 +162,26 @@ function asArgs(v: unknown, site: string, file: string): Record<string, unknown>
   return v;
 }
 
+/**
+ * Every closed table is checked the same way, config and spec alike: a key
+ * engined does not read is a typo, and dropping it silently defers the failure
+ * to whatever the missing value was load-bearing for -- a misspelt
+ * `images_workflow` surfaces as the door refusing an image request against an
+ * engine that looks configured for one.
+ */
+export function assertKnownKeys(
+  raw: Record<string, unknown>,
+  site: string,
+  keys: ReadonlySet<string>,
+  file: string,
+): void {
+  for (const key of Object.keys(raw)) {
+    if (!keys.has(key)) {
+      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
+    }
+  }
+}
+
 /** Every `[[table]]` entry is checked the same way before any of its fields are read: it must be a table, and an unrecognised key is a typo the operator wants named rather than silently ignored. */
 function requireTable(
   raw: unknown,
@@ -172,11 +192,7 @@ function requireTable(
   if (!isRecord(raw)) {
     throw new ParseError(`${site} must be a table`, file);
   }
-  for (const key of Object.keys(raw)) {
-    if (!keys.has(key)) {
-      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
-    }
-  }
+  assertKnownKeys(raw, site, keys, file);
   return raw;
 }
 

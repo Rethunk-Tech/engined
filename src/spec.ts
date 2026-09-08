@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_IDS, agentCli } from "./agents.ts";
-import { asArray, optional, requireString } from "./config.ts";
+import { asArray, assertKnownKeys, optional, requireString } from "./config.ts";
 import { stateDir } from "./paths.ts";
 import {
   type AgenticSpec,
@@ -67,26 +67,6 @@ const READY_KEYS: ReadonlySet<string> = new Set(["path", "status", "method", "ac
 const ACCEPT_KEYS: ReadonlySet<string> = new Set(["min", "max"]);
 const VOLUME_KEYS: ReadonlySet<string> = new Set(["name", "path", "read_only"]);
 const ARTIFACT_KEYS: ReadonlySet<string> = new Set(["path", "obtain"]);
-
-/**
- * Every spec table is closed, the way config.ts's `requireTable` closes the
- * config ones: a key engined does not read is a typo, and dropping it silently
- * defers the failure to whatever the missing value was load-bearing for --
- * a misspelt `images_workflow` surfaces as the door refusing an image request
- * against an engine that looks configured for one.
- */
-function assertKnownKeys(
-  raw: Record<string, unknown>,
-  site: string,
-  keys: ReadonlySet<string>,
-  file: string,
-): void {
-  for (const key of Object.keys(raw)) {
-    if (!keys.has(key)) {
-      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
-    }
-  }
-}
 
 export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec {
   const overridden = engine.spec_dir !== undefined;
