@@ -17,7 +17,8 @@
  */
 
 import { crc32, deflateSync } from "node:zlib";
-import { discardBody } from "./http.ts";
+import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from "./http.ts";
+import { errMessage } from "./types.ts";
 
 /** PNG's own field widths, which the format fixes and this encoder cannot choose: a chunk's length and CRC are 4 bytes each, and IHDR's payload is 13. */
 const PNG_LENGTH_BYTES = 4;
@@ -351,7 +352,7 @@ export async function runVisionProbe(
     const body = (await menu.json()) as { data?: MenuRow[] };
     rows = body.data ?? [];
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errMessage(err);
     return {
       ok: false,
       lines: [{ address: doorUrl, ok: false, detail: `the door could not be reached: ${message}` }],
@@ -438,7 +439,7 @@ async function probeOne(
   try {
     const res = await fetchImpl(`${doorUrl}/openai/v1/chat/completions`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: check.body,
     });
     if (!res.ok) {
@@ -450,6 +451,6 @@ async function probeOne(
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     return check.verdict(body.choices?.[0]?.message?.content ?? "");
   } catch (err) {
-    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    return { ok: false, detail: errMessage(err) };
   }
 }

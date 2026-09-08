@@ -34,6 +34,7 @@ import {
   errMessage,
   isContainerSpec,
   isRecord,
+  MS_PER_SECOND,
   parseRecord,
   type ResolvedRoute,
 } from "./types.ts";
@@ -348,7 +349,7 @@ export async function handleImageGeneration(
     if (!Array.isArray(ids)) {
       return refuse(ids);
     }
-    const deadline = Date.now() + ctx.getConfig().chat_timeout_seconds * 1000;
+    const deadline = Date.now() + ctx.getConfig().chat_timeout_seconds * MS_PER_SECOND;
     const data: { b64_json: string }[] = [];
     for (const id of ids) {
       const images = await collect(base, httpClient, id, deadline, signal);

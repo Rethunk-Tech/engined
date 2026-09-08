@@ -63,6 +63,7 @@ import { handleImageGeneration } from "./images.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { hopForwardsTools, modelsMenu } from "./modelsMenu.ts";
 import { configPath, installDir, voicesDir } from "./paths.ts";
+import { writeToStdout } from "./provenance.ts";
 import { readJsonBody } from "./requestBody.ts";
 import { loadSpec } from "./spec.ts";
 import {
@@ -1903,7 +1904,7 @@ async function visionProbeExit(): Promise<number> {
   }
   const report = await runVisionProbe(`http://127.0.0.1:${port}`);
   for (const line of report.lines) {
-    process.stdout.write(`${line.ok ? "ok" : "FAIL"} ${line.address}: ${line.detail}\n`);
+    writeToStdout(`${line.ok ? "ok" : "FAIL"} ${line.address}: ${line.detail}`);
   }
   return report.ok ? 0 : 1;
 }
