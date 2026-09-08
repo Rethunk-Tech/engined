@@ -45,7 +45,7 @@ error by design rather than a silent no-op.
 | `models_max` | llama occupancy floor; fatal below the number of distinct roles configured |
 | `idle_stop_seconds` | how long an engine may sit unheld before it stops |
 | `ready_timeout_s` | how long a start may take to pass its readiness probe |
-| `drain_timeout_seconds` | how long a submission waits for the engine to be free before it is refused. Only the comfy proxy holds submissions, which is what makes an unscoped `/interrupt` safe — see [http-api.md](http-api.md#comfy). Not a render-length estimate: it is the ceiling that stops a wedged container parking every later submission forever, so it is the key to raise when a real render legitimately runs past it. Default 15 minutes |
+| `drain_timeout_seconds` | how long a submission waits for the engine to be free before it is refused. Only the comfy proxy holds submissions, which is what makes an unscoped `/interrupt` safe — see [http-api.md](http-api.md#comfy). Not a render-length estimate: it is the ceiling that stops a wedged container parking every later submission forever, so it is the key to raise when a real render legitimately runs past it. Must be greater than zero — `0` is refused at load rather than read as "never try". Default 15 minutes |
 | `agent_version` | agentic engines; substituted as `{agent_version}`, never `@latest` |
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
