@@ -789,8 +789,12 @@ describe("agentic engines: the round-trip probe target follows the route's own e
     writeEngineSpec(root, localId, AGENTIC);
     writeEngineSpec(root, ambientId, AGENTIC);
     const calls: Array<AgentTarget | undefined> = [];
+    const nonces = new Set<string>();
+    const liveDuringProbe: boolean[] = [];
     const runner: AgenticProbeRunner = (_version, _agent, roundTrip) => {
       calls.push(roundTrip);
+      const nonce = roundTrip?.baseUrl.split("/").pop();
+      liveDuringProbe.push(nonce !== undefined && nonces.has(nonce));
       return Promise.resolve({ ok: true });
     };
     const cfg = config({
@@ -806,16 +810,24 @@ describe("agentic engines: the round-trip probe target follows the route's own e
         route({ engine: ambientId, model: "sonnet-5", upstream: null }),
       ],
     });
-    const reg = registry(cfg, root, { agenticProbeRunner: runner });
+    const reg = registry(cfg, root, { agenticProbeRunner: runner, launchNonces: nonces });
 
     await reg.list();
 
     // "code" is only ever the local route's model, so the target below can only be localId's.
     expect(calls).toHaveLength(2);
-    expect(calls).toContainEqual({ baseUrl: "http://127.0.0.1:39200/openai/v1", model: "code" });
+    const dialed = calls.find((c) => c !== undefined);
+    expect(dialed?.model).toBe("code");
+    // The launch-scoped surface, not the plain one: a probe spawns a real
+    // agent, so what it dials back on is bounded like any other launch.
+    expect(dialed?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:39200\/openai\/v1\/[0-9a-f]{32}$/);
     // A billed/remote route (claude's ambient shape here) never gets a
     // dial target -- a status poll must never pay for one.
     expect(calls).toContain(undefined);
+    // Live for the runner's own window and no longer: registered before the
+    // probe is called, gone once it returns.
+    expect(liveDuringProbe).toContain(true);
+    expect(nonces.size).toBe(0);
 
     clearVerifiedVersion(localId);
     clearVerifiedVersion(ambientId);

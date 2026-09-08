@@ -2198,6 +2198,59 @@ describe("the launch-scoped door: a nonce outlives nothing", () => {
   });
 });
 
+describe("the launch-scoped door: the round-trip probe is a launch too", () => {
+  /**
+   * The probe spawns a real agent against a real door URL, so it is bounded
+   * the way a caller's launch is: the URL it dials carries a nonce, an
+   * address over it that resolves to an agentic-cli engine is refused, and
+   * the nonce dies when the probe returns rather than standing open.
+   */
+  test("its dial-back URL is nonce-scoped, refuses an agentic hop, and expires with the probe", async () => {
+    const { cfg, root } = opencodeDoorConfig();
+    let doorUrl = "";
+    let recursive: { status: number; body: string } | undefined;
+    const runner: AgenticProbeRunner = async (_version, _agent, roundTrip) => {
+      doorUrl = roundTrip?.baseUrl ?? "";
+      const res = await door.fetch(
+        scopedChatRequest(doorUrl, {
+          model: "@/opencode/code",
+          messages: [{ role: "user", content: "escape" }],
+          workdir: "/tmp/scratch",
+        }),
+      );
+      recursive = { status: res.status, body: await res.text() };
+      // Failing the pin stops the launch this probe was called for, so the
+      // recursive call above is the only agent traffic the test produces.
+      return { ok: false, failedProbe: "answers-a-real-prompt" };
+    };
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: runner },
+      { write: () => undefined },
+    );
+    clearVerifiedVersion("opencode");
+    const res = await door.fetch(scratchChatRequest("@/opencode/code"));
+    expect(res.status).toBe(503);
+
+    expect(doorUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
+    expect(recursive?.status).toBe(403);
+    expect(recursive?.body).toContain("agentic");
+
+    // Released when the probe returned: the same URL is unknown now, not a
+    // standing key a leaked probe environment could keep using.
+    const stale = await door.fetch(
+      scopedChatRequest(doorUrl, {
+        model: "@/opencode/code",
+        messages: [{ role: "user", content: "too late" }],
+        workdir: "/tmp/scratch",
+      }),
+    );
+    expect(stale.status).toBe(403);
+    expect(JSON.stringify(await stale.json())).toContain("expired");
+    clearVerifiedVersion("opencode");
+  });
+});
+
 describe("the launch-scoped door: opencode's rendered config", () => {
   /**
    * The path itself is read from `OPENCODE_CONFIG` rather than a fixed

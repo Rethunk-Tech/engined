@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import process from "node:process";
-import { type ObservedVersion, observeAgentVersion } from "./agentic.ts";
+import { mintLaunchNonce, type ObservedVersion, observeAgentVersion } from "./agentic.ts";
 import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
@@ -227,7 +227,11 @@ export type AgenticProbeRunner = (
  * re-deriving egress from `[[upstream]]`, since a modelless engine or a
  * remote-upstream route has nothing this probe could answer for free anyway.
  */
-function roundTripTargetFor(engineId: string, config: Config): AgentTarget | undefined {
+function roundTripTargetFor(
+  engineId: string,
+  config: Config,
+  nonce: string,
+): AgentTarget | undefined {
   const route = config.routes.find(
     (r) => !r.disabled && r.engine === engineId && r.upstream === "local" && r.model !== undefined,
   );
@@ -238,7 +242,11 @@ function roundTripTargetFor(engineId: string, config: Config): AgentTarget | und
   // route's own segment names the agent, so handing it back points the child
   // at itself rather than at a model that answers.
   return {
-    baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1`,
+    // The launch-scoped surface, exactly as a caller's own agentic dispatch
+    // gets: a probe spawns a real agent, so the hop that reaches back here
+    // has to be bounded by the same nonce or the recursion control has a
+    // hole shaped like a status poll.
+    baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`,
     model: route.wire_model ?? route.model,
   };
 }
@@ -300,6 +308,14 @@ export interface RegistryOptions {
   comfyPollIntervalMs?: number;
   /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
   agenticProbeRunner?: AgenticProbeRunner;
+  /**
+   * The door's own live launch nonces, which a round-trip probe's launch is
+   * registered in for as long as it runs. `createDoor` passes the set it
+   * checks requests against; a registry built without one still scopes the
+   * URL it hands a probe, but nothing is listening for that nonce, so a
+   * probe that calls back is refused as unknown.
+   */
+  launchNonces?: Set<string>;
   /**
    * Overridable for tests: what `agenticStatus` treats as an agent's actual
    * running version, checked against the proved one on every status poll.
@@ -650,6 +666,7 @@ export class EngineRegistry {
   private readonly releaseFetch: ReleaseFetch;
   private readonly comfyPollIntervalMs: number;
   private readonly agenticProbeRunner?: AgenticProbeRunner;
+  private readonly launchNonces: Set<string>;
   private readonly observeAgentVersion: (
     agent: string,
     configuredVersion: string,
@@ -713,6 +730,7 @@ export class EngineRegistry {
     this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
     this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
     this.agenticProbeRunner = opts.agenticProbeRunner;
+    this.launchNonces = opts.launchNonces ?? new Set();
     this.observeAgentVersion = opts.observeAgentVersion ?? observeAgentVersion;
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
     this.config = config;
@@ -1059,6 +1077,10 @@ export class EngineRegistry {
    * all. Keyed by version, so a pin bump — the only sanctioned way to
    * re-arm this gate — misses the cache on its own, with no separate
    * invalidation needed.
+   *
+   * A probe that dials a round trip spawns a real agent, so it mints a launch
+   * nonce and holds it live for exactly the runner's own window, the same
+   * bracket the door's dispatch keeps around a caller's launch.
    */
   private runAgenticProbe(
     engine: EngineEntry,
@@ -1075,15 +1097,22 @@ export class EngineRegistry {
         return Promise.resolve(cached.outcome);
       }
     }
-    const promise = runner(version, agent, roundTripTargetFor(engine.id, this.config)).then(
-      (outcome) => {
+    const nonce = mintLaunchNonce();
+    const roundTrip = roundTripTargetFor(engine.id, this.config, nonce);
+    if (roundTrip !== undefined) {
+      this.launchNonces.add(nonce);
+    }
+    const promise = runner(version, agent, roundTrip)
+      .then((outcome) => {
         this.agenticProbeState.set(engine.id, {
           version,
           outcome: outcome.ok ? undefined : outcome,
         });
         return outcome;
-      },
-    );
+      })
+      .finally(() => {
+        this.launchNonces.delete(nonce);
+      });
     this.agenticProbeState.set(engine.id, { version, promise });
     return promise;
   }

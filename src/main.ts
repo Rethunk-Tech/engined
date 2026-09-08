@@ -11,6 +11,7 @@ import process from "node:process";
 import {
   buildAgenticProbeRunner,
   defaultAgenticSpawn,
+  mintLaunchNonce,
   type RunAgenticResult,
   runAgentic,
 } from "./agentic.ts";
@@ -118,15 +119,12 @@ function enginePath(doorPath: string): string {
 /**
  * The launch-scoped door: `/openai/v1/<nonce>/...` dispatches exactly like
  * `/openai/v1/...`, with the request marked launch-scoped so a hop resolving
- * to an agentic engine can be refused. `<nonce>` is `crypto.randomUUID()`
- * with its dashes stripped -- 32 lowercase hex characters -- minted at the
- * `runAgentic` call site and never written anywhere durable.
+ * to an agentic engine can be refused. `<nonce>` is `mintLaunchNonce`'s 32
+ * lowercase hex characters, minted at each of the two launch sites -- this
+ * door's own dispatch and the registry's round-trip probe -- and never
+ * written anywhere durable.
  */
 const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/;
-
-function mintLaunchNonce(): string {
-  return crypto.randomUUID().replace(/-/g, "");
-}
 
 /** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = "/engined/v1/start";
@@ -1728,6 +1726,11 @@ function routeRequest(
  * One LlamaRouter per llama-kind engine, sharing `lifecycle` with the
  * registry so idle-stop, port read-back and start-locking are never
  * tracked twice for the same container.
+ *
+ * The registry shares this door's own `launchNonces` for the same reason it
+ * shares `lifecycle`: its round-trip probe launches an agent that calls back
+ * here, and a nonce minted into a second set is one this door would refuse as
+ * unknown.
  */
 function createDoorContext(
   getConfig: () => Config,
@@ -1737,9 +1740,11 @@ function createDoorContext(
   const lifecycle =
     registryOpts.lifecycle ??
     new DockerLifecycle(registryOpts.exec ?? dockerExec, registryOpts.probe);
+  const launchNonces = new Set<string>();
   const registry = new EngineRegistry(getConfig(), {
     ...registryOpts,
     lifecycle,
+    launchNonces,
     presetHostPath: doorOpts.llamaPresetHostPath,
   });
   return {
@@ -1750,7 +1755,7 @@ function createDoorContext(
     doorOpts,
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
-    launchNonces: new Set(),
+    launchNonces,
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
   };

@@ -65,6 +65,20 @@ export function renderEmptyMcpConfig(): string {
   return path;
 }
 
+/**
+ * A launch's single-use nonce: `crypto.randomUUID()` with its dashes stripped
+ * -- 32 lowercase hex characters, the shape `main.ts`'s launch-scoped route
+ * matches. Every agentic launch hands its child `/openai/v1/<nonce>/...`
+ * rather than the plain surface, so a hop resolving back to an agentic engine
+ * is refused instead of launching a further child. It lives here rather than
+ * at either call site because there are two -- a caller's own dispatch and
+ * the registry's round-trip probe -- and a launch minting nothing would be
+ * handed the unscoped door.
+ */
+export function mintLaunchNonce(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
 interface AgenticSpawnOptions {
   cwd: string;
   env: Record<string, string>;

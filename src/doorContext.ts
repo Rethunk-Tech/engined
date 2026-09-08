@@ -53,10 +53,12 @@ export interface DoorContext {
    */
   staleLlamaRouters: Set<string>;
   /**
-   * Live launch-scoped nonces: minted at the `runAgentic` call site, deleted
-   * the moment that call returns. A request naming one that is not in this
-   * set -- expired, or never minted -- is refused outright, whether or not
-   * it names an agentic engine: a leaked or reused URL is not a standing key.
+   * Live launch-scoped nonces: minted where an agent is launched -- this
+   * door's own dispatch and the registry's round-trip probe, which shares
+   * this very set -- and deleted the moment that launch returns. A request
+   * naming one that is not in this set -- expired, or never minted -- is
+   * refused outright, whether or not it names an agentic engine: a leaked or
+   * reused URL is not a standing key.
    */
   launchNonces: Set<string>;
   /** Comfy proxy mediation state, reload-durable. */
