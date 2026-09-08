@@ -14,11 +14,14 @@
       "outputs": []
     },
     "test": {
-      // The suite reads three trees off disk that no source import reveals:
-      // shipped specs under engines/, config.example.toml, and the install
-      // script and unit templates under scripts/. Left out of the key, an edit
-      // to any of them replays a green from assertions that never re-ran.
-      "inputs": ["src/**/*.ts", "engines/**", "config.example.toml", "scripts/**", "package.json"],
+      // The suite reads trees off disk that no source import reveals: shipped
+      // specs under engines/, config.example.toml, the install script and unit
+      // templates under scripts/. An allowlist has to be extended by hand every
+      // time the suite reads something new, and until it is, an edit replays a
+      // green from assertions that never re-ran. $TURBO_DEFAULT$ is every
+      // tracked file instead, so coverage holds by construction and only what
+      // the suite provably never reads is subtracted back out.
+      "inputs": ["$TURBO_DEFAULT$", "!docs/**", "!*.md"],
       "outputs": []
     },
     "build": {
