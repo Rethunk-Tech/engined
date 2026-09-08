@@ -60,7 +60,6 @@ export function config(overrides: Partial<Config> = {}): Config {
     listen_port: 29_200,
     chat_timeout_seconds: 600,
     agent_timeout_seconds: 3600,
-    models: [],
     engines: [],
     upstreams: [],
     routes: [],

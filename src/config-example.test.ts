@@ -124,7 +124,16 @@ test("config.example.toml parses through the real loadConfig()", () => {
   expect(raw).toMatch(LLAMA_MODELS_DIR_RE);
 
   expect(sortedIds(config.engines, (e) => e.id)).toEqual(EXPECTED_ENGINE_IDS);
-  expect(config.models.map((m) => m.id)).toEqual(["sonnet-5"]);
+  // Capabilities are consumed off the route -- the shape `/openai/v1/models`
+  // reports -- never off a [[model]] row. The one row here is folded into both
+  // routes naming it; the rest declare their own on the route.
+  expect(
+    sortedIds(
+      config.routes.filter((r) => r.input !== undefined),
+      (r) => r.model,
+    ),
+  ).toEqual(["ocr", "ornith", "sonnet-5", "sonnet-5", "vision"]);
+  expect(config.routes.find((r) => r.model === "sonnet-5")?.context_in).toBe(200_000);
   expect(sortedIds(config.routes, (r) => r.model)).toEqual(EXPECTED_ROUTE_MODEL_IDS);
   expect(
     sortedIds(

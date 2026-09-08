@@ -320,11 +320,9 @@ export interface Config {
   listen_port: number;
   chat_timeout_seconds: number;
   agent_timeout_seconds: number;
-  /** `[[model]]` capability rows -- optional, and unrelated to which engines or upstreams can reach any of them. */
-  models: ModelEntry[];
   engines: EngineEntry[];
   upstreams: Upstream[];
-  /** The route table -- named separately from `models` so the two tables never read as one. */
+  /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */
   routes: ResolvedRoute[];
   /** Every hop is a fully-qualified `@/<engine>/<model>`. */
   chains: Record<string, string[]>;

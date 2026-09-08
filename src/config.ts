@@ -849,7 +849,6 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
 
   return {
     ...parseTopLevelSettings(raw, file),
-    models,
     engines,
     upstreams,
     routes,

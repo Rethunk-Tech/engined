@@ -307,7 +307,13 @@ test("the worked config parses clean", () => {
   expect(cfg.engines).toHaveLength(EXPECTED_ENGINE_COUNT);
   expect(cfg.routes).toHaveLength(EXPECTED_ROUTE_COUNT);
   expect(cfg.upstreams.map((u) => u.id)).toEqual(["local", "moonshot"]);
-  expect(cfg.models).toHaveLength(1);
+  // Capabilities are consumed off the route, never off a [[model]] row: the
+  // row is folded in at parse, and a route declaring its own carries them the
+  // same way. Both sources land here, and nothing else carries any.
+  expect(cfg.routes.filter((r) => r.input !== undefined).map((r) => r.model)).toEqual([
+    "ornith",
+    "vision",
+  ]);
   expect(cfg.chains["chain-public"]).toEqual([
     "@/local-llama/ornith",
     "@/claude/k3",

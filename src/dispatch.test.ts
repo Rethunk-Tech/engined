@@ -47,7 +47,6 @@ describe("disabled engines", () => {
   test("its models are gone, so a qualified request must not read as a missing model", () => {
     const cfg = config({
       engines: [{ ...remoteOpenaiHttp("off"), disabled: true }],
-      models: [],
     });
     const result = resolveModel("@/off/whatever", CHAT, cfg, registry(cfg));
     expect(result.ok === false && result.error).toContain('engine "off" is disabled');
