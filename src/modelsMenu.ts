@@ -106,7 +106,7 @@ async function modelRow(
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),
-    serves: routeServes(route.role, status?.serves ?? []),
+    serves: routeServes(route, status?.serves ?? []),
     role: route.role,
     vision: route.vision,
     state,
@@ -126,7 +126,7 @@ async function modelRow(
 function forwardsTools(status: EngineStatus | undefined, role: Role | undefined): boolean {
   return (
     status?.kind === "openai-http" &&
-    routeServes(role, status.serves).includes(CONTENT_ENDPOINT_CHAT)
+    routeServes({ role }, status.serves).includes(CONTENT_ENDPOINT_CHAT)
   );
 }
 
@@ -185,7 +185,7 @@ function chainHops(
 function chainServes(walked: readonly ChainHop[]): string[] {
   const union = new Set<string>();
   for (const hop of walked) {
-    for (const path of routeServes(hop.route?.role, hop.status?.serves ?? [])) {
+    for (const path of routeServes(hop.route ?? {}, hop.status?.serves ?? [])) {
       if (CHAIN_ENDPOINTS.has(path)) {
         union.add(path);
       }

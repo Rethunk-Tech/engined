@@ -43,7 +43,7 @@ function withEndpointCheck(route: ResolvedRoute, ctx: ResolveCtx): ModelDispatch
   }
   if (
     ctx.endpoint !== undefined &&
-    !routeServes(route.role, ctx.registry.serves(engine)).includes(ctx.endpoint)
+    !routeServes(route, ctx.registry.serves(engine)).includes(ctx.endpoint)
   ) {
     const what = model === undefined ? `engine "${engine}"` : `"@/${engine}/${model}"`;
     return fail(`${what} does not serve ${ctx.endpoint}`);
