@@ -155,14 +155,14 @@ test("only vision rows are probed: a chat row serves the same path and is left a
   // none of them was.
   const report = await runProbes("http://door", fakeDoor(rows, "a cat"));
   expect(report.ok).toBe(true);
-  expect(report.lines[0]?.detail).toBe("no installed address to prove");
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
 });
 
 test("an unavailable vision address is not probed: /engined/v1/engines already names its fix", async () => {
   const rows = [{ id: "@/llama/see", role: "vision", vision: "describe", state: "unavailable" }];
   const report = await runProbes("http://door", fakeDoor(rows, "a cat"));
   expect(report.ok).toBe(true);
-  expect(report.lines[0]?.detail).toBe("no installed address to prove");
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
 });
 
 // Measured against the live install before the daemon was updated: a door
@@ -187,7 +187,7 @@ test("a current door whose rows carry no role has nothing to prove, and says so"
   ];
   const report = await runProbes("http://door", fakeDoor(rows, "red then blue"));
   expect(report.ok).toBe(true);
-  expect(report.lines[0]?.detail).toBe("no installed address to prove");
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
 });
 
 test("every installed vision address is probed, not just the first", async () => {
@@ -325,7 +325,7 @@ test("a route declaring translate is not asked to refuse", async () => {
   const report = await runProbes("http://door", fakeTranslateDoor([declared], 200));
 
   expect(report.lines).toHaveLength(1);
-  expect(report.lines[0]?.detail).toBe("no installed address to prove");
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
 });
 
 // The signal that replaced guessing from whether any row carried a `role`:
@@ -352,4 +352,42 @@ test("a whisper-only door proves what it can and does not read as stale", async 
   const report = await runProbes("http://door", fakeTranslateDoor([ENGLISH_ONLY_ROW], 400));
 
   expect(report.ok).toBe(true);
+});
+
+// The bug this pins: the filter read `state === "installed"`, so every
+// address on an engine that was already up reported `running` and was
+// skipped. The probe proved nothing exactly when the box was in use.
+test("an address on an engine that is already running is still probed", async () => {
+  const running = { ...VISION_ROW, state: "running" };
+
+  const report = await runProbes("http://door", fakeDoor([running], "red then blue"));
+
+  expect(report.lines[0]?.address).toBe("@/llama/see");
+  expect(report.ok).toBe(true);
+});
+
+test("an unavailable address is left alone: /engined/v1/engines already names its fix", async () => {
+  const down = { ...VISION_ROW, state: "unavailable" };
+
+  const report = await runProbes("http://door", fakeDoor([down], "nonsense"));
+
+  expect(report.lines).toHaveLength(1);
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
+});
+
+// The menu has to report `translate` for the refusal check to know which
+// routes must refuse. When it did not, the one route allowed to translate
+// looked like one that must refuse, and the probe failed on a correct config.
+test("a running route that declares translate is not asked to refuse", async () => {
+  const declared = {
+    id: "@/whisper/large-v3-turbo",
+    state: "running",
+    translate: true,
+    serves: ["/openai/v1/audio/transcriptions", "/openai/v1/audio/translations"],
+  };
+
+  const report = await runProbes("http://door", fakeTranslateDoor([declared], 200));
+
+  expect(report.ok).toBe(true);
+  expect(report.lines[0]?.detail).toBe("no reachable address to prove");
 });

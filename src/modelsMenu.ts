@@ -109,6 +109,7 @@ async function modelRow(
     serves: routeServes(route, status?.serves ?? []),
     role: route.role,
     vision: route.vision,
+    translate: route.translate,
     state,
     capabilities: routeCapabilities(route),
   };

@@ -305,6 +305,23 @@ interface ProbeReport {
   lines: ProbeLine[];
 }
 
+/**
+ * Whether this address can answer a probe at all.
+ *
+ * `unavailable` is the only state worth skipping: `GET /engined/v1/engines`
+ * already reports why, with the literal command that fixes it, and a probe
+ * repeating that in a different voice adds nothing.
+ *
+ * NOT `state === "installed"`, which is what this checked first and which
+ * quietly meant "prove nothing whenever the engine is already up" -- a
+ * running engine reports `running`, so a box mid-use skipped every address it
+ * had. That is the silence this module exists to end, so the test below pins
+ * it.
+ */
+function canAnswer(state: unknown): boolean {
+  return typeof state === "string" && state !== "unavailable";
+}
+
 /** The subset of a `/openai/v1/models` row this probe reads. Parsed from the wire, so it is narrowed here rather than imported: a row is whatever the running door sent, not whatever this build's `ModelRow` says. */
 interface MenuRow {
   id?: unknown;
@@ -421,7 +438,7 @@ export async function runProbes(
   if (lines.length === 0) {
     return {
       ok: true,
-      lines: [{ address: doorUrl, ok: true, detail: "no installed address to prove" }],
+      lines: [{ address: doorUrl, ok: true, detail: "no reachable address to prove" }],
     };
   }
   return { ok: lines.every((l) => l.ok), lines };
@@ -435,7 +452,7 @@ async function probeVision(
 ): Promise<ProbeLine[]> {
   const vision = rows.filter(
     (r): r is MenuRow & { id: string } =>
-      r.role === "vision" && r.state === "installed" && typeof r.id === "string",
+      r.role === "vision" && canAnswer(r.state) && typeof r.id === "string",
   );
   if (vision.length === 0) {
     return [];
@@ -475,7 +492,7 @@ async function probeRerank(
 ): Promise<ProbeLine[]> {
   const rerank = rows.filter(
     (r): r is MenuRow & { id: string } =>
-      r.role === "rerank" && r.state === "installed" && typeof r.id === "string",
+      r.role === "rerank" && canAnswer(r.state) && typeof r.id === "string",
   );
   if (rerank.length === 0) {
     return [];
@@ -614,7 +631,7 @@ async function probeTranslations(
     (r): r is MenuRow & { id: string } =>
       r.role === undefined &&
       r.translate !== true &&
-      r.state === "installed" &&
+      canAnswer(r.state) &&
       typeof r.id === "string" &&
       Array.isArray(r.serves) &&
       r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),

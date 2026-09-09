@@ -731,9 +731,17 @@ export interface ModelRow {
    * See `VisionKind`. A vision address that reads characters and one that
    * describes a scene are the same `role` and the same `serves`, so this is
    * what a consumer picks on -- and what decides which ground-truth check
-   * `src/visionProbe.ts` sends it.
+   * `src/probe.ts` sends it.
    */
   vision?: VisionKind;
+  /**
+   * See `ResolvedRoute.translate`: this STT model's weights are multilingual,
+   * so it may be asked to render speech as English. Reported because `serves`
+   * says the address answers the translations path but not that the route was
+   * the one allowed to -- and `src/probe.ts` reads it to know which
+   * transcription routes must REFUSE that verb. Absent unless declared.
+   */
+  translate?: boolean;
   /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable
