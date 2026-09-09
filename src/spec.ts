@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_IDS, agentCli } from "./agents.ts";
-import { asArray, assertKnownKeys, optional, requireString } from "./config.ts";
+import { asArray, assertKnownKeys, optional, requireString } from "./configParse.ts";
 import { ParseError } from "./errors/parse.ts";
 import { stateDir } from "./paths.ts";
 import {
