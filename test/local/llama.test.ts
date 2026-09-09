@@ -171,11 +171,21 @@ async function sampleContainerCountDuring<T>(
   work: Promise<T>,
 ): Promise<{ result: T; samples: number[] }> {
   const samples: number[] = [];
+  // A failed poll makes every later sample a lie by omission -- an overlap
+  // assertion would read the gap as "no second container". Surface it instead.
+  let samplingError: unknown;
   const timer = setInterval(() => {
-    runningContainerCount().then((n) => samples.push(n));
+    runningContainerCount()
+      .then((n) => samples.push(n))
+      .catch((err: unknown) => {
+        samplingError ??= err;
+      });
   }, POLL_INTERVAL_MS);
   try {
     const result = await work;
+    if (samplingError !== undefined) {
+      throw samplingError;
+    }
     return { result, samples };
   } finally {
     clearInterval(timer);

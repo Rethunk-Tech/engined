@@ -542,7 +542,7 @@ export class DockerLifecycle {
       this.refreshIdle(rt, opts.idleStopSeconds);
       return { ...this.getStatus(id), launched: false };
     }
-    if (rt.startPromise) {
+    if (rt.startPromise !== null) {
       // Joining someone else's in-flight start, not running doStart myself --
       // `launched` must be decided per caller, not read off the shared
       // promise's resolved value, or every joiner would inherit the
