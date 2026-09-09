@@ -281,12 +281,21 @@ export class LlamaRouter {
   /** See `pinContainer`: at most one, held for the life of the router. */
   private containerLease: "none" | "held" = "none";
 
+  private readonly engine: EngineEntry;
+  private readonly routes: readonly ResolvedRoute[];
+  private readonly lifecycle: DockerLifecycle;
+  private readonly opts: LlamaRouterOptions;
+
   constructor(
-    private readonly engine: EngineEntry,
-    private readonly routes: readonly ResolvedRoute[],
-    private readonly lifecycle: DockerLifecycle,
-    private readonly opts: LlamaRouterOptions,
+    engine: EngineEntry,
+    routes: readonly ResolvedRoute[],
+    lifecycle: DockerLifecycle,
+    opts: LlamaRouterOptions,
   ) {
+    this.engine = engine;
+    this.routes = routes;
+    this.lifecycle = lifecycle;
+    this.opts = opts;
     this.httpClient = opts.httpClient ?? fetch;
     this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();

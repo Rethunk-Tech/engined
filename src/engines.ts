@@ -281,13 +281,19 @@ function noProbeRunnerConfiguredFix(
   return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`;
 }
 
-function probeFailedFix(
-  engineId: string,
-  observed: string,
-  proved: string | undefined,
-  failedProbe: string,
-  detail: string | undefined,
-): string {
+function probeFailedFix({
+  engineId,
+  observed,
+  proved,
+  failedProbe,
+  detail,
+}: {
+  engineId: string;
+  observed: string;
+  proved: string | undefined;
+  failedProbe: string;
+  detail: string | undefined;
+}): string {
   const why = detail === undefined ? "" : `: ${detail}`;
   if (proved === undefined) {
     return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`;
@@ -625,13 +631,19 @@ function baseStatus(engine: EngineEntry, spec: Spec, routes: readonly ResolvedRo
 }
 
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
-function statusFrom(
-  engine: EngineEntry,
-  spec: Spec,
-  runtime: RuntimeStatus,
-  routes: readonly ResolvedRoute[],
-  superseded?: string,
-): EngineStatus {
+function statusFrom({
+  engine,
+  spec,
+  runtime,
+  routes,
+  superseded,
+}: {
+  engine: EngineEntry;
+  spec: Spec;
+  runtime: RuntimeStatus;
+  routes: readonly ResolvedRoute[];
+  superseded?: string;
+}): EngineStatus {
   return {
     ...baseStatus(engine, spec, routes),
     state: runtime.state,
@@ -865,7 +877,13 @@ export class EngineRegistry {
     }
 
     const runtime = this.lifecycle.getStatus(engine.id);
-    return statusFrom(engine, spec, runtime, this.config.routes, this.supersededBy(entry, runtime));
+    return statusFrom({
+      engine,
+      spec,
+      runtime,
+      routes: this.config.routes,
+      superseded: this.supersededBy(entry, runtime),
+    });
   }
 
   /**
@@ -929,17 +947,17 @@ export class EngineRegistry {
       return this.syncStatus(entry);
     }
     const { engine } = entry;
-    return statusFrom(
+    return statusFrom({
       engine,
       spec,
-      await this.lifecycle.probe(
+      runtime: await this.lifecycle.probe(
         engine.id,
         spec,
         source,
         engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
       ),
-      this.config.routes,
-    );
+      routes: this.config.routes,
+    });
   }
 
   /**
@@ -994,13 +1012,13 @@ export class EngineRegistry {
       return {
         ...base,
         state: "unavailable",
-        fix: probeFailedFix(
-          engine.id,
-          version,
+        fix: probeFailedFix({
+          engineId: engine.id,
+          observed: version,
           proved,
-          outcome.failedProbe ?? "unknown",
-          outcome.detail,
-        ),
+          failedProbe: outcome.failedProbe ?? "unknown",
+          detail: outcome.detail,
+        }),
       };
     }
     writeVerifiedVersion(engine.id, version);

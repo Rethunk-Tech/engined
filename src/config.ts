@@ -486,13 +486,19 @@ function distinctDeclaredUpstreams(engineId: string, raws: readonly RawRoute[]):
  * agrees on -- a `ParseError` naming what was found if there is zero or more
  * than one candidate, since there is no single answer to default to.
  */
-function defaultUpstreamFor(
-  engineId: string,
-  trait: UpstreamTrait,
-  site: string,
-  allRaws: readonly RawRoute[],
-  file: string,
-): string | null {
+function defaultUpstreamFor({
+  engineId,
+  trait,
+  site,
+  allRaws,
+  file,
+}: {
+  engineId: string;
+  trait: UpstreamTrait;
+  site: string;
+  allRaws: readonly RawRoute[];
+  file: string;
+}): string | null {
   if (trait === "optional") {
     return null;
   }
@@ -534,19 +540,33 @@ function localFileForbiddenReason(
   return undefined;
 }
 
-function resolveRoute(
-  raw: RawRoute,
-  allRaws: readonly RawRoute[],
-  engines: Map<string, EngineEntry>,
-  upstreams: Map<string, Upstream>,
-  models: Map<string, ModelEntry>,
-  traitFor: (engine: EngineEntry) => SpecFacts,
-  file: string,
-): ResolvedRoute {
+function resolveRoute({
+  raw,
+  allRaws,
+  engines,
+  upstreams,
+  models,
+  traitFor,
+  file,
+}: {
+  raw: RawRoute;
+  allRaws: readonly RawRoute[];
+  engines: Map<string, EngineEntry>;
+  upstreams: Map<string, Upstream>;
+  models: Map<string, ModelEntry>;
+  traitFor: (engine: EngineEntry) => SpecFacts;
+  file: string;
+}): ResolvedRoute {
   const engine = engines.get(raw.engine) as EngineEntry;
   const upstreamId =
     raw.declaredUpstream === undefined
-      ? defaultUpstreamFor(raw.engine, traitFor(engine).trait, raw.site, allRaws, file)
+      ? defaultUpstreamFor({
+          engineId: raw.engine,
+          trait: traitFor(engine).trait,
+          site: raw.site,
+          allRaws,
+          file,
+        })
       : raw.declaredUpstream;
   if (upstreamId !== null && !upstreams.has(upstreamId)) {
     throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, file);
@@ -738,13 +758,19 @@ function checkCollisions(items: readonly { id: string }[], label: string, file: 
  * address is disabled -- through the engine, the upstream, or the route
  * itself. Split out of `parseChains` so each half is one job.
  */
-function parseChainHops(
-  name: string,
-  hops: readonly string[],
-  engines: readonly EngineEntry[],
-  routes: readonly ResolvedRoute[],
-  file: string,
-): string[] {
+function parseChainHops({
+  name,
+  hops,
+  engines,
+  routes,
+  file,
+}: {
+  name: string;
+  hops: readonly string[];
+  engines: readonly EngineEntry[];
+  routes: readonly ResolvedRoute[];
+  file: string;
+}): string[] {
   const kept: string[] = [];
   for (const [i, hop] of hops.entries()) {
     // `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes.
@@ -820,7 +846,7 @@ function parseChains(
     if (c.disabled) {
       continue;
     }
-    const hops = parseChainHops(c.id, c.hops, engines, routes, file);
+    const hops = parseChainHops({ name: c.id, hops: c.hops, engines, routes, file });
     // Nothing left to route to: the chain goes with its hops rather than
     // resolving to an empty list a request would fall off the end of.
     if (hops.length > 0) {
@@ -860,7 +886,15 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
 
   const traitFor = cachedTraitFor(root);
   const routes = rawRoutes.map((r) =>
-    resolveRoute(r, rawRoutes, engineMap, upstreamMap, modelMap, traitFor, file),
+    resolveRoute({
+      raw: r,
+      allRaws: rawRoutes,
+      engines: engineMap,
+      upstreams: upstreamMap,
+      models: modelMap,
+      traitFor,
+      file,
+    }),
   );
 
   checkModellessMixing(routes, file);

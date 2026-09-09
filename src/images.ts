@@ -178,15 +178,23 @@ function commonValues(
 }
 
 /** The prompt ids comfy answered, one per image asked for. `values` is per image, because the seed walks. */
-async function submitAll(
-  ctx: DoorContext,
-  route: ResolvedRoute,
-  base: string,
-  httpClient: HttpClient,
-  workflow: unknown,
-  n: number,
-  values: (index: number) => Record<string, unknown>,
-): Promise<string[] | Refusal> {
+async function submitAll({
+  ctx,
+  route,
+  base,
+  httpClient,
+  workflow,
+  n,
+  values,
+}: {
+  ctx: DoorContext;
+  route: ResolvedRoute;
+  base: string;
+  httpClient: HttpClient;
+  workflow: unknown;
+  n: number;
+  values: (index: number) => Record<string, unknown>;
+}): Promise<string[] | Refusal> {
   const ids: string[] = [];
   for (let index = 0; index < n; index++) {
     // One prompt per image rather than a batch: the door submits one at a time
@@ -194,20 +202,20 @@ async function submitAll(
     // nor a count a caller can act on.
     const filled = fillWorkflow(workflow, values(index));
     let promptId: string | undefined;
-    const answered = await submitComfyPrompt(
+    const answered = await submitComfyPrompt({
       ctx,
-      route.engine,
+      engineId: route.engine,
       base,
       httpClient,
-      JSON.stringify({ prompt: filled }),
-      (res, text) => {
+      body: JSON.stringify({ prompt: filled }),
+      onAnswered: (res, text) => {
         const id = parseRecord(text)?.prompt_id;
         if (res.ok && typeof id === "string") {
           promptId = id;
         }
         return new Response(text, { status: res.status });
       },
-    );
+    });
     if (promptId === undefined) {
       return {
         status: answered.status === 200 ? STATUS_BAD_GATEWAY : answered.status,
@@ -258,13 +266,19 @@ async function fetchImages(
 }
 
 /** Waits for one render and returns its image bytes, base64. */
-async function collect(
-  base: string,
-  httpClient: HttpClient,
-  promptId: string,
-  deadline: number,
-  signal?: AbortSignal,
-): Promise<string[] | Refusal> {
+async function collect({
+  base,
+  httpClient,
+  promptId,
+  deadline,
+  signal,
+}: {
+  base: string;
+  httpClient: HttpClient;
+  promptId: string;
+  deadline: number;
+  signal?: AbortSignal;
+}): Promise<string[] | Refusal> {
   // Ask before the deadline is ever consulted, the order `pollUntil` documents:
   // the queue drain `submitAll` waits through can outlast this call's whole
   // budget, and a render comfy has already finished is still an answer.
@@ -348,14 +362,14 @@ async function renderWith(
     if (typeof values !== "function") {
       return refuse(values);
     }
-    const ids = await submitAll(ctx, route, base, httpClient, workflow, n, values);
+    const ids = await submitAll({ ctx, route, base, httpClient, workflow, n, values });
     if (!Array.isArray(ids)) {
       return refuse(ids);
     }
     const deadline = Date.now() + ctx.getConfig().chat_timeout_seconds * MS_PER_SECOND;
     const data: { b64_json: string }[] = [];
     for (const id of ids) {
-      const images = await collect(base, httpClient, id, deadline, signal);
+      const images = await collect({ base, httpClient, promptId: id, deadline, signal });
       if (!Array.isArray(images)) {
         return refuse(images);
       }

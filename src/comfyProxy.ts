@@ -342,16 +342,23 @@ async function proxyComfyPrompt(
   req: Request,
 ): Promise<Response> {
   const body = await req.text();
-  return submitComfyPrompt(ctx, engineId, base, httpClient, body, (res, text) => {
-    const promptId = res.ok ? comfyPromptId(text) : undefined;
-    if (promptId !== undefined) {
-      ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
-        at: Date.now(),
-        filenames: [],
-      });
-      saveComfyBindings(ctx.comfyBindings);
-    }
-    return jsonForward(res, text);
+  return submitComfyPrompt({
+    ctx,
+    engineId,
+    base,
+    httpClient,
+    body,
+    onAnswered: (res, text) => {
+      const promptId = res.ok ? comfyPromptId(text) : undefined;
+      if (promptId !== undefined) {
+        ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
+          at: Date.now(),
+          filenames: [],
+        });
+        saveComfyBindings(ctx.comfyBindings);
+      }
+      return jsonForward(res, text);
+    },
   });
 }
 
@@ -370,14 +377,23 @@ async function proxyComfyPrompt(
  * a caller ends the render this is waiting on -- is never queued behind a
  * submission waiting for that same render to end.
  */
-export async function submitComfyPrompt(
-  ctx: DoorContext,
-  engineId: string,
-  base: string,
-  httpClient: HttpClient,
-  body: string,
-  onAnswered: (res: Response, text: string) => Response,
-): Promise<Response> {
+export interface ComfyPromptSubmission {
+  ctx: DoorContext;
+  engineId: string;
+  base: string;
+  httpClient: HttpClient;
+  body: string;
+  onAnswered: (res: Response, text: string) => Response;
+}
+
+export async function submitComfyPrompt({
+  ctx,
+  engineId,
+  base,
+  httpClient,
+  body,
+  onAnswered,
+}: ComfyPromptSubmission): Promise<Response> {
   const timeoutMs = comfyDrainTimeoutMs(ctx, engineId);
   let forwarded: Response | undefined;
   // `pollUntil`'s order is what makes the smallest legal budget still buy a

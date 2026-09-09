@@ -811,12 +811,11 @@ export class FatalError extends Error {
 
 /** A fatal parse failure that can name the file and site that caused it. */
 export class ParseError extends FatalError {
-  constructor(
-    message: string,
-    readonly file: string,
-    options?: ErrorOptions,
-  ) {
+  readonly file: string;
+
+  constructor(message: string, file: string, options?: ErrorOptions) {
     super(`${file}: ${message}`, options);
+    this.file = file;
   }
 }
 

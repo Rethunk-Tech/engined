@@ -364,7 +364,7 @@ describe("chains", () => {
  * chat, which a two-way embedding-vs-everything split could not express.
  */
 describe("a role's claimed endpoint", () => {
-  const CLAIMED: ReadonlyArray<[Role, string]> = [
+  const CLAIMED: readonly [Role, string][] = [
     ["embedding", EMBEDDINGS],
     ["rerank", RERANK],
   ];

@@ -1492,7 +1492,7 @@ function redirectStateHome(): () => void {
  * for one it did not -- never the caller's own string either way.
  */
 test("an uploaded reference voice reaches the engine as the door's own path, and a handle the door never issued is refused", async () => {
-  const seen: Array<Record<string, unknown>> = [];
+  const seen: Record<string, unknown>[] = [];
   const fake = startFakeUpstream(async (request) => {
     const { pathname } = new URL(request.url);
     if (pathname === "/health") {

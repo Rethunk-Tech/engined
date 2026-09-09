@@ -324,17 +324,24 @@ interface Runtime {
 
 export class DockerLifecycle {
   private readonly runtimes = new Map<string, Runtime>();
+  private readonly exec: Exec;
+  private readonly httpProbe: Probe;
+  /**
+   * What this lifecycle's containers are called. Overridden only by the
+   * local tier, which drives real docker: under the default it would name
+   * -- and on teardown stop -- the very containers an installed unit owns.
+   */
+  private readonly namePrefix: string;
 
   constructor(
-    private readonly exec: Exec = dockerExec,
-    private readonly httpProbe: Probe = defaultProbe,
-    /**
-     * What this lifecycle's containers are called. Overridden only by the
-     * local tier, which drives real docker: under the default it would name
-     * -- and on teardown stop -- the very containers an installed unit owns.
-     */
-    private readonly namePrefix: string = NAME_PREFIX,
-  ) {}
+    exec: Exec = dockerExec,
+    httpProbe: Probe = defaultProbe,
+    namePrefix: string = NAME_PREFIX,
+  ) {
+    this.exec = exec;
+    this.httpProbe = httpProbe;
+    this.namePrefix = namePrefix;
+  }
 
   /**
    * Fired when an engine's state actually changes. Set rather than

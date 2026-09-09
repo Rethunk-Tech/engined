@@ -220,13 +220,19 @@ function chainServes(walked: readonly ChainHop[]): string[] {
  * that cannot honour it, so one such hop anywhere makes the whole chain
  * unsafe to send a tool loop to.
  */
-async function chainRow(
-  ctx: DoorContext,
-  chainId: string,
-  hops: readonly string[],
-  config: Config,
-  statuses: ReadonlyMap<string, EngineStatus>,
-): Promise<ModelRow> {
+async function chainRow({
+  ctx,
+  chainId,
+  hops,
+  config,
+  statuses,
+}: {
+  ctx: DoorContext;
+  chainId: string;
+  hops: readonly string[];
+  config: Config;
+  statuses: ReadonlyMap<string, EngineStatus>;
+}): Promise<ModelRow> {
   const walked = await chainHops(ctx, hops, config, statuses);
   const [lead] = walked;
   const dead = walked.filter((h) => h.state === "unavailable").map((h) => h.hop);
@@ -274,7 +280,7 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
     rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }));
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
-    rows.push(await chainRow(ctx, chainId, hops, config, statuses));
+    rows.push(await chainRow({ ctx, chainId, hops, config, statuses }));
   }
 
   return Response.json({ object: "list", data: rows } satisfies ModelsResponse);
