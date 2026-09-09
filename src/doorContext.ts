@@ -8,11 +8,16 @@
 
 import type { AgenticSpawn } from "./agentic.ts";
 import type { DockerLifecycle } from "./docker.ts";
-import type { EngineRegistry, RegistryOptions } from "./engines.ts";
+import {
+  DEFAULT_IDLE_STOP_SECONDS,
+  DEFAULT_READY_TIMEOUT_S,
+  type EngineRegistry,
+  type RegistryOptions,
+} from "./engines.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
-import type { LlamaRouter } from "./llama.ts";
-import type { Config } from "./types.ts";
+import { LlamaRouter } from "./llama.ts";
+import type { Config, EngineEntry } from "./types.ts";
 
 export interface DoorOptions {
   agenticSpawn?: AgenticSpawn;
@@ -108,4 +113,25 @@ export type ComfyBindings = Map<string, ComfyBinding>;
 export interface ComfyBinding {
   at: number;
   filenames: string[];
+}
+
+export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
+  const cached = ctx.llamaRouters.get(engine.id);
+  if (cached && (!ctx.staleLlamaRouters.has(engine.id) || cached.hasOutstandingLeases())) {
+    return cached;
+  }
+  ctx.staleLlamaRouters.delete(engine.id);
+  const routes = ctx
+    .getConfig()
+    .routes.filter((r) => r.engine === engine.id && r.upstream === "local");
+  const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
+    enginesRoot: ctx.registryOpts.enginesRoot,
+    bunx: ctx.registryOpts.bunx,
+    idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
+    readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+    httpClient: ctx.doorOpts.llamaHttpClient,
+    presetHostPath: ctx.doorOpts.llamaPresetHostPath,
+  });
+  ctx.llamaRouters.set(engine.id, router);
+  return router;
 }
