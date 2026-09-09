@@ -246,8 +246,7 @@ describe("POST /openai/v1/images/generations", () => {
     const seeds = submitted.map(
       (s) =>
         (JSON.parse(s) as { prompt: Record<string, { inputs: { seed?: number } } | undefined> })
-          .prompt["4"]
-          ?.inputs.seed,
+          .prompt["4"]?.inputs.seed,
     );
     expect(new Set(seeds).size).toBe(3);
   });
