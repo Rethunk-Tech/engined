@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, rmSync } from "node:fs";
-import {
-  defaultAgenticSpawn,
-  PROBE_ENV_ALLOWLIST,
-  plantUserPromptSubmitHook,
-  type RunAgenticResult,
-  runAgentic,
-} from "../../src/agentic.ts";
+import { defaultAgenticSpawn, type RunAgenticResult, runAgentic } from "../../src/agentic.ts";
+import { PROBE_ENV_ALLOWLIST, plantUserPromptSubmitHook } from "../../src/agenticProbeHarness.ts";
 import {
   agentEnv,
   agenticIntegrityTests,

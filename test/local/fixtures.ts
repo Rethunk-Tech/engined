@@ -9,12 +9,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import {
-  buildAgenticProbeRunner,
-  hashTree,
-  type RunAgenticResult,
-  WORKTREE_SEED,
-} from "../../src/agentic.ts";
+import type { RunAgenticResult } from "../../src/agentic.ts";
+import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from "../../src/agenticProbeHarness.ts";
 import { loadConfig } from "../../src/config.ts";
 import { EngineRegistry } from "../../src/engines.ts";
 import { stateDir } from "../../src/paths.ts";

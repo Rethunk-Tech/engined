@@ -8,7 +8,7 @@
 
 import { mkdirSync } from "node:fs";
 import process from "node:process";
-import { buildAgenticProbeRunner } from "./agentic.ts";
+import { buildAgenticProbeRunner } from "./agenticProbeHarness.ts";
 import {
   COMFY_WS_SUFFIX,
   type ComfyWsData,

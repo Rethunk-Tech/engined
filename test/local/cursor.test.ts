@@ -3,11 +3,10 @@ import { rmSync } from "node:fs";
 import {
   defaultAgenticSpawn,
   observeAgentVersion,
-  PROBE_ENV_ALLOWLIST,
-  plantCursorPromptHook,
   type RunAgenticResult,
   runAgentic,
 } from "../../src/agentic.ts";
+import { PROBE_ENV_ALLOWLIST, plantCursorPromptHook } from "../../src/agenticProbeHarness.ts";
 import {
   agentEnv,
   agenticIntegrityTests,

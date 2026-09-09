@@ -4,13 +4,13 @@ import { join } from "node:path";
 import process from "node:process";
 import {
   type AgenticSpawn,
-  buildAgenticProbeRunner,
   buildArgv,
   buildChildEnv,
   defaultAgenticSpawn,
   renderEmptyMcpConfig,
   runAgentic,
 } from "./agentic.ts";
+import { buildAgenticProbeRunner } from "./agenticProbeHarness.ts";
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
 import { agentCli, parseClaudeEnvelope as parseEnvelope } from "./agents.ts";

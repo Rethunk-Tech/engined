@@ -3,13 +3,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { defaultAgenticSpawn, runAgentic } from "../../src/agentic.ts";
 import {
   buildAgenticProbeRunner,
-  defaultAgenticSpawn,
   hashTree,
   PROBE_ENV_ALLOWLIST,
-  runAgentic,
-} from "../../src/agentic.ts";
+} from "../../src/agenticProbeHarness.ts";
 import { agentEnv, seedWorktree, skipTitle } from "./fixtures.ts";
 
 /**
