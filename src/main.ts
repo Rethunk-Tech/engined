@@ -63,6 +63,7 @@ import { handleImageEdit, handleImageGeneration } from "./images.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { hopForwardsTools, modelsMenu } from "./modelsMenu.ts";
 import { configPath, installDir, voicesDir } from "./paths.ts";
+import { runProbes } from "./probe.ts";
 import { writeToStdout } from "./provenance.ts";
 import { readJsonBody } from "./requestBody.ts";
 import { loadSpec } from "./spec.ts";
@@ -100,7 +101,6 @@ import {
   upstreamPath,
   upstreamUrl,
 } from "./upstream.ts";
-import { runVisionProbe } from "./visionProbe.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
@@ -1956,8 +1956,8 @@ export function resolveBunx(
 }
 
 /**
- * `main.js --vision-probe`: a one-shot run of the vision-fidelity probe
- * against the door this install is already serving, which is why it never
+ * `main.js --probe`: a one-shot run of every acceptance probe against the
+ * door this install is already serving, which is why it never
  * builds a `Door` of its own -- it is an ordinary caller on loopback, and the
  * container it needs starts on demand the same way any other request starts
  * one. The port comes from the config the daemon itself read, so the probe
@@ -1968,7 +1968,7 @@ export function resolveBunx(
  * more thing to keep in step with the install, for a check that is one
  * request long.
  */
-async function visionProbeExit(): Promise<number> {
+async function probeExit(): Promise<number> {
   let port: number;
   try {
     port = loadConfig().listen_port;
@@ -1976,7 +1976,7 @@ async function visionProbeExit(): Promise<number> {
     process.stderr.write(`${errMessage(err)}\n`);
     return FatalError.EXIT_CODE;
   }
-  const report = await runVisionProbe(`http://127.0.0.1:${port}`);
+  const report = await runProbes(`http://127.0.0.1:${port}`);
   for (const line of report.lines) {
     writeToStdout(`${line.ok ? "ok" : "FAIL"} ${line.address}: ${line.detail}`);
   }
@@ -1985,8 +1985,8 @@ async function visionProbeExit(): Promise<number> {
 if (import.meta.main) {
   // Before anything that binds or starts: this mode talks to the door that is
   // already running, so creating one here would take the port from it.
-  if (process.argv.includes("--vision-probe")) {
-    process.exit(await visionProbeExit());
+  if (process.argv.includes("--probe")) {
+    process.exit(await probeExit());
   }
   let startupConfig: Config;
   let door: Door;

@@ -406,10 +406,17 @@ curl -s localhost:29200/openai/v1/rerank -H 'content-type: application/json' \
              {"index": 1, "relevance_score": 1.3e-07}]}
 ```
 
-`index` is into the array as sent, so the caller reorders its own list rather
-than trusting the text to come back unchanged. Scores are the engine's own and
-carry no fixed scale: they order documents *within one response* and mean
-nothing compared across calls, models, or engines.
+Results come back **ordered best-first**, and `index` is into the array as
+sent -- so the caller maps them onto its own list rather than trusting the
+text to come back unchanged. Scores are the engine's own and carry no fixed
+scale: they order documents *within one response* and mean nothing compared
+across calls, models, or engines. Measured on Qwen3-Reranker-0.6B-seq-cls,
+one relevant document among three scored 0.907 against 7.8e-11 and 4.9e-11,
+so the separation is wide rather than marginal.
+
+On llama the model must be a **sequence-classification** conversion
+(`-seq-cls`): llama.cpp reranks through a rank head the stock Qwen3-Reranker
+export does not carry.
 
 The body is forwarded to the engine untouched past `model`, so any field that
 engine reads reaches it. Chains do not serve this verb — a chain name here is

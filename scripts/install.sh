@@ -47,8 +47,8 @@ resolve_paths() {
 
   UNIT_DIR="$CONFIG_HOME/systemd/user"
   UNIT_PATH="$UNIT_DIR/engined.service"
-  PROBE_SERVICE_PATH="$UNIT_DIR/engined-vision-probe.service"
-  PROBE_TIMER_PATH="$UNIT_DIR/engined-vision-probe.timer"
+  PROBE_SERVICE_PATH="$UNIT_DIR/engined-probe.service"
+  PROBE_TIMER_PATH="$UNIT_DIR/engined-probe.timer"
 
   UNIT_INSTALL_DIR="$(to_unit_path "$INSTALL_DIR")"
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
@@ -158,18 +158,28 @@ main() {
   render_unit_file engined.service.in "$UNIT_PATH"
   # The vision probe is the only thing that re-proves the one acceptance
   # criterion docs/engines.md records as unproven, and a wrong description is
-  # invisible in the response, so it ships enabled rather than as something to
-  # remember. A box with no vision route configured gets a probe that says so
-  # and exits 0 -- no red unit for a capability nobody asked for.
-  render_unit_file engined-vision-probe.service.in "$PROBE_SERVICE_PATH"
-  render_unit_file engined-vision-probe.timer.in "$PROBE_TIMER_PATH"
+  # invisible in the response, so these ship enabled rather than as something
+  # to remember. A box with none of the probed routes configured gets a probe
+  # that says so and exits 0 -- no red unit for a capability nobody asked for.
+  render_unit_file engined-probe.service.in "$PROBE_SERVICE_PATH"
+  render_unit_file engined-probe.timer.in "$PROBE_TIMER_PATH"
+
+  # The probe covered vision alone when it was installed under that name. An
+  # install that predates the rename still has its timer enabled, and rsync
+  # --delete takes the unit file out from under it, so a box updating in place
+  # would keep a timer whose ExecStart no longer resolves. Removed here rather
+  # than left to fail weekly and silently.
+  if [[ -e "$UNIT_DIR/engined-vision-probe.timer" ]]; then
+    systemctl --user disable --now engined-vision-probe.timer || true
+    rm -f "$UNIT_DIR/engined-vision-probe.timer" "$UNIT_DIR/engined-vision-probe.service"
+  fi
 
   systemctl --user daemon-reload
   # enable, not just restart: without it the unit is only ever running because
   # someone ran this script, and a logout takes it down for good.
   systemctl --user enable engined.service
   systemctl --user restart engined.service
-  systemctl --user enable --now engined-vision-probe.timer
+  systemctl --user enable --now engined-probe.timer
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

@@ -222,7 +222,7 @@ role     = "embedding"
 engine   = "llama"
 upstream = "local"
 model    = "rerank"
-filename = "Qwen/Qwen3-Reranker-0.6B-GGUF/Qwen3-Reranker-0.6B-Q8_0.gguf"
+filename = "prithivMLmods/Qwen3-Reranker-0.6B-seq-cls-GGUF/Qwen3-Reranker-0.6B-seq-cls.Q8_0.gguf"
 role     = "rerank"
 
   # The same trap as `embedding` above, and measured with the control that
@@ -231,6 +231,12 @@ role     = "rerank"
   # endpoint scores correctly. The INI key is `rerank`; the CLI aliases are
   # `--rerank` and `--reranking`. Router mode does not autoload for this verb
   # the way it does for chat, which engined's own start handles.
+  #
+  # The `-seq-cls` conversion, not the plain one: llama.cpp reranks through a
+  # sequence-classification head, which the stock Qwen3-Reranker export does
+  # not carry. Measured on this file against the pinned build -- query "How do
+  # I stop a container?" over three documents scored the docker one 0.907 and
+  # the two irrelevant ones at 7.8e-11 and 4.9e-11.
   [route.args]
   rerank = true
 

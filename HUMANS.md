@@ -103,18 +103,23 @@ that may not have named it.
 curl -s localhost:29200/engined/v1/engines | jq '.engines[] | select(.superseded) | {id, superseded}'
 ```
 
-`install.sh` also enables `engined-vision-probe.timer`, which runs weekly and
-re-checks the one thing a vision response cannot tell you itself — see
-[docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan). Run it now:
+`install.sh` also enables `engined-probe.timer`, which runs weekly and
+re-checks the things a response cannot tell you itself: vision fidelity (see
+[docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan)), that a
+reranker still ranks the right document first, and that a transcription route
+which has not declared `translate` still refuses to. Run it now:
 
 ```sh
-systemctl --user start engined-vision-probe.service
-journalctl --user -u engined-vision-probe -n 20
+systemctl --user start engined-probe.service
+journalctl --user -u engined-probe -n 20
 ```
 
-It sends a two-colour image through every vision address the model menu
-lists and fails if the reply does not name both halves in order. A box with
-no vision route configured gets one line saying so and a clean exit.
+It sends a two-colour image through every vision address the model menu lists
+and fails if the reply does not name both halves in order; a rerank query with
+one answering document among three, and fails if that one is not ranked first;
+and a translate request at every transcription route that did not declare
+`translate`, failing if any answers instead of refusing. A box with none of
+those configured gets one line saying so and a clean exit.
 
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
@@ -135,14 +140,14 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | config change had no effect on a running engine | takes effect at the engine's next start — the engine's `superseded` field names the call that brings it forward now |
 | an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
 | `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
-| `engined-vision-probe` failed with "reports no `role`" | the running daemon predates the probe — re-run `scripts/install.sh` |
-| `engined-vision-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |
+| `engined-probe` failed with "reports no `role`" | the running daemon predates the probe — re-run `scripts/install.sh` |
+| `engined-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |
 
 ## Uninstall
 
 ```sh
-systemctl --user disable --now engined engined-vision-probe.timer
-rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-vision-probe.*
+systemctl --user disable --now engined engined-probe.timer
+rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-probe.*
 systemctl --user daemon-reload
 rm -rf ~/.local/share/engined
 ```

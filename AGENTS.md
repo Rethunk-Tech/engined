@@ -37,25 +37,31 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
-**Unproven: a rerank request through the real door.** The engine half is
-measured — `rerank = true` in the preset INI makes llama-server's `/v1/rerank`
-answer with correctly ordered scores, and without the key the same loaded model
-answers 501 naming the flag (control run, `engines/llama/spec.toml`). What has
-never run is engined's own dispatch carrying that verb, because no reranker
-GGUF is on this box: the role, the endpoint and the serves filter are covered
-by `src/dispatch.test.ts` alone. Download a Qwen3-Reranker GGUF to the path
-`config.example.toml` names, then send one request through 29200; until then
-the door's rerank path is proven only against a fake upstream.
+**Unproven: a rerank request through the real door.** Both halves below this
+line are now measured; only the join is not. A real reranker
+(Qwen3-Reranker-0.6B-seq-cls, on disk) loaded with `rerank = true` scores a
+relevant document 0.907 against 7.8e-11 and 4.9e-11 for two irrelevant ones,
+and without the key the same loaded model answers 501 naming the flag. The
+route is in the operator's config and `src/probe.ts` proves it on a timer.
+What has not happened is that probe running green once: llama had an in-flight
+chat request when this landed, and restarting it to pick up the new role would
+have evicted a colleague's work for a number that can wait for the next
+natural start. Run `systemctl --user start engined-probe.service` after llama
+next restarts.
 
-**Unproven: a real translation.** `translate` is a per-request field on
-whisper-server (read off `examples/server/server.cpp`, not inferred) and the
-door sends it, asserted against a fake whisper that echoes the form back. No
-multilingual weights are on this box, so no non-English audio has ever gone
-through the verb. The guard that matters is already tested: a route that does
-not declare `translate` does not serve the path. What is untested is the other
-half -- that a route which does declare it comes back with English. Download
-`ggml-large-v3-turbo-q8_0.bin` (obtain line in `engines/whisper/spec.toml`) and
-send one non-English clip.
+**Unproven: translation quality.** `translate` is a per-request field on
+whisper-server (read off `examples/server/server.cpp`, not inferred), the door
+sends it, and `ggml-large-v3-turbo-q8_0.bin` is now on disk. The guard that
+matters runs on the timer: `src/probe.ts` sends a translate request at every
+transcription route that did NOT declare `translate` and fails unless each
+refuses, which is the silent-wrong-answer failure this verb was built around.
+
+What no probe here can check is whether a translated transcript is a good
+translation. Unlike an image, speech in a known foreign language cannot be
+generated in code, so there is no ground truth to compare against -- a
+recorded clip would be a fixture that goes stale, which this repo's probes
+deliberately avoid. Check it against a clip you understand before wiring a
+consumer to the verb.
 
 Agentic cost is read from each CLI's own envelope, and each shape was
 captured from a real run rather than guessed -- claude's `total_cost_usd`,
