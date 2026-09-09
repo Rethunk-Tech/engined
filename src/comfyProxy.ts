@@ -32,12 +32,12 @@ import { errMessage, isRecord, MS_PER_SECOND, parseRecord, pollUntil } from "./t
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/;
 export const COMFY_WS_SUFFIX = "ws";
 /** Rewrites an `http(s)://` base to its `ws(s)://` twin for the comfy websocket bridge. */
-const HTTP_SCHEME_RE = /^http/;
+export const HTTP_SCHEME_RE = /^http/;
 /** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
 const COMFY_UPLOAD_PREFIX_LEN = 12;
 
 /** The three path segments `COMFY_PROXY_RE` captures. */
-interface ComfyMatch {
+export interface ComfyMatch {
   engineSeg: string;
   upstreamSeg: string;
   rest: string;
@@ -51,7 +51,7 @@ export function matchComfyPath(pathname: string): ComfyMatch | undefined {
 }
 
 /** One resolved comfy engine plus the client every forwarded call goes through. */
-interface ComfyProxy {
+export interface ComfyProxy {
   ctx: DoorContext;
   engineId: string;
   /** Who submitted the prompt: half the binding key, so no rekey is needed the day a call arrives from somewhere other than this box. */
@@ -71,7 +71,7 @@ export interface ComfyWsData {
 export type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>;
 
 /** Every caller reaching this door reached it directly, so far; a federated hop will supply its own origin instead of this constant. */
-const COMFY_LOCAL_ORIGIN = "local";
+export const COMFY_LOCAL_ORIGIN = "local";
 
 /** NUL, so the composed key stays unambiguous and `startsWith` can scope a scan to one (engine, origin) pair: no engine id, origin or `prompt_id` can contain one. */
 const COMFY_KEY_SEP = "\u0000";
@@ -237,7 +237,7 @@ interface ComfyTarget {
 }
 
 /** The engine+upstream segments of a comfy proxy path, resolved to a running comfy container -- `undefined` for anything that is not one: an unknown engine, a non-comfy kind, a route that does not exist, or a container that is not up. */
-function resolveComfyTarget(
+export function resolveComfyTarget(
   ctx: DoorContext,
   engineSeg: string,
   upstreamSeg: string,
@@ -260,7 +260,7 @@ function resolveComfyTarget(
   return privateUrl === null ? undefined : { engineId: engineSeg, base: `http://${privateUrl}` };
 }
 
-function noSuchComfyEngine(engineSeg: string, upstreamSeg: string): Response {
+export function noSuchComfyEngine(engineSeg: string, upstreamSeg: string): Response {
   return jsonError(
     STATUS_UNAVAILABLE,
     `no running comfy engine at "@/${engineSeg}/${upstreamSeg}" -- start it first`,
@@ -273,7 +273,7 @@ function jsonForward(res: Response, text: string): Response {
 }
 
 /** `GET /object_info/{nodeType}` and `GET /system_stats`: a static node schema and the container's own stats, nobody's data either way. */
-async function forwardComfyGet(
+export async function forwardComfyGet(
   base: string,
   rest: string,
   search: string,
@@ -337,7 +337,7 @@ async function comfyDrained(base: string, httpClient: HttpClient): Promise<boole
 }
 
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
-async function proxyComfyPrompt(
+export async function proxyComfyPrompt(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
@@ -427,7 +427,7 @@ export async function submitComfyPrompt({
 }
 
 /** `POST /upload/image`, forwarded with the stored filename namespaced -- comfy's input directory is shared across every caller, and two callers uploading "reference.png" the same second must not silently overwrite one another. */
-async function proxyComfyUpload(
+export async function proxyComfyUpload(
   base: string,
   req: Request,
   httpClient: HttpClient,
@@ -489,7 +489,7 @@ function comfyViewRefused(): Response {
  * door's design is heading toward -- comfy's output directory is shared,
  * and a caller-supplied filename must never become a URL on its own say-so.
  */
-async function proxyComfyView(
+export async function proxyComfyView(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   params: URLSearchParams,
 ): Promise<Response> {
@@ -550,7 +550,7 @@ function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | 
  * submit. A successful read seeds `filenames` with whatever this job
  * actually produced, which is what makes `/view` servable at all.
  */
-async function proxyComfyHistory(
+export async function proxyComfyHistory(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   promptId: string,
 ): Promise<Response> {
@@ -627,7 +627,7 @@ async function readComfyQueue(
  * The gate is held across the whole sequence, so a submission cannot enter
  * the container between this read and the act on it.
  */
-async function proxyComfyCancel(
+export async function proxyComfyCancel(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
@@ -697,7 +697,7 @@ async function interruptComfyRunning(
 }
 
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */
-async function proxyComfyQueueDelete(
+export async function proxyComfyQueueDelete(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
@@ -719,149 +719,3 @@ async function proxyComfyQueueDelete(
   });
   return jsonForward(res, await res.text());
 }
-
-/**
- * Everything else the container answers, dispatched by method and
- * sub-path. Every real call is sub-pathed (`/history/{id}`,
- * `/object_info/{type}`); matching the bare form would match nothing a real
- * caller ever sends and would only invite one that shouldn't. `GET /queue`
- * bare, `POST /free` and `POST /interrupt` are never forwarded: `/free`
- * evicts loaded weights (`release` is the door's own verb for that, with
- * the lease check that belongs there), `/interrupt` stops whatever the
- * container is CURRENTLY processing with no scoping of its own, and a bare
- * `/queue` is the container's entire global ledger. `POST /cancel` is the
- * door's own verb for the one those two would otherwise be wanted for: it
- * reads that ledger and interrupts on the caller's behalf, but only for a
- * `prompt_id` this door bound to this caller. Anything this door has
- * not explicitly allowlisted is refused the same way: the safe default is
- * to forward nothing at all.
- */
-export function handleComfyProxy(
-  ctx: DoorContext,
-  req: Request,
-  { engineSeg, upstreamSeg, rest }: ComfyMatch,
-): Response | Promise<Response> {
-  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
-  if (target === undefined) {
-    return noSuchComfyEngine(engineSeg, upstreamSeg);
-  }
-  const proxy: ComfyProxy = {
-    ctx,
-    engineId: target.engineId,
-    origin: COMFY_LOCAL_ORIGIN,
-    base: target.base,
-    httpClient: ctx.doorOpts.comfyHttpClient ?? fetch,
-  };
-
-  if (rest === COMFY_WS_SUFFIX) {
-    // A real upgrade never reaches here -- `fetch` intercepts it before
-    // routing, using the live `Bun.serve` server it is handed. This is only
-    // reached by a plain request against the ws path with no real socket
-    // behind it (a unit test's direct `door.fetch` call), which cannot be
-    // proxied at all.
-    return jsonError(STATUS_BAD_REQUEST, "this path is a websocket upgrade, not a plain request");
-  }
-  let forwarded: Promise<Response> | undefined;
-  if (req.method === "GET") {
-    forwarded = comfyGet(proxy, rest, new URL(req.url));
-  } else if (req.method === "POST") {
-    forwarded = comfyPost(proxy, rest, req);
-  }
-  return forwarded ?? jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`);
-}
-
-function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> | undefined {
-  if (rest === "system_stats" || rest.startsWith("object_info/")) {
-    return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient);
-  }
-  if (rest === "view") {
-    return proxyComfyView(proxy, url.searchParams);
-  }
-  if (rest.startsWith("history/")) {
-    return proxyComfyHistory(proxy, rest.slice("history/".length));
-  }
-  return undefined;
-}
-
-function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Response> | undefined {
-  if (rest === "prompt") {
-    return proxyComfyPrompt(proxy, req);
-  }
-  if (rest === "upload/image") {
-    return proxyComfyUpload(proxy.base, req, proxy.httpClient);
-  }
-  if (rest === "queue") {
-    return proxyComfyQueueDelete(proxy, req);
-  }
-  if (rest === "cancel") {
-    return proxyComfyCancel(proxy, req);
-  }
-  return undefined;
-}
-
-/**
- * `GET /ws?clientId=`, upgraded: the door mints its own `clientId` rather
- * than forwarding whatever the caller supplied -- comfy filters progress
- * frames by that id with no ownership check of its own, so a caller free to
- * choose it could subscribe to another caller's job. The assigned id is
- * announced back over the socket itself, as the first text frame
- * (`comfyWebSocketHandlers.open` below), because a websocket upgrade
- * response carries no body to hand it back any other way; a caller's later
- * `POST /prompt` must carry the same id as its own `client_id` for comfy to
- * correlate the two.
- */
-export function handleComfyWsUpgrade(
-  ctx: DoorContext,
-  req: Request,
-  server: EnginedServer,
-  { engineSeg, upstreamSeg }: ComfyMatch,
-): Response | undefined {
-  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
-  if (target === undefined) {
-    return noSuchComfyEngine(engineSeg, upstreamSeg);
-  }
-  const clientId = crypto.randomUUID().replace(/-/g, "");
-  const upstreamWsUrl = `${target.base.replace(HTTP_SCHEME_RE, "ws")}/ws?clientId=${clientId}`;
-  const data: ComfyWsData = { upstreamUrl: upstreamWsUrl, clientId };
-  return server.upgrade(req, { data })
-    ? undefined
-    : jsonError(STATUS_BAD_REQUEST, "websocket upgrade failed");
-}
-
-/** What `comfyWebSocketHandlers.open` announces first, so the caller learns the door-assigned `clientId` before it ever needs one for `POST /prompt`. */
-const CLIENT_ID_MESSAGE_TYPE = "client_id";
-
-/**
- * Bridges the caller's own upgraded socket to a fresh outbound connection to
- * the real container, one per caller connection. Comfy's own protocol is
- * server-to-client only (progress and preview frames); nothing a caller
- * could legitimately send back ever reaches comfy through this, so
- * `message` is a deliberate no-op.
- */
-export const comfyWebSocketHandlers: Bun.WebSocketHandler<ComfyWsData> = {
-  open(ws) {
-    const upstream = new WebSocket(ws.data.upstreamUrl);
-    upstream.binaryType = "arraybuffer";
-    ws.data.upstream = upstream;
-    upstream.addEventListener("open", () => {
-      ws.send(
-        JSON.stringify({ type: CLIENT_ID_MESSAGE_TYPE, data: { client_id: ws.data.clientId } }),
-      );
-    });
-    upstream.addEventListener("message", (ev) => {
-      if (typeof ev.data === "string") {
-        ws.send(ev.data);
-      } else {
-        ws.send(new Uint8Array(ev.data as ArrayBuffer));
-      }
-    });
-    upstream.addEventListener("close", () => ws.close());
-    upstream.addEventListener("error", () => ws.close());
-  },
-  message() {
-    // See the doc comment above: nothing a caller sends is ever forwarded.
-  },
-  close(ws) {
-    ws.data.upstream?.close();
-  },
-};

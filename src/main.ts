@@ -12,13 +12,11 @@ import { buildAgenticProbeRunner } from "./agentic.ts";
 import {
   COMFY_WS_SUFFIX,
   type ComfyWsData,
-  comfyWebSocketHandlers,
   type EnginedServer,
-  handleComfyProxy,
-  handleComfyWsUpgrade,
   loadComfyBindings,
   matchComfyPath,
 } from "./comfyProxy.ts";
+import { comfyWebSocketHandlers, handleComfyProxy, handleComfyWsUpgrade } from "./comfyRoutes.ts";
 import { loadConfig } from "./config.ts";
 import { handleContent, handleEngineEvents, handleExtras } from "./content.ts";
 import {
