@@ -43,19 +43,26 @@ a rerank request through the real door (`engined-probe` reports `ok
 through a real comfy (a 512x512 render fed back through
 `/openai/v1/images/edits` returned a derived image, verified by eye).
 
-**Unproven: translation quality.** `translate` is a per-request field on
-whisper-server (read off `examples/server/server.cpp`, not inferred), the door
-sends it, and `ggml-large-v3-turbo-q8_0.bin` is now on disk. The guard that
-matters runs on the timer: `src/probe.ts` sends a translate request at every
-transcription route that did NOT declare `translate` and fails unless each
-refuses, which is the silent-wrong-answer failure this verb was built around.
+**Measured, and poor: translation quality on large-v3-turbo-q8_0.** The verb
+itself is proven end to end. Speech synthesized through
+`@/chatterbox-multi/local` saying "El gato negro duerme sobre la mesa de
+madera en la cocina" came back from `/openai/v1/audio/transcriptions` on
+`@/whisper/large-v3-turbo` character for character, and from
+`/openai/v1/audio/translations` on the same route as English -- while
+`@/whisper/medium.en` refused that verb with a 400. Plumbing, refusal and
+round trip all hold.
 
-What no probe here can check is whether a translated transcript is a good
-translation. Unlike an image, speech in a known foreign language cannot be
-generated in code, so there is no ground truth to compare against -- a
-recorded clip would be a fixture that goes stale, which this repo's probes
-deliberately avoid. Check it against a clip you understand before wiring a
-consumer to the verb.
+The English was wrong: "The black man sleeps on the bed in the kitchen."
+`gato` became "man" and `mesa de madera` became "bed". That is not an audio
+problem and the transcription is what proves it -- the same recording was
+heard perfectly, so the loss is in the model's translation head rather than in
+anything this door does. Whether q8_0 costs translation more than it costs
+transcription is untested and is the first thing to try.
+
+So: wire a consumer to this verb only after checking it against speech you
+understand, and do not read a fluent English sentence as a correct one. The
+probe cannot catch this -- it is the same confident-wrong-answer shape as the
+vision defect, and there is no ground truth for it in code.
 
 Agentic cost is read from each CLI's own envelope, and each shape was
 captured from a real run rather than guessed -- claude's `total_cost_usd`,

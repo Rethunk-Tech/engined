@@ -381,6 +381,13 @@ curl -s localhost:29200/openai/v1/audio/translations \
 `--form-string` for the model, not `-F`: an address begins `@/`, which `-F`
 reads as "upload this file". Only `file=@clip.wav` wants that.
 
+**A fluent answer is not a correct one.** Measured on large-v3-turbo-q8_0:
+Spanish for "the black cat sleeps on the wooden table in the kitchen"
+transcribed character for character, and translated as "The black man sleeps
+on the bed in the kitchen" -- the same recording, heard perfectly, rendered
+wrong. Check this verb against speech you understand before wiring a consumer
+to it.
+
 `@/whisper/medium.en` on that same call is a 400 saying it does not serve the
 endpoint — it is English-only, and the config says so.
 
