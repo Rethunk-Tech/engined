@@ -57,6 +57,12 @@ half -- that a route which does declare it comes back with English. Download
 `ggml-large-v3-turbo-q8_0.bin` (obtain line in `engines/whisper/spec.toml`) and
 send one non-English clip.
 
+Agentic cost is read from each CLI's own envelope, and each shape was
+captured from a real run rather than guessed -- claude's `total_cost_usd`,
+opencode's `part.cost`, cursor's camelCase tokens. A new agent means capturing
+its envelope the same way; `envelopeUsage`/`opencodeUsage` in `src/agents.ts`
+name what is read.
+
 **Unproven: an image edit through a real comfy.** `/openai/v1/images/edits`
 uploads, fills `engines/comfy/image-to-image.json` and collects, all asserted
 against an injected `comfyHttpClient` -- and the shipped graph is proven to

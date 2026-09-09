@@ -55,6 +55,8 @@ export interface HopResult {
   version?: string;
   /** This hop's resolved upstream id, or `"local"`. Absent for an ambient hop. Passed straight to the attempt's `upstream_used`. */
   upstreamUsed?: string;
+  /** What this hop cost, where the hop kind knows it without a body to read -- an agentic CLI states it in its own envelope. Beats `usageFrom` when set. */
+  usage?: Usage;
   /**
    * A binary body, which an audio hop answers with instead of `body` -- synthesized
    * speech is bytes, not JSON. Counts as a body for advance-vs-terminal below: a 200
@@ -428,7 +430,9 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         model_resident: result.modelResident,
         version: result.version,
         upstream_used: result.upstreamUsed,
-        usage: usageFrom(result),
+        // A hop that stated its own cost wins: an agentic envelope carries
+        // one where the OpenAI-shaped body this would otherwise read has none.
+        usage: result.usage ?? usageFrom(result),
         streamed: result.stream === undefined ? undefined : true,
       },
       result,

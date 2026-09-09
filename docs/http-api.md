@@ -589,8 +589,17 @@ disconnect lands as that attempt's failure rather than vanishing.
 ### What a call cost
 
 `usage` on an attempt is what that engine reported, copied rather than
-derived: `prompt_tokens`, `completion_tokens`, `total_tokens`, each present
-only if the engine sent it. Summing these lines is how you find what a month
+derived: `prompt_tokens`, `completion_tokens`, `total_tokens`, and `cost_usd`,
+each present only if the engine sent it.
+
+`cost_usd` appears where the thing that ran worked the price out itself, which
+in practice means the agentic CLIs. It is never engined multiplying tokens by
+a rate card: no rate card lives in this repo, and one that did would be wrong
+the week a provider repriced. It is also why an agentic attempt can carry a
+cost and no `prompt_tokens` — claude splits its input side across three cache
+tiers that bill at different rates (measured 2 / 21863 / 9869 on a four-token
+reply), so their sum is not a prompt size worth charging against, while
+`total_cost_usd` is exactly the figure the question wants. Summing these lines is how you find what a month
 on a paid upstream came to, and which consumer spent it — nothing else on the
 box records it.
 
@@ -602,9 +611,12 @@ Read the absences, because a sum that treats them as zero is wrong:
   a usage frame in a streamed reply. Cost unknown, not zero — and the fix is
   the consumer's one-line change, not engined's: the door forwards a chat body
   untouched and will not add fields to a caller's request.
-- **no `usage` and a `version`** — an agentic hop. Their CLIs each report cost
-  in their own envelope shape, and only cursor's has been captured verbatim
-  (`src/agents.test.ts`), so engined records none rather than guessing two.
+- **no `usage` and a `version`** — an agentic hop whose CLI stated nothing.
+  The three shipped CLIs do state their own accounting, each in its own
+  spelling, and all three are read: claude's `usage.output_tokens` plus
+  `total_cost_usd`, opencode's `part.tokens` plus `part.cost` off its
+  `step_finish` event, cursor's camelCase `usage.outputTokens`. Each was
+  captured from a real run rather than guessed.
 - **no `usage`, no `version`, not streamed** — the engine genuinely reported
   nothing. Every whisper transcription is this: whisper-server reports no
   usage, and the audio verbs are not token-billed anyway.

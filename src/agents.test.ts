@@ -32,7 +32,19 @@ const OPENCODE_ERR =
   '{"type":"error","timestamp":1788076739979,"sessionID":"ses_y","error":{"name":"APIError","data":{"message":"Cannot connect to API: Unable to connect. Is the computer able to access the url?","isRetryable":true,"metadata":{"url":"http://127.0.0.1:29999/openai/v1/chat/completions"}}}}';
 
 it("reads opencode's answer out of the text events, which arrive one per chunk", () => {
-  expect(parseOpencodeEvents(OPENCODE_OK)).toEqual({ ok: true, result: "pong" });
+  expect(parseOpencodeEvents(OPENCODE_OK)).toEqual({
+    ok: true,
+    result: "pong",
+    // Straight off the captured step_finish part: `total` is already
+    // `input + output` (11226 + 18 = 11244), so nothing here is engined's
+    // own arithmetic. `cost` is 0 because this run answered on local llama.
+    usage: {
+      prompt_tokens: 11_226,
+      completion_tokens: 18,
+      total_tokens: 11_244,
+      cost_usd: 0,
+    },
+  });
 });
 
 it("joins the text events in order rather than taking only the last", () => {
@@ -77,6 +89,42 @@ it("claude's envelope still parses, and is_error still beats a populated result"
   expect(lying.failure).toContain("api_error");
 });
 
+/**
+ * Captured from `claude -p --output-format json "Reply with exactly the word:
+ * pong"` against 2.1.266, trimmed to the fields read here. The three-way
+ * input split is exactly what the CLI reported for a four-token reply.
+ */
+const CLAUDE_OK_WITH_COST =
+  '{"type":"result","subtype":"success","is_error":false,"result":"pong","usage":{"input_tokens":2,"cache_creation_input_tokens":21863,"cache_read_input_tokens":9869,"output_tokens":4},"total_cost_usd":0.2236745}';
+
+it("claude's own cost figure is what an agentic attempt records", () => {
+  const outcome = parseClaudeEnvelope(CLAUDE_OK_WITH_COST);
+
+  expect(outcome.usage?.cost_usd).toBe(0.223_674_5);
+  expect(outcome.usage?.completion_tokens).toBe(4);
+  // Deliberately absent. 2 + 21863 + 9869 is not a prompt size worth charging
+  // against -- the three bill at different rates -- and engined does not do
+  // that addition on a provider's behalf. total_cost_usd is the answer.
+  expect(outcome.usage?.prompt_tokens).toBeUndefined();
+});
+
+// A run that errored after spending still spent, so the figure has to survive
+// the failure path rather than being dropped with the answer.
+it("a failed claude envelope still reports what the failed run cost", () => {
+  const failed = parseClaudeEnvelope(
+    '{"is_error":true,"subtype":"error_during_execution","result":"","total_cost_usd":0.03}',
+  );
+
+  expect(failed.ok).toBe(false);
+  expect(failed.usage?.cost_usd).toBe(0.03);
+});
+
+// An envelope stating nothing engined recognised reports no cost, rather than
+// an object of absent fields that reads as a zero-cost run.
+it("an envelope with no figures in it reports no usage at all", () => {
+  expect(parseClaudeEnvelope('{"result":"hi"}').usage).toBeUndefined();
+});
+
 it("claude carries the read-only floor in its launch argv and opencode carries none", () => {
   const claude = agentCli("claude");
   const opencode = agentCli("opencode");
@@ -114,7 +162,13 @@ const CURSOR_OK = [
 ].join("\n");
 
 it("reads cursor's answer out of the terminal result line, not the progress lines before it", () => {
-  expect(parseCursorEvents(CURSOR_OK)).toEqual({ ok: true, result: "Hello — good to meet you." });
+  expect(parseCursorEvents(CURSOR_OK)).toEqual({
+    ok: true,
+    result: "Hello — good to meet you.",
+    // cursor spells them camelCase and states no cost. Its input side is one
+    // number, unlike claude's, so it maps straight to `prompt_tokens`.
+    usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: undefined },
+  });
 });
 
 it("a stream with no result line is a failure, not a silent empty success", () => {

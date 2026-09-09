@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stateDir } from "./paths.ts";
+import type { Usage } from "./provenance.ts";
 import {
   AGENTIC_FLOOR,
   CLAUDE_OUTPUT_FORMAT,
@@ -30,6 +31,56 @@ export interface AgenticOutcome {
   ok: boolean;
   result?: string;
   failure?: string;
+  /** What this run cost, as the CLI itself reported it. Absent when its envelope stated nothing engined recognised. */
+  usage?: Usage;
+}
+
+/** One finite number off a record, or `undefined`. Never coerced: a CLI that changes a field's type is a shape engined does not understand, not a figure to guess at. */
+function numberAt(raw: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = raw?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** The nested record at `key`, or `undefined` -- so a missing `usage`/`tokens` object reads as "reported nothing" rather than throwing. */
+function recordAt(
+  raw: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = raw?.[key];
+  return isRecord(value) ? value : undefined;
+}
+
+/** `undefined` rather than an object of all-absent fields: an envelope engined understood no figure in did not report a cost. */
+function usageOrUndefined(usage: Usage): Usage | undefined {
+  return Object.values(usage).some((v) => v !== undefined) ? usage : undefined;
+}
+
+/**
+ * The accounting a claude-shaped `result` envelope carries. Both CLIs that
+ * come through `envelopeOutcome` are read here, because they spell the same
+ * two figures differently and neither spelling is a guess:
+ *
+ * - claude, captured from `-p --output-format json` against 2.1.266:
+ *   `usage.output_tokens` (Anthropic's snake_case) and `total_cost_usd`.
+ * - cursor, captured verbatim in `src/agents.test.ts`:
+ *   `usage.inputTokens` / `usage.outputTokens`, and no cost at all.
+ *
+ * claude's `prompt_tokens` is deliberately absent while cursor's is not, and
+ * the difference is real rather than an oversight. claude splits the input
+ * side across `input_tokens`, `cache_creation_input_tokens` and
+ * `cache_read_input_tokens` -- measured 2 / 21863 / 9869 on a four-token
+ * reply -- and those three bill at different rates, so their sum is not a
+ * prompt size anyone should charge against. `total_cost_usd` is the figure
+ * that question does have an answer to, and claude states it outright.
+ * cursor's `inputTokens` is one unambiguous number, so it maps straight.
+ */
+function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
+  const usage = recordAt(envelope, "usage");
+  return usageOrUndefined({
+    prompt_tokens: numberAt(usage, "inputTokens"),
+    completion_tokens: numberAt(usage, "output_tokens") ?? numberAt(usage, "outputTokens"),
+    cost_usd: numberAt(envelope, "total_cost_usd"),
+  });
 }
 
 /**
@@ -115,14 +166,17 @@ export function parseClaudeEnvelope(stdout: string): AgenticOutcome {
 /** The verdict a claude-shaped `result` envelope carries; failure lives in `is_error`, never the exit code. */
 function envelopeOutcome(envelope: Record<string, unknown>): AgenticOutcome {
   const result = typeof envelope.result === "string" ? envelope.result : undefined;
+  // Carried on the failure path too: a run that errored after spending is a
+  // run that spent, and dropping the figure there is how a month undercounts.
+  const usage = envelopeUsage(envelope);
   if (envelope.is_error) {
     const reason =
       (typeof envelope.terminal_reason === "string" ? envelope.terminal_reason : undefined) ??
       (typeof envelope.subtype === "string" ? envelope.subtype : undefined) ??
       "is_error";
-    return { ok: false, failure: `agentic envelope failure: ${reason}`, result };
+    return { ok: false, failure: `agentic envelope failure: ${reason}`, result, usage };
   }
-  return { ok: true, result };
+  return { ok: true, result, usage };
 }
 
 /** The last `{"type":"result",...}` line of a stream-json log -- every line before it is progress and carries no verdict. */
@@ -209,16 +263,41 @@ function answerTextOf(event: Record<string, unknown>): string {
  * always report it in only one of them, and the stream is the one that also
  * carries the reason.
  */
+/**
+ * opencode states its own accounting on the `step_finish` event's part,
+ * captured from `opencode run --format json` (see `src/agents.test.ts`):
+ * `tokens: {total, input, output, reasoning, cache: {...}}` and `cost`.
+ *
+ * Unlike claude's, the input side here is one number and `total` is already
+ * `input + output` (measured 11226 + 18 = 11244), so all three map straight
+ * across with no arithmetic of engined's own.
+ */
+function opencodeUsage(event: Record<string, unknown>): Usage | undefined {
+  const part = recordAt(event, "part");
+  const tokens = recordAt(part, "tokens");
+  return usageOrUndefined({
+    prompt_tokens: numberAt(tokens, "input"),
+    completion_tokens: numberAt(tokens, "output"),
+    total_tokens: numberAt(tokens, "total"),
+    cost_usd: numberAt(part, "cost"),
+  });
+}
+
 export function parseOpencodeEvents(stdout: string): AgenticOutcome {
   let text = "";
   let failure: string | undefined;
   let events = 0;
+  let usage: Usage | undefined;
   for (const line of stdout.split("\n")) {
     const event = eventOf(line);
     if (event === null) {
       continue;
     }
     events += 1;
+    if (event.type === "step_finish") {
+      // A run of several steps ends on the last one's figures.
+      usage = opencodeUsage(event) ?? usage;
+    }
     if (event.type === "error") {
       // The first error is the cause; the ones after it are usually its wake.
       failure ??= opencodeErrorMessage(event.error);
@@ -234,12 +313,13 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
       ok: false,
       failure: `agentic event failure: ${failure}`,
       result: text === "" ? undefined : text,
+      usage,
     };
   }
   if (text === "") {
-    return { ok: false, failure: "opencode finished without printing an answer" };
+    return { ok: false, failure: "opencode finished without printing an answer", usage };
   }
-  return { ok: true, result: text };
+  return { ok: true, result: text, usage };
 }
 
 /**

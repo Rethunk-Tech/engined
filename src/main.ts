@@ -924,12 +924,14 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
       // other agentic failure here is engined's sentence about the launch.
       bodyCarriesAgentOutput: outcome.envelopeFailure,
       version: outcome.version,
+      usage: outcome.usage,
     };
   }
   return {
     status: outcome.status,
     body: agenticEnvelope(outcome.result),
     version: outcome.version,
+    usage: outcome.usage,
   };
 }
 

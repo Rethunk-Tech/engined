@@ -44,6 +44,7 @@ import {
 import type { ExecResult } from "./exec.ts";
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
 import { stateDir } from "./paths.ts";
+import type { Usage } from "./provenance.ts";
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from "./sandbox.ts";
 import { argvFromArgs, errMessage } from "./types.ts";
 
@@ -335,6 +336,8 @@ export interface RunAgenticResult {
   stderrTail?: string;
   /** The pin actually embedded in the launched argv. Absent when no process was spawned (the workdir-required 400). */
   version?: string;
+  /** What the CLI said the run cost, off its own envelope. Absent for a launch that never produced one. */
+  usage?: Usage;
 }
 
 /**
@@ -452,6 +455,9 @@ async function spawnAndParse(
     failure: outcome.failure,
     envelopeFailure: !outcome.ok,
     version: input.agentVersion,
+    // Carried whether or not the envelope said the run succeeded: a run that
+    // errored after spending still spent.
+    usage: outcome.usage,
     stderrTail: outcome.ok ? undefined : stderrTail(spawned.stderr),
   };
 }

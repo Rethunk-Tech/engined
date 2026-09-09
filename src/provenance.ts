@@ -22,6 +22,14 @@ export interface Usage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  /**
+   * What the run cost in dollars, where the thing that ran worked it out
+   * itself -- the agentic CLIs do, and they are the one kind whose token
+   * counts cannot be summed into a price. Never engined's own multiplication
+   * of tokens by a rate card: no rate card lives in this repo, and one that
+   * did would be wrong the week a provider repriced.
+   */
+  cost_usd?: number;
 }
 
 export interface Attempt {
