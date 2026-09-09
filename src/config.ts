@@ -41,7 +41,7 @@ const DEFAULT_LISTEN_PORT = 29_200;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
-const ROLES: readonly Role[] = ["chat", "vision", "embedding"];
+const ROLES: readonly Role[] = ["chat", "vision", "embedding", "rerank"];
 const VISION_KINDS: readonly VisionKind[] = ["describe", "read"];
 
 /**

@@ -22,6 +22,7 @@ import {
   type AgenticSpec,
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTRACT,
@@ -111,7 +112,7 @@ function isQueueEmpty(q: QueueSnapshot): boolean {
  * this map's callers rather than mapped to `[]` here.
  */
 const KIND_SERVES: Record<EngineKind, string[]> = {
-  "openai-http": [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS],
+  "openai-http": [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS, CONTENT_ENDPOINT_RERANK],
   "agentic-cli": [CONTENT_ENDPOINT_CHAT],
   tts: [CONTENT_ENDPOINT_SPEECH],
   stt: [CONTENT_ENDPOINT_TRANSCRIPTIONS],

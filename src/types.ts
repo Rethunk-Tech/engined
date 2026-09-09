@@ -9,7 +9,7 @@
 import { STATUS_NOT_FOUND } from "./http.ts";
 
 /** Occupancy is one resident GGUF per role, so the set is closed. */
-export type Role = "chat" | "vision" | "embedding";
+export type Role = "chat" | "vision" | "embedding" | "rerank";
 
 /**
  * What a vision route's model actually does with an image, which `role` does
@@ -188,19 +188,40 @@ export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
 export const CONTENT_ENDPOINT_SPEECH = "/openai/v1/audio/speech";
 export const CONTENT_ENDPOINT_TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
 export const CONTENT_ENDPOINT_IMAGES = "/openai/v1/images/generations";
+export const CONTENT_ENDPOINT_RERANK = "/openai/v1/rerank";
+
+/**
+ * The one door path a role answers to the exclusion of every other role.
+ * `embedding` and `rerank` are each a dedicated model kind serving a verb
+ * nothing else serves: a chat GGUF asked to rerank has no such endpoint, and
+ * a reranker asked to chat produces a score, not a turn.
+ *
+ * A role absent from this table (`chat`, `vision`) answers every path its
+ * engine serves that is not claimed here. That is what keeps a fourth role
+ * from silently inheriting both verbs: adding it means deciding whether it
+ * owns a path, in this one table.
+ */
+const ROLE_ENDPOINT: Partial<Record<Role, string>> = {
+  embedding: CONTENT_ENDPOINT_EMBEDDINGS,
+  rerank: CONTENT_ENDPOINT_RERANK,
+};
+
+/** Read off `ROLE_ENDPOINT` itself, never spelled a second time -- a hand-kept copy admits a claimed path to every unclaimed role the moment the two drift. */
+const CLAIMED_ENDPOINTS: ReadonlySet<string> = new Set(Object.values(ROLE_ENDPOINT));
 
 /**
  * The door paths one route answers, which its engine's own `serves` cannot
- * say on its own: an `embedding` role answers only embeddings, any other role
- * everything but embeddings, and a route with no role (agentic, proxied,
- * media) whatever its engine serves.
+ * say on its own: a role that claims a path answers only that path, a role
+ * that claims none answers everything no other role claims, and a route with
+ * no role (agentic, proxied, media) whatever its engine serves.
  */
 export function routeServes(role: Role | undefined, engineServes: readonly string[]): string[] {
   if (role === undefined) {
     return [...engineServes];
   }
-  return engineServes.filter(
-    (path) => (path === CONTENT_ENDPOINT_EMBEDDINGS) === (role === "embedding"),
+  const claimed = ROLE_ENDPOINT[role];
+  return engineServes.filter((path) =>
+    claimed === undefined ? !CLAIMED_ENDPOINTS.has(path) : path === claimed,
   );
 }
 

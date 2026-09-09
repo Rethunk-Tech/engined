@@ -13,7 +13,11 @@ streaming = true
 # silently swaps the image underneath it.
 image = "engined-llama-cpp:local"
 obtain = "build"
-serves = ["/openai/v1/chat/completions", "/openai/v1/embeddings"]
+serves = [
+  "/openai/v1/chat/completions",
+  "/openai/v1/embeddings",
+  "/openai/v1/rerank",
+]
 # Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
 # --group-add video) is for the ROCm/PyTorch engines -- comfy, the chatterbox
 # engines, kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three
@@ -58,9 +62,10 @@ security_opt = ["label=disable"]
 # compare a decode number taken over 32 tokens with one taken over 512.
 #
 # A per-model arg is honoured per flag, not as a class: only `spec-type`,
-# `spec-draft-p-min`, `embedding`, `ctx-size` and `parallel` are proven to
-# reach argv this way -- the last two probed on b10637 by setting them for
-# ornith alone and reading back the child's argv and its slot geometry.
+# `spec-draft-p-min`, `embedding`, `rerank`, `ctx-size` and `parallel` are
+# proven to reach argv this way -- `ctx-size` and `parallel` probed on b10637
+# by setting them for ornith alone and reading back the child's argv and its
+# slot geometry.
 # Probe each flag the way those were probed -- set it for one model, read
 # the child's argv and /slots back -- before a consumer is told it works. A
 # flag that is ignored and a flag that is honoured and did nothing look
@@ -73,6 +78,22 @@ security_opt = ["label=disable"]
 # via /proc/<pid>/cmdline on the embed sub-process, then a real request
 # through the door returning a 1024-length vector. See config.example.toml's
 # `embed` model's [model.args].
+#
+# `rerank` is the same trap and was proven the same way, with the control run
+# the embedding probe did not have. Key `rerank`, aliases `--rerank` and
+# `--reranking` on this build (`LLAMA_ARG_RERANKING`). Router mode does NOT
+# autoload for this verb the way it does for chat, so the probe is: load the
+# model explicitly, then call it. With the key, `/v1/rerank` answers
+# `{results:[{index, relevance_score}]}` ordered correctly. Without it, the
+# same loaded model answers 501 "This server does not support reranking.
+# Start it with `--reranking`" -- so the endpoint's presence is per-child and
+# the key is what buys it, not something the router serves regardless.
+#
+# An unrecognised preset key is loud, which is what makes both probes
+# trustworthy: a bogus key exits 1 at router init with "option '<key>' not
+# recognized in preset '<section>'", before the server listens. A key that
+# parses is a key llama.cpp knows; whether it then reaches the child is the
+# separate question these probes answer.
 #
 # `spec-draft-p-min` has its own trap the other way: the router rewrites it
 # to llama-server's short alias `--draft-p-min` on the child's real argv --

@@ -71,6 +71,7 @@ import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
   CONTENT_ENDPOINT_IMAGES,
+  CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   type Config,
@@ -103,6 +104,7 @@ const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
   CONTENT_ENDPOINT_IMAGES,
+  CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
 ]);
@@ -1484,8 +1486,8 @@ function parseMaxEgress(raw: unknown): { ok: true; value: Egress | undefined } |
   return isEgress(raw) ? { ok: true, value: raw } : { ok: false };
 }
 
-/** Chat and embeddings: `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
-async function handleChatOrEmbeddings(
+/** Every verb whose route comes from the body's own `model` string -- chat, embeddings, rerank. `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
+async function handleModelRouted(
   ctx: DoorContext,
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
@@ -1597,7 +1599,7 @@ async function handleContent(
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error);
   }
-  return handleChatOrEmbeddings(ctx, resolved, {
+  return handleModelRouted(ctx, resolved, {
     pathname,
     rawModel: rawModel ?? "",
     body,

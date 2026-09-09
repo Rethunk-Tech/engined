@@ -37,6 +37,16 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
+**Unproven: a rerank request through the real door.** The engine half is
+measured — `rerank = true` in the preset INI makes llama-server's `/v1/rerank`
+answer with correctly ordered scores, and without the key the same loaded model
+answers 501 naming the flag (control run, `engines/llama/spec.toml`). What has
+never run is engined's own dispatch carrying that verb, because no reranker
+GGUF is on this box: the role, the endpoint and the serves filter are covered
+by `src/dispatch.test.ts` alone. Download a Qwen3-Reranker GGUF to the path
+`config.example.toml` names, then send one request through 29200; until then
+the door's rerank path is proven only against a fake upstream.
+
 Shipped images are migrated from the fleet (gfx1151, ROCm/Vulkan, never CUDA),
 never invented.
 

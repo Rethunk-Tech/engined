@@ -17,6 +17,7 @@ treated as a caller.
 | --- | --- | --- |
 | `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
 | `/openai/v1/embeddings` | POST | `openai-http` |
+| `/openai/v1/rerank` | POST | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank) |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed}` in, `{created, data:[{b64_json}]}` out — see [Images](#images) |
@@ -158,16 +159,19 @@ healthy chain is the least informative row in the menu, since
 caller can see that `chain-private` and `@/llama/ornith` are one destination
 listed twice rather than two models.
 
-`serves` is the route's own, not its engine's: an `embedding`
-role answers only `/openai/v1/embeddings`, any other role everything but that,
-and a route with no role whatever its engine serves -- so `@/llama/embed` is
-never offered as a chat model, and a chat request to it is a 400. The same
+`serves` is the route's own, not its engine's: a role that claims a path
+answers only that path (`embedding` answers `/openai/v1/embeddings`, `rerank`
+answers `/openai/v1/rerank`), a role that claims none answers everything no
+other role claims, and a route with no role whatever its engine serves -- so
+`@/llama/embed` is never offered as a chat model, and a chat request to it is
+a 400. The same
 per-route `serves` rides on each entry of an engine's `capabilities[]` in
 `GET /engined/v1/engines`.
 
 `role` is the route's inference role, and the only field that tells a vision
 address from a chat one: both serve `/openai/v1/chat/completions`, so `serves`
-separates an embedding route from everything else and nothing more. It is
+separates the roles that claim a path of their own from everything else and
+nothing more. It is
 absent on a route that declares none, and on a chain row for the same reason
 `engine` is. It rides on each `capabilities[]` entry in
 `GET /engined/v1/engines` too.
@@ -354,6 +358,39 @@ theirs can load. It is the difference between "the model is still loading" and
 "three requests are ahead of you", which `state` alone cannot express. A role
 with nothing running and nothing queued is omitted rather than reported as
 zero, and a kind with no roles carries no `roles` at all.
+
+## Rerank
+
+`POST /openai/v1/rerank` scores a caller's own documents against one query,
+which is the second stage of a retrieval pipeline whose first stage is
+`/openai/v1/embeddings`. It reaches a `role = "rerank"` route the same way
+every other model-routed verb reaches its own: the body's `model` string, an
+`@/engine/model` address like any other.
+
+```sh
+curl -s localhost:29200/openai/v1/rerank -H 'content-type: application/json' \
+  -d '{"model":"@/llama/rerank","query":"what is a broker",
+       "documents":["a broker routes requests","bananas are yellow"]}'
+```
+
+```json
+{"results": [{"index": 0, "relevance_score": 2.5e-06},
+             {"index": 1, "relevance_score": 1.3e-07}]}
+```
+
+`index` is into the array as sent, so the caller reorders its own list rather
+than trusting the text to come back unchanged. Scores are the engine's own and
+carry no fixed scale: they order documents *within one response* and mean
+nothing compared across calls, models, or engines.
+
+The body is forwarded to the engine untouched past `model`, so any field that
+engine reads reaches it. Chains do not serve this verb — a chain name here is
+a 400 naming the endpoint, the same answer embeddings gives.
+
+A rerank route is one resident GGUF on its own role, so a reranker, an
+embedder and a chat model are all resident at once without evicting each
+other. On llama that role needs `rerank = true` in its `[route.args]`; without
+it the child answers 501 naming the flag it was started without.
 
 ## Images
 

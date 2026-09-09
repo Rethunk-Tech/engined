@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
 import { BUNX, config, ENGINES_ROOT, engine, route } from "./test-support.ts";
-import type { Config, EngineEntry } from "./types.ts";
+import type { Config, EngineEntry, Role } from "./types.ts";
 import { routeForHop } from "./types.ts";
 
 const CHAT = "/openai/v1/chat/completions";
 const SPEECH = "/openai/v1/audio/speech";
 const TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
 const EMBEDDINGS = "/openai/v1/embeddings";
+const RERANK = "/openai/v1/rerank";
 
 /**
  * A spec-less, model-bearing engine that serves chat. Stands in wherever a
@@ -342,6 +343,51 @@ describe("chains", () => {
     const cfg = config({ chains: { "chain-private": ["@/claude/sonnet"] } });
     const reg = registry(cfg);
     expect(resolveModel("chain-private", EMBEDDINGS, cfg, reg).ok).toBe(false);
+  });
+
+  test("a chain posted to rerank is 400: nothing sends this verb through a fallback list", () => {
+    const cfg = config({ chains: { "chain-private": ["@/claude/sonnet"] } });
+    const reg = registry(cfg);
+    expect(resolveModel("chain-private", RERANK, cfg, reg).ok).toBe(false);
+  });
+});
+
+/**
+ * A role that claims a door path answers it and nothing else, and every role
+ * that claims none answers everything unclaimed. The pairs below are the
+ * whole property: each claiming role refuses the other's path as well as
+ * chat, which a two-way embedding-vs-everything split could not express.
+ */
+describe("a role's claimed endpoint", () => {
+  const CLAIMED: ReadonlyArray<[Role, string]> = [
+    ["embedding", EMBEDDINGS],
+    ["rerank", RERANK],
+  ];
+
+  function withRole(role: Role): { cfg: Config; reg: EngineRegistry } {
+    const cfg = config({
+      engines: [remoteOpenaiHttp("e")],
+      routes: [route({ engine: "e", model: "m", role })],
+    });
+    return { cfg, reg: registry(cfg) };
+  }
+
+  for (const [role, claimed] of CLAIMED) {
+    test(`${role} serves ${claimed} and refuses every other path`, () => {
+      const { cfg, reg } = withRole(role);
+      expect(resolveModel("@/e/m", claimed, cfg, reg).ok).toBe(true);
+      for (const other of [CHAT, ...CLAIMED.map(([, p]) => p).filter((p) => p !== claimed)]) {
+        expect(resolveModel("@/e/m", other, cfg, reg).ok).toBe(false);
+      }
+    });
+  }
+
+  test("a chat route is refused on every claimed path, not only embeddings", () => {
+    const { cfg, reg } = withRole("chat");
+    expect(resolveModel("@/e/m", CHAT, cfg, reg).ok).toBe(true);
+    for (const [, claimed] of CLAIMED) {
+      expect(resolveModel("@/e/m", claimed, cfg, reg).ok).toBe(false);
+    }
   });
 });
 

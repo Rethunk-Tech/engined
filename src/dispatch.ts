@@ -158,6 +158,13 @@ export function resolveQualified(segments: readonly string[], ctx: ResolveCtx): 
  * first's, so falling back would answer with something the caller cannot
  * compare against what it already stored.
  *
+ * Rerank is absent for a weaker reason and a stronger one. The weak reason is
+ * that a second reranker's scores are on its own scale, which matters only to
+ * a caller comparing them across calls -- an ordering over the caller's own
+ * documents survives the fallback intact. The strong one is that nothing has
+ * asked: no consumer sends rerank through a chain, so admitting it here would
+ * ship an untested path. One line adds it when one does.
+ *
  * Whether each individual hop serves the endpoint is not checked here. A chain
  * advances past a hop it cannot use, so a hop that does not serve this endpoint
  * fails as itself and the next one is tried -- and if none serves it, the

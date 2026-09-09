@@ -403,7 +403,7 @@ trusting the vision role for them.
 
 ## Occupancy
 
-One resident model per role (`chat`, `vision`, `embedding`), with explicit
+One resident model per role (`chat`, `vision`, `embedding`, `rerank`), with explicit
 same-role unload rather than a GPU-wide semaphore. `models_max` is first-class
 config and fatal at parse if it drops below the number of distinct roles
 actually configured — below that floor, eviction silently reverts to

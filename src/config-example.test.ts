@@ -68,6 +68,7 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "ocr",
   "ornith",
   "ornith",
+  "rerank",
   "scribe_v1",
   "small.en",
   "sonnet-5",
@@ -75,14 +76,23 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "vision",
 ];
 
-/** Empty placeholders at the same relative paths the example config's GGUFs name, under a fresh scratch dir. */
-function placeExampleModels(modelsDir: string): void {
-  for (const rel of [
-    "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf",
-    "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
-    "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf",
-    "PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF.gguf",
-  ]) {
+/**
+ * Empty placeholders at the same relative paths the example config's GGUFs
+ * name, under a fresh scratch dir. Read out of the file itself rather than
+ * listed here: a hand-kept list fails the whole suite the day a route is
+ * added, naming a missing weight file instead of the list that fell behind.
+ *
+ * Deliberately matches commented-out `filename` lines too. An extra empty
+ * placeholder no route names costs nothing, and the alternative is this
+ * regex having to know TOML comment syntax to save nothing.
+ */
+const FILENAME_RE = /filename\s*=\s*"([^"]+)"/g;
+
+function placeExampleModels(raw: string, modelsDir: string): void {
+  const rels = [...raw.matchAll(FILENAME_RE)]
+    .map((m) => m[1])
+    .filter((rel): rel is string => rel !== undefined);
+  for (const rel of rels) {
     const full = join(modelsDir, rel);
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, "");
@@ -114,7 +124,7 @@ function sortedIds<T>(items: readonly T[], pick: (item: T) => string | undefined
 function loadExample(append = ""): { raw: string; config: Config } {
   const raw = readFileSync(join(import.meta.dir, "..", "config.example.toml"), "utf8");
   const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
-  placeExampleModels(modelsDir);
+  placeExampleModels(raw, modelsDir);
   const configPath = writePatchedExampleConfig(raw + append, modelsDir);
   return { raw, config: loadConfig(configPath, ENGINES_ROOT) };
 }
