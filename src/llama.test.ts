@@ -5,13 +5,8 @@ import { DockerLifecycle } from "./docker.ts";
 import { buildRunArgs } from "./dockerArgs.ts";
 import type { Exec } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
-import {
-  buildLlamaSpec,
-  type LlamaHop,
-  LlamaRouter,
-  renderPresetIni,
-  reportedModelFrom,
-} from "./llama.ts";
+import { type LlamaHop, LlamaRouter, reportedModelFrom } from "./llama.ts";
+import { buildLlamaSpec, renderPresetIni } from "./llamaSpec.ts";
 import {
   BUNX,
   engine as baseEngine,

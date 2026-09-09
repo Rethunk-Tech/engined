@@ -34,7 +34,7 @@ import { EngineBusyError } from "./errors/engineBusy.ts";
 import { FatalError } from "./errors/fatal.ts";
 import type { Exec } from "./exec.ts";
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from "./http.ts";
-import { renderPresetIni } from "./llama.ts";
+import { renderPresetIni } from "./llamaSpec.ts";
 import { llamaPresetPath } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
 import type { SpecLoadOptions } from "./spec.ts";

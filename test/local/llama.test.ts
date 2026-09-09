@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
-import { AUTO_PARALLEL, LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
+import { LlamaRouter, type LlamaRouterOptions } from "../../src/llama.ts";
+import { AUTO_PARALLEL } from "../../src/llamaSpec.ts";
 import { visionRequestBody, visionVerdict } from "../../src/probe.ts";
 import type { EngineEntry, ResolvedRoute, Role } from "../../src/types.ts";
 import {
