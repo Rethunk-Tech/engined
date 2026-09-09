@@ -19,7 +19,8 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
-import { handleImageEdit, handleImageGeneration } from "./images.ts";
+import { handleImageEdit } from "./imageEdits.ts";
+import { handleImageGeneration } from "./images.ts";
 import { hopForwardsTools } from "./modelsMenu.ts";
 import { readJsonBody } from "./requestBody.ts";
 import {

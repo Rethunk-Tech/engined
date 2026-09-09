@@ -30,7 +30,6 @@ import {
 } from "./http.ts";
 import { recordCall } from "./provenance.ts";
 import {
-  CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
   errMessage,
   isContainerSpec,
@@ -50,8 +49,8 @@ const DEFAULT_CFG = 4.0;
 const DEFAULT_SAMPLER = "euler";
 const DEFAULT_SCHEDULER = "simple";
 /** OpenAI's own cap on one request, and a sane one here: each image is a full pass through the sampler. */
-const MAX_N = 10;
-const SEED_MAX = 2 ** 31;
+export const MAX_N = 10;
+export const SEED_MAX = 2 ** 31;
 
 /** `${name}` exactly, and nothing else in the string: a placeholder is a whole value, never spliced into one, so a substituted number stays a number. */
 const PLACEHOLDER = /^\$\{([a-z_]+)\}$/;
@@ -99,7 +98,7 @@ export function fillWorkflow(node: unknown, values: Record<string, unknown>): un
  * exactly once -- classifying by re-reading it would hand the caller a drained
  * body.
  */
-interface Refusal {
+export interface Refusal {
   status: number;
   error: string;
 }
@@ -160,7 +159,7 @@ function checkpointArgs(route: ResolvedRoute): Record<string, unknown> | Respons
  * only in what they add: generations supplies the empty latent's dimensions,
  * edits the uploaded filename and how much of it to keep.
  */
-function commonValues(
+export function commonValues(
   request: { prompt: string; negative: string; seed: number },
   checkpoints: Record<string, unknown>,
   index: number,
@@ -316,7 +315,7 @@ async function collect({
  * graph. It answers with the per-image values, or the refusal that ends the
  * call.
  */
-async function renderWith(
+export async function renderWith(
   ctx: DoorContext,
   job: {
     route: ResolvedRoute;
@@ -417,7 +416,7 @@ async function renderWith(
 }
 
 /** The route and checkpoints an image verb renders through, or the 400 that says why it cannot. */
-function imageRoute(
+export function imageRoute(
   ctx: DoorContext,
   rawModel: string | undefined,
   endpoint: string,
@@ -437,7 +436,7 @@ function imageRoute(
 }
 
 /** The graph this engine ships for one verb, or the 400 naming the spec key it has no value for. */
-function workflowPathFor(
+export function workflowPathFor(
   ctx: DoorContext,
   engineId: string,
   key: "images_workflow" | "images_edit_workflow",
@@ -480,204 +479,6 @@ export async function handleImageGeneration(
         height: request.height,
         batch: 1,
       })),
-    signal,
-  });
-}
-
-/**
- * The default an img2img caller gets when they say nothing.
- *
- * 0.9, not the 0.75 this shipped with, because 0.75 was picked by convention
- * and measured wrong. Against Chroma1-HD through this door, one 512x512 image
- * of a red cube and the prompt "a deep blue cube on a white table":
- *
- *   denoise 0.6   -- cube still red, prompt had no visible effect
- *   denoise 0.75  -- cube still red, same
- *   denoise 0.9   -- blue cube, composition still recognisably the input's
- *
- * A caller who sends a prompt expects it to do something, so the default has
- * to be a value where it does. Subtlety is the value a caller lowers it to,
- * which is the direction that fails safe: a weak edit is obvious, while a
- * prompt silently ignored looks like the door dropped it.
- *
- * The ladder is this model's. A different checkpoint may honour a prompt at a
- * lower denoise, and 0.8-0.85 is simply unmeasured here rather than known to
- * be too low.
- */
-const DEFAULT_DENOISE = 0.9;
-
-/**
- * An uploaded image is held in memory whole before it is forwarded, so an
- * oversized one is refused rather than read. Generous for anything a
- * diffusion model will accept as a starting point.
- */
-const MAX_IMAGE_UPLOAD_BYTES = 33_554_432;
-
-interface EditRequest {
-  prompt: string;
-  negative: string;
-  n: number;
-  seed: number;
-  /** How much of the input the sampler discards: 1.0 would keep none of it, which is the other verb. */
-  denoise: number;
-  image: Blob;
-}
-
-/** One numeric multipart field, or the 400 naming it. A form field is a string, so the whole point is refusing what does not parse rather than letting `Number()` produce a NaN nothing checks. */
-function numberField(form: FormData, key: string): number | undefined | Response {
-  const raw = form.get(key);
-  if (raw === null) {
-    return undefined;
-  }
-  const value = typeof raw === "string" ? Number(raw) : Number.NaN;
-  return Number.isFinite(value)
-    ? value
-    : jsonError(STATUS_BAD_REQUEST, `"${key}" must be a number`);
-}
-
-/** The `image` part, or the 400 for a form that carries none, an empty one, or one too large to hold in memory. */
-function editImage(form: FormData): Blob | Response {
-  const image = form.get("image");
-  if (!(image instanceof Blob) || image.size === 0) {
-    return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required');
-  }
-  if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    );
-  }
-  return image;
-}
-
-/** The multipart fields the edits verb reads, or the 400 that says which one is wrong. */
-function parseEditRequest(form: FormData): EditRequest | Response {
-  const image = editImage(form);
-  if (image instanceof Response) {
-    return image;
-  }
-  const rawPrompt = form.get("prompt");
-  const prompt = typeof rawPrompt === "string" ? rawPrompt.trim() : "";
-  if (prompt === "") {
-    return jsonError(STATUS_BAD_REQUEST, '"prompt" is required and must be a non-empty string');
-  }
-  const n = numberField(form, "n");
-  if (n instanceof Response) {
-    return n;
-  }
-  if (n !== undefined && (!Number.isInteger(n) || n < 1 || n > MAX_N)) {
-    return jsonError(STATUS_BAD_REQUEST, `"n" must be a whole number from 1 to ${MAX_N}`);
-  }
-  const seed = numberField(form, "seed");
-  if (seed instanceof Response) {
-    return seed;
-  }
-  const denoise = numberField(form, "denoise");
-  if (denoise instanceof Response) {
-    return denoise;
-  }
-  // 0 would answer with the image it was handed, which is a request the door
-  // can satisfy without a GPU and a caller never means. 1.0 keeps none of the
-  // input, which is what /images/generations already is.
-  if (denoise !== undefined && (denoise <= 0 || denoise > 1)) {
-    return jsonError(STATUS_BAD_REQUEST, '"denoise" must be greater than 0 and at most 1');
-  }
-  const negative = form.get("negative_prompt");
-  return {
-    prompt,
-    negative: typeof negative === "string" ? negative : "",
-    n: n ?? 1,
-    seed: seed ?? Math.floor(Math.random() * SEED_MAX),
-    denoise: denoise ?? DEFAULT_DENOISE,
-    image,
-  };
-}
-
-/**
- * Puts the caller's image inside the container's own input directory and
- * answers with the name a `LoadImage` node can reach it by. A container reads
- * only what was handed to it, so a path from the caller would name nothing --
- * the upload is what makes the graph's `${image}` mean anything.
- */
-async function uploadInputImage(
-  base: string,
-  httpClient: HttpClient,
-  image: Blob,
-): Promise<string | Refusal> {
-  const form = new FormData();
-  form.append("image", image, "engined_edit_input");
-  // Without this a second edit of the same name is stored beside the first as
-  // "engined_edit_input (1)", and the graph would load whichever the first
-  // upload left behind.
-  form.append("overwrite", "true");
-  const res = await httpClient(`${base}/upload/image`, { method: "POST", body: form });
-  const text = await res.text();
-  const record = res.ok ? parseRecord(text) : undefined;
-  const name = record?.name;
-  if (typeof name !== "string") {
-    return {
-      status: STATUS_BAD_GATEWAY,
-      error: `comfy would not accept the uploaded image: ${text.slice(0, 300)}`,
-    };
-  }
-  const subfolder = typeof record?.subfolder === "string" ? record.subfolder : "";
-  return subfolder === "" ? name : `${subfolder}/${name}`;
-}
-
-/**
- * `POST /openai/v1/images/edits`: the same render with the caller's own image
- * as the starting latent. Multipart rather than JSON, because the image is
- * the request -- base64 in a JSON body would be a third of it again in
- * transfer, held twice in memory to decode.
- *
- * No `size`: the input's own dimensions are the output's. Scaling here would
- * silently resize what a caller handed over, and a caller who wants another
- * size can send another image.
- */
-export async function handleImageEdit(
-  ctx: DoorContext,
-  req: Request,
-  signal?: AbortSignal,
-): Promise<Response> {
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with an `image` part");
-  }
-  const rawModel = form.get("model");
-  const target = imageRoute(
-    ctx,
-    typeof rawModel === "string" ? rawModel : undefined,
-    CONTENT_ENDPOINT_IMAGE_EDITS,
-  );
-  if (target instanceof Response) {
-    return target;
-  }
-  const request = parseEditRequest(form);
-  if (request instanceof Response) {
-    return request;
-  }
-  const path = workflowPathFor(ctx, target.route.engine, "images_edit_workflow");
-  if (path instanceof Response) {
-    return path;
-  }
-  return await renderWith(ctx, {
-    route: target.route,
-    rawModel: typeof rawModel === "string" ? rawModel : undefined,
-    workflowPath: path,
-    n: request.n,
-    plan: async (base, httpClient) => {
-      const image = await uploadInputImage(base, httpClient, request.image);
-      if (typeof image !== "string") {
-        return image;
-      }
-      return (index: number) => ({
-        ...commonValues(request, target.checkpoints, index),
-        image,
-        denoise: request.denoise,
-      });
-    },
     signal,
   });
 }
