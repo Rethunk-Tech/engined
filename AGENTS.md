@@ -37,17 +37,11 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
-**Unproven: a rerank request through the real door.** Both halves below this
-line are now measured; only the join is not. A real reranker
-(Qwen3-Reranker-0.6B-seq-cls, on disk) loaded with `rerank = true` scores a
-relevant document 0.907 against 7.8e-11 and 4.9e-11 for two irrelevant ones,
-and without the key the same loaded model answers 501 naming the flag. The
-route is in the operator's config and `src/probe.ts` proves it on a timer.
-What has not happened is that probe running green once: llama had an in-flight
-chat request when this landed, and restarting it to pick up the new role would
-have evicted a colleague's work for a number that can wait for the next
-natural start. Run `systemctl --user start engined-probe.service` after llama
-next restarts.
+Two criteria that were recorded here are now proven and no longer need a note:
+a rerank request through the real door (`engined-probe` reports `ok
+@/llama/rerank: ranked the answering document first`) and an image edit
+through a real comfy (a 512x512 render fed back through
+`/openai/v1/images/edits` returned a derived image, verified by eye).
 
 **Unproven: translation quality.** `translate` is a per-request field on
 whisper-server (read off `examples/server/server.cpp`, not inferred), the door
@@ -68,16 +62,6 @@ captured from a real run rather than guessed -- claude's `total_cost_usd`,
 opencode's `part.cost`, cursor's camelCase tokens. A new agent means capturing
 its envelope the same way; `envelopeUsage`/`opencodeUsage` in `src/agents.ts`
 name what is read.
-
-**Unproven: an image edit through a real comfy.** `/openai/v1/images/edits`
-uploads, fills `engines/comfy/image-to-image.json` and collects, all asserted
-against an injected `comfyHttpClient` -- and the shipped graph is proven to
-parse with every placeholder the door supplies, which is the failure a graph
-edit actually causes. What no test can reach is whether the graph *renders*:
-`LoadImage -> VAEEncode -> KSampler` is wired from the generation graph's own
-shape, not from a run. Deliberately not attempted here -- comfy holds ~42 GiB
-and the operator asked that it not be started this session -- so the first
-real edit is the proof. Same standing guard as Comfy diffusion above.
 
 Shipped images are migrated from the fleet (gfx1151, ROCm/Vulkan, never CUDA),
 never invented.

@@ -471,11 +471,26 @@ export async function handleImageGeneration(
 }
 
 /**
- * The default an img2img caller gets when they say nothing: enough of the
- * sampler's own work to honour the prompt, enough of the input left to still
- * be recognisably the image they sent.
+ * The default an img2img caller gets when they say nothing.
+ *
+ * 0.9, not the 0.75 this shipped with, because 0.75 was picked by convention
+ * and measured wrong. Against Chroma1-HD through this door, one 512x512 image
+ * of a red cube and the prompt "a deep blue cube on a white table":
+ *
+ *   denoise 0.6   -- cube still red, prompt had no visible effect
+ *   denoise 0.75  -- cube still red, same
+ *   denoise 0.9   -- blue cube, composition still recognisably the input's
+ *
+ * A caller who sends a prompt expects it to do something, so the default has
+ * to be a value where it does. Subtlety is the value a caller lowers it to,
+ * which is the direction that fails safe: a weak edit is obvious, while a
+ * prompt silently ignored looks like the door dropped it.
+ *
+ * The ladder is this model's. A different checkpoint may honour a prompt at a
+ * lower denoise, and 0.8-0.85 is simply unmeasured here rather than known to
+ * be too low.
  */
-const DEFAULT_DENOISE = 0.75;
+const DEFAULT_DENOISE = 0.9;
 
 /**
  * An uploaded image is held in memory whole before it is forwarded, so an

@@ -491,7 +491,7 @@ describe("POST /openai/v1/images/edits", () => {
 
     await edit(door);
 
-    expect(JSON.parse(submitted[0] as string).prompt["8"].inputs.denoise).toBe(0.75);
+    expect(JSON.parse(submitted[0] as string).prompt["8"].inputs.denoise).toBe(0.9);
   });
 
   test("an upload comfy refuses is a 502 naming it, and no prompt is submitted", async () => {
@@ -533,7 +533,7 @@ describe("the shipped comfy graphs", () => {
 
   test.each([
     ["text-to-image.json", { ...SHARED, width: 1024, height: 1024, batch: 1 }],
-    ["image-to-image.json", { ...SHARED, image: "engined_edit_input", denoise: 0.75 }],
+    ["image-to-image.json", { ...SHARED, image: "engined_edit_input", denoise: 0.9 }],
   ])("%s parses and every placeholder in it is one the door supplies", (file, values) => {
     const graph = JSON.parse(readFileSync(join(ENGINES_ROOT, "comfy", file), "utf8")) as unknown;
     const filled = fillWorkflow(graph, values) as Record<string, unknown>;

@@ -375,8 +375,11 @@ path**: the refusal is a 400 naming the address, before any audio is decoded.
 
 ```sh
 curl -s localhost:29200/openai/v1/audio/translations \
-  -F model=@/whisper/large-v3-turbo -F file=@clip.wav
+  --form-string model=@/whisper/large-v3-turbo -F file=@clip.wav
 ```
+
+`--form-string` for the model, not `-F`: an address begins `@/`, which `-F`
+reads as "upload this file". Only `file=@clip.wav` wants that.
 
 `@/whisper/medium.en` on that same call is a 400 saying it does not serve the
 endpoint — it is English-only, and the config says so.
@@ -478,21 +481,33 @@ held twice in memory to decode.
 
 ```sh
 curl -s localhost:29200/openai/v1/images/edits \
-  -F model=@/comfy/local -F image=@cube.png \
-  -F prompt='the same cube, but blue' -F denoise=0.6 \
+  --form-string model=@/comfy/local -F image=@cube.png \
+  --form-string 'prompt=a deep blue cube on a white table' \
   | jq -r '.data[0].b64_json' | base64 -d > blue-cube.png
 ```
+
+**`--form-string`, not `-F`, for every field but the image.** An address
+begins `@/`, and `-F` reads a leading `@` as "upload this file" -- so
+`-F model=@/comfy/local` sends curl looking for a file called `/comfy/local`
+and it exits 26 without sending anything. Only `image=@cube.png` wants that
+behaviour. The same applies to the translations verb above.
 
 `prompt`, `n`, `negative_prompt` and `seed` mean what they do above.
 
 | Field | Meaning |
 | --- | --- |
 | `image` | required: the image to start from, at most 32 MiB |
-| `denoise` | how much of the input the sampler discards, greater than 0 and at most 1; default 0.75. At 1.0 nothing of the input survives, which is `/images/generations` |
+| `denoise` | how much of the input the sampler discards, greater than 0 and at most 1; default 0.9. At 1.0 nothing of the input survives, which is `/images/generations` |
 
 **No `size`.** The input's own dimensions are the output's — scaling here would
 silently resize what a caller handed over, and a caller who wants another size
 can send another image.
+
+Measured on Chroma1-HD, a red cube asked to become blue: at 0.6 and 0.75 the
+cube stayed red -- the input dominates and the prompt has no visible effect --
+and at 0.9 it turned blue with the composition still recognisably the input's.
+Hence that default. The ladder is this checkpoint's, so re-check it against
+your own rather than assuming a low denoise still honours a prompt.
 
 The door uploads the image into the container's own input directory before
 submitting, because a container reads only what was handed to it: a path from
