@@ -1,7 +1,26 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["src/**", "test/**", "*.json", "*.jsonc"] },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.next",
+      "!**/build",
+      "!**/coverage",
+      "!**/generated",
+      "!**/.turbo",
+      "!**/.venv",
+      "!**/playwright-report",
+      "!**/test-results",
+      "!**/*.dc.html",
+      "!**/*.min.js",
+      "!**/vendor",
+      "!**/public/pagefind",
+      "!**/dist-release"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -11,59 +30,30 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "all",
+      "preset": "recommended",
       "correctness": {
+        "preset": "all",
+        "noSolidDestructuredProps": "off",
+        "useQwikValidLexicalScope": "off",
         // engined is a daemon: node:os, node:path and node:child_process are
         // the intended surface, not a browser-bundle mistake.
-        "noNodejsModules": "off",
-        // Bun's globals come from @types/bun rather than a package import.
-        "noUndeclaredDependencies": "off",
-        // Biome does not resolve Bun's builtin `bun:` module scheme (bun:test).
-        "noUnresolvedImports": "off",
-        // A framework rule from the preset. There is no Qwik here, and it fires
-        // on any module-scope async arrow with an explicit return type.
-        "useQwikValidLexicalScope": "off"
+        "noNodejsModules": "off"
       },
-      "complexity": {
-        // A parse or resolve step reads several tables at once; bundling
-        // them into an options object to fit a count hides which one each
-        // function reads.
-        "useMaxParams": "off"
-      },
-      "style": {
-        // Resolving XDG_CONFIG_HOME/DATA/STATE is a required behaviour here.
-        "noProcessEnv": "off",
-        // TOML keys are snake_case and pass through untouched, so the config
-        // and spec shapes cannot be renamed to satisfy a casing rule.
-        "useNamingConvention": "off",
-        "noTernary": "off",
-        "noContinue": "off",
-        "noIncrementDecrement": "off",
-        "noParameterProperties": "off",
-        "noExcessiveClassesPerFile": "off",
-        "useExportsLast": "off",
-        "useConsistentArrayType": "off",
-        // A file's length is not a defect. Splitting config parse or the
-        // container lifecycle to hit a line count would scatter one concern
-        // across several files to satisfy a metric.
-        "noExcessiveLinesPerFile": "off",
-        // The rule only recognises a cause in the second argument. ParseError
-        // is (message, file, options), so a correctly-threaded cause in the
-        // third position reads to it as a missing one.
-        "useErrorCause": "off"
-      },
+      "suspicious": { "preset": "all", "noReactSpecificProps": "off" },
+      "security": { "preset": "all" },
+      "a11y": { "preset": "all" },
       "performance": {
-        // Readiness polls, idle waits and retry loops are sequential by
-        // definition -- awaiting them concurrently would fire every attempt at
-        // once, which is the opposite of what a poll is.
+        "preset": "all",
+        "useSolidForComponent": "off",
+        "noJsxPropsBind": "off",
+        // Every loop this fires on is sequential because the runtime demands
+        // it: readiness polls and render polls that must not fire every
+        // attempt at once, single-reader stream and async-generator drains, a
+        // chain whose next hop consumes the previous one's output, and engine
+        // probes that would otherwise load several models into one GPU
+        // concurrently.
         "noAwaitInLoops": "off"
-      },
-      "suspicious": {
-        // engined's environment comes from a systemd unit, not a .env file, so
-        // there is no manifest for this rule to check a name against.
-        "noUndeclaredEnvVars": "off"
-      },
-      "nursery": { "preset": "none" }
+      }
     }
   },
   "javascript": {
@@ -72,25 +62,77 @@
   },
   "overrides": [
     {
-      // A literal status code or byte count is the assertion in a test; naming
-      // it moves the value away from the line that checks it.
-      "includes": ["**/*.test.ts"],
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/test/**",
+        "**/__tests__/**"
+      ],
       "linter": {
         "rules": {
-          "style": { "noMagicNumbers": "off" },
-          // One test is one scenario, and the long ones here are long because
-          // the scenario is: a concurrent cross-role decode, a build invocation
-          // asserted argument by argument. Splitting a body to hit a count
-          // moves the setup away from the assertion that depends on it, which
-          // is the same reason noExcessiveLinesPerFile is off above. The rule
-          // stays on for src/, where it has never fired.
-          "complexity": { "noExcessiveLinesPerFunction": "off" },
-          // A test skipped with its blocker named is this project's way of
-          // shipping an unmet acceptance criterion honestly. The rule's unsafe
-          // fix removes the marker, which turns a documented gap into a
-          // failing suite.
-          "suspicious": { "noSkippedTests": "off" }
+          "correctness": {
+            "noNodejsModules": "off",
+            "noProcessGlobal": "off",
+            "noUnresolvedImports": "off"
+          },
+          "security": { "noSecrets": "off" },
+          "performance": { "noAwaitInLoops": "off", "useTopLevelRegex": "off" },
+          "suspicious": {
+            "noBitwiseOperators": "off",
+            "noMisplacedAssertion": "off",
+            "noSkippedTests": "off",
+            "noConsole": "off"
+          }
         }
+      }
+    },
+    {
+      "includes": ["**/e2e/**", "**/playwright.config.ts", "**/playwright.*.config.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "off",
+            "noProcessGlobal": "off",
+            "noUnresolvedImports": "off"
+          },
+          "security": { "noSecrets": "off" },
+          "performance": { "noAwaitInLoops": "off", "useTopLevelRegex": "off" },
+          "suspicious": { "noConsole": "off" }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/scripts/**",
+        "**/tools/**",
+        "**/*.config.ts",
+        "**/*.config.mjs",
+        "**/*.config.js"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "off",
+            "noProcessGlobal": "off",
+            "noUnresolvedImports": "off"
+          },
+          "performance": { "useTopLevelRegex": "off" },
+          "suspicious": { "noConsole": "off" }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/src/server/**",
+        "**/apps/server/**",
+        "**/apps/worker/**",
+        "**/app/**/route.ts",
+        "**/src/app/api/**"
+      ],
+      "linter": {
+        "rules": { "correctness": { "noNodejsModules": "off", "noProcessGlobal": "off" } }
       }
     }
   ],
