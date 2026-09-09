@@ -4,10 +4,10 @@ import { request as httpRequest } from "node:http";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import type { AgenticSpawn } from "./agentic.ts";
+import { resolveRedirect } from "./agenticRedirect.ts";
 import { loadConfig } from "./config.ts";
 import { DockerLifecycle, NAME_PREFIX, type Probe } from "./docker.ts";
 import type { DoorOptions } from "./doorContext.ts";
-
 import type { AgenticProbeRunner } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
@@ -16,7 +16,6 @@ import {
   createDoor,
   type Door,
   resolveBunx,
-  resolveRedirect,
   timeoutSecondsForKind,
 } from "./main.ts";
 import {
