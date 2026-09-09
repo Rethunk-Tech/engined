@@ -226,6 +226,7 @@ const RX_WIRE_MISMATCH = /wire "openai".*speaks "anthropic"/;
 const RX_IS_SELF = /is "self"/;
 const RX_MISSING_ROLE = /missing required "role"/;
 const RX_MISSING_FILENAME = /missing required "filename"/;
+const RX_FORBIDDEN_TRANSLATE = /must not declare "translate"/;
 
 /** Records what `reload` asks to be torn down; a disabling reload must ask. */
 class RemovalSpy extends DockerLifecycle {
@@ -1125,6 +1126,33 @@ describe("the kind-dependent filename/role split runs at registry construction, 
           { enginesRoot: root, bunx: BUNX },
         ),
     ).toThrow(RX_MISSING_ROLE);
+  });
+
+  // Only an stt route can mean anything by it. A llama route carrying the key
+  // would read as a promise the door never consults, since translations is not
+  // a path that engine serves at all.
+  test("a llama-shaped route declaring translate fails at construction", () => {
+    const root = newEnginesRoot();
+    writeEngineSpec(root, "llama-like", PULLED_CONTAINER);
+    expect(
+      () =>
+        new EngineRegistry(
+          config({
+            engines: [engine({ id: "llama-like", models_dir: "/data/gguf" })],
+            routes: [
+              route({
+                engine: "llama-like",
+                upstream: "local",
+                model: "x",
+                filename: "x.gguf",
+                role: "chat",
+                translate: true,
+              }),
+            ],
+          }),
+          { enginesRoot: root, bunx: BUNX },
+        ),
+    ).toThrow(RX_FORBIDDEN_TRANSLATE);
   });
 
   test("@/llama/sonnet-5 stays invalid: a filename-less llama route fails at construction", () => {

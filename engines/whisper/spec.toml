@@ -10,7 +10,7 @@ upstream = "self"
 # of the same pinned base.
 image = "engined-whisper:local"
 obtain = "build"                             # pull | build; build reads ./Dockerfile here
-serves = ["/openai/v1/audio/transcriptions"]
+serves = ["/openai/v1/audio/transcriptions", "/openai/v1/audio/translations"]
 
 # whisper.cpp streams. The binary this image ships does not expose it. Both
 # halves have to be said, because either one alone is read as the other.
@@ -118,9 +118,20 @@ command = [
 # without also removing this one would start silently truncating anything
 # longer than thirty seconds.
 # No -l: language is a per-request field, so pinning one here would make
-# changing it a wholesale spec override. The weights below are English-only,
-# so a request naming another language is decoded by an English model -- that
-# is a property of the model file, not something -l could fix.
+# changing it a wholesale spec override. medium.en and small.en below are
+# English-only, so a request naming another language is decoded by an English
+# model -- that is a property of the model file, not something -l could fix.
+# large-v3-turbo is the multilingual one, and the only route that may declare
+# `translate`.
+#
+# `translate` is a per-request multipart field on this server too (confirmed
+# against examples/server/server.cpp: `req.has_file("translate")`), so the
+# translations verb needs no second container, no restart and no flag here --
+# the same loaded model answers both verbs. What it does need is the right
+# weights: `--translate` against an English-only model does not error, it
+# transcribes. That is why `translate` is declared per route in config rather
+# than inferred from the engine, and why an undeclared route does not serve
+# /openai/v1/audio/translations at all.
 
 # majordomo's own probe: /health is not confirmed to exist on this image (a
 # bootstrap script tries it and falls back), so readiness POSTs the real
@@ -191,6 +202,17 @@ obtain = "curl -fL -o {models_dir}/ggml-medium.en-q8_0.bin https://huggingface.c
 [[artifact]]
 path = "/models/ggml-small.en-q8_0.bin"
 obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin"
+
+# The multilingual model, and the only one of the three that can translate.
+# It is NOT the accuracy or speed choice for English -- measured above at
+# 13.5% WER / 4063 ms against medium.en's 11.5% / 2715 ms -- so it earns its
+# place on the one thing the English-only pair cannot do at all, not on the
+# frontier they already cover. A box that never asks for a translation has no
+# reason to download it, which is why this is an artifact with its own obtain
+# line rather than a default.
+[[artifact]]
+path = "/models/ggml-large-v3-turbo-q8_0.bin"
+obtain = "curl -fL -o {models_dir}/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
 
 # Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
 # Filename and URL confirmed against whisper.cpp's own

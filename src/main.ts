@@ -74,6 +74,7 @@ import {
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
   type Config,
   EGRESS_RANK,
   type Egress,
@@ -107,6 +108,7 @@ const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
 ]);
 
 /**
@@ -1577,8 +1579,8 @@ async function handleContent(
   pathname: string,
   launchScoped: boolean,
 ): Promise<Response> {
-  if (pathname === CONTENT_ENDPOINT_TRANSCRIPTIONS) {
-    return handleAudioTranscription(ctx, req);
+  if (pathname === CONTENT_ENDPOINT_TRANSCRIPTIONS || pathname === CONTENT_ENDPOINT_TRANSLATIONS) {
+    return handleAudioTranscription(ctx, req, pathname);
   }
   const body = await readJsonBody(req);
   if (body instanceof Response) {

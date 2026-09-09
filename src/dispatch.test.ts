@@ -3,7 +3,12 @@ import { resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
 import { BUNX, config, ENGINES_ROOT, engine, route } from "./test-support.ts";
 import type { Config, EngineEntry, Role } from "./types.ts";
-import { routeForHop } from "./types.ts";
+import {
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
+  routeForHop,
+  routeServes,
+} from "./types.ts";
 
 const CHAT = "/openai/v1/chat/completions";
 const SPEECH = "/openai/v1/audio/speech";
@@ -388,6 +393,41 @@ describe("a role's claimed endpoint", () => {
     for (const [, claimed] of CLAIMED) {
       expect(resolveModel("@/e/m", claimed, cfg, reg).ok).toBe(false);
     }
+  });
+});
+
+/**
+ * Translations is the one path a role cannot decide: whisper's own spec
+ * offers it, and whether a given route may answer depends on the weights that
+ * route names. Tested against `routeServes` directly because no spec-less
+ * engine serves the path -- only whisper's shipped spec does, so a fixture
+ * engine cannot express the question.
+ */
+describe("a route's translate declaration", () => {
+  const WHISPER_SERVES = [CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS];
+
+  test("an undeclared route serves transcriptions and not translations", () => {
+    expect(routeServes({}, WHISPER_SERVES)).toEqual([CONTENT_ENDPOINT_TRANSCRIPTIONS]);
+  });
+
+  // `translate = false` is a declaration that this model cannot, and must read
+  // the same as saying nothing -- not as "the key is present, so allow it".
+  test("translate = false is refused exactly as an absent key is", () => {
+    expect(routeServes({ translate: false }, WHISPER_SERVES)).toEqual([
+      CONTENT_ENDPOINT_TRANSCRIPTIONS,
+    ]);
+  });
+
+  test("a declared route serves both, because one model answers both verbs", () => {
+    expect(routeServes({ translate: true }, WHISPER_SERVES)).toEqual(WHISPER_SERVES);
+  });
+
+  // The gating is subtractive, so an engine that never offered the path is
+  // not handed one by a route declaring the key.
+  test("declaring it does not invent a path the engine's spec does not serve", () => {
+    expect(routeServes({ translate: true }, [CONTENT_ENDPOINT_TRANSCRIPTIONS])).toEqual([
+      CONTENT_ENDPOINT_TRANSCRIPTIONS,
+    ]);
   });
 });
 

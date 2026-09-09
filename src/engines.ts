@@ -443,6 +443,7 @@ function checkLocalFileDisposition(
     const site = `route on engine "${engine.id}" model "${r.model}"`;
     assertFieldDisposition(rules.filename, r.filename !== undefined, "filename", site);
     assertFieldDisposition(rules.role, r.role !== undefined, "role", site);
+    assertFieldDisposition(rules.translate, r.translate !== undefined, "translate", site);
     if (rules.args === "forbidden" && Object.keys(r.args).length > 0) {
       throw new FatalError(`${site} must not declare "args"`);
     }
@@ -599,7 +600,7 @@ function engineCapabilities(
     .map(
       (r): EngineCapability => ({
         model: r.model,
-        serves: routeServes(r.role, engineServes),
+        serves: routeServes(r, engineServes),
         role: r.role,
         vision: r.vision,
         input: r.input,

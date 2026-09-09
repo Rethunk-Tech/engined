@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { EngineRegistry } from "./engines.ts";
-import { dataHome } from "./paths.ts";
 import { BUNX, ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
 import { type Config, FatalError } from "./types.ts";
 
@@ -20,6 +19,14 @@ const TEST_ROOT = makeTestRoot("engined-example-");
  * weights on disk just to run the suite.
  */
 const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/llm"/;
+
+/**
+ * EVERY engine's model tree, not llama's alone. Patching only llama left
+ * whisper's routes validated against whatever weights the machine running the
+ * suite happened to have downloaded -- green on this box, and a failure
+ * naming a missing .bin on a fresh clone.
+ */
+const MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/[a-z]+"/g;
 const WIRE_MISMATCH_RE = /wire "anthropic".*speaks "openai"/;
 
 // Already alphabetised, so the assertion below can sort actual output the
@@ -63,6 +70,7 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   "gpt-5.4",
   "gpt-5.4-mini",
   "k3",
+  "large-v3-turbo",
   "medium.en",
   "north-mini-code:free",
   "ocr",
@@ -99,9 +107,9 @@ function placeExampleModels(raw: string, modelsDir: string): void {
   }
 }
 
-/** `raw` with llama's real models_dir swapped for the scratch one, written to a fresh config.toml. */
+/** `raw` with every real models_dir swapped for the one scratch dir, written to a fresh config.toml. One dir for all of them: no two engines here name the same file, and a per-engine split would need this test to know which engine owns which filename. */
 function writePatchedExampleConfig(raw: string, modelsDir: string): string {
-  const patched = raw.replace(LLAMA_MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
+  const patched = raw.replace(MODELS_DIR_RE, `models_dir = "${modelsDir}"`);
   const configDir = mkdtempSync(join(TEST_ROOT, "config-"));
   const configPath = join(configDir, "config.toml");
   writeFileSync(configPath, patched);
@@ -121,16 +129,16 @@ function sortedIds<T>(items: readonly T[], pick: (item: T) => string | undefined
 }
 
 /** The example config through the real `loadConfig()`, with `append` tacked onto its end. `raw` is the unpatched file text. */
-function loadExample(append = ""): { raw: string; config: Config } {
+function loadExample(append = ""): { raw: string; config: Config; modelsDir: string } {
   const raw = readFileSync(join(import.meta.dir, "..", "config.example.toml"), "utf8");
   const modelsDir = mkdtempSync(join(TEST_ROOT, "models-"));
   placeExampleModels(raw, modelsDir);
   const configPath = writePatchedExampleConfig(raw + append, modelsDir);
-  return { raw, config: loadConfig(configPath, ENGINES_ROOT) };
+  return { raw, config: loadConfig(configPath, ENGINES_ROOT), modelsDir };
 }
 
 test("config.example.toml parses through the real loadConfig()", () => {
-  const { raw, config } = loadExample();
+  const { raw, config, modelsDir } = loadExample();
   expect(raw).toMatch(LLAMA_MODELS_DIR_RE);
 
   expect(sortedIds(config.engines, (e) => e.id)).toEqual(EXPECTED_ENGINE_IDS);
@@ -161,11 +169,13 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // artifact-fetch commands both use it) -- the exact gap the operator's
   // real installed config was found missing before this file existed.
   const whisper = config.engines.find((e) => e.id === "whisper");
-  // The rule, not the literal: `~/.local/share/` resolves through the same
-  // XDG_DATA_HOME-aware dataHome() that engined's own install dir uses, so
-  // this stays that directory's sibling under any XDG_DATA_HOME -- it is
-  // never a plain $HOME expansion of the example's tilde text.
-  expect(whisper?.models_dir).toBe(join(dataHome(), "engined-models/whisper"));
+  expect(whisper?.models_dir).toBe(modelsDir);
+  // The tilde form is what the committed file must keep saying, since that is
+  // what an operator copies; that `~/.local/share/` then resolves through the
+  // XDG_DATA_HOME-aware dataHome() rather than a bare $HOME expansion is
+  // proven against this exact path in config.test.ts, not here -- this load
+  // has patched the line away.
+  expect(raw).toMatch(/models_dir\s*=\s*"~\/\.local\/share\/engined-models\/whisper"/);
 });
 
 // The [[model]] row's capabilities reach the route naming it, and inserting

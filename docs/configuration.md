@@ -15,7 +15,7 @@ the bytes for a request come from and carries `base_url`, `secret` and
 execute a request. `[[model]]` is optional, declared only where there is a
 capability worth recording. `[[route]]` pairs an engine with an upstream and,
 where one applies, a model, and carries everything specific to that pairing:
-`filename`, `role`, `vision`, `keep_resident`, `wire_model`, `streaming`, `args`. `[[chain]]` is an
+`filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `streaming`, `args`. `[[chain]]` is an
 ordered fallback list of route addresses.
 
 ## Config versus spec, and why the split is not tidiness
@@ -50,13 +50,20 @@ error by design rather than a silent no-op.
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
-| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `vision`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
+| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
 | `hops` | `[[chain]]` — an ordered list of route addresses |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
 role returns to. `filename`, `role` and `keep_resident` all live on the route,
 not the model — `ornith` on `llama` has a GGUF file and a role, `ornith`
 through `claude` has neither.
+
+`translate` says this STT model's weights are multilingual, so it can render
+speech in another language as English. Only an `stt` route may declare it, and
+a route that does not declare it does not serve
+`/openai/v1/audio/translations` at all -- the failure it guards is silent, not
+loud: whisper handed the translate flag with English-only weights transcribes
+rather than erroring.
 
 `vision` says what a `role = "vision"` model does with an image, which the
 role itself does not: `"describe"` reads a scene back in prose, `"read"`

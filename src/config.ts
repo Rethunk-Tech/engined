@@ -85,6 +85,7 @@ const ROUTE_KEYS = new Set([
   "filename",
   "role",
   "vision",
+  "translate",
   "keep_resident",
   "streaming",
   "args",
@@ -354,6 +355,7 @@ interface RawRoute {
   filename?: string;
   role?: Role;
   vision?: VisionKind;
+  translate?: boolean;
   keep_resident?: boolean;
   streaming?: boolean;
   args: Record<string, unknown>;
@@ -418,6 +420,7 @@ function parseRouteRaw(
     filename: rawFilename === undefined ? undefined : expandConfigPath(rawFilename),
     role: roleStr as Role | undefined,
     vision: visionStr as VisionKind | undefined,
+    translate: optional(raw.translate, "boolean", `${site} "translate"`, file),
     keep_resident: optional(raw.keep_resident, "boolean", `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, "boolean", `${site} "streaming"`, file),
     args,
@@ -580,6 +583,7 @@ function resolveRoute(
     filename: raw.filename,
     role: raw.role,
     vision: raw.vision,
+    translate: raw.translate,
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
     args: raw.args,

@@ -73,11 +73,13 @@ export type UpstreamTrait = "self" | "optional" | "required";
 /** Whether a route field is mandatory, forbidden, or takes either -- the split predicate's answer once `kind` is known. */
 export type Disposition = "required" | "forbidden" | "allowed";
 
-/** `filename`/`role`/`args` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
+/** `filename`/`role`/`args`/`translate` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
 interface RouteFieldRules {
   filename: Disposition;
   role: Disposition;
   args: Disposition;
+  /** Only an `stt` route can mean anything by it: every other kind would carry a key nothing reads. */
+  translate: Disposition;
 }
 
 /**
@@ -95,29 +97,44 @@ export const KIND_TRAITS: Record<
     // A spec-less openai-http engine (openrouter) is a pure proxy: it must
     // name the one upstream it proxies to, there being no "self" to default to.
     upstream: "required",
-    localFile: { filename: "required", role: "required", args: "allowed" },
+    localFile: { filename: "required", role: "required", args: "allowed", translate: "forbidden" },
   },
   // The only kind that runs no container at all.
   "agentic-cli": {
     container: false,
     upstream: "optional",
-    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+    localFile: {
+      filename: "forbidden",
+      role: "forbidden",
+      args: "forbidden",
+      translate: "forbidden",
+    },
   },
   tts: {
     container: true,
     upstream: "self",
-    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+    localFile: {
+      filename: "forbidden",
+      role: "forbidden",
+      args: "forbidden",
+      translate: "forbidden",
+    },
   },
   stt: {
     container: true,
     upstream: "self",
-    localFile: { filename: "required", role: "forbidden", args: "allowed" },
+    localFile: { filename: "required", role: "forbidden", args: "allowed", translate: "allowed" },
   },
   comfy: {
     container: true,
     // comfy runs here or on some peer's `local`, never against a foreign provider.
     upstream: "self",
-    localFile: { filename: "forbidden", role: "forbidden", args: "forbidden" },
+    localFile: {
+      filename: "forbidden",
+      role: "forbidden",
+      args: "forbidden",
+      translate: "forbidden",
+    },
   },
 };
 
@@ -177,6 +194,8 @@ export interface EngineCapability extends ModelCapabilities {
   role?: Role;
   /** See `VisionKind`. Absent unless this route is `role = "vision"`. */
   vision?: VisionKind;
+  /** See `ResolvedRoute.translate`. Absent on every route that did not declare it. */
+  translate?: boolean;
 }
 
 /**
@@ -187,6 +206,7 @@ export const CONTENT_ENDPOINT_CHAT = "/openai/v1/chat/completions";
 export const CONTENT_ENDPOINT_EMBEDDINGS = "/openai/v1/embeddings";
 export const CONTENT_ENDPOINT_SPEECH = "/openai/v1/audio/speech";
 export const CONTENT_ENDPOINT_TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
+export const CONTENT_ENDPOINT_TRANSLATIONS = "/openai/v1/audio/translations";
 export const CONTENT_ENDPOINT_IMAGES = "/openai/v1/images/generations";
 export const CONTENT_ENDPOINT_RERANK = "/openai/v1/rerank";
 
@@ -209,20 +229,35 @@ const ROLE_ENDPOINT: Partial<Record<Role, string>> = {
 /** Read off `ROLE_ENDPOINT` itself, never spelled a second time -- a hand-kept copy admits a claimed path to every unclaimed role the moment the two drift. */
 const CLAIMED_ENDPOINTS: ReadonlySet<string> = new Set(Object.values(ROLE_ENDPOINT));
 
+/** The subset of a route this answer depends on -- `EngineCapability` and `ResolvedRoute` both satisfy it, so neither has to be reshaped to ask the question. */
+export interface RouteServesFields {
+  role?: Role;
+  translate?: boolean;
+}
+
 /**
  * The door paths one route answers, which its engine's own `serves` cannot
  * say on its own: a role that claims a path answers only that path, a role
  * that claims none answers everything no other role claims, and a route with
  * no role (agentic, proxied, media) whatever its engine serves.
+ *
+ * Translations is the one path a role cannot decide, because it is the model
+ * file and not the role that separates a whisper route that can translate
+ * from one that cannot. Every stt route on an engine whose spec serves that
+ * path would otherwise inherit it, English-only weights and all.
  */
-export function routeServes(role: Role | undefined, engineServes: readonly string[]): string[] {
-  if (role === undefined) {
-    return [...engineServes];
-  }
-  const claimed = ROLE_ENDPOINT[role];
-  return engineServes.filter((path) =>
-    claimed === undefined ? !CLAIMED_ENDPOINTS.has(path) : path === claimed,
-  );
+export function routeServes(route: RouteServesFields, engineServes: readonly string[]): string[] {
+  const { role, translate } = route;
+  const byRole =
+    role === undefined
+      ? [...engineServes]
+      : engineServes.filter((path) => {
+          const claimed = ROLE_ENDPOINT[role];
+          return claimed === undefined ? !CLAIMED_ENDPOINTS.has(path) : path === claimed;
+        });
+  return translate === true
+    ? byRole
+    : byRole.filter((path) => path !== CONTENT_ENDPOINT_TRANSLATIONS);
 }
 
 /** Names a keyring pair, an address and the wire it speaks -- *where* the bytes for a route come from, never *how* they are produced. */
@@ -255,6 +290,18 @@ export interface ResolvedRoute extends ModelCapabilities {
   role?: Role;
   /** See `VisionKind`. Absent on any route that is not `role = "vision"`. */
   vision?: VisionKind;
+  /**
+   * This STT model's weights are multilingual, so it can be asked to render
+   * speech in another language as English -- what `/openai/v1/audio/translations`
+   * is. Declared per route rather than inferred, because the model file is the
+   * whole difference and nothing about a request reveals it: an English-only
+   * model handed the translate flag does not fail, it transcribes the audio
+   * as though the flag were absent and returns a confident wrong answer.
+   *
+   * A route that does not declare it does not serve that verb (`routeServes`),
+   * so the refusal is a 400 naming the address rather than a silent no-op.
+   */
+  translate?: boolean;
   /**
    * Load this GGUF when its engine starts, and reload it whenever its role
    * falls idle again — warmth guaranteed against idleness, never against

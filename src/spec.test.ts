@@ -62,6 +62,11 @@ const WHISPER_ARTIFACTS = [
       "curl -fL -o /data/models/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin",
   },
   {
+    path: "/models/ggml-large-v3-turbo-q8_0.bin",
+    obtain:
+      "curl -fL -o /data/models/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+  },
+  {
     path: "/models/ggml-silero-v6.2.0.bin",
     obtain:
       "curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
@@ -103,6 +108,13 @@ describe("shipped specs", () => {
         { name: specDirPath, path: "/spec", read_only: true },
       ]);
       expect(loaded.spec.artifacts).toEqual(WHISPER_ARTIFACTS);
+      // Both audio verbs, because this engine's own weights decide which of
+      // its routes may answer the second one -- the spec offers the path and
+      // `translate` on a route is what claims it.
+      expect(loaded.spec.serves).toEqual([
+        "/openai/v1/audio/transcriptions",
+        "/openai/v1/audio/translations",
+      ]);
     }
   });
 

@@ -192,22 +192,32 @@ test("a request against a stopped engine starts it on demand through the real do
   expect(result.status).toBe(200);
 });
 
+/** The per-request fields whisper-server reads off the form; `translate` is a string here because a multipart field is always one. */
+interface WhisperRequest {
+  language?: string;
+  response_format?: string;
+  prompt?: string;
+  translate?: string;
+}
+
 /** A real `Bun.serve` fake whisper: echoes back the multipart fields it received. */
 function startFakeWhisper(): {
   base: string;
-  requests: Array<{ language?: string; response_format?: string; prompt?: string }>;
+  requests: WhisperRequest[];
   stop: () => void;
 } {
-  const requests: Array<{ language?: string; response_format?: string; prompt?: string }> = [];
+  const requests: WhisperRequest[] = [];
   const fake = startFakeUpstream(async (req) => {
     const form = await req.formData();
     const language = form.get("language");
     const responseFormat = form.get("response_format");
     const prompt = form.get("prompt");
+    const translate = form.get("translate");
     requests.push({
       language: typeof language === "string" ? language : undefined,
       response_format: typeof responseFormat === "string" ? responseFormat : undefined,
       prompt: typeof prompt === "string" ? prompt : undefined,
+      translate: typeof translate === "string" ? translate : undefined,
     });
     if (responseFormat === "text") {
       return new Response("hello world", { headers: { "content-type": "text/plain" } });
@@ -284,6 +294,32 @@ test("no prompt means the field is absent, not an empty initial prompt", async (
   fake.stop();
 
   expect(fake.requests[0]?.prompt).toBeUndefined();
+});
+
+test("translate reaches the engine as its own field, which is the whole of the translations verb", async () => {
+  const fake = startFakeWhisper();
+
+  await handleTranscription(
+    { engine: "whisper", file: SAMPLE_AUDIO_BYTES, translate: true },
+    async () => ({ private_url: fake.base }),
+  );
+  fake.stop();
+
+  expect(fake.requests[0]?.translate).toBe("true");
+});
+
+// Absent, never "false": whisper-server parses this field with its own
+// string-to-bool, and a door that always sent one would be relying on that
+// parse agreeing with ours for a request that never asked to translate.
+test("a transcription sends no translate field at all", async () => {
+  const fake = startFakeWhisper();
+
+  await handleTranscription({ engine: "whisper", file: SAMPLE_AUDIO_BYTES }, async () => ({
+    private_url: fake.base,
+  }));
+  fake.stop();
+
+  expect(fake.requests[0]?.translate).toBeUndefined();
 });
 
 test("a route's model reaches EngineStart as its own argument, not folded into the engine id", async () => {

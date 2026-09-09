@@ -37,6 +37,7 @@ import { recordCall } from "./provenance.ts";
 import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
   type Config,
   type Egress,
   errMessage,
@@ -619,6 +620,8 @@ interface TranscriptionForm {
   responseFormat: string | undefined;
   prompt: string | undefined;
   stream: boolean;
+  /** Set by the translations verb alone; the transcriptions verb never sets it, whatever the caller sends. */
+  translate?: boolean;
 }
 
 /**
@@ -730,6 +733,7 @@ function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
       language: form.language,
       response_format: form.responseFormat,
       prompt: form.prompt,
+      translate: form.translate,
     };
     const transcriptionReq: AnyTranscriptionRequestBody =
       form.file instanceof ReadableStream
@@ -739,22 +743,55 @@ function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
   };
 }
 
-export async function handleAudioTranscription(ctx: DoorContext, req: Request): Promise<Response> {
+/**
+ * `/openai/v1/audio/transcriptions` and `/openai/v1/audio/translations` are
+ * one verb over one upload; the difference is a single field whisper-server
+ * reads per request. So they share this handler, and `endpoint` is what
+ * decides which routes may answer -- only a route declaring `translate` serves
+ * the translations path (`routeServes`), so an English-only model is refused
+ * by address rather than answering with an untranslated transcript.
+ */
+/**
+ * The upload and its per-request fields, or the 400 that ends the request
+ * before anything is resolved or started. Split out of the handler because
+ * every refusal here is about the body alone -- nothing it decides needs the
+ * config, the registry, or which route will answer.
+ */
+async function readAudioUpload(
+  req: Request,
+  translating: boolean,
+): Promise<TranscriptionForm | Response> {
   const declared = Number(req.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
     return tooLarge(declared);
   }
-  const form = liveTranscription(req) ?? (await parseTranscriptionForm(req));
-  if (form === undefined) {
+  const parsed = liveTranscription(req) ?? (await parseTranscriptionForm(req));
+  if (parsed === undefined) {
     return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
   }
-  const refusal = uploadRefusal(form.file);
-  if (refusal !== undefined) {
-    return refusal;
+  // The wrapper's streaming route carries language and prompt and nothing
+  // else, so a streamed translation would arrive as a plain transcription.
+  if (translating && parsed.stream) {
+    return jsonError(
+      STATUS_BAD_REQUEST,
+      "a translation cannot be streamed; send it as a buffered request",
+    );
+  }
+  return uploadRefusal(parsed.file) ?? (translating ? { ...parsed, translate: true } : parsed);
+}
+
+export async function handleAudioTranscription(
+  ctx: DoorContext,
+  req: Request,
+  endpoint: string = CONTENT_ENDPOINT_TRANSCRIPTIONS,
+): Promise<Response> {
+  const form = await readAudioUpload(req, endpoint === CONTENT_ENDPOINT_TRANSLATIONS);
+  if (form instanceof Response) {
+    return form;
   }
   const resolved = resolveModel(
     form.rawModel ?? undefined,
-    CONTENT_ENDPOINT_TRANSCRIPTIONS,
+    endpoint,
     ctx.getConfig(),
     ctx.registry,
   );
@@ -779,7 +816,7 @@ export async function handleAudioTranscription(ctx: DoorContext, req: Request): 
       chain: resolved.chain,
       hops: resolved.hops,
       requested: form.rawModel ?? "",
-      endpoint: CONTENT_ENDPOINT_TRANSCRIPTIONS,
+      endpoint,
       attempt,
       signal: req.signal,
     });

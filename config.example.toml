@@ -512,6 +512,26 @@ upstream = "local"
 model    = "small.en"
 filename = "ggml-small.en-q8_0.bin"
 
+# The multilingual one, and the only route on this box that answers
+# /openai/v1/audio/translations -- speech in another language, rendered as
+# English. `translate` is declared here rather than inferred from the
+# filename, because the failure it guards is silent: whisper handed the
+# translate flag with English-only weights does not error, it transcribes and
+# returns something that reads like a translation. A route that omits the key
+# does not serve the verb at all, so medium.en and small.en above answer it
+# with a 400 naming the address instead.
+#
+# Worse than medium.en at English on both axes (13.5% WER / 4063 ms against
+# 11.5% / 2715 ms), so it earns its place on translation alone. Download it
+# with the obtain line in engines/whisper/spec.toml; a box that never asks
+# for a translation should delete this route rather than fetch 1.6 GB.
+[[route]]
+engine    = "whisper"
+upstream  = "local"
+model     = "large-v3-turbo"
+filename  = "ggml-large-v3-turbo-q8_0.bin"
+translate = true
+
 # The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so its engine declares no models_dir and no
 # idle_stop_seconds -- there is nothing to stop. Which one a caller gets is

@@ -47,6 +47,16 @@ by `src/dispatch.test.ts` alone. Download a Qwen3-Reranker GGUF to the path
 `config.example.toml` names, then send one request through 29200; until then
 the door's rerank path is proven only against a fake upstream.
 
+**Unproven: a real translation.** `translate` is a per-request field on
+whisper-server (read off `examples/server/server.cpp`, not inferred) and the
+door sends it, asserted against a fake whisper that echoes the form back. No
+multilingual weights are on this box, so no non-English audio has ever gone
+through the verb. The guard that matters is already tested: a route that does
+not declare `translate` does not serve the path. What is untested is the other
+half -- that a route which does declare it comes back with English. Download
+`ggml-large-v3-turbo-q8_0.bin` (obtain line in `engines/whisper/spec.toml`) and
+send one non-English clip.
+
 Shipped images are migrated from the fleet (gfx1151, ROCm/Vulkan, never CUDA),
 never invented.
 

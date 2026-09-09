@@ -20,6 +20,7 @@ treated as a caller.
 | `/openai/v1/rerank` | POST | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank) |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
+| `/openai/v1/audio/translations` | POST | `stt`, and only a route declaring `translate` — same upload, rendered as English. See [Translations](#translations) |
 | `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed}` in, `{created, data:[{b64_json}]}` out — see [Images](#images) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
@@ -358,6 +359,32 @@ theirs can load. It is the difference between "the model is still loading" and
 "three requests are ahead of you", which `state` alone cannot express. A role
 with nothing running and nothing queued is omitted rather than reported as
 zero, and a kind with no roles carries no `roles` at all.
+
+## Translations
+
+`POST /openai/v1/audio/translations` is the transcriptions verb with one field
+added: whisper renders the speech as English instead of in the language it was
+spoken. Same multipart upload, same `prompt` and `response_format`.
+
+Which routes answer it is a property of the weights, not of the engine. An
+English-only model handed the translate flag does not fail — it transcribes,
+and returns something that reads like a translation. So a route declares
+`translate = true` in config, and one that does not **does not serve this
+path**: the refusal is a 400 naming the address, before any audio is decoded.
+
+```sh
+curl -s localhost:29200/openai/v1/audio/translations \
+  -F model=@/whisper/large-v3-turbo -F file=@clip.wav
+```
+
+`@/whisper/medium.en` on that same call is a 400 saying it does not serve the
+endpoint — it is English-only, and the config says so.
+
+No `language` field: translation targets English, and the source language is
+whisper's own to detect. No streaming either — the wrapper's streaming route
+carries `language` and `prompt` and has no channel for this field, so a
+streamed translation would arrive as a plain transcript. `stream=true` here is
+a 400 rather than a silently untranslated answer.
 
 ## Rerank
 

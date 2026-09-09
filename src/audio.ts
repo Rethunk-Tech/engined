@@ -190,6 +190,17 @@ interface TranscriptionRequestBody {
    */
   prompt?: string;
   /**
+   * Render the speech as English rather than in the language it was spoken --
+   * whisper's own `translate`, and the whole difference between
+   * `/openai/v1/audio/translations` and `/openai/v1/audio/transcriptions`.
+   *
+   * Only a route whose weights are multilingual serves that verb at all
+   * (`ResolvedRoute.translate`), because an English-only model handed this
+   * flag does not fail: it transcribes and returns something that reads like
+   * a translation of English speech.
+   */
+  translate?: boolean;
+  /**
    * Deliver each segment as the model decodes it instead of the transcript
    * after all of it exists. Opt-in because it changes what comes back: NDJSON
    * frames rather than one JSON body, and so no `response_format` to apply.
@@ -949,6 +960,16 @@ function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResp
       `a streamed transcription answers in NDJSON frames, so response_format "${req.response_format}" does not apply`,
     );
   }
+  // The streamed path is the door's own route on the whisper wrapper, whose
+  // two query levers are language and prompt -- it has no channel for this
+  // one. Refused rather than dropped: a translation request answered with an
+  // untranslated transcript is the failure this whole flag guards against.
+  if (req.stream === true && req.translate === true) {
+    return errorResponse(
+      STATUS_BAD_REQUEST,
+      "a translation cannot be streamed; send it as a buffered request",
+    );
+  }
   return undefined;
 }
 
@@ -962,6 +983,11 @@ async function transcribeLocal(
   form.append("file", new Blob([req.file]), "audio");
   if (req.language !== undefined) {
     form.append("language", req.language);
+  }
+  // whisper-server parses this per request, so the same loaded model answers
+  // both verbs -- no second container and no restart to translate.
+  if (req.translate === true) {
+    form.append("translate", "true");
   }
   if (req.response_format !== undefined) {
     form.append("response_format", req.response_format);
