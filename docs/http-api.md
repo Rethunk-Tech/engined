@@ -596,8 +596,12 @@ box records it.
 
 Read the absences, because a sum that treats them as zero is wrong:
 
-- **`"streamed": true` and no `usage`** — the door forwarded the reply without
-  ever holding a body to read one out of. Cost unknown, not zero.
+- **`"streamed": true` and no `usage`** — the upstream stated no cost in its
+  frames. For an OpenAI-shaped one that means the caller did not send
+  `stream_options: {"include_usage": true}`, which is the only thing that puts
+  a usage frame in a streamed reply. Cost unknown, not zero — and the fix is
+  the consumer's one-line change, not engined's: the door forwards a chat body
+  untouched and will not add fields to a caller's request.
 - **no `usage` and a `version`** — an agentic hop. Their CLIs each report cost
   in their own envelope shape, and only cursor's has been captured verbatim
   (`src/agents.test.ts`), so engined records none rather than guessing two.
@@ -605,8 +609,21 @@ Read the absences, because a sum that treats them as zero is wrong:
   nothing. Every whisper transcription is this: whisper-server reports no
   usage, and the audio verbs are not token-billed anyway.
 
+A streamed reply's `usage` is read out of the frames themselves, at the end,
+where an upstream states the total — the provenance line for one is already
+deferred until the stream ends, so the figure is there by the time the line is
+written. The last usage frame wins, so an upstream restating a running total
+ends on the total. A stream that dies after stating its cost still records it:
+what was spent before it died was spent.
+
 A field the engine sent as a non-number is dropped rather than coerced, so
-every number on these lines came from the engine as a number.
+every number on these lines came from the engine as a number. That is also why
+a local llama stream can show no `usage` while plainly having done work:
+measured on b10637, it reports token counts in a `timings` object instead, and
+with a prefix-cache hit `timings.prompt_n` is only the uncached remainder
+(`prompt_n: 4` against `usage.prompt_tokens: 12`). Deriving a figure from it
+would be engined's arithmetic rather than the engine's answer, and llama is
+the local engine no budget is counting.
 
 engined enforces no ceiling and keeps no running total. The line is the
 record; `journalctl --user -u engined` is the query.

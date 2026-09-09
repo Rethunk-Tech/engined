@@ -42,10 +42,14 @@ export interface Attempt {
   /** What the engine said this attempt cost. Absent whenever it reported nothing -- see `streamed`, and `Usage`. */
   usage?: Usage;
   /**
-   * This attempt answered with a stream, so its `usage` is absent because the
-   * door never held a whole body to read one out of -- not because the call
-   * was free. Recorded so a sum over these lines can tell "cost nothing" from
-   * "cost unknown"; without it a month of streamed chat reads as zero tokens.
+   * This attempt answered with a stream rather than a body. Its `usage`, when
+   * present, was read out of the frames themselves; when absent, the upstream
+   * stated no cost in them -- for an OpenAI-shaped one that means the caller
+   * did not send `stream_options: {include_usage: true}`, which is the only
+   * thing that puts a usage frame in the reply.
+   *
+   * Recorded either way, so a sum over these lines can tell "cost nothing"
+   * from "cost unknown" instead of reading a month of streamed chat as zero.
    */
   streamed?: true;
 }

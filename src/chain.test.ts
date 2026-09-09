@@ -186,8 +186,174 @@ test("a body with no usage records none, rather than an empty object that reads 
   expect(soleProvenanceRecord(lines).attempts[0]?.usage).toBeUndefined();
 });
 
-// The one thing that separates "cost nothing" from "cost unknown": a stream
-// is forwarded without the door ever holding a body to read a usage out of.
+/** An SSE reply as an upstream sends one: token deltas, then a final frame stating the cost, then the terminator. */
+function sseStream(frames: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start: (c) => {
+      for (const frame of frames) {
+        c.enqueue(encoder.encode(`data: ${frame}\n\n`));
+      }
+      c.enqueue(encoder.encode("data: [DONE]\n\n"));
+      c.close();
+    },
+  });
+}
+
+const DELTA = '{"choices":[{"delta":{"content":"ok"}}]}';
+const DELTA_FRAME = `data: ${DELTA}\n\n`;
+
+/**
+ * Captured verbatim from llama-server b10637-39817c476 through this door:
+ * `stream: true` with `stream_options: {include_usage: true}`, five tokens
+ * generated. The nested `prompt_tokens_details` and the whole `timings`
+ * object are exactly what the engine sends, and both must be walked past
+ * rather than tripped over. Only the completion id is shortened, because the
+ * real one reads as a credential to the secret scanner; nothing reads it.
+ */
+const LLAMA_USAGE_FRAME =
+  'data: {"choices":[],"created":1788969062,"id":"chatcmpl-x","model":"ornith","system_fingerprint":"b10637-39817c476","object":"chat.completion.chunk","usage":{"completion_tokens":5,"prompt_tokens":12,"total_tokens":17,"prompt_tokens_details":{"cached_tokens":8}},"timings":{"cache_n":8,"prompt_n":4,"prompt_ms":91.635,"predicted_n":5,"predicted_ms":91.273,"draft_n":2,"draft_n_accepted":2}}';
+
+test("a real llama-server usage frame is read as the attempt's cost", async () => {
+  const { lines, write } = collectLines();
+  const encoder = new TextEncoder();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: new ReadableStream<Uint8Array>({
+        start: (c) => {
+          c.enqueue(encoder.encode(`${DELTA_FRAME}${LLAMA_USAGE_FRAME}\n\ndata: [DONE]\n\n`));
+          c.close();
+        },
+      }),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text();
+
+  // prompt_tokens is 12 -- the whole prompt. `timings.prompt_n` in the same
+  // frame is 4, the uncached remainder after an 8-token cache hit, which is
+  // why that field is not what this reads.
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({
+    prompt_tokens: 12,
+    completion_tokens: 5,
+    total_tokens: 17,
+  });
+});
+
+test("a streamed reply's cost is read out of its own frames", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: sseStream([
+        DELTA,
+        DELTA,
+        '{"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}',
+      ]),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text();
+
+  const attempt = soleProvenanceRecord(lines).attempts[0];
+  expect(attempt?.streamed).toBe(true);
+  expect(attempt?.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 });
+});
+
+// A frame split across two chunks is the normal case on a real socket, not an
+// edge one: the scan keeps the partial line rather than dropping the frame.
+test("a usage frame split across chunk boundaries is still read", async () => {
+  const { lines, write } = collectLines();
+  const encoder = new TextEncoder();
+  const whole = `data: {"usage":{"total_tokens":41}}\n\n`;
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: new ReadableStream<Uint8Array>({
+        start: (c) => {
+          c.enqueue(encoder.encode(whole.slice(0, 20)));
+          c.enqueue(encoder.encode(whole.slice(20)));
+          c.close();
+        },
+      }),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text();
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 41 });
+});
+
+// An upstream that restates a running total every frame ends on the total,
+// not on the first figure it happened to send.
+test("the last usage frame wins", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: sseStream([
+        '{"usage":{"total_tokens":1}}',
+        '{"usage":{"total_tokens":2}}',
+        '{"usage":{"total_tokens":9}}',
+      ]),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text();
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 9 });
+});
+
+// What was spent before the stream died was still spent.
+test("a stream that dies after stating its cost still records it, as a failure", async () => {
+  const { lines, write } = collectLines();
+  const encoder = new TextEncoder();
+  let sent = false;
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      // Enqueued and errored in one `start` would deliver nothing at all --
+      // `error()` discards the queue -- so the frame goes out on its own pull
+      // first, the way a socket delivers bytes before it drops.
+      stream: new ReadableStream<Uint8Array>({
+        pull: (c) => {
+          if (sent) {
+            c.error(new Error("upstream went away"));
+            return;
+          }
+          sent = true;
+          c.enqueue(encoder.encode('data: {"usage":{"total_tokens":7}}\n\n'));
+        },
+      }),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text().catch(() => undefined);
+
+  const attempt = soleProvenanceRecord(lines).attempts[0];
+  expect(attempt?.ok).toBe(false);
+  expect(attempt?.usage).toEqual({ total_tokens: 7 });
+});
+
+// The guard that keeps the scan off the hot path must not also make it miss
+// a real frame: ordinary content mentioning the word is not a usage record.
+test("content that merely says usage is not mistaken for a cost", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: sseStream(['{"choices":[{"delta":{"content":"the \\"usage\\" of it"}}]}']),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  await new Response(result.stream).text();
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toBeUndefined();
+});
+
+// The one thing that separates "cost nothing" from "cost unknown": an
+// upstream that states no cost in its frames.
 test("a streamed attempt is marked streamed and carries no usage", async () => {
   const { lines, write } = collectLines();
   const exec: HopExec = () =>

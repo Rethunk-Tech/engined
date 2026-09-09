@@ -19,7 +19,14 @@ import {
 } from "./http.ts";
 import { type Attempt, type CallRecord, recordCall, type Usage } from "./provenance.ts";
 import type { Egress } from "./types.ts";
-import { errMessage, qualifiedSegments, routeForHop, withinCeiling } from "./types.ts";
+import {
+  errMessage,
+  isRecord,
+  parseRecord,
+  qualifiedSegments,
+  routeForHop,
+  withinCeiling,
+} from "./types.ts";
 
 export interface HopResult {
   status: number;
@@ -218,6 +225,8 @@ export function classifyResult(result: HopResult): {
 export function wrapStream<T>(
   source: ReadableStream<T>,
   onDone: (ok: boolean, failure?: string, bytes?: number) => void,
+  /** Handed every byte chunk as it is forwarded, for a caller reading something out of the frames themselves. Rides the `isView` branch the byte count already takes, so a non-byte stream costs nothing. */
+  scan?: (chunk: Uint8Array) => void,
 ): ReadableStream<T> {
   const reader = source.getReader();
   let forwarded = 0;
@@ -240,7 +249,10 @@ export function wrapStream<T>(
           settle(true);
           return;
         }
-        forwarded += ArrayBuffer.isView(value) ? value.byteLength : 0;
+        if (ArrayBuffer.isView(value)) {
+          forwarded += value.byteLength;
+          scan?.(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+        }
         controller.enqueue(value);
       } catch (err) {
         controller.error(err);
@@ -299,14 +311,23 @@ function usageField(raw: Record<string, unknown>, key: string): number | undefin
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** One reported `usage` object as engined records it, or `undefined` for one it understood no field of -- which is not a cost record. */
+function pickUsage(raw: Record<string, unknown>): Usage | undefined {
+  const out: Usage = {
+    prompt_tokens: usageField(raw, "prompt_tokens"),
+    completion_tokens: usageField(raw, "completion_tokens"),
+    total_tokens: usageField(raw, "total_tokens"),
+  };
+  return Object.values(out).some((v) => v !== undefined) ? out : undefined;
+}
+
 /**
  * What the engine said this attempt cost, read off the body it already
  * returned. Every kind funnels through here rather than each hop builder
  * setting it: an engine that reports `usage` gets it recorded whatever verb
  * it answered, and one that reports none records none rather than a zero.
  *
- * A streamed reply has no body to read, which the attempt records as
- * `streamed` instead -- see `Attempt.streamed`.
+ * A streamed reply has no such body; `StreamUsage` reads its frames instead.
  */
 function usageFrom(result: HopResult): Usage | undefined {
   const { body } = result;
@@ -314,18 +335,73 @@ function usageFrom(result: HopResult): Usage | undefined {
     return undefined;
   }
   const { usage } = body as { usage?: unknown };
-  if (typeof usage !== "object" || usage === null) {
-    return undefined;
-  }
-  const raw = usage as Record<string, unknown>;
-  const out: Usage = {
-    prompt_tokens: usageField(raw, "prompt_tokens"),
-    completion_tokens: usageField(raw, "completion_tokens"),
-    total_tokens: usageField(raw, "total_tokens"),
-  };
-  // A `usage` object engined understood no field of is not a cost record.
-  return Object.values(out).some((v) => v !== undefined) ? out : undefined;
+  return isRecord(usage) ? pickUsage(usage) : undefined;
 }
+
+/**
+ * A streamed reply's frames are the only place its cost is stated, and the
+ * provenance line for one is already deferred until the stream ends -- so the
+ * figure is there to be read by the time the line is written.
+ *
+ * Scans rather than buffers: SSE frames are newline-delimited, so this keeps
+ * one partial line and forgets every frame it has already considered. The
+ * `"usage"` substring guard is what keeps it off the hot path -- a token
+ * delta never matches it, so no chunk of ordinary output is ever parsed.
+ *
+ * The LAST usage seen wins. An upstream that reports cumulatively per frame
+ * ends on the total; one that reports once ends on the only one.
+ *
+ * Measured, against llama-server b10637 through this door: a streamed reply
+ * carries NO `usage` frame unless the caller sent
+ * `stream_options: {include_usage: true}`. It always carries `timings`, whose
+ * `prompt_n`/`predicted_n` are token counts -- deliberately not read here.
+ * With a prefix-cache hit `prompt_n` is only the uncached remainder (measured
+ * `prompt_n: 4, cache_n: 8` against `usage.prompt_tokens: 12`), so a figure
+ * from it would be engined's own arithmetic rather than the engine's answer,
+ * and llama is the local engine, which no budget is counting anyway. The
+ * paid upstreams all speak `usage` or nothing.
+ */
+class StreamUsage {
+  private readonly decoder = new TextDecoder();
+  private carry = "";
+  private found: Usage | undefined;
+
+  push(chunk: Uint8Array): void {
+    this.carry += this.decoder.decode(chunk, { stream: true });
+    const lines = this.carry.split("\n");
+    // The tail is whatever came after the last newline: a partial frame, kept
+    // until the rest of it arrives.
+    this.carry = lines.pop() ?? "";
+    if (this.carry.length > MAX_CARRY_BYTES) {
+      // A body with no newline in it is not SSE, and holding it whole is the
+      // one way this scan could cost memory proportional to the reply.
+      this.carry = "";
+    }
+    for (const line of lines) {
+      this.consider(line);
+    }
+  }
+
+  /** The figure to record, after the last frame. The final line needs considering too: a stream may end without a trailing newline. */
+  done(): Usage | undefined {
+    this.consider(this.carry);
+    return this.found;
+  }
+
+  private consider(line: string): void {
+    if (!line.includes('"usage"')) {
+      return;
+    }
+    const payload = line.startsWith("data:") ? line.slice("data:".length).trim() : line.trim();
+    const usage = parseRecord(payload)?.usage;
+    if (isRecord(usage)) {
+      this.found = pickUsage(usage) ?? this.found;
+    }
+  }
+}
+
+/** Past this with no newline the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
+const MAX_CARRY_BYTES = 65_536;
 
 /** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
@@ -387,13 +463,24 @@ function finalizeTerminal(
     emit(opts, attempts, engine, upstreamUsed);
     return { status: result.status, body: result.body, bytes: result.bytes, engineUsed: engine };
   }
-  const stream = wrapStream(result.stream, (ok, streamFailure) => {
-    if (!ok) {
-      attempt.ok = false;
-      attempt.failure = streamFailure ?? "stream ended before completion";
-    }
-    emit(opts, attempts, engine, upstreamUsed);
-  });
+  const scanner = new StreamUsage();
+  const stream = wrapStream(
+    result.stream,
+    (ok, streamFailure) => {
+      if (!ok) {
+        attempt.ok = false;
+        attempt.failure = streamFailure ?? "stream ended before completion";
+      }
+      // After the last frame, which is where an upstream states the total --
+      // and still worth reading on a failed stream, since what was spent
+      // before it died was spent.
+      attempt.usage = scanner.done() ?? attempt.usage;
+      emit(opts, attempts, engine, upstreamUsed);
+    },
+    (chunk) => {
+      scanner.push(chunk);
+    },
+  );
   return { status: result.status, body: result.body, stream, engineUsed: engine };
 }
 
