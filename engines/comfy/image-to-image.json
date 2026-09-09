@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "The graph POST /openai/v1/images/edits renders. Same job as",
+    "text-to-image.json, with one difference that is the whole point: the",
+    "sampler starts from the caller's own image encoded into a latent",
+    "(LoadImage -> VAEEncode) instead of an empty one, and ${denoise} decides",
+    "how much of it survives. 1.0 would discard the input entirely, which is",
+    "the other graph.",
+    "",
+    "No ${width}/${height}: the input image's own dimensions are the output's.",
+    "Scaling it here would silently resize what a caller handed over, and a",
+    "caller who wants a different size can send a different image.",
+    "",
+    "${image} is a filename inside comfy's own input directory, which the door",
+    "put there by POSTing the upload to /upload/image first -- a container",
+    "reads only what was handed to it, so a path from the caller would name",
+    "nothing. Same substitution rules as the other graph: every ${name} is",
+    "replaced before submission, keeping its own type, and an unfilled one is",
+    "refused rather than sent."
+  ],
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": { "unet_name": "${unet}", "weight_dtype": "default" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": { "clip_name": "${clip}", "type": "${clip_type}" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "${vae}" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "${prompt}", "clip": ["2", 0] }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "${negative}", "clip": ["2", 0] }
+  },
+  "6": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "${image}" }
+  },
+  "7": {
+    "class_type": "VAEEncode",
+    "inputs": { "pixels": ["6", 0], "vae": ["3", 0] }
+  },
+  "8": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "latent_image": ["7", 0],
+      "seed": "${seed}",
+      "steps": "${steps}",
+      "cfg": "${cfg}",
+      "sampler_name": "${sampler}",
+      "scheduler": "${scheduler}",
+      "denoise": "${denoise}"
+    }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["8", 0], "vae": ["3", 0] }
+  },
+  "10": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["9", 0], "filename_prefix": "engined_edits" }
+  }
+}

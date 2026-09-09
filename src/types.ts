@@ -208,6 +208,7 @@ export const CONTENT_ENDPOINT_SPEECH = "/openai/v1/audio/speech";
 export const CONTENT_ENDPOINT_TRANSCRIPTIONS = "/openai/v1/audio/transcriptions";
 export const CONTENT_ENDPOINT_TRANSLATIONS = "/openai/v1/audio/translations";
 export const CONTENT_ENDPOINT_IMAGES = "/openai/v1/images/generations";
+export const CONTENT_ENDPOINT_IMAGE_EDITS = "/openai/v1/images/edits";
 export const CONTENT_ENDPOINT_RERANK = "/openai/v1/rerank";
 
 /**
@@ -542,6 +543,15 @@ export interface ContainerSpec extends SpecCommon {
    * checkpoint filenames vary by install, and those come from the route.
    */
   images_workflow?: string;
+  /**
+   * The graph `POST /openai/v1/images/edits` renders: the same job with the
+   * caller's own image encoded into the starting latent instead of an empty
+   * one. A separate file rather than a branch in the other, because the two
+   * differ in their wiring -- which is the half that fails silently -- and a
+   * graph with a dead LoadImage node in the text-to-image path would be one
+   * more thing to get wrong on every render that never uploads anything.
+   */
+  images_edit_workflow?: string;
   volumes: Volume[];
   artifacts: Artifact[];
   ready: ReadyProbe;

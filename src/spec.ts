@@ -62,6 +62,7 @@ const CONTAINER_KEYS: ReadonlySet<string> = new Set([
   ...COMMON_KEYS,
   ...CONTAINER_ONLY_KEYS,
   "images_workflow",
+  "images_edit_workflow",
 ]);
 const READY_KEYS: ReadonlySet<string> = new Set(["path", "status", "method", "accept"]);
 const ACCEPT_KEYS: ReadonlySet<string> = new Set(["min", "max"]);
@@ -280,6 +281,10 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
       raw.images_workflow === undefined
         ? undefined
         : requireString(raw.images_workflow, '"images_workflow"', file),
+    images_edit_workflow:
+      raw.images_edit_workflow === undefined
+        ? undefined
+        : requireString(raw.images_edit_workflow, '"images_edit_workflow"', file),
     volumes: parseVolumes(raw.volume, file),
     artifacts: parseArtifacts(raw.artifact, file),
     ready: parseReady(raw.ready, file),

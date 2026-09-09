@@ -30,6 +30,7 @@ import {
 } from "./http.ts";
 import { recordCall } from "./provenance.ts";
 import {
+  CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
   errMessage,
   isContainerSpec,
@@ -154,34 +155,44 @@ function checkpointArgs(route: ResolvedRoute): Record<string, unknown> | Respons
   return Object.fromEntries(required.map((key) => [key, route.args[key]]));
 }
 
-/** The prompt ids comfy answered, one per image asked for. */
+/**
+ * The values every graph takes, whichever verb is rendering. The two differ
+ * only in what they add: generations supplies the empty latent's dimensions,
+ * edits the uploaded filename and how much of it to keep.
+ */
+function commonValues(
+  request: { prompt: string; negative: string; seed: number },
+  checkpoints: Record<string, unknown>,
+  index: number,
+): Record<string, unknown> {
+  return {
+    ...checkpoints,
+    prompt: request.prompt,
+    negative: request.negative,
+    seed: request.seed + index,
+    steps: DEFAULT_STEPS,
+    cfg: DEFAULT_CFG,
+    sampler: DEFAULT_SAMPLER,
+    scheduler: DEFAULT_SCHEDULER,
+  };
+}
+
+/** The prompt ids comfy answered, one per image asked for. `values` is per image, because the seed walks. */
 async function submitAll(
   ctx: DoorContext,
   route: ResolvedRoute,
   base: string,
   httpClient: HttpClient,
   workflow: unknown,
-  request: ImageRequest,
-  checkpoints: Record<string, unknown>,
+  n: number,
+  values: (index: number) => Record<string, unknown>,
 ): Promise<string[] | Refusal> {
   const ids: string[] = [];
-  for (let index = 0; index < request.n; index++) {
+  for (let index = 0; index < n; index++) {
     // One prompt per image rather than a batch: the door submits one at a time
     // anyway, and a batch that fails half way answers with neither an image
     // nor a count a caller can act on.
-    const filled = fillWorkflow(workflow, {
-      ...checkpoints,
-      prompt: request.prompt,
-      negative: request.negative,
-      width: request.width,
-      height: request.height,
-      batch: 1,
-      seed: request.seed + index,
-      steps: DEFAULT_STEPS,
-      cfg: DEFAULT_CFG,
-      sampler: DEFAULT_SAMPLER,
-      scheduler: DEFAULT_SCHEDULER,
-    });
+    const filled = fillWorkflow(workflow, values(index));
     let promptId: string | undefined;
     const answered = await submitComfyPrompt(
       ctx,
@@ -280,45 +291,33 @@ async function collect(
 }
 
 /**
- * The verb. Leases the engine for the whole render, because a comfy engine
+ * One render, whichever verb asked for it: lease the engine, submit `n`
+ * prompts, wait for each, and write the one provenance line. A comfy engine
  * with no lease idle-stops out from under a job it is still running -- the
- * proxy never had this problem, since a consumer polling `/history` keeps
- * touching the door.
+ * mediated proxy never had this problem, since a consumer polling `/history`
+ * keeps touching the door.
+ *
+ * `plan` runs inside the lease and after the address is known, because an
+ * edit has to upload its image to that container before it can name it in a
+ * graph. It answers with the per-image values, or the refusal that ends the
+ * call.
  */
-export async function handleImageGeneration(
+async function renderWith(
   ctx: DoorContext,
-  body: Record<string, unknown>,
-  signal?: AbortSignal,
+  job: {
+    route: ResolvedRoute;
+    rawModel: string | undefined;
+    workflowPath: string;
+    n: number;
+    plan: (
+      base: string,
+      httpClient: HttpClient,
+    ) => Promise<((index: number) => Record<string, unknown>) | Refusal>;
+    signal?: AbortSignal;
+  },
 ): Promise<Response> {
-  const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_IMAGES, ctx.getConfig(), ctx.registry);
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
-  }
-  if (resolved.kind === "chain") {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      "an image request cannot name a chain: a second engine's render is a different image, not a retry of the first",
-    );
-  }
-  const request = parseImageRequest(body);
-  if (request instanceof Response) {
-    return request;
-  }
-  const { route } = resolved;
-  const checkpoints = checkpointArgs(route);
-  if (checkpoints instanceof Response) {
-    return checkpoints;
-  }
+  const { route, rawModel, workflowPath, n, plan, signal } = job;
   const entry = ctx.registry.entry(route.engine);
-  const spec = ctx.registry.specFor(route.engine);
-  if (spec === undefined || !isContainerSpec(spec) || spec.images_workflow === undefined) {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      `@/${route.engine} ships no "images_workflow", so it has no graph to render`,
-    );
-  }
-
   const startedAt = Date.now();
   let leased = false;
   /**
@@ -343,9 +342,13 @@ export async function handleImageGeneration(
     }
     const base = `http://${privateUrl}`;
     const httpClient = ctx.doorOpts.comfyHttpClient ?? fetch;
-    const workflow = JSON.parse(readFileSync(spec.images_workflow, "utf8")) as unknown;
+    const workflow = JSON.parse(readFileSync(workflowPath, "utf8")) as unknown;
 
-    const ids = await submitAll(ctx, route, base, httpClient, workflow, request, checkpoints);
+    const values = await plan(base, httpClient);
+    if (typeof values !== "function") {
+      return refuse(values);
+    }
+    const ids = await submitAll(ctx, route, base, httpClient, workflow, n, values);
     if (!Array.isArray(ids)) {
       return refuse(ids);
     }
@@ -397,4 +400,255 @@ export async function handleImageGeneration(
       ctx.doorOpts.write,
     );
   }
+}
+
+/** The route and checkpoints an image verb renders through, or the 400 that says why it cannot. */
+function imageRoute(
+  ctx: DoorContext,
+  rawModel: string | undefined,
+  endpoint: string,
+): { route: ResolvedRoute; checkpoints: Record<string, unknown> } | Response {
+  const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry);
+  if (!resolved.ok) {
+    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+  }
+  if (resolved.kind === "chain") {
+    return jsonError(
+      STATUS_BAD_REQUEST,
+      "an image request cannot name a chain: a second engine's render is a different image, not a retry of the first",
+    );
+  }
+  const checkpoints = checkpointArgs(resolved.route);
+  return checkpoints instanceof Response ? checkpoints : { route: resolved.route, checkpoints };
+}
+
+/** The graph this engine ships for one verb, or the 400 naming the spec key it has no value for. */
+function workflowPath(
+  ctx: DoorContext,
+  engineId: string,
+  key: "images_workflow" | "images_edit_workflow",
+): string | Response {
+  const spec = ctx.registry.specFor(engineId);
+  const path = spec !== undefined && isContainerSpec(spec) ? spec[key] : undefined;
+  return (
+    path ??
+    jsonError(STATUS_BAD_REQUEST, `@/${engineId} ships no "${key}", so it has no graph to render`)
+  );
+}
+
+export async function handleImageGeneration(
+  ctx: DoorContext,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const rawModel = typeof body.model === "string" ? body.model : undefined;
+  const target = imageRoute(ctx, rawModel, CONTENT_ENDPOINT_IMAGES);
+  if (target instanceof Response) {
+    return target;
+  }
+  const request = parseImageRequest(body);
+  if (request instanceof Response) {
+    return request;
+  }
+  const path = workflowPath(ctx, target.route.engine, "images_workflow");
+  if (path instanceof Response) {
+    return path;
+  }
+  return await renderWith(ctx, {
+    route: target.route,
+    rawModel,
+    workflowPath: path,
+    n: request.n,
+    plan: () =>
+      Promise.resolve((index: number) => ({
+        ...commonValues(request, target.checkpoints, index),
+        width: request.width,
+        height: request.height,
+        batch: 1,
+      })),
+    signal,
+  });
+}
+
+/**
+ * The default an img2img caller gets when they say nothing: enough of the
+ * sampler's own work to honour the prompt, enough of the input left to still
+ * be recognisably the image they sent.
+ */
+const DEFAULT_DENOISE = 0.75;
+
+/**
+ * An uploaded image is held in memory whole before it is forwarded, so an
+ * oversized one is refused rather than read. Generous for anything a
+ * diffusion model will accept as a starting point.
+ */
+const MAX_IMAGE_UPLOAD_BYTES = 33_554_432;
+
+interface EditRequest {
+  prompt: string;
+  negative: string;
+  n: number;
+  seed: number;
+  /** How much of the input the sampler discards: 1.0 would keep none of it, which is the other verb. */
+  denoise: number;
+  image: Blob;
+}
+
+/** One numeric multipart field, or the 400 naming it. A form field is a string, so the whole point is refusing what does not parse rather than letting `Number()` produce a NaN nothing checks. */
+function numberField(form: FormData, key: string): number | undefined | Response {
+  const raw = form.get(key);
+  if (raw === null) {
+    return undefined;
+  }
+  const value = typeof raw === "string" ? Number(raw) : Number.NaN;
+  return Number.isFinite(value)
+    ? value
+    : jsonError(STATUS_BAD_REQUEST, `"${key}" must be a number`);
+}
+
+/** The `image` part, or the 400 for a form that carries none, an empty one, or one too large to hold in memory. */
+function editImage(form: FormData): Blob | Response {
+  const image = form.get("image");
+  if (!(image instanceof Blob) || image.size === 0) {
+    return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required');
+  }
+  if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
+    return jsonError(
+      STATUS_BAD_REQUEST,
+      `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
+    );
+  }
+  return image;
+}
+
+/** The multipart fields the edits verb reads, or the 400 that says which one is wrong. */
+function parseEditRequest(form: FormData): EditRequest | Response {
+  const image = editImage(form);
+  if (image instanceof Response) {
+    return image;
+  }
+  const rawPrompt = form.get("prompt");
+  const prompt = typeof rawPrompt === "string" ? rawPrompt.trim() : "";
+  if (prompt === "") {
+    return jsonError(STATUS_BAD_REQUEST, '"prompt" is required and must be a non-empty string');
+  }
+  const n = numberField(form, "n");
+  if (n instanceof Response) {
+    return n;
+  }
+  if (n !== undefined && (!Number.isInteger(n) || n < 1 || n > MAX_N)) {
+    return jsonError(STATUS_BAD_REQUEST, `"n" must be a whole number from 1 to ${MAX_N}`);
+  }
+  const seed = numberField(form, "seed");
+  if (seed instanceof Response) {
+    return seed;
+  }
+  const denoise = numberField(form, "denoise");
+  if (denoise instanceof Response) {
+    return denoise;
+  }
+  // 0 would answer with the image it was handed, which is a request the door
+  // can satisfy without a GPU and a caller never means. 1.0 keeps none of the
+  // input, which is what /images/generations already is.
+  if (denoise !== undefined && (denoise <= 0 || denoise > 1)) {
+    return jsonError(STATUS_BAD_REQUEST, '"denoise" must be greater than 0 and at most 1');
+  }
+  const negative = form.get("negative_prompt");
+  return {
+    prompt,
+    negative: typeof negative === "string" ? negative : "",
+    n: n ?? 1,
+    seed: seed ?? Math.floor(Math.random() * SEED_MAX),
+    denoise: denoise ?? DEFAULT_DENOISE,
+    image,
+  };
+}
+
+/**
+ * Puts the caller's image inside the container's own input directory and
+ * answers with the name a `LoadImage` node can reach it by. A container reads
+ * only what was handed to it, so a path from the caller would name nothing --
+ * the upload is what makes the graph's `${image}` mean anything.
+ */
+async function uploadInputImage(
+  base: string,
+  httpClient: HttpClient,
+  image: Blob,
+): Promise<string | Refusal> {
+  const form = new FormData();
+  form.append("image", image, "engined_edit_input");
+  // Without this a second edit of the same name is stored beside the first as
+  // "engined_edit_input (1)", and the graph would load whichever the first
+  // upload left behind.
+  form.append("overwrite", "true");
+  const res = await httpClient(`${base}/upload/image`, { method: "POST", body: form });
+  const text = await res.text();
+  const record = res.ok ? parseRecord(text) : undefined;
+  const name = record?.name;
+  if (typeof name !== "string") {
+    return {
+      status: STATUS_BAD_GATEWAY,
+      error: `comfy would not accept the uploaded image: ${text.slice(0, 300)}`,
+    };
+  }
+  const subfolder = typeof record?.subfolder === "string" ? record.subfolder : "";
+  return subfolder === "" ? name : `${subfolder}/${name}`;
+}
+
+/**
+ * `POST /openai/v1/images/edits`: the same render with the caller's own image
+ * as the starting latent. Multipart rather than JSON, because the image is
+ * the request -- base64 in a JSON body would be a third of it again in
+ * transfer, held twice in memory to decode.
+ *
+ * No `size`: the input's own dimensions are the output's. Scaling here would
+ * silently resize what a caller handed over, and a caller who wants another
+ * size can send another image.
+ */
+export async function handleImageEdit(
+  ctx: DoorContext,
+  req: Request,
+  signal?: AbortSignal,
+): Promise<Response> {
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with an `image` part");
+  }
+  const rawModel = form.get("model");
+  const target = imageRoute(
+    ctx,
+    typeof rawModel === "string" ? rawModel : undefined,
+    CONTENT_ENDPOINT_IMAGE_EDITS,
+  );
+  if (target instanceof Response) {
+    return target;
+  }
+  const request = parseEditRequest(form);
+  if (request instanceof Response) {
+    return request;
+  }
+  const path = workflowPath(ctx, target.route.engine, "images_edit_workflow");
+  if (path instanceof Response) {
+    return path;
+  }
+  return await renderWith(ctx, {
+    route: target.route,
+    rawModel: typeof rawModel === "string" ? rawModel : undefined,
+    workflowPath: path,
+    n: request.n,
+    plan: async (base, httpClient) => {
+      const image = await uploadInputImage(base, httpClient, request.image);
+      if (typeof image !== "string") {
+        return image;
+      }
+      return (index: number) => ({
+        ...commonValues(request, target.checkpoints, index),
+        image,
+        denoise: request.denoise,
+      });
+    },
+    signal,
+  });
 }

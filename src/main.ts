@@ -59,7 +59,7 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
-import { handleImageGeneration } from "./images.ts";
+import { handleImageEdit, handleImageGeneration } from "./images.ts";
 import { LlamaRouter, reportedModelFrom } from "./llama.ts";
 import { hopForwardsTools, modelsMenu } from "./modelsMenu.ts";
 import { configPath, installDir, voicesDir } from "./paths.ts";
@@ -70,6 +70,7 @@ import {
   type AgenticSpec,
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
@@ -104,6 +105,7 @@ import { runVisionProbe } from "./visionProbe.ts";
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
@@ -1581,6 +1583,13 @@ async function handleContent(
 ): Promise<Response> {
   if (pathname === CONTENT_ENDPOINT_TRANSCRIPTIONS || pathname === CONTENT_ENDPOINT_TRANSLATIONS) {
     return handleAudioTranscription(ctx, req, pathname);
+  }
+  // Multipart like the audio verbs, and read before `readJsonBody` for the
+  // same reason: the image is the request, not a field inside a JSON body.
+  if (pathname === CONTENT_ENDPOINT_IMAGE_EDITS) {
+    // The signal ends a render nobody is waiting for: a diffusion job holds the
+    // GPU, and this door runs one at a time.
+    return handleImageEdit(ctx, req, req.signal);
   }
   const body = await readJsonBody(req);
   if (body instanceof Response) {

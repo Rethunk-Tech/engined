@@ -22,6 +22,7 @@ treated as a caller.
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/audio/translations` | POST | `stt`, and only a route declaring `translate` — same upload, rendered as English. See [Translations](#translations) |
 | `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed}` in, `{created, data:[{b64_json}]}` out — see [Images](#images) |
+| `/openai/v1/images/edits` | POST | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
@@ -459,7 +460,38 @@ naming it, never a bad render.
 
 **An image request cannot name a chain.** A second engine's render is a
 different image, not a retry of the first, so there is nothing a fallback could
-hand the caller that answers the request they made.
+hand the caller that answers the request they made. That holds for both verbs.
+
+### Editing an image
+
+`POST /openai/v1/images/edits` is the same render started from the caller's own
+image rather than an empty latent. Multipart, not JSON, because the image *is*
+the request — base64 inside a JSON body would be a third bigger on the wire and
+held twice in memory to decode.
+
+```sh
+curl -s localhost:29200/openai/v1/images/edits \
+  -F model=@/comfy/local -F image=@cube.png \
+  -F prompt='the same cube, but blue' -F denoise=0.6 \
+  | jq -r '.data[0].b64_json' | base64 -d > blue-cube.png
+```
+
+`prompt`, `n`, `negative_prompt` and `seed` mean what they do above.
+
+| Field | Meaning |
+| --- | --- |
+| `image` | required: the image to start from, at most 32 MiB |
+| `denoise` | how much of the input the sampler discards, greater than 0 and at most 1; default 0.75. At 1.0 nothing of the input survives, which is `/images/generations` |
+
+**No `size`.** The input's own dimensions are the output's — scaling here would
+silently resize what a caller handed over, and a caller who wants another size
+can send another image.
+
+The door uploads the image into the container's own input directory before
+submitting, because a container reads only what was handed to it: a path from
+the caller would name nothing. The graph is `images_edit_workflow` in the same
+spec, a separate file from the generation graph for the same reason the
+generation graph ships at all — the wiring is the half that fails silently.
 
 ## Comfy
 

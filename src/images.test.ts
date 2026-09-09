@@ -16,6 +16,7 @@ import {
   BUNX,
   buildExec,
   config,
+  ENGINES_ROOT,
   engine,
   makeTestRoot,
   route,
@@ -24,6 +25,7 @@ import {
 
 const TEST_ROOT = makeTestRoot("engined-images-");
 const IMAGES_PATH = "/openai/v1/images/generations";
+const EDITS_PATH = "/openai/v1/images/edits";
 const COMFY_CONTAINER_PORT = 8188;
 
 const COMFY_SPEC = `
@@ -31,9 +33,10 @@ kind = "comfy"
 upstream = "self"
 image = "engined/fakecomfy:local"
 obtain = "build"
-serves = ["/openai/v1/images/generations"]
+serves = ["/openai/v1/images/generations", "/openai/v1/images/edits"]
 command = []
 images_workflow = "{spec_dir}/text-to-image.json"
+images_edit_workflow = "{spec_dir}/image-to-image.json"
 
 [ready]
 path = "/queue"
@@ -63,6 +66,27 @@ const WORKFLOW = {
   "5": { class_type: "SaveImage", inputs: { images: ["4", 0], filename_prefix: "engined_images" } },
 };
 
+/** The edit graph's own shape: a loaded image encoded into the starting latent, and a denoise the sampler reads. */
+const EDIT_WORKFLOW = {
+  "1": { class_type: "UNETLoader", inputs: { unet_name: "${unet}" } },
+  "2": { class_type: "CLIPTextEncode", inputs: { text: "${prompt}", clip: ["1", 0] } },
+  "6": { class_type: "LoadImage", inputs: { image: "${image}" } },
+  "7": { class_type: "VAEEncode", inputs: { pixels: ["6", 0] } },
+  "8": {
+    class_type: "KSampler",
+    inputs: {
+      latent_image: ["7", 0],
+      seed: "${seed}",
+      steps: "${steps}",
+      cfg: "${cfg}",
+      sampler_name: "${sampler}",
+      scheduler: "${scheduler}",
+      denoise: "${denoise}",
+    },
+  },
+  "5": { class_type: "SaveImage", inputs: { images: ["8", 0], filename_prefix: "engined_edits" } },
+};
+
 const CHECKPOINTS = {
   unet: "Chroma1-HD.safetensors",
   clip: "t5xxl_fp16.safetensors",
@@ -83,6 +107,7 @@ async function imagesDoor(
   writeEngineSpec(root, "comfy", COMFY_SPEC);
   mkdirSync(join(root, "comfy"), { recursive: true });
   writeFileSync(join(root, "comfy", "text-to-image.json"), JSON.stringify(WORKFLOW));
+  writeFileSync(join(root, "comfy", "image-to-image.json"), JSON.stringify(EDIT_WORKFLOW));
   const cfg = config({
     engines: [engine({ id: "comfy", models_dir: "/data/comfy", idle_stop_seconds: 9999 })],
     routes: [route({ engine: "comfy", model: undefined, upstream: "local", args: routeArgs })],
@@ -105,9 +130,15 @@ async function imagesDoor(
 }
 
 /** A container that renders instantly: idle queue, one prompt id, a finished history, and a pixel for /view. */
-function rendersInstantly(submitted: string[] = []) {
+function rendersInstantly(submitted: string[] = [], uploads: FormData[] = []) {
   const client: HttpClient = (url, init) => {
     const target = String(url);
+    if (target.includes("/upload/image")) {
+      uploads.push(init?.body as FormData);
+      return Promise.resolve(
+        Response.json({ name: "engined_edit_input", subfolder: "", type: "input" }),
+      );
+    }
     if (target.includes("/queue") && init?.method !== "POST") {
       return Promise.resolve(Response.json({ queue_running: [], queue_pending: [] }));
     }
@@ -370,5 +401,148 @@ describe("collect asks before it gives up", () => {
 
     expect(res.status).toBe(200);
     expect(body.data[0]?.b64_json).toBe(Buffer.from(PIXEL).toString("base64"));
+  });
+});
+
+/** One multipart edit request; `fields` overrides or adds to the defaults. */
+function edit(
+  door: Awaited<ReturnType<typeof imagesDoor>>,
+  fields: Record<string, string | Blob> = {},
+  { omitImage = false } = {},
+) {
+  const form = new FormData();
+  if (!omitImage) {
+    form.append("image", new Blob([PIXEL], { type: "image/png" }), "in.png");
+  }
+  form.append("model", "@/comfy/local");
+  form.append("prompt", "make it blue");
+  for (const [key, value] of Object.entries(fields)) {
+    form.set(key, value);
+  }
+  return door.fetch(new Request(`http://engined${EDITS_PATH}`, { method: "POST", body: form }));
+}
+
+describe("POST /openai/v1/images/edits", () => {
+  test("uploads the image, names it in the graph, and answers in the OpenAI envelope", async () => {
+    const submitted: string[] = [];
+    const uploads: FormData[] = [];
+    const door = await imagesDoor(rendersInstantly(submitted, uploads));
+
+    const res = await edit(door, { seed: "7", denoise: "0.4" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ data: [{ b64_json: expect.any(String) }] });
+    // The caller's bytes went to the container's own input directory: a path
+    // from the caller would name nothing a LoadImage node can reach.
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]?.get("overwrite")).toBe("true");
+    const graph = JSON.parse(submitted[0] as string).prompt;
+    // The name comfy answered with, not the caller's filename.
+    expect(graph["6"].inputs.image).toBe("engined_edit_input");
+    expect(graph["8"].inputs.denoise).toBe(0.4);
+    expect(graph["8"].inputs.seed).toBe(7);
+    expect(graph["2"].inputs.text).toBe("make it blue");
+  });
+
+  // The graph is the whole difference between the two verbs, so rendering the
+  // text-to-image one here would silently ignore the image that was uploaded.
+  test("renders the edit graph, not the generation one", async () => {
+    const submitted: string[] = [];
+    const door = await imagesDoor(rendersInstantly(submitted, []));
+
+    await edit(door);
+
+    const graph = JSON.parse(submitted[0] as string).prompt;
+    expect(graph["6"].class_type).toBe("LoadImage");
+    expect(graph["3"]).toBeUndefined();
+  });
+
+  test("a form with no image part is refused before anything is started", async () => {
+    const submitted: string[] = [];
+    const door = await imagesDoor(rendersInstantly(submitted, []));
+
+    const res = await edit(door, {}, { omitImage: true });
+
+    expect(res.status).toBe(400);
+    expect(submitted).toHaveLength(0);
+  });
+
+  // 1.0 keeps none of the input, which is what /images/generations already is,
+  // and 0 answers with the image it was handed.
+  test.each(["0", "1.5", "-0.2"])("denoise %p is refused", async (denoise) => {
+    const door = await imagesDoor(rendersInstantly());
+
+    expect((await edit(door, { denoise })).status).toBe(400);
+  });
+
+  test("a non-numeric denoise is a 400, never a NaN sent to the sampler", async () => {
+    const submitted: string[] = [];
+    const door = await imagesDoor(rendersInstantly(submitted, []));
+
+    const res = await edit(door, { denoise: "quite a lot" });
+
+    expect(res.status).toBe(400);
+    expect(submitted).toHaveLength(0);
+  });
+
+  test("an unsupplied denoise takes the door's default rather than failing the fill", async () => {
+    const submitted: string[] = [];
+    const door = await imagesDoor(rendersInstantly(submitted, []));
+
+    await edit(door);
+
+    expect(JSON.parse(submitted[0] as string).prompt["8"].inputs.denoise).toBe(0.75);
+  });
+
+  test("an upload comfy refuses is a 502 naming it, and no prompt is submitted", async () => {
+    const submitted: string[] = [];
+    const client: HttpClient = (url, init) => {
+      const target = String(url);
+      if (target.includes("/upload/image")) {
+        return Promise.resolve(new Response("no space left", { status: 507 }));
+      }
+      return rendersInstantly(submitted, [])(url, init);
+    };
+    const door = await imagesDoor(client);
+
+    const res = await edit(door);
+
+    expect(res.status).toBe(502);
+    expect(await res.text()).toContain("no space left");
+    expect(submitted).toHaveLength(0);
+  });
+});
+
+/**
+ * The graphs that actually ship, against the values the door actually
+ * supplies. A placeholder the door does not fill throws in `fillWorkflow`,
+ * which without this is only discovered by a render on a real GPU -- and a
+ * graph edit is exactly the change most likely to introduce one.
+ */
+describe("the shipped comfy graphs", () => {
+  const SHARED = {
+    ...CHECKPOINTS,
+    prompt: "a red cube",
+    negative: "",
+    seed: 7,
+    steps: 20,
+    cfg: 4.0,
+    sampler: "euler",
+    scheduler: "simple",
+  };
+
+  test.each([
+    ["text-to-image.json", { ...SHARED, width: 1024, height: 1024, batch: 1 }],
+    ["image-to-image.json", { ...SHARED, image: "engined_edit_input", denoise: 0.75 }],
+  ])("%s parses and every placeholder in it is one the door supplies", (file, values) => {
+    const graph = JSON.parse(readFileSync(join(ENGINES_ROOT, "comfy", file), "utf8")) as unknown;
+    const filled = fillWorkflow(graph, values) as Record<string, unknown>;
+    expect(filled._comment).toBeUndefined();
+    // Every node kept its wiring: a filled graph comfy can act on, not an
+    // object that merely stopped throwing.
+    expect(Object.keys(filled).length).toBeGreaterThan(0);
+    for (const node of Object.values(filled)) {
+      expect(node).toHaveProperty("class_type");
+    }
   });
 });

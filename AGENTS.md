@@ -57,6 +57,16 @@ half -- that a route which does declare it comes back with English. Download
 `ggml-large-v3-turbo-q8_0.bin` (obtain line in `engines/whisper/spec.toml`) and
 send one non-English clip.
 
+**Unproven: an image edit through a real comfy.** `/openai/v1/images/edits`
+uploads, fills `engines/comfy/image-to-image.json` and collects, all asserted
+against an injected `comfyHttpClient` -- and the shipped graph is proven to
+parse with every placeholder the door supplies, which is the failure a graph
+edit actually causes. What no test can reach is whether the graph *renders*:
+`LoadImage -> VAEEncode -> KSampler` is wired from the generation graph's own
+shape, not from a run. Deliberately not attempted here -- comfy holds ~42 GiB
+and the operator asked that it not be started this session -- so the first
+real edit is the proof. Same standing guard as Comfy diffusion above.
+
 Shipped images are migrated from the fleet (gfx1151, ROCm/Vulkan, never CUDA),
 never invented.
 
