@@ -30,20 +30,18 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended",
+      "preset": "all",
       "correctness": {
-        "preset": "all",
         "noSolidDestructuredProps": "off",
         "useQwikValidLexicalScope": "off",
         // engined is a daemon: node:os, node:path and node:child_process are
         // the intended surface, not a browser-bundle mistake.
         "noNodejsModules": "off"
       },
-      "suspicious": { "preset": "all", "noReactSpecificProps": "off" },
-      "security": { "preset": "all" },
-      "a11y": { "preset": "all" },
+      "suspicious": {
+        "noReactSpecificProps": "off"
+      },
       "performance": {
-        "preset": "all",
         "useSolidForComponent": "off",
         "noJsxPropsBind": "off",
         // Measured 98% false-positive across the fleet: 131 of 134 sites were
@@ -54,6 +52,31 @@
         // previous one's output, and engine probes that would otherwise load
         // several models into one GPU concurrently.
         "noAwaitInLoops": "off"
+      },
+      "style": {
+        "noTernary": "off",
+        "noNestedTernary": "off",
+        "noMagicNumbers": "off",
+        "noJsxLiterals": "off",
+        "noContinue": "off",
+        "noIncrementDecrement": "off",
+        "useDestructuring": "off",
+        "useExportsLast": "off",
+        "useExplicitLengthCheck": "off",
+        "useErrorCause": "off",
+        "useNamingConvention": "off",
+        "useFilenamingConvention": "off",
+        "noProcessEnv": "off",
+        "noExcessiveLinesPerFile": {
+          "level": "on",
+          "options": {
+            "maxLines": 500
+          }
+        }
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off",
+        "noExcessiveLinesPerFunction": "off"
       },
       "nursery": {
         "noFloatingPromises": "error",
@@ -83,7 +106,7 @@
             "noUnresolvedImports": "off"
           },
           "security": { "noSecrets": "off" },
-          "performance": { "noAwaitInLoops": "off", "useTopLevelRegex": "off" },
+          "performance": { "useTopLevelRegex": "off" },
           "suspicious": {
             "noBitwiseOperators": "off",
             "noMisplacedAssertion": "off",
@@ -103,7 +126,7 @@
             "noUnresolvedImports": "off"
           },
           "security": { "noSecrets": "off" },
-          "performance": { "noAwaitInLoops": "off", "useTopLevelRegex": "off" },
+          "performance": { "useTopLevelRegex": "off" },
           "suspicious": { "noConsole": "off" }
         }
       }
