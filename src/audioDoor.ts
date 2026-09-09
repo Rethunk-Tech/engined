@@ -21,7 +21,8 @@ import {
 import { classifyResult, type HopExec, runChain, wrapStream } from "./chain.ts";
 import { resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
-import { DEFAULT_IDLE_STOP_SECONDS, EngineBusyError } from "./engines.ts";
+import { DEFAULT_IDLE_STOP_SECONDS } from "./engines.ts";
+import { EngineBusyError } from "./errors/engineBusy.ts";
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,

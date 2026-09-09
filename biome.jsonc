@@ -107,6 +107,13 @@
           },
           "security": { "noSecrets": "off" },
           "performance": { "useTopLevelRegex": "off" },
+          // A test file's length is the number of cases it covers for one unit,
+          // and its fakes are the doubles those cases drive -- neither is a
+          // second job the file has taken on.
+          "style": {
+            "noExcessiveLinesPerFile": "off",
+            "noExcessiveClassesPerFile": "off"
+          },
           "suspicious": {
             "noBitwiseOperators": "off",
             "noMisplacedAssertion": "off",

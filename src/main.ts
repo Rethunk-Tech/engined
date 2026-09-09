@@ -39,10 +39,11 @@ import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import {
   DEFAULT_IDLE_STOP_SECONDS,
   DEFAULT_READY_TIMEOUT_S,
-  EngineBusyError,
   EngineRegistry,
   type RegistryOptions,
 } from "./engines.ts";
+import { EngineBusyError } from "./errors/engineBusy.ts";
+import { FatalError } from "./errors/fatal.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { proxyExtras } from "./extras.ts";
 import {
@@ -83,7 +84,6 @@ import {
   type EngineEntry,
   type EngineKind,
   errMessage,
-  FatalError,
   isEgress,
   isRecord,
   MS_PER_SECOND,

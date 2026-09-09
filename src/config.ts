@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, sep as pathSep, resolve as resolvePath } from "node:path";
 import { chainHopRoutes, parseHop, routeForChainHop } from "./chain.ts";
+import { ParseError } from "./errors/parse.ts";
 import { configPath, dataHome, expandTilde, installDir } from "./paths.ts";
 import type {
   Config,
@@ -33,7 +34,6 @@ import {
   isEgress,
   isRecord,
   KIND_TRAITS,
-  ParseError,
   qualifiedSegments,
 } from "./types.ts";
 

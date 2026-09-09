@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DockerLifecycle } from "./docker.ts";
+import { ParseError } from "./errors/parse.ts";
 import {
   CONTENT_TYPE,
   discardBody,
@@ -29,7 +30,6 @@ import {
   isContainerSpec,
   isRecord,
   MS_PER_SECOND,
-  ParseError,
   parseRecord,
   pollUntil,
   type RunnableContainerSpec,

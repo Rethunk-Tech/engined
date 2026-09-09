@@ -10,8 +10,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { FatalError } from "./errors/fatal.ts";
 import { makeTestRoot } from "./test-support.ts";
-import { FatalError } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-startup-test-");
 const RX_RESTART_PREVENT_EXIT_STATUS = /^RestartPreventExitStatus=(\d+)$/m;

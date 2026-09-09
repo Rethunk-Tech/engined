@@ -6,6 +6,7 @@
  * each other's implementations.
  */
 
+import { ParseError } from "./errors/parse.ts";
 import { STATUS_NOT_FOUND } from "./http.ts";
 
 /** Occupancy is one resident GGUF per role, so the set is closed. */
@@ -800,24 +801,6 @@ export interface StartResponse {
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
 export const CONTRACT = 6;
-
-/**
- * Anything a restart cannot fix. The unit carries
- * `RestartPreventExitStatus=78`, so throwing this is what stops the loop.
- */
-export class FatalError extends Error {
-  static readonly EXIT_CODE = 78;
-}
-
-/** A fatal parse failure that can name the file and site that caused it. */
-export class ParseError extends FatalError {
-  readonly file: string;
-
-  constructor(message: string, file: string, options?: ErrorOptions) {
-    super(`${file}: ${message}`, options);
-    this.file = file;
-  }
-}
 
 /**
  * Prepended by engined in code on every agentic launch and removable by no

@@ -12,6 +12,8 @@ import { mintLaunchNonce, type ObservedVersion, observeAgentVersion } from "./ag
 import { type AgentTarget, agentCli } from "./agents.ts";
 import { buildComfySpec } from "./comfy.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
+import { EngineBusyError } from "./errors/engineBusy.ts";
+import { FatalError } from "./errors/fatal.ts";
 import type { Exec } from "./exec.ts";
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_OK } from "./http.ts";
 import { buildLlamaSpec, renderPresetIni } from "./llama.ts";
@@ -34,7 +36,6 @@ import {
   type EngineStatus,
   type EnginesResponse,
   errMessage,
-  FatalError,
   isContainerSpec,
   KIND_TRAITS,
   type LoadedSpec,
@@ -54,14 +55,6 @@ declare const ENGINED_COMMIT: string | undefined;
 /** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
 export const DEFAULT_IDLE_STOP_SECONDS = 900;
 export const DEFAULT_READY_TIMEOUT_S = 60;
-
-/**
- * Thrown by `EngineRegistry.start` when a model switch would kill requests
- * mid-flight: a warm is an optimization, and stopping a container to satisfy
- * one is strictly worse than warming late. A distinct class rather than a
- * plain `Error` so a caller can map it to 409 without parsing a message.
- */
-export class EngineBusyError extends Error {}
 
 /**
  * Comfy is the one engine whose idleness engined cannot observe, because it

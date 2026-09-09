@@ -7,11 +7,12 @@ import type { AgentTarget } from "./agents.ts";
 import { buildRunArgs, DockerLifecycle, type Probe, type RuntimeStatus } from "./docker.ts";
 import {
   type AgenticProbeRunner,
-  EngineBusyError,
   EngineRegistry,
   type QueueSnapshot,
   type RegistryOptions,
 } from "./engines.ts";
+import { EngineBusyError } from "./errors/engineBusy.ts";
+import { FatalError } from "./errors/fatal.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
 import { loadSpec } from "./spec.ts";
@@ -32,7 +33,6 @@ import {
   type Config,
   type EngineEntry,
   type EngineStatus,
-  FatalError,
   isContainerSpec,
   type RunnableContainerSpec,
 } from "./types.ts";

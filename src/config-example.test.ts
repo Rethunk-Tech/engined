@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { EngineRegistry } from "./engines.ts";
+import { FatalError } from "./errors/fatal.ts";
 import { BUNX, ENGINES_ROOT, makeTestRoot } from "./test-support.ts";
-import { type Config, FatalError } from "./types.ts";
+import type { Config } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-example-");
 

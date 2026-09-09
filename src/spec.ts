@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_IDS, agentCli } from "./agents.ts";
 import { asArray, assertKnownKeys, optional, requireString } from "./config.ts";
+import { ParseError } from "./errors/parse.ts";
 import { stateDir } from "./paths.ts";
 import {
   type AgenticSpec,
@@ -21,7 +22,6 @@ import {
   isRecord,
   KIND_TRAITS,
   type LoadedSpec,
-  ParseError,
   type ReadyProbe,
   type Spec,
   type UpstreamTrait,
