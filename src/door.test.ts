@@ -10,14 +10,9 @@ import { DockerLifecycle, NAME_PREFIX, type Probe } from "./docker.ts";
 import type { DoorOptions } from "./doorContext.ts";
 import type { AgenticProbeRunner } from "./engines.ts";
 import type { Exec, ExecResult } from "./exec.ts";
+import { timeoutSecondsForKind } from "./hop.ts";
 import type { HttpClient } from "./http.ts";
-import {
-  bindDualFamily,
-  createDoor,
-  type Door,
-  resolveBunx,
-  timeoutSecondsForKind,
-} from "./main.ts";
+import { bindDualFamily, createDoor, type Door, resolveBunx } from "./main.ts";
 import {
   assertReportedAndResident,
   BUNX,
