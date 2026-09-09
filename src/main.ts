@@ -1709,11 +1709,11 @@ function routeGet(
   if (pathname === "/engined/v1/engines/events") {
     return handleEngineEvents(ctx, signal);
   }
-  const logsMatch = LOGS_RE.exec(pathname)?.[1];
+  const logsMatch = pathname.match(LOGS_RE)?.[1];
   if (logsMatch !== undefined) {
     return handleLogs(ctx.registry, logsMatch, url);
   }
-  const resourcesMatch = RESOURCES_RE.exec(pathname)?.[1];
+  const resourcesMatch = pathname.match(RESOURCES_RE)?.[1];
   if (resourcesMatch !== undefined) {
     return handleResources(ctx.registry, resourcesMatch);
   }
@@ -1728,19 +1728,19 @@ function routePost(
   if (pathname === START_PATH) {
     return handleStart(ctx, req);
   }
-  const stopMatch = STOP_RE.exec(pathname)?.[1];
+  const stopMatch = pathname.match(STOP_RE)?.[1];
   if (stopMatch !== undefined) {
     return handleStop(ctx.registry, stopMatch);
   }
-  const releaseMatch = RELEASE_RE.exec(pathname)?.[1];
+  const releaseMatch = pathname.match(RELEASE_RE)?.[1];
   if (releaseMatch !== undefined) {
     return handleRelease(ctx.registry, releaseMatch);
   }
-  const holdMatch = HOLD_RE.exec(pathname)?.[1];
+  const holdMatch = pathname.match(HOLD_RE)?.[1];
   if (holdMatch !== undefined) {
     return handleHold(ctx.registry, holdMatch, new URL(req.url));
   }
-  const unholdMatch = UNHOLD_RE.exec(pathname)?.[1];
+  const unholdMatch = pathname.match(UNHOLD_RE)?.[1];
   if (unholdMatch !== undefined) {
     return handleUnhold(ctx.registry, unholdMatch);
   }
@@ -1750,7 +1750,7 @@ function routePost(
   if (CONTENT_ENDPOINTS.has(pathname)) {
     return handleContent(ctx, req, pathname, launchScoped);
   }
-  const extras = EXTRAS_RE.exec(pathname);
+  const extras = pathname.match(EXTRAS_RE);
   if (extras?.[1] !== undefined && extras[2] !== undefined) {
     return handleExtras(ctx, req, extras[1], extras[2]);
   }

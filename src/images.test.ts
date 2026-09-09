@@ -180,7 +180,9 @@ describe("the graph is filled, not templated", () => {
       cfg: 4.0,
       sampler: "euler",
       scheduler: "simple",
-    }) as Record<string, { inputs: Record<string, unknown> }>;
+      // A node id that is absent is `undefined`, not a node: these graphs are
+      // parsed data, so every lookup below is a lookup that can miss.
+    }) as Record<string, { inputs: Record<string, unknown> } | undefined>;
 
     // A number substituted into JSON as a string is the whole reason this
     // walks the parsed object instead of the text: comfy rejects "512".
@@ -217,7 +219,7 @@ describe("POST /openai/v1/images/generations", () => {
     // The prompt reached the container inside comfy's own envelope, with the
     // caller's text and size in it.
     const sent = JSON.parse(submitted[0] as string) as {
-      prompt: Record<string, { inputs: Record<string, unknown> }>;
+      prompt: Record<string, { inputs: Record<string, unknown> } | undefined>;
     };
     expect(sent.prompt["2"]?.inputs.text).toBe("a red cube");
     expect(sent.prompt["3"]?.inputs.width).toBe(512);
@@ -236,7 +238,8 @@ describe("POST /openai/v1/images/generations", () => {
     // images.
     const seeds = submitted.map(
       (s) =>
-        (JSON.parse(s) as { prompt: Record<string, { inputs: { seed?: number } }> }).prompt["4"]
+        (JSON.parse(s) as { prompt: Record<string, { inputs: { seed?: number } } | undefined> })
+          .prompt["4"]
           ?.inputs.seed,
     );
     expect(new Set(seeds).size).toBe(3);
