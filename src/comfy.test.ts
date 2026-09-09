@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildComfySpec } from "./comfy.ts";
-import { buildRunArgs } from "./docker.ts";
+import { buildRunArgs } from "./dockerArgs.ts";
 import { BUNX, engine as baseEngine, ENGINES_ROOT } from "./test-support.ts";
 import { type EngineEntry, isContainerSpec } from "./types.ts";
 

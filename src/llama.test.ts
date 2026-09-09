@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Probe } from "./docker.ts";
-import { buildRunArgs, DockerLifecycle } from "./docker.ts";
+import { DockerLifecycle } from "./docker.ts";
+import { buildRunArgs } from "./dockerArgs.ts";
 import type { Exec } from "./exec.ts";
 import type { HttpClient } from "./http.ts";
 import {

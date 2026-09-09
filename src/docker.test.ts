@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { DockerLifecycle, type Probe } from "./docker.ts";
 import {
   buildRunArgs,
-  DockerLifecycle,
   hostPathFor,
-  type Probe,
   parseExposedPort,
   parseHostPort,
   specDigest,
-} from "./docker.ts";
+} from "./dockerArgs.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { buildExec, containerRunning, makeTestRoot } from "./test-support.ts";
 import type { RunnableContainerSpec, Volume } from "./types.ts";
