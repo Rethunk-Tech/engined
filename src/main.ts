@@ -9,7 +9,6 @@
 import { mkdirSync } from "node:fs";
 import process from "node:process";
 import { buildAgenticProbeRunner } from "./agentic.ts";
-import { handleVoiceUpload, VOICE_UPLOAD_PATH } from "./audioDoor.ts";
 import {
   COMFY_WS_SUFFIX,
   type ComfyWsData,
@@ -53,6 +52,7 @@ import {
   type Config,
   errMessage,
 } from "./types.ts";
+import { handleVoiceUpload, VOICE_UPLOAD_PATH } from "./voices.ts";
 
 const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_CHAT,

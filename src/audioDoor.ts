@@ -5,19 +5,9 @@
  * line the call is entitled to.
  */
 
-import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import process from "node:process";
-import type {
-  AnyTranscriptionRequestBody,
-  DoorResponse,
-  EngineStart,
-  SpeechRequestBody,
-} from "./audio.ts";
+import type { DoorResponse, EngineStart, SpeechRequestBody } from "./audio.ts";
 import { SPEECH_DOOR_KEYS } from "./audio.ts";
 import { handleSpeech } from "./audioSpeech.ts";
-import { handleTranscription } from "./audioTranscribe.ts";
 import { classifyResult, type HopExec, runChain, wrapStream } from "./chain.ts";
 import { resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
@@ -30,24 +20,20 @@ import {
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  STATUS_PAYLOAD_TOO_LARGE,
   TEXT_CONTENT_TYPE,
 } from "./http.ts";
-import { voicesDir } from "./paths.ts";
 import { recordCall } from "./provenance.ts";
 import {
   CONTENT_ENDPOINT_SPEECH,
-  CONTENT_ENDPOINT_TRANSCRIPTIONS,
-  CONTENT_ENDPOINT_TRANSLATIONS,
   type Config,
   type Egress,
-  errMessage,
   MS_PER_SECOND,
   qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
 } from "./types.ts";
 import { resolveUpstream } from "./upstream.ts";
+import { resolveVoice } from "./voices.ts";
 
 interface AudioCallInfo {
   engineId: string;
@@ -141,7 +127,7 @@ function doorResponseToResponse(result: DoorResponse): Response {
 }
 
 /** Whether this call's `audioStart` actually took a lease -- the only thing entitled to give one back. */
-interface AudioLease {
+export interface AudioLease {
   held: boolean;
 }
 
@@ -200,7 +186,11 @@ function endAudioLease(
  * `endAudioLease` wraps the stream `recordAudioCall` already wrapped, so the
  * countdown is armed after the line is written rather than racing it.
  */
-function finishAudioCall(ctx: DoorContext, leased: AudioLease, info: AudioCallInfo): Response {
+export function finishAudioCall(
+  ctx: DoorContext,
+  leased: AudioLease,
+  info: AudioCallInfo,
+): Response {
   return doorResponseToResponse(
     endAudioLease(ctx, info.engineId, leased, recordAudioCall(ctx, info)),
   );
@@ -211,7 +201,7 @@ function finishAudioCall(ctx: DoorContext, leased: AudioLease, info: AudioCallIn
  * the single-address path once; each supplies the engine and model the hop
  * resolved to, so nothing below has to know which of the two it is serving.
  */
-type AudioAttempt = (
+export type AudioAttempt = (
   engineId: string,
   model: string | undefined,
   start: EngineStart,
@@ -295,7 +285,7 @@ interface AudioChain {
  * not recognise is forwarded to the engine as a wire parameter, so claiming
  * the name here would change what an engine receives.
  */
-async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Response> {
+export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Response> {
   let contentType = JSON_CONTENT_TYPE;
   const config = ctx.getConfig();
   const result = await runChain([...opts.hops], {
@@ -333,7 +323,7 @@ async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Respon
  * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
  * "scribe_v1".
  */
-function singleAudioRoute(route: ResolvedRoute): {
+export function singleAudioRoute(route: ResolvedRoute): {
   engineId: string;
   model?: string;
   upstream?: string;
@@ -382,7 +372,7 @@ async function remoteAudioStart(
  * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
  * they already turn `unavailable` into a 503.
  */
-function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
+export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id);
     const route = audioRoute(ctx.getConfig(), id, model);
@@ -413,147 +403,6 @@ function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
     leased.held = status.active_leases !== undefined;
     return { private_url: status.private_url };
   };
-}
-
-/**
- * `POST /engined/v1/audio/voices`: a multipart upload of one reference
- * recording, answered with the handle a later `/audio/speech` call names as
- * its `voice`.
- *
- * A voice clone needs the engine to READ an audio file, and a TTS container
- * sees only what the door mounted into it. Sending the path instead would
- * mean the caller naming a host file -- unreachable from anywhere but this
- * box, and a directory traversal the moment the caller is not trusted. So
- * the door takes the bytes, chooses the name, and is the only party that
- * ever knows the path.
- */
-export const VOICE_UPLOAD_PATH = "/engined/v1/audio/voices";
-
-/** Where each `engines/chatterbox-*` spec.toml mounts `{state_dir}/voices`. The two are one pair; changing either alone breaks every clone. */
-const VOICE_CONTAINER_DIR = "/voices";
-
-/** Marks a `voice` field as a handle this door issued rather than a path baked into an engine image, which still passes through untouched. */
-const VOICE_HANDLE_PREFIX = "vc_";
-
-/**
- * The whole handle, and the only string ever joined onto `voicesDir()`: 16
- * random bytes plus a short suffix, so no caller-supplied character reaches
- * a path and no handle is guessable.
- */
-const VOICE_HANDLE_RE = /^vc_[0-9a-f]{32}\.[a-z0-9]{1,4}$/;
-
-/** 128 bits: the handle is the only thing standing between one caller's uploads and another's, so it is guessed, not enumerated. */
-const VOICE_ID_BYTES = 16;
-
-/**
- * A reference voice is a few seconds of speech -- chatterbox conditions on
- * the first several and ignores the rest -- so this is orders of magnitude
- * above what any real reference needs, and still far below the 256 MB a
- * transcription upload is allowed to be. It bounds one file; VOICE_KEEP
- * bounds the store.
- */
-const MAX_VOICE_BYTES = 16_777_216;
-
-/**
- * How many uploads the store keeps. A count, like the comfy binding table's
- * own bound and for the same reason: an age cutoff would delete the caller's
- * favourite reference precisely because it has worked for months. Eviction is
- * least-recently-USED (every successful synthesis touches the file), so what
- * falls off the end is what nothing has spoken with. 64 x MAX_VOICE_BYTES is
- * the worst case at 1 GiB; a real store of 10-second clips is a few MB.
- */
-const VOICE_KEEP = 64;
-
-/** The suffix `voiceSuffix` will accept from an upload, and the same shape `VOICE_HANDLE_RE` will later match back. */
-const VOICE_SUFFIX_RE = /^[a-z0-9]{1,4}$/;
-
-/** The suffix is cosmetic -- the engine's loader sniffs content -- but a wrong-looking one invites a bug report, so a plain one from the upload is kept and anything else becomes `wav`. */
-function voiceSuffix(name: string): string {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  return VOICE_SUFFIX_RE.test(ext) && ext !== name ? ext : "wav";
-}
-
-/**
- * Trims the store to VOICE_KEEP, oldest use first. Failure is reported and
- * swallowed: the upload it follows has already succeeded, and refusing it
- * afterwards would lose the caller's file to a disk problem that has nothing
- * to do with them.
- */
-function evictVoices(): void {
-  try {
-    const dir = voicesDir();
-    const files = readdirSync(dir)
-      .map((name) => ({ name, used: statSync(join(dir, name)).mtimeMs }))
-      .sort((a, b) => a.used - b.used);
-    for (const { name } of files.slice(0, Math.max(0, files.length - VOICE_KEEP))) {
-      rmSync(join(dir, name));
-    }
-  } catch (err) {
-    process.stderr.write(`voice store not trimmed: ${errMessage(err)}\n`);
-  }
-}
-
-export async function handleVoiceUpload(req: Request): Promise<Response> {
-  const declared = Number(req.headers.get("content-length") ?? Number.NaN);
-  if (Number.isFinite(declared) && declared > MAX_VOICE_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `reference voice is ${declared} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    );
-  }
-  let file: FormDataEntryValue | null = null;
-  try {
-    file = (await req.formData()).get("file");
-  } catch {
-    // Not multipart at all, which the same message covers as a missing part.
-  }
-  if (!(file instanceof Blob)) {
-    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength === 0) {
-    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
-  }
-  if (bytes.byteLength > MAX_VOICE_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `reference voice is ${bytes.byteLength} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    );
-  }
-  const name = file instanceof File ? file.name : "";
-  const voice = `${VOICE_HANDLE_PREFIX}${randomBytes(VOICE_ID_BYTES).toString("hex")}.${voiceSuffix(name)}`;
-  mkdirSync(voicesDir(), { recursive: true });
-  writeFileSync(join(voicesDir(), voice), bytes);
-  evictVoices();
-  return Response.json({ voice, bytes: bytes.byteLength });
-}
-
-/**
- * Turns a `voice` field into what the engine will actually be handed. A
- * handle is bound at upload and checked here -- the door reads its own
- * directory rather than trusting the string -- and anything else passes
- * through untouched, which is how a voice name or a path baked into an
- * engine image keeps working. `utimesSync` is what makes VOICE_KEEP's
- * eviction least-recently-used rather than oldest-first.
- */
-function resolveVoice(voice: string | undefined): string | undefined | Response {
-  if (voice === undefined || !voice.startsWith(VOICE_HANDLE_PREFIX)) {
-    return voice;
-  }
-  if (!VOICE_HANDLE_RE.test(voice)) {
-    return jsonError(STATUS_BAD_REQUEST, `"${voice}" is not a voice handle this door issued`);
-  }
-  const path = join(voicesDir(), voice);
-  try {
-    const now = new Date();
-    utimesSync(path, now, now);
-  } catch {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      `voice "${voice}" is not held by this door -- upload it again`,
-    );
-  }
-  return `${VOICE_CONTAINER_DIR}/${voice}`;
 }
 
 export async function handleAudioSpeech(
@@ -608,230 +457,6 @@ export async function handleAudioSpeech(
     engineId,
     upstream,
     requested: rawModel ?? "",
-    result,
-    startedAt,
-  });
-}
-
-interface TranscriptionForm {
-  rawModel: string | null;
-  /** A stream when the recording is still being made; the bytes of one that is not. */
-  file: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>;
-  language: string | undefined;
-  responseFormat: string | undefined;
-  prompt: string | undefined;
-  stream: boolean;
-  /** Set by the translations verb alone; the transcriptions verb never sets it, whatever the caller sends. */
-  translate?: boolean;
-}
-
-/**
- * The live shape of the same verb: `?stream=true` with the recording as the
- * request body, and the fields a form would have carried in the query string.
- *
- * Not multipart, because multipart is a buffering point -- a part is only
- * readable once the boundary after it has arrived, so a form cannot deliver
- * audio that is still being spoken. `undefined` for every other request, which
- * leaves the multipart verb exactly as it was.
- */
-function liveTranscription(req: Request): TranscriptionForm | undefined {
-  const query = new URL(req.url).searchParams;
-  // A multipart body is a form however the query is spelled: reading its parts
-  // as raw audio would send whisper the boundaries too.
-  if (
-    query.get("stream") !== "true" ||
-    req.body === null ||
-    (req.headers.get(CONTENT_TYPE) ?? "").startsWith("multipart/")
-  ) {
-    return undefined;
-  }
-  return {
-    rawModel: query.get("model"),
-    file: req.body,
-    language: query.get("language") ?? undefined,
-    responseFormat: query.get("response_format") ?? undefined,
-    prompt: query.get("prompt") ?? undefined,
-    stream: true,
-  };
-}
-
-/** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
-async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm | undefined> {
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return undefined;
-  }
-  const rawModel = form.get("model");
-  const file = form.get("file");
-  const language = form.get("language");
-  const responseFormat = form.get("response_format");
-  const prompt = form.get("prompt");
-  const stream = form.get("stream");
-  return {
-    rawModel: typeof rawModel === "string" ? rawModel : null,
-    file: file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0),
-    language: typeof language === "string" ? language : undefined,
-    responseFormat: typeof responseFormat === "string" ? responseFormat : undefined,
-    prompt: typeof prompt === "string" ? prompt : undefined,
-    // A multipart field is a string, so the flag arrives spelled out. Only the
-    // one spelling counts: treating every non-empty value as true would make
-    // `stream=false` stream.
-    stream: stream === "true",
-  };
-}
-
-/**
- * A multipart upload is read into memory whole, so a request larger than this
- * is refused before it is read rather than after. Generous enough for any
- * recording a caller has reason to transcribe in one request; a longer one
- * belongs in segments, which is what every consumer already sends.
- *
- * A live body declares no length and is never held here, so the same ceiling
- * is the engine wrapper's to enforce as the audio arrives.
- */
-const MAX_AUDIO_UPLOAD_BYTES = 268_435_456;
-
-/** One wording for the ceiling, so the declared length and what actually arrived cannot drift apart. */
-function tooLarge(bytes: number): Response {
-  return jsonError(
-    STATUS_PAYLOAD_TOO_LARGE,
-    `upload is ${bytes} bytes; the limit is ${MAX_AUDIO_UPLOAD_BYTES}`,
-  );
-}
-
-/**
- * Whether this upload is refused before anything is dispatched. The ceiling is
- * checked twice against the same limit: once on the declared length, so an
- * oversized body is turned away before it is read, and again on what actually
- * arrived, because a multipart form need not declare one. A live body is
- * neither -- it declares no length and is never held here, so the engine
- * wrapper enforces the ceiling as the audio arrives.
- */
-function uploadRefusal(file: TranscriptionForm["file"]): Response | undefined {
-  if (file instanceof ReadableStream) {
-    return undefined;
-  }
-  // Zero bytes reaches whisper as a valid-looking empty upload and comes back
-  // as an empty transcript, which reads like silence rather than a bad request.
-  if (file.byteLength === 0) {
-    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
-  }
-  return file.byteLength > MAX_AUDIO_UPLOAD_BYTES ? tooLarge(file.byteLength) : undefined;
-}
-
-/**
- * This upload aimed at one engine. A live body is always `stream: true` -- there
- * is no buffered reading of a recording still being made -- while a multipart
- * one streams only if the caller asked for segments as they are decoded.
- */
-function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
-  return (hopEngine, hopModel, start) => {
-    const common = {
-      engine: hopEngine,
-      model: hopModel,
-      language: form.language,
-      response_format: form.responseFormat,
-      prompt: form.prompt,
-      translate: form.translate,
-    };
-    const transcriptionReq: AnyTranscriptionRequestBody =
-      form.file instanceof ReadableStream
-        ? { ...common, file: form.file, stream: true }
-        : { ...common, file: form.file, stream: form.stream };
-    return handleTranscription(transcriptionReq, start);
-  };
-}
-
-/**
- * `/openai/v1/audio/transcriptions` and `/openai/v1/audio/translations` are
- * one verb over one upload; the difference is a single field whisper-server
- * reads per request. So they share this handler, and `endpoint` is what
- * decides which routes may answer -- only a route declaring `translate` serves
- * the translations path (`routeServes`), so an English-only model is refused
- * by address rather than answering with an untranslated transcript.
- */
-/**
- * The upload and its per-request fields, or the 400 that ends the request
- * before anything is resolved or started. Split out of the handler because
- * every refusal here is about the body alone -- nothing it decides needs the
- * config, the registry, or which route will answer.
- */
-async function readAudioUpload(
-  req: Request,
-  translating: boolean,
-): Promise<TranscriptionForm | Response> {
-  const declared = Number(req.headers.get("content-length") ?? Number.NaN);
-  if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
-    return tooLarge(declared);
-  }
-  const parsed = liveTranscription(req) ?? (await parseTranscriptionForm(req));
-  if (parsed === undefined) {
-    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
-  }
-  // The wrapper's streaming route carries language and prompt and nothing
-  // else, so a streamed translation would arrive as a plain transcription.
-  if (translating && parsed.stream) {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      "a translation cannot be streamed; send it as a buffered request",
-    );
-  }
-  return uploadRefusal(parsed.file) ?? (translating ? { ...parsed, translate: true } : parsed);
-}
-
-export async function handleAudioTranscription(
-  ctx: DoorContext,
-  req: Request,
-  endpoint: string = CONTENT_ENDPOINT_TRANSCRIPTIONS,
-): Promise<Response> {
-  const form = await readAudioUpload(req, endpoint === CONTENT_ENDPOINT_TRANSLATIONS);
-  if (form instanceof Response) {
-    return form;
-  }
-  const resolved = resolveModel(
-    form.rawModel ?? undefined,
-    endpoint,
-    ctx.getConfig(),
-    ctx.registry,
-  );
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
-  }
-  const live = form.file instanceof ReadableStream;
-  if (resolved.kind === "chain" && live) {
-    // The upload is the request, and it is consumed by the hop that reads it.
-    // A second hop would be handed a body already drained -- it would transcribe
-    // silence and report success, which is worse than refusing here. The
-    // buffered form of this verb chains, because its bytes can be sent twice.
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      "a recording streamed as the request body cannot be replayed on a second hop; send it as a multipart upload to use a chain",
-    );
-  }
-  const attempt = transcriptionAttempt(form);
-
-  if (resolved.kind === "chain") {
-    return runAudioChain(ctx, {
-      chain: resolved.chain,
-      hops: resolved.hops,
-      requested: form.rawModel ?? "",
-      endpoint,
-      attempt,
-      signal: req.signal,
-    });
-  }
-
-  const { engineId, model, upstream } = singleAudioRoute(resolved.route);
-  const leased: AudioLease = { held: false };
-  const startedAt = Date.now();
-  const result = await attempt(engineId, model, audioStart(ctx, leased));
-  return finishAudioCall(ctx, leased, {
-    engineId,
-    model,
-    upstream,
-    requested: form.rawModel ?? "",
     result,
     startedAt,
   });

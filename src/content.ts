@@ -4,7 +4,8 @@
  * on. Each resolves an address to a chain of hops and hands them to `runChain`.
  */
 
-import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
+import { handleAudioSpeech } from "./audioDoor.ts";
+import { handleAudioTranscription } from "./audioDoorTranscribe.ts";
 import { parseHop, runChain } from "./chain.ts";
 import { routeAddress } from "./control.ts";
 import { type Dispatch, resolveModel } from "./dispatch.ts";
