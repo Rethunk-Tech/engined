@@ -111,7 +111,7 @@
     {
       "includes": [
         "**/scripts/**",
-        "**/tools/**",
+        "tools/**",
         "**/*.config.ts",
         "**/*.config.mjs",
         "**/*.config.js"
