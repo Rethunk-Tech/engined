@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import type { AgenticProbeRunner } from "./agenticProbe.ts";
 import { type HopExec, parseHop, type RunChainOptions, runChain } from "./chain.ts";
-import type { AgenticProbeRunner } from "./engines.ts";
 import { createDoor } from "./main.ts";
 import {
   BUNX,

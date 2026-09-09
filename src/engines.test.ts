@@ -3,14 +3,10 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import type { ObservedVersion } from "./agentic.ts";
+import type { AgenticProbeRunner } from "./agenticProbe.ts";
 import type { AgentTarget } from "./agents.ts";
 import { buildRunArgs, DockerLifecycle, type Probe, type RuntimeStatus } from "./docker.ts";
-import {
-  type AgenticProbeRunner,
-  EngineRegistry,
-  type QueueSnapshot,
-  type RegistryOptions,
-} from "./engines.ts";
+import { EngineRegistry, type QueueSnapshot, type RegistryOptions } from "./engines.ts";
 import { EngineBusyError } from "./errors/engineBusy.ts";
 import { FatalError } from "./errors/fatal.ts";
 import type { Exec, ExecResult } from "./exec.ts";
