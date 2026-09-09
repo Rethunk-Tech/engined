@@ -1,14 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  digitsPng,
-  readProbeText,
-  runProbes,
-  splitColorPng,
-  visionReadVerdict,
-  visionVerdict,
-} from "./probe.ts";
+import { readProbeText, runProbes, visionReadVerdict, visionVerdict } from "./probe.ts";
+import { digitsPng, splitColorPng } from "./probeImage.ts";
 import { CONTRACT } from "./responses.ts";
 
 /** The ExecStart flag, read once: a regex rebuilt per call is a lint warning and a wasted compile. */
