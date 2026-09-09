@@ -30,7 +30,8 @@ import {
   renderPresetIni,
 } from "./llamaSpec.ts";
 import { llamaPresetPath } from "./paths.ts";
-import type { EngineEntry, ResolvedRoute, Role, RoleContention } from "./types.ts";
+import type { RoleContention } from "./responses.ts";
+import type { EngineEntry, ResolvedRoute, Role } from "./types.ts";
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from "./types.ts";
 
 interface RoleWaiter {

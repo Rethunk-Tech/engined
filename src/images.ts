@@ -29,10 +29,10 @@ import {
   STATUS_BAD_REQUEST,
 } from "./http.ts";
 import { recordCall } from "./provenance.ts";
+import { isContainerSpec } from "./specTypes.ts";
 import {
   CONTENT_ENDPOINT_IMAGES,
   errMessage,
-  isContainerSpec,
   isRecord,
   MS_PER_SECOND,
   parseRecord,

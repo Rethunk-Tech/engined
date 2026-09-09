@@ -10,8 +10,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { ParseError } from "./errors/parse.ts";
 import { loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { EngineEntry, ResolvedRoute, RunnableContainerSpec } from "./types.ts";
-import { isContainerSpec } from "./types.ts";
+import type { RunnableContainerSpec } from "./specTypes.ts";
+import { isContainerSpec } from "./specTypes.ts";
+import type { EngineEntry, ResolvedRoute } from "./types.ts";
 
 export const PRESET_CONTAINER_PATH = "/preset.ini";
 export const MODELS_CONTAINER_PATH = "/models";

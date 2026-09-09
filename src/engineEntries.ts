@@ -11,7 +11,9 @@ import type { RuntimeStatus } from "./docker.ts";
 import { FatalError } from "./errors/fatal.ts";
 import { STATUS_OK } from "./http.ts";
 import { buildLlamaSpec } from "./llamaSpec.ts";
+import type { EngineStatus } from "./responses.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
+import { isContainerSpec, type LoadedSpec, type Spec } from "./specTypes.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
@@ -23,14 +25,10 @@ import {
   type EngineCapability,
   type EngineEntry,
   type EngineKind,
-  type EngineStatus,
-  isContainerSpec,
   KIND_TRAITS,
-  type LoadedSpec,
   type ReadyProbe,
   type ResolvedRoute,
   routeServes,
-  type Spec,
   type Upstream,
 } from "./types.ts";
 

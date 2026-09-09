@@ -9,7 +9,7 @@ import {
   visionReadVerdict,
   visionVerdict,
 } from "./probe.ts";
-import { CONTRACT } from "./types.ts";
+import { CONTRACT } from "./responses.ts";
 
 /** The ExecStart flag, read once: a regex rebuilt per call is a lint warning and a wasted compile. */
 const RX_EXEC_START_FLAG = /^ExecStart=.*?(--[a-z-]+)\s*$/m;

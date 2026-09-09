@@ -17,14 +17,8 @@ import {
   STATUS_NOT_FOUND,
 } from "./http.ts";
 import { readJsonBody } from "./requestBody.ts";
-import {
-  errMessage,
-  qualifiedSegments,
-  type ResolvedRoute,
-  routeForHop,
-  type StartResponse,
-  type StartRow,
-} from "./types.ts";
+import type { StartResponse, StartRow } from "./responses.ts";
+import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from "./types.ts";
 
 /**
  * How long a hold stands without being renewed. Long enough for the slowest

@@ -6,7 +6,8 @@ import { handleSpeech } from "../../src/audioSpeech.ts";
 import { handleTranscription } from "../../src/audioTranscribe.ts";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
 import { loadSpec } from "../../src/spec.ts";
-import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
+import { isContainerSpec } from "../../src/specTypes.ts";
+import type { EngineEntry } from "../../src/types.ts";
 import {
   BUNX,
   CONFIG_EXAMPLE,

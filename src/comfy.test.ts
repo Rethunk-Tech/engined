@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { buildComfySpec } from "./comfy.ts";
 import { buildRunArgs } from "./dockerArgs.ts";
+import { isContainerSpec } from "./specTypes.ts";
 import { BUNX, engine as baseEngine, ENGINES_ROOT } from "./test-support.ts";
-import { type EngineEntry, isContainerSpec } from "./types.ts";
+import type { EngineEntry } from "./types.ts";
 
 const CONTAINER_PORT = 8188;
 const RX_NO_MODELS_DIR = /has no models_dir/;

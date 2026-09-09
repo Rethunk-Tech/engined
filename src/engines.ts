@@ -37,21 +37,21 @@ import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from "./http.ts";
 import { renderPresetIni } from "./llamaSpec.ts";
 import { llamaPresetPath } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
+import { CONTRACT, type EngineStatus, type EnginesResponse } from "./responses.ts";
 import type { SpecLoadOptions } from "./spec.ts";
 import {
   type AgenticSpec,
-  CONTRACT,
+  isContainerSpec,
+  type RunnableContainerSpec,
+  type Spec,
+} from "./specTypes.ts";
+import {
   type Config,
   type EngineEntry,
-  type EngineStatus,
-  type EnginesResponse,
   errMessage,
-  isContainerSpec,
   MS_PER_SECOND,
   type ResolvedRoute,
-  type RunnableContainerSpec,
   routeForHop,
-  type Spec,
 } from "./types.ts";
 
 /** Set at build time by the install script; absent in a working-tree run. */

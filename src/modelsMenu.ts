@@ -7,14 +7,12 @@
 import { parseHop, routeForChainHop } from "./chain.ts";
 import { CHAIN_ENDPOINTS, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
+import type { EngineStatus, ModelRow, ModelsResponse } from "./responses.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
   type Config,
   type EngineState,
-  type EngineStatus,
   type ModelCapabilities,
-  type ModelRow,
-  type ModelsResponse,
   type ResolvedRoute,
   type Role,
   routeForHop,

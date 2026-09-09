@@ -9,8 +9,9 @@
 
 import { ParseError } from "./errors/parse.ts";
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { ContainerSpec, EngineEntry } from "./types.ts";
-import { isContainerSpec } from "./types.ts";
+import type { ContainerSpec } from "./specTypes.ts";
+import { isContainerSpec } from "./specTypes.ts";
+import type { EngineEntry } from "./types.ts";
 
 const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
 

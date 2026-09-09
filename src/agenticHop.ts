@@ -23,7 +23,8 @@ import {
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { loadSpec } from "./spec.ts";
-import { type AgenticSpec, type EngineEntry, isRecord, type ResolvedRoute } from "./types.ts";
+import type { AgenticSpec } from "./specTypes.ts";
+import { type EngineEntry, isRecord, type ResolvedRoute } from "./types.ts";
 
 /** `claude -p` takes one prompt on stdin; OpenAI's `messages` array has no such shape upstream to borrow. */
 function promptFromMessages(body: Record<string, unknown>): string {

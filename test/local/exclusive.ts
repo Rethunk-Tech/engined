@@ -3,7 +3,8 @@ import { join } from "node:path";
 import process from "node:process";
 import { loadConfig } from "../../src/config.ts";
 import { loadSpec } from "../../src/spec.ts";
-import { type EngineEntry, isContainerSpec } from "../../src/types.ts";
+import { isContainerSpec } from "../../src/specTypes.ts";
+import type { EngineEntry } from "../../src/types.ts";
 
 /**
  * The prefix this tier's own containers take, so it never names -- and on

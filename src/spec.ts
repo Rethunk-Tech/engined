@@ -12,18 +12,20 @@ import { ParseError } from "./errors/parse.ts";
 import { stateDir } from "./paths.ts";
 import {
   type AgenticSpec,
+  type ContainerSpec,
+  isContainerSpec,
+  type LoadedSpec,
+  type Spec,
+} from "./specTypes.ts";
+import {
   type Artifact,
   argvFromArgs,
   assertNoForbiddenFlags,
-  type ContainerSpec,
   type EngineEntry,
   type EngineKind,
-  isContainerSpec,
   isRecord,
   KIND_TRAITS,
-  type LoadedSpec,
   type ReadyProbe,
-  type Spec,
   type UpstreamTrait,
   type Volume,
 } from "./types.ts";

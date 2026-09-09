@@ -10,8 +10,9 @@ import {
   specDigest,
 } from "./dockerArgs.ts";
 import type { Exec, ExecResult } from "./exec.ts";
+import type { RunnableContainerSpec } from "./specTypes.ts";
 import { buildExec, containerRunning, makeTestRoot } from "./test-support.ts";
-import type { RunnableContainerSpec, Volume } from "./types.ts";
+import type { Volume } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-docker-");
 

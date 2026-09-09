@@ -29,7 +29,8 @@ import { binExec, type Exec } from "./exec.ts";
 import { discardBody } from "./http.ts";
 import type { EngineResources } from "./resources.ts";
 import { parseResources, RESOURCE_PROBE_SH } from "./resources.ts";
-import type { Artifact, EngineState, ReadyProbe, RunnableContainerSpec } from "./types.ts";
+import type { RunnableContainerSpec } from "./specTypes.ts";
+import type { Artifact, EngineState, ReadyProbe } from "./types.ts";
 
 import { errMessage, MS_PER_SECOND, pollUntil, probeSaysReady } from "./types.ts";
 

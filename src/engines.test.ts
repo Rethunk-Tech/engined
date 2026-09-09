@@ -12,7 +12,9 @@ import { EngineBusyError } from "./errors/engineBusy.ts";
 import { FatalError } from "./errors/fatal.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { stateDir } from "./paths.ts";
+import type { EngineStatus } from "./responses.ts";
 import { loadSpec } from "./spec.ts";
+import { isContainerSpec, type RunnableContainerSpec } from "./specTypes.ts";
 import {
   BUNX,
   buildExec,
@@ -26,13 +28,7 @@ import {
   upstream,
   writeEngineSpec,
 } from "./test-support.ts";
-import {
-  type Config,
-  type EngineEntry,
-  type EngineStatus,
-  isContainerSpec,
-  type RunnableContainerSpec,
-} from "./types.ts";
+import type { Config, EngineEntry } from "./types.ts";
 
 const TEST_ROOT = makeTestRoot("engined-engines-test-");
 

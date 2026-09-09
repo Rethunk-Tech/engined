@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
-import type { RunnableContainerSpec } from "../../src/types.ts";
+import type { RunnableContainerSpec } from "../../src/specTypes.ts";
 import { LOCAL, TEST_NAME_PREFIX } from "./exclusive.ts";
 
 /**

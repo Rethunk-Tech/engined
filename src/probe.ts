@@ -22,11 +22,11 @@
 
 import { crc32, deflateSync } from "node:zlib";
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from "./http.ts";
+import { CONTRACT } from "./responses.ts";
 import {
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
-  CONTRACT,
   errMessage,
 } from "./types.ts";
 
