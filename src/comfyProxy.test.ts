@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { loadComfyBindings } from "./comfyProxy.ts";
+import { loadComfyBindings } from "./comfyBindings.ts";
 import { loadConfig } from "./config.ts";
 import type { HttpClient } from "./http.ts";
 import { bindDualFamily, createDoor } from "./main.ts";

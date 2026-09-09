@@ -9,11 +9,11 @@
 import { mkdirSync } from "node:fs";
 import process from "node:process";
 import { buildAgenticProbeRunner } from "./agenticProbeHarness.ts";
+import { loadComfyBindings } from "./comfyBindings.ts";
 import {
   COMFY_WS_SUFFIX,
   type ComfyWsData,
   type EnginedServer,
-  loadComfyBindings,
   matchComfyPath,
 } from "./comfyProxy.ts";
 import { comfyWebSocketHandlers, handleComfyProxy, handleComfyWsUpgrade } from "./comfyRoutes.ts";
