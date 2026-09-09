@@ -9,15 +9,15 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import {
-  type AnyTranscriptionRequestBody,
-  type DoorResponse,
-  type EngineStart,
-  handleSpeech,
-  handleTranscription,
-  SPEECH_DOOR_KEYS,
-  type SpeechRequestBody,
+import type {
+  AnyTranscriptionRequestBody,
+  DoorResponse,
+  EngineStart,
+  SpeechRequestBody,
 } from "./audio.ts";
+import { SPEECH_DOOR_KEYS } from "./audio.ts";
+import { handleSpeech } from "./audioSpeech.ts";
+import { handleTranscription } from "./audioTranscribe.ts";
 import { classifyResult, type HopExec, runChain, wrapStream } from "./chain.ts";
 import { resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";

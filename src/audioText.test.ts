@@ -5,7 +5,8 @@
  * consumer, differently.
  */
 import { expect, test } from "bun:test";
-import { handleSpeech, handleTranscription, resetSpeechCache } from "./audio.ts";
+import { handleSpeech, resetSpeechCache } from "./audioSpeech.ts";
+import { handleTranscription } from "./audioTranscribe.ts";
 import { startFakeUpstream } from "./test-support.ts";
 
 const SAMPLE_WAV_BASE64 = Buffer.from("RIFF____WAVEfmt ", "utf8").toString("base64");

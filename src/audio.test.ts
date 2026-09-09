@@ -1,8 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { handleSpeech, handleTranscription, resetSpeechCache } from "./audio.ts";
 import { handleAudioSpeech, handleAudioTranscription } from "./audioDoor.ts";
+import { handleSpeech, resetSpeechCache } from "./audioSpeech.ts";
+import { handleTranscription } from "./audioTranscribe.ts";
 import { DockerLifecycle } from "./docker.ts";
 import { buildRunArgs } from "./dockerArgs.ts";
 import type { DoorContext } from "./doorContext.ts";

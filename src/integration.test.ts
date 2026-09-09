@@ -10,7 +10,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { resetSpeechCache } from "./audio.ts";
+import { resetSpeechCache } from "./audioSpeech.ts";
 import type { DoorOptions } from "./doorContext.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 import { HTTP_CLIENT_ERROR_MIN } from "./http.ts";

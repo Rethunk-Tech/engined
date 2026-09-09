@@ -6,7 +6,8 @@
  */
 
 import { expect, test } from "bun:test";
-import { handleSpeech, handleTranscription } from "./audio.ts";
+import { handleSpeech } from "./audioSpeech.ts";
+import { handleTranscription } from "./audioTranscribe.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { createDoor, type Door } from "./main.ts";
 import { config as baseConfigFixture, route, startFakeUpstream } from "./test-support.ts";
