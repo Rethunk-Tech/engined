@@ -46,13 +46,18 @@
         "preset": "all",
         "useSolidForComponent": "off",
         "noJsxPropsBind": "off",
-        // Every loop this fires on is sequential because the runtime demands
-        // it: readiness polls and render polls that must not fire every
-        // attempt at once, single-reader stream and async-generator drains, a
-        // chain whose next hop consumes the previous one's output, and engine
-        // probes that would otherwise load several models into one GPU
-        // concurrently.
+        // Measured 98% false-positive across the fleet: 131 of 134 sites were
+        // correct sequential code. Here every loop it fires on is sequential
+        // because the runtime demands it — readiness and render polls that
+        // must not fire every attempt at once, single-reader stream and
+        // async-generator drains, a chain whose next hop consumes the
+        // previous one's output, and engine probes that would otherwise load
+        // several models into one GPU concurrently.
         "noAwaitInLoops": "off"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       }
     }
   },
