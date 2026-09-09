@@ -43,24 +43,31 @@ path = "/queue"
 status = 200
 `;
 
+/**
+ * A `${name}` placeholder, built rather than written: a workflow graph carries
+ * comfy's substitution syntax, not TypeScript's, and only `fillWorkflow`
+ * expands it.
+ */
+const ph = (name: string) => `$\{${name}}`;
+
 /** A miniature graph with one of every placeholder kind the real one uses. */
 const WORKFLOW = {
   _comment: ["prose comfy would reject as a node"],
-  "1": { class_type: "UNETLoader", inputs: { unet_name: "${unet}" } },
-  "2": { class_type: "CLIPTextEncode", inputs: { text: "${prompt}", clip: ["1", 0] } },
+  "1": { class_type: "UNETLoader", inputs: { unet_name: ph("unet") } },
+  "2": { class_type: "CLIPTextEncode", inputs: { text: ph("prompt"), clip: ["1", 0] } },
   "3": {
     class_type: "EmptySD3LatentImage",
-    inputs: { width: "${width}", height: "${height}", batch_size: "${batch}" },
+    inputs: { width: ph("width"), height: ph("height"), batch_size: ph("batch") },
   },
   "4": {
     class_type: "KSampler",
     inputs: {
       latent_image: ["3", 0],
-      seed: "${seed}",
-      steps: "${steps}",
-      cfg: "${cfg}",
-      sampler_name: "${sampler}",
-      scheduler: "${scheduler}",
+      seed: ph("seed"),
+      steps: ph("steps"),
+      cfg: ph("cfg"),
+      sampler_name: ph("sampler"),
+      scheduler: ph("scheduler"),
     },
   },
   "5": { class_type: "SaveImage", inputs: { images: ["4", 0], filename_prefix: "engined_images" } },
@@ -68,20 +75,20 @@ const WORKFLOW = {
 
 /** The edit graph's own shape: a loaded image encoded into the starting latent, and a denoise the sampler reads. */
 const EDIT_WORKFLOW = {
-  "1": { class_type: "UNETLoader", inputs: { unet_name: "${unet}" } },
-  "2": { class_type: "CLIPTextEncode", inputs: { text: "${prompt}", clip: ["1", 0] } },
-  "6": { class_type: "LoadImage", inputs: { image: "${image}" } },
+  "1": { class_type: "UNETLoader", inputs: { unet_name: ph("unet") } },
+  "2": { class_type: "CLIPTextEncode", inputs: { text: ph("prompt"), clip: ["1", 0] } },
+  "6": { class_type: "LoadImage", inputs: { image: ph("image") } },
   "7": { class_type: "VAEEncode", inputs: { pixels: ["6", 0] } },
   "8": {
     class_type: "KSampler",
     inputs: {
       latent_image: ["7", 0],
-      seed: "${seed}",
-      steps: "${steps}",
-      cfg: "${cfg}",
-      sampler_name: "${sampler}",
-      scheduler: "${scheduler}",
-      denoise: "${denoise}",
+      seed: ph("seed"),
+      steps: ph("steps"),
+      cfg: ph("cfg"),
+      sampler_name: ph("sampler"),
+      scheduler: ph("scheduler"),
+      denoise: ph("denoise"),
     },
   },
   "5": { class_type: "SaveImage", inputs: { images: ["8", 0], filename_prefix: "engined_edits" } },
@@ -196,7 +203,7 @@ describe("the graph is filled, not templated", () => {
   });
 
   test("a placeholder the door does not supply is refused, not sent", () => {
-    expect(() => fillWorkflow({ a: "${nonesuch}" }, {})).toThrow("nonesuch");
+    expect(() => fillWorkflow({ a: ph("nonesuch") }, {})).toThrow("nonesuch");
   });
 });
 
