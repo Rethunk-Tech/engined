@@ -1369,7 +1369,7 @@ export class EngineRegistry {
   }
 
   /** Ends a hold early. Idempotent, because the state the caller wants is "not held" either way. */
-  async unhold(id: string): Promise<EngineStatus> {
+  unhold(id: string): Promise<EngineStatus> {
     const entry = this.byId.get(id);
     if (!entry) {
       throw new Error(`unknown engine "${id}"`);

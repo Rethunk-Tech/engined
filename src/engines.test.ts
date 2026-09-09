@@ -227,6 +227,8 @@ const RX_IS_SELF = /is "self"/;
 const RX_MISSING_ROLE = /missing required "role"/;
 const RX_MISSING_FILENAME = /missing required "filename"/;
 const RX_FORBIDDEN_TRANSLATE = /must not declare "translate"/;
+/** The launch-scoped dial-back surface: the plain door path plus a live nonce. */
+const RX_LAUNCH_SCOPED_DIAL = /^http:\/\/127\.0\.0\.1:39200\/openai\/v1\/[0-9a-f]{32}$/;
 
 /** Records what `reload` asks to be torn down; a disabling reload must ask. */
 class RemovalSpy extends DockerLifecycle {
@@ -821,7 +823,7 @@ describe("agentic engines: the round-trip probe target follows the route's own e
     expect(dialed?.model).toBe("code");
     // The launch-scoped surface, not the plain one: a probe spawns a real
     // agent, so what it dials back on is bounded like any other launch.
-    expect(dialed?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:39200\/openai\/v1\/[0-9a-f]{32}$/);
+    expect(dialed?.baseUrl).toMatch(RX_LAUNCH_SCOPED_DIAL);
     // A billed/remote route (claude's ambient shape here) never gets a
     // dial target -- a status poll must never pay for one.
     expect(calls).toContain(undefined);
@@ -1219,7 +1221,7 @@ async function withComfyRegistry(
     queueFetch: () => Promise<QueueSnapshot>;
     comfyPollIntervalMs: number;
   },
-  body: (reg: EngineRegistry, lifecycle: DockerLifecycle) => Promise<void>,
+  body: (reg: EngineRegistry, lifecycle: DockerLifecycle) => Promise<void> | void,
 ): Promise<void> {
   const lifecycle = new DockerLifecycle(opts.exec, READY_PROBE);
   const reg = new EngineRegistry(opts.cfg, {
@@ -1813,7 +1815,7 @@ describe("a running engine whose config generation has been replaced", () => {
         queueFetch: () => Promise.resolve(BUSY_QUEUE),
         comfyPollIntervalMs: 10_000,
       },
-      async (reg) => {
+      (reg) => {
         reg.reload(comfyConfigWith(6));
         const never = reg.get("comfy");
         expect(never?.state).not.toBe("running");

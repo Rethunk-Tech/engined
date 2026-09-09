@@ -361,7 +361,7 @@ async function staleDoorLine(
         detail: `the door answered http ${res.status} for its own engine list`,
       };
     }
-    contract = ((await res.json()) as { contract?: unknown }).contract;
+    ({ contract } = (await res.json()) as { contract?: unknown });
   } catch (err) {
     return {
       address: doorUrl,

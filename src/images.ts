@@ -423,7 +423,7 @@ function imageRoute(
 }
 
 /** The graph this engine ships for one verb, or the 400 naming the spec key it has no value for. */
-function workflowPath(
+function workflowPathFor(
   ctx: DoorContext,
   engineId: string,
   key: "images_workflow" | "images_edit_workflow",
@@ -450,7 +450,7 @@ export async function handleImageGeneration(
   if (request instanceof Response) {
     return request;
   }
-  const path = workflowPath(ctx, target.route.engine, "images_workflow");
+  const path = workflowPathFor(ctx, target.route.engine, "images_workflow");
   if (path instanceof Response) {
     return path;
   }
@@ -644,7 +644,7 @@ export async function handleImageEdit(
   if (request instanceof Response) {
     return request;
   }
-  const path = workflowPath(ctx, target.route.engine, "images_edit_workflow");
+  const path = workflowPathFor(ctx, target.route.engine, "images_edit_workflow");
   if (path instanceof Response) {
     return path;
   }

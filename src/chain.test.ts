@@ -256,7 +256,7 @@ test("a streamed reply's cost is read out of its own frames", async () => {
   const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
   await new Response(result.stream).text();
 
-  const attempt = soleProvenanceRecord(lines).attempts[0];
+  const [attempt] = soleProvenanceRecord(lines).attempts;
   expect(attempt?.streamed).toBe(true);
   expect(attempt?.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 });
 });
@@ -331,7 +331,7 @@ test("a stream that dies after stating its cost still records it, as a failure",
   const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
   await new Response(result.stream).text().catch(() => undefined);
 
-  const attempt = soleProvenanceRecord(lines).attempts[0];
+  const [attempt] = soleProvenanceRecord(lines).attempts;
   expect(attempt?.ok).toBe(false);
   expect(attempt?.usage).toEqual({ total_tokens: 7 });
 });
@@ -371,7 +371,7 @@ test("a streamed attempt is marked streamed and carries no usage", async () => {
   // not exist until something has read it to completion.
   await new Response(result.stream).text();
 
-  const attempt = soleProvenanceRecord(lines).attempts[0];
+  const [attempt] = soleProvenanceRecord(lines).attempts;
   expect(attempt?.streamed).toBe(true);
   expect(attempt?.usage).toBeUndefined();
 });

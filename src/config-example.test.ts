@@ -28,6 +28,8 @@ const LLAMA_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models
  */
 const MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/[a-z]+"/g;
 const WIRE_MISMATCH_RE = /wire "anthropic".*speaks "openai"/;
+/** The tilde form the committed file must keep saying, since that is what an operator copies. */
+const WHISPER_MODELS_DIR_RE = /models_dir\s*=\s*"~\/\.local\/share\/engined-models\/whisper"/;
 
 // Already alphabetised, so the assertion below can sort actual output the
 // same way without needing a matching compare function here too.
@@ -175,7 +177,7 @@ test("config.example.toml parses through the real loadConfig()", () => {
   // XDG_DATA_HOME-aware dataHome() rather than a bare $HOME expansion is
   // proven against this exact path in config.test.ts, not here -- this load
   // has patched the line away.
-  expect(raw).toMatch(/models_dir\s*=\s*"~\/\.local\/share\/engined-models\/whisper"/);
+  expect(raw).toMatch(WHISPER_MODELS_DIR_RE);
 });
 
 // The [[model]] row's capabilities reach the route naming it, and inserting

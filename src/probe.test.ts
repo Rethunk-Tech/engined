@@ -14,6 +14,9 @@ import { CONTRACT } from "./types.ts";
 /** The ExecStart flag, read once: a regex rebuilt per call is a lint warning and a wasted compile. */
 const RX_EXEC_START_FLAG = /^ExecStart=.*?(--[a-z-]+)\s*$/m;
 
+/** The probe's own text shape: exactly eight digits, nothing round them. */
+const RX_PROBE_DIGITS = /^\d{8}$/;
+
 /** A door whose model menu is `rows` and whose chat verb always answers `reply`. */
 function fakeDoor(rows: unknown[], reply: string, menuStatus = 200): typeof fetch {
   return ((input: string | URL | Request) => {
@@ -71,7 +74,7 @@ test("the read probe draws the digits it will check for, as a real PNG", () => {
 
 test("a fresh digit string every run, so no answer comes from having seen the image", () => {
   const runs = new Set(Array.from({ length: 32 }, () => readProbeText()));
-  expect([...runs].every((t) => /^\d{8}$/.test(t))).toBe(true);
+  expect([...runs].every((t) => RX_PROBE_DIGITS.test(t))).toBe(true);
   // Not a distribution test: one repeated string across 32 draws would mean a
   // constant, which is the property that matters here.
   expect(runs.size).toBeGreaterThan(1);

@@ -137,7 +137,9 @@ async function holdAtDoor(ids: readonly string[]): Promise<void> {
     );
   };
   await ask(`hold?seconds=${HOLD_SECONDS}`);
-  setInterval(() => void ask(`hold?seconds=${HOLD_SECONDS}`), HOLD_REFRESH_MS).unref();
+  setInterval(() => {
+    ask(`hold?seconds=${HOLD_SECONDS}`).catch(() => undefined);
+  }, HOLD_REFRESH_MS).unref();
 }
 
 export async function requireMemoryFor(
