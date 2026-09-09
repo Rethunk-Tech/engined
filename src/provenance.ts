@@ -6,6 +6,24 @@
 
 import process from "node:process";
 
+/**
+ * What one attempt cost, exactly as the engine reported it -- never derived,
+ * estimated, or converted. The four paid upstreams on this box all bill on
+ * tokens and all report them in the OpenAI `usage` shape, so this is a copy
+ * of what came back rather than a second accounting engined would have to
+ * keep right.
+ *
+ * Every field is optional because engines differ in which they send: an
+ * embeddings reply has no completion half, and llama-server's rerank reports
+ * `prompt_tokens` and `total_tokens` and nothing else. A field engined did
+ * not receive is absent, never zero -- zero is a number a sum would trust.
+ */
+export interface Usage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 export interface Attempt {
   engine: string;
   model: string;
@@ -21,6 +39,15 @@ export interface Attempt {
   version?: string;
   /** This hop's resolved `[[upstream]]` id, or `"local"`. Absent for an ambient hop, which named no upstream at all. */
   upstream_used?: string;
+  /** What the engine said this attempt cost. Absent whenever it reported nothing -- see `streamed`, and `Usage`. */
+  usage?: Usage;
+  /**
+   * This attempt answered with a stream, so its `usage` is absent because the
+   * door never held a whole body to read one out of -- not because the call
+   * was free. Recorded so a sum over these lines can tell "cost nothing" from
+   * "cost unknown"; without it a month of streamed chat reads as zero tokens.
+   */
+  streamed?: true;
 }
 
 export interface CallRecord {
@@ -54,6 +81,8 @@ function serializeAttempt(attempt: Attempt): Attempt {
     model_resident: attempt.model_resident,
     version: attempt.version,
     upstream_used: attempt.upstream_used,
+    usage: attempt.usage,
+    streamed: attempt.streamed,
   };
 }
 

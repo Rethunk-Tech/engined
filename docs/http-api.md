@@ -553,3 +553,28 @@ point.
 
 A streamed call's line is deferred until the stream ends, so a mid-body
 disconnect lands as that attempt's failure rather than vanishing.
+
+### What a call cost
+
+`usage` on an attempt is what that engine reported, copied rather than
+derived: `prompt_tokens`, `completion_tokens`, `total_tokens`, each present
+only if the engine sent it. Summing these lines is how you find what a month
+on a paid upstream came to, and which consumer spent it — nothing else on the
+box records it.
+
+Read the absences, because a sum that treats them as zero is wrong:
+
+- **`"streamed": true` and no `usage`** — the door forwarded the reply without
+  ever holding a body to read one out of. Cost unknown, not zero.
+- **no `usage` and a `version`** — an agentic hop. Their CLIs each report cost
+  in their own envelope shape, and only cursor's has been captured verbatim
+  (`src/agents.test.ts`), so engined records none rather than guessing two.
+- **no `usage`, no `version`, not streamed** — the engine genuinely reported
+  nothing. Every whisper transcription is this: whisper-server reports no
+  usage, and the audio verbs are not token-billed anyway.
+
+A field the engine sent as a non-number is dropped rather than coerced, so
+every number on these lines came from the engine as a number.
+
+engined enforces no ceiling and keeps no running total. The line is the
+record; `journalctl --user -u engined` is the query.

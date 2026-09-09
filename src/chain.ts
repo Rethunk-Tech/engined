@@ -17,7 +17,7 @@ import {
   STATUS_UNAUTHORIZED,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
-import { type Attempt, type CallRecord, recordCall } from "./provenance.ts";
+import { type Attempt, type CallRecord, recordCall, type Usage } from "./provenance.ts";
 import type { Egress } from "./types.ts";
 import { errMessage, qualifiedSegments, routeForHop, withinCeiling } from "./types.ts";
 
@@ -293,6 +293,40 @@ interface HopOutcome {
   advance: boolean;
 }
 
+/** One numeric field of a reported `usage`, or absent. Absent for a non-number, never coerced: a provider sending `"1234"` is a shape engined does not understand, and `Number()` would turn that into a figure someone sums. */
+function usageField(raw: Record<string, unknown>, key: string): number | undefined {
+  const value = raw[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * What the engine said this attempt cost, read off the body it already
+ * returned. Every kind funnels through here rather than each hop builder
+ * setting it: an engine that reports `usage` gets it recorded whatever verb
+ * it answered, and one that reports none records none rather than a zero.
+ *
+ * A streamed reply has no body to read, which the attempt records as
+ * `streamed` instead -- see `Attempt.streamed`.
+ */
+function usageFrom(result: HopResult): Usage | undefined {
+  const { body } = result;
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
+  const { usage } = body as { usage?: unknown };
+  if (typeof usage !== "object" || usage === null) {
+    return undefined;
+  }
+  const raw = usage as Record<string, unknown>;
+  const out: Usage = {
+    prompt_tokens: usageField(raw, "prompt_tokens"),
+    completion_tokens: usageField(raw, "completion_tokens"),
+    total_tokens: usageField(raw, "total_tokens"),
+  };
+  // A `usage` object engined understood no field of is not a cost record.
+  return Object.values(out).some((v) => v !== undefined) ? out : undefined;
+}
+
 /** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
   const { engine, model } = parseHop(hop);
@@ -318,6 +352,8 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         model_resident: result.modelResident,
         version: result.version,
         upstream_used: result.upstreamUsed,
+        usage: usageFrom(result),
+        streamed: result.stream === undefined ? undefined : true,
       },
       result,
       advance: outcome.advance,

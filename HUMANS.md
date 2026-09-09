@@ -69,6 +69,23 @@ systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
 ```
 
+What a paid upstream has cost is those same lines. Each attempt carries the
+`usage` the engine reported, so a month is a sum rather than a provider
+dashboard:
+
+```sh
+journalctl --user -u engined --since '30 days ago' -o cat \
+  | jq -s '[.[].attempts[] | select(.upstream_used=="openrouter")]
+           | {calls: length,
+              tokens: ([.[].usage.total_tokens // 0] | add),
+              unknown: ([.[] | select(.usage == null)] | length)}'
+```
+
+`unknown` is the count the sum cannot see: a streamed reply and an agentic
+hop each report no usage, and counting them as zero would understate the
+month. [docs/http-api.md § What a call cost](docs/http-api.md#what-a-call-cost)
+says which absence is which.
+
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 `systemctl --user reload` re-reads `config.toml`; in-flight requests finish on

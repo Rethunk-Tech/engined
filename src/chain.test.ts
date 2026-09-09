@@ -145,6 +145,83 @@ test("a three-segment hop's attempt records the bare model, never the upstream f
   expect(record.attempts[0]?.model).toBe("sonnet-5");
 });
 
+test("what an engine reported it cost reaches the provenance line", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      body: { usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 } },
+    });
+
+  await runChain(["@/e/m"], baseOpts({ exec, write }));
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({
+    prompt_tokens: 12,
+    completion_tokens: 34,
+    total_tokens: 46,
+  });
+});
+
+// A field the engine did not send stays absent. Zero is a number a sum
+// trusts, so defaulting to it would report a month of embeddings as having
+// generated tokens it never did.
+test("a half-reported usage records only what was reported, never a zero for the rest", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({ status: 200, body: { usage: { prompt_tokens: 20, total_tokens: 20 } } });
+
+  await runChain(["@/e/m"], baseOpts({ exec, write }));
+
+  const { usage } = soleProvenanceRecord(lines).attempts[0] ?? {};
+  expect(usage).toEqual({ prompt_tokens: 20, total_tokens: 20 });
+  expect(Object.hasOwn(usage ?? {}, "completion_tokens")).toBe(false);
+});
+
+test("a body with no usage records none, rather than an empty object that reads as free", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () => Promise.resolve({ status: 200, body: { choices: [] } });
+
+  await runChain(["@/e/m"], baseOpts({ exec, write }));
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toBeUndefined();
+});
+
+// The one thing that separates "cost nothing" from "cost unknown": a stream
+// is forwarded without the door ever holding a body to read a usage out of.
+test("a streamed attempt is marked streamed and carries no usage", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: new ReadableStream<Uint8Array>({
+        start: (c) => {
+          c.close();
+        },
+      }),
+    });
+
+  const result = await runChain(["@/e/m"], baseOpts({ exec, write }));
+  // The line for a streamed reply is written when the stream ends, so it does
+  // not exist until something has read it to completion.
+  await new Response(result.stream).text();
+
+  const attempt = soleProvenanceRecord(lines).attempts[0];
+  expect(attempt?.streamed).toBe(true);
+  expect(attempt?.usage).toBeUndefined();
+});
+
+// `Number("1234")` would turn a provider's string into a figure someone sums,
+// and nothing downstream could tell it from a number the provider sent.
+test("a non-numeric usage field is dropped, not coerced", async () => {
+  const { lines, write } = collectLines();
+  const exec: HopExec = () =>
+    Promise.resolve({ status: 200, body: { usage: { prompt_tokens: "1234", total_tokens: 9 } } });
+
+  await runChain(["@/e/m"], baseOpts({ exec, write }));
+
+  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 9 });
+});
+
 test("a 4xx on hop 1 does not advance: hop 2 is never invoked", async () => {
   const up = startBehaviorUpstream({
     badreq: { status: 400, body: "bad request", contentType: "text/plain" },
