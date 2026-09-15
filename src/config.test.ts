@@ -883,6 +883,7 @@ describe("streaming on a route overrides the engine's own", () => {
     const base = `
 [[engine]]
 id = "claude"
+kind = "agentic-cli"
 agent_version = "1.0.0"
 
 [[route]]
