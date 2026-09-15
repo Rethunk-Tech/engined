@@ -97,6 +97,8 @@ interface AgenticProbeRunnerDeps {
   /** Defaults to the real child-process spawn; a test injects a fake so no billed call ever runs. */
   spawn?: AgenticSpawn;
   ambientEnv?: NodeJS.ProcessEnv;
+  /** Defaults to the agent's own installed-binary lookup; a test injects a path so a runner without that agent installed still reaches `spawn`. */
+  resolveBinary?: () => string;
 }
 
 interface ProbeInput {
@@ -143,6 +145,7 @@ function probeLaunch(
     spawn: input.deps.spawn ?? defaultAgenticSpawn,
     bunx: input.bunx,
     ambientEnv: input.deps.ambientEnv,
+    resolveBinary: input.deps.resolveBinary,
     upstream: input.roundTrip,
   });
 }

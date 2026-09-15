@@ -239,6 +239,8 @@ interface BuildArgvInput {
   mcpConfigPath: string;
   /** Launch in the agent's streamed output format, for a caller reading deltas as they print. */
   streaming?: boolean;
+  /** Overrides the agent's own `resolveBinary` for a test, which cannot redirect `Bun.which` or `homedir()` in-process. Ignored for an npm-pinned agent. */
+  resolveBinary?: () => string;
 }
 
 /**
@@ -261,7 +263,7 @@ export function buildArgv(input: BuildArgvInput): string[] {
   const command =
     agent.resolveBinary === undefined
       ? [input.bunx, `${agent.pkg}@${input.agentVersion}`]
-      : [agent.resolveBinary()];
+      : [(input.resolveBinary ?? agent.resolveBinary)()];
   return [
     ...command,
     ...agent.launch(input.mcpConfigPath, input.streaming === true),
@@ -314,6 +316,8 @@ interface RunAgenticInput {
   signal?: AbortSignal;
   /** Answer text as the CLI prints it. Presence switches the launch to the agent's streamed output format; the verdict still comes from `parse` over the whole stdout. */
   onDelta?: (text: string) => void;
+  /** See `BuildArgvInput.resolveBinary`. */
+  resolveBinary?: () => string;
 }
 
 export interface RunAgenticResult {
@@ -484,6 +488,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     args: input.args,
     mcpConfigPath: renderEmptyMcpConfig(),
     streaming: input.onDelta !== undefined,
+    resolveBinary: input.resolveBinary,
   });
   const env: Record<string, string> = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),

@@ -545,7 +545,9 @@ function cleanCursorSpawn(onCwd?: (cwd: string) => void): AgenticSpawn {
 }
 
 function runCursorProbe(spawn: AgenticSpawn) {
-  const runner = buildAgenticProbeRunner(BUNX, { spawn });
+  // A fixed path: the fake spawn never execs it, and the real lookup would
+  // fail on any machine without cursor installed.
+  const runner = buildAgenticProbeRunner(BUNX, { spawn, resolveBinary: () => "/opt/cursor/agent" });
   return runner(PIN, "cursor");
 }
 
