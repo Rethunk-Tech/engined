@@ -14,6 +14,17 @@ any of them. The exception is the two chatterbox images, which build one
 values. All are two-stage: build tools (compilers, venv creation, git)
 never reach the runtime image.
 
+A baked wrapper edit (`app.py`, the Dockerfile) is live only after a rebuild
+plus `docker rm -f engined-<id>`: a running container keeps serving the old
+image until it is removed, and `scripts/install.sh` redeploys the daemon
+only, never engine images. Rebuild with the `docker build` line a missing
+image reports as its fix — it already carries that spec's
+`--build-context`/`--build-arg` — then probe through the door rather than
+trusting the build's exit code. Every Python engine's Dockerfile does
+`COPY --from=ghcr.io/astral-sh/uv:latest`, so the layer cache dies whenever
+that tag moves and the rebuild re-downloads ROCm torch (~6 GB): about ten
+minutes for kokoro, longer for chatterbox. Never rebuild speculatively.
+
 ### llama.cpp
 
 `engines/llama/`, image `engined-llama-cpp:local`. Builds
