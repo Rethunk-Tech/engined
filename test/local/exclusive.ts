@@ -156,7 +156,8 @@ export async function requireMemoryFor(
   // has no room to do twice over.
   const needGib = Math.max(...engines.map((id) => ENGINE_RESIDENT_GIB[id])) + RESERVE_GIB;
   const meminfo = readFileSync("/proc/meminfo", "utf8");
-  const kb = Number(MEM_AVAILABLE.exec(meminfo)?.[1]);
+  const available: RegExpExecArray | null = MEM_AVAILABLE.exec(meminfo);
+  const kb = Number(available?.[1]);
   if (!Number.isFinite(kb)) {
     throw new Error("/proc/meminfo reported no MemAvailable, so this tier cannot size the pool");
   }

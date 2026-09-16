@@ -35,7 +35,7 @@ export interface ComfyMatch {
 }
 
 export function matchComfyPath(pathname: string): ComfyMatch | undefined {
-  const m = COMFY_PROXY_RE.exec(pathname);
+  const m: RegExpExecArray | null = COMFY_PROXY_RE.exec(pathname);
   return m
     ? { engineSeg: m[1] as string, upstreamSeg: m[2] as string, rest: m[3] as string }
     : undefined;

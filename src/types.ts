@@ -423,7 +423,7 @@ const QUALIFIED_MODEL_RE = /^@\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/;
 
 /** `QUALIFIED_MODEL_RE`'s match, as the one, two or three non-empty segments it captured. `undefined` when `model` is not a qualified `@/...` address at all. */
 export function qualifiedSegments(model: string): string[] | undefined {
-  const match = QUALIFIED_MODEL_RE.exec(model);
+  const match: RegExpExecArray | null = QUALIFIED_MODEL_RE.exec(model);
   if (!match) {
     return undefined;
   }

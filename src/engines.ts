@@ -599,7 +599,7 @@ export class EngineRegistry {
   ): Promise<AgenticProbeOutcome> {
     const cached = this.agenticProbeState.get(engine.id);
     if (cached?.version === version) {
-      if (cached.promise) {
+      if (cached.promise !== undefined) {
         return cached.promise;
       }
       if (cached.outcome) {

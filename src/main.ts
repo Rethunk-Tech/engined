@@ -224,7 +224,7 @@ function stripLaunchNonce(
   ctx: DoorContext,
   pathname: string,
 ): { pathname: string; launchScoped: boolean } | null {
-  const match = LAUNCH_NONCE_RE.exec(pathname);
+  const match: RegExpExecArray | null = LAUNCH_NONCE_RE.exec(pathname);
   if (!match) {
     return { pathname, launchScoped: false };
   }

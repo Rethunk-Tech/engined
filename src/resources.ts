@@ -67,7 +67,8 @@ export const RESOURCE_PROBE_SH =
   "/proc/[0-9]*/fdinfo/* 2>/dev/null || true";
 
 function kib(value: string): number {
-  return Number(AMOUNT.exec(value.trim())?.[1] ?? 0);
+  const amount: RegExpExecArray | null = AMOUNT.exec(value.trim());
+  return Number(amount?.[1] ?? 0);
 }
 
 /** One fd's reading, before the per-client fold below collapses the repeats. */
@@ -79,7 +80,8 @@ interface FdEntry {
 
 /** One `FILE:key:value` line folded into the entry for its fd. */
 function foldLine(perFile: Map<string, FdEntry>, line: string): void {
-  const parts = FDINFO_LINE.exec(line)?.groups;
+  const match: RegExpExecArray | null = FDINFO_LINE.exec(line);
+  const parts: Partial<Record<string, string>> | undefined = match?.groups;
   const file = parts?.file;
   const value = parts?.value;
   if (parts === undefined || file === undefined || value === undefined) {

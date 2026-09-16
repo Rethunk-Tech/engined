@@ -68,7 +68,8 @@ const SIZE = /^(\d{2,5})x(\d{2,5})$/;
  */
 export function fillWorkflow(node: unknown, values: Record<string, unknown>): unknown {
   if (typeof node === "string") {
-    const name = PLACEHOLDER.exec(node)?.[1];
+    const placeholder: RegExpExecArray | null = PLACEHOLDER.exec(node);
+    const name = placeholder?.[1];
     if (name === undefined) {
       return node;
     }
@@ -119,7 +120,7 @@ function parseImageRequest(body: Record<string, unknown>): ImageRequest | Respon
     return jsonError(STATUS_BAD_REQUEST, '"prompt" is required and must be a non-empty string');
   }
   const size = typeof body.size === "string" ? body.size : DEFAULT_SIZE;
-  const dims = SIZE.exec(size);
+  const dims: RegExpExecArray | null = SIZE.exec(size);
   if (dims === null) {
     return jsonError(STATUS_BAD_REQUEST, `"size" must be <width>x<height>, not "${size}"`);
   }
