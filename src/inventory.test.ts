@@ -326,7 +326,7 @@ describe("inventory refresh timers", () => {
   });
 
   test("a failed refresh while serving cache sets EngineStatus.fix only when no other fix exists", async () => {
-    const live = { fail: false };
+    const live: { fail: boolean } = { fail: false };
     const catalog = catalogUpstream("https://example.invalid");
     const inv = new Inventory({
       secretExec: foundSecret,
