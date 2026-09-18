@@ -92,6 +92,10 @@ base_url = "https://openrouter.ai/api/v1"
 secret   = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
 egress   = "remote"
 wire     = "openai"
+# A wildcard route names this upstream, so max age is required: a failed
+# fetch otherwise has no bound at which to drop the cached /models list.
+inventory_max_age_seconds    = 86400
+inventory_refresh_seconds    = 3600
 
 # No trailing /v1 -- the claude CLI appends /v1/messages itself.
 [[upstream]]
@@ -658,20 +662,22 @@ model    = "gpt-5.4"
 id   = "openrouter"
 kind = "openai-http"
 
-# This is the only route on "openrouter", so @/openrouter/glm-5.2:free has
-# exactly one candidate and stays two-segment; a second upstream sharing this
-# engine's routes would force the three-segment form instead.
-#
 # OpenRouter's real ids are "org/model" -- a slash the address grammar cannot
-# carry, since it is the segment separator. "model" is the slash-free name
-# this route is addressed by; "wire_model" is the id OpenRouter actually
-# knows, sent on the wire in its place. Verified against the live catalogue:
-# 425 models, 18 free, "cohere/north-mini-code:free" among them at pricing.prompt = 0.
+# carry, since it is the segment separator. The alias below keeps a stable
+# two-segment name; the wildcard expands the rest of the catalog, encoding
+# each slash as %2F in the address segment and sending the provider id on
+# the wire. The alias is not duplicated when the catalog lists the same
+# wire id.
 [[route]]
 engine     = "openrouter"
 upstream   = "openrouter"
 model      = "north-mini-code:free"
 wire_model = "cohere/north-mini-code:free"
+
+[[route]]
+engine   = "openrouter"
+upstream = "openrouter"
+model    = "*"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.

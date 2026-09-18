@@ -145,6 +145,15 @@ deliberately different strings so one plain segment separator can serve both.
 `@/` is what makes the namespace unambiguous without banning slashes from
 either side.
 
+A remote `openai-http` route with `model = "*"` expands from that provider's
+`/models` list. Each provider id becomes an address segment by replacing
+`/` with `%2F` and nothing else; the reverse is what the hop sends as
+`wire_model`. `@/engine/*` is a 400 — the sentinel is not a served id. A
+declared alias that already claims the same `wire_model` is listed once, as
+the alias. Empty or expired inventory adds no discovered rows.
+`GET /engined/v1/engines` `capabilities[]` stays the declared routes; expansion
+lives only on this menu.
+
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, egress, streaming, tools, serves, role, vision, state,

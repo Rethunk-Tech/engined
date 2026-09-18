@@ -49,8 +49,9 @@ error by design rather than a silent no-op.
 | `agent_version` | agentic engines; substituted as `{agent_version}`, never `@latest` |
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
+| `inventory_max_age_seconds`, `inventory_refresh_seconds` | `[[upstream]]` only — how long a cached provider `/models` list stays usable, and how often to re-fetch it (default 3600). Max age is required when a wildcard route names this upstream, must be greater than zero, and refresh must be less than max age |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
-| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
+| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
 | `hops` | `[[chain]]` — an ordered list of route addresses |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
@@ -137,8 +138,10 @@ with no `[[model]]` row at all.
 | --- | --- | --- |
 | `[[route]]` on a llama engine | `engine`, `upstream`, `model`, `filename`, `role` | — |
 | `[[route]]` on an agentic engine | `engine` | `filename`, `role` |
+| `[[route]]` wildcard (`model = "*"`) | `engine`, `upstream`, `model` | `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `[route.args]` |
 | `[[engine]]`, every kind | `id` | — |
 | `[[upstream]]`, an address only | `id`, `egress`, `base_url`, `secret` | — |
+| `[[upstream]]` named by a wildcard | `inventory_max_age_seconds` | — |
 
 `filename` and `role` are absent from an agentic route because both exist to
 account for occupancy, and an agentic attempt is never resident — the

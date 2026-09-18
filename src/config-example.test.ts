@@ -61,13 +61,15 @@ const EXPECTED_DISABLED_IDS = ["claude", "cursor", "elevenlabs", "openai"];
 // address segment ("model"), never "wire_model" -- this list answers what a
 // caller dials, not what reaches an upstream.
 // "sonnet-5" appears twice: the ambient claude route and the claude route
-// onto openrouter-anthropic. The openrouter engine's own openai-wire route
-// addresses a different model ("north-mini-code:free") than either.
+// onto openrouter-anthropic. The openrouter engine's own openai-wire alias
+// addresses a different model ("north-mini-code:free") than either, and the
+// catalog wildcard is the "*" row.
 // "ornith" appears twice for a different reason: the llama route that serves
 // it, and the opencode route that names the brain it thinks with. Those are
 // distinct addresses (`@/llama/ornith`, `@/opencode/ornith`) on distinct
 // engines, so neither shadows the other.
 const EXPECTED_ROUTE_MODEL_IDS = [
+  "*",
   "composer-2.5",
   "embed",
   "gpt-5.4",
@@ -233,9 +235,8 @@ test("the spec-less remote STT engine keeps its kind, route model and secret hea
 });
 
 // One provider, two wires, two upstreams -- the OpenAI-shaped one proven
-// live and on, the Anthropic gateway still off. The engine's own route
-// stays two-segment because it is the only route on "openrouter" (see the
-// config's own comment on that route).
+// live and on, the Anthropic gateway still off. The engine keeps a named
+// alias plus a catalog wildcard on the OpenAI-shaped upstream.
 test("openrouter's openai wire is on and its anthropic wire is off, each with its own upstream", () => {
   const { config } = loadExample();
   const orOpenai = config.upstreams.find((u) => u.id === "openrouter");
@@ -243,6 +244,8 @@ test("openrouter's openai wire is on and its anthropic wire is off, each with it
   expect(orOpenai?.disabled).toBeUndefined();
   expect(orOpenai?.wire).toBe("openai");
   expect(orOpenai?.base_url).toBe("https://openrouter.ai/api/v1");
+  expect(orOpenai?.inventory_max_age_seconds).toBe(86_400);
+  expect(orOpenai?.inventory_refresh_seconds).toBe(3600);
   expect(orAnthropic?.disabled).toBe(true);
   expect(orAnthropic?.wire).toBe("anthropic");
   expect(orAnthropic?.base_url).toBe("https://openrouter.ai/api");
@@ -250,13 +253,16 @@ test("openrouter's openai wire is on and its anthropic wire is off, each with it
   expect(orEngine?.kind).toBe("openai-http");
   expect(orEngine?.disabled).toBeUndefined();
   const orDirectRoute = config.routes.find(
-    (r) => r.engine === "openrouter" && r.upstream === "openrouter",
+    (r) => r.engine === "openrouter" && r.model === "north-mini-code:free",
   );
   // The address segment is slash-free; the real OpenRouter id lives in
   // wire_model, sent on the wire in its place.
   expect(orDirectRoute?.model).toBe("north-mini-code:free");
   expect(orDirectRoute?.wire_model).toBe("cohere/north-mini-code:free");
   expect(orDirectRoute?.disabled).toBeUndefined();
+  const orWildcard = config.routes.find((r) => r.engine === "openrouter" && r.model === "*");
+  expect(orWildcard?.upstream).toBe("openrouter");
+  expect(orWildcard?.wire_model).toBeUndefined();
   // "claude" itself is disabled (EXPECTED_DISABLED_IDS), so every route on
   // it -- ambient, moonshot, and this one -- is disabled regardless of its
   // own upstream's flag.
