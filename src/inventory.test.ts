@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { EngineRegistry } from "./engines.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { decodeAddressSegment, encodeAddressSegment, Inventory } from "./inventory.ts";
 import { createDoor } from "./main.ts";
@@ -274,6 +275,76 @@ describe("menu and chat expand a cached catalog", () => {
     } finally {
       fake.stop();
       await door.registry.shutdown();
+    }
+  });
+});
+
+function wildcardRegistry(inv: Inventory, catalog: Upstream): EngineRegistry {
+  return new EngineRegistry(
+    config({
+      engines: [engine({ id: "openrouter", kind: "openai-http" })],
+      upstreams: [catalog],
+      routes: [route({ engine: "openrouter", model: "*", upstream: "openrouter" })],
+    }),
+    { enginesRoot: "/nonexistent/engines", bunx: BUNX, inventory: inv },
+  );
+}
+
+describe("inventory refresh timers", () => {
+  test("the first refresh does not block, and reload replaces timers rather than stacking them", async () => {
+    let release!: (res: Response) => void;
+    const hung = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const catalog = catalogUpstream("https://example.invalid");
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, "state-timers"),
+      fetch: async () => hung,
+    });
+    const reg = wildcardRegistry(inv, catalog);
+    try {
+      expect(reg.inventoryWatchCount()).toBe(0);
+      const before = Date.now();
+      reg.startInventoryRefresh();
+      expect(Date.now() - before).toBeLessThan(50);
+      expect(reg.inventoryWatchCount()).toBe(1);
+      const armed = reg.inventoryWatchCount();
+      reg.reload(
+        config({
+          engines: [engine({ id: "openrouter", kind: "openai-http" })],
+          upstreams: [catalog],
+          routes: [route({ engine: "openrouter", model: "*", upstream: "openrouter" })],
+        }),
+      );
+      expect(reg.inventoryWatchCount()).toBe(armed);
+      await reg.shutdown();
+      expect(reg.inventoryWatchCount()).toBe(0);
+    } finally {
+      release(modelsList(["org/model:free"]));
+    }
+  });
+
+  test("a failed refresh while serving cache sets EngineStatus.fix only when no other fix exists", async () => {
+    let fail = false;
+    const catalog = catalogUpstream("https://example.invalid");
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, "state-fix"),
+      fetch: async () =>
+        fail ? new Response("nope", { status: 502 }) : modelsList(["org/model:free"]),
+    });
+    await inv.refresh(catalog);
+    fail = true;
+    const reg = wildcardRegistry(inv, catalog);
+    try {
+      expect(reg.get("openrouter")?.fix).toBeUndefined();
+      reg.startInventoryRefresh();
+      await Bun.sleep(20);
+      expect(reg.get("openrouter")?.fix).toMatch(/HTTP 502/);
+      expect(reg.get("openrouter")?.state).toBe("installed");
+    } finally {
+      await reg.shutdown();
     }
   });
 });

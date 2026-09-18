@@ -485,6 +485,7 @@ if (import.meta.main) {
   let bound: { v4: EnginedServer; v6: EnginedServer };
   try {
     bound = bindDualFamily(door.fetch, startupConfig.listen_port);
+    door.registry.startInventoryRefresh();
   } catch (err) {
     const message = errMessage(err);
     process.stderr.write(`port ${startupConfig.listen_port} already in use: ${message}\n`);

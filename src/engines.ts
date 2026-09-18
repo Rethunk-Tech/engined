@@ -20,6 +20,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from "./agenticProbe.ts";
+import { DEFAULT_INVENTORY_REFRESH_SECONDS } from "./configParse.ts";
 import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
 import {
   baseStatus,
@@ -53,6 +54,8 @@ import {
   MS_PER_SECOND,
   type ResolvedRoute,
   routeForHop,
+  type Upstream,
+  WILDCARD_MODEL,
 } from "./types.ts";
 
 /** Set at build time by the install script; absent in a working-tree run. */
@@ -190,6 +193,9 @@ export class EngineRegistry {
   private entries: Entry[];
   private byId: Map<string, Entry>;
   private comfyTimers: ReturnType<typeof setInterval>[] = [];
+  private inventoryTimers: ReturnType<typeof setInterval>[] = [];
+  /** Last failed catalog fetch per engine, while an in-age cache is still served. */
+  private readonly inventoryFetchErrors = new Map<string, string>();
   /**
    * Last observed `/queue` emptiness per comfy-kind engine id. The lease is
    * armed once per transition into empty, never re-armed on every poll while
@@ -251,6 +257,78 @@ export class EngineRegistry {
       this.announce(id);
     });
     this.comfyTimers = this.startComfyWatches(this.entries);
+  }
+
+  /** How many catalog refresh intervals are armed. Tests the clear-and-restart, not a live signal. */
+  inventoryWatchCount(): number {
+    return this.inventoryTimers.length;
+  }
+
+  /**
+   * Arm catalog timers and kick a fetch without waiting for it. Listen must
+   * not sit on the provider; the first menu after boot may still be empty.
+   */
+  startInventoryRefresh(): void {
+    this.restartInventoryWatches();
+    this.refreshInventories();
+  }
+
+  private wildcardUpstreams(): Upstream[] {
+    const ids = new Set(
+      this.config.routes
+        .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream !== null)
+        .map((r) => r.upstream as string),
+    );
+    return this.config.upstreams.filter((u) => ids.has(u.id));
+  }
+
+  private clearInventoryTimers(): void {
+    for (const timer of this.inventoryTimers) {
+      clearInterval(timer);
+    }
+    this.inventoryTimers = [];
+  }
+
+  private restartInventoryWatches(): void {
+    this.clearInventoryTimers();
+    this.inventoryTimers = this.wildcardUpstreams().map((u) =>
+      setInterval(
+        () => {
+          this.refreshOneInventory(u).catch(() => undefined);
+        },
+        (u.inventory_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS) * MS_PER_SECOND,
+      ),
+    );
+  }
+
+  private refreshInventories(): void {
+    for (const u of this.wildcardUpstreams()) {
+      this.refreshOneInventory(u).catch(() => undefined);
+    }
+  }
+
+  private async refreshOneInventory(upstream: Upstream): Promise<void> {
+    const result = await this.inventory.refresh(upstream);
+    const engines = new Set(
+      this.config.routes
+        .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream === upstream.id)
+        .map((r) => r.engine),
+    );
+    for (const id of engines) {
+      if (result.fetchError === undefined) {
+        this.inventoryFetchErrors.delete(id);
+      } else {
+        this.inventoryFetchErrors.set(id, result.fetchError);
+      }
+    }
+  }
+
+  private withInventoryFix(status: EngineStatus): EngineStatus {
+    if (status.fix !== undefined) {
+      return status;
+    }
+    const fetchError = this.inventoryFetchErrors.get(status.id);
+    return fetchError === undefined ? status : { ...status, fix: fetchError };
   }
 
   /**
@@ -367,17 +445,22 @@ export class EngineRegistry {
 
     const { spec } = entry.spec;
     if (!isContainerSpec(spec)) {
-      return { ...baseStatus(engine, spec, this.config.routes), state: "installed" };
+      return this.withInventoryFix({
+        ...baseStatus(engine, spec, this.config.routes),
+        state: "installed",
+      });
     }
 
     const runtime = this.lifecycle.getStatus(engine.id);
-    return statusFrom({
-      engine,
-      spec,
-      runtime,
-      routes: this.config.routes,
-      superseded: this.supersededBy(entry, runtime),
-    });
+    return this.withInventoryFix(
+      statusFrom({
+        engine,
+        spec,
+        runtime,
+        routes: this.config.routes,
+        superseded: this.supersededBy(entry, runtime),
+      }),
+    );
   }
 
   /**
@@ -441,17 +524,19 @@ export class EngineRegistry {
       return this.syncStatus(entry);
     }
     const { engine } = entry;
-    return statusFrom({
-      engine,
-      spec,
-      runtime: await this.lifecycle.probe(
-        engine.id,
+    return this.withInventoryFix(
+      statusFrom({
+        engine,
         spec,
-        source,
-        engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-      ),
-      routes: this.config.routes,
-    });
+        runtime: await this.lifecycle.probe(
+          engine.id,
+          spec,
+          source,
+          engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
+        ),
+        routes: this.config.routes,
+      }),
+    );
   }
 
   /**
@@ -981,6 +1066,9 @@ export class EngineRegistry {
       clearInterval(timer);
     }
     this.comfyTimers = this.startComfyWatches(newEntries);
+    this.inventory.forget();
+    this.inventoryFetchErrors.clear();
+    this.startInventoryRefresh();
   }
 
   async shutdown(): Promise<void> {
@@ -988,6 +1076,7 @@ export class EngineRegistry {
       clearInterval(timer);
     }
     this.comfyTimers = [];
+    this.clearInventoryTimers();
     await this.lifecycle.shutdown();
   }
 }
