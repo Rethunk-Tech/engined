@@ -326,16 +326,16 @@ describe("inventory refresh timers", () => {
   });
 
   test("a failed refresh while serving cache sets EngineStatus.fix only when no other fix exists", async () => {
-    let fail = false;
+    const live = { fail: false };
     const catalog = catalogUpstream("https://example.invalid");
     const inv = new Inventory({
       secretExec: foundSecret,
       stateRoot: join(TEST_ROOT, "state-fix"),
       fetch: async () =>
-        fail ? new Response("nope", { status: 502 }) : modelsList(["org/model:free"]),
+        live.fail ? new Response("nope", { status: 502 }) : modelsList(["org/model:free"]),
     });
     await inv.refresh(catalog);
-    fail = true;
+    live.fail = true;
     const reg = wildcardRegistry(inv, catalog);
     try {
       expect(reg.get("openrouter")?.fix).toBeUndefined();
