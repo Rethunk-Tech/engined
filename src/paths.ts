@@ -35,6 +35,14 @@ export function stateDir(): string {
   return join(xdg("XDG_STATE_HOME", ".local/state"), "engined");
 }
 
+/**
+ * Cached provider `/models` lists. One directory per upstream id so a
+ * catalog never shares a file with another provider's.
+ */
+export function upstreamInventoryDir(upstreamId: string): string {
+  return join(stateDir(), "upstreams", upstreamId);
+}
+
 /** A bind-mount needs the absolute path, not the tilde. */
 export function expandTilde(p: string): string {
   if (p === "~") {
