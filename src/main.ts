@@ -34,6 +34,7 @@ import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
 import { FatalError } from "./errors/fatal.ts";
 import { jsonError, STATUS_FORBIDDEN, STATUS_NOT_FOUND } from "./http.ts";
+import { Inventory } from "./inventory.ts";
 import { modelsMenu } from "./modelsMenu.ts";
 import { configPath, installDir, voicesDir } from "./paths.ts";
 import { runProbes } from "./probe.ts";
@@ -283,6 +284,12 @@ function createDoorContext(
     lifecycle,
     launchNonces,
     presetHostPath: doorOpts.llamaPresetHostPath,
+    inventory:
+      registryOpts.inventory ??
+      new Inventory({
+        fetch: doorOpts.inventoryHttpClient,
+        secretExec: doorOpts.secretExec,
+      }),
   });
   return {
     getConfig,

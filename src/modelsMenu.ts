@@ -5,7 +5,12 @@
  */
 
 import { parseHop, routeForChainHop } from "./chain.ts";
-import { CHAIN_ENDPOINTS, routeEgress } from "./dispatch.ts";
+import {
+  CHAIN_ENDPOINTS,
+  expandWildcardRoutes,
+  resolveServedRoute,
+  routeEgress,
+} from "./dispatch.ts";
 import type { DoorContext } from "./doorContext.ts";
 import type { EngineStatus, ModelRow, ModelsResponse } from "./responses.ts";
 import {
@@ -17,6 +22,7 @@ import {
   type Role,
   routeForHop,
   routeServes,
+  WILDCARD_MODEL,
 } from "./types.ts";
 import { resolveUpstream } from "./upstream.ts";
 
@@ -156,12 +162,20 @@ function chainHops(
 ): Promise<ChainHop[]> {
   return Promise.all(
     hops.map(async (hop) => {
-      const { engine } = parseHop(hop);
+      const parsed = parseHop(hop);
       // The chain reading, not `routeForHop`'s: an audio hop names an upstream
       // where a chat hop names a model, and the menu must not report a route
       // unavailable that the door will dispatch without complaint.
-      const route = routeForChainHop(config.routes, hop);
-      const status = statuses.get(engine);
+      const route =
+        routeForChainHop(config.routes, hop) ??
+        resolveServedRoute({
+          config,
+          engineId: parsed.engine,
+          modelSeg: parsed.model,
+          upstreamSeg: parsed.upstream,
+          inventory: ctx.registry.inventory,
+        });
+      const status = statuses.get(parsed.engine);
       return {
         hop,
         route,
@@ -264,17 +278,19 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
   const statuses = new Map(engines.map((e) => [e.id, e]));
   const servedEngines = new Set(engines.filter((e) => e.serves.length > 0).map((e) => e.id));
 
+  const listed = [
+    ...config.routes.filter((r) => !r.disabled && r.model !== WILDCARD_MODEL),
+    ...expandWildcardRoutes(config, ctx.registry.inventory),
+  ];
   const rows: ModelRow[] = [];
-  for (const route of config.routes) {
-    if (route.disabled || !servedEngines.has(route.engine)) {
+  for (const route of listed) {
+    if (!servedEngines.has(route.engine)) {
       continue;
     }
     const siblingCount =
       route.model === undefined
         ? 1
-        : config.routes.filter(
-            (r) => !r.disabled && r.engine === route.engine && r.model === route.model,
-          ).length;
+        : listed.filter((r) => r.engine === route.engine && r.model === route.model).length;
     rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }));
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {

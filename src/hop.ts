@@ -17,7 +17,7 @@ export function enginePath(doorPath: string): string {
 import { execAgentic } from "./agenticHop.ts";
 import { resolveUpstreamModelId } from "./agenticRedirect.ts";
 import { type HopExec, type HopResult, parseHop } from "./chain.ts";
-import { routeEgress } from "./dispatch.ts";
+import { resolveServedRoute, routeEgress } from "./dispatch.ts";
 import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
 import {
   CONTENT_TYPE,
@@ -28,14 +28,7 @@ import {
   STATUS_FORBIDDEN,
 } from "./http.ts";
 import { reportedModelFrom } from "./llama.ts";
-import {
-  type Config,
-  type Egress,
-  type EngineEntry,
-  type EngineKind,
-  type ResolvedRoute,
-  routeForHop,
-} from "./types.ts";
+import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from "./types.ts";
 import { resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
 
 /**
@@ -101,7 +94,13 @@ export function openAiRequestInit(
 export function egressOf(ctx: DoorContext, hop: string): Egress {
   const config = ctx.getConfig();
   const { engine: engineId, upstream: upstreamSeg, model } = parseHop(hop);
-  const route = routeForHop(config.routes, engineId, model, upstreamSeg);
+  const route = resolveServedRoute({
+    config,
+    engineId,
+    modelSeg: model,
+    upstreamSeg,
+    inventory: ctx.registry.inventory,
+  });
   return route === undefined ? "remote" : routeEgress(route, config);
 }
 
@@ -317,7 +316,13 @@ export function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: bo
     // llama-server, anything else is proxied elsewhere with no local router.
     // Also this hop's provenance `upstream_used` -- absent for an ambient
     // route, which named no upstream at all.
-    const route = routeForHop(ctx.getConfig().routes, engineId, modelSeg, upstreamSeg);
+    const route = resolveServedRoute({
+      config: ctx.getConfig(),
+      engineId,
+      modelSeg,
+      upstreamSeg,
+      inventory: ctx.registry.inventory,
+    });
     const upstreamUsed = route?.upstream ?? undefined;
     const result = await execHop(ctx, req, {
       engineId,

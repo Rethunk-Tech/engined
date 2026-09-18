@@ -358,7 +358,7 @@ export function engineCapabilities(
   engineServes: readonly string[],
 ): EngineCapability[] | undefined {
   const capabilities = routes
-    .filter((r) => r.engine === engineId && r.disabled !== true)
+    .filter((r) => r.engine === engineId && r.disabled !== true && r.model !== WILDCARD_MODEL)
     .filter((r) => r.model !== undefined || routeHasCapability(r))
     .map(
       (r): EngineCapability => ({

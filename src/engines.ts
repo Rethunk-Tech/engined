@@ -34,6 +34,7 @@ import { EngineBusyError } from "./errors/engineBusy.ts";
 import { FatalError } from "./errors/fatal.ts";
 import type { Exec } from "./exec.ts";
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from "./http.ts";
+import { Inventory } from "./inventory.ts";
 import { renderPresetIni } from "./llamaSpec.ts";
 import { llamaPresetPath } from "./paths.ts";
 import type { EngineResources } from "./resources.ts";
@@ -136,6 +137,8 @@ export interface RegistryOptions {
   observeAgentVersion?: (agent: string, configuredVersion: string) => Promise<ObservedVersion>;
   /** Defaults under the one writable state dir; tests always override this. Must be the same path the door hands `LlamaRouter`, since one writes the file the other mounts. */
   presetHostPath?: string;
+  /** Provider catalog cache. Tests pass a pre-filled instance; production builds one in `createDoor`. */
+  inventory?: Inventory;
 }
 
 /** Where every container-kind engine's models_dir is bind-mounted; `filename` on a route is relative to it. */
@@ -175,6 +178,7 @@ export class EngineRegistry {
     configuredVersion: string,
   ) => Promise<ObservedVersion>;
   private readonly presetHostPath: string;
+  readonly inventory: Inventory;
   /**
    * The shape each running container was started under, set when this registry
    * starts one. A later start overwrites it and only a running engine is ever
@@ -236,6 +240,7 @@ export class EngineRegistry {
     this.launchNonces = opts.launchNonces ?? new Set();
     this.observeAgentVersion = opts.observeAgentVersion ?? observeAgentVersion;
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
+    this.inventory = opts.inventory ?? new Inventory();
     this.config = config;
     this.entries = buildEntries(config, this.specOptions, this.presetHostPath);
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));

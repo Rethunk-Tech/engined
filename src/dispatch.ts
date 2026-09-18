@@ -5,6 +5,7 @@
  */
 
 import type { EngineRegistry } from "./engines.ts";
+import { decodeAddressSegment, encodeAddressSegment, type Inventory } from "./inventory.ts";
 import type { Config, Egress, ResolvedRoute } from "./types.ts";
 import {
   CONTENT_ENDPOINT_CHAT,
@@ -14,6 +15,7 @@ import {
   qualifiedSegments,
   routeForHop,
   routeServes,
+  WILDCARD_MODEL,
 } from "./types.ts";
 
 type ModelDispatch =
@@ -103,6 +105,15 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Mo
   }
   const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
   if (matches.length === 0) {
+    const invented = resolveServedRoute({
+      config: ctx.config,
+      engineId: engineSeg,
+      modelSeg: seg,
+      inventory: ctx.registry.inventory,
+    });
+    if (invented !== undefined) {
+      return withEndpointCheck(invented, ctx);
+    }
     return fail(`"@/${engineSeg}/${seg}": model "${seg}" does not exist on "${engineSeg}"`);
   }
   const route = routeForHop(engineRoutes, engineSeg, seg);
@@ -111,6 +122,64 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Mo
     return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
   }
   return withEndpointCheck(route, ctx);
+}
+
+/** The wildcard template on this engine, optionally pinned to one upstream. */
+function wildcardTemplate(
+  routes: readonly ResolvedRoute[],
+  engineId: string,
+  upstream?: string,
+): ResolvedRoute | undefined {
+  const wild = routes.filter(
+    (r) => r.disabled !== true && r.engine === engineId && r.model === WILDCARD_MODEL,
+  );
+  if (upstream !== undefined) {
+    return wild.find((r) => r.upstream === upstream);
+  }
+  return wild.length === 1 ? wild[0] : undefined;
+}
+
+/**
+ * Declared routes win. A miss against a catalog wildcard becomes a
+ * synthesized route only when the cache already lists that wire id -- empty
+ * inventory is a 400, not a parse failure.
+ */
+export function resolveServedRoute({
+  config,
+  engineId,
+  modelSeg,
+  upstreamSeg,
+  inventory,
+}: {
+  config: Config;
+  engineId: string;
+  modelSeg: string;
+  upstreamSeg?: string;
+  inventory: Inventory;
+}): ResolvedRoute | undefined {
+  if (modelSeg === "" || modelSeg === WILDCARD_MODEL) {
+    return;
+  }
+  const declared = routeForHop(config.routes, engineId, modelSeg, upstreamSeg);
+  if (declared !== undefined) {
+    return declared;
+  }
+  const template = wildcardTemplate(config.routes, engineId, upstreamSeg);
+  if (template === undefined || template.upstream === null) {
+    return;
+  }
+  const upstream = config.upstreams.find((u) => u.id === template.upstream);
+  if (upstream === undefined) {
+    return;
+  }
+  const wireId = decodeAddressSegment(modelSeg);
+  if (encodeAddressSegment(wireId) !== modelSeg) {
+    return;
+  }
+  if (!inventory.peek(upstream).includes(wireId)) {
+    return;
+  }
+  return { ...template, model: modelSeg, wire_model: wireId };
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -133,6 +202,16 @@ function resolveThreeSegments(
       !r.disabled && r.engine === engineSeg && r.upstream === upstreamSeg && r.model === modelSeg,
   );
   if (!route) {
+    const invented = resolveServedRoute({
+      config: ctx.config,
+      engineId: engineSeg,
+      modelSeg,
+      upstreamSeg,
+      inventory: ctx.registry.inventory,
+    });
+    if (invented !== undefined) {
+      return withEndpointCheck(invented, ctx);
+    }
     return fail(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
     );
@@ -142,6 +221,9 @@ function resolveThreeSegments(
 
 /** A `@/...` address by segment count. Exported for `/engined/v1/start`, which resolves the same two- and three-segment forms with no endpoint to check. */
 export function resolveQualified(segments: readonly string[], ctx: ResolveCtx): ModelDispatch {
+  if (segments.includes(WILDCARD_MODEL)) {
+    return fail(`"${WILDCARD_MODEL}" is the wildcard sentinel, not a served address`);
+  }
   const [first, second, third] = segments;
   if (segments.length === 1) {
     return resolveOneSegment(first as string, ctx);
@@ -210,4 +292,50 @@ export function resolveModel(
   }
 
   return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`);
+}
+
+/**
+ * Catalog rows synthesized from each wildcard template. A discovered id
+ * whose wire id (or address segment) is already claimed by a declared
+ * non-wildcard route on that engine+upstream is omitted -- the alias stays.
+ */
+export function expandWildcardRoutes(config: Config, inventory: Inventory): ResolvedRoute[] {
+  const out: ResolvedRoute[] = [];
+  for (const template of config.routes) {
+    if (template.disabled || template.model !== WILDCARD_MODEL || template.upstream === null) {
+      continue;
+    }
+    const upstream = config.upstreams.find((u) => u.id === template.upstream);
+    if (upstream === undefined) {
+      continue;
+    }
+    const claimed = new Set<string>();
+    for (const r of config.routes) {
+      if (
+        r.disabled ||
+        r.engine !== template.engine ||
+        r.upstream !== template.upstream ||
+        r.model === WILDCARD_MODEL
+      ) {
+        continue;
+      }
+      if (r.model !== undefined) {
+        claimed.add(r.model);
+      }
+      if (r.wire_model !== undefined) {
+        claimed.add(r.wire_model);
+      }
+    }
+    for (const wireId of inventory.peek(upstream)) {
+      if (claimed.has(wireId)) {
+        continue;
+      }
+      const segment = encodeAddressSegment(wireId);
+      if (segment === undefined || claimed.has(segment)) {
+        continue;
+      }
+      out.push({ ...template, model: segment, wire_model: wireId });
+    }
+  }
+  return out;
 }

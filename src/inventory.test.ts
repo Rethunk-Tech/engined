@@ -4,7 +4,17 @@ import { join } from "node:path";
 
 import type { Exec as SecretExec } from "./exec.ts";
 import { decodeAddressSegment, encodeAddressSegment, Inventory } from "./inventory.ts";
-import { makeTestRoot, startFakeUpstream, upstream } from "./test-support.ts";
+import { createDoor } from "./main.ts";
+import type { ModelRow } from "./responses.ts";
+import {
+  BUNX,
+  config,
+  engine,
+  makeTestRoot,
+  route,
+  startFakeUpstream,
+  upstream,
+} from "./test-support.ts";
 import type { Upstream } from "./types.ts";
 import { MS_PER_SECOND } from "./types.ts";
 
@@ -189,5 +199,81 @@ describe("provider /models inventory", () => {
     });
     const result = await inv.refresh(catalogUpstream("https://example.invalid"));
     expect(result.ids).toEqual(["org/model:free"]);
+  });
+});
+
+const DOOR_PORT = 39_219;
+
+describe("menu and chat expand a cached catalog", () => {
+  test("the menu lists the encoded address and a chat hop sends the wire id", async () => {
+    const recorded: Record<string, unknown>[] = [];
+    const fake = startFakeUpstream(async (req) => {
+      const path = new URL(req.url).pathname;
+      if (req.method === "GET" && path.endsWith("/models")) {
+        return modelsList(["org/model:free", "cohere/north-mini-code:free"]);
+      }
+      if (req.method === "POST") {
+        recorded.push((await req.json()) as Record<string, unknown>);
+        return Response.json({
+          choices: [
+            { index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" },
+          ],
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    const catalog = catalogUpstream(`${fake.base}/v1`);
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, "state-door"),
+    });
+    const cfg = config({
+      listen_port: DOOR_PORT,
+      engines: [engine({ id: "openrouter", kind: "openai-http" })],
+      upstreams: [catalog],
+      routes: [
+        route({ engine: "openrouter", model: "*", upstream: "openrouter" }),
+        route({
+          engine: "openrouter",
+          model: "north-mini-code:free",
+          wire_model: "cohere/north-mini-code:free",
+          upstream: "openrouter",
+        }),
+      ],
+    });
+    const door = createDoor(
+      cfg,
+      { enginesRoot: "/nonexistent/engines", bunx: BUNX, inventory: inv },
+      { secretExec: foundSecret },
+    );
+    try {
+      await inv.refresh(catalog);
+      const menu = await door.fetch(new Request(`http://127.0.0.1:${DOOR_PORT}/openai/v1/models`));
+      expect(menu.status).toBe(200);
+      const body = (await menu.json()) as { data: ModelRow[] };
+      const ids = body.data.map((r) => r.id);
+      expect(ids).toContain("@/openrouter/org%2Fmodel:free");
+      expect(ids).toContain("@/openrouter/north-mini-code:free");
+      expect(
+        ids.filter((id) => id.includes("north-mini-code") || id.includes("cohere")),
+      ).toHaveLength(1);
+      expect(ids).not.toContain("@/openrouter/*");
+
+      const chat = await door.fetch(
+        new Request(`http://127.0.0.1:${DOOR_PORT}/openai/v1/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "@/openrouter/org%2Fmodel:free",
+            messages: [{ role: "user", content: "hi" }],
+          }),
+        }),
+      );
+      expect(chat.status).toBe(200);
+      expect(recorded[0]?.model).toBe("org/model:free");
+    } finally {
+      fake.stop();
+      await door.registry.shutdown();
+    }
   });
 });

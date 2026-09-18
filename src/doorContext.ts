@@ -33,6 +33,8 @@ export interface DoorOptions {
   secretExec?: SecretExec;
   /** Defaults to the real `process.env`; a test overrides it so a planted ambient secret has somewhere deterministic to not leak from. */
   agenticAmbientEnv?: NodeJS.ProcessEnv;
+  /** Defaults to the real `fetch`; a test overrides it so catalog refresh never dials a provider. */
+  inventoryHttpClient?: HttpClient;
 }
 
 /**

@@ -7,8 +7,9 @@
 import type { HopResult } from "./chain.ts";
 import type { Exec as SecretExec } from "./exec.ts";
 import { jsonErrorBody, STATUS_BAD_GATEWAY } from "./http.ts";
+import { decodeAddressSegment } from "./inventory.ts";
 import type { Config, Upstream } from "./types.ts";
-import { routeForHop } from "./types.ts";
+import { routeForHop, WILDCARD_MODEL } from "./types.ts";
 import { noBaseUrlFix, resolveUpstreamSecret } from "./upstream.ts";
 
 /**
@@ -90,11 +91,14 @@ export function resolveUpstreamModelId(
   modelSeg: string,
   upstream?: string,
 ): string | undefined {
-  if (modelSeg === "") {
+  if (modelSeg === "" || modelSeg === WILDCARD_MODEL) {
     return;
   }
   const route = routeForHop(config.routes, engineId, modelSeg, upstream);
-  return route?.wire_model ?? route?.model ?? modelSeg;
+  if (route !== undefined) {
+    return route.wire_model ?? route.model;
+  }
+  return decodeAddressSegment(modelSeg);
 }
 
 type RedirectResolution =

@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { resolveModel } from "./dispatch.ts";
+import { join } from "node:path";
+import { expandWildcardRoutes, resolveModel } from "./dispatch.ts";
 import { EngineRegistry } from "./engines.ts";
-import { BUNX, config, ENGINES_ROOT, engine, route } from "./test-support.ts";
+import type { Exec as SecretExec } from "./exec.ts";
+import { Inventory } from "./inventory.ts";
+import {
+  BUNX,
+  upstream as catalogUpstreamRow,
+  config,
+  ENGINES_ROOT,
+  engine,
+  makeTestRoot,
+  route,
+} from "./test-support.ts";
 import type { Config, EngineEntry, Role } from "./types.ts";
 import {
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
@@ -445,5 +456,114 @@ describe("routeForHop", () => {
 
   test("a hop whose only route is disabled resolves to nothing", () => {
     expect(routeForHop([AMBIENT_OFF], "e", "m")).toBeUndefined();
+  });
+});
+
+const DISPATCH_ROOT = makeTestRoot("engined-dispatch-wild-");
+const foundSecret: SecretExec = async () => ({
+  stdout: "sk-test\n",
+  stderr: "",
+  exitCode: 0,
+});
+
+async function catalogInventory(ids: string[]): Promise<{
+  inv: Inventory;
+  cfg: Config;
+}> {
+  const catalog = catalogUpstreamRow({
+    id: "openrouter",
+    base_url: "https://example.invalid/v1",
+    secret: { service: "s", username: "u", header: "authorization", scheme: "Bearer" },
+    egress: "remote",
+    inventory_max_age_seconds: 86_400,
+  });
+  const inv = new Inventory({
+    secretExec: foundSecret,
+    stateRoot: join(DISPATCH_ROOT, `inv-${ids.join(",") || "empty"}`),
+    fetch: async () =>
+      Response.json({ object: "list", data: ids.map((id) => ({ id, object: "model" })) }),
+  });
+  await inv.refresh(catalog);
+  const cfg = config({
+    engines: [remoteOpenaiHttp("openrouter")],
+    upstreams: [catalog],
+    routes: [
+      route({
+        engine: "openrouter",
+        model: "*",
+        upstream: "openrouter",
+      }),
+      route({
+        engine: "openrouter",
+        model: "north-mini-code:free",
+        wire_model: "cohere/north-mini-code:free",
+        upstream: "openrouter",
+      }),
+    ],
+  });
+  return { inv, cfg };
+}
+
+function registryWith(cfg: Config, inv: Inventory): EngineRegistry {
+  return new EngineRegistry(cfg, { enginesRoot: "/nonexistent", bunx: BUNX, inventory: inv });
+}
+
+describe("wildcard catalog dispatch", () => {
+  test("@/engine/* is not a served address", async () => {
+    const { inv, cfg } = await catalogInventory(["org/model:free"]);
+    const result = resolveModel("@/openrouter/*", CHAT, cfg, registryWith(cfg, inv));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/wildcard sentinel/);
+  });
+
+  test("empty inventory 400s an undeclared catalog id", async () => {
+    const { inv, cfg } = await catalogInventory([]);
+    const result = resolveModel("@/openrouter/org%2Fmodel:free", CHAT, cfg, registryWith(cfg, inv));
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/does not exist/);
+  });
+
+  test("an inventoried slash-bearing id resolves to a synthesized route with wire_model", async () => {
+    const { inv, cfg } = await catalogInventory(["org/model:free"]);
+    const result = resolveModel("@/openrouter/org%2Fmodel:free", CHAT, cfg, registryWith(cfg, inv));
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "model") {
+      return;
+    }
+    expect(result.route.model).toBe("org%2Fmodel:free");
+    expect(result.route.wire_model).toBe("org/model:free");
+    expect(result.route.engine).toBe("openrouter");
+  });
+
+  test("the declared alias still wins over the same wire id", async () => {
+    const { inv, cfg } = await catalogInventory(["cohere/north-mini-code:free", "org/model:free"]);
+    const result = resolveModel(
+      "@/openrouter/north-mini-code:free",
+      CHAT,
+      cfg,
+      registryWith(cfg, inv),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "model") {
+      return;
+    }
+    expect(result.route.wire_model).toBe("cohere/north-mini-code:free");
+    const expanded = expandWildcardRoutes(cfg, inv).map((r) => r.wire_model);
+    expect(expanded).toEqual(["org/model:free"]);
+  });
+
+  test("a three-segment hop onto an inventoried id also resolves", async () => {
+    const { inv, cfg } = await catalogInventory(["org/model:free"]);
+    const result = resolveModel(
+      "@/openrouter/openrouter/org%2Fmodel:free",
+      CHAT,
+      cfg,
+      registryWith(cfg, inv),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "model") {
+      return;
+    }
+    expect(result.route.wire_model).toBe("org/model:free");
   });
 });
