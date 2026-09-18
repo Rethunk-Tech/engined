@@ -30,6 +30,7 @@ import {
   type ResolvedRoute,
   routeServes,
   type Upstream,
+  WILDCARD_MODEL,
 } from "./types.ts";
 
 /**
@@ -190,6 +191,28 @@ function checkLocalFileDisposition(
 }
 
 /**
+ * Kind is not known until the spec loads. A wildcard is only legal on remote
+ * openai-http: llama, media and agentic have no provider catalog to expand.
+ */
+function checkWildcardRouteKind(
+  engine: EngineEntry,
+  kind: EngineKind,
+  routes: readonly ResolvedRoute[],
+): void {
+  for (const r of routes) {
+    if (r.engine !== engine.id || r.model !== WILDCARD_MODEL) {
+      continue;
+    }
+    const site = `route on engine "${engine.id}" model "${WILDCARD_MODEL}"`;
+    if (kind !== "openai-http" || engine.models_dir !== undefined) {
+      throw new FatalError(
+        `${site} is a wildcard and only a remote openai-http engine may carry one`,
+      );
+    }
+  }
+}
+
+/**
  * Which shape an agentic-cli engine's own process speaks comes from its
  * agent, never from config -- and the agent id comes from the spec
  * (`AgenticSpec.agent` -> `agentCli`), so this can only run once specs have
@@ -310,6 +333,7 @@ export function buildEntries(
     // start or route to cannot be the reason the daemon will not come up.
     if (!engine.disabled) {
       checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
+      checkWildcardRouteKind(engine, spec.spec.kind, config.routes);
       checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
       checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
       checkCapabilityServed(engine, spec.spec, config.routes);

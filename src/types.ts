@@ -13,6 +13,12 @@ import { STATUS_NOT_FOUND } from "./http.ts";
 export type Role = "chat" | "vision" | "embedding" | "rerank";
 
 /**
+ * `[[route]] model` sentinel that expands from a remote provider catalog.
+ * It is never a served address: `@/engine/*` is a 400, not a dispatchable id.
+ */
+export const WILDCARD_MODEL = "*";
+
+/**
  * What a vision route's model actually does with an image, which `role` does
  * not say: `describe` reads a scene back in prose, `read` recognises the
  * characters printed in it. Both take an image and answer in text, so nothing
@@ -270,6 +276,17 @@ export interface Upstream {
   egress: Egress;
   wire?: Wire;
   disabled?: boolean;
+  /**
+   * How long a cached `/models` list remains usable. Required when a wildcard
+   * route names this upstream: a failed fetch otherwise has no age at which
+   * to drop the file.
+   */
+  inventory_max_age_seconds?: number;
+  /**
+   * How often to re-fetch the catalog. Absent means 3600 seconds. Must be
+   * less than max age when both are set.
+   */
+  inventory_refresh_seconds?: number;
 }
 
 /**

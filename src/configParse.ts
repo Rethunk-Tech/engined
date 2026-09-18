@@ -44,7 +44,18 @@ export const ENGINE_KEYS = new Set([
   "kind",
   "args",
 ]);
-export const UPSTREAM_KEYS = new Set(["id", "base_url", "secret", "egress", "wire", "disable"]);
+export const UPSTREAM_KEYS = new Set([
+  "id",
+  "base_url",
+  "secret",
+  "egress",
+  "wire",
+  "disable",
+  "inventory_max_age_seconds",
+  "inventory_refresh_seconds",
+]);
+/** Re-fetch interval when an upstream omits `inventory_refresh_seconds`. */
+export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600;
 export const SECRET_KEYS = new Set(["service", "username", "header", "scheme"]);
 export const MODEL_KEYS = new Set([
   "id",

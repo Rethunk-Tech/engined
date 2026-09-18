@@ -28,6 +28,7 @@ import {
 } from "./configParse.ts";
 import {
   checkModellessMixing,
+  engineHasWildcard,
   parseRouteRaw,
   resolveRoute,
   type SpecFacts,
@@ -35,6 +36,7 @@ import {
   validateFilenameUnderModelsDir,
   validateKeepResident,
   validateModelsMax,
+  validateWildcardRoutes,
 } from "./configRoutes.ts";
 import { ParseError } from "./errors/parse.ts";
 import { configPath, installDir } from "./paths.ts";
@@ -56,6 +58,7 @@ import {
   isRecord,
   KIND_TRAITS,
   qualifiedSegments,
+  WILDCARD_MODEL,
 } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
@@ -158,6 +161,34 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   if (wireStr !== undefined && wireStr !== "openai" && wireStr !== "anthropic") {
     throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, file);
   }
+  const inventoryMaxAge = optional(
+    raw.inventory_max_age_seconds,
+    "number",
+    `${site} "inventory_max_age_seconds"`,
+    file,
+  );
+  if (inventoryMaxAge !== undefined && inventoryMaxAge <= 0) {
+    throw new ParseError(`${site} "inventory_max_age_seconds" must be greater than 0`, file);
+  }
+  const inventoryRefresh = optional(
+    raw.inventory_refresh_seconds,
+    "number",
+    `${site} "inventory_refresh_seconds"`,
+    file,
+  );
+  if (inventoryRefresh !== undefined && inventoryRefresh <= 0) {
+    throw new ParseError(`${site} "inventory_refresh_seconds" must be greater than 0`, file);
+  }
+  if (
+    inventoryMaxAge !== undefined &&
+    inventoryRefresh !== undefined &&
+    inventoryRefresh >= inventoryMaxAge
+  ) {
+    throw new ParseError(
+      `${site} "inventory_refresh_seconds" must be less than "inventory_max_age_seconds"`,
+      file,
+    );
+  }
   return {
     id,
     base_url: optional(raw.base_url, "string", `${site} "base_url"`, file),
@@ -165,6 +196,8 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
     egress,
     wire: wireStr as Wire | undefined,
     disabled: parseDisable(raw, site, file),
+    inventory_max_age_seconds: inventoryMaxAge,
+    inventory_refresh_seconds: inventoryRefresh,
   };
 }
 
@@ -221,9 +254,15 @@ function parseChainHops({
     }
     // `local` is a real upstream id, never an engine one: a hop names an
     // engine by its actual id, same as every other address form.
-    const { engine: engineId, model } = parseHop(hop);
+    const { engine: engineId, model, upstream } = parseHop(hop);
     if (!engines.some((e) => e.id === engineId)) {
       throw new ParseError(`chain hop "${hop}": engine "${engineId}" does not exist`, file);
+    }
+    if (model === WILDCARD_MODEL) {
+      throw new ParseError(
+        `chain "${name}"[${i}] "${hop}": "${WILDCARD_MODEL}" is the wildcard sentinel, not a served address`,
+        file,
+      );
     }
     const { candidates: declared, modelless } = chainHopRoutes(routes, hop);
     const route = routeForChainHop(routes, hop);
@@ -234,6 +273,13 @@ function parseChainHops({
       // or resolves to nothing served for any other reason, is still a parse
       // error.
       if (declared.length > 0 && declared.every((r) => r.disabled === true)) {
+        continue;
+      }
+      // Inventory is empty at boot: a hop onto a catalog id the operator has
+      // not declared still parses when this engine+upstream carries a wildcard.
+      // Dispatch refuses until the cache contains that wire id.
+      if (!modelless && engineHasWildcard(routes, engineId, upstream)) {
+        kept.push(hop);
         continue;
       }
       throw new ParseError(
@@ -336,6 +382,7 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   );
 
   checkModellessMixing(routes, file);
+  validateWildcardRoutes({ routes, engines: engineMap, upstreams: upstreamMap, traitFor, file });
   validateFilenameUnderModelsDir(routes, engineMap, file);
   validateKeepResident(engines, routes, file);
   validateModelsMax(engines, routes, file);

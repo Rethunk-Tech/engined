@@ -1381,3 +1381,237 @@ keep_resident = true
 `;
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_PINNED_NO_ROLE);
 });
+
+const RX_WILDCARD_REMOTE_ONLY = /is a wildcard and only a remote openai-http engine may carry one/;
+const RX_WILDCARD_MUST_NOT = /is a wildcard route and must not declare/;
+const RX_WILDCARD_MISSING_MAX_AGE =
+  /named by a wildcard route and is missing required "inventory_max_age_seconds"/;
+const RX_INVENTORY_MAX_AGE_POSITIVE = /"inventory_max_age_seconds" must be greater than 0/;
+const RX_INVENTORY_REFRESH_POSITIVE = /"inventory_refresh_seconds" must be greater than 0/;
+const RX_INVENTORY_REFRESH_LT_MAX =
+  /"inventory_refresh_seconds" must be less than "inventory_max_age_seconds"/;
+const RX_WILDCARD_SENTINEL_HOP = /wildcard sentinel, not a served address/;
+const RX_UNRECOGNISED_INVENTORY_KEY = /unrecognised key "inventory_max_age_second"/;
+
+function remoteCatalog({
+  maxAge = 86_400,
+  extraUpstream = "",
+  extraRoute = "",
+}: {
+  maxAge?: number | false;
+  extraUpstream?: string;
+  extraRoute?: string;
+} = {}): string {
+  const maxAgeLine = maxAge === false ? "" : `inventory_max_age_seconds = ${maxAge}`;
+  return `
+[[upstream]]
+id = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+egress = "remote"
+${maxAgeLine}
+${extraUpstream}
+
+[[engine]]
+id = "openrouter"
+kind = "openai-http"
+
+[[route]]
+engine = "openrouter"
+upstream = "openrouter"
+model = "*"
+${extraRoute}
+`;
+}
+
+describe("wildcard remote catalog routes", () => {
+  test('model = "*" parses on a remote openai-http engine and keeps inventory age keys', () => {
+    const cfg = loadConfig(
+      writeConfig(remoteCatalog({ extraUpstream: "inventory_refresh_seconds = 3600" })),
+    );
+    expect(cfg.routes).toEqual([
+      expect.objectContaining({
+        engine: "openrouter",
+        model: "*",
+        upstream: "openrouter",
+        wire_model: undefined,
+      }),
+    ]);
+    expect(cfg.upstreams[0]).toEqual(
+      expect.objectContaining({
+        id: "openrouter",
+        inventory_max_age_seconds: 86_400,
+        inventory_refresh_seconds: 3600,
+      }),
+    );
+  });
+
+  test("an explicit alias and a wildcard on the same engine+upstream both parse", () => {
+    const cfg = loadConfig(
+      writeConfig(`${remoteCatalog()}
+[[route]]
+engine = "openrouter"
+upstream = "openrouter"
+model = "north-mini-code:free"
+wire_model = "cohere/north-mini-code:free"
+`),
+    );
+    const models = cfg.routes.map((r) => r.model);
+    expect(models).toContain("*");
+    expect(models).toContain("north-mini-code:free");
+    expect(models).toHaveLength(2);
+  });
+
+  test("a chain hop naming an undeclared model on a wildcard engine+upstream parses", () => {
+    const cfg = loadConfig(
+      writeConfig(`${remoteCatalog()}
+[[chain]]
+id = "c"
+hops = ["@/openrouter/org%2Fmodel:free"]
+`),
+    );
+    expect(cfg.chains.c).toEqual(["@/openrouter/org%2Fmodel:free"]);
+  });
+
+  test("a three-segment hop onto a catalog id the wildcard covers also parses", () => {
+    const cfg = loadConfig(
+      writeConfig(`${remoteCatalog()}
+[[chain]]
+id = "c"
+hops = ["@/openrouter/openrouter/org%2Fmodel:free"]
+`),
+    );
+    expect(cfg.chains.c).toEqual(["@/openrouter/openrouter/org%2Fmodel:free"]);
+  });
+
+  test("a chain hop naming the wildcard sentinel is refused", () => {
+    expect(() =>
+      loadConfig(
+        writeConfig(`${remoteCatalog()}
+[[chain]]
+id = "c"
+hops = ["@/openrouter/*"]
+`),
+      ),
+    ).toThrow(RX_WILDCARD_SENTINEL_HOP);
+  });
+
+  test("an undeclared model on an engine with no wildcard is still a parse error", () => {
+    const message = parseMessage(
+      `${llamaEngineAndRoute()}
+[[chain]]
+id = "c"
+hops = ["@/local-llama/nope"]
+`,
+    );
+    expect(message).toMatch(RX_UNKNOWN_MODEL);
+  });
+
+  test("a wildcard naming an upstream without inventory_max_age_seconds is a parse error", () => {
+    const toml = `
+[[upstream]]
+id = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+egress = "remote"
+
+[[engine]]
+id = "openrouter"
+kind = "openai-http"
+
+[[route]]
+engine = "openrouter"
+upstream = "openrouter"
+model = "*"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_WILDCARD_MISSING_MAX_AGE);
+  });
+
+  test("inventory_max_age_seconds <= 0 is a parse error", () => {
+    expect(() => loadConfig(writeConfig(remoteCatalog({ maxAge: 0 })))).toThrow(
+      RX_INVENTORY_MAX_AGE_POSITIVE,
+    );
+  });
+
+  test("inventory_refresh_seconds <= 0 is a parse error", () => {
+    expect(() =>
+      loadConfig(writeConfig(remoteCatalog({ extraUpstream: "inventory_refresh_seconds = 0" }))),
+    ).toThrow(RX_INVENTORY_REFRESH_POSITIVE);
+  });
+
+  test("inventory_refresh_seconds >= max age is a parse error, including the 3600 default", () => {
+    expect(() =>
+      loadConfig(
+        writeConfig(remoteCatalog({ extraUpstream: "inventory_refresh_seconds = 86400" })),
+      ),
+    ).toThrow(RX_INVENTORY_REFRESH_LT_MAX);
+    expect(() => loadConfig(writeConfig(remoteCatalog({ maxAge: 3600 })))).toThrow(
+      RX_INVENTORY_REFRESH_LT_MAX,
+    );
+  });
+
+  test("a typo'd inventory key is still an unrecognised key", () => {
+    expect(() =>
+      loadConfig(writeConfig(remoteCatalog({ extraUpstream: "inventory_max_age_second = 86400" }))),
+    ).toThrow(RX_UNRECOGNISED_INVENTORY_KEY);
+  });
+
+  const FORBIDDEN_ON_WILDCARD: [string, string][] = [
+    ["filename", 'filename = "x.gguf"'],
+    ["role", 'role = "chat"'],
+    ["vision", 'vision = "describe"'],
+    ["translate", "translate = true"],
+    ["keep_resident", "keep_resident = true"],
+    ["wire_model", 'wire_model = "org/model"'],
+    ["args", "[route.args]\ntemperature = 0.2"],
+  ];
+
+  test.each(FORBIDDEN_ON_WILDCARD)("a wildcard must not declare %s", (_key, stanza) => {
+    expect(() => loadConfig(writeConfig(remoteCatalog({ extraRoute: stanza })))).toThrow(
+      RX_WILDCARD_MUST_NOT,
+    );
+  });
+
+  test("a llama-shaped engine (models_dir) may not carry a wildcard", () => {
+    const dir = tempModelsDir("ornith.gguf");
+    const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${dir}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "*"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_WILDCARD_REMOTE_ONLY);
+  });
+
+  test("an agentic engine may not carry a wildcard", () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "*"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_WILDCARD_REMOTE_ONLY);
+  });
+
+  test("a media engine may not carry a wildcard", () => {
+    const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "piper"
+kind = "tts"
+
+[[route]]
+engine = "piper"
+upstream = "local"
+model = "*"
+`;
+    expect(() => loadConfig(writeConfig(toml))).toThrow(RX_WILDCARD_REMOTE_ONLY);
+  });
+});

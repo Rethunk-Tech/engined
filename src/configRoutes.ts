@@ -10,6 +10,7 @@ import { join, sep as pathSep, resolve as resolvePath } from "node:path";
 
 import {
   asArgs,
+  DEFAULT_INVENTORY_REFRESH_SECONDS,
   expandConfigPath,
   mergeCapabilities,
   optional,
@@ -32,7 +33,13 @@ import type {
   UpstreamTrait,
   VisionKind,
 } from "./types.ts";
-import { argKeysAsFlags, assertNoForbiddenFlags, isRecord, KIND_TRAITS } from "./types.ts";
+import {
+  argKeysAsFlags,
+  assertNoForbiddenFlags,
+  isRecord,
+  KIND_TRAITS,
+  WILDCARD_MODEL,
+} from "./types.ts";
 
 /** A route's shape before its `upstream` is defaulted -- that needs every other route on the same engine, which is not known until all of them have been parsed once. */
 export interface RawRoute {
@@ -71,6 +78,23 @@ export function parseRouteRaw(
       `${site} has a "model" containing "/", which an address segment cannot express; give it a slash-free "model" and put the id its upstream actually knows in "wire_model"`,
       file,
     );
+  }
+  if (modelStr === WILDCARD_MODEL) {
+    // A catalog expansion is not one model: local-file keys, a wire alias,
+    // and per-route args would describe a SKU the operator has not named.
+    for (const key of [
+      "filename",
+      "role",
+      "vision",
+      "translate",
+      "keep_resident",
+      "wire_model",
+      "args",
+    ] as const) {
+      if (raw[key] !== undefined) {
+        throw new ParseError(`${site} is a wildcard route and must not declare "${key}"`, file);
+      }
+    }
   }
   const wireModel = optional(raw.wire_model, "string", `${site} "wire_model"`, file);
   const rawFilename = optional(raw.filename, "string", `${site} "filename"`, file);
@@ -419,6 +443,77 @@ export function validateModelsMax(
     if (e.models_max < roles.size) {
       throw new ParseError(
         `engine "${e.id}" "models_max" ${e.models_max} is below its ${roles.size} distinct configured roles`,
+        file,
+      );
+    }
+  }
+}
+
+/** Whether this engine (and, when given, this upstream) carries an enabled catalog wildcard. */
+export function engineHasWildcard(
+  routes: readonly ResolvedRoute[],
+  engineId: string,
+  upstream?: string,
+): boolean {
+  return routes.some(
+    (r) =>
+      r.engine === engineId &&
+      r.model === WILDCARD_MODEL &&
+      r.disabled !== true &&
+      (upstream === undefined || r.upstream === upstream),
+  );
+}
+
+/**
+ * A wildcard is a remote openai-http catalog, not a local store or another
+ * kind: llama, media and agentic have no provider `/models` list to expand.
+ * Max age is required on every upstream a wildcard names -- without it a
+ * failed fetch has no bound at which to drop the cache.
+ */
+export function validateWildcardRoutes({
+  routes,
+  engines,
+  upstreams,
+  traitFor,
+  file,
+}: {
+  routes: readonly ResolvedRoute[];
+  engines: Map<string, EngineEntry>;
+  upstreams: Map<string, Upstream>;
+  traitFor: (engine: EngineEntry) => SpecFacts;
+  file: string;
+}): void {
+  const named = new Set<string>();
+  for (const r of routes) {
+    if (r.model !== WILDCARD_MODEL) {
+      continue;
+    }
+    const engine = engines.get(r.engine) as EngineEntry;
+    const kind = engine.kind ?? traitFor(engine).kind;
+    const site = `route on engine "${r.engine}" model "${WILDCARD_MODEL}"`;
+    if (engine.models_dir !== undefined || kind !== "openai-http") {
+      throw new ParseError(
+        `${site} is a wildcard and only a remote openai-http engine may carry one`,
+        file,
+      );
+    }
+    if (r.upstream === null) {
+      throw new ParseError(`${site} is a wildcard and must name an upstream`, file);
+    }
+    named.add(r.upstream);
+  }
+  for (const id of named) {
+    const u = upstreams.get(id);
+    if (u?.inventory_max_age_seconds === undefined) {
+      throw new ParseError(
+        `upstream "${id}" is named by a wildcard route and is missing required "inventory_max_age_seconds"`,
+        file,
+      );
+    }
+    const refresh = u.inventory_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS;
+    if (refresh >= u.inventory_max_age_seconds) {
+      throw new ParseError(
+        `upstream "${id}" "inventory_refresh_seconds" must be less than "inventory_max_age_seconds"`,
         file,
       );
     }
