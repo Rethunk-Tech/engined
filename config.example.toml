@@ -24,13 +24,13 @@
 # pairing: filename, role, keep_resident, args. A [[chain]] is an ordered
 # fallback list of route addresses. None of the four owns another.
 
-listen_port = 29200         # IANA-unassigned.
-chat_timeout_seconds = 1200 # covers a cold load of a 25 GB-class GGUF plus prefill.
-# 600 was sized for a 32768 window; measured prefill at the
-# wider window is 153s for 100k tokens and degrades with
-# depth (1291 t/s at 3.5k, 654 at 100k), so a full-window
-# request plus generation can approach the old ceiling.
-agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, not seconds.
+listen_port           = 29200 # IANA-unassigned.
+chat_timeout_seconds  = 1200  # covers a cold load of a 25 GB-class GGUF plus prefill.
+                              # 600 was sized for a 32768 window; measured prefill at the
+                              # wider window is 153s for 100k tokens and degrades with
+                              # depth (1291 t/s at 3.5k, 654 at 100k), so a full-window
+                              # request plus generation can approach the old ceiling.
+agent_timeout_seconds = 3600  # an agentic CLI reading a repo runs in minutes, not seconds.
 
 # `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]
 # takes it out of service without deleting it. A disabled engine stays
@@ -52,34 +52,34 @@ agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, no
 # Reserved: this box. Every route that runs here names it explicitly, and the
 # id refuses `base_url` or `secret` so it can never be pointed off-machine.
 [[upstream]]
-id = "local"
+id     = "local"
 egress = "none"
 
 # Moonshot serves an Anthropic-shaped endpoint, so an agentic engine built for
 # Claude can be pointed at it with no protocol change. `wire = "anthropic"` is
 # the whole reason the route pairing below works.
 [[upstream]]
-id = "moonshot"
+id       = "moonshot"
 base_url = "https://api.kimi.com/coding/"
-secret = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
-egress = "remote"
-wire = "anthropic"
+secret   = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
+egress   = "remote"
+wire     = "anthropic"
 
 #   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 [[upstream]]
-id = "elevenlabs"
+id       = "elevenlabs"
 base_url = "https://api.elevenlabs.io/v1"
-secret = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key" }
-egress = "remote"
+secret   = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key" }
+egress   = "remote"
 
 # Reports unavailable, naming its own fix, until:
 #   secret-tool store --label='openai-api' service openai-api username default
 [[upstream]]
-id = "openai"
+id       = "openai"
 base_url = "https://api.openai.com/v1"
-secret = { service = "openai-api", username = "default", header = "authorization", scheme = "Bearer" }
-egress = "remote"
-wire = "openai"
+secret   = { service = "openai-api", username = "default", header = "authorization", scheme = "Bearer" }
+egress   = "remote"
+wire     = "openai"
 
 # OpenRouter serves both wire shapes from one account: an OpenAI-shaped API
 # at /api/v1, and an Anthropic-compatible gateway at /api that a Claude CLI
@@ -87,24 +87,24 @@ wire = "openai"
 # the OpenAI-shaped one proven live end to end below; the Anthropic gateway
 # stays off until a route through it gets the same proof, on a separate path.
 [[upstream]]
-id = "openrouter"
+id       = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
-secret = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
-egress = "remote"
-wire = "openai"
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
+egress   = "remote"
+wire     = "openai"
 # A wildcard route names this upstream, so max age is required: a failed
 # fetch otherwise has no bound at which to drop the cached /models list.
-inventory_max_age_seconds = 86400
-inventory_refresh_seconds = 3600
+inventory_max_age_seconds    = 86400
+inventory_refresh_seconds    = 3600
 
 # No trailing /v1 -- the claude CLI appends /v1/messages itself.
 [[upstream]]
-id = "openrouter-anthropic"
-disable = true
+id       = "openrouter-anthropic"
+disable  = true
 base_url = "https://openrouter.ai/api"
-secret = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
-egress = "remote"
-wire = "anthropic"
+secret   = { service = "openrouter-api", username = "claude-code", header = "authorization", scheme = "Bearer" }
+egress   = "remote"
+wire     = "anthropic"
 
 # ---------------------------------------------------------------------------
 # llama: the one local openai-http engine, router mode over llama.cpp.
@@ -114,109 +114,109 @@ wire = "anthropic"
 # repo. What's in THIS file is only what one install differs from another by
 # -- image, devices and the container command live in the spec, not here.
 [[engine]]
-id = "llama"
+id                = "llama"
 # engined expands the tilde to an absolute path for the bind mount, routing
 # `~/.local/share/` through the same XDG_DATA_HOME-aware base its own install
 # directory uses -- so this tree stays that directory's sibling, never inside
 # it, even when XDG_DATA_HOME overrides where both live. install.sh syncs the
 # install directory from the repo, and a sync must never be able to reach
 # real model weights.
-models_dir = "~/.local/share/engined-models/llm"
+models_dir        = "~/.local/share/engined-models/llm"
 # One per occupied role (chat, vision, embedding, rerank below) -- first-class
 # because occupancy is engined's job, not llama.cpp's, and this is fatal at
 # parse if it drops below the number of distinct roles actually configured.
 # Below that floor, eviction silently reverts to llama's own cross-role LRU.
-models_max = 4
-ready_timeout_s = 180
+models_max        = 4
+ready_timeout_s   = 180
 idle_stop_seconds = 900
 
-# llama-server's own process flags. Whatever isn't first-class above lands
-# here untouched; a route's own [route.args] wins over the same key.
-[engine.args]
-parallel = -1 # llama.cpp's auto: 4 slots sharing ONE unified ctx pool,
-# not 4 windows of ctx-size. Fine as an engine-level
-# default for the small roles -- the door admits against
-# that same slot count without the child having to split
-# its pool. ornith overrides it below to buy real
-# context. Full reasoning: spec.toml.
-ctx-size = 32768      # floor for any route whose own [route.args] omits it.
-cache-type-k = "q8_0"
-cache-type-v = "q8_0"
-# --no-models-autoload is NOT a config knob: router mode + per-role
-# occupancy is what this engine kind IS, and it's structural in the spec.
+  # llama-server's own process flags. Whatever isn't first-class above lands
+  # here untouched; a route's own [route.args] wins over the same key.
+  [engine.args]
+  parallel     = -1      # llama.cpp's auto: 4 slots sharing ONE unified ctx pool,
+                          # not 4 windows of ctx-size. Fine as an engine-level
+                          # default for the small roles -- the door admits against
+                          # that same slot count without the child having to split
+                          # its pool. ornith overrides it below to buy real
+                          # context. Full reasoning: spec.toml.
+  ctx-size     = 32768    # floor for any route whose own [route.args] omits it.
+  cache-type-k = "q8_0"
+  cache-type-v = "q8_0"
+  # --no-models-autoload is NOT a config knob: router mode + per-role
+  # occupancy is what this engine kind IS, and it's structural in the spec.
 
 # `upstream` is `local` here since this engine only ever serves this box's
 # own llama.cpp. `filename` must sit under the engine's models_dir and must
 # actually exist on disk; both are checked at parse, not deferred to a 400 on
 # first request.
 [[route]]
-engine = "llama"
+engine   = "llama"
 upstream = "local"
-model = "ornith"
+model    = "ornith"
 filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
-role = "chat"                                                         # chat | vision | embedding | rerank. Required: occupancy is one
-# resident GGUF per role, so without a role models_max is
-# just an arbitrary number with nothing to enforce.
+role     = "chat"  # chat | vision | embedding | rerank. Required: occupancy is one
+                    # resident GGUF per role, so without a role models_max is
+                    # just an arbitrary number with nothing to enforce.
 # keep_resident = true   # Load at engine start and reload whenever this role
-# falls idle. A different model on this role still
-# wins the swap -- this only decides what the role
-# returns to. Pins the container up too, since
-# idle-stop stops the container rather than a model,
-# so the engine's share of the pool is never returned.
+                         # falls idle. A different model on this role still
+                         # wins the swap -- this only decides what the role
+                         # returns to. Pins the container up too, since
+                         # idle-stop stops the container rather than a model,
+                         # so the engine's share of the pool is never returned.
 
-# A route's [route.args] section is the rendered llama-server preset INI
-# for that route, passed through verbatim -- the channel proven to reach
-# argv (POST /models/load's own args array is not). Omit spec-* entirely
-# on a headless (non-draft) GGUF: naming them there is llama-server exiting
-# 1 at load, and that failure isn't checkable at config parse time.
-[route.args]
-# Every chat route wants this. Without it llama-server does not use the
-# GGUF's own chat template, so its native tool-call parser is not the one in
-# play and the model's own call format -- Qwen's `<tool_call>` block, for one
-# -- can reach the client as ordinary content instead of as `tool_calls`.
-# A consumer then has a call it cannot see; a voice front-end reads the tags
-# out loud. `chat_template_kwargs` (enable_thinking) is only honoured under
-# it too. Verified in the child's argv, the same way `embedding` below was.
-jinja = true
-# Which backend this route runs on. The image carries Vulkan and ROCm, and
-# a route naming neither gets whichever ggml ranks first -- on this box that
-# silently costs a MoE chat model around 15 t/s of decode, and a route
-# carrying a Prism ternary GGUF has no Vulkan kernels to run on at all.
-device = "Vulkan0"
-spec-type = "draft-mtp"
-spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
-spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
-# acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
-# 22.30 at n=16. Those are 32-token BURST figures --
-# acceptance decays with length, so sustained is ~54 t/s.
-# Full reasoning: engines/llama/spec.toml.
-# 262144 split across 2 slots = two independent 131072 windows. -np 2 halves
-# ctx-size per slot, which is the lever that buys them; 262144 is also this
-# model's n_ctx_train, so no RoPE scaling is involved. Costs ~5.1 GiB of q8_0
-# KV (27.20 GiB loaded against a 23.13 GiB GGUF). Two ornith requests then run
-# concurrently and a third queues.
-ctx-size = 262144
-parallel = 2
+  # A route's [route.args] section is the rendered llama-server preset INI
+  # for that route, passed through verbatim -- the channel proven to reach
+  # argv (POST /models/load's own args array is not). Omit spec-* entirely
+  # on a headless (non-draft) GGUF: naming them there is llama-server exiting
+  # 1 at load, and that failure isn't checkable at config parse time.
+  [route.args]
+  # Every chat route wants this. Without it llama-server does not use the
+  # GGUF's own chat template, so its native tool-call parser is not the one in
+  # play and the model's own call format -- Qwen's `<tool_call>` block, for one
+  # -- can reach the client as ordinary content instead of as `tool_calls`.
+  # A consumer then has a call it cannot see; a voice front-end reads the tags
+  # out loud. `chat_template_kwargs` (enable_thinking) is only honoured under
+  # it too. Verified in the child's argv, the same way `embedding` below was.
+  jinja            = true
+  # Which backend this route runs on. The image carries Vulkan and ROCm, and
+  # a route naming neither gets whichever ggml ranks first -- on this box that
+  # silently costs a MoE chat model around 15 t/s of decode, and a route
+  # carrying a Prism ternary GGUF has no Vulkan kernels to run on at all.
+  device           = "Vulkan0"
+  spec-type        = "draft-mtp"
+  spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
+  spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
+                           # acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
+                           # 22.30 at n=16. Those are 32-token BURST figures --
+                           # acceptance decays with length, so sustained is ~54 t/s.
+                           # Full reasoning: engines/llama/spec.toml.
+  # 262144 split across 2 slots = two independent 131072 windows. -np 2 halves
+  # ctx-size per slot, which is the lever that buys them; 262144 is also this
+  # model's n_ctx_train, so no RoPE scaling is involved. Costs ~5.1 GiB of q8_0
+  # KV (27.20 GiB loaded against a 23.13 GiB GGUF). Two ornith requests then run
+  # concurrently and a third queues.
+  ctx-size         = 262144
+  parallel         = 2
 
 # Embeddings live under the same per-role occupancy as chat/vision. Picked
 # for native 32768 context -- a header that declares a shorter window needs
 # RoPE scaling to stretch, which is one more thing to get wrong.
 [[route]]
-engine = "llama"
+engine   = "llama"
 upstream = "local"
-model = "embed"
+model    = "embed"
 filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
-role = "embedding"
+role     = "embedding"
 
-# Without this the child launches without `--embeddings` and every
-# request 501s ("This server does not support embeddings. Start it with
-# --embeddings"). The preset INI key is `embedding`, not `embeddings` --
-# the CLI flag and the INI key are spelled differently. Confirmed live via
-# /proc/<pid>/cmdline on the embed child: this key renders as `--embeddings`
-# in its real argv, and a request through the door then returns a
-# 1024-length vector instead of 501.
-[route.args]
-embedding = true
+  # Without this the child launches without `--embeddings` and every
+  # request 501s ("This server does not support embeddings. Start it with
+  # --embeddings"). The preset INI key is `embedding`, not `embeddings` --
+  # the CLI flag and the INI key are spelled differently. Confirmed live via
+  # /proc/<pid>/cmdline on the embed child: this key renders as `--embeddings`
+  # in its real argv, and a request through the door then returns a
+  # 1024-length vector instead of 501.
+  [route.args]
+  embedding = true
 
 # Rerank: a second-stage scorer for retrieval. `role = "rerank"` answers
 # /openai/v1/rerank and nothing else, exactly as `embedding` answers only
@@ -228,26 +228,26 @@ embedding = true
 # into the array as sent, so the caller reorders its own list rather than
 # trusting a copy of the text to come back.
 [[route]]
-engine = "llama"
+engine   = "llama"
 upstream = "local"
-model = "rerank"
+model    = "rerank"
 filename = "prithivMLmods/Qwen3-Reranker-0.6B-seq-cls-GGUF/Qwen3-Reranker-0.6B-seq-cls.Q8_0.gguf"
-role = "rerank"
+role     = "rerank"
 
-# The same trap as `embedding` above, and measured with the control that
-# probe lacked: without this key the loaded child answers 501 ("This server
-# does not support reranking. Start it with `--reranking`"), with it the
-# endpoint scores correctly. The INI key is `rerank`; the CLI aliases are
-# `--rerank` and `--reranking`. Router mode does not autoload for this verb
-# the way it does for chat, which engined's own start handles.
-#
-# The `-seq-cls` conversion, not the plain one: llama.cpp reranks through a
-# sequence-classification head, which the stock Qwen3-Reranker export does
-# not carry. Measured on this file against the pinned build -- query "How do
-# I stop a container?" over three documents scored the docker one 0.907 and
-# the two irrelevant ones at 7.8e-11 and 4.9e-11.
-[route.args]
-rerank = true
+  # The same trap as `embedding` above, and measured with the control that
+  # probe lacked: without this key the loaded child answers 501 ("This server
+  # does not support reranking. Start it with `--reranking`"), with it the
+  # endpoint scores correctly. The INI key is `rerank`; the CLI aliases are
+  # `--rerank` and `--reranking`. Router mode does not autoload for this verb
+  # the way it does for chat, which engined's own start handles.
+  #
+  # The `-seq-cls` conversion, not the plain one: llama.cpp reranks through a
+  # sequence-classification head, which the stock Qwen3-Reranker export does
+  # not carry. Measured on this file against the pinned build -- query "How do
+  # I stop a container?" over three documents scored the docker one 0.907 and
+  # the two irrelevant ones at 7.8e-11 and 4.9e-11.
+  [route.args]
+  rerank = true
 
 # Vision: the GGUF and its mmproj both sit under models_dir, so the role is
 # registered like any other. mmproj is an ordinary [route.args] key, not
@@ -255,19 +255,19 @@ rerank = true
 # vision as working; a broken mmproj build can return the wrong content
 # silently rather than erroring.
 [[route]]
-engine = "llama"
+engine   = "llama"
 upstream = "local"
-model = "vision"
+model    = "vision"
 filename = "Qwen/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf"
-role = "vision"
-vision = "describe"                                                       # reads a scene back in prose; see the ocr route below
+role     = "vision"
+vision   = "describe"  # reads a scene back in prose; see the ocr route below
 
-[route.args]
-# Passed through verbatim, so this is the path as the CONTAINER sees it --
-# models_dir is bind-mounted at /models, and llama does not resolve
-# mmproj relative to the model file.
-mmproj = "/models/Qwen/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
-no-mmproj-offload = true                                                              # this GPU crashes llama-server on vision load without it.
+  [route.args]
+  # Passed through verbatim, so this is the path as the CONTAINER sees it --
+  # models_dir is bind-mounted at /models, and llama does not resolve
+  # mmproj relative to the model file.
+  mmproj            = "/models/Qwen/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+  no-mmproj-offload = true  # this GPU crashes llama-server on vision load without it.
 
 # A second vision role: PaddleOCR reads a non-memorizable test string back
 # character for character -- real OCR, not a captioned guess. Loads in ~1.2s
@@ -276,24 +276,24 @@ no-mmproj-offload = true                                                        
 # both ways, no crash either way; that flag on the route above is specific to
 # Qwen3-VL's vision load on this GPU, not a general vision-route requirement.
 [[route]]
-engine = "llama"
+engine   = "llama"
 upstream = "local"
-model = "ocr"
+model    = "ocr"
 filename = "PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF.gguf"
-role = "vision"
+role     = "vision"
 # What this model does with an image, which `role` does not say: it reads the
 # characters printed in one rather than describing a scene. Both kinds take an
 # image and answer in text, so this is the only thing that tells them apart --
 # and it is what decides which ground-truth check the vision probe sends here.
 # Asked to describe the two-colour image the describe check uses, this model
 # answers with degenerate repetition. Absent means "describe".
-vision = "read"
+vision   = "read"
 
-[route.args]
-# Passed through verbatim, so this is the path as the CONTAINER sees it --
-# models_dir is bind-mounted at /models, and llama does not resolve
-# mmproj relative to the model file.
-mmproj = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
+  [route.args]
+  # Passed through verbatim, so this is the path as the CONTAINER sees it --
+  # models_dir is bind-mounted at /models, and llama does not resolve
+  # mmproj relative to the model file.
+  mmproj = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
 
 # ---------------------------------------------------------------------------
 # Agentic engines: a CLI launched with writing structurally disabled, read
@@ -304,8 +304,8 @@ mmproj = "/models/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/PaddleOCR-VL-1.6-GGUF-mmpro
 # prepended by engined in code, never written here -- a file is a place it
 # could be removed from. Everything else about the invocation is yours.
 [[engine]]
-id = "claude"
-disable = true # sends every prompt to Anthropic; leave off until that's wanted.
+id            = "claude"
+disable       = true   # sends every prompt to Anthropic; leave off until that's wanted.
 # bunx fetches exactly this pin. Whatever you put here must be a version
 # YOU have proved -- engined re-runs the read-only-floor probe against a new
 # pin before it will serve requests through it. Do not copy this value
@@ -326,12 +326,12 @@ agent_version = "2.1.258"
 # this model, not a guess: input/output modalities, context window in each
 # direction, and the reasoning-effort levels it accepts.
 [[model]]
-id = "sonnet-5"
-input = ["text", "image"]
-output = ["text"]
-context_in = 200000
+id          = "sonnet-5"
+input       = ["text", "image"]
+output      = ["text"]
+context_in  = 200000
 context_out = 64000
-reasoning = ["none", "low", "high"]
+reasoning   = ["none", "low", "high"]
 
 # No upstream: ambient means the CLI's own subscription login rather than an
 # API token, and an ambient route's egress is always "remote". The model still
@@ -340,8 +340,8 @@ reasoning = ["none", "low", "high"]
 # Anthropic actually serves -- measured: the CLI refuses "sonnet-5" and
 # "sonnet" outright, and answers on "claude-sonnet-5".
 [[route]]
-engine = "claude"
-model = "sonnet-5"
+engine     = "claude"
+model      = "sonnet-5"
 wire_model = "claude-sonnet-5"
 
 # Moonshot serves an Anthropic-shaped endpoint, so this is the same agentic
@@ -350,9 +350,9 @@ wire_model = "claude-sonnet-5"
 # upstream model to run, so it has to be the name Moonshot actually serves,
 # not a prettier local alias.
 [[route]]
-engine = "claude"
+engine   = "claude"
 upstream = "moonshot"
-model = "k3"
+model    = "k3"
 
 # OpenRouter's Anthropic-compatible gateway: the same agentic kind as the two
 # routes above with a different upstream, the wire-compatible pairing rather
@@ -361,9 +361,9 @@ model = "k3"
 # mismatch, refused at registry construction the moment the engine is
 # enabled, and so is not declared here at all.
 [[route]]
-engine = "claude"
+engine   = "claude"
 upstream = "openrouter-anthropic"
-model = "sonnet-5"
+model    = "sonnet-5"
 
 # opencode is a local agentic CLI pointed back at THIS door, so a turn taken
 # through it runs on the box's own GPU and is dispatched, chained and
@@ -391,15 +391,15 @@ model = "sonnet-5"
 # writing; it does not stop reading, because the sandbox shares the host
 # network namespace in order to reach this door at all.
 [[engine]]
-id = "opencode"
+id            = "opencode"
 agent_version = "1.18.26"
 
 # The model a caller names to run an opencode task, and -- via `wire_model` --
 # the address opencode is handed to dial back for its own answers.
 [[route]]
-engine = "opencode"
-upstream = "local"
-model = "ornith"
+engine     = "opencode"
+upstream   = "local"
+model      = "ornith"
 wire_model = "@/llama/ornith"
 
 # cursor's floor is a mode (--mode plan), not a tool allowlist -- measured
@@ -411,8 +411,8 @@ wire_model = "@/llama/ornith"
 # prompt to Cursor's cloud, the same posture as claude, elevenlabs and
 # openai above, and disabled for the same reason.
 [[engine]]
-id = "cursor"
-disable = true
+id            = "cursor"
+disable       = true
 # Whatever pin you've actually proved on this box -- see claude's own
 # comment above for what "proved" means here. This one was proved 2026-09-07.
 # cursor self-updates in place, so this pin goes stale on its own schedule,
@@ -426,7 +426,7 @@ agent_version = "2026.09.07-2bbdcc3"
 
 [[route]]
 engine = "cursor"
-model = "composer-2.5"
+model  = "composer-2.5"
 
 # ---------------------------------------------------------------------------
 # Media engines: each serves a fixed job via a modelless route
@@ -436,15 +436,15 @@ model = "composer-2.5"
 # ---------------------------------------------------------------------------
 
 [[engine]]
-id = "chatterbox-multi"
+id                = "chatterbox-multi"
 idle_stop_seconds = 1800
 # No models_dir: chatterbox-multi's weights are baked into its image at build time.
 # Cold start to first audio measures ~41s against the 60s default, and that
 # margin is what a sibling engine's GPU load eats first.
-ready_timeout_s = 90
+ready_timeout_s   = 90
 
 [[route]]
-engine = "chatterbox-multi"
+engine   = "chatterbox-multi"
 upstream = "local"
 
 # Chatterbox Turbo, kept alongside the one above rather than replacing it: a
@@ -454,26 +454,26 @@ upstream = "local"
 # baked into this image and the rest is the model. Numbers live in one place,
 # docs/engines.md, rather than being restated wherever they are relevant.
 [[engine]]
-id = "chatterbox-en"
+id                = "chatterbox-en"
 idle_stop_seconds = 1800
 # ~29s cold start; same reasoning as chatterbox-multi above.
-ready_timeout_s = 90
+ready_timeout_s   = 90
 
 [[route]]
-engine = "chatterbox-en"
+engine   = "chatterbox-en"
 upstream = "local"
 
 [[engine]]
-id = "kokoro"
+id                = "kokoro"
 idle_stop_seconds = 1800
 # Same posture as the chatterbox engines: weights are image-baked, nothing to mount.
 # Longer than the 60s default: app.py's decoder bucket warm-up runs before
 # /health can answer (see engines.md), and a cold MIOpen cache (first boot,
 # or the named volume not yet populated) pays real JIT-compile time for it.
-ready_timeout_s = 120
+ready_timeout_s   = 120
 
 [[route]]
-engine = "kokoro"
+engine   = "kokoro"
 upstream = "local"
 
 # The CPU voice. Same image-baked posture as the two above, and the only
@@ -481,22 +481,22 @@ upstream = "local"
 # over kokoro or the chatterbox engines for a voice channel: it speaks while a 25 GB GGUF
 # stays resident, instead of contending with it.
 [[engine]]
-id = "piper"
+id                = "piper"
 idle_stop_seconds = 1800
 
 [[route]]
-engine = "piper"
+engine   = "piper"
 upstream = "local"
 
 [[engine]]
-id = "whisper"
+id                = "whisper"
 # Required here, unlike the chatterbox engines or kokoro: whisper's spec.toml bind-mounts
 # this path read-only and its own artifact-fetch commands write into it. An
 # engine that omits models_dir while its spec needs one fails loudly at spec
 # load naming the unresolved placeholder -- it does not start half-broken.
-models_dir = "~/.local/share/engined-models/whisper"
+models_dir        = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
-ready_timeout_s = 300                                # whisper.cpp's own model load is slower than a container boot.
+ready_timeout_s   = 300  # whisper.cpp's own model load is slower than a container boot.
 
 # Two model-bearing routes on the one engine rather than two engines: same
 # image, same models_dir, differing only by which weights file starts the
@@ -516,15 +516,15 @@ ready_timeout_s = 300                                # whisper.cpp's own model l
 # is not names medium.en. Both are English-only; q8_0's quantisation
 # reasoning is in engines/whisper/spec.toml.
 [[route]]
-engine = "whisper"
+engine   = "whisper"
 upstream = "local"
-model = "medium.en"
+model    = "medium.en"
 filename = "ggml-medium.en-q8_0.bin"
 
 [[route]]
-engine = "whisper"
+engine   = "whisper"
 upstream = "local"
-model = "small.en"
+model    = "small.en"
 filename = "ggml-small.en-q8_0.bin"
 
 # The multilingual one, and the only route on this box that answers
@@ -541,10 +541,10 @@ filename = "ggml-small.en-q8_0.bin"
 # with the obtain line in engines/whisper/spec.toml; a box that never asks
 # for a translation should delete this route rather than fetch 1.6 GB.
 [[route]]
-engine = "whisper"
-upstream = "local"
-model = "large-v3-turbo"
-filename = "ggml-large-v3-turbo-q8_0.bin"
+engine    = "whisper"
+upstream  = "local"
+model     = "large-v3-turbo"
+filename  = "ggml-large-v3-turbo-q8_0.bin"
 translate = true
 
 # The remote STT engine, and the only one that is not a container. A remote
@@ -554,19 +554,19 @@ translate = true
 # its two models above) stays on this box, "elevenlabs" does not, and the
 # upstream is what says so.
 [[engine]]
-id = "elevenlabs"
-kind = "stt"      # required: with no spec directory there is nothing else to read it from.
-disable = true    # sends every recording to ElevenLabs; leave off until that's wanted.
+id      = "elevenlabs"
+kind    = "stt"       # required: with no spec directory there is nothing else to read it from.
+disable = true         # sends every recording to ElevenLabs; leave off until that's wanted.
 
 [[route]]
-engine = "elevenlabs"
+engine   = "elevenlabs"
 upstream = "elevenlabs"
-model = "scribe_v1"     # ElevenLabs' own model id, sent on the wire verbatim: the
-# door's model segment names it directly now, so nothing
-# forwards the engine id "elevenlabs" as a model.
+model    = "scribe_v1" # ElevenLabs' own model id, sent on the wire verbatim: the
+                        # door's model segment names it directly now, so nothing
+                        # forwards the engine id "elevenlabs" as a model.
 
 [[engine]]
-id = "comfy"
+id                = "comfy"
 # Comfy's model tree is a host directory like llama's, not baked into the
 # image, and it carries no [[model]] entries: it is a modelless engine,
 # addressed only as @/comfy/local and never at a raw container address.
@@ -574,7 +574,7 @@ id = "comfy"
 # everything a graph can express that the verb cannot -- a custom sampler,
 # a node graph, a video job -- goes through the mediated proxy under
 # /engined/v1/comfy/:engine/:upstream/... instead.
-models_dir = "~/.local/share/engined-models/comfy"
+models_dir        = "~/.local/share/engined-models/comfy"
 idle_stop_seconds = 1800
 
 # `cache-lru` is what keeps a checkpoint resident across workflows, and it is
@@ -615,18 +615,18 @@ highvram = true
 "cache-lru" = 50
 
 [[route]]
-engine = "comfy"
+engine   = "comfy"
 upstream = "local"
 
-# Which checkpoints the shipped image graph (engines/comfy/text-to-image.json)
-# loads. The graph's wiring is spec because a mis-wired node fails silently;
-# these names are config because they are what this box happens to have on
-# disk. Missing any of them is a 400 naming which, never a black image.
-[route.args]
-unet = "Chroma1-HD.safetensors"
-clip = "t5xxl_fp16.safetensors"
-clip_type = "chroma"
-vae = "ae.safetensors"
+  # Which checkpoints the shipped image graph (engines/comfy/text-to-image.json)
+  # loads. The graph's wiring is spec because a mis-wired node fails silently;
+  # these names are config because they are what this box happens to have on
+  # disk. Missing any of them is a 400 naming which, never a black image.
+  [route.args]
+  unet      = "Chroma1-HD.safetensors"
+  clip      = "t5xxl_fp16.safetensors"
+  clip_type = "chroma"
+  vae       = "ae.safetensors"
 
 # A remote OpenAI-shaped engine: no spec directory, no container, nothing to
 # start -- its upstream's base_url is the whole shape, the same as the remote
@@ -634,37 +634,37 @@ vae = "ae.safetensors"
 # provider key and its own primary/fallback ordering: put the key on the
 # upstream, name the route in a chain, and engined owns both.
 [[engine]]
-id = "openai"
-kind = "openai-http"
-disable = true       # sends every prompt to OpenAI; leave off until that's wanted.
+id      = "openai"
+kind    = "openai-http"
+disable = true   # sends every prompt to OpenAI; leave off until that's wanted.
 
-# Wire defaults for every request through this engine. A caller that sets
-# the same key in its own body wins; these only fill what it left out, and a
-# caller sending the key as an explicit null drops it from the request.
-[engine.args]
-reasoning_effort = "medium"
+  # Wire defaults for every request through this engine. A caller that sets
+  # the same key in its own body wins; these only fill what it left out, and a
+  # caller sending the key as an explicit null drops it from the request.
+  [engine.args]
+  reasoning_effort = "medium"
 
 # Remote routes carry no filename and no role -- nothing is resident, so
 # llama's occupancy rule does not apply. The model id is passed upstream
 # verbatim, so it must be the name the provider actually serves.
 [[route]]
-engine = "openai"
+engine   = "openai"
 upstream = "openai"
-model = "gpt-5.4-mini"
+model    = "gpt-5.4-mini"
 
 # A second hosted id on the same engine: a consumer that needs vision through
 # this door names it the way it names any other model.
 [[route]]
-engine = "openai"
+engine   = "openai"
 upstream = "openai"
-model = "gpt-5.4"
+model    = "gpt-5.4"
 
 # A second remote OpenAI-shaped engine, same posture as the one above: no
 # spec directory, no container. It shares its id "openrouter" with the
 # upstream of the same name on purpose -- engine ids and upstream ids are
 # separate namespaces, so one id can name both with no conflict.
 [[engine]]
-id = "openrouter"
+id   = "openrouter"
 kind = "openai-http"
 
 # OpenRouter's real ids are "org/model" -- a slash the address grammar cannot
@@ -674,15 +674,15 @@ kind = "openai-http"
 # the wire. The alias is not duplicated when the catalog lists the same
 # wire id.
 [[route]]
-engine = "openrouter"
-upstream = "openrouter"
-model = "north-mini-code:free"
+engine     = "openrouter"
+upstream   = "openrouter"
+model      = "north-mini-code:free"
 wire_model = "cohere/north-mini-code:free"
 
 [[route]]
-engine = "openrouter"
+engine   = "openrouter"
 upstream = "openrouter"
-model = "*"
+model    = "*"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
@@ -693,11 +693,11 @@ model = "*"
 # a chain (rather than a bare model alias) means adding a second local
 # engine later is a config edit, not a consumer change.
 [[chain]]
-id = "chain-private"
+id   = "chain-private"
 hops = ["@/llama/ornith"]
 
 [[chain]]
-id = "chain-public"
+id   = "chain-public"
 hops = [
   "@/llama/ornith",
   "@/claude/moonshot/k3",
@@ -714,5 +714,5 @@ hops = [
 # Every hop of an audio chain is the modelless two-segment form, because every
 # TTS route here declares no model.
 [[chain]]
-id = "chain-speech"
+id   = "chain-speech"
 hops = ["@/chatterbox-multi/local", "@/kokoro/local", "@/piper/local"]
