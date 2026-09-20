@@ -72,7 +72,6 @@ LABEL org.opencontainers.image.source="${REPO}" \
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 install \
   bash ca-certificates libatomic libstdc++ libgcc libgomp libibverbs \
   vulkan-loader mesa-vulkan-drivers \
-  rocm-runtime rocblas hipblas \
   && microdnf clean all && rm -rf /var/cache/dnf/*
 
 COPY --from=builder /usr/bin/llama-server /usr/bin/llama-server
