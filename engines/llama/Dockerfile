@@ -1,40 +1,39 @@
-# llama.cpp server, Vulkan/RADV, gfx1151 (Strix Halo). Ported verbatim from
-# sagaforge-ts's docker/llama-cpp/Dockerfile (read from source, not a
-# summary), so that the image this box runs is built from this tree rather
-# than a sibling project's.
+# llama.cpp server, Vulkan/RADV, gfx1151 (Strix Halo).
 #
 # What this tree owns is the recipe and llama-grammar.patch. The source is
-# fetched from Nathanw1014/llama.cpp (a fork of upstream llama.cpp, MIT),
-# which carries Strix-Halo-specific Vulkan performance work not yet upstream,
-# at the exact commit LLAMA_COMMIT names below -- the built image labels that
-# commit, so a throughput measurement can be tied back to the source it was
-# taken on. Recipe (source repo, commit, build flags, grammar patch) verified
-# against kyuz0/amd-strix-halo-toolboxes:vulkan-radv-performance, which
-# benchmarked best-of-both-worlds on this box: ROCm-tier prefill (~1050-1090
-# tok/s on an 8006-token prompt) with Vulkan-tier decode (~49 tok/s). The
-# recipe is kept here (kyuz0's repo carries no LICENSE file) rather than
-# depending on their prebuilt image indefinitely.
+# PrismML-Eng/llama.cpp (a fork of upstream llama.cpp, MIT) at the exact
+# commit LLAMA_COMMIT names below -- the built image labels that commit, so a
+# throughput measurement can be tied back to the source it was taken on.
 #
-# Fedora, not rocm/dev-ubuntu like the sibling engines -- this is a Vulkan
-# build (mesa-vulkan-drivers + the loader), not a ROCm/PyTorch one, so it
-# doesn't need and doesn't take the ROCm base. See spec.toml: this engine
-# takes only /dev/dri and deliberately not /dev/kfd, which is the same split
-# reflected in the base image choice here.
+# The fork rather than mainline because Prism's ternary types are private to
+# it: a stock build refuses a Bonsai file outright ("tensor 'output.weight'
+# has invalid ggml type 142"), and the Hadamard activation transform those
+# weights are stored against is not upstream. The fork also carries both
+# speculative types the routes here name -- `draft-mtp`, head baked into the
+# GGUF, and `draft-dflash`, a separate drafter named by `spec-draft-model`.
+# Of the two ternary packings only PTQ1_0 has Vulkan pipelines; PQ2_0 is
+# CUDA/Metal/CPU/ROCm only, so a PQ2_0 file cannot run on this image.
+#
+# Fedora, not rocm/dev-ubuntu like the sibling engines: the ROCm half of this
+# build needs hipblas and the runtime, not a PyTorch stack, and Fedora ships
+# both. See spec.toml -- carrying a ROCm backend is why this engine takes
+# /dev/kfd as well as /dev/dri.
 
 # Global, so the final stage can label the same values without repeating them.
-ARG REPO=https://github.com/Nathanw1014/llama.cpp.git
-# The head of the fork's `strix-halo-vulkan` branch as of this pin. A branch
-# name here would let two builds of the same tree produce different llama.cpp
-# with nothing recording which one the figures above were measured on.
-ARG LLAMA_COMMIT=df1671a03f746d7c657d4242fd75b9fba98afd38
+ARG REPO=https://github.com/PrismML-Eng/llama.cpp.git
+# The head of the fork's `prism` branch as of this pin. A branch name here
+# would let two builds of the same tree produce different llama.cpp with
+# nothing recording which one a measurement was taken on.
+ARG LLAMA_COMMIT=9a9394a895b96003ca842a6041cb28ac49a108f7
 
 FROM registry.fedoraproject.org/fedora:46 AS builder
 
 RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
   git \
-  make gcc cmake ninja-build lld clang clang-devel compiler-rt libcurl-devel rdma-core-devel \
+  make gcc gcc-c++ cmake ninja-build lld clang clang-devel compiler-rt libcurl-devel rdma-core-devel \
   vulkan-loader-devel vulkaninfo mesa-vulkan-drivers \
   spirv-headers-devel glslc patch \
+  rocm-hip-devel rocblas-devel hipblas-devel rocm-comgr-devel \
   && dnf clean all && rm -rf /var/cache/dnf/*
 
 WORKDIR /opt/llama.cpp
@@ -49,11 +48,30 @@ RUN git clone "${REPO}" . \
 COPY llama-grammar.patch /tmp/llama-grammar.patch
 RUN patch -p1 < /tmp/llama-grammar.patch
 
+# An MTP head reads token embeddings in the trunk's own basis, and this fork
+# applies no inverse transform when that table is a Hadamard latent -- so a
+# Bonsai file whose head is baked in refuses to build its draft context
+# ("Hadamard-latent table 'token_embd.weight' is read without the inverse
+# transform") and the server exits 1 at load. From ProCreations, who ship the
+# MTP head this engine's bonsai route runs.
+COPY bonsai-mtp-embedding.patch /tmp/bonsai-mtp-embedding.patch
+RUN patch -p1 < /tmp/bonsai-mtp-embedding.patch
+
 # EXAMPLES=OFF here breaks the build (LLAMA_BUILD_SERVER depends on it in
-# this fork's CMakeLists) -- confirmed by hitting exactly that failure. Keep
-# ON, matching kyuz0's verified-working recipe.
+# this fork's CMakeLists) -- confirmed by hitting exactly that failure.
+#
+# Both backends in one binary, and a route pins which one it wants with
+# `device`. Neither covers this box alone: Vulkan decodes ornith fastest
+# (69.1 t/s against ROCm's 54.1 on the same prompt) while carrying no PQ2_0
+# kernels at all, and ROCm is the only backend where a ternary Bonsai file is
+# worth running (35.6 t/s PQ2_0 against 4.0 t/s for the Vulkan-capable PTQ1_0
+# packing). A route that names no device gets whichever ggml ranks first,
+# which is how ornith would silently lose 15 t/s.
 RUN cmake -S . -B build -G Ninja \
     -DGGML_VULKAN=ON \
+    -DGGML_HIP=ON \
+    -DAMDGPU_TARGETS=gfx1151 \
+    -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_RPC=ON \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -74,6 +92,7 @@ LABEL org.opencontainers.image.source="${REPO}" \
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 install \
   bash ca-certificates libatomic libstdc++ libgcc libgomp libibverbs \
   vulkan-loader mesa-vulkan-drivers \
+  rocm-runtime rocblas hipblas \
   && microdnf clean all && rm -rf /var/cache/dnf/*
 
 COPY --from=builder /usr/bin/llama-server /usr/bin/llama-server
