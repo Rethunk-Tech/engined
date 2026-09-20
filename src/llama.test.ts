@@ -930,6 +930,50 @@ test("a request that cannot connect reconciles a dead container, restarts it and
   expect(chatCalls).toBe(2);
 });
 
+/**
+ * The same death, seen one call earlier. A lease loads its GGUF before any
+ * completion is proxied, so a container removed while the map still believes
+ * it running fails at `/models/load` and never reaches the proxy. Loading
+ * against a captured base URL instead of the reconciling one left that path
+ * unable to recover: every later request failed in about a millisecond, for
+ * the life of the process.
+ */
+test("a load that cannot connect reconciles a dead container, restarts it and retries once", async () => {
+  const e = engine();
+  const a = model({ id: "a", filename: "a.gguf" });
+
+  const base = fakeExec();
+  const goneExec: Exec = (args) =>
+    args[0] === "inspect"
+      ? Promise.resolve({ exitCode: 0, stdout: "false\n", stderr: "" })
+      : base(args);
+
+  let loadCalls = 0;
+  const { client } = fakeLlama((call) => {
+    if (call.path !== LOAD_PATH) {
+      return;
+    }
+    loadCalls += 1;
+    if (loadCalls === 1) {
+      throw new Error("Unable to connect");
+    }
+  });
+
+  const router = new LlamaRouter(
+    e,
+    [a],
+    new DockerLifecycle(goneExec, fakeProbe),
+    baseOpts(client),
+  );
+  const { response: res } = await router.proxy(a, CHAT_PATH, {
+    method: "POST",
+    body: JSON.stringify({ model: "a" }),
+  });
+
+  expect(res.status).toBe(200);
+  expect(loadCalls).toBe(2);
+});
+
 /** Docker decides: a real upstream failure against a live container must not provoke a restart-and-retry. */
 test("a request that cannot connect while the container is genuinely up rethrows", async () => {
   const e = engine();

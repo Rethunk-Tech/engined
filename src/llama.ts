@@ -562,11 +562,10 @@ export class LlamaRouter {
 
   private async swapResident(role: Role, modelId: string): Promise<void> {
     const state = this.roleState(role);
-    const url = this.baseUrl();
     if (state.activeModelId !== null) {
-      await this.unload(url, state.activeModelId);
+      await this.unload(state.activeModelId);
     }
-    await this.loadAndWait(url, modelId);
+    await this.loadAndWait(modelId);
   }
 
   /**
@@ -576,8 +575,8 @@ export class LlamaRouter {
    * Throwing fails only the request that asked for the swap and leaves the
    * role's belief matching what the child actually holds.
    */
-  private async unload(baseUrl: string, modelId: string): Promise<void> {
-    const res = await this.httpClient(`${baseUrl}/models/unload`, {
+  private async unload(modelId: string): Promise<void> {
+    const res = await this.fetchUpstreamOnce("/models/unload", {
       method: "POST",
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
@@ -606,9 +605,9 @@ export class LlamaRouter {
    * reaches `loaded` within it throws, so the caller's lease request rejects
    * instead of wedging the role's pump forever.
    */
-  private async loadAndWait(baseUrl: string, modelId: string): Promise<void> {
+  private async loadAndWait(modelId: string): Promise<void> {
     const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
-    const triggerRes = await this.httpClient(`${baseUrl}/models/load`, {
+    const triggerRes = await this.fetchUpstreamOnce("/models/load", {
       method: "POST",
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
@@ -626,7 +625,7 @@ export class LlamaRouter {
       throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`);
     }
     const resident = await pollUntil(
-      async () => (await this.modelStatus(baseUrl, modelId)) === "loaded",
+      async () => (await this.modelStatus(modelId)) === "loaded",
       deadline,
       this.pollIntervalMs,
     );
@@ -638,15 +637,15 @@ export class LlamaRouter {
   }
 
   /** The engine's own view of what it holds. Both callers below read it fresh; neither caches. */
-  private async listedModels(baseUrl: string): Promise<ListedModel[]> {
-    const res = await this.httpClient(`${baseUrl}/v1/models`, { method: "GET" });
+  private async listedModels(): Promise<ListedModel[]> {
+    const res = await this.fetchUpstreamOnce("/v1/models", { method: "GET" });
     const body = (await res.json()) as { data?: ListedModel[] };
     return body.data ?? [];
   }
 
   /** One model's readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
-  private async modelStatus(baseUrl: string, modelId: string): Promise<string | undefined> {
-    const listed = await this.listedModels(baseUrl);
+  private async modelStatus(modelId: string): Promise<string | undefined> {
+    const listed = await this.listedModels();
     return listed.find((m) => m.id === modelId)?.status?.value;
   }
 
@@ -668,7 +667,7 @@ export class LlamaRouter {
    * `residentModel` is the point, and caching would dissolve it.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
-    const listed = await this.listedModels(this.baseUrl());
+    const listed = await this.listedModels();
     const roleIds = new Set(
       this.routes.filter((r) => r.role === role && r.model !== undefined).map((r) => r.model),
     );
@@ -816,15 +815,14 @@ export class LlamaRouter {
     if (fault === "none") {
       return res;
     }
-    const url = this.baseUrl();
     // An unreachable child is one the router is still advertising as loaded,
     // so reloading first would be a no-op and the retry would land on the same
     // dying process. Waiting for the router to admit the instance is gone is
     // what makes the reload real.
     if (fault === "unreachable") {
-      await this.awaitInstanceGone(url, modelId);
+      await this.awaitInstanceGone(modelId);
     }
-    await this.loadAndWait(url, modelId);
+    await this.loadAndWait(modelId);
     return await this.fetchUpstreamOnce(path, init);
   }
 
@@ -860,9 +858,9 @@ export class LlamaRouter {
    * its own poll follow, and they are better placed to fail with a real reason
    * than a timeout here would be.
    */
-  private async awaitInstanceGone(baseUrl: string, modelId: string): Promise<void> {
+  private async awaitInstanceGone(modelId: string): Promise<void> {
     await pollUntil(
-      async () => (await this.modelStatus(baseUrl, modelId)) !== "loaded",
+      async () => (await this.modelStatus(modelId)) !== "loaded",
       Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND,
       this.pollIntervalMs,
     );
