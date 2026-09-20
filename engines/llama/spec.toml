@@ -18,10 +18,14 @@ serves = [
   "/openai/v1/embeddings",
   "/openai/v1/rerank",
 ]
-# Both nodes, because the image carries both backends and a route picks one
-# with `device`: /dev/dri for Vulkan, /dev/kfd for ROCm. Drop /dev/kfd and a
-# ROCm-pinned route fails at load with no backend rather than falling back.
-devices = ["/dev/dri", "/dev/kfd"]
+# Vulkan device only. GPU_FLAGS (--device=/dev/kfd --device=/dev/dri
+# --group-add video) is for the ROCm/PyTorch engines -- comfy, the chatterbox
+# engines, kokoro -- not llama.cpp. sagaforge applies GPU_FLAGS whole to those three
+# and, in its own llama spec, keeps --group-add video while dropping
+# /dev/kfd alone -- the device node is the difference, not the group. Both
+# nodes exist on this box, so the ROCm flags would run and the mistake would
+# not announce itself.
+devices = ["/dev/dri"]
 group_add = ["video"]
 # Load-bearing on Fedora: without it the container cannot open the device.
 security_opt = ["label=disable"]
@@ -58,17 +62,10 @@ security_opt = ["label=disable"]
 # compare a decode number taken over 32 tokens with one taken over 512.
 #
 # A per-model arg is honoured per flag, not as a class: only `spec-type`,
-# `spec-draft-p-min`, `embedding`, `rerank`, `ctx-size`, `parallel` and
-# `device` are proven to reach argv this way -- `ctx-size` and `parallel`
-# probed on b10637 by setting them for ornith alone and reading back the
-# child's argv and its slot geometry, `device` on b10709 the same way, where a
-# bogus value also exits 1 with "invalid device" before the child listens.
-#
-# The figures in this file above `device` were taken on b10637, built from a
-# different fork; the decode ladders' ordering is what carries across the
-# swap, not their absolute numbers. On the current pin, warm, same prompt:
-# ornith 64.7 t/s at 95% draft acceptance on Vulkan, bonsai 34.8 t/s at 73%
-# on ROCm.
+# `spec-draft-p-min`, `embedding`, `rerank`, `ctx-size` and `parallel` are
+# proven to reach argv this way -- `ctx-size` and `parallel` probed on b10637
+# by setting them for ornith alone and reading back the child's argv and its
+# slot geometry.
 # Probe each flag the way those were probed -- set it for one model, read
 # the child's argv and /slots back -- before a consumer is told it works. A
 # flag that is ignored and a flag that is honoured and did nothing look

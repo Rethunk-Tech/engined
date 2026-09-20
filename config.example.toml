@@ -178,11 +178,6 @@ role     = "chat"  # chat | vision | embedding | rerank. Required: occupancy is 
   # out loud. `chat_template_kwargs` (enable_thinking) is only honoured under
   # it too. Verified in the child's argv, the same way `embedding` below was.
   jinja            = true
-  # Which backend this route runs on. The image carries Vulkan and ROCm, and
-  # a route naming neither gets whichever ggml ranks first -- on this box that
-  # silently costs a MoE chat model around 15 t/s of decode, and a route
-  # carrying a Prism ternary GGUF has no Vulkan kernels to run on at all.
-  device           = "Vulkan0"
   spec-type        = "draft-mtp"
   spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
   spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft

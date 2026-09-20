@@ -341,7 +341,7 @@ describe("renderPresetIni", () => {
 });
 
 describe("buildLlamaSpec / buildRunArgs", () => {
-  test("run argv pins models-max and sets no-models-autoload, never models-dir, and takes both GPU nodes", () => {
+  test("run argv pins models-max and sets no-models-autoload, never models-dir or /dev/kfd", () => {
     const e = engine({ models_max: 3 });
     const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath());
     const argv = buildRunArgs("engined-llama", spec, CONTAINER_PORT);
@@ -350,11 +350,7 @@ describe("buildLlamaSpec / buildRunArgs", () => {
     expect(maxIdx).toBeGreaterThan(-1);
     expect(argv[maxIdx + 1]).toBe("3");
     expect(argv).not.toContain("--models-dir");
-    // The image carries Vulkan and ROCm, and a route picks one with `device`.
-    // A ROCm-pinned route fails at load without /dev/kfd rather than falling
-    // back to the other backend.
-    expect(argv).toContain("/dev/dri");
-    expect(argv).toContain("/dev/kfd");
+    expect(argv).not.toContain("/dev/kfd");
     const mountArgs = argv.filter((_, i) => argv[i - 1] === "-v");
     expect(mountArgs.some((m) => m.endsWith(":/models:ro"))).toBe(true);
     expect(mountArgs.some((m) => m.endsWith(":/preset.ini:ro"))).toBe(true);

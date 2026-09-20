@@ -5,19 +5,14 @@
 # commit LLAMA_COMMIT names below -- the built image labels that commit, so a
 # throughput measurement can be tied back to the source it was taken on.
 #
-# The fork rather than mainline because Prism's ternary types are private to
-# it: a stock build refuses a Bonsai file outright ("tensor 'output.weight'
-# has invalid ggml type 142"), and the Hadamard activation transform those
-# weights are stored against is not upstream. The fork also carries both
-# speculative types the routes here name -- `draft-mtp`, head baked into the
-# GGUF, and `draft-dflash`, a separate drafter named by `spec-draft-model`.
-# Of the two ternary packings only PTQ1_0 has Vulkan pipelines; PQ2_0 is
-# CUDA/Metal/CPU/ROCm only, so a PQ2_0 file cannot run on this image.
+# The fork rather than mainline for decode: measured warm on the same prompt,
+# ornith runs 59.8 t/s on a mainline-based build against 64-69 here.
 #
-# Fedora, not rocm/dev-ubuntu like the sibling engines: the ROCm half of this
-# build needs hipblas and the runtime, not a PyTorch stack, and Fedora ships
-# both. See spec.toml -- carrying a ROCm backend is why this engine takes
-# /dev/kfd as well as /dev/dri.
+# Fedora, not rocm/dev-ubuntu like the sibling engines -- this is a Vulkan
+# build (mesa-vulkan-drivers + the loader), not a ROCm/PyTorch one, so it
+# doesn't need and doesn't take the ROCm base. See spec.toml: this engine
+# takes only /dev/dri and deliberately not /dev/kfd, which is the same split
+# reflected in the base image choice here.
 
 # Global, so the final stage can label the same values without repeating them.
 ARG REPO=https://github.com/PrismML-Eng/llama.cpp.git
@@ -33,7 +28,6 @@ RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
   make gcc gcc-c++ cmake ninja-build lld clang clang-devel compiler-rt libcurl-devel rdma-core-devel \
   vulkan-loader-devel vulkaninfo mesa-vulkan-drivers \
   spirv-headers-devel glslc patch \
-  rocm-hip-devel rocblas-devel hipblas-devel rocm-comgr-devel \
   && dnf clean all && rm -rf /var/cache/dnf/*
 
 WORKDIR /opt/llama.cpp
@@ -48,30 +42,16 @@ RUN git clone "${REPO}" . \
 COPY llama-grammar.patch /tmp/llama-grammar.patch
 RUN patch -p1 < /tmp/llama-grammar.patch
 
-# An MTP head reads token embeddings in the trunk's own basis, and this fork
-# applies no inverse transform when that table is a Hadamard latent -- so a
-# Bonsai file whose head is baked in refuses to build its draft context
-# ("Hadamard-latent table 'token_embd.weight' is read without the inverse
-# transform") and the server exits 1 at load. From ProCreations, who ship the
-# MTP head this engine's bonsai route runs.
-COPY bonsai-mtp-embedding.patch /tmp/bonsai-mtp-embedding.patch
-RUN patch -p1 < /tmp/bonsai-mtp-embedding.patch
-
 # EXAMPLES=OFF here breaks the build (LLAMA_BUILD_SERVER depends on it in
 # this fork's CMakeLists) -- confirmed by hitting exactly that failure.
 #
-# Both backends in one binary, and a route pins which one it wants with
-# `device`. Neither covers this box alone: Vulkan decodes ornith fastest
-# (69.1 t/s against ROCm's 54.1 on the same prompt) while carrying no PQ2_0
-# kernels at all, and ROCm is the only backend where a ternary Bonsai file is
-# worth running (35.6 t/s PQ2_0 against 4.0 t/s for the Vulkan-capable PTQ1_0
-# packing). A route that names no device gets whichever ggml ranks first,
-# which is how ornith would silently lose 15 t/s.
+# Vulkan alone. A ROCm backend built in beside it measured 54.1 t/s decode on
+# ornith against Vulkan's 69.1, same prompt, and every route here decodes more
+# than it prefills; ROCm's better prefill (113 t/s against 46) does not pay
+# for that. Building both also means each route must pin `device`, since a
+# route naming none gets whichever backend ggml ranks first.
 RUN cmake -S . -B build -G Ninja \
     -DGGML_VULKAN=ON \
-    -DGGML_HIP=ON \
-    -DAMDGPU_TARGETS=gfx1151 \
-    -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_RPC=ON \
     -DCMAKE_INSTALL_PREFIX=/usr \
