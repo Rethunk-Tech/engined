@@ -29,6 +29,7 @@ import {
   handleStop,
   handleUnhold,
 } from "./control.ts";
+import { handleCursor, isCursorPath } from "./cursorDoor.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
@@ -183,6 +184,9 @@ function routePost(
   pathname: string,
   launchScoped: boolean,
 ): Response | Promise<Response> | undefined {
+  if (isCursorPath(pathname)) {
+    return handleCursor(ctx, req, pathname);
+  }
   if (pathname === START_PATH) {
     return handleStart(ctx, req);
   }
