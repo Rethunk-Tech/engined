@@ -21,6 +21,7 @@ import {
   envelope,
   fieldBytes,
   fieldString,
+  intField,
   message,
   stringField,
 } from "./cursorProto.ts";
@@ -81,6 +82,18 @@ export interface ToolCallOut {
 export interface ChatReply {
   text: string;
   toolCalls: ToolCallOut[];
+  usage?: TurnUsage;
+}
+
+/**
+ * What the CLI reports as the turn's cost. It reads these off
+ * `TurnEndedUpdate` and nowhere else -- an empty turn_ended is why a local
+ * run shows no tokens at all.
+ */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
 }
 
 function textDelta(text: string): Uint8Array {
@@ -94,8 +107,16 @@ function heartbeat(): Uint8Array {
   return bytesField(INTERACTION_UPDATE, message(bytesField(HEARTBEAT, new Uint8Array())));
 }
 
-function turnEnded(): Uint8Array {
-  return bytesField(INTERACTION_UPDATE, message(bytesField(TURN_ENDED, new Uint8Array())));
+function turnEnded(usage: TurnUsage): Uint8Array {
+  return bytesField(
+    INTERACTION_UPDATE,
+    message(
+      bytesField(
+        TURN_ENDED,
+        message(intField(1, usage.input), intField(2, usage.output), intField(3, usage.cacheRead)),
+      ),
+    ),
+  );
 }
 
 /**
@@ -175,6 +196,7 @@ async function runTurn(
   prompt: string,
   send: (frame: Uint8Array) => void,
   awaitExec: () => Promise<Uint8Array>,
+  total: TurnUsage,
 ): Promise<void> {
   const history: ChatMessage[] = [
     {
@@ -191,6 +213,11 @@ async function runTurn(
       reply = await deps.complete(history);
     } finally {
       clearInterval(beat);
+    }
+    if (reply.usage !== undefined) {
+      total.input += reply.usage.input;
+      total.output += reply.usage.output;
+      total.cacheRead += reply.usage.cacheRead;
     }
     if (reply.text.length > 0) {
       send(envelope(textDelta(reply.text)));
@@ -258,13 +285,14 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
         return;
       }
       started = true;
-      runTurn(deps, prompt, (frame) => stream.write(Buffer.from(frame)), awaitExec)
+      const total: TurnUsage = { input: 0, output: 0, cacheRead: 0 };
+      runTurn(deps, prompt, (frame) => stream.write(Buffer.from(frame)), awaitExec, total)
         .catch((err: unknown) => {
           const detail = err instanceof Error ? err.message : String(err);
           stream.write(Buffer.from(envelope(textDelta(`engined: ${detail}`))));
         })
         .finally(() => {
-          stream.write(Buffer.from(envelope(turnEnded())));
+          stream.write(Buffer.from(envelope(turnEnded(total))));
           stream.end(Buffer.from(endOfStream()));
         });
     };

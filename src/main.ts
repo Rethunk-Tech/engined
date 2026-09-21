@@ -533,11 +533,25 @@ if (import.meta.main) {
             }[];
           };
         }[];
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
       };
       const choice = body.choices?.[0]?.message;
+      const used = body.usage;
       return {
         text: choice?.content || choice?.reasoning_content || "",
         toolCalls: choice?.tool_calls ?? [],
+        // The CLI reports a turn's cost from what this door tells it, so an
+        // unreported round is a round that never happened as far as any
+        // accounting downstream is concerned.
+        usage: {
+          input: used?.prompt_tokens ?? 0,
+          output: used?.completion_tokens ?? 0,
+          cacheRead: used?.prompt_tokens_details?.cached_tokens ?? 0,
+        },
       };
     },
   });
