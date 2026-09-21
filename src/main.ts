@@ -30,8 +30,8 @@ import {
   handleUnhold,
 } from "./control.ts";
 import { serveCursorAgent } from "./cursorAgent.ts";
-import { chatModels, handleCursor, isCursorPath } from "./cursorDoor.ts";
-import { TOOL_SCHEMA } from "./cursorExec.ts";
+import { completeLocally } from "./cursorChat.ts";
+import { handleCursor, isCursorPath } from "./cursorDoor.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
@@ -503,57 +503,11 @@ if (import.meta.main) {
   // The Cursor turn stream needs HTTP/2, so it listens beside the door
   // rather than on it. It dials the box's own chat route back through the
   // door's OpenAI surface, which is the same path every other consumer takes.
+  // The Cursor turn stream needs HTTP/2, so it listens beside the door
+  // rather than on it, and dials the box's own chat route back through the
+  // door's OpenAI surface -- the same path every other consumer takes.
   const cursorAgent = serveCursorAgent(startupConfig.cursor_port, {
-    complete: async (messages) => {
-      const ctx = door.ctx;
-      const model = chatModels(ctx)[0];
-      if (model === undefined) {
-        return { text: "engined: no llama chat route is configured", toolCalls: [] };
-      }
-      const res = await fetch(
-        `http://127.0.0.1:${ctx.getConfig().listen_port}/openai/v1/chat/completions`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ model: `@/llama/${model}`, messages, tools: TOOL_SCHEMA }),
-        },
-      );
-      if (!res.ok) {
-        return { text: `engined: chat route ${model} answered ${res.status}`, toolCalls: [] };
-      }
-      const body = (await res.json()) as {
-        choices?: {
-          message?: {
-            content?: string;
-            reasoning_content?: string;
-            tool_calls?: {
-              id: string;
-              type: "function";
-              function: { name: string; arguments: string };
-            }[];
-          };
-        }[];
-        usage?: {
-          prompt_tokens?: number;
-          completion_tokens?: number;
-          prompt_tokens_details?: { cached_tokens?: number };
-        };
-      };
-      const choice = body.choices?.[0]?.message;
-      const used = body.usage;
-      return {
-        text: choice?.content || choice?.reasoning_content || "",
-        toolCalls: choice?.tool_calls ?? [],
-        // The CLI reports a turn's cost from what this door tells it, so an
-        // unreported round is a round that never happened as far as any
-        // accounting downstream is concerned.
-        usage: {
-          input: used?.prompt_tokens ?? 0,
-          output: used?.completion_tokens ?? 0,
-          cacheRead: used?.prompt_tokens_details?.cached_tokens ?? 0,
-        },
-      };
-    },
+    complete: (messages, on) => completeLocally(door.ctx, messages, on),
   });
 
   process.on("SIGHUP", () => door.reload(configPath()));

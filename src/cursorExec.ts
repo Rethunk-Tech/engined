@@ -231,6 +231,66 @@ export function execOutcome(execClient: Uint8Array): ToolOutcome {
   return { ok: false, text: "no tool result in exec message" };
 }
 
+/**
+ * `agent.v1.ToolCall` field per tool. This is a DIFFERENT message from the
+ * `ExecServerMessage` oneof above -- exec runs the tool, `ToolCall` is what
+ * the CLI renders -- and only the shell/ls/grep/delete variants happen to
+ * carry the same arg message, so the rest are rebuilt here.
+ */
+const TOOL_CALL_FIELD: Record<string, number> = {
+  shell: 1,
+  delete: 3,
+  grep: 5,
+  read: 8,
+  write: 12, // edit_tool_call: the CLI has no separate "write"
+  ls: 13,
+};
+
+const TOOL_CALL_ID = 57;
+
+/**
+ * The renderable form of a tool call. Sending only the exec message runs the
+ * tool but leaves the CLI with nothing to show, so a transcript reads as bare
+ * prose with invisible side effects.
+ */
+export function toolCallMessage(req: ToolRequest, callId: string): Uint8Array | undefined {
+  const field = TOOL_CALL_FIELD[req.tool];
+  if (field === undefined) {
+    return undefined;
+  }
+  const path = req.path ?? "";
+  const args = (() => {
+    switch (req.tool) {
+      case "shell": {
+        const command = req.command ?? "";
+        return message(
+          stringField(1, command),
+          stringField(2, req.workdir ?? "."),
+          intField(3, SHELL_TIMEOUT_MS),
+          stringField(4, callId),
+          bytesField(8, parsingResult(command)),
+        );
+      }
+      case "read": // ReadToolArgs{1 path}
+      case "write": // EditArgs{1 path}
+      case "ls": // LsArgs{1 path}
+      case "delete": // DeleteArgs{1 path}
+        return message(stringField(1, path));
+      case "grep": // GrepArgs{1 pattern, 2 path}
+        return message(stringField(1, req.pattern ?? ""), stringField(2, path));
+      default:
+        return;
+    }
+  })();
+  if (args === undefined) {
+    return undefined;
+  }
+  return message(
+    bytesField(field, message(bytesField(1, args))),
+    stringField(TOOL_CALL_ID, callId),
+  );
+}
+
 /** The tool surface offered to the model, in OpenAI function-calling shape. */
 export const TOOL_SCHEMA = [
   {

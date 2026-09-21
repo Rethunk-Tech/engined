@@ -12,7 +12,7 @@
 
 import http2, { type ServerHttp2Stream } from "node:http2";
 import { gunzipSync } from "node:zlib";
-import { execOutcome, execRequest, type ToolRequest } from "./cursorExec.ts";
+import { execOutcome, execRequest, type ToolRequest, toolCallMessage } from "./cursorExec.ts";
 import {
   bytesField,
   decode,
@@ -33,6 +33,10 @@ const INTERACTION_UPDATE = 1;
 const TEXT_DELTA = 1;
 const TURN_ENDED = 14;
 const HEARTBEAT = 13;
+const THINKING_DELTA = 4;
+const THINKING_COMPLETED = 5;
+const TOOL_CALL_STARTED = 2;
+const TOOL_CALL_COMPLETED = 3;
 
 /**
  * A local model can think for minutes on a long brief, and the client drops a
@@ -62,8 +66,17 @@ function clamp(text: string): string {
 }
 
 export interface AgentDeps {
-  /** Ask the local chat route for the next step, tools included. */
-  complete: (messages: ChatMessage[]) => Promise<ChatReply>;
+  /**
+   * Ask the local chat route for the next step, tools included. Text and
+   * reasoning arrive through the callbacks as the model produces them; the
+   * resolved reply carries the tool calls and the usage.
+   */
+  complete: (messages: ChatMessage[], on: StreamSink) => Promise<ChatReply>;
+}
+
+export interface StreamSink {
+  text: (chunk: string) => void;
+  thinking: (chunk: string) => void;
 }
 
 export interface ChatMessage {
@@ -100,6 +113,33 @@ function textDelta(text: string): Uint8Array {
   return bytesField(
     INTERACTION_UPDATE,
     message(bytesField(TEXT_DELTA, message(stringField(1, text)))),
+  );
+}
+
+function thinkingDelta(text: string): Uint8Array {
+  return bytesField(
+    INTERACTION_UPDATE,
+    message(bytesField(THINKING_DELTA, message(stringField(1, text)))),
+  );
+}
+
+function thinkingCompleted(ms: number): Uint8Array {
+  return bytesField(
+    INTERACTION_UPDATE,
+    message(bytesField(THINKING_COMPLETED, message(intField(1, ms)))),
+  );
+}
+
+/** `ToolCallStartedUpdate`/`ToolCallCompletedUpdate{1 call_id, 2 tool_call, 3 model_call_id}`. */
+function toolCallFrame(field: number, callId: string, call: Uint8Array): Uint8Array {
+  return bytesField(
+    INTERACTION_UPDATE,
+    message(
+      bytesField(
+        field,
+        message(stringField(1, callId), bytesField(2, call), stringField(3, callId)),
+      ),
+    ),
   );
 }
 
@@ -191,13 +231,15 @@ function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => 
  * to the CLI and the answer comes back on the same stream before the model is
  * asked again.
  */
-async function runTurn(
-  deps: AgentDeps,
-  prompt: string,
-  send: (frame: Uint8Array) => void,
-  awaitExec: () => Promise<Uint8Array>,
-  total: TurnUsage,
-): Promise<void> {
+interface Turn {
+  deps: AgentDeps;
+  send: (frame: Uint8Array) => void;
+  awaitExec: () => Promise<Uint8Array>;
+  total: TurnUsage;
+}
+
+async function runTurn(turn: Turn, prompt: string): Promise<void> {
+  const { deps, send, awaitExec, total } = turn;
   const history: ChatMessage[] = [
     {
       role: "system",
@@ -208,18 +250,45 @@ async function runTurn(
   ];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const beat = setInterval(() => send(envelope(heartbeat())), HEARTBEAT_MS);
+    const startedAt = Date.now();
+    let thought = false;
+    let streamed = false;
     let reply: ChatReply;
     try {
-      reply = await deps.complete(history);
+      reply = await deps.complete(history, {
+        text: (chunk) => {
+          if (chunk.length === 0) {
+            return;
+          }
+          if (thought) {
+            send(envelope(thinkingCompleted(Date.now() - startedAt)));
+            thought = false;
+          }
+          streamed = true;
+          send(envelope(textDelta(chunk)));
+        },
+        thinking: (chunk) => {
+          if (chunk.length === 0) {
+            return;
+          }
+          thought = true;
+          send(envelope(thinkingDelta(chunk)));
+        },
+      });
     } finally {
       clearInterval(beat);
+    }
+    if (thought) {
+      send(envelope(thinkingCompleted(Date.now() - startedAt)));
     }
     if (reply.usage !== undefined) {
       total.input += reply.usage.input;
       total.output += reply.usage.output;
       total.cacheRead += reply.usage.cacheRead;
     }
-    if (reply.text.length > 0) {
+    // Only fall back to the whole answer when nothing streamed; otherwise
+    // the turn would print twice.
+    if (!streamed && reply.text.length > 0) {
       send(envelope(textDelta(reply.text)));
     }
     if (reply.toolCalls.length === 0) {
@@ -236,8 +305,18 @@ async function runTurn(
         });
         continue;
       }
+      // The CLI renders from ToolCall frames and executes from the exec
+      // message; sending only the latter runs the tool invisibly.
+      const req = toolRequestFrom(call);
+      const rendered = toolCallMessage(req, call.id);
+      if (rendered !== undefined) {
+        send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)));
+      }
       send(envelope(request));
       const outcome = execOutcome(await awaitExec());
+      if (rendered !== undefined) {
+        send(envelope(toolCallFrame(TOOL_CALL_COMPLETED, call.id, rendered)));
+      }
       history.push({ role: "tool", tool_call_id: call.id, content: clamp(outcome.text) });
     }
   }
@@ -286,7 +365,7 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
       }
       started = true;
       const total: TurnUsage = { input: 0, output: 0, cacheRead: 0 };
-      runTurn(deps, prompt, (frame) => stream.write(Buffer.from(frame)), awaitExec, total)
+      runTurn({ deps, send: (frame) => stream.write(Buffer.from(frame)), awaitExec, total }, prompt)
         .catch((err: unknown) => {
           const detail = err instanceof Error ? err.message : String(err);
           stream.write(Buffer.from(envelope(textDelta(`engined: ${detail}`))));
