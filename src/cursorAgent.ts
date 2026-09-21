@@ -11,6 +11,7 @@
  */
 
 import http2, { type ServerHttp2Stream } from "node:http2";
+import { gunzipSync } from "node:zlib";
 import { execOutcome, execRequest, type ToolRequest } from "./cursorExec.ts";
 import {
   bytesField,
@@ -30,6 +31,14 @@ const EXEC_CLIENT_FIELD = 2;
 const INTERACTION_UPDATE = 1;
 const TEXT_DELTA = 1;
 const TURN_ENDED = 14;
+const HEARTBEAT = 13;
+
+/**
+ * A local model can think for minutes on a long brief, and the client drops a
+ * stream that goes quiet. Heartbeats hold it open without pretending to be
+ * output.
+ */
+const HEARTBEAT_MS = 5000;
 
 /** Stop a runaway model rather than letting one turn loop forever. */
 const MAX_TOOL_ROUNDS = 40;
@@ -62,6 +71,10 @@ function textDelta(text: string): Uint8Array {
     INTERACTION_UPDATE,
     message(bytesField(TEXT_DELTA, message(stringField(1, text)))),
   );
+}
+
+function heartbeat(): Uint8Array {
+  return bytesField(INTERACTION_UPDATE, message(bytesField(HEARTBEAT, new Uint8Array())));
 }
 
 function turnEnded(): Uint8Array {
@@ -103,6 +116,14 @@ function toolRequestFrom(call: ToolCallOut): ToolRequest {
   };
 }
 
+/**
+ * Connect sets the low bit of a frame's flag byte when the payload is
+ * compressed, and the client only compresses once a turn is big enough --
+ * which is why short prompts work against a decoder that ignores it and a
+ * real brief does not.
+ */
+const FLAG_COMPRESSED = 1;
+
 /** Split a stream's bytes into Connect envelopes as they arrive. */
 function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => void {
   let buffer = new Uint8Array();
@@ -119,8 +140,10 @@ function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => 
       if (buffer.length < ENVELOPE_HEADER + length) {
         return;
       }
-      onFrame(buffer.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + length));
+      const flags = buffer[0] ?? 0;
+      const payload = buffer.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + length);
       buffer = buffer.subarray(ENVELOPE_HEADER + length);
+      onFrame(flags % 2 === FLAG_COMPRESSED ? new Uint8Array(gunzipSync(payload)) : payload);
     }
   };
 }
@@ -145,7 +168,13 @@ async function runTurn(
     { role: "user", content: prompt },
   ];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const reply = await deps.complete(history);
+    const beat = setInterval(() => send(envelope(heartbeat())), HEARTBEAT_MS);
+    let reply: ChatReply;
+    try {
+      reply = await deps.complete(history);
+    } finally {
+      clearInterval(beat);
+    }
     if (reply.text.length > 0) {
       send(envelope(textDelta(reply.text)));
     }
