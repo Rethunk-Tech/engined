@@ -244,6 +244,17 @@ test("the stream opens with a snapshot before any live frame", async () => {
   expect(first).toContain("local-llama");
 });
 
+test("the events snapshot is the same engine list GET /engined/v1/engines returns", async () => {
+  const { exec } = recordingExec(() => ({}));
+  const door = doorWith(exec);
+  const listed = await (await door.fetch(new Request("http://engined/engined/v1/engines"))).json();
+  const res = await door.fetch(new Request("http://engined/engined/v1/engines/events"));
+  const [first] = await readFrames(res, 1);
+  expect(first).toContain("event: snapshot");
+  const dataLine = first?.split("\n").find((line) => line.startsWith("data: "));
+  expect(JSON.parse(dataLine?.slice("data: ".length) ?? "null")).toEqual(listed);
+});
+
 // The whole point: engined idle-stops engines itself, so a consumer that is
 // never told only finds out when a call against one fails.
 test("a state change reaches a subscriber as a live frame", async () => {

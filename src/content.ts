@@ -7,7 +7,7 @@
 import { handleAudioSpeech } from "./audioDoor.ts";
 import { handleAudioTranscription } from "./audioDoorTranscribe.ts";
 import { parseHop, runChain } from "./chain.ts";
-import { routeAddress } from "./control.ts";
+import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from "./control.ts";
 import { type Dispatch, resolveModel } from "./dispatch.ts";
 import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
 import { EngineBusyError } from "./errors/engineBusy.ts";
@@ -259,7 +259,7 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
       };
 
       const unwatch = ctx.registry.watch((status) => {
-        send("engine", status);
+        send("engine", engineWithLlamaRoles(ctx, status));
       });
       const keepalive = setInterval(() => {
         if (open) {
@@ -286,6 +286,7 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
       ctx.registry
         .list()
         .then((listed) => {
+          attachLlamaRoles(ctx, listed.engines);
           send("snapshot", listed);
         })
         .catch(() => {

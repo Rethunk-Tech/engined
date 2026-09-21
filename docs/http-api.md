@@ -33,7 +33,7 @@ treated as a caller.
 | `/engined/v1/engines/:id/unhold` | POST | ends a hold early rather than waiting out its TTL |
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
 | `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
-| `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
+| `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens — snapshot and live frames carry the same `roles[]` as `GET /engined/v1/engines` |
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
 proxy through to the named llama engine. If no chat model is resident, the

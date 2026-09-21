@@ -17,7 +17,7 @@ import {
   STATUS_NOT_FOUND,
 } from "./http.ts";
 import { readJsonBody } from "./requestBody.ts";
-import type { StartResponse, StartRow } from "./responses.ts";
+import type { EngineStatus, StartResponse, StartRow } from "./responses.ts";
 import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from "./types.ts";
 
 /**
@@ -38,18 +38,34 @@ const MAX_LOG_TAIL = 5000;
  * never heard of -- so it is added here rather than by giving `EngineRegistry`
  * a back-reference to the door. An engine no request has touched yet has no
  * router, and so reports no roles, which is the honest answer.
+ *
+ * Shared by `GET /engined/v1/engines` and the events snapshot/live frames so
+ * a subscriber cannot see a quieter picture than a poller.
  */
-export async function handleEngines(
-  ctx: DoorContext,
-  configErr: string | undefined,
-): Promise<Response> {
-  const listed = await ctx.registry.list();
-  for (const engine of listed.engines) {
+export function attachLlamaRoles(ctx: DoorContext, engines: EngineStatus[]): void {
+  for (const engine of engines) {
     const busy = ctx.llamaRouters.get(engine.id)?.contention();
     if (busy !== undefined && busy.length > 0) {
       engine.roles = busy;
     }
   }
+}
+
+/** Live SSE frames are one engine; the poller's loop is the same reading. */
+export function engineWithLlamaRoles(ctx: DoorContext, status: EngineStatus): EngineStatus {
+  const busy = ctx.llamaRouters.get(status.id)?.contention();
+  if (busy === undefined || busy.length === 0) {
+    return status;
+  }
+  return { ...status, roles: busy };
+}
+
+export async function handleEngines(
+  ctx: DoorContext,
+  configErr: string | undefined,
+): Promise<Response> {
+  const listed = await ctx.registry.list();
+  attachLlamaRoles(ctx, listed.engines);
   listed.config_error = configErr;
   return Response.json(listed);
 }

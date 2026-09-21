@@ -47,6 +47,7 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 | [docs/tuning.md](docs/tuning.md) | Speculative-decoding measurements |
 | [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary |
 | [docs/design.md](docs/design.md) | Ownership line, why 29200 |
+| [CHANGELOG.md](CHANGELOG.md) | Unreleased changes |
 
 ## License
 
