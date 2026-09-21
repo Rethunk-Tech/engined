@@ -13,7 +13,13 @@ Type=simple
 # it cannot see. `--rm` and the pre-start removal together mean a hard kill
 # never leaves a name behind that blocks the next start.
 ExecStartPre=-@DOCKER_PATH@ rm -f engined-tls
+ExecStartPre=/usr/bin/mkdir -p @STATE_DIR@/caddy
+# `--user` matters: the image runs as root by default, and everything Caddy
+# writes to /data would then be root-owned -- including the CA root a caller
+# has to read for NODE_EXTRA_CA_CERTS, which is the whole point of this unit.
+# The listener is above 1024, so nothing here needs privilege.
 ExecStart=@DOCKER_PATH@ run --rm --name engined-tls --network host \
+  --user %U:%G \
   -v @INSTALL_DIR@/Caddyfile.cursor:/etc/caddy/Caddyfile:ro \
   -v @STATE_DIR@/caddy:/data \
   @CADDY_IMAGE@
