@@ -43,6 +43,23 @@ const HEARTBEAT_MS = 5000;
 /** Stop a runaway model rather than letting one turn loop forever. */
 const MAX_TOOL_ROUNDS = 40;
 
+/**
+ * Tool output goes into the history verbatim, so one `cat` of a large file
+ * can push the next request past the route's context and the engine answers
+ * 500 with nothing naming the cause. Truncating the middle keeps the head and
+ * tail a model actually reasons over.
+ */
+const MAX_TOOL_CHARS = 8000;
+
+function clamp(text: string): string {
+  if (text.length <= MAX_TOOL_CHARS) {
+    return text;
+  }
+  const half = Math.floor(MAX_TOOL_CHARS / 2);
+  const dropped = text.length - MAX_TOOL_CHARS;
+  return `${text.slice(0, half)}\n... [${dropped} characters elided] ...\n${text.slice(-half)}`;
+}
+
 export interface AgentDeps {
   /** Ask the local chat route for the next step, tools included. */
   complete: (messages: ChatMessage[]) => Promise<ChatReply>;
@@ -194,7 +211,7 @@ async function runTurn(
       }
       send(envelope(request));
       const outcome = execOutcome(await awaitExec());
-      history.push({ role: "tool", tool_call_id: call.id, content: outcome.text });
+      history.push({ role: "tool", tool_call_id: call.id, content: clamp(outcome.text) });
     }
   }
 }

@@ -166,10 +166,55 @@ function readShell(result: Field[]): ToolOutcome {
 }
 
 /**
+ * Each tool answers with its own result message, and the success payload's
+ * useful field differs per tool -- `ReadSuccess` puts the path at field 1 and
+ * the content at 2, so a generic "first field" read hands the model a
+ * filename where it asked for a file.
+ */
+const SUCCESS = 1;
+
+/** Field carrying the answer inside each tool's success message. */
+const SUCCESS_TEXT: Record<number, number> = {
+  [READ]: 2, // ReadSuccess.content
+  [WRITE]: 1, // WriteSuccess.path -- confirmation, the content came from us
+  [DELETE]: 1, // DeleteSuccess.path
+  [GREP]: 4, // GrepSuccess.workspace_results
+  [LS]: 1, // LsSuccess.directory_tree_root
+};
+
+/** Every tool's second oneof slot is its error, and each carries the text at field 2. */
+const ERROR_TEXT = 2;
+
+function readTool(field: number, result: Field[]): ToolOutcome {
+  const success = fieldBytes(result, SUCCESS);
+  if (success !== undefined) {
+    const want = SUCCESS_TEXT[field] ?? 1;
+    const inner = decode(success);
+    const text = fieldString(inner, want);
+    if (text !== undefined && text.length > 0) {
+      return { ok: true, text };
+    }
+    // An `ls` tree and a `grep` union are nested messages rather than a
+    // plain string; their own first string is the useful line.
+    const nested = fieldBytes(inner, want);
+    return {
+      ok: true,
+      text: nested === undefined ? "(done)" : (fieldString(decode(nested), 1) ?? "(done)"),
+    };
+  }
+  const failure = fieldBytes(result, 2);
+  return {
+    ok: false,
+    text:
+      failure === undefined
+        ? "tool failed"
+        : (fieldString(decode(failure), ERROR_TEXT) ?? "tool failed"),
+  };
+}
+
+/**
  * Read one `AgentClientMessage{2 exec_client_message}` into the answer the
- * model is waiting for. Every non-shell tool answers with its own result
- * message whose first string field is the content or the error, which is all
- * a tool-result turn needs.
+ * model is waiting for.
  */
 export function execOutcome(execClient: Uint8Array): ToolOutcome {
   const fields = decode(execClient);
@@ -179,14 +224,9 @@ export function execOutcome(execClient: Uint8Array): ToolOutcome {
   }
   for (const field of [READ, WRITE, LS, GREP, DELETE]) {
     const raw = fieldBytes(fields, field);
-    if (raw === undefined) {
-      continue;
+    if (raw !== undefined) {
+      return readTool(field, decode(raw));
     }
-    const inner = decode(raw);
-    const first = fieldBytes(inner, 1);
-    const text =
-      first === undefined ? "" : (fieldString(decode(first), 1) ?? fieldString(inner, 1) ?? "");
-    return { ok: true, text: text.length > 0 ? text : "(done)" };
   }
   return { ok: false, text: "no tool result in exec message" };
 }
