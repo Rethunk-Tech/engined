@@ -29,7 +29,9 @@ import {
   handleStop,
   handleUnhold,
 } from "./control.ts";
-import { handleCursor, isCursorPath } from "./cursorDoor.ts";
+import { serveCursorAgent } from "./cursorAgent.ts";
+import { chatModels, handleCursor, isCursorPath } from "./cursorDoor.ts";
+import { TOOL_SCHEMA } from "./cursorExec.ts";
 import { DockerLifecycle, dockerExec } from "./docker.ts";
 import type { DoorContext, DoorOptions } from "./doorContext.ts";
 import { EngineRegistry, type RegistryOptions } from "./engines.ts";
@@ -149,6 +151,8 @@ export interface Door {
   /** Re-reads `path`. Invalid TOML keeps the running config and records the error. */
   reload: (path: string) => void;
   registry: EngineRegistry;
+  /** The live door state, so a sibling listener reads the same config a reload swapped in. */
+  ctx: DoorContext;
   configError: () => string | undefined;
 }
 
@@ -362,7 +366,7 @@ export function createDoor(
     return routeRequest(ctx, req, configErr);
   }
 
-  return { fetch, reload, registry, configError: () => configErr };
+  return { fetch, reload, registry, ctx, configError: () => configErr };
 }
 
 /**
@@ -496,6 +500,48 @@ if (import.meta.main) {
     process.exit(FatalError.EXIT_CODE);
   }
 
+  // The Cursor turn stream needs HTTP/2, so it listens beside the door
+  // rather than on it. It dials the box's own chat route back through the
+  // door's OpenAI surface, which is the same path every other consumer takes.
+  const cursorAgent = serveCursorAgent(startupConfig.cursor_port, {
+    complete: async (messages) => {
+      const ctx = door.ctx;
+      const model = chatModels(ctx)[0];
+      if (model === undefined) {
+        return { text: "engined: no llama chat route is configured", toolCalls: [] };
+      }
+      const res = await fetch(
+        `http://127.0.0.1:${ctx.getConfig().listen_port}/openai/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: `@/llama/${model}`, messages, tools: TOOL_SCHEMA }),
+        },
+      );
+      if (!res.ok) {
+        return { text: `engined: chat route ${model} answered ${res.status}`, toolCalls: [] };
+      }
+      const body = (await res.json()) as {
+        choices?: {
+          message?: {
+            content?: string;
+            reasoning_content?: string;
+            tool_calls?: {
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }[];
+          };
+        }[];
+      };
+      const choice = body.choices?.[0]?.message;
+      return {
+        text: choice?.content || choice?.reasoning_content || "",
+        toolCalls: choice?.tool_calls ?? [],
+      };
+    },
+  });
+
   process.on("SIGHUP", () => door.reload(configPath()));
 
   process.on("SIGTERM", () => {
@@ -503,6 +549,7 @@ if (import.meta.main) {
       .shutdown()
       .catch(() => undefined)
       .finally(() => {
+        cursorAgent.stop();
         bound.v4.stop();
         bound.v6.stop();
         process.exit(0);

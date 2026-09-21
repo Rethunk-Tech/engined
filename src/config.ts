@@ -62,6 +62,12 @@ import {
 } from "./types.ts";
 
 const DEFAULT_LISTEN_PORT = 29_200;
+/**
+ * The Cursor turn stream is bidirectional and needs HTTP/2, which the main
+ * cleartext door does not speak, so it gets its own h2c listener. A TLS
+ * terminator in front routes `/agent.v1.AgentService/Run` here.
+ */
+const DEFAULT_CURSOR_PORT = 29_201;
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600;
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600;
 
@@ -435,10 +441,12 @@ function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => SpecFacts
 function parseTopLevelSettings(
   raw: Record<string, unknown>,
   file: string,
-): Pick<Config, "listen_port" | "chat_timeout_seconds" | "agent_timeout_seconds"> {
+): Pick<Config, "listen_port" | "cursor_port" | "chat_timeout_seconds" | "agent_timeout_seconds"> {
   return {
     listen_port:
       optional(raw.listen_port, "number", 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
+    cursor_port:
+      optional(raw.cursor_port, "number", 'config "cursor_port"', file) ?? DEFAULT_CURSOR_PORT,
     chat_timeout_seconds:
       optional(raw.chat_timeout_seconds, "number", 'config "chat_timeout_seconds"', file) ??
       DEFAULT_CHAT_TIMEOUT_SECONDS,

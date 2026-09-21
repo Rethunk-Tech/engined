@@ -58,6 +58,7 @@ export function route(overrides: Partial<ResolvedRoute> = {}): ResolvedRoute {
 export function config(overrides: Partial<Config> = {}): Config {
   return {
     listen_port: 29_200,
+    cursor_port: 29_201,
     chat_timeout_seconds: 600,
     agent_timeout_seconds: 3600,
     engines: [],

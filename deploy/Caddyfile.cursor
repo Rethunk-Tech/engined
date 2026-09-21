@@ -1,0 +1,31 @@
+# TLS in front of engined, which stays cleartext.
+#
+# cursor-agent boots over HTTP/1.1 and then opens `AgentService/Run` over
+# HTTP/2, negotiating with ALPN -- which only a TLS listener can do. engined
+# therefore serves two cleartext backends and this proxy routes by path:
+# the turn stream to the h2c listener, everything else to the door.
+#
+# `cursor-agent` trusts Caddy's internal CA via
+#   NODE_EXTRA_CA_CERTS=$(caddy environ | grep -i pki)/authorities/local/root.crt
+# or any cert the operator points it at; it is a Node bundle, so no system
+# trust store change is needed.
+
+{
+	auto_https disable_redirects
+}
+
+engined.localhost {
+	tls internal
+
+	# engined origin-checks Host against loopback at its own port and answers
+	# 403 to anything else, so the proxy must present the backend's own Host
+	# rather than the name the client dialled.
+	@run path /agent.v1.AgentService/Run
+	reverse_proxy @run h2c://127.0.0.1:29201 {
+		header_up Host 127.0.0.1:29201
+	}
+
+	reverse_proxy 127.0.0.1:29200 {
+		header_up Host 127.0.0.1:29200
+	}
+}

@@ -382,6 +382,8 @@ export interface EngineEntry {
 
 export interface Config {
   listen_port: number;
+  /** h2c listener for the Cursor turn stream; see `cursorAgent.ts`. */
+  cursor_port: number;
   chat_timeout_seconds: number;
   agent_timeout_seconds: number;
   engines: EngineEntry[];
