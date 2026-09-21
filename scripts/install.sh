@@ -49,6 +49,12 @@ resolve_paths() {
   UNIT_PATH="$UNIT_DIR/engined.service"
   PROBE_SERVICE_PATH="$UNIT_DIR/engined-probe.service"
   PROBE_TIMER_PATH="$UNIT_DIR/engined-probe.timer"
+  TLS_SERVICE_PATH="$UNIT_DIR/engined-tls.service"
+
+  # The terminator runs the same way every engine does -- a container this
+  # box already knows how to pull -- so it adds no host package.
+  DOCKER_PATH="$(command -v docker || true)"
+  CADDY_IMAGE="caddy:2.11.4-alpine"
 
   UNIT_INSTALL_DIR="$(to_unit_path "$INSTALL_DIR")"
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
@@ -96,6 +102,8 @@ render_unit_file() {
   sed \
     -e "s|@BUN_PATH@|$(to_unit_path "$BUN_PATH")|g" \
     -e "s|@BUNX_PATH@|$(to_unit_path "$BUNX_PATH")|g" \
+    -e "s|@DOCKER_PATH@|$(to_unit_path "$DOCKER_PATH")|g" \
+    -e "s|@CADDY_IMAGE@|$CADDY_IMAGE|g" \
     -e "s|@INSTALL_DIR@|$UNIT_INSTALL_DIR|g" \
     -e "s|@STATE_DIR@|$UNIT_STATE_DIR|g" \
     "$REPO_ROOT/scripts/$template" >"$out"
@@ -164,6 +172,15 @@ main() {
   render_unit_file engined-probe.service.in "$PROBE_SERVICE_PATH"
   render_unit_file engined-probe.timer.in "$PROBE_TIMER_PATH"
 
+  # The Cursor door is unreachable without a TLS terminator: cursor-agent
+  # picks HTTP/1.1 for its boot chain and HTTP/2 for the turn stream by ALPN,
+  # which a cleartext listener cannot offer. Shipping the Caddyfile without
+  # something that runs it would leave that door quietly broken.
+  if [[ -n "$DOCKER_PATH" ]]; then
+    cp "$REPO_ROOT/deploy/Caddyfile.cursor" "$INSTALL_DIR/Caddyfile.cursor"
+    render_unit_file engined-tls.service.in "$TLS_SERVICE_PATH"
+  fi
+
   # The probe covered vision alone when it was installed under that name. An
   # install that predates the rename still has its timer enabled, and rsync
   # --delete takes the unit file out from under it, so a box updating in place
@@ -180,6 +197,12 @@ main() {
   systemctl --user enable engined.service
   systemctl --user restart engined.service
   systemctl --user enable --now engined-probe.timer
+  if [[ -n "$DOCKER_PATH" ]]; then
+    systemctl --user enable engined-tls.service
+    systemctl --user restart engined-tls.service
+  else
+    echo "install.sh: docker not found; engined-tls left disabled (Cursor door needs it)" >&2
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

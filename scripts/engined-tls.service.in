@@ -1,0 +1,30 @@
+[Unit]
+Description=engined TLS terminator — Caddy in front of the door
+# The Cursor door is the reason this exists: cursor-agent boots over HTTP/1.1
+# and then opens `AgentService/Run` over HTTP/2, choosing between them with
+# ALPN, which only a TLS listener can do. engined itself stays cleartext and
+# holds no certificate.
+After=engined.service
+BindsTo=engined.service
+
+[Service]
+Type=simple
+# Foreground, so systemd supervises the container rather than a detached one
+# it cannot see. `--rm` and the pre-start removal together mean a hard kill
+# never leaves a name behind that blocks the next start.
+ExecStartPre=-@DOCKER_PATH@ rm -f engined-tls
+ExecStart=@DOCKER_PATH@ run --rm --name engined-tls --network host \
+  -v @INSTALL_DIR@/Caddyfile.cursor:/etc/caddy/Caddyfile:ro \
+  -v @STATE_DIR@/caddy:/data \
+  @CADDY_IMAGE@
+ExecStop=-@DOCKER_PATH@ stop -t 5 engined-tls
+
+Restart=on-failure
+
+# Caddy mints its own CA on first run and keeps it under /data. cursor-agent
+# is a Node bundle, so it trusts that root with
+#   NODE_EXTRA_CA_CERTS=@STATE_DIR@/caddy/caddy/pki/authorities/local/root.crt
+# and no system trust store is touched.
+
+[Install]
+WantedBy=default.target
