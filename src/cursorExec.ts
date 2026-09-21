@@ -49,9 +49,22 @@ export interface ToolRequest {
   glob?: string;
   /** grep: `content` (default), `files_with_matches`, or `count` -- the client's own set. */
   outputMode?: string;
-  /** grep: lines of context either side of a match. */
+  /** grep: lines of context either side of a match, or each side separately. */
   context?: number;
+  contextBefore?: number;
+  contextAfter?: number;
   caseInsensitive?: boolean;
+  /** grep: ripgrep file type, e.g. `py`. */
+  fileType?: string;
+  /** grep: stop after this many results. */
+  headLimit?: number;
+  /** grep: let a pattern span lines. */
+  multiline?: boolean;
+  /** grep: ripgrep sort key; `none` leaves ripgrep's own order. */
+  sort?: string;
+  sortAscending?: boolean;
+  /** grep: skip this many results before returning any. */
+  resultOffset?: number;
   /** read: window into a large file, rather than pulling all of it into the turn. */
   offset?: number;
   limit?: number;
@@ -59,6 +72,8 @@ export interface ToolRequest {
   ignore?: string[];
   /** shell: what the command is for, shown by the CLI beside the call. */
   description?: string;
+  /** shell: leave it running and return immediately. */
+  background?: boolean;
 }
 
 /**
@@ -99,6 +114,7 @@ function argsFor(
           stringField(4, execId),
           bytesField(8, parsingResult(command)),
           intField(12, 1), // skip_approval
+          ...(req.background ? [intField(11, 1)] : []),
           ...(req.description === undefined ? [] : [stringField(15, req.description)]),
         ),
       };
@@ -133,8 +149,18 @@ function argsFor(
           stringField(2, path),
           ...(req.glob === undefined ? [] : [stringField(3, req.glob)]),
           ...(req.outputMode === undefined ? [] : [stringField(4, req.outputMode)]),
+          ...(req.contextBefore === undefined ? [] : [intField(5, req.contextBefore)]),
+          ...(req.contextAfter === undefined ? [] : [intField(6, req.contextAfter)]),
           ...(req.context === undefined ? [] : [intField(7, req.context)]),
           ...(req.caseInsensitive ? [intField(8, 1)] : []),
+          ...(req.fileType === undefined ? [] : [stringField(9, req.fileType)]),
+          ...(req.headLimit === undefined ? [] : [intField(10, req.headLimit)]),
+          ...(req.multiline ? [intField(11, 1)] : []),
+          ...(req.sort === undefined ? [] : [stringField(12, req.sort)]),
+          ...(req.sortAscending ? [intField(13, 1)] : []),
+          // Every other tool carries its call id; grep was the one that did not.
+          stringField(14, execId),
+          ...(req.resultOffset === undefined ? [] : [intField(16, req.resultOffset)]),
         ),
       };
     case "ls":
@@ -340,6 +366,10 @@ export const TOOL_SCHEMA = [
         properties: {
           command: { type: "string" },
           description: { type: "string", description: "What this command is for." },
+          background: {
+            type: "boolean",
+            description: "Leave it running and return immediately.",
+          },
         },
         required: ["command"],
       },
@@ -406,7 +436,19 @@ export const TOOL_SCHEMA = [
             description: "content returns matching lines; the others just locate them.",
           },
           context: { type: "integer", description: "Lines of context either side of a match." },
+          context_before: { type: "integer" },
+          context_after: { type: "integer" },
           case_insensitive: { type: "boolean" },
+          type: { type: "string", description: "Restrict to a ripgrep file type, e.g. py." },
+          head_limit: { type: "integer", description: "Stop after this many results." },
+          multiline: { type: "boolean", description: "Let a pattern span lines." },
+          sort: {
+            type: "string",
+            enum: ["none", "path", "modified", "accessed", "created"],
+            description: "Result order; defaults to modified.",
+          },
+          sort_ascending: { type: "boolean" },
+          offset: { type: "integer", description: "Skip this many results." },
         },
         required: ["pattern"],
       },
