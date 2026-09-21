@@ -37,6 +37,8 @@ const THINKING_DELTA = 4;
 const THINKING_COMPLETED = 5;
 const TOOL_CALL_STARTED = 2;
 const TOOL_CALL_COMPLETED = 3;
+const PARTIAL_TOOL_CALL = 7;
+const MESSAGE_STARTED_AT_MS = 25;
 
 /**
  * A local model can think for minutes on a long brief, and the client drops a
@@ -77,6 +79,7 @@ export interface AgentDeps {
 export interface StreamSink {
   text: (chunk: string) => void;
   thinking: (chunk: string) => void;
+  toolArgs: (callId: string, chunk: string) => void;
 }
 
 export interface ChatMessage {
@@ -109,42 +112,52 @@ export interface TurnUsage {
   cacheRead: number;
 }
 
-function textDelta(text: string): Uint8Array {
+/**
+ * Wrap one `InteractionUpdate`. The client's own constructors always set
+ * `messageStartedAtMs`, so ours do too -- a frame without it is a frame the
+ * CLI cannot place on its timeline.
+ */
+function update(field: number, payload: Uint8Array): Uint8Array {
   return bytesField(
     INTERACTION_UPDATE,
-    message(bytesField(TEXT_DELTA, message(stringField(1, text)))),
+    message(bytesField(field, payload), intField(MESSAGE_STARTED_AT_MS, Date.now())),
   );
+}
+
+function textDelta(text: string): Uint8Array {
+  return update(TEXT_DELTA, message(stringField(1, text)));
 }
 
 function thinkingDelta(text: string): Uint8Array {
-  return bytesField(
-    INTERACTION_UPDATE,
-    message(bytesField(THINKING_DELTA, message(stringField(1, text)))),
-  );
+  return update(THINKING_DELTA, message(stringField(1, text)));
 }
 
 function thinkingCompleted(ms: number): Uint8Array {
-  return bytesField(
-    INTERACTION_UPDATE,
-    message(bytesField(THINKING_COMPLETED, message(intField(1, ms)))),
-  );
+  return update(THINKING_COMPLETED, message(intField(1, ms)));
 }
 
 /** `ToolCallStartedUpdate`/`ToolCallCompletedUpdate{1 call_id, 2 tool_call, 3 model_call_id}`. */
 function toolCallFrame(field: number, callId: string, call: Uint8Array): Uint8Array {
-  return bytesField(
-    INTERACTION_UPDATE,
-    message(
-      bytesField(
-        field,
-        message(stringField(1, callId), bytesField(2, call), stringField(3, callId)),
-      ),
-    ),
+  return update(
+    field,
+    message(stringField(1, callId), bytesField(2, call), stringField(3, callId)),
+  );
+}
+
+/**
+ * `PartialToolCallUpdate{1 call_id, 2 tool_call, 3 args_text_delta, 4 model_call_id}`:
+ * the arguments as the model writes them, so a tool call renders while it is
+ * still being composed instead of appearing whole at the end.
+ */
+function partialToolCall(callId: string, argsDelta: string): Uint8Array {
+  return update(
+    PARTIAL_TOOL_CALL,
+    message(stringField(1, callId), stringField(3, argsDelta), stringField(4, callId)),
   );
 }
 
 function heartbeat(): Uint8Array {
-  return bytesField(INTERACTION_UPDATE, message(bytesField(HEARTBEAT, new Uint8Array())));
+  return update(HEARTBEAT, new Uint8Array());
 }
 
 function turnEnded(usage: TurnUsage): Uint8Array {
@@ -273,6 +286,11 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
           }
           thought = true;
           send(envelope(thinkingDelta(chunk)));
+        },
+        toolArgs: (callId, chunk) => {
+          if (chunk.length > 0) {
+            send(envelope(partialToolCall(callId, chunk)));
+          }
         },
       });
     } finally {

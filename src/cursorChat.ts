@@ -114,7 +114,11 @@ async function readChatStream(
         const slot = calls[at];
         slot.id = part.id ?? slot.id;
         slot.name = part.function?.name ?? slot.name;
-        slot.args += part.function?.arguments ?? "";
+        const argsDelta = part.function?.arguments ?? "";
+        slot.args += argsDelta;
+        // The id can arrive after the first argument fragment, so the partial
+        // frames key off whatever identifies the call at that moment.
+        on.toolArgs(slot.id || `call_${at}`, argsDelta);
       }
       if (chunk.usage) {
         usage = {
