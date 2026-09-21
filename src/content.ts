@@ -10,6 +10,7 @@ import { parseHop, runChain } from "./chain.ts";
 import { routeAddress } from "./control.ts";
 import { type Dispatch, resolveModel } from "./dispatch.ts";
 import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
+import { EngineBusyError } from "./errors/engineBusy.ts";
 import { proxyExtras } from "./extras.ts";
 import { buildHopExec, egressOf, timeoutSecondsForKind } from "./hop.ts";
 import {
@@ -17,7 +18,9 @@ import {
   JSON_CONTENT_TYPE,
   jsonError,
   SSE_CONTENT_TYPE,
+  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_CONFLICT,
   STATUS_UNAVAILABLE,
 } from "./http.ts";
 import { handleImageEdit } from "./imageEdits.ts";
@@ -30,10 +33,13 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
+  type Config,
   EGRESS_RANK,
   type Egress,
+  errMessage,
   isEgress,
   MS_PER_SECOND,
+  type ResolvedRoute,
 } from "./types.ts";
 
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
@@ -120,6 +126,23 @@ async function handleModelRouted(
 /** Tokenize and apply-template are chat tools; asking the router for any other role would inject the wrong model. */
 const EXTRAS_ROLE = "chat";
 
+/**
+ * The GGUF extras inject when the body names none. A `keep_resident` chat
+ * route is the operator's intended occupant; otherwise declaration order
+ * among local chat routes on this engine.
+ */
+function extrasChatRoute(config: Config, engineId: string): ResolvedRoute | undefined {
+  const locals = config.routes.filter(
+    (r) =>
+      r.disabled !== true &&
+      r.engine === engineId &&
+      r.role === EXTRAS_ROLE &&
+      r.upstream === "local" &&
+      r.model !== undefined,
+  );
+  return locals.find((r) => r.keep_resident === true) ?? locals[0];
+}
+
 export async function handleExtras(
   ctx: DoorContext,
   req: Request,
@@ -141,7 +164,22 @@ export async function handleExtras(
   if (privateUrl === null) {
     return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`);
   }
-  const residentModel = getLlamaRouter(ctx, engineEntry).residentModel(EXTRAS_ROLE);
+  const router = getLlamaRouter(ctx, engineEntry);
+  let residentModel = router.residentModel(EXTRAS_ROLE);
+  if (residentModel === null) {
+    const chatRoute = extrasChatRoute(ctx.getConfig(), engineId);
+    if (chatRoute !== undefined) {
+      try {
+        await router.warm(chatRoute, req.signal);
+      } catch (err) {
+        if (err instanceof EngineBusyError) {
+          return jsonError(STATUS_CONFLICT, err.message);
+        }
+        return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
+      }
+      residentModel = router.residentModel(EXTRAS_ROLE);
+    }
+  }
   return proxyExtras(
     req,
     { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },

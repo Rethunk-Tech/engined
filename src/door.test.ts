@@ -1523,6 +1523,7 @@ describe("the door: extras address one named engine, and refuse any other", () =
     );
     expect(res.status).toBe(200);
     expect(extrasCalls).toHaveLength(1);
+    expect(JSON.parse(extrasCalls[0] ?? "{}")).toMatchObject({ model: "ornith" });
 
     // Naming the comfy-shaped engine is refused before its container is touched.
     const wrong = await door.fetch(
@@ -1533,6 +1534,29 @@ describe("the door: extras address one named engine, and refuse any other", () =
     );
     expect(wrong.status).toBe(400);
     expect(extrasCalls).toHaveLength(1);
+  });
+
+  test("tokenize with no chat yet warm-loads the local chat route before injecting it", async () => {
+    const { cfg, root } = llamaDoorConfig();
+    const extrasCalls: string[] = [];
+    const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
+      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
+      return Promise.resolve(Response.json({ tokens: [1] }));
+    };
+    const recorded: { body: string }[] = [];
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      extrasHttpClient: extrasClient,
+      write: () => undefined,
+    });
+    const res = await door.fetch(
+      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(extrasCalls[0] ?? "{}")).toMatchObject({ model: "ornith", content: "hello" });
   });
 });
 

@@ -2,7 +2,8 @@
  * The llama.cpp extras proxy. In router mode, `/tokenize` and
  * `/apply-template` 400 with "model name is missing from the request" unless a
  * model is named — sagaforge's own consumers of these endpoints send none, so
- * the injection is the entire feature, not a passthrough.
+ * the injection is the entire feature, not a passthrough. The door warms the
+ * local chat route before calling here when none is resident.
  *
  * The door addresses these as `/engined/v1/engines/:id/<verb>`; llama-server
  * serves them bare. The caller passes the engine-side path, because forwarding

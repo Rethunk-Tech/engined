@@ -36,8 +36,9 @@ treated as a caller.
 | `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens |
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
-proxy through to the named llama engine, with the resident chat model injected
-where the body omits one. Any other engine id is refused with a 400 naming it
+proxy through to the named llama engine. If no chat model is resident, the
+door warms the engine's local chat route (`keep_resident` when one is pinned)
+before injecting that model where the body omits one. Any other engine id is refused with a 400 naming it
 unknown — they are llama.cpp routes, not a general engine surface, and that is
 true of every kind that is not llama, not only ids that never existed.
 
