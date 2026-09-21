@@ -198,12 +198,26 @@ function toolRequestFrom(call: ToolCallOut): ToolRequest {
   }
   const str = (key: string): string | undefined =>
     typeof args[key] === "string" ? (args[key] as string) : undefined;
+  const num = (key: string): number | undefined =>
+    typeof args[key] === "number" ? (args[key] as number) : undefined;
+  const list = (key: string): string[] | undefined =>
+    Array.isArray(args[key])
+      ? (args[key] as unknown[]).filter((v): v is string => typeof v === "string")
+      : undefined;
   return {
     tool: call.function.name as ToolRequest["tool"],
     command: str("command"),
     path: str("path"),
     content: str("content"),
     pattern: str("pattern"),
+    glob: str("glob"),
+    outputMode: str("output_mode"),
+    context: num("context"),
+    caseInsensitive: args.case_insensitive === true,
+    offset: num("offset"),
+    limit: num("limit"),
+    ignore: list("ignore"),
+    description: str("description"),
   };
 }
 

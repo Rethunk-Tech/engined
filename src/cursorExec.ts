@@ -45,6 +45,20 @@ export interface ToolRequest {
   content?: string;
   pattern?: string;
   workdir?: string;
+  /** grep: restrict to matching files, the lever that makes it usable on a big repo. */
+  glob?: string;
+  /** grep: `content` (default), `files_with_matches`, or `count` -- the client's own set. */
+  outputMode?: string;
+  /** grep: lines of context either side of a match. */
+  context?: number;
+  caseInsensitive?: boolean;
+  /** read: window into a large file, rather than pulling all of it into the turn. */
+  offset?: number;
+  limit?: number;
+  /** ls: names to leave out of the listing. */
+  ignore?: string[];
+  /** shell: what the command is for, shown by the CLI beside the call. */
+  description?: string;
 }
 
 /**
@@ -85,11 +99,20 @@ function argsFor(
           stringField(4, execId),
           bytesField(8, parsingResult(command)),
           intField(12, 1), // skip_approval
+          ...(req.description === undefined ? [] : [stringField(15, req.description)]),
         ),
       };
     }
     case "read":
-      return { field: READ, args: message(stringField(1, path), stringField(2, execId)) };
+      return {
+        field: READ,
+        args: message(
+          stringField(1, path),
+          stringField(2, execId),
+          ...(req.offset === undefined ? [] : [intField(4, req.offset)]),
+          ...(req.limit === undefined ? [] : [intField(5, req.limit)]),
+        ),
+      };
     case "write":
       return {
         field: WRITE,
@@ -105,10 +128,24 @@ function argsFor(
     case "grep":
       return {
         field: GREP,
-        args: message(stringField(1, req.pattern ?? ""), stringField(2, path)),
+        args: message(
+          stringField(1, req.pattern ?? ""),
+          stringField(2, path),
+          ...(req.glob === undefined ? [] : [stringField(3, req.glob)]),
+          ...(req.outputMode === undefined ? [] : [stringField(4, req.outputMode)]),
+          ...(req.context === undefined ? [] : [intField(7, req.context)]),
+          ...(req.caseInsensitive ? [intField(8, 1)] : []),
+        ),
       };
     case "ls":
-      return { field: LS, args: message(stringField(1, path), stringField(3, execId)) };
+      return {
+        field: LS,
+        args: message(
+          stringField(1, path),
+          ...(req.ignore ?? []).map((name) => stringField(2, name)),
+          stringField(3, execId),
+        ),
+      };
     default:
       return undefined;
   }
@@ -300,7 +337,10 @@ export const TOOL_SCHEMA = [
       description: "Run a shell command in the workspace and return its output.",
       parameters: {
         type: "object",
-        properties: { command: { type: "string" } },
+        properties: {
+          command: { type: "string" },
+          description: { type: "string", description: "What this command is for." },
+        },
         required: ["command"],
       },
     },
@@ -312,7 +352,11 @@ export const TOOL_SCHEMA = [
       description: "Read a file from the workspace.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          offset: { type: "integer", description: "First line to read, for a large file." },
+          limit: { type: "integer", description: "How many lines to read from offset." },
+        },
         required: ["path"],
       },
     },
@@ -336,7 +380,10 @@ export const TOOL_SCHEMA = [
       description: "List a directory in the workspace.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          ignore: { type: "array", items: { type: "string" }, description: "Names to leave out." },
+        },
         required: ["path"],
       },
     },
@@ -345,10 +392,22 @@ export const TOOL_SCHEMA = [
     type: "function",
     function: {
       name: "grep",
-      description: "Search the workspace for a regular expression.",
+      description:
+        "Search the workspace for a regular expression. Use glob to narrow a large repo.",
       parameters: {
         type: "object",
-        properties: { pattern: { type: "string" }, path: { type: "string" } },
+        properties: {
+          pattern: { type: "string" },
+          path: { type: "string" },
+          glob: { type: "string", description: "Only search files matching this glob." },
+          output_mode: {
+            type: "string",
+            enum: ["content", "files_with_matches", "count"],
+            description: "content returns matching lines; the others just locate them.",
+          },
+          context: { type: "integer", description: "Lines of context either side of a match." },
+          case_insensitive: { type: "boolean" },
+        },
         required: ["pattern"],
       },
     },
