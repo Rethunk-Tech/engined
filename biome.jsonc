@@ -120,6 +120,9 @@
         },
         "noUselessUndefined": "off"
       },
+      "security": {
+        "noSecrets": { "level": "on", "options": { "entropyThreshold": 55 } }
+      },
       "nursery": {
         "noFloatingPromises": "error",
         "noMisusedPromises": "error"
