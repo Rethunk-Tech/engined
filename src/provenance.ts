@@ -4,7 +4,7 @@
  * stdout is the whole mechanism — no log-level framework, no journal binding.
  */
 
-import process from "node:process";
+import process from 'node:process'
 
 /**
  * What one attempt cost, exactly as the engine reported it -- never derived,
@@ -19,9 +19,9 @@ import process from "node:process";
  * not receive is absent, never zero -- zero is a number a sum would trust.
  */
 export interface Usage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
   /**
    * What the run cost in dollars, where the thing that ran worked it out
    * itself -- the agentic CLIs do, and they are the one kind whose token
@@ -29,26 +29,26 @@ export interface Usage {
    * of tokens by a rate card: no rate card lives in this repo, and one that
    * did would be wrong the week a provider repriced.
    */
-  cost_usd?: number;
+  cost_usd?: number
 }
 
 export interface Attempt {
-  engine: string;
-  model: string;
-  ok: boolean;
-  failure?: string;
+  engine: string
+  model: string
+  ok: boolean
+  failure?: string
   /** Clocked from when this attempt started, never from when the call arrived — queue wait is not an attempt's latency. */
-  duration_ms: number;
+  duration_ms: number
   /** The router id the engine echoed back. Proves the request reached the engine, not which GGUF answered. */
-  model_reported?: string;
+  model_reported?: string
   /** Read per attempt from that engine's `GET /v1/models`. The value that names the GGUF that actually answered. */
-  model_resident?: string;
+  model_resident?: string
   /** The pin that actually launched, for an agentic attempt only. Absent, never an empty string, for every other kind. */
-  version?: string;
+  version?: string
   /** This hop's resolved `[[upstream]]` id, or `"local"`. Absent for an ambient hop, which named no upstream at all. */
-  upstream_used?: string;
+  upstream_used?: string
   /** What the engine said this attempt cost. Absent whenever it reported nothing -- see `streamed`, and `Usage`. */
-  usage?: Usage;
+  usage?: Usage
   /**
    * This attempt answered with a stream rather than a body. Its `usage`, when
    * present, was read out of the frames themselves; when absent, the upstream
@@ -59,21 +59,21 @@ export interface Attempt {
    * Recorded either way, so a sum over these lines can tell "cost nothing"
    * from "cost unknown" instead of reading a month of streamed chat as zero.
    */
-  streamed?: true;
+  streamed?: true
 }
 
 export interface CallRecord {
-  chain: string | null;
-  requested: string;
-  attempts: Attempt[];
-  engine_used: string | null;
+  chain: string | null
+  requested: string
+  attempts: Attempt[]
+  engine_used: string | null
   /** The upstream of the attempt that actually answered. `null` alongside `engine_used: null` — nothing answered. */
-  upstream_used: string | null;
+  upstream_used: string | null
 }
 
 /** Exported so everything engined puts on the record shares one writer, rather than growing a second `process.stdout` site per caller. */
 export function writeToStdout(line: string): void {
-  process.stdout.write(`${line}\n`);
+  process.stdout.write(`${line}\n`)
 }
 
 /**
@@ -95,7 +95,7 @@ function serializeAttempt(attempt: Attempt): Attempt {
     upstream_used: attempt.upstream_used,
     usage: attempt.usage,
     streamed: attempt.streamed,
-  };
+  }
 }
 
 export function recordCall(
@@ -110,5 +110,5 @@ export function recordCall(
       engine_used: record.engine_used,
       upstream_used: record.upstream_used,
     }),
-  );
+  )
 }

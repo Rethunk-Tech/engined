@@ -10,10 +10,10 @@
  * not tell them apart.
  */
 
-import http2, { type ServerHttp2Stream } from "node:http2";
-import process from "node:process";
-import { gunzipSync } from "node:zlib";
-import { execOutcome, execRequest, type ToolRequest, toolCallMessage } from "./cursorExec.ts";
+import http2, { type ServerHttp2Stream } from 'node:http2'
+import process from 'node:process'
+import { gunzipSync } from 'node:zlib'
+import { execOutcome, execRequest, type ToolRequest, toolCallMessage } from './cursorExec.ts'
 import {
   bytesField,
   decode,
@@ -25,28 +25,28 @@ import {
   intField,
   message,
   stringField,
-} from "./cursorProto.ts";
+} from './cursorProto.ts'
 
-const RUN_PATH = "/agent.v1.AgentService/Run";
-const CONNECT_STREAM_TYPE = "application/connect+proto";
-const EXEC_CLIENT_FIELD = 2;
-const INTERACTION_UPDATE = 1;
-const TEXT_DELTA = 1;
-const TURN_ENDED = 14;
-const HEARTBEAT = 13;
-const THINKING_DELTA = 4;
-const THINKING_COMPLETED = 5;
-const TOOL_CALL_STARTED = 2;
-const TOOL_CALL_COMPLETED = 3;
-const PARTIAL_TOOL_CALL = 7;
-const MESSAGE_STARTED_AT_MS = 25;
+const RUN_PATH = '/agent.v1.AgentService/Run'
+const CONNECT_STREAM_TYPE = 'application/connect+proto'
+const EXEC_CLIENT_FIELD = 2
+const INTERACTION_UPDATE = 1
+const TEXT_DELTA = 1
+const TURN_ENDED = 14
+const HEARTBEAT = 13
+const THINKING_DELTA = 4
+const THINKING_COMPLETED = 5
+const TOOL_CALL_STARTED = 2
+const TOOL_CALL_COMPLETED = 3
+const PARTIAL_TOOL_CALL = 7
+const MESSAGE_STARTED_AT_MS = 25
 
 /**
  * A local model can think for minutes on a long brief, and the client drops a
  * stream that goes quiet. Heartbeats hold it open without pretending to be
  * output.
  */
-const HEARTBEAT_MS = 5000;
+const HEARTBEAT_MS = 5000
 
 /**
  * One Connect frame per token delta floods the stream -- a 50k-token answer
@@ -54,20 +54,20 @@ const HEARTBEAT_MS = 5000;
  * Deltas are coalesced into this window instead, which the CLI renders the
  * same way at a fraction of the frames.
  */
-const COALESCE_MS = 60;
+const COALESCE_MS = 60
 
 /**
  * Stop a runaway model without cutting off real work: a multi-file build
  * legitimately runs dozens of rounds, and a turn that hits this ceiling
  * silently abandons whatever it had not yet committed.
  */
-const MAX_TOOL_ROUNDS = 150;
+const MAX_TOOL_ROUNDS = 150
 
 /** Rounds left when the model is told to wrap up, so it can still commit. */
-const WRAP_UP_MARGIN = 8;
+const WRAP_UP_MARGIN = 8
 
 /** Consecutive completion failures before the turn gives up. */
-const MAX_COMPLETION_FAILURES = 2;
+const MAX_COMPLETION_FAILURES = 2
 
 /**
  * Tool output goes into the history verbatim, so one `cat` of a large file
@@ -75,15 +75,15 @@ const MAX_COMPLETION_FAILURES = 2;
  * 500 with nothing naming the cause. Truncating the middle keeps the head and
  * tail a model actually reasons over.
  */
-const MAX_TOOL_CHARS = 8000;
+const MAX_TOOL_CHARS = 8000
 
 function clamp(text: string): string {
   if (text.length <= MAX_TOOL_CHARS) {
-    return text;
+    return text
   }
-  const half = Math.floor(MAX_TOOL_CHARS / 2);
-  const dropped = text.length - MAX_TOOL_CHARS;
-  return `${text.slice(0, half)}\n... [${dropped} characters elided] ...\n${text.slice(-half)}`;
+  const half = Math.floor(MAX_TOOL_CHARS / 2)
+  const dropped = text.length - MAX_TOOL_CHARS
+  return `${text.slice(0, half)}\n... [${dropped} characters elided] ...\n${text.slice(-half)}`
 }
 
 export interface AgentDeps {
@@ -92,32 +92,32 @@ export interface AgentDeps {
    * reasoning arrive through the callbacks as the model produces them; the
    * resolved reply carries the tool calls and the usage.
    */
-  complete: (messages: ChatMessage[], on: StreamSink) => Promise<ChatReply>;
+  complete: (messages: ChatMessage[], on: StreamSink) => Promise<ChatReply>
 }
 
 export interface StreamSink {
-  text: (chunk: string) => void;
-  thinking: (chunk: string) => void;
-  toolArgs: (callId: string, chunk: string) => void;
+  text: (chunk: string) => void
+  thinking: (chunk: string) => void
+  toolArgs: (callId: string, chunk: string) => void
 }
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  tool_call_id?: string;
-  tool_calls?: ToolCallOut[];
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_call_id?: string
+  tool_calls?: ToolCallOut[]
 }
 
 export interface ToolCallOut {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
 }
 
 export interface ChatReply {
-  text: string;
-  toolCalls: ToolCallOut[];
-  usage?: TurnUsage;
+  text: string
+  toolCalls: ToolCallOut[]
+  usage?: TurnUsage
 }
 
 /**
@@ -126,9 +126,9 @@ export interface ChatReply {
  * run shows no tokens at all.
  */
 export interface TurnUsage {
-  input: number;
-  output: number;
-  cacheRead: number;
+  input: number
+  output: number
+  cacheRead: number
 }
 
 /**
@@ -140,27 +140,24 @@ function update(field: number, payload: Uint8Array): Uint8Array {
   return bytesField(
     INTERACTION_UPDATE,
     message(bytesField(field, payload), intField(MESSAGE_STARTED_AT_MS, Date.now())),
-  );
+  )
 }
 
 function textDelta(text: string): Uint8Array {
-  return update(TEXT_DELTA, message(stringField(1, text)));
+  return update(TEXT_DELTA, message(stringField(1, text)))
 }
 
 function thinkingDelta(text: string): Uint8Array {
-  return update(THINKING_DELTA, message(stringField(1, text)));
+  return update(THINKING_DELTA, message(stringField(1, text)))
 }
 
 function thinkingCompleted(ms: number): Uint8Array {
-  return update(THINKING_COMPLETED, message(intField(1, ms)));
+  return update(THINKING_COMPLETED, message(intField(1, ms)))
 }
 
 /** `ToolCallStartedUpdate`/`ToolCallCompletedUpdate{1 call_id, 2 tool_call, 3 model_call_id}`. */
 function toolCallFrame(field: number, callId: string, call: Uint8Array): Uint8Array {
-  return update(
-    field,
-    message(stringField(1, callId), bytesField(2, call), stringField(3, callId)),
-  );
+  return update(field, message(stringField(1, callId), bytesField(2, call), stringField(3, callId)))
 }
 
 /**
@@ -172,11 +169,11 @@ function partialToolCall(callId: string, argsDelta: string): Uint8Array {
   return update(
     PARTIAL_TOOL_CALL,
     message(stringField(1, callId), stringField(3, argsDelta), stringField(4, callId)),
-  );
+  )
 }
 
 function heartbeat(): Uint8Array {
-  return update(HEARTBEAT, new Uint8Array());
+  return update(HEARTBEAT, new Uint8Array())
 }
 
 function turnEnded(usage: TurnUsage): Uint8Array {
@@ -188,7 +185,7 @@ function turnEnded(usage: TurnUsage): Uint8Array {
         message(intField(1, usage.input), intField(2, usage.output), intField(3, usage.cacheRead)),
       ),
     ),
-  );
+  )
 }
 
 /**
@@ -197,56 +194,56 @@ function turnEnded(usage: TurnUsage): Uint8Array {
  * prompt, which changes every length prefix, reads the same as a short one.
  */
 export function userText(frame: Uint8Array): string | undefined {
-  const action = fieldBytes(decode(frame), 1);
+  const action = fieldBytes(decode(frame), 1)
   if (action === undefined) {
-    return undefined;
+    return undefined
   }
-  let cursor = fieldBytes(decode(action), 2);
+  let cursor = fieldBytes(decode(action), 2)
   for (let depth = 0; depth < 2 && cursor !== undefined; depth += 1) {
-    cursor = fieldBytes(decode(cursor), 1);
+    cursor = fieldBytes(decode(cursor), 1)
   }
-  return cursor === undefined ? undefined : fieldString(decode(cursor), 1);
+  return cursor === undefined ? undefined : fieldString(decode(cursor), 1)
 }
 
 function toolRequestFrom(call: ToolCallOut): ToolRequest {
-  let args: Record<string, unknown> = {};
+  let args: Record<string, unknown> = {}
   try {
-    args = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    args = JSON.parse(call.function.arguments) as Record<string, unknown>
   } catch {
-    args = {};
+    args = {}
   }
   const str = (key: string): string | undefined =>
-    typeof args[key] === "string" ? (args[key] as string) : undefined;
+    typeof args[key] === 'string' ? (args[key] as string) : undefined
   const num = (key: string): number | undefined =>
-    typeof args[key] === "number" ? (args[key] as number) : undefined;
+    typeof args[key] === 'number' ? (args[key] as number) : undefined
   const list = (key: string): string[] | undefined =>
     Array.isArray(args[key])
-      ? (args[key] as unknown[]).filter((v): v is string => typeof v === "string")
-      : undefined;
+      ? (args[key] as unknown[]).filter((v): v is string => typeof v === 'string')
+      : undefined
   return {
-    tool: call.function.name as ToolRequest["tool"],
-    command: str("command"),
-    path: str("path"),
-    content: str("content"),
-    pattern: str("pattern"),
-    glob: str("glob"),
-    outputMode: str("output_mode"),
-    context: num("context"),
-    contextBefore: num("context_before"),
-    contextAfter: num("context_after"),
+    tool: call.function.name as ToolRequest['tool'],
+    command: str('command'),
+    path: str('path'),
+    content: str('content'),
+    pattern: str('pattern'),
+    glob: str('glob'),
+    outputMode: str('output_mode'),
+    context: num('context'),
+    contextBefore: num('context_before'),
+    contextAfter: num('context_after'),
     caseInsensitive: args.case_insensitive === true,
-    fileType: str("type"),
-    headLimit: num("head_limit"),
+    fileType: str('type'),
+    headLimit: num('head_limit'),
     multiline: args.multiline === true,
-    sort: str("sort"),
+    sort: str('sort'),
     sortAscending: args.sort_ascending === true,
-    resultOffset: num("offset"),
+    resultOffset: num('offset'),
     background: args.background === true,
-    offset: num("offset"),
-    limit: num("limit"),
-    ignore: list("ignore"),
-    description: str("description"),
-  };
+    offset: num('offset'),
+    limit: num('limit'),
+    ignore: list('ignore'),
+    description: str('description'),
+  }
 }
 
 /**
@@ -255,30 +252,30 @@ function toolRequestFrom(call: ToolCallOut): ToolRequest {
  * which is why short prompts work against a decoder that ignores it and a
  * real brief does not.
  */
-const FLAG_COMPRESSED = 1;
+const FLAG_COMPRESSED = 1
 
 /** Split a stream's bytes into Connect envelopes as they arrive. */
 function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => void {
-  let buffer = new Uint8Array();
+  let buffer = new Uint8Array()
   return (chunk: Uint8Array) => {
-    const next = new Uint8Array(buffer.length + chunk.length);
-    next.set(buffer);
-    next.set(chunk, buffer.length);
-    buffer = next;
+    const next = new Uint8Array(buffer.length + chunk.length)
+    next.set(buffer)
+    next.set(chunk, buffer.length)
+    buffer = next
     for (;;) {
       if (buffer.length < ENVELOPE_HEADER) {
-        return;
+        return
       }
-      const length = new DataView(buffer.buffer, buffer.byteOffset).getUint32(1, false);
+      const length = new DataView(buffer.buffer, buffer.byteOffset).getUint32(1, false)
       if (buffer.length < ENVELOPE_HEADER + length) {
-        return;
+        return
       }
-      const flags = buffer[0] ?? 0;
-      const payload = buffer.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + length);
-      buffer = buffer.subarray(ENVELOPE_HEADER + length);
-      onFrame(flags % 2 === FLAG_COMPRESSED ? new Uint8Array(gunzipSync(payload)) : payload);
+      const flags = buffer[0] ?? 0
+      const payload = buffer.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + length)
+      buffer = buffer.subarray(ENVELOPE_HEADER + length)
+      onFrame(flags % 2 === FLAG_COMPRESSED ? new Uint8Array(gunzipSync(payload)) : payload)
     }
-  };
+  }
 }
 
 /**
@@ -287,10 +284,10 @@ function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => 
  * asked again.
  */
 interface Turn {
-  deps: AgentDeps;
-  send: (frame: Uint8Array) => void;
-  awaitExec: () => Promise<Uint8Array>;
-  total: TurnUsage;
+  deps: AgentDeps
+  send: (frame: Uint8Array) => void
+  awaitExec: () => Promise<Uint8Array>
+  total: TurnUsage
 }
 
 /**
@@ -298,154 +295,154 @@ interface Turn {
  * of frames rather than tens of thousands.
  */
 function coalescer(emit: (text: string) => void): {
-  push: (chunk: string) => void;
-  flush: () => void;
+  push: (chunk: string) => void
+  flush: () => void
 } {
-  let pending = "";
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let pending = ''
+  let timer: ReturnType<typeof setTimeout> | undefined
   const flush = () => {
     if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
+      clearTimeout(timer)
+      timer = undefined
     }
     if (pending.length > 0) {
-      const out = pending;
-      pending = "";
-      emit(out);
+      const out = pending
+      pending = ''
+      emit(out)
     }
-  };
+  }
   return {
     push: (chunk: string) => {
-      pending += chunk;
-      timer ??= setTimeout(flush, COALESCE_MS);
+      pending += chunk
+      timer ??= setTimeout(flush, COALESCE_MS)
     },
     flush,
-  };
+  }
 }
 
 async function runTurn(turn: Turn, prompt: string): Promise<void> {
-  const { deps, send, awaitExec, total } = turn;
+  const { deps, send, awaitExec, total } = turn
   const history: ChatMessage[] = [
     {
-      role: "system",
+      role: 'system',
       content:
-        "You are working in a real repository through tools. Use them to inspect and change files. Answer briefly when finished.",
+        'You are working in a real repository through tools. Use them to inspect and change files. Answer briefly when finished.',
     },
-    { role: "user", content: prompt },
-  ];
-  let failures = 0;
+    { role: 'user', content: prompt },
+  ]
+  let failures = 0
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const left = MAX_TOOL_ROUNDS - round;
+    const left = MAX_TOOL_ROUNDS - round
     if (left === WRAP_UP_MARGIN) {
       history.push({
-        role: "user",
+        role: 'user',
         content: `You have ${WRAP_UP_MARGIN} tool calls left in this turn. Finish what you are doing, commit your work, and give your final answer now.`,
-      });
+      })
     }
-    const beat = setInterval(() => send(envelope(heartbeat())), HEARTBEAT_MS);
-    const startedAt = Date.now();
-    let thought = false;
-    let streamed = false;
-    const textOut = coalescer((chunk) => send(envelope(textDelta(chunk))));
-    const thinkOut = coalescer((chunk) => send(envelope(thinkingDelta(chunk))));
-    let reply: ChatReply;
+    const beat = setInterval(() => send(envelope(heartbeat())), HEARTBEAT_MS)
+    const startedAt = Date.now()
+    let thought = false
+    let streamed = false
+    const textOut = coalescer((chunk) => send(envelope(textDelta(chunk))))
+    const thinkOut = coalescer((chunk) => send(envelope(thinkingDelta(chunk))))
+    let reply: ChatReply
     try {
       reply = await deps.complete(history, {
         text: (chunk) => {
           if (chunk.length === 0) {
-            return;
+            return
           }
           if (thought) {
-            thinkOut.flush();
-            send(envelope(thinkingCompleted(Date.now() - startedAt)));
-            thought = false;
+            thinkOut.flush()
+            send(envelope(thinkingCompleted(Date.now() - startedAt)))
+            thought = false
           }
-          streamed = true;
-          textOut.push(chunk);
+          streamed = true
+          textOut.push(chunk)
         },
         thinking: (chunk) => {
           if (chunk.length === 0) {
-            return;
+            return
           }
-          thought = true;
-          thinkOut.push(chunk);
+          thought = true
+          thinkOut.push(chunk)
         },
         toolArgs: (callId, chunk) => {
           if (chunk.length > 0) {
-            send(envelope(partialToolCall(callId, chunk)));
+            send(envelope(partialToolCall(callId, chunk)))
           }
         },
-      });
+      })
     } catch (err) {
       // One bad completion -- a timeout, a dropped engine -- should cost a
       // round, not the turn's uncommitted work.
-      clearInterval(beat);
-      const detail = err instanceof Error ? err.message : String(err);
+      clearInterval(beat)
+      const detail = err instanceof Error ? err.message : String(err)
       if (failures >= MAX_COMPLETION_FAILURES) {
-        send(envelope(textDelta(`engined: chat route failed repeatedly (${detail})`)));
-        return;
+        send(envelope(textDelta(`engined: chat route failed repeatedly (${detail})`)))
+        return
       }
-      failures += 1;
+      failures += 1
       history.push({
-        role: "user",
+        role: 'user',
         content: `The previous request failed (${detail}). Retry the step, or finish and commit what you already have.`,
-      });
-      continue;
+      })
+      continue
     } finally {
-      clearInterval(beat);
-      textOut.flush();
-      thinkOut.flush();
+      clearInterval(beat)
+      textOut.flush()
+      thinkOut.flush()
     }
     if (thought) {
-      send(envelope(thinkingCompleted(Date.now() - startedAt)));
+      send(envelope(thinkingCompleted(Date.now() - startedAt)))
     }
     if (reply.usage !== undefined) {
-      total.input += reply.usage.input;
-      total.output += reply.usage.output;
-      total.cacheRead += reply.usage.cacheRead;
+      total.input += reply.usage.input
+      total.output += reply.usage.output
+      total.cacheRead += reply.usage.cacheRead
     }
     // Only fall back to the whole answer when nothing streamed; otherwise
     // the turn would print twice.
     if (!streamed && reply.text.length > 0) {
-      send(envelope(textDelta(reply.text)));
+      send(envelope(textDelta(reply.text)))
     }
     if (reply.toolCalls.length === 0) {
-      return;
+      return
     }
-    history.push({ role: "assistant", content: reply.text, tool_calls: reply.toolCalls });
+    history.push({ role: 'assistant', content: reply.text, tool_calls: reply.toolCalls })
     for (const call of reply.toolCalls) {
-      const request = execRequest(round + 1, call.id, toolRequestFrom(call));
+      const request = execRequest(round + 1, call.id, toolRequestFrom(call))
       if (request === undefined) {
         history.push({
-          role: "tool",
+          role: 'tool',
           tool_call_id: call.id,
           content: `unknown tool ${call.function.name}`,
-        });
-        continue;
+        })
+        continue
       }
       // The CLI renders from ToolCall frames and executes from the exec
       // message; sending only the latter runs the tool invisibly.
-      const req = toolRequestFrom(call);
-      const rendered = toolCallMessage(req, call.id);
+      const req = toolRequestFrom(call)
+      const rendered = toolCallMessage(req, call.id)
       if (rendered !== undefined) {
-        send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)));
+        send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)))
       }
-      send(envelope(request));
-      const outcome = execOutcome(await awaitExec());
+      send(envelope(request))
+      const outcome = execOutcome(await awaitExec())
       if (rendered !== undefined) {
-        send(envelope(toolCallFrame(TOOL_CALL_COMPLETED, call.id, rendered)));
+        send(envelope(toolCallFrame(TOOL_CALL_COMPLETED, call.id, rendered)))
       }
-      history.push({ role: "tool", tool_call_id: call.id, content: clamp(outcome.text) });
+      history.push({ role: 'tool', tool_call_id: call.id, content: clamp(outcome.text) })
     }
   }
   // Reaching the ceiling is a real outcome; saying nothing leaves the CLI
   // showing a turn that simply stopped.
-  send(envelope(textDelta("engined: tool-call budget for this turn is exhausted.")));
+  send(envelope(textDelta('engined: tool-call budget for this turn is exhausted.')))
 }
 
 export interface CursorAgentServer {
-  stop: () => void;
-  port: number;
+  stop: () => void
+  port: number
 }
 
 /**
@@ -453,56 +450,56 @@ export interface CursorAgentServer {
  * and which tools it offers, so this module never has to know either.
  */
 export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServer {
-  const server = http2.createServer();
-  server.on("stream", (stream: ServerHttp2Stream, headers) => {
-    if (headers[":path"] !== RUN_PATH) {
-      stream.respond({ ":status": 404 });
-      stream.end();
-      return;
+  const server = http2.createServer()
+  server.on('stream', (stream: ServerHttp2Stream, headers) => {
+    if (headers[':path'] !== RUN_PATH) {
+      stream.respond({ ':status': 404 })
+      stream.end()
+      return
     }
-    stream.respond({ ":status": 200, "content-type": CONNECT_STREAM_TYPE });
+    stream.respond({ ':status': 200, 'content-type': CONNECT_STREAM_TYPE })
 
-    let started = false;
-    let deliverExec: ((payload: Uint8Array) => void) | undefined;
+    let started = false
+    let deliverExec: ((payload: Uint8Array) => void) | undefined
     const awaitExec = () =>
       new Promise<Uint8Array>((resolve) => {
-        deliverExec = resolve;
-      });
+        deliverExec = resolve
+      })
 
     const onFrame = (payload: Uint8Array) => {
-      const execClient = fieldBytes(decode(payload), EXEC_CLIENT_FIELD);
+      const execClient = fieldBytes(decode(payload), EXEC_CLIENT_FIELD)
       if (execClient !== undefined && deliverExec !== undefined) {
-        const deliver = deliverExec;
-        deliverExec = undefined;
-        deliver(execClient);
-        return;
+        const deliver = deliverExec
+        deliverExec = undefined
+        deliver(execClient)
+        return
       }
       if (started) {
-        return;
+        return
       }
-      const prompt = userText(payload);
+      const prompt = userText(payload)
       if (prompt === undefined) {
-        return;
+        return
       }
-      started = true;
-      const total: TurnUsage = { input: 0, output: 0, cacheRead: 0 };
+      started = true
+      const total: TurnUsage = { input: 0, output: 0, cacheRead: 0 }
       runTurn({ deps, send: (frame) => stream.write(Buffer.from(frame)), awaitExec, total }, prompt)
         .catch((err: unknown) => {
-          const detail = err instanceof Error ? err.message : String(err);
-          stream.write(Buffer.from(envelope(textDelta(`engined: ${detail}`))));
+          const detail = err instanceof Error ? err.message : String(err)
+          stream.write(Buffer.from(envelope(textDelta(`engined: ${detail}`))))
         })
         .finally(() => {
-          stream.write(Buffer.from(envelope(turnEnded(total))));
-          stream.end(Buffer.from(endOfStream()));
-        });
-    };
+          stream.write(Buffer.from(envelope(turnEnded(total))))
+          stream.end(Buffer.from(endOfStream()))
+        })
+    }
 
-    stream.on("data", framer(onFrame));
+    stream.on('data', framer(onFrame))
     // Swallowing this hides the one event that explains a dead turn.
-    stream.on("error", (err: Error) => {
-      process.stderr.write(`cursor stream error: ${err.message}\n`);
-    });
-  });
-  server.listen(port, "127.0.0.1");
-  return { stop: () => server.close(), port };
+    stream.on('error', (err: Error) => {
+      process.stderr.write(`cursor stream error: ${err.message}\n`)
+    })
+  })
+  server.listen(port, '127.0.0.1')
+  return { stop: () => server.close(), port }
 }

@@ -11,7 +11,7 @@ import type {
   ModelCapabilities,
   Role,
   VisionKind,
-} from "./types.ts";
+} from './types.ts'
 
 /**
  * What one role is doing right now: the requests holding its lease, and the
@@ -19,9 +19,9 @@ import type {
  * idle engine carries none of this rather than a row of zeroes.
  */
 export interface RoleContention {
-  role: Role;
-  active: number;
-  waiting: number;
+  role: Role
+  active: number
+  waiting: number
 }
 
 /**
@@ -33,10 +33,10 @@ export interface RoleContention {
  * whichever door verb still needs it -- it simply never reaches the wire.
  */
 export interface EngineStatus {
-  id: string;
-  kind: EngineKind;
-  serves: string[];
-  state: EngineState;
+  id: string
+  kind: EngineKind
+  serves: string[]
+  state: EngineState
   /**
    * This engine's own `[[engine]]` table carries `disable = true`. Always
    * reported with `state: "unavailable"` — nothing was probed to establish
@@ -44,16 +44,16 @@ export interface EngineStatus {
    * config edit that undoes it. Absent on every engine that is actually
    * served.
    */
-  disabled?: boolean;
+  disabled?: boolean
   /** The literal `docker pull` / `docker build` / `secret-tool store` that fixes it. */
-  fix?: string;
+  fix?: string
   /**
    * Per-role contention, for the llama engines that have roles at all. Absent
    * when nothing is queued or running, and absent entirely on a kind that has
    * no leases -- the distinction a caller needs is "waiting behind someone"
    * versus "loading", which `state` alone cannot answer.
    */
-  roles?: RoleContention[];
+  roles?: RoleContention[]
   /**
    * Whether `"stream": true` is servable by this engine, on whichever route
    * it serves that admits streaming at all. Every kind declares it through
@@ -63,7 +63,7 @@ export interface EngineStatus {
    * engine cannot chunk is a 502 per request, or a hardcoded engine list that
    * goes stale the moment engined gains an engine.
    */
-  streaming: boolean;
+  streaming: boolean
   /**
    * This container is running under a config generation `reload` has since
    * replaced, and will keep its old shape until it next starts. Absent on
@@ -75,15 +75,15 @@ export interface EngineStatus {
    * that may not even have named it. Reporting it is what turns a silent
    * "my config change did nothing" into an answer the operator surface gives.
    */
-  superseded?: string;
-  last_error?: string;
+  superseded?: string
+  last_error?: string
   /**
    * Requests holding this engine open right now. The audio engines serialize
    * every request on one process-wide lock inside the container, so a second
    * caller waits with nothing else reporting that it is waiting; this is how
    * concurrent demand on them is visible at all.
    */
-  active_leases?: number;
+  active_leases?: number
   /**
    * What this engine's own model-bearing routes can be asked for, one entry
    * per non-disabled route -- the config surface `[[route]]`/`[[model]]`
@@ -91,21 +91,21 @@ export interface EngineStatus {
    * listing rather than needing a second source. Absent when the engine has
    * no model-bearing routes at all (comfy, every modelless media engine).
    */
-  capabilities?: EngineCapability[];
+  capabilities?: EngineCapability[]
 }
 
 export interface EnginesResponse {
   /** Bumped when a consumer-visible shape changes. */
-  contract: number;
+  contract: number
   /** The source revision, written into the bundle by the install script. */
-  commit: string;
-  engines: EngineStatus[];
+  commit: string
+  engines: EngineStatus[]
   /**
    * The parse error from the most recent failed reload, if one is outstanding.
    * A reload that cannot parse keeps the previous config serving, so this is
    * the only place an operator learns the edit did not take.
    */
-  config_error?: string;
+  config_error?: string
 }
 
 /**
@@ -119,12 +119,12 @@ export interface EnginesResponse {
  * the hop a request starts on.
  */
 export interface ModelRow {
-  id: string;
-  engine?: string;
-  upstream?: string;
-  model?: string;
-  egress?: Egress;
-  streaming: boolean;
+  id: string
+  engine?: string
+  upstream?: string
+  model?: string
+  egress?: Egress
+  streaming: boolean
   /**
    * Whether a request that actually demands a tool call -- a non-empty
    * `tools`, a `tool_choice` naming one, a `response_format` that is not
@@ -139,8 +139,8 @@ export interface ModelRow {
    * to give, and it says nothing about the values that demand nothing (an
    * empty `tools`, `tool_choice: "none"`), which every row honours.
    */
-  tools: boolean;
-  serves: string[];
+  tools: boolean
+  serves: string[]
   /**
    * The route's inference role, and the only field that says an address does
    * vision: `serves` separates an embedding route from everything else and
@@ -148,14 +148,14 @@ export interface ModelRow {
    * on a route declaring no role, and on a chain row, which names no single
    * route to take one from.
    */
-  role?: Role;
+  role?: Role
   /**
    * See `VisionKind`. A vision address that reads characters and one that
    * describes a scene are the same `role` and the same `serves`, so this is
    * what a consumer picks on -- and what decides which ground-truth check
    * `src/probe.ts` sends it.
    */
-  vision?: VisionKind;
+  vision?: VisionKind
   /**
    * See `ResolvedRoute.translate`: this STT model's weights are multilingual,
    * so it may be asked to render speech as English. Reported because `serves`
@@ -163,14 +163,14 @@ export interface ModelRow {
    * the one allowed to -- and `src/probe.ts` reads it to know which
    * transcription routes must REFUSE that verb. Absent unless declared.
    */
-  translate?: boolean;
+  translate?: boolean
   /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable
    * hop anywhere makes the chain `installed` even when earlier ones are not.
    * `unavailable_hops` is what tells those two apart.
    */
-  state: EngineState;
+  state: EngineState
   /**
    * A chain's hops, in order, and the only thing on the row that says where
    * it goes: a chain is not any one engine's route, so `engine`, `upstream`,
@@ -181,7 +181,7 @@ export interface ModelRow {
    * all about itself without this, since `unavailable_hops` is absent
    * exactly when nothing is broken.
    */
-  hops?: string[];
+  hops?: string[]
   /**
    * The hops of a chain that cannot answer -- an engine that is not
    * installed, or an upstream whose address or secret does not resolve.
@@ -189,13 +189,13 @@ export interface ModelRow {
    * non-chain row. A chain whose hops are ALL listed here is one nothing can
    * answer, and its `state` says `unavailable` to match.
    */
-  unavailable_hops?: string[];
-  capabilities: ModelCapabilities;
+  unavailable_hops?: string[]
+  capabilities: ModelCapabilities
 }
 
 export interface ModelsResponse {
-  object: "list";
-  data: ModelRow[];
+  object: 'list'
+  data: ModelRow[]
 }
 
 /**
@@ -206,19 +206,19 @@ export interface ModelsResponse {
  * shape changes when a later delivery has a peer answer instead of this box.
  */
 export interface StartRow {
-  address: string;
-  engine: string;
-  upstream: string | null;
-  state: EngineState;
+  address: string
+  engine: string
+  upstream: string | null
+  state: EngineState
   /** True when this call launched the engine; false when it was already running. */
-  started: boolean;
-  fix?: string;
+  started: boolean
+  fix?: string
 }
 
 export interface StartResponse {
-  object: "list";
-  data: StartRow[];
+  object: 'list'
+  data: StartRow[]
 }
 
 /** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 6;
+export const CONTRACT = 6

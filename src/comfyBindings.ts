@@ -4,18 +4,18 @@
  * nothing else ever deletes an entry.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import process from "node:process";
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import process from 'node:process'
 /** NUL, so the composed key stays unambiguous and `startsWith` can scope a scan to one (engine, origin) pair: no engine id, origin or `prompt_id` can contain one. */
-import type { ComfyBinding, ComfyBindings, DoorContext } from "./doorContext.ts";
-import { stateDir } from "./paths.ts";
-import { writeToStdout } from "./provenance.ts";
-import { errMessage, isRecord, parseRecord } from "./types.ts";
-export const COMFY_KEY_SEP = "\u0000";
+import type { ComfyBinding, ComfyBindings, DoorContext } from './doorContext.ts'
+import { stateDir } from './paths.ts'
+import { writeToStdout } from './provenance.ts'
+import { errMessage, isRecord, parseRecord } from './types.ts'
+export const COMFY_KEY_SEP = '\u0000'
 
 export function comfyKey(engineId: string, origin: string, promptId: string): string {
-  return `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}${promptId}`;
+  return `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}${promptId}`
 }
 
 /**
@@ -25,7 +25,7 @@ export function comfyKey(engineId: string, origin: string, promptId: string): st
  * refuse a stored output to the very caller that created it.
  */
 export function comfyBindingsPath(): string {
-  return join(stateDir(), "comfy-bindings.json");
+  return join(stateDir(), 'comfy-bindings.json')
 }
 
 /**
@@ -36,45 +36,45 @@ export function comfyBindingsPath(): string {
  * a key carries the prompt id that produced it.
  */
 export function loadComfyBindings(write: (line: string) => void = writeToStdout): ComfyBindings {
-  let text = "";
+  let text = ''
   try {
-    text = readFileSync(comfyBindingsPath(), "utf8");
+    text = readFileSync(comfyBindingsPath(), 'utf8')
   } catch {
     // No table yet. An empty one refuses every stored output, which is the
     // safe direction to fail, and so is a file this build cannot read.
   }
-  const raw = parseRecord(text);
+  const raw = parseRecord(text)
   if (raw === null) {
     // An absent table is the ordinary first start; one that will not parse is
     // a table voided whole, which is worth telling apart from it.
-    if (text !== "") {
-      write(JSON.stringify({ comfy_bindings: "unreadable", dropped: "all", kept: 0 }));
+    if (text !== '') {
+      write(JSON.stringify({ comfy_bindings: 'unreadable', dropped: 'all', kept: 0 }))
     }
-    return new Map();
+    return new Map()
   }
   // Age is not filtered here. Every read goes through `liveBinding`, so an
   // aged entry read back is refused all the same and the next save drops it --
   // one mechanism deciding what is servable, rather than two that can disagree
   // about where the boundary is.
-  let dropped = 0;
+  let dropped = 0
   const table = new Map(
     Object.entries(raw).flatMap(([key, value]): [string, ComfyBinding][] => {
       // Anything not of this shape is dropped rather than repaired: an entry
       // this build cannot read is an entry it cannot vouch for, and an empty
       // table refuses stored outputs, which is the safe direction to fail.
-      if (!isRecord(value) || typeof value.at !== "number" || !Array.isArray(value.filenames)) {
-        dropped++;
-        return [];
+      if (!isRecord(value) || typeof value.at !== 'number' || !Array.isArray(value.filenames)) {
+        dropped++
+        return []
       }
       return [
-        [key, { at: value.at, filenames: value.filenames.filter((n) => typeof n === "string") }],
-      ];
+        [key, { at: value.at, filenames: value.filenames.filter((n) => typeof n === 'string') }],
+      ]
     }),
-  );
+  )
   if (dropped > 0) {
-    write(JSON.stringify({ comfy_bindings: "partial", dropped, kept: table.size }));
+    write(JSON.stringify({ comfy_bindings: 'partial', dropped, kept: table.size }))
   }
-  return table;
+  return table
 }
 
 /**
@@ -88,11 +88,11 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
  * surprised, short enough that the table does not accumulate a binding per
  * prompt forever on a box that renders daily.
  */
-export const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Whether a binding bound at `at` has aged out. */
 export function expired(at: number, now: number): boolean {
-  return now - at >= COMFY_BINDING_TTL_MS;
+  return now - at >= COMFY_BINDING_TTL_MS
 }
 
 /**
@@ -103,8 +103,8 @@ export function expired(at: number, now: number): boolean {
  * on unrelated traffic.
  */
 export function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undefined {
-  const bound = ctx.comfyBindings.get(key);
-  return bound !== undefined && !expired(bound.at, Date.now()) ? bound : undefined;
+  const bound = ctx.comfyBindings.get(key)
+  return bound !== undefined && !expired(bound.at, Date.now()) ? bound : undefined
 }
 
 /**
@@ -121,7 +121,7 @@ export function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undef
  * raising it: the whole-table rewrite on every save just below, and
  * `comfyFilenameBound`'s linear scan.
  */
-export const COMFY_BINDINGS_MAX = 1000;
+export const COMFY_BINDINGS_MAX = 1000
 
 // ponytail: the whole table is rewritten on every bind and every filename this
 // door had not already recorded -- bounded work, since COMFY_BINDINGS_MAX
@@ -143,27 +143,27 @@ export function saveComfyBindings(bindings: ComfyBindings): void {
   // Two bounds, age first and then count. A binding is inserted when its
   // prompt is queued and only mutated in place afterwards, so insertion order
   // is creation order and the oldest survivors are the ones the count drops.
-  const now = Date.now();
-  const live: [string, ComfyBinding][] = [];
-  const evicted: string[] = [];
+  const now = Date.now()
+  const live: [string, ComfyBinding][] = []
+  const evicted: string[] = []
   for (const [key, bound] of bindings) {
     if (expired(bound.at, now)) {
-      evicted.push(key);
+      evicted.push(key)
     } else {
-      live.push([key, bound]);
+      live.push([key, bound])
     }
   }
-  const overCount = Math.max(0, live.length - COMFY_BINDINGS_MAX);
-  const kept = live.slice(overCount);
-  evicted.push(...live.slice(0, overCount).map(([key]) => key));
+  const overCount = Math.max(0, live.length - COMFY_BINDINGS_MAX)
+  const kept = live.slice(overCount)
+  evicted.push(...live.slice(0, overCount).map(([key]) => key))
   try {
-    mkdirSync(stateDir(), { recursive: true });
-    writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(kept)));
+    mkdirSync(stateDir(), { recursive: true })
+    writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(kept)))
   } catch (err) {
-    process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`);
-    return;
+    process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`)
+    return
   }
   for (const key of evicted) {
-    bindings.delete(key);
+    bindings.delete(key)
   }
 }

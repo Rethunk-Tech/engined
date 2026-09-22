@@ -6,35 +6,35 @@
  * there could only reach them as an import cycle.
  */
 
-import type { AgenticSpawn } from "./agentic.ts";
-import type { DockerLifecycle } from "./docker.ts";
+import type { AgenticSpawn } from './agentic.ts'
+import type { DockerLifecycle } from './docker.ts'
 import {
   DEFAULT_IDLE_STOP_SECONDS,
   DEFAULT_READY_TIMEOUT_S,
   type EngineRegistry,
   type RegistryOptions,
-} from "./engines.ts";
-import type { Exec as SecretExec } from "./exec.ts";
-import type { HttpClient } from "./http.ts";
-import { LlamaRouter } from "./llama.ts";
-import type { Config, EngineEntry } from "./types.ts";
+} from './engines.ts'
+import type { Exec as SecretExec } from './exec.ts'
+import type { HttpClient } from './http.ts'
+import { LlamaRouter } from './llama.ts'
+import type { Config, EngineEntry } from './types.ts'
 
 export interface DoorOptions {
-  agenticSpawn?: AgenticSpawn;
-  llamaHttpClient?: HttpClient;
-  extrasHttpClient?: HttpClient;
+  agenticSpawn?: AgenticSpawn
+  llamaHttpClient?: HttpClient
+  extrasHttpClient?: HttpClient
   /** Defaults to the real `fetch`; a test overrides it so the comfy proxy never reaches a real container. */
-  comfyHttpClient?: HttpClient;
+  comfyHttpClient?: HttpClient
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
-  write?: (line: string) => void;
+  write?: (line: string) => void
   /** Reaches both the registry that writes the preset and the router that mounts it; a test overrides it so neither touches the real state dir. */
-  llamaPresetHostPath?: string;
+  llamaPresetHostPath?: string
   /** Defaults to the real `secret-tool`; a test overrides it so a remote-agentic engine's keyring lookup never runs for real. */
-  secretExec?: SecretExec;
+  secretExec?: SecretExec
   /** Defaults to the real `process.env`; a test overrides it so a planted ambient secret has somewhere deterministic to not leak from. */
-  agenticAmbientEnv?: NodeJS.ProcessEnv;
+  agenticAmbientEnv?: NodeJS.ProcessEnv
   /** Defaults to the real `fetch`; a test overrides it so catalog refresh never dials a provider. */
-  inventoryHttpClient?: HttpClient;
+  inventoryHttpClient?: HttpClient
 }
 
 /**
@@ -44,12 +44,12 @@ export interface DoorOptions {
  * request's later lookups.
  */
 export interface DoorContext {
-  getConfig: () => Config;
-  registry: EngineRegistry;
-  lifecycle: DockerLifecycle;
-  registryOpts: RegistryOptions;
-  doorOpts: DoorOptions;
-  llamaRouters: Map<string, LlamaRouter>;
+  getConfig: () => Config
+  registry: EngineRegistry
+  lifecycle: DockerLifecycle
+  registryOpts: RegistryOptions
+  doorOpts: DoorOptions
+  llamaRouters: Map<string, LlamaRouter>
   /**
    * Engine ids whose cached router belongs to a config generation `reload`
    * has since superseded. Swapped for a fresh one lazily, on the first call
@@ -58,7 +58,7 @@ export interface DoorContext {
    * reading from the container joins the SAME occupancy tracker instead of
    * getting a second one that has no idea what the first still has resident.
    */
-  staleLlamaRouters: Set<string>;
+  staleLlamaRouters: Set<string>
   /**
    * Live launch-scoped nonces: minted where an agent is launched -- this
    * door's own dispatch and the registry's round-trip probe, which shares
@@ -67,11 +67,11 @@ export interface DoorContext {
    * refused outright, whether or not it names an agentic engine: a leaked or
    * reused URL is not a standing key.
    */
-  launchNonces: Set<string>;
+  launchNonces: Set<string>
   /** Comfy proxy mediation state, reload-durable. */
-  comfyBindings: ComfyBindings;
+  comfyBindings: ComfyBindings
   /** One submission gate per comfy engine -- see `ComfySlots`. */
-  comfySlots: ComfySlots;
+  comfySlots: ComfySlots
 }
 
 /**
@@ -89,7 +89,7 @@ export interface DoorContext {
  * one round trip and not a wrong answer. The GPU is one, so the gate is per
  * engine and not per origin.
  */
-type ComfySlots = Map<string, Promise<unknown>>;
+type ComfySlots = Map<string, Promise<unknown>>
 
 /**
  * What this door has actually seen pass through a comfy engine's proxy:
@@ -102,7 +102,7 @@ type ComfySlots = Map<string, Promise<unknown>>;
  * say-so, and one engine-wide filename set would hand every origin every
  * other origin's outputs.
  */
-export type ComfyBindings = Map<string, ComfyBinding>;
+export type ComfyBindings = Map<string, ComfyBinding>
 
 /**
  * One bound prompt: when this door bound it, and the output filenames a
@@ -113,19 +113,19 @@ export type ComfyBindings = Map<string, ComfyBinding>;
  * someone polled it" -- a consumer cannot hold a binding open by polling.
  */
 export interface ComfyBinding {
-  at: number;
-  filenames: string[];
+  at: number
+  filenames: string[]
 }
 
 export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {
-  const cached = ctx.llamaRouters.get(engine.id);
+  const cached = ctx.llamaRouters.get(engine.id)
   if (cached && (!ctx.staleLlamaRouters.has(engine.id) || cached.hasOutstandingLeases())) {
-    return cached;
+    return cached
   }
-  ctx.staleLlamaRouters.delete(engine.id);
+  ctx.staleLlamaRouters.delete(engine.id)
   const routes = ctx
     .getConfig()
-    .routes.filter((r) => r.engine === engine.id && r.upstream === "local");
+    .routes.filter((r) => r.engine === engine.id && r.upstream === 'local')
   const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,
@@ -133,7 +133,7 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
     readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
     httpClient: ctx.doorOpts.llamaHttpClient,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
-  });
-  ctx.llamaRouters.set(engine.id, router);
-  return router;
+  })
+  ctx.llamaRouters.set(engine.id, router)
+  return router
 }

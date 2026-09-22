@@ -5,15 +5,15 @@
  * that must refuse at startup rather than at the first request.
  */
 
-import { agentCli } from "./agents.ts";
-import { buildComfySpec } from "./comfy.ts";
-import type { RuntimeStatus } from "./docker.ts";
-import { FatalError } from "./errors/fatal.ts";
-import { STATUS_OK } from "./http.ts";
-import { buildLlamaSpec } from "./llamaSpec.ts";
-import type { EngineStatus } from "./responses.ts";
-import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
-import { isContainerSpec, type LoadedSpec, type Spec } from "./specTypes.ts";
+import { agentCli } from './agents.ts'
+import { buildComfySpec } from './comfy.ts'
+import type { RuntimeStatus } from './docker.ts'
+import { FatalError } from './errors/fatal.ts'
+import { STATUS_OK } from './http.ts'
+import { buildLlamaSpec } from './llamaSpec.ts'
+import type { EngineStatus } from './responses.ts'
+import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
+import { isContainerSpec, type LoadedSpec, type Spec } from './specTypes.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
@@ -31,7 +31,7 @@ import {
   routeServes,
   type Upstream,
   WILDCARD_MODEL,
-} from "./types.ts";
+} from './types.ts'
 
 /**
  * A spec-less engine's built-in spec has no spec directory, so its `serves`
@@ -40,18 +40,18 @@ import {
  * this map's callers rather than mapped to `[]` here.
  */
 export const KIND_SERVES: Record<EngineKind, string[]> = {
-  "openai-http": [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS, CONTENT_ENDPOINT_RERANK],
-  "agentic-cli": [CONTENT_ENDPOINT_CHAT],
+  'openai-http': [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS, CONTENT_ENDPOINT_RERANK],
+  'agentic-cli': [CONTENT_ENDPOINT_CHAT],
   tts: [CONTENT_ENDPOINT_SPEECH],
   stt: [CONTENT_ENDPOINT_TRANSCRIPTIONS],
   comfy: [],
-};
+}
 
 /** No spec directory exists for a spec-less engine; named as such rather than left blank. */
-const BUILTIN_SPEC_SOURCE = "(none: spec-less engine)";
+const BUILTIN_SPEC_SOURCE = '(none: spec-less engine)'
 
 /** Never read: `isContainerSpec` is false for a spec-less engine's built-in spec, so no probe ever reaches `docker inspect` with this. */
-const BUILTIN_READY_PROBE: ReadyProbe = { path: "/", status: STATUS_OK };
+const BUILTIN_READY_PROBE: ReadyProbe = { path: '/', status: STATUS_OK }
 
 /**
  * The spec a spec-less engine takes when its own config declares `kind`.
@@ -60,15 +60,15 @@ const BUILTIN_READY_PROBE: ReadyProbe = { path: "/", status: STATUS_OK };
  * silently constructed wrong; every agentic engine ships a real spec.
  */
 function builtInSpec(engine: EngineEntry, kind: EngineKind): Spec {
-  if (kind === "agentic-cli") {
+  if (kind === 'agentic-cli') {
     throw new FatalError(
       `engine "${engine.id}": a spec-less agentic-cli engine has no built-in launch -- ship engines/${engine.id}/spec.toml`,
-    );
+    )
   }
   return {
     kind,
     image: undefined,
-    obtain: "pull",
+    obtain: 'pull',
     serves: KIND_SERVES[kind],
     env: [],
     command: [],
@@ -81,21 +81,21 @@ function builtInSpec(engine: EngineEntry, kind: EngineKind): Spec {
     volumes: [],
     artifacts: [],
     ready: BUILTIN_READY_PROBE,
-  };
+  }
 }
 
 export function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
-  return kind === "openai-http" && engine.models_dir !== undefined;
+  return kind === 'openai-http' && engine.models_dir !== undefined
 }
 
 /** Whether any of this engine's own routes resolve to THIS box's own upstream -- the fact `reload`'s second pass keys a container teardown on. An engine with no routes at all (comfy, sometimes) has no binding either way. */
 export function hasLocalBinding(engineId: string, routes: readonly ResolvedRoute[]): boolean {
-  return routes.some((r) => r.engine === engineId && r.upstream === "local");
+  return routes.some((r) => r.engine === engineId && r.upstream === 'local')
 }
 
 export interface Entry {
-  engine: EngineEntry;
-  spec: LoadedSpec;
+  engine: EngineEntry
+  spec: LoadedSpec
 }
 
 /**
@@ -104,7 +104,7 @@ export interface Entry {
  * spec that does not read it never sees this. Named rather than inlined so it
  * is obvious no real path was meant.
  */
-const PEEK_PRESET_INI = "/unused";
+const PEEK_PRESET_INI = '/unused'
 
 /**
  * Picks the per-engine builder from the loaded spec's own `kind` and the
@@ -123,22 +123,22 @@ export function loadEngineSpec(
   presetHostPath: string,
 ): LoadedSpec {
   if (engine.kind !== undefined) {
-    return { spec: builtInSpec(engine, engine.kind), source: BUILTIN_SPEC_SOURCE };
+    return { spec: builtInSpec(engine, engine.kind), source: BUILTIN_SPEC_SOURCE }
   }
   // The peek's own resolved spec is discarded whenever a builder below takes
   // over -- each calls loadSpec again with the substitution `{preset_ini}`
   // actually needs.
-  const loaded = loadSpec(engine, { ...specOptions, presetIni: PEEK_PRESET_INI });
+  const loaded = loadSpec(engine, { ...specOptions, presetIni: PEEK_PRESET_INI })
   if (!isContainerSpec(loaded.spec)) {
-    return loaded;
+    return loaded
   }
-  if (loaded.spec.kind === "comfy" && engine.models_dir !== undefined) {
-    return { ...loaded, spec: buildComfySpec(engine, specOptions) };
+  if (loaded.spec.kind === 'comfy' && engine.models_dir !== undefined) {
+    return { ...loaded, spec: buildComfySpec(engine, specOptions) }
   }
   if (isLocalLlama(engine, loaded.spec.kind)) {
-    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPath) };
+    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPath) }
   }
-  return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) };
+  return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
 
 /** One field's disposition against whether the route actually declared it. `FatalError`, not `ParseError`: this is a startup failure, not a config-file one -- kind is not known until the spec driving this check has already loaded. */
@@ -148,11 +148,11 @@ function assertFieldDisposition(
   field: string,
   site: string,
 ): void {
-  if (disposition === "required" && !present) {
-    throw new FatalError(`${site} is missing required "${field}"`);
+  if (disposition === 'required' && !present) {
+    throw new FatalError(`${site} is missing required "${field}"`)
   }
-  if (disposition === "forbidden" && present) {
-    throw new FatalError(`${site} must not declare "${field}"`);
+  if (disposition === 'forbidden' && present) {
+    throw new FatalError(`${site} must not declare "${field}"`)
   }
 }
 
@@ -170,22 +170,22 @@ function checkLocalFileDisposition(
   kind: EngineKind,
   routes: readonly ResolvedRoute[],
 ): void {
-  const rules = KIND_TRAITS[kind].localFile;
+  const rules = KIND_TRAITS[kind].localFile
   for (const r of routes) {
     if (
       r.engine !== engine.id ||
       r.model === undefined ||
-      r.upstream !== "local" ||
+      r.upstream !== 'local' ||
       engine.models_dir === undefined
     ) {
-      continue;
+      continue
     }
-    const site = `route on engine "${engine.id}" model "${r.model}"`;
-    assertFieldDisposition(rules.filename, r.filename !== undefined, "filename", site);
-    assertFieldDisposition(rules.role, r.role !== undefined, "role", site);
-    assertFieldDisposition(rules.translate, r.translate !== undefined, "translate", site);
-    if (rules.args === "forbidden" && Object.keys(r.args).length > 0) {
-      throw new FatalError(`${site} must not declare "args"`);
+    const site = `route on engine "${engine.id}" model "${r.model}"`
+    assertFieldDisposition(rules.filename, r.filename !== undefined, 'filename', site)
+    assertFieldDisposition(rules.role, r.role !== undefined, 'role', site)
+    assertFieldDisposition(rules.translate, r.translate !== undefined, 'translate', site)
+    if (rules.args === 'forbidden' && Object.keys(r.args).length > 0) {
+      throw new FatalError(`${site} must not declare "args"`)
     }
   }
 }
@@ -201,13 +201,13 @@ function checkWildcardRouteKind(
 ): void {
   for (const r of routes) {
     if (r.engine !== engine.id || r.model !== WILDCARD_MODEL) {
-      continue;
+      continue
     }
-    const site = `route on engine "${engine.id}" model "${WILDCARD_MODEL}"`;
-    if (kind !== "openai-http" || engine.models_dir !== undefined) {
+    const site = `route on engine "${engine.id}" model "${WILDCARD_MODEL}"`
+    if (kind !== 'openai-http' || engine.models_dir !== undefined) {
       throw new FatalError(
         `${site} is a wildcard and only a remote openai-http engine may carry one`,
-      );
+      )
     }
   }
 }
@@ -231,19 +231,19 @@ function checkAgenticWire(
   routes: readonly ResolvedRoute[],
   upstreams: readonly Upstream[],
 ): void {
-  if (spec.kind !== "agentic-cli") {
-    return;
+  if (spec.kind !== 'agentic-cli') {
+    return
   }
-  const agentWire = agentCli(spec.agent)?.wire ?? "openai";
+  const agentWire = agentCli(spec.agent)?.wire ?? 'openai'
   for (const r of routes) {
     if (r.engine !== engine.id || r.upstream === null) {
-      continue;
+      continue
     }
-    const upstreamWire = upstreams.find((u) => u.id === r.upstream)?.wire ?? "openai";
+    const upstreamWire = upstreams.find((u) => u.id === r.upstream)?.wire ?? 'openai'
     if (upstreamWire !== agentWire) {
       throw new FatalError(
         `route on engine "${engine.id}" names upstream "${r.upstream}" (wire "${upstreamWire}"), but agent "${spec.agent}" speaks "${agentWire}" -- the door forwards the agent's own wire unchanged, so a mismatched pairing can never actually work`,
-      );
+      )
     }
   }
 }
@@ -267,18 +267,18 @@ function checkSelfUpstream(
   routes: readonly ResolvedRoute[],
   upstreams: readonly Upstream[],
 ): void {
-  if (spec.upstream !== "self") {
-    return;
+  if (spec.upstream !== 'self') {
+    return
   }
   for (const r of routes) {
-    if (r.engine !== engine.id || r.upstream === null || r.upstream === "local") {
-      continue;
+    if (r.engine !== engine.id || r.upstream === null || r.upstream === 'local') {
+      continue
     }
-    const found = upstreams.find((u) => u.id === r.upstream);
+    const found = upstreams.find((u) => u.id === r.upstream)
     if (found?.wire !== undefined) {
       throw new FatalError(
         `route on engine "${engine.id}" is "self" and cannot be pointed at upstream "${r.upstream}", which speaks "${found.wire}" -- a self engine only ever proxies to a peer's own "local", never a wire-shaped provider`,
-      );
+      )
     }
   }
 }
@@ -291,7 +291,7 @@ function routeHasCapability(r: ResolvedRoute): boolean {
     r.context_in !== undefined ||
     r.context_out !== undefined ||
     r.reasoning !== undefined
-  );
+  )
 }
 
 /**
@@ -309,15 +309,15 @@ export function checkCapabilityServed(
   routes: readonly ResolvedRoute[],
 ): void {
   if (spec.serves.length > 0) {
-    return;
+    return
   }
   for (const r of routes) {
     if (r.engine !== engine.id || !routeHasCapability(r)) {
-      continue;
+      continue
     }
     throw new FatalError(
-      `route on engine "${engine.id}" model "${r.model ?? ""}" declares a capability, but engine "${engine.id}" (kind "${spec.kind}") serves no endpoint to ask it through`,
-    );
+      `route on engine "${engine.id}" model "${r.model ?? ''}" declares a capability, but engine "${engine.id}" (kind "${spec.kind}") serves no endpoint to ask it through`,
+    )
   }
 }
 
@@ -327,19 +327,19 @@ export function buildEntries(
   presetHostPath: string,
 ): Entry[] {
   return config.engines.map((engine) => {
-    const spec = loadEngineSpec(engine, specOptions, presetHostPath);
+    const spec = loadEngineSpec(engine, specOptions, presetHostPath)
     // `disable = true` is the operator's escape hatch, so it has to reach the
     // checks that would otherwise refuse the boot: an engine nothing may
     // start or route to cannot be the reason the daemon will not come up.
     if (!engine.disabled) {
-      checkLocalFileDisposition(engine, spec.spec.kind, config.routes);
-      checkWildcardRouteKind(engine, spec.spec.kind, config.routes);
-      checkAgenticWire(engine, spec.spec, config.routes, config.upstreams);
-      checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams);
-      checkCapabilityServed(engine, spec.spec, config.routes);
+      checkLocalFileDisposition(engine, spec.spec.kind, config.routes)
+      checkWildcardRouteKind(engine, spec.spec.kind, config.routes)
+      checkAgenticWire(engine, spec.spec, config.routes, config.upstreams)
+      checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams)
+      checkCapabilityServed(engine, spec.spec, config.routes)
     }
-    return { engine, spec };
-  });
+    return { engine, spec }
+  })
 }
 
 /**
@@ -372,8 +372,8 @@ export function engineCapabilities(
         context_out: r.context_out,
         reasoning: r.reasoning,
       }),
-    );
-  return capabilities.length > 0 ? capabilities : undefined;
+    )
+  return capabilities.length > 0 ? capabilities : undefined
 }
 
 /** The identity an engine reports whatever produced its runtime state: everything an `EngineStatus` carries that a probe cannot change. */
@@ -384,7 +384,7 @@ export function baseStatus(engine: EngineEntry, spec: Spec, routes: readonly Res
     serves: spec.serves,
     streaming: spec.streaming,
     capabilities: engineCapabilities(engine.id, routes, spec.serves),
-  };
+  }
 }
 
 /** The reported shape of an engine, whichever way its runtime state was obtained. */
@@ -395,11 +395,11 @@ export function statusFrom({
   routes,
   superseded,
 }: {
-  engine: EngineEntry;
-  spec: Spec;
-  runtime: RuntimeStatus;
-  routes: readonly ResolvedRoute[];
-  superseded?: string;
+  engine: EngineEntry
+  spec: Spec
+  runtime: RuntimeStatus
+  routes: readonly ResolvedRoute[]
+  superseded?: string
 }): EngineStatus {
   return {
     ...baseStatus(engine, spec, routes),
@@ -408,7 +408,7 @@ export function statusFrom({
     superseded,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
-  };
+  }
 }
 
 /**
@@ -430,5 +430,5 @@ export function engineShape(
     idle: engine.idle_stop_seconds,
     ready: engine.ready_timeout_s,
     routes: routes.filter((r) => r.engine === engine.id),
-  });
+  })
 }

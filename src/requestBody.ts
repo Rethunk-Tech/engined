@@ -5,8 +5,8 @@
  * needs `parseRecord` from there.
  */
 
-import { jsonError, STATUS_BAD_REQUEST } from "./http.ts";
-import { parseRecord } from "./types.ts";
+import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
+import { parseRecord } from './types.ts'
 
 /**
  * Every JSON body this door reads, or the 400 to return instead. A table is
@@ -16,11 +16,11 @@ import { parseRecord } from "./types.ts";
  * `Response` back means exactly that; the caller returns it unchanged.
  */
 export async function readJsonBody(req: Request): Promise<Record<string, unknown> | Response> {
-  let raw: string;
+  let raw: string
   try {
-    raw = await req.text();
+    raw = await req.text()
   } catch {
-    return jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+    return jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
   }
-  return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, "invalid JSON body");
+  return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
 }

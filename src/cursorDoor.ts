@@ -14,30 +14,30 @@
  * cursor-agent bundle.
  */
 
-import { bytesField, intField, message, stringField } from "./cursorProto.ts";
-import type { DoorContext } from "./doorContext.ts";
+import { bytesField, intField, message, stringField } from './cursorProto.ts'
+import type { DoorContext } from './doorContext.ts'
 
-const AISERVER_PREFIX = "/aiserver.v1.";
-const AGENT_PREFIX = "/agent.v1.";
-const PROTO_TYPE = "application/proto";
+const AISERVER_PREFIX = '/aiserver.v1.'
+const AGENT_PREFIX = '/agent.v1.'
+const PROTO_TYPE = 'application/proto'
 
 export function isCursorPath(pathname: string): boolean {
-  return pathname.startsWith(AISERVER_PREFIX) || pathname.startsWith(AGENT_PREFIX);
+  return pathname.startsWith(AISERVER_PREFIX) || pathname.startsWith(AGENT_PREFIX)
 }
 
 function protoResponse(body: Uint8Array): Response {
   return new Response(body as BodyInit, {
     status: 200,
-    headers: { "content-type": PROTO_TYPE },
-  });
+    headers: { 'content-type': PROTO_TYPE },
+  })
 }
 
 /** Every llama chat route on this box, by the name a caller addresses it as. */
 export function chatModels(ctx: DoorContext): string[] {
   return ctx
     .getConfig()
-    .routes.filter((r) => r.role === "chat" && r.model !== undefined && r.disabled !== true)
-    .map((r) => r.model as string);
+    .routes.filter((r) => r.role === 'chat' && r.model !== undefined && r.disabled !== true)
+    .map((r) => r.model as string)
 }
 
 /**
@@ -57,17 +57,17 @@ function availableModels(models: string[]): Uint8Array {
         intField(22, 1), // supports_plan_mode
       ),
     ),
-  );
-  return message(...rows, ...models.map((name) => stringField(1, name)));
+  )
+  return message(...rows, ...models.map((name) => stringField(1, name)))
 }
 
 function modelDetails(models: string[]): Uint8Array {
-  return message(...models.map((name) => bytesField(1, message(stringField(1, name)))));
+  return message(...models.map((name) => bytesField(1, message(stringField(1, name)))))
 }
 
 function defaultModel(models: string[]): Uint8Array {
-  const first = models[0];
-  return first === undefined ? new Uint8Array() : bytesField(1, message(stringField(1, first)));
+  const first = models[0]
+  return first === undefined ? new Uint8Array() : bytesField(1, message(stringField(1, first)))
 }
 
 export async function handleCursor(
@@ -75,20 +75,20 @@ export async function handleCursor(
   req: Request,
   pathname: string,
 ): Promise<Response> {
-  await req.arrayBuffer();
-  const models = chatModels(ctx);
-  if (pathname.endsWith("/AvailableModels")) {
-    return protoResponse(availableModels(models));
+  await req.arrayBuffer()
+  const models = chatModels(ctx)
+  if (pathname.endsWith('/AvailableModels')) {
+    return protoResponse(availableModels(models))
   }
-  if (pathname.endsWith("/GetUsableModels")) {
-    return protoResponse(modelDetails(models));
+  if (pathname.endsWith('/GetUsableModels')) {
+    return protoResponse(modelDetails(models))
   }
-  if (pathname.endsWith("ModelForCli")) {
-    return protoResponse(defaultModel(models));
+  if (pathname.endsWith('ModelForCli')) {
+    return protoResponse(defaultModel(models))
   }
   // Identity, marketplaces, plugins, privacy mode, telemetry and server
   // config are all satisfied by an empty message. Server config in
   // particular must NOT ask for HTTP/1.1: that forces the CLI onto a
   // server-streaming fallback which cannot carry tool calls.
-  return protoResponse(new Uint8Array());
+  return protoResponse(new Uint8Array())
 }

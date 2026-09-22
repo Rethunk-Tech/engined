@@ -4,15 +4,15 @@
  * its own capabilities, state and whether a tool call survives it.
  */
 
-import { parseHop, routeForChainHop } from "./chain.ts";
+import { parseHop, routeForChainHop } from './chain.ts'
 import {
   CHAIN_ENDPOINTS,
   expandWildcardRoutes,
   resolveServedRoute,
   routeEgress,
-} from "./dispatch.ts";
-import type { DoorContext } from "./doorContext.ts";
-import type { EngineStatus, ModelRow, ModelsResponse } from "./responses.ts";
+} from './dispatch.ts'
+import type { DoorContext } from './doorContext.ts'
+import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   type Config,
@@ -23,8 +23,8 @@ import {
   routeForHop,
   routeServes,
   WILDCARD_MODEL,
-} from "./types.ts";
-import { resolveUpstream } from "./upstream.ts";
+} from './types.ts'
+import { resolveUpstream } from './upstream.ts'
 
 /** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
 function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
@@ -34,7 +34,7 @@ function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
     context_in: route.context_in,
     context_out: route.context_out,
     reasoning: route.reasoning,
-  };
+  }
 }
 
 /**
@@ -45,12 +45,12 @@ function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
  */
 function modelRowId(route: ResolvedRoute, siblingCount: number): string {
   if (route.model === undefined) {
-    return `@/${route.engine}/${route.upstream}`;
+    return `@/${route.engine}/${route.upstream}`
   }
   if (siblingCount > 1 && route.upstream !== null) {
-    return `@/${route.engine}/${route.upstream}/${route.model}`;
+    return `@/${route.engine}/${route.upstream}/${route.model}`
   }
-  return `@/${route.engine}/${route.model}`;
+  return `@/${route.engine}/${route.model}`
 }
 
 /**
@@ -74,34 +74,34 @@ async function remoteRouteState(
   engineState: EngineState,
 ): Promise<EngineState> {
   if (
-    engineState !== "installed" ||
+    engineState !== 'installed' ||
     route.upstream === null ||
-    route.upstream === "local" ||
-    ctx.registry.get(route.engine)?.kind === "comfy"
+    route.upstream === 'local' ||
+    ctx.registry.get(route.engine)?.kind === 'comfy'
   ) {
-    return engineState;
+    return engineState
   }
-  const upstream = ctx.getConfig().upstreams.find((u) => u.id === route.upstream);
+  const upstream = ctx.getConfig().upstreams.find((u) => u.id === route.upstream)
   if (upstream === undefined) {
-    return "unavailable";
+    return 'unavailable'
   }
-  const resolved = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
-  return resolved.ok ? engineState : "unavailable";
+  const resolved = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
+  return resolved.ok ? engineState : 'unavailable'
 }
 
 interface ModelRowOptions {
-  route: ResolvedRoute;
-  siblingCount: number;
-  config: Config;
-  statuses: ReadonlyMap<string, EngineStatus>;
+  route: ResolvedRoute
+  siblingCount: number
+  config: Config
+  statuses: ReadonlyMap<string, EngineStatus>
 }
 
 async function modelRow(
   ctx: DoorContext,
   { route, siblingCount, config, statuses }: ModelRowOptions,
 ): Promise<ModelRow> {
-  const status = statuses.get(route.engine);
-  const state = await remoteRouteState(ctx, route, status?.state ?? "unavailable");
+  const status = statuses.get(route.engine)
+  const state = await remoteRouteState(ctx, route, status?.state ?? 'unavailable')
   return {
     id: modelRowId(route, siblingCount),
     engine: route.engine,
@@ -116,7 +116,7 @@ async function modelRow(
     translate: route.translate,
     state,
     capabilities: routeCapabilities(route),
-  };
+  }
 }
 
 /**
@@ -130,27 +130,27 @@ async function modelRow(
  */
 function forwardsTools(status: EngineStatus | undefined, role: Role | undefined): boolean {
   return (
-    status?.kind === "openai-http" &&
+    status?.kind === 'openai-http' &&
     routeServes({ role }, status.serves).includes(CONTENT_ENDPOINT_CHAT)
-  );
+  )
 }
 
 /** The same question for one `@/engine/model` hop, which carries its route's role only once resolved. Shared by the `models` menu and by the dispatch that decides whether refusing a tool call is terminal. */
 export function hopForwardsTools(
   hop: string,
-  routes: Config["routes"],
+  routes: Config['routes'],
   statusOf: (engineId: string) => EngineStatus | undefined,
 ): boolean {
-  const { engine, upstream, model } = parseHop(hop);
-  return forwardsTools(statusOf(engine), routeForHop(routes, engine, model, upstream)?.role);
+  const { engine, upstream, model } = parseHop(hop)
+  return forwardsTools(statusOf(engine), routeForHop(routes, engine, model, upstream)?.role)
 }
 
 /** One hop of a chain, resolved once: the route it names, its engine's status, and whether it can answer at all. */
 interface ChainHop {
-  hop: string;
-  route: ResolvedRoute | undefined;
-  status: EngineStatus | undefined;
-  state: EngineState;
+  hop: string
+  route: ResolvedRoute | undefined
+  status: EngineStatus | undefined
+  state: EngineState
 }
 
 /** Every hop of one chain, each asked the same resolvable-address question a direct row is asked, so the menu cannot disagree with itself about the same address. */
@@ -162,7 +162,7 @@ function chainHops(
 ): Promise<ChainHop[]> {
   return Promise.all(
     hops.map(async (hop) => {
-      const parsed = parseHop(hop);
+      const parsed = parseHop(hop)
       // The chain reading, not `routeForHop`'s: an audio hop names an upstream
       // where a chat hop names a model, and the menu must not report a route
       // unavailable that the door will dispatch without complaint.
@@ -174,19 +174,19 @@ function chainHops(
           modelSeg: parsed.model,
           upstreamSeg: parsed.upstream,
           inventory: ctx.registry.inventory,
-        });
-      const status = statuses.get(parsed.engine);
+        })
+      const status = statuses.get(parsed.engine)
       return {
         hop,
         route,
         status,
         state:
           route === undefined
-            ? "unavailable"
-            : await remoteRouteState(ctx, route, status?.state ?? "unavailable"),
-      };
+            ? 'unavailable'
+            : await remoteRouteState(ctx, route, status?.state ?? 'unavailable'),
+      }
     }),
-  );
+  )
 }
 
 /**
@@ -196,15 +196,15 @@ function chainHops(
  * not serve an endpoint are exactly the ones it advances past.
  */
 function chainServes(walked: readonly ChainHop[]): string[] {
-  const union = new Set<string>();
+  const union = new Set<string>()
   for (const hop of walked) {
     for (const path of routeServes(hop.route ?? {}, hop.status?.serves ?? [])) {
       if (CHAIN_ENDPOINTS.has(path)) {
-        union.add(path);
+        union.add(path)
       }
     }
   }
-  return [...union];
+  return [...union]
 }
 
 /**
@@ -239,25 +239,25 @@ async function chainRow({
   config,
   statuses,
 }: {
-  ctx: DoorContext;
-  chainId: string;
-  hops: readonly string[];
-  config: Config;
-  statuses: ReadonlyMap<string, EngineStatus>;
+  ctx: DoorContext
+  chainId: string
+  hops: readonly string[]
+  config: Config
+  statuses: ReadonlyMap<string, EngineStatus>
 }): Promise<ModelRow> {
-  const walked = await chainHops(ctx, hops, config, statuses);
-  const [lead] = walked;
-  const dead = walked.filter((h) => h.state === "unavailable").map((h) => h.hop);
+  const walked = await chainHops(ctx, hops, config, statuses)
+  const [lead] = walked
+  const dead = walked.filter((h) => h.state === 'unavailable').map((h) => h.hop)
   return {
     id: chainId,
     streaming: lead?.route?.streaming ?? lead?.status?.streaming ?? false,
     tools: walked.every((h) => forwardsTools(h.status, h.route?.role)),
     serves: chainServes(walked),
-    state: walked.find((h) => h.state !== "unavailable")?.state ?? "unavailable",
+    state: walked.find((h) => h.state !== 'unavailable')?.state ?? 'unavailable',
     capabilities: lead?.route === undefined ? {} : routeCapabilities(lead.route),
     hops: walked.map((h) => h.hop),
     unavailable_hops: dead.length === 0 ? undefined : dead,
-  };
+  }
 }
 
 /**
@@ -273,29 +273,29 @@ async function chainRow({
  * modelless audio engine's own `serves` (`/openai/v1/audio/speech`) does.
  */
 export async function modelsMenu(ctx: DoorContext): Promise<Response> {
-  const config = ctx.getConfig();
-  const { engines } = await ctx.registry.list();
-  const statuses = new Map(engines.map((e) => [e.id, e]));
-  const servedEngines = new Set(engines.filter((e) => e.serves.length > 0).map((e) => e.id));
+  const config = ctx.getConfig()
+  const { engines } = await ctx.registry.list()
+  const statuses = new Map(engines.map((e) => [e.id, e]))
+  const servedEngines = new Set(engines.filter((e) => e.serves.length > 0).map((e) => e.id))
 
   const listed = [
     ...config.routes.filter((r) => !r.disabled && r.model !== WILDCARD_MODEL),
     ...expandWildcardRoutes(config, ctx.registry.inventory),
-  ];
-  const rows: ModelRow[] = [];
+  ]
+  const rows: ModelRow[] = []
   for (const route of listed) {
     if (!servedEngines.has(route.engine)) {
-      continue;
+      continue
     }
     const siblingCount =
       route.model === undefined
         ? 1
-        : listed.filter((r) => r.engine === route.engine && r.model === route.model).length;
-    rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }));
+        : listed.filter((r) => r.engine === route.engine && r.model === route.model).length
+    rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }))
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
-    rows.push(await chainRow({ ctx, chainId, hops, config, statuses }));
+    rows.push(await chainRow({ ctx, chainId, hops, config, statuses }))
   }
 
-  return Response.json({ object: "list", data: rows } satisfies ModelsResponse);
+  return Response.json({ object: 'list', data: rows } satisfies ModelsResponse)
 }

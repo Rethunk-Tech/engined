@@ -4,8 +4,8 @@ import {
   expired,
   liveBinding,
   saveComfyBindings,
-} from "./comfyBindings.ts";
-import type { DoorContext } from "./doorContext.ts";
+} from './comfyBindings.ts'
+import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
   discardBody,
@@ -16,58 +16,58 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
   STATUS_UNAVAILABLE,
-} from "./http.ts";
-import { readJsonBody } from "./requestBody.ts";
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from "./types.ts";
+} from './http.ts'
+import { readJsonBody } from './requestBody.ts'
+import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 
-const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/;
-export const COMFY_WS_SUFFIX = "ws";
+const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/
+export const COMFY_WS_SUFFIX = 'ws'
 /** Rewrites an `http(s)://` base to its `ws(s)://` twin for the comfy websocket bridge. */
-export const HTTP_SCHEME_RE = /^http/;
+export const HTTP_SCHEME_RE = /^http/
 /** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
-const COMFY_UPLOAD_PREFIX_LEN = 12;
+const COMFY_UPLOAD_PREFIX_LEN = 12
 
 /** The three path segments `COMFY_PROXY_RE` captures. */
 export interface ComfyMatch {
-  engineSeg: string;
-  upstreamSeg: string;
-  rest: string;
+  engineSeg: string
+  upstreamSeg: string
+  rest: string
 }
 
 export function matchComfyPath(pathname: string): ComfyMatch | undefined {
-  const m: RegExpExecArray | null = COMFY_PROXY_RE.exec(pathname);
+  const m: RegExpExecArray | null = COMFY_PROXY_RE.exec(pathname)
   return m
     ? { engineSeg: m[1] as string, upstreamSeg: m[2] as string, rest: m[3] as string }
-    : undefined;
+    : undefined
 }
 
 /** One resolved comfy engine plus the client every forwarded call goes through. */
 export interface ComfyProxy {
-  ctx: DoorContext;
-  engineId: string;
+  ctx: DoorContext
+  engineId: string
   /** Who submitted the prompt: half the binding key, so no rekey is needed the day a call arrives from somewhere other than this box. */
-  origin: string;
-  base: string;
-  httpClient: HttpClient;
+  origin: string
+  base: string
+  httpClient: HttpClient
 }
 
 /** `ServerWebSocket.data` for one comfy relay connection: where to reach the real container, the door-assigned clientId comfy filters frames by, and the live upstream socket once `open` has dialed it. */
 export interface ComfyWsData {
-  upstreamUrl: string;
-  clientId: string;
-  upstream?: WebSocket;
+  upstreamUrl: string
+  clientId: string
+  upstream?: WebSocket
 }
 
 /** `Bun.serve`'s own return type, parameterized on the one websocket payload this door ever mounts -- `bindDualFamily`'s real listeners and `Door.fetch`'s optional second argument must agree on it, or `server.upgrade`'s `data` stops typechecking. */
-export type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>;
+export type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>
 
 /** Every caller reaching this door reached it directly, so far; a federated hop will supply its own origin instead of this constant. */
-export const COMFY_LOCAL_ORIGIN = "local";
+export const COMFY_LOCAL_ORIGIN = 'local'
 
 interface ComfyTarget {
-  engineId: string;
+  engineId: string
   /** `http://host:port`, this container's own address -- never handed to a caller, only used to build the door's own forwarded request. */
-  base: string;
+  base: string
 }
 
 /** The engine+upstream segments of a comfy proxy path, resolved to a running comfy container -- `undefined` for anything that is not one: an unknown engine, a non-comfy kind, a route that does not exist, or a container that is not up. */
@@ -76,34 +76,34 @@ export function resolveComfyTarget(
   engineSeg: string,
   upstreamSeg: string,
 ): ComfyTarget | undefined {
-  const config = ctx.getConfig();
+  const config = ctx.getConfig()
   if (!config.engines.some((e) => e.id === engineSeg)) {
-    return undefined;
+    return undefined
   }
-  if (ctx.registry.get(engineSeg)?.kind !== "comfy") {
-    return undefined;
+  if (ctx.registry.get(engineSeg)?.kind !== 'comfy') {
+    return undefined
   }
   const hasRoute = config.routes.some(
     (r) =>
       !r.disabled && r.engine === engineSeg && r.upstream === upstreamSeg && r.model === undefined,
-  );
+  )
   if (!hasRoute) {
-    return undefined;
+    return undefined
   }
-  const privateUrl = ctx.lifecycle.getStatus(engineSeg).private_url;
-  return privateUrl === null ? undefined : { engineId: engineSeg, base: `http://${privateUrl}` };
+  const privateUrl = ctx.lifecycle.getStatus(engineSeg).private_url
+  return privateUrl === null ? undefined : { engineId: engineSeg, base: `http://${privateUrl}` }
 }
 
 export function noSuchComfyEngine(engineSeg: string, upstreamSeg: string): Response {
   return jsonError(
     STATUS_UNAVAILABLE,
     `no running comfy engine at "@/${engineSeg}/${upstreamSeg}" -- start it first`,
-  );
+  )
 }
 
 /** comfy's own status and body handed straight back, re-declared as JSON: the body is already read, so nothing but the door's own content type is imposed on it. */
 function jsonForward(res: Response, text: string): Response {
-  return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } });
+  return new Response(text, { status: res.status, headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE } })
 }
 
 /** `GET /object_info/{nodeType}` and `GET /system_stats`: a static node schema and the container's own stats, nobody's data either way. */
@@ -113,21 +113,21 @@ export async function forwardComfyGet(
   search: string,
   httpClient: HttpClient,
 ): Promise<Response> {
-  const res = await httpClient(`${base}/${rest}${search}`);
+  const res = await httpClient(`${base}/${rest}${search}`)
   return new Response(res.body, {
     status: res.status,
     headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
-  });
+  })
 }
 
 /** The `prompt_id` comfy answered `/prompt` with -- `undefined` for a body that is not JSON or carries none, which binds nothing. The caller still gets comfy's real body and status back either way. */
 function comfyPromptId(text: string): string | undefined {
-  const id = parseRecord(text)?.prompt_id;
-  return typeof id === "string" ? id : undefined;
+  const id = parseRecord(text)?.prompt_id
+  return typeof id === 'string' ? id : undefined
 }
 
 /** How often a held submission re-asks the container whether it has drained. A render is seconds to minutes, so a tighter poll buys nothing and costs a round trip. */
-const COMFY_DRAIN_POLL_MS = 500;
+const COMFY_DRAIN_POLL_MS = 500
 
 /**
  * How long a submission waits for the container to drain when the engine does
@@ -136,12 +136,12 @@ const COMFY_DRAIN_POLL_MS = 500;
  * render that legitimately exceeds it answers 503 naming the engine and the
  * key to raise, which is recoverable; an unbounded wait is not.
  */
-const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000;
+const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000
 
 /** This engine's own ceiling, or the default above. */
 function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {
-  const seconds = ctx.getConfig().engines.find((e) => e.id === engineId)?.drain_timeout_seconds;
-  return seconds === undefined ? COMFY_DRAIN_TIMEOUT_MS : seconds * MS_PER_SECOND;
+  const seconds = ctx.getConfig().engines.find((e) => e.id === engineId)?.drain_timeout_seconds
+  return seconds === undefined ? COMFY_DRAIN_TIMEOUT_MS : seconds * MS_PER_SECOND
 }
 
 /**
@@ -152,22 +152,22 @@ function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {
  * throws must not reject every later holder of the same gate.
  */
 function withComfySlot<T>(ctx: DoorContext, engineId: string, fn: () => Promise<T>): Promise<T> {
-  const settled = () => undefined;
-  const run = (ctx.comfySlots.get(engineId) ?? Promise.resolve()).then(fn, fn);
-  ctx.comfySlots.set(engineId, run.then(settled, settled));
-  return run;
+  const settled = () => undefined
+  const run = (ctx.comfySlots.get(engineId) ?? Promise.resolve()).then(fn, fn)
+  ctx.comfySlots.set(engineId, run.then(settled, settled))
+  return run
 }
 
 /** Whether the container is holding nothing at all -- neither running nor queued. */
 async function comfyDrained(base: string, httpClient: HttpClient): Promise<boolean> {
-  const queue = await readComfyQueue(base, httpClient);
+  const queue = await readComfyQueue(base, httpClient)
   if (queue === undefined) {
-    return false;
+    return false
   }
   return (
     queuedPromptIds(queue.queue_running).length === 0 &&
     queuedPromptIds(queue.queue_pending).length === 0
-  );
+  )
 }
 
 /** `POST /prompt`, forwarded, with the returned `prompt_id` bound to this engine's proxy state -- the only thing that makes the `/history` and `/queue` mediation below possible. */
@@ -175,7 +175,7 @@ export async function proxyComfyPrompt(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
-  const body = await req.text();
+  const body = await req.text()
   return submitComfyPrompt({
     ctx,
     engineId,
@@ -183,17 +183,17 @@ export async function proxyComfyPrompt(
     httpClient,
     body,
     onAnswered: (res, text) => {
-      const promptId = res.ok ? comfyPromptId(text) : undefined;
+      const promptId = res.ok ? comfyPromptId(text) : undefined
       if (promptId !== undefined) {
         ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
           at: Date.now(),
           filenames: [],
-        });
-        saveComfyBindings(ctx.comfyBindings);
+        })
+        saveComfyBindings(ctx.comfyBindings)
       }
-      return jsonForward(res, text);
+      return jsonForward(res, text)
     },
-  });
+  })
 }
 
 /**
@@ -212,12 +212,12 @@ export async function proxyComfyPrompt(
  * submission waiting for that same render to end.
  */
 export interface ComfyPromptSubmission {
-  ctx: DoorContext;
-  engineId: string;
-  base: string;
-  httpClient: HttpClient;
-  body: string;
-  onAnswered: (res: Response, text: string) => Response;
+  ctx: DoorContext
+  engineId: string
+  base: string
+  httpClient: HttpClient
+  body: string
+  onAnswered: (res: Response, text: string) => Response
 }
 
 export async function submitComfyPrompt({
@@ -228,8 +228,8 @@ export async function submitComfyPrompt({
   body,
   onAnswered,
 }: ComfyPromptSubmission): Promise<Response> {
-  const timeoutMs = comfyDrainTimeoutMs(ctx, engineId);
-  let forwarded: Response | undefined;
+  const timeoutMs = comfyDrainTimeoutMs(ctx, engineId)
+  let forwarded: Response | undefined
   // `pollUntil`'s order is what makes the smallest legal budget still buy a
   // submission: attempt, then consult the deadline. Checking it first would
   // 503 an idle container that would have accepted immediately.
@@ -237,27 +237,27 @@ export async function submitComfyPrompt({
     async () => {
       forwarded = await withComfySlot(ctx, engineId, async () => {
         if (!(await comfyDrained(base, httpClient))) {
-          return;
+          return
         }
         const res = await httpClient(`${base}/prompt`, {
-          method: "POST",
+          method: 'POST',
           headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
           body,
-        });
-        return onAnswered(res, await res.text());
-      });
-      return forwarded !== undefined;
+        })
+        return onAnswered(res, await res.text())
+      })
+      return forwarded !== undefined
     },
     Date.now() + timeoutMs,
     COMFY_DRAIN_POLL_MS,
-  );
+  )
   if (forwarded !== undefined) {
-    return forwarded;
+    return forwarded
   }
   return jsonError(
     STATUS_UNAVAILABLE,
     `"@/${engineId}" has not been free for ${timeoutMs / MS_PER_SECOND}s and this door submits one prompt at a time -- cancel the running prompt, restart the engine, or raise its "drain_timeout_seconds"`,
-  );
+  )
 }
 
 /** `POST /upload/image`, forwarded with the stored filename namespaced -- comfy's input directory is shared across every caller, and two callers uploading "reference.png" the same second must not silently overwrite one another. */
@@ -266,26 +266,26 @@ export async function proxyComfyUpload(
   req: Request,
   httpClient: HttpClient,
 ): Promise<Response> {
-  const incoming = await req.formData();
-  const image = incoming.get("image");
+  const incoming = await req.formData()
+  const image = incoming.get('image')
   if (!(image instanceof Blob)) {
-    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part');
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }
-  const originalName = image instanceof File ? image.name : "upload.png";
-  const namespaced = `${crypto.randomUUID().replace(/-/g, "").slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${originalName}`;
-  const outgoing = new FormData();
+  const originalName = image instanceof File ? image.name : 'upload.png'
+  const namespaced = `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${originalName}`
+  const outgoing = new FormData()
   // A fresh `Blob`, not the caller's own `File`: `FormData.append`'s third
   // argument only renames a plain Blob -- handed an existing File, it keeps
   // that File's own name, and the caller's literal filename would leak into
   // comfy's shared input directory unrenamed.
-  outgoing.append("image", new Blob([await image.arrayBuffer()], { type: image.type }), namespaced);
+  outgoing.append('image', new Blob([await image.arrayBuffer()], { type: image.type }), namespaced)
   for (const [key, value] of incoming.entries()) {
-    if (key !== "image" && typeof value === "string") {
-      outgoing.append(key, value);
+    if (key !== 'image' && typeof value === 'string') {
+      outgoing.append(key, value)
     }
   }
-  const res = await httpClient(`${base}/upload/image`, { method: "POST", body: outgoing });
-  return jsonForward(res, await res.text());
+  const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: outgoing })
+  return jsonForward(res, await res.text())
 }
 
 /**
@@ -301,19 +301,19 @@ function comfyFilenameBound(
   origin: string,
   filename: string,
 ): boolean {
-  const prefix = `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}`;
-  const now = Date.now();
+  const prefix = `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}`
+  const now = Date.now()
   for (const [key, bound] of ctx.comfyBindings) {
     if (key.startsWith(prefix) && !expired(bound.at, now) && bound.filenames.includes(filename)) {
-      return true;
+      return true
     }
   }
-  return false;
+  return false
 }
 
 /** The one refusal `GET /view` ever answers with, for a filename this door never saw a completed job produce -- byte-identical whether that filename does not exist at all or simply was never surfaced to this caller, because this door checks its own known-filenames set and never comfy's disk either way. */
 function comfyViewRefused(): Response {
-  return jsonError(STATUS_NOT_FOUND, "unknown filename");
+  return jsonError(STATUS_NOT_FOUND, 'unknown filename')
 }
 
 /**
@@ -327,37 +327,37 @@ export async function proxyComfyView(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   params: URLSearchParams,
 ): Promise<Response> {
-  const filename = params.get("filename");
+  const filename = params.get('filename')
   if (filename === null || !comfyFilenameBound(ctx, engineId, origin, filename)) {
-    return comfyViewRefused();
+    return comfyViewRefused()
   }
-  const res = await httpClient(`${base}/view?${params.toString()}`);
+  const res = await httpClient(`${base}/view?${params.toString()}`)
   return new Response(res.body, {
     status: res.status,
-    headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? "application/octet-stream" },
-  });
+    headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? 'application/octet-stream' },
+  })
 }
 
-type ComfyHistoryEntry = Record<string, unknown>;
+type ComfyHistoryEntry = Record<string, unknown>
 
 /** The media kinds a comfy node can emit an output filename under. */
-const COMFY_MEDIA_KEYS = ["images", "gifs", "video"];
+const COMFY_MEDIA_KEYS = ['images', 'gifs', 'video']
 
 /** Every output filename one node emitted, across every media kind comfy can name one under. */
 function filenamesInOutput(output: unknown): string[] {
   if (!isRecord(output)) {
-    return [];
+    return []
   }
-  const names: string[] = [];
+  const names: string[] = []
   for (const key of COMFY_MEDIA_KEYS) {
-    const media = output[key];
+    const media = output[key]
     for (const item of Array.isArray(media) ? media : []) {
-      if (isRecord(item) && typeof item.filename === "string") {
-        names.push(item.filename);
+      if (isRecord(item) && typeof item.filename === 'string') {
+        names.push(item.filename)
       }
     }
   }
-  return names;
+  return names
 }
 
 /**
@@ -366,14 +366,14 @@ function filenamesInOutput(output: unknown): string[] {
  * included -- names nothing, and `/view` refuses what it never bound.
  */
 function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
-  const outputs = entry?.outputs;
-  return Object.values(isRecord(outputs) ? outputs : {}).flatMap(filenamesInOutput);
+  const outputs = entry?.outputs
+  return Object.values(isRecord(outputs) ? outputs : {}).flatMap(filenamesInOutput)
 }
 
 /** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
 function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | undefined {
-  const entry = parseRecord(text)?.[promptId];
-  return isRecord(entry) ? entry : undefined;
+  const entry = parseRecord(text)?.[promptId]
+  return isRecord(entry) ? entry : undefined
 }
 
 /**
@@ -388,45 +388,45 @@ export async function proxyComfyHistory(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   promptId: string,
 ): Promise<Response> {
-  const bound = liveBinding(ctx, comfyKey(engineId, origin, promptId));
+  const bound = liveBinding(ctx, comfyKey(engineId, origin, promptId))
   if (bound === undefined) {
-    return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
+    return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`)
   }
-  const res = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`);
-  const text = await res.text();
+  const res = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`)
+  const text = await res.text()
   if (res.ok) {
     // A client polling a running prompt reads the same entry over and over,
     // so the whole table is only rewritten when this read taught it something.
     const added = filenamesIn(comfyHistoryEntry(text, promptId)).filter(
       (filename) => !bound.filenames.includes(filename),
-    );
+    )
     if (added.length > 0) {
-      bound.filenames.push(...added);
-      saveComfyBindings(ctx.comfyBindings);
+      bound.filenames.push(...added)
+      saveComfyBindings(ctx.comfyBindings)
     }
   }
-  return jsonForward(res, text);
+  return jsonForward(res, text)
 }
 
 /** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
-const COMFY_QUEUE_PROMPT_ID_INDEX = 1;
+const COMFY_QUEUE_PROMPT_ID_INDEX = 1
 
 function queuedPromptIds(entries: unknown): string[] {
   return (Array.isArray(entries) ? entries : [])
     .map((entry) => (Array.isArray(entry) ? entry[COMFY_QUEUE_PROMPT_ID_INDEX] : undefined))
-    .filter((id): id is string => typeof id === "string");
+    .filter((id): id is string => typeof id === 'string')
 }
 
 async function readComfyQueue(
   base: string,
   httpClient: HttpClient,
 ): Promise<Record<string, unknown> | undefined> {
-  const res = await httpClient(`${base}/queue`);
+  const res = await httpClient(`${base}/queue`)
   if (!res.ok) {
-    await discardBody(res);
-    return undefined;
+    await discardBody(res)
+    return undefined
   }
-  return parseRecord(await res.text()) ?? undefined;
+  return parseRecord(await res.text()) ?? undefined
 }
 
 /**
@@ -465,53 +465,53 @@ export async function proxyComfyCancel(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req)
   if (body instanceof Response) {
-    return body;
+    return body
   }
-  const promptId = body.prompt_id;
-  if (typeof promptId !== "string") {
-    return jsonError(STATUS_BAD_REQUEST, 'expected {"prompt_id": string}');
+  const promptId = body.prompt_id
+  if (typeof promptId !== 'string') {
+    return jsonError(STATUS_BAD_REQUEST, 'expected {"prompt_id": string}')
   }
   if (liveBinding(ctx, comfyKey(engineId, origin, promptId)) === undefined) {
-    return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`);
+    return jsonError(STATUS_NOT_FOUND, `unknown prompt_id "${promptId}"`)
   }
   return withComfySlot(ctx, engineId, async () => {
-    const queue = await readComfyQueue(base, httpClient);
+    const queue = await readComfyQueue(base, httpClient)
     if (queue === undefined) {
-      return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
+      return jsonError(STATUS_BAD_GATEWAY, 'comfy queue could not be read')
     }
     if (queuedPromptIds(queue.queue_running).includes(promptId)) {
-      return interruptComfyRunning(base, httpClient, promptId);
+      return interruptComfyRunning(base, httpClient, promptId)
     }
     if (queuedPromptIds(queue.queue_pending).includes(promptId)) {
       const dropped = await httpClient(`${base}/queue`, {
-        method: "POST",
+        method: 'POST',
         headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
         body: JSON.stringify({ delete: [promptId] }),
-      });
+      })
       if (!dropped.ok) {
         return jsonError(
           STATUS_BAD_GATEWAY,
           `comfy refused to drop "${promptId}" from its queue (http ${dropped.status})`,
-        );
+        )
       }
       // comfy answers 200 whether or not the delete removed anything, so the
       // reply it earns is decided by what the queue says afterwards, never by
       // that status. A prompt that started rendering in the window between the
       // read above and this delete is still holding the GPU and is stopped
       // here rather than reported dropped.
-      const after = await readComfyQueue(base, httpClient);
+      const after = await readComfyQueue(base, httpClient)
       if (after === undefined) {
-        return jsonError(STATUS_BAD_GATEWAY, "comfy queue could not be read");
+        return jsonError(STATUS_BAD_GATEWAY, 'comfy queue could not be read')
       }
       if (queuedPromptIds(after.queue_running).includes(promptId)) {
-        return interruptComfyRunning(base, httpClient, promptId);
+        return interruptComfyRunning(base, httpClient, promptId)
       }
-      return Response.json({ prompt_id: promptId, cancelled: "pending" });
+      return Response.json({ prompt_id: promptId, cancelled: 'pending' })
     }
-    return Response.json({ prompt_id: promptId, cancelled: "finished" });
-  });
+    return Response.json({ prompt_id: promptId, cancelled: 'finished' })
+  })
 }
 
 /** The interrupt, and the one reply it earns. Safe to send unscoped because the submission gate keeps the container's pending queue empty: nothing can have inherited the GPU from the prompt named here. */
@@ -520,14 +520,14 @@ async function interruptComfyRunning(
   httpClient: HttpClient,
   promptId: string,
 ): Promise<Response> {
-  const interrupted = await httpClient(`${base}/interrupt`, { method: "POST" });
+  const interrupted = await httpClient(`${base}/interrupt`, { method: 'POST' })
   if (!interrupted.ok) {
     return jsonError(
       STATUS_BAD_GATEWAY,
       `comfy refused to interrupt "${promptId}" (http ${interrupted.status})`,
-    );
+    )
   }
-  return Response.json({ prompt_id: promptId, cancelled: "running" });
+  return Response.json({ prompt_id: promptId, cancelled: 'running' })
 }
 
 /** `POST /queue {delete:[promptId]}`, mediated: every id in the request must be one this door itself bound via `/prompt`, or nothing is forwarded -- the bare form is the container's global queue ledger, and even the delete form must not let a caller cancel a job it never submitted. */
@@ -535,21 +535,21 @@ export async function proxyComfyQueueDelete(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req)
   if (body instanceof Response) {
-    return body;
+    return body
   }
-  if (!(Array.isArray(body.delete) && body.delete.every((id) => typeof id === "string"))) {
-    return jsonError(STATUS_BAD_REQUEST, 'expected {"delete": string[]}');
+  if (!(Array.isArray(body.delete) && body.delete.every((id) => typeof id === 'string'))) {
+    return jsonError(STATUS_BAD_REQUEST, 'expected {"delete": string[]}')
   }
-  const ids = body.delete as string[];
+  const ids = body.delete as string[]
   if (!ids.every((id) => liveBinding(ctx, comfyKey(engineId, origin, id)) !== undefined)) {
-    return jsonError(STATUS_NOT_FOUND, "one or more prompt ids are not known to this door");
+    return jsonError(STATUS_NOT_FOUND, 'one or more prompt ids are not known to this door')
   }
   const res = await httpClient(`${base}/queue`, {
-    method: "POST",
+    method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
-  });
-  return jsonForward(res, await res.text());
+  })
+  return jsonForward(res, await res.text())
 }

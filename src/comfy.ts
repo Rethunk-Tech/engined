@@ -7,13 +7,13 @@
  * empty store instead of the operator's real models.
  */
 
-import { ParseError } from "./errors/parse.ts";
-import { applyEngineArgs, loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { ContainerSpec } from "./specTypes.ts";
-import { isContainerSpec } from "./specTypes.ts";
-import type { EngineEntry } from "./types.ts";
+import { ParseError } from './errors/parse.ts'
+import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
+import type { ContainerSpec } from './specTypes.ts'
+import { isContainerSpec } from './specTypes.ts'
+import type { EngineEntry } from './types.ts'
 
-const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
+const MODELS_CONTAINER_PATH = '/opt/comfyui/models'
 
 /**
  * Mounted read-write, not `:ro`: unlike llama's GGUF store, ComfyUI writes
@@ -21,17 +21,17 @@ const MODELS_CONTAINER_PATH = "/opt/comfyui/models";
  * still starts clean, not an assumption.
  */
 export function buildComfySpec(engine: EngineEntry, opts: SpecLoadOptions): ContainerSpec {
-  const loaded = loadSpec(engine, { enginesRoot: opts.enginesRoot, bunx: opts.bunx });
+  const loaded = loadSpec(engine, { enginesRoot: opts.enginesRoot, bunx: opts.bunx })
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
       `engine "${engine.id}": comfy spec must be a container spec`,
       loaded.source,
-    );
+    )
   }
   if (engine.models_dir === undefined) {
-    throw new ParseError(`engine "${engine.id}": comfy engine has no models_dir`, loaded.source);
+    throw new ParseError(`engine "${engine.id}": comfy engine has no models_dir`, loaded.source)
   }
-  const { spec } = loaded;
-  spec.volumes = [...spec.volumes, { name: engine.models_dir, path: MODELS_CONTAINER_PATH }];
-  return applyEngineArgs(engine, spec);
+  const { spec } = loaded
+  spec.volumes = [...spec.volumes, { name: engine.models_dir, path: MODELS_CONTAINER_PATH }]
+  return applyEngineArgs(engine, spec)
 }

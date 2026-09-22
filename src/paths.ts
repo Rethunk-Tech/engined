@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import process from "node:process";
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import process from 'node:process'
 
 /**
  * All three XDG variables are unset on this box, so the empty case is the
@@ -8,31 +8,31 @@ import process from "node:process";
  * `/engined/…`, which installs the daemon at the filesystem root.
  */
 function xdg(name: string, fallback: string): string {
-  const v = process.env[name];
-  return v !== undefined && v !== "" ? v : join(homedir(), fallback);
+  const v = process.env[name]
+  return v !== undefined && v !== '' ? v : join(homedir(), fallback)
 }
 
 /** Exported for `scripts/install.sh`, which renders the systemd user unit under it. */
 export function configHome(): string {
-  return xdg("XDG_CONFIG_HOME", ".config");
+  return xdg('XDG_CONFIG_HOME', '.config')
 }
 
 export function dataHome(): string {
-  return xdg("XDG_DATA_HOME", ".local/share");
+  return xdg('XDG_DATA_HOME', '.local/share')
 }
 
 export function configPath(): string {
-  return join(configHome(), "engined", "config.toml");
+  return join(configHome(), 'engined', 'config.toml')
 }
 
 /** Where the install script syncs `main.js` and the `engines/` spec directories. */
 export function installDir(): string {
-  return join(dataHome(), "engined");
+  return join(dataHome(), 'engined')
 }
 
 /** The one writable path under `ProtectSystem=strict`. */
 export function stateDir(): string {
-  return join(xdg("XDG_STATE_HOME", ".local/state"), "engined");
+  return join(xdg('XDG_STATE_HOME', '.local/state'), 'engined')
 }
 
 /**
@@ -40,15 +40,15 @@ export function stateDir(): string {
  * catalog never shares a file with another provider's.
  */
 export function upstreamInventoryDir(upstreamId: string): string {
-  return join(stateDir(), "upstreams", upstreamId);
+  return join(stateDir(), 'upstreams', upstreamId)
 }
 
 /** A bind-mount needs the absolute path, not the tilde. */
 export function expandTilde(p: string): string {
-  if (p === "~") {
-    return homedir();
+  if (p === '~') {
+    return homedir()
   }
-  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+  return p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
 }
 
 /**
@@ -58,7 +58,7 @@ export function expandTilde(p: string): string {
  * clone (each engines/chatterbox-* spec.toml) via the `{state_dir}` placeholder.
  */
 export function voicesDir(): string {
-  return join(stateDir(), "voices");
+  return join(stateDir(), 'voices')
 }
 
 /**
@@ -68,5 +68,5 @@ export function voicesDir(): string {
  * one, so a test can redirect the pair together and neither writes here.
  */
 export function llamaPresetPath(): string {
-  return `${stateDir()}/llama/preset.ini`;
+  return `${stateDir()}/llama/preset.ini`
 }

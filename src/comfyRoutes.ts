@@ -21,9 +21,9 @@ import {
   proxyComfyUpload,
   proxyComfyView,
   resolveComfyTarget,
-} from "./comfyProxy.ts";
-import type { DoorContext } from "./doorContext.ts";
-import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from "./http.ts";
+} from './comfyProxy.ts'
+import type { DoorContext } from './doorContext.ts'
+import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from './http.ts'
 
 /**
  * Everything else the container answers, dispatched by method and
@@ -46,9 +46,9 @@ export function handleComfyProxy(
   req: Request,
   { engineSeg, upstreamSeg, rest }: ComfyMatch,
 ): Response | Promise<Response> {
-  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
+  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg)
   if (target === undefined) {
-    return noSuchComfyEngine(engineSeg, upstreamSeg);
+    return noSuchComfyEngine(engineSeg, upstreamSeg)
   }
   const proxy: ComfyProxy = {
     ctx,
@@ -56,7 +56,7 @@ export function handleComfyProxy(
     origin: COMFY_LOCAL_ORIGIN,
     base: target.base,
     httpClient: ctx.doorOpts.comfyHttpClient ?? fetch,
-  };
+  }
 
   if (rest === COMFY_WS_SUFFIX) {
     // A real upgrade never reaches here -- `fetch` intercepts it before
@@ -64,44 +64,44 @@ export function handleComfyProxy(
     // reached by a plain request against the ws path with no real socket
     // behind it (a unit test's direct `door.fetch` call), which cannot be
     // proxied at all.
-    return jsonError(STATUS_BAD_REQUEST, "this path is a websocket upgrade, not a plain request");
+    return jsonError(STATUS_BAD_REQUEST, 'this path is a websocket upgrade, not a plain request')
   }
-  let forwarded: Promise<Response> | undefined;
-  if (req.method === "GET") {
-    forwarded = comfyGet(proxy, rest, new URL(req.url));
-  } else if (req.method === "POST") {
-    forwarded = comfyPost(proxy, rest, req);
+  let forwarded: Promise<Response> | undefined
+  if (req.method === 'GET') {
+    forwarded = comfyGet(proxy, rest, new URL(req.url))
+  } else if (req.method === 'POST') {
+    forwarded = comfyPost(proxy, rest, req)
   }
-  return forwarded ?? jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`);
+  return forwarded ?? jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`)
 }
 
 function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> | undefined {
-  if (rest === "system_stats" || rest.startsWith("object_info/")) {
-    return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient);
+  if (rest === 'system_stats' || rest.startsWith('object_info/')) {
+    return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient)
   }
-  if (rest === "view") {
-    return proxyComfyView(proxy, url.searchParams);
+  if (rest === 'view') {
+    return proxyComfyView(proxy, url.searchParams)
   }
-  if (rest.startsWith("history/")) {
-    return proxyComfyHistory(proxy, rest.slice("history/".length));
+  if (rest.startsWith('history/')) {
+    return proxyComfyHistory(proxy, rest.slice('history/'.length))
   }
-  return undefined;
+  return undefined
 }
 
 function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Response> | undefined {
-  if (rest === "prompt") {
-    return proxyComfyPrompt(proxy, req);
+  if (rest === 'prompt') {
+    return proxyComfyPrompt(proxy, req)
   }
-  if (rest === "upload/image") {
-    return proxyComfyUpload(proxy.base, req, proxy.httpClient);
+  if (rest === 'upload/image') {
+    return proxyComfyUpload(proxy.base, req, proxy.httpClient)
   }
-  if (rest === "queue") {
-    return proxyComfyQueueDelete(proxy, req);
+  if (rest === 'queue') {
+    return proxyComfyQueueDelete(proxy, req)
   }
-  if (rest === "cancel") {
-    return proxyComfyCancel(proxy, req);
+  if (rest === 'cancel') {
+    return proxyComfyCancel(proxy, req)
   }
-  return undefined;
+  return undefined
 }
 
 /**
@@ -121,20 +121,20 @@ export function handleComfyWsUpgrade(
   server: EnginedServer,
   { engineSeg, upstreamSeg }: ComfyMatch,
 ): Response | undefined {
-  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg);
+  const target = resolveComfyTarget(ctx, engineSeg, upstreamSeg)
   if (target === undefined) {
-    return noSuchComfyEngine(engineSeg, upstreamSeg);
+    return noSuchComfyEngine(engineSeg, upstreamSeg)
   }
-  const clientId = crypto.randomUUID().replace(/-/g, "");
-  const upstreamWsUrl = `${target.base.replace(HTTP_SCHEME_RE, "ws")}/ws?clientId=${clientId}`;
-  const data: ComfyWsData = { upstreamUrl: upstreamWsUrl, clientId };
+  const clientId = crypto.randomUUID().replace(/-/g, '')
+  const upstreamWsUrl = `${target.base.replace(HTTP_SCHEME_RE, 'ws')}/ws?clientId=${clientId}`
+  const data: ComfyWsData = { upstreamUrl: upstreamWsUrl, clientId }
   return server.upgrade(req, { data })
     ? undefined
-    : jsonError(STATUS_BAD_REQUEST, "websocket upgrade failed");
+    : jsonError(STATUS_BAD_REQUEST, 'websocket upgrade failed')
 }
 
 /** What `comfyWebSocketHandlers.open` announces first, so the caller learns the door-assigned `clientId` before it ever needs one for `POST /prompt`. */
-const CLIENT_ID_MESSAGE_TYPE = "client_id";
+const CLIENT_ID_MESSAGE_TYPE = 'client_id'
 
 /**
  * Bridges the caller's own upgraded socket to a fresh outbound connection to
@@ -145,28 +145,28 @@ const CLIENT_ID_MESSAGE_TYPE = "client_id";
  */
 export const comfyWebSocketHandlers: Bun.WebSocketHandler<ComfyWsData> = {
   open(ws) {
-    const upstream = new WebSocket(ws.data.upstreamUrl);
-    upstream.binaryType = "arraybuffer";
-    ws.data.upstream = upstream;
-    upstream.addEventListener("open", () => {
+    const upstream = new WebSocket(ws.data.upstreamUrl)
+    upstream.binaryType = 'arraybuffer'
+    ws.data.upstream = upstream
+    upstream.addEventListener('open', () => {
       ws.send(
         JSON.stringify({ type: CLIENT_ID_MESSAGE_TYPE, data: { client_id: ws.data.clientId } }),
-      );
-    });
-    upstream.addEventListener("message", (ev) => {
-      if (typeof ev.data === "string") {
-        ws.send(ev.data);
+      )
+    })
+    upstream.addEventListener('message', (ev) => {
+      if (typeof ev.data === 'string') {
+        ws.send(ev.data)
       } else {
-        ws.send(new Uint8Array(ev.data as ArrayBuffer));
+        ws.send(new Uint8Array(ev.data as ArrayBuffer))
       }
-    });
-    upstream.addEventListener("close", () => ws.close());
-    upstream.addEventListener("error", () => ws.close());
+    })
+    upstream.addEventListener('close', () => ws.close())
+    upstream.addEventListener('error', () => ws.close())
   },
   message() {
     // See the doc comment above: nothing a caller sends is ever forwarded.
   },
   close(ws) {
-    ws.data.upstream?.close();
+    ws.data.upstream?.close()
   },
-};
+}

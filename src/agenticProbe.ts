@@ -5,39 +5,39 @@
  * that actually answered.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import type { AgentTarget } from "./agents.ts";
-import { stateDir } from "./paths.ts";
-import type { Config } from "./types.ts";
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import type { AgentTarget } from './agents.ts'
+import { stateDir } from './paths.ts'
+import type { Config } from './types.ts'
 
 /**
  * The read-only floor is version-specific, so a proved version is only
  * proof for that version. One file per engine, mirroring the llama
  * preset's own directory shape under the state directory.
  */
-const AGENTIC_VERIFIED_DIR = (engineId: string): string => `${stateDir()}/agentic/${engineId}`;
+const AGENTIC_VERIFIED_DIR = (engineId: string): string => `${stateDir()}/agentic/${engineId}`
 const AGENTIC_VERIFIED_PATH = (engineId: string): string =>
-  `${AGENTIC_VERIFIED_DIR(engineId)}/verified_version`;
+  `${AGENTIC_VERIFIED_DIR(engineId)}/verified_version`
 
 export function readVerifiedVersion(engineId: string): string | undefined {
   try {
-    return readFileSync(AGENTIC_VERIFIED_PATH(engineId), "utf8").trim();
+    return readFileSync(AGENTIC_VERIFIED_PATH(engineId), 'utf8').trim()
   } catch {
     // No file yet, or an unreadable one: this engine has no proved version.
   }
 }
 
 export function writeVerifiedVersion(engineId: string, version: string): void {
-  mkdirSync(AGENTIC_VERIFIED_DIR(engineId), { recursive: true });
-  writeFileSync(AGENTIC_VERIFIED_PATH(engineId), version, "utf8");
+  mkdirSync(AGENTIC_VERIFIED_DIR(engineId), { recursive: true })
+  writeFileSync(AGENTIC_VERIFIED_PATH(engineId), version, 'utf8')
 }
 
 export interface AgenticProbeOutcome {
-  ok: boolean;
+  ok: boolean
   /** Which probe failed -- e.g. "byte-identical" or "no-hook-fires". Present only when `ok` is false. */
-  failedProbe?: string;
+  failedProbe?: string
   /** Why that probe failed, when it can say. */
-  detail?: string;
+  detail?: string
 }
 
 /**
@@ -62,7 +62,7 @@ export type AgenticProbeRunner = (
    * own GPU, so proving it costs nothing but time.
    */
   roundTrip?: AgentTarget,
-) => Promise<AgenticProbeOutcome>;
+) => Promise<AgenticProbeOutcome>
 
 /**
  * The one route on `engineId` that both names a model and keeps its prompt
@@ -79,10 +79,10 @@ export function roundTripTargetFor(
   nonce: string,
 ): AgentTarget | undefined {
   const route = config.routes.find(
-    (r) => !r.disabled && r.engine === engineId && r.upstream === "local" && r.model !== undefined,
-  );
+    (r) => !r.disabled && r.engine === engineId && r.upstream === 'local' && r.model !== undefined,
+  )
   if (route?.model === undefined) {
-    return undefined;
+    return undefined
   }
   // `wire_model` first, for the same reason the real launch dials it: this
   // route's own segment names the agent, so handing it back points the child
@@ -94,16 +94,16 @@ export function roundTripTargetFor(
     // hole shaped like a status poll.
     baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`,
     model: route.wire_model ?? route.model,
-  };
+  }
 }
 
 export function noAgentVersionConfiguredFix(engineId: string): string {
-  return `engine "${engineId}" is agentic-cli with no agent_version configured`;
+  return `engine "${engineId}" is agentic-cli with no agent_version configured`
 }
 
 /** The binary itself could not be identified at all -- `resolveBinary` threw, or `--version` printed nothing. Distinct from a version mismatch: there is no "observed" version to compare here. */
 export function agentBinaryUnresolvedFix(engineId: string, reason: string): string {
-  return `engine "${engineId}" agent binary could not be resolved: ${reason}`;
+  return `engine "${engineId}" agent binary could not be resolved: ${reason}`
 }
 
 /**
@@ -121,9 +121,9 @@ export function noProbeRunnerConfiguredFix(
   proved: string | undefined,
 ): string {
   if (proved === undefined) {
-    return `engine "${engineId}" pin ${observed} has not been proved and no agentic probe runner is configured`;
+    return `engine "${engineId}" pin ${observed} has not been proved and no agentic probe runner is configured`
   }
-  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`;
+  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- a self-updated binary invalidates that proof, and no agentic probe runner is configured to re-prove it`
 }
 
 export function probeFailedFix({
@@ -133,15 +133,15 @@ export function probeFailedFix({
   failedProbe,
   detail,
 }: {
-  engineId: string;
-  observed: string;
-  proved: string | undefined;
-  failedProbe: string;
-  detail: string | undefined;
+  engineId: string
+  observed: string
+  proved: string | undefined
+  failedProbe: string
+  detail: string | undefined
 }): string {
-  const why = detail === undefined ? "" : `: ${detail}`;
+  const why = detail === undefined ? '' : `: ${detail}`
   if (proved === undefined) {
-    return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`;
+    return `engine "${engineId}" pin ${observed} failed the "${failedProbe}" probe${why}`
   }
-  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- re-proving for ${observed} failed the "${failedProbe}" probe${why}`;
+  return `engine "${engineId}" binary reports version ${observed}, but its read-only floor was last proved for ${proved} -- re-proving for ${observed} failed the "${failedProbe}" probe${why}`
 }

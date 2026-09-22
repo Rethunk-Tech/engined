@@ -10,10 +10,10 @@ import {
   mintLaunchNonce,
   type RunAgenticResult,
   runAgentic,
-} from "./agentic.ts";
-import { claudeModelEnv, resolveRedirect } from "./agenticRedirect.ts";
-import type { HopResult } from "./chain.ts";
-import type { DoorContext } from "./doorContext.ts";
+} from './agentic.ts'
+import { claudeModelEnv, resolveRedirect } from './agenticRedirect.ts'
+import type { HopResult } from './chain.ts'
+import type { DoorContext } from './doorContext.ts'
 import {
   jsonErrorBody,
   SSE_CONTENT_TYPE,
@@ -21,17 +21,17 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_OK,
   STATUS_UNAVAILABLE,
-} from "./http.ts";
-import { loadSpec } from "./spec.ts";
-import type { AgenticSpec } from "./specTypes.ts";
-import { type EngineEntry, isRecord, type ResolvedRoute } from "./types.ts";
+} from './http.ts'
+import { loadSpec } from './spec.ts'
+import type { AgenticSpec } from './specTypes.ts'
+import { type EngineEntry, isRecord, type ResolvedRoute } from './types.ts'
 
 /** `claude -p` takes one prompt on stdin; OpenAI's `messages` array has no such shape upstream to borrow. */
 function promptFromMessages(body: Record<string, unknown>): string {
-  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const messages = Array.isArray(body.messages) ? body.messages : []
   return messages
-    .map((m) => (isRecord(m) ? `${String(m.role ?? "user")}: ${String(m.content ?? "")}` : ""))
-    .join("\n");
+    .map((m) => (isRecord(m) ? `${String(m.role ?? 'user')}: ${String(m.content ?? '')}` : ''))
+    .join('\n')
 }
 
 /**
@@ -61,14 +61,14 @@ function promptFromMessages(body: Record<string, unknown>): string {
  */
 const AGENTIC_UNHONOURABLE: Record<string, (value: unknown) => boolean> = {
   tools: (v) => !Array.isArray(v) || v.length > 0,
-  tool_choice: (v) => v !== "none" && v !== "auto",
+  tool_choice: (v) => v !== 'none' && v !== 'auto',
   functions: (v) => !Array.isArray(v) || v.length > 0,
-  function_call: (v) => v !== "none" && v !== "auto",
-  response_format: (v) => !isRecord(v) || v.type !== "text",
-};
+  function_call: (v) => v !== 'none' && v !== 'auto',
+  response_format: (v) => !isRecord(v) || v.type !== 'text',
+}
 
 /** The two list-of-tools fields, which a `"none"` choice cancels however long the list is. */
-const AGENTIC_TOOL_LISTS = new Set(["tools", "functions"]);
+const AGENTIC_TOOL_LISTS = new Set(['tools', 'functions'])
 
 /**
  * Which of those fields this body carries a demanding value for, in the
@@ -82,19 +82,19 @@ const AGENTIC_TOOL_LISTS = new Set(["tools", "functions"]);
  * through.
  */
 function unhonourableFields(body: Record<string, unknown>): string[] {
-  const noneChosen = body.tool_choice === "none" || body.function_call === "none";
+  const noneChosen = body.tool_choice === 'none' || body.function_call === 'none'
   return Object.entries(AGENTIC_UNHONOURABLE)
     .filter(([key, demands]) => {
       if (noneChosen && AGENTIC_TOOL_LISTS.has(key)) {
-        return false;
+        return false
       }
-      const value = body[key];
-      return value !== undefined && value !== null && demands(value);
+      const value = body[key]
+      return value !== undefined && value !== null && demands(value)
     })
-    .map(([key]) => key);
+    .map(([key]) => key)
 }
 
-let agenticCallSeq = 0;
+let agenticCallSeq = 0
 
 /**
  * The minimal OpenAI chat-completion shape a caller expects back. `usage` is
@@ -103,14 +103,14 @@ let agenticCallSeq = 0;
  * needs the CLI to report it first.
  */
 function agenticEnvelope(text: string | undefined): Record<string, unknown> {
-  agenticCallSeq += 1;
+  agenticCallSeq += 1
   return {
     id: `agentic-${Date.now()}-${agenticCallSeq}`,
-    object: "chat.completion",
+    object: 'chat.completion',
     choices: [
-      { index: 0, message: { role: "assistant", content: text ?? "" }, finish_reason: "stop" },
+      { index: 0, message: { role: 'assistant', content: text ?? '' }, finish_reason: 'stop' },
     ],
-  };
+  }
 }
 
 /**
@@ -122,7 +122,7 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
   return loadSpec(engineEntry, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,
-  });
+  })
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
@@ -130,28 +130,28 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
   if (!outcome.ok) {
     return {
       status: outcome.status,
-      body: jsonErrorBody(outcome.failure ?? "agentic call failed"),
+      body: jsonErrorBody(outcome.failure ?? 'agentic call failed'),
       envelopeFailure: outcome.envelopeFailure,
       // An envelope failure's text is the child's own parsed stdout; every
       // other agentic failure here is engined's sentence about the launch.
       bodyCarriesAgentOutput: outcome.envelopeFailure,
       version: outcome.version,
       usage: outcome.usage,
-    };
+    }
   }
   return {
     status: outcome.status,
     body: agenticEnvelope(outcome.result),
     version: outcome.version,
     usage: outcome.usage,
-  };
+  }
 }
 
 /** The pin proof, which `runAgentic`'s own workdir-required 400 comes before. `null` means nothing is wrong. */
 async function proveAgenticPin(ctx: DoorContext, engineId: string): Promise<HopResult | null> {
-  const proof = await ctx.registry.start(engineId);
-  if (proof.state === "installed") {
-    return null;
+  const proof = await ctx.registry.start(engineId)
+  if (proof.state === 'installed') {
+    return null
   }
   // A plain 503, matching resolveRedirect's own secret-resolution failure: an
   // engine that cannot prove its pin is unavailable, not a proven envelope
@@ -164,32 +164,32 @@ async function proveAgenticPin(ctx: DoorContext, engineId: string): Promise<HopR
     // tail of its stderr -- so this body answers the caller but stays out of
     // the recorded failure.
     bodyCarriesAgentOutput: true,
-  };
+  }
 }
 
 export interface AgenticHop {
-  engineId: string;
-  modelSeg: string;
-  route: ResolvedRoute | undefined;
+  engineId: string
+  modelSeg: string
+  route: ResolvedRoute | undefined
   req: {
-    rawBody: Record<string, unknown>;
-    signal: AbortSignal;
-    setContentType: (ct: string) => void;
-    toolsHonourableElsewhere: boolean;
-    inChain: boolean;
-  };
+    rawBody: Record<string, unknown>
+    signal: AbortSignal
+    setContentType: (ct: string) => void
+    toolsHonourableElsewhere: boolean
+    inChain: boolean
+  }
 }
 
 interface RouteRedirectOptions {
-  engineId: string;
-  modelSeg: string;
-  route: ResolvedRoute | undefined;
-  doorUrl: string;
+  engineId: string
+  modelSeg: string
+  route: ResolvedRoute | undefined
+  doorUrl: string
 }
 
 type RouteRedirect =
   | { ok: true; env: Record<string, string> | undefined }
-  | { ok: false; result: HopResult };
+  | { ok: false; result: HopResult }
 
 /**
  * A route naming a real upstream (not ambient, not this box's own `local`)
@@ -200,12 +200,12 @@ function resolveRouteRedirect(
   ctx: DoorContext,
   { engineId, modelSeg, route, doorUrl }: RouteRedirectOptions,
 ): RouteRedirect | Promise<RouteRedirect> {
-  const upstreamId = route?.upstream ?? null;
-  if (upstreamId === null || upstreamId === "local") {
-    return { ok: true, env: undefined };
+  const upstreamId = route?.upstream ?? null
+  if (upstreamId === null || upstreamId === 'local') {
+    return { ok: true, env: undefined }
   }
-  const config = ctx.getConfig();
-  const upstream = config.upstreams.find((u) => u.id === upstreamId);
+  const config = ctx.getConfig()
+  const upstream = config.upstreams.find((u) => u.id === upstreamId)
   if (upstream === undefined) {
     return {
       ok: false,
@@ -213,7 +213,7 @@ function resolveRouteRedirect(
         status: STATUS_BAD_GATEWAY,
         body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
       },
-    };
+    }
   }
   return resolveRedirect({
     upstream,
@@ -222,7 +222,7 @@ function resolveRouteRedirect(
     config,
     doorUrl,
     secretExec: ctx.doorOpts.secretExec,
-  });
+  })
 }
 
 /**
@@ -235,19 +235,16 @@ function ambientAgentEnv(
   modelSeg: string,
   route: ResolvedRoute | undefined,
 ): Record<string, string> | undefined {
-  const ambientModel =
-    route?.wire_model ?? route?.model ?? (modelSeg === "" ? undefined : modelSeg);
-  return agent === "claude" && ambientModel !== undefined
-    ? claudeModelEnv(ambientModel)
-    : undefined;
+  const ambientModel = route?.wire_model ?? route?.model ?? (modelSeg === '' ? undefined : modelSeg)
+  return agent === 'claude' && ambientModel !== undefined ? claudeModelEnv(ambientModel) : undefined
 }
 
 interface AgenticLaunch {
-  spec: AgenticSpec;
+  spec: AgenticSpec
   /** Already merged: the engine's own table with this route's on top. */
-  args: Record<string, unknown>;
-  agentVersion: string;
-  doorUrl: string;
+  args: Record<string, unknown>
+  agentVersion: string
+  doorUrl: string
   /**
    * The model id this agent is told to dial back through the door -- its
    * route's `wire_model` when it declared one, else the address segment.
@@ -257,24 +254,24 @@ interface AgenticLaunch {
    * slash-bearing address cannot be a `model` segment (`config.ts` refuses
    * one), which is exactly why `wire_model` is where it goes.
    */
-  dialModel: string;
-  workdir: string | undefined;
-  extraEnv: Record<string, string> | undefined;
-  req: AgenticHop["req"];
+  dialModel: string
+  workdir: string | undefined
+  extraEnv: Record<string, string> | undefined
+  req: AgenticHop['req']
   /** Called when the answer is handed off as a stream that outlives the hop; `run` settles when the child exits. */
-  onHandoff: (run: Promise<unknown>) => void;
+  onHandoff: (run: Promise<unknown>) => void
 }
 
 async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<HopResult> {
-  const { spec, args, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch;
-  const { rawBody, signal } = req;
-  const wantsStream = rawBody.stream === true;
-  const deltas: string[] = [];
-  let pump: (() => void) | undefined;
-  let first: (arrived: "delta" | "done") => void = () => undefined;
-  const firstSignal = new Promise<"delta" | "done">((resolve) => {
-    first = resolve;
-  });
+  const { spec, args, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch
+  const { rawBody, signal } = req
+  const wantsStream = rawBody.stream === true
+  const deltas: string[] = []
+  let pump: (() => void) | undefined
+  let first: (arrived: 'delta' | 'done') => void = () => undefined
+  const firstSignal = new Promise<'delta' | 'done'>((resolve) => {
+    first = resolve
+  })
   const run = runAgentic({
     agent: spec.agent,
     agentVersion,
@@ -294,52 +291,52 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     signal,
     onDelta: wantsStream
       ? (text) => {
-          deltas.push(text);
-          pump?.();
-          first("delta");
+          deltas.push(text)
+          pump?.()
+          first('delta')
         }
       : undefined,
-  });
+  })
   run.then(
-    () => first("done"),
-    () => first("done"),
-  );
+    () => first('done'),
+    () => first('done'),
+  )
   // Commit to a stream only once the CLI has printed answer text: every
   // pre-spawn refusal (400 workdir, floor, secret) and an envelope that
   // fails before its first delta still land as a plain status.
-  if (wantsStream && (await firstSignal) === "delta") {
-    launch.onHandoff(run);
-    req.setContentType(SSE_CONTENT_TYPE);
+  if (wantsStream && (await firstSignal) === 'delta') {
+    launch.onHandoff(run)
+    req.setContentType(SSE_CONTENT_TYPE)
     return {
       status: STATUS_OK,
       stream: agenticSse(run, deltas, (p) => {
-        pump = p;
+        pump = p
       }),
       version: agentVersion,
-    };
+    }
   }
-  return hopResultFromAgenticOutcome(await run);
+  return hopResultFromAgenticOutcome(await run)
 }
 
 type AgenticEntry =
   | { ok: true; engineEntry: EngineEntry; agentVersion: string }
-  | { ok: false; result: HopResult };
+  | { ok: false; result: HopResult }
 
 function agenticRefusal(message: string): AgenticEntry {
-  return { ok: false, result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(message) } };
+  return { ok: false, result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(message) } }
 }
 
 /** The engine and the pin it launches at -- or the refusal for one missing either. */
 function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
-  const engineEntry = ctx.registry.entry(engineId);
+  const engineEntry = ctx.registry.entry(engineId)
   if (!engineEntry) {
-    return agenticRefusal(`unknown engine "${engineId}"`);
+    return agenticRefusal(`unknown engine "${engineId}"`)
   }
-  const agentVersion = engineEntry.agent_version;
+  const agentVersion = engineEntry.agent_version
   if (agentVersion === undefined) {
-    return agenticRefusal(`engine "${engineId}" has no agent_version configured`);
+    return agenticRefusal(`engine "${engineId}" has no agent_version configured`)
   }
-  return { ok: true, engineEntry, agentVersion };
+  return { ok: true, engineEntry, agentVersion }
 }
 
 /**
@@ -348,14 +345,14 @@ function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
  * floor, so it is never read off a spec that has not proven it has one.
  */
 function agenticSpecOf(ctx: DoorContext, engineEntry: EngineEntry): AgenticSpec | HopResult {
-  const { spec } = loadAgenticSpec(ctx, engineEntry);
-  if (spec.kind !== "agentic-cli") {
+  const { spec } = loadAgenticSpec(ctx, engineEntry)
+  if (spec.kind !== 'agentic-cli') {
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`engine "${engineEntry.id}" is not an agentic-cli spec`),
-    };
+    }
   }
-  return spec;
+  return spec
 }
 
 /**
@@ -366,17 +363,17 @@ function agenticSpecOf(ctx: DoorContext, engineEntry: EngineEntry): AgenticSpec 
  * naming the fields -- which `tools` on the `/openai/v1/models` row also
  * says, discoverable before the first call rather than after it.
  */
-function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResult | null {
-  const unhonourable = unhonourableFields(req.rawBody);
+function unhonourableRefusal(engineId: string, req: AgenticHop['req']): HopResult | null {
+  const unhonourable = unhonourableFields(req.rawBody)
   if (unhonourable.length === 0) {
-    return null;
+    return null
   }
   return {
     status: req.toolsHonourableElsewhere ? STATUS_BAD_GATEWAY : STATUS_BAD_REQUEST,
     body: jsonErrorBody(
-      `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(", ")} -- an agent CLI answers in prose, never in tool calls`,
+      `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(', ')} -- an agent CLI answers in prose, never in tool calls`,
     ),
-  };
+  }
 }
 
 /**
@@ -397,37 +394,37 @@ function unhonourableRefusal(engineId: string, req: AgenticHop["req"]): HopResul
 async function preLaunchRefusal(
   ctx: DoorContext,
   engineId: string,
-  req: AgenticHop["req"],
+  req: AgenticHop['req'],
   workdir: string | undefined,
 ): Promise<HopResult | null> {
-  const refusal = unhonourableRefusal(engineId, req);
+  const refusal = unhonourableRefusal(engineId, req)
   if (refusal !== null && req.inChain) {
-    return refusal;
+    return refusal
   }
-  if (workdir === undefined || workdir === "") {
+  if (workdir === undefined || workdir === '') {
     return req.inChain
       ? {
           status: STATUS_BAD_GATEWAY,
           body: jsonErrorBody(`engine "${engineId}" is agentic and this call carried no workdir`),
         }
-      : null;
+      : null
   }
   if (refusal !== null) {
-    return refusal;
+    return refusal
   }
-  return await proveAgenticPin(ctx, engineId);
+  return await proveAgenticPin(ctx, engineId)
 }
 
 export async function execAgentic(
   ctx: DoorContext,
   { engineId, modelSeg, route, req }: AgenticHop,
 ): Promise<HopResult> {
-  const config = ctx.getConfig();
-  const entry = agenticEntry(ctx, engineId);
+  const config = ctx.getConfig()
+  const entry = agenticEntry(ctx, engineId)
   if (!entry.ok) {
-    return entry.result;
+    return entry.result
   }
-  const { engineEntry, agentVersion } = entry;
+  const { engineEntry, agentVersion } = entry
 
   // Minted once per launch and revoked the instant this call returns --
   // the only door URL ever handed to this child, and it dies with the
@@ -437,27 +434,27 @@ export async function execAgentic(
   // reasoning `resolveRedirect` never caches a secret: cheaper to mint one
   // that goes unused than to widen the window where a real launch could be
   // missing one.
-  const nonce = mintLaunchNonce();
-  ctx.launchNonces.add(nonce);
+  const nonce = mintLaunchNonce()
+  ctx.launchNonces.add(nonce)
   // A streamed launch outlives this call, so its nonce is released when the
   // child exits rather than here.
-  let handedOff = false;
+  let handedOff = false
   try {
-    const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`;
-    const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl });
+    const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`
+    const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl })
     if (!redirect.ok) {
-      return redirect.result;
+      return redirect.result
     }
     // After the redirect, so a misrouted engine is refused for its route first.
-    const spec = agenticSpecOf(ctx, engineEntry);
-    if (!("agent" in spec)) {
-      return spec;
+    const spec = agenticSpecOf(ctx, engineEntry)
+    if (!('agent' in spec)) {
+      return spec
     }
-    const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route);
-    const workdir = typeof req.rawBody.workdir === "string" ? req.rawBody.workdir : undefined;
-    const blocked = await preLaunchRefusal(ctx, engineId, req, workdir);
+    const extraEnv = redirect.env ?? ambientAgentEnv(spec.agent, modelSeg, route)
+    const workdir = typeof req.rawBody.workdir === 'string' ? req.rawBody.workdir : undefined
+    const blocked = await preLaunchRefusal(ctx, engineId, req, workdir)
     if (blocked !== null) {
-      return blocked;
+      return blocked
     }
     return await launchAgentic(ctx, {
       spec,
@@ -473,13 +470,13 @@ export async function execAgentic(
       extraEnv,
       req,
       onHandoff: (run) => {
-        handedOff = true;
-        run.finally(() => ctx.launchNonces.delete(nonce));
+        handedOff = true
+        run.finally(() => ctx.launchNonces.delete(nonce))
       },
-    });
+    })
   } finally {
     if (!handedOff) {
-      ctx.launchNonces.delete(nonce);
+      ctx.launchNonces.delete(nonce)
     }
   }
 }
@@ -495,39 +492,39 @@ function agenticSse(
   deltas: string[],
   attach: (pump: () => void) => void,
 ): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  agenticCallSeq += 1;
-  const id = `agentic-${Date.now()}-${agenticCallSeq}`;
+  const encoder = new TextEncoder()
+  agenticCallSeq += 1
+  const id = `agentic-${Date.now()}-${agenticCallSeq}`
   const chunk = (delta: Record<string, unknown>, finish: string | null): Uint8Array =>
     encoder.encode(
       `data: ${JSON.stringify({
         id,
-        object: "chat.completion.chunk",
+        object: 'chat.completion.chunk',
         choices: [{ index: 0, delta, finish_reason: finish }],
       })}\n\n`,
-    );
+    )
   return new ReadableStream({
     start(controller) {
       const pump = (): void => {
         while (deltas.length > 0) {
-          controller.enqueue(chunk({ role: "assistant", content: deltas.shift() }, null));
+          controller.enqueue(chunk({ role: 'assistant', content: deltas.shift() }, null))
         }
-      };
-      attach(pump);
-      pump();
+      }
+      attach(pump)
+      pump()
       run.then(
         (outcome) => {
-          pump();
+          pump()
           if (!outcome.ok) {
-            controller.error(new Error(outcome.failure ?? "agentic call failed"));
-            return;
+            controller.error(new Error(outcome.failure ?? 'agentic call failed'))
+            return
           }
-          controller.enqueue(chunk({}, "stop"));
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
+          controller.enqueue(chunk({}, 'stop'))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
         },
         (err: unknown) => controller.error(err),
-      );
+      )
     },
-  });
+  })
 }

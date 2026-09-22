@@ -4,9 +4,9 @@
  * without `Bun.serve` or docker.
  */
 
-import type { EngineRegistry } from "./engines.ts";
-import { decodeAddressSegment, encodeAddressSegment, type Inventory } from "./inventory.ts";
-import type { Config, Egress, ResolvedRoute } from "./types.ts";
+import type { EngineRegistry } from './engines.ts'
+import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
+import type { Config, Egress, ResolvedRoute } from './types.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_SPEECH,
@@ -16,49 +16,49 @@ import {
   routeForHop,
   routeServes,
   WILDCARD_MODEL,
-} from "./types.ts";
+} from './types.ts'
 
 type ModelDispatch =
-  | { ok: true; kind: "model"; route: ResolvedRoute }
-  | { ok: false; error: string };
+  | { ok: true; kind: 'model'; route: ResolvedRoute }
+  | { ok: false; error: string }
 
 export type Dispatch =
   | ModelDispatch
-  | { ok: true; kind: "chain"; chain: string; hops: readonly string[] };
+  | { ok: true; kind: 'chain'; chain: string; hops: readonly string[] }
 
 /** Everything one resolution reads. No `endpoint` skips the serves check: starting a container asks nothing about which door path the engine answers. */
 interface ResolveCtx {
-  endpoint?: string;
-  config: Config;
-  registry: EngineRegistry;
+  endpoint?: string
+  config: Config
+  registry: EngineRegistry
 }
 
 function fail(error: string): { ok: false; error: string } {
-  return { ok: false, error };
+  return { ok: false, error }
 }
 
 /** `engine.serves(endpoint)`, or the model-less form when the route has no model. The one funnel every resolved dispatch passes through, so the disabled check lives here rather than in each resolver. */
 function withEndpointCheck(route: ResolvedRoute, ctx: ResolveCtx): ModelDispatch {
-  const { engine, model } = route;
+  const { engine, model } = route
   if (ctx.registry.entry(engine)?.disabled) {
-    return fail(`engine "${engine}" is disabled in config`);
+    return fail(`engine "${engine}" is disabled in config`)
   }
   if (
     ctx.endpoint !== undefined &&
     !routeServes(route, ctx.registry.serves(engine)).includes(ctx.endpoint)
   ) {
-    const what = model === undefined ? `engine "${engine}"` : `"@/${engine}/${model}"`;
-    return fail(`${what} does not serve ${ctx.endpoint}`);
+    const what = model === undefined ? `engine "${engine}"` : `"@/${engine}/${model}"`
+    return fail(`${what} does not serve ${ctx.endpoint}`)
   }
-  return { ok: true, kind: "model", route };
+  return { ok: true, kind: 'model', route }
 }
 
 /** Where this route's bytes travel. Ambient (`upstream === null`) is `"remote"`, matching `Upstream`'s own doc: no upstream leaves the box the same as any other network call. */
 export function routeEgress(route: ResolvedRoute, config: Config): Egress {
   if (route.upstream === null) {
-    return "remote";
+    return 'remote'
   }
-  return config.upstreams.find((u) => u.id === route.upstream)?.egress ?? "remote";
+  return config.upstreams.find((u) => u.id === route.upstream)?.egress ?? 'remote'
 }
 
 /**
@@ -68,14 +68,14 @@ export function routeEgress(route: ResolvedRoute, config: Config): Egress {
  * fallback across candidates writes a chain instead.
  */
 function resolveOneSegment(model: string, ctx: ResolveCtx): ModelDispatch {
-  const candidates = ctx.config.routes.filter((r) => !r.disabled && r.model === model);
+  const candidates = ctx.config.routes.filter((r) => !r.disabled && r.model === model)
   if (candidates.length === 0) {
-    return fail(`model "${model}" does not exist`);
+    return fail(`model "${model}" does not exist`)
   }
   const [winner] = [...candidates].sort(
     (a, b) => EGRESS_RANK[routeEgress(a, ctx.config)] - EGRESS_RANK[routeEgress(b, ctx.config)],
-  );
-  return withEndpointCheck(winner as ResolvedRoute, ctx);
+  )
+  return withEndpointCheck(winner as ResolvedRoute, ctx)
 }
 
 /**
@@ -87,41 +87,41 @@ function resolveOneSegment(model: string, ctx: ResolveCtx): ModelDispatch {
  */
 function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): ModelDispatch {
   if (!ctx.config.engines.some((e) => e.id === engineSeg)) {
-    return fail(`"@/${engineSeg}/${seg}": engine "${engineSeg}" does not exist`);
+    return fail(`"@/${engineSeg}/${seg}": engine "${engineSeg}" does not exist`)
   }
   // Ahead of the route lookup, which would otherwise report a disabled
   // engine's dropped routes as routes that never existed.
   if (ctx.registry.entry(engineSeg)?.disabled) {
-    return fail(`engine "${engineSeg}" is disabled in config`);
+    return fail(`engine "${engineSeg}" is disabled in config`)
   }
-  const engineRoutes = ctx.config.routes.filter((r) => r.engine === engineSeg);
-  const modelless = engineRoutes.some((r) => r.model === undefined);
+  const engineRoutes = ctx.config.routes.filter((r) => r.engine === engineSeg)
+  const modelless = engineRoutes.some((r) => r.model === undefined)
   if (modelless) {
-    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg);
+    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg)
     if (!route) {
-      return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`);
+      return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`)
     }
-    return withEndpointCheck(route, ctx);
+    return withEndpointCheck(route, ctx)
   }
-  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg);
+  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg)
   if (matches.length === 0) {
     const invented = resolveServedRoute({
       config: ctx.config,
       engineId: engineSeg,
       modelSeg: seg,
       inventory: ctx.registry.inventory,
-    });
+    })
     if (invented !== undefined) {
-      return withEndpointCheck(invented, ctx);
+      return withEndpointCheck(invented, ctx)
     }
-    return fail(`"@/${engineSeg}/${seg}": model "${seg}" does not exist on "${engineSeg}"`);
+    return fail(`"@/${engineSeg}/${seg}": model "${seg}" does not exist on "${engineSeg}"`)
   }
-  const route = routeForHop(engineRoutes, engineSeg, seg);
+  const route = routeForHop(engineRoutes, engineSeg, seg)
   if (route === undefined) {
-    const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(", ");
-    return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`);
+    const qualified = matches.map((r) => `@/${engineSeg}/${r.upstream}/${seg}`).join(', ')
+    return fail(`"@/${engineSeg}/${seg}" is ambiguous across upstreams; use one of: ${qualified}`)
   }
-  return withEndpointCheck(route, ctx);
+  return withEndpointCheck(route, ctx)
 }
 
 /** The wildcard template on this engine, optionally pinned to one upstream. */
@@ -132,11 +132,11 @@ function wildcardTemplate(
 ): ResolvedRoute | undefined {
   const wild = routes.filter(
     (r) => r.disabled !== true && r.engine === engineId && r.model === WILDCARD_MODEL,
-  );
+  )
   if (upstream !== undefined) {
-    return wild.find((r) => r.upstream === upstream);
+    return wild.find((r) => r.upstream === upstream)
   }
-  return wild.length === 1 ? wild[0] : undefined;
+  return wild.length === 1 ? wild[0] : undefined
 }
 
 /**
@@ -151,35 +151,35 @@ export function resolveServedRoute({
   upstreamSeg,
   inventory,
 }: {
-  config: Config;
-  engineId: string;
-  modelSeg: string;
-  upstreamSeg?: string;
-  inventory: Inventory;
+  config: Config
+  engineId: string
+  modelSeg: string
+  upstreamSeg?: string
+  inventory: Inventory
 }): ResolvedRoute | undefined {
-  if (modelSeg === "" || modelSeg === WILDCARD_MODEL) {
-    return;
+  if (modelSeg === '' || modelSeg === WILDCARD_MODEL) {
+    return
   }
-  const declared = routeForHop(config.routes, engineId, modelSeg, upstreamSeg);
+  const declared = routeForHop(config.routes, engineId, modelSeg, upstreamSeg)
   if (declared !== undefined) {
-    return declared;
+    return declared
   }
-  const template = wildcardTemplate(config.routes, engineId, upstreamSeg);
+  const template = wildcardTemplate(config.routes, engineId, upstreamSeg)
   if (template === undefined || template.upstream === null) {
-    return;
+    return
   }
-  const upstream = config.upstreams.find((u) => u.id === template.upstream);
+  const upstream = config.upstreams.find((u) => u.id === template.upstream)
   if (upstream === undefined) {
-    return;
+    return
   }
-  const wireId = decodeAddressSegment(modelSeg);
+  const wireId = decodeAddressSegment(modelSeg)
   if (encodeAddressSegment(wireId) !== modelSeg) {
-    return;
+    return
   }
   if (!inventory.peek(upstream).includes(wireId)) {
-    return;
+    return
   }
-  return { ...template, model: modelSeg, wire_model: wireId };
+  return { ...template, model: modelSeg, wire_model: wireId }
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -190,17 +190,15 @@ function resolveThreeSegments(
   ctx: ResolveCtx,
 ): ModelDispatch {
   if (!ctx.config.engines.some((e) => e.id === engineSeg)) {
-    return fail(
-      `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": engine "${engineSeg}" does not exist`,
-    );
+    return fail(`"@/${engineSeg}/${upstreamSeg}/${modelSeg}": engine "${engineSeg}" does not exist`)
   }
   if (ctx.registry.entry(engineSeg)?.disabled) {
-    return fail(`engine "${engineSeg}" is disabled in config`);
+    return fail(`engine "${engineSeg}" is disabled in config`)
   }
   const route = ctx.config.routes.find(
     (r) =>
       !r.disabled && r.engine === engineSeg && r.upstream === upstreamSeg && r.model === modelSeg,
-  );
+  )
   if (!route) {
     const invented = resolveServedRoute({
       config: ctx.config,
@@ -208,30 +206,30 @@ function resolveThreeSegments(
       modelSeg,
       upstreamSeg,
       inventory: ctx.registry.inventory,
-    });
+    })
     if (invented !== undefined) {
-      return withEndpointCheck(invented, ctx);
+      return withEndpointCheck(invented, ctx)
     }
     return fail(
       `"@/${engineSeg}/${upstreamSeg}/${modelSeg}": model "${modelSeg}" does not exist on "${engineSeg}"/"${upstreamSeg}"`,
-    );
+    )
   }
-  return withEndpointCheck(route, ctx);
+  return withEndpointCheck(route, ctx)
 }
 
 /** A `@/...` address by segment count. Exported for `/engined/v1/start`, which resolves the same two- and three-segment forms with no endpoint to check. */
 export function resolveQualified(segments: readonly string[], ctx: ResolveCtx): ModelDispatch {
   if (segments.includes(WILDCARD_MODEL)) {
-    return fail(`"${WILDCARD_MODEL}" is the wildcard sentinel, not a served address`);
+    return fail(`"${WILDCARD_MODEL}" is the wildcard sentinel, not a served address`)
   }
-  const [first, second, third] = segments;
+  const [first, second, third] = segments
   if (segments.length === 1) {
-    return resolveOneSegment(first as string, ctx);
+    return resolveOneSegment(first as string, ctx)
   }
   if (segments.length === 2) {
-    return resolveTwoSegments(first as string, second as string, ctx);
+    return resolveTwoSegments(first as string, second as string, ctx)
   }
-  return resolveThreeSegments(first as string, second as string, third as string, ctx);
+  return resolveThreeSegments(first as string, second as string, third as string, ctx)
 }
 
 /**
@@ -256,17 +254,17 @@ export const CHAIN_ENDPOINTS: ReadonlySet<string> = new Set([
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
-]);
+])
 
 function resolveChain(model: string, endpoint: string, config: Config): Dispatch | undefined {
-  const hops = config.chains[model];
+  const hops = config.chains[model]
   if (hops === undefined) {
-    return;
+    return
   }
   if (!CHAIN_ENDPOINTS.has(endpoint)) {
-    return fail(`chain "${model}" does not serve ${endpoint}`);
+    return fail(`chain "${model}" does not serve ${endpoint}`)
   }
-  return { ok: true, kind: "chain", chain: model, hops };
+  return { ok: true, kind: 'chain', chain: model, hops }
 }
 
 /**
@@ -282,16 +280,16 @@ export function resolveModel(
   config: Config,
   registry: EngineRegistry,
 ): Dispatch {
-  if (model === undefined || model === "") {
-    return fail("model is required");
+  if (model === undefined || model === '') {
+    return fail('model is required')
   }
 
-  const segments = qualifiedSegments(model);
+  const segments = qualifiedSegments(model)
   if (segments !== undefined) {
-    return resolveQualified(segments, { endpoint, config, registry });
+    return resolveQualified(segments, { endpoint, config, registry })
   }
 
-  return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`);
+  return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`)
 }
 
 /**
@@ -300,16 +298,16 @@ export function resolveModel(
  * non-wildcard route on that engine+upstream is omitted -- the alias stays.
  */
 export function expandWildcardRoutes(config: Config, inventory: Inventory): ResolvedRoute[] {
-  const out: ResolvedRoute[] = [];
+  const out: ResolvedRoute[] = []
   for (const template of config.routes) {
     if (template.disabled || template.model !== WILDCARD_MODEL || template.upstream === null) {
-      continue;
+      continue
     }
-    const upstream = config.upstreams.find((u) => u.id === template.upstream);
+    const upstream = config.upstreams.find((u) => u.id === template.upstream)
     if (upstream === undefined) {
-      continue;
+      continue
     }
-    const claimed = new Set<string>();
+    const claimed = new Set<string>()
     for (const r of config.routes) {
       if (
         r.disabled ||
@@ -317,25 +315,25 @@ export function expandWildcardRoutes(config: Config, inventory: Inventory): Reso
         r.upstream !== template.upstream ||
         r.model === WILDCARD_MODEL
       ) {
-        continue;
+        continue
       }
       if (r.model !== undefined) {
-        claimed.add(r.model);
+        claimed.add(r.model)
       }
       if (r.wire_model !== undefined) {
-        claimed.add(r.wire_model);
+        claimed.add(r.wire_model)
       }
     }
     for (const wireId of inventory.peek(upstream)) {
       if (claimed.has(wireId)) {
-        continue;
+        continue
       }
-      const segment = encodeAddressSegment(wireId);
+      const segment = encodeAddressSegment(wireId)
       if (segment === undefined || claimed.has(segment)) {
-        continue;
+        continue
       }
-      out.push({ ...template, model: segment, wire_model: wireId });
+      out.push({ ...template, model: segment, wire_model: wireId })
     }
   }
-  return out;
+  return out
 }

@@ -11,11 +11,11 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { stateDir } from "./paths.ts";
-import type { Usage } from "./provenance.ts";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { stateDir } from './paths.ts'
+import type { Usage } from './provenance.ts'
 import {
   AGENTIC_FLOOR,
   CLAUDE_OUTPUT_FORMAT,
@@ -25,20 +25,20 @@ import {
   isRecord,
   parseRecord,
   type Wire,
-} from "./types.ts";
+} from './types.ts'
 
 export interface AgenticOutcome {
-  ok: boolean;
-  result?: string;
-  failure?: string;
+  ok: boolean
+  result?: string
+  failure?: string
   /** What this run cost, as the CLI itself reported it. Absent when its envelope stated nothing engined recognised. */
-  usage?: Usage;
+  usage?: Usage
 }
 
 /** One finite number off a record, or `undefined`. Never coerced: a CLI that changes a field's type is a shape engined does not understand, not a figure to guess at. */
 function numberAt(raw: Record<string, unknown> | undefined, key: string): number | undefined {
-  const value = raw?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const value = raw?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 /** The nested record at `key`, or `undefined` -- so a missing `usage`/`tokens` object reads as "reported nothing" rather than throwing. */
@@ -46,13 +46,13 @@ function recordAt(
   raw: Record<string, unknown> | undefined,
   key: string,
 ): Record<string, unknown> | undefined {
-  const value = raw?.[key];
-  return isRecord(value) ? value : undefined;
+  const value = raw?.[key]
+  return isRecord(value) ? value : undefined
 }
 
 /** `undefined` rather than an object of all-absent fields: an envelope engined understood no figure in did not report a cost. */
 function usageOrUndefined(usage: Usage): Usage | undefined {
-  return Object.values(usage).some((v) => v !== undefined) ? usage : undefined;
+  return Object.values(usage).some((v) => v !== undefined) ? usage : undefined
 }
 
 /**
@@ -75,12 +75,12 @@ function usageOrUndefined(usage: Usage): Usage | undefined {
  * cursor's `inputTokens` is one unambiguous number, so it maps straight.
  */
 function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
-  const usage = recordAt(envelope, "usage");
+  const usage = recordAt(envelope, 'usage')
   return usageOrUndefined({
-    prompt_tokens: numberAt(usage, "inputTokens"),
-    completion_tokens: numberAt(usage, "output_tokens") ?? numberAt(usage, "outputTokens"),
-    cost_usd: numberAt(envelope, "total_cost_usd"),
-  });
+    prompt_tokens: numberAt(usage, 'inputTokens'),
+    completion_tokens: numberAt(usage, 'output_tokens') ?? numberAt(usage, 'outputTokens'),
+    cost_usd: numberAt(envelope, 'total_cost_usd'),
+  })
 }
 
 /**
@@ -89,18 +89,18 @@ function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
  * offers nothing argv can reach, so the floor is the mount table -- see
  * `sandbox.ts` for why that is the only honest option for such an agent.
  */
-export type FloorKind = "flags" | "sandbox";
+export type FloorKind = 'flags' | 'sandbox'
 
 export interface AgentCli {
-  id: string;
+  id: string
   /**
    * The npm package, without a version -- the pin is config, never code.
    * For an agent declaring `resolveBinary` below, this is nominal only: kept
    * so `spec.ts`'s parse-time `command[1]` check still has a name to match
    * against, never used to build a real launch.
    */
-  pkg: string;
-  floor: FloorKind;
+  pkg: string
+  floor: FloorKind
   /**
    * The wire shape this agent's own process speaks -- what a redirected
    * upstream must also speak, since the door forwards it unchanged rather
@@ -108,16 +108,16 @@ export interface AgentCli {
    * construction (`engines.ts`'s `checkAgenticWire`), never at config parse:
    * the agent id, and so this value, is not known until the spec loads.
    */
-  wire: Wire;
+  wire: Wire
   /**
    * Argv between the pinned package and the operator's `[engine.args]`: the
    * print flag, the JSON format, and for a `flags` agent the floor itself.
    */
-  launch: (mcpConfigPath: string, streaming?: boolean) => string[];
+  launch: (mcpConfigPath: string, streaming?: boolean) => string[]
   /** The only place this agent's success is decided. */
-  parse: (stdout: string) => AgenticOutcome;
+  parse: (stdout: string) => AgenticOutcome
   /** The answer text one stdout event adds, for a caller streaming the answer as it is produced; `""` for anything that is not answer text. */
-  delta: (event: Record<string, unknown>) => string;
+  delta: (event: Record<string, unknown>) => string
   /**
    * Renders whatever this agent needs in order to be pointed at a model, and
    * returns the environment naming it plus a `cleanup` for whatever it wrote
@@ -126,7 +126,7 @@ export interface AgentCli {
    * for an agent that takes its upstream some other way -- claude's is a
    * base URL and a key in the env, already handled as a remote redirect.
    */
-  configure?: (upstream: AgentTarget) => { env: Record<string, string>; cleanup: () => void };
+  configure?: (upstream: AgentTarget) => { env: Record<string, string>; cleanup: () => void }
   /**
    * Present only for an agent with no npm distribution at all -- absent
    * means today's path is unchanged: `bunx <pkg>@<agentVersion>` both
@@ -137,14 +137,14 @@ export interface AgentCli {
    * rather than ever falling back to a bare command name a spawned child's
    * own (possibly narrower) PATH might fail to find.
    */
-  resolveBinary?: () => string;
+  resolveBinary?: () => string
 }
 
 export interface AgentTarget {
   /** An OpenAI-compatible base, normally engined's own door. */
-  baseUrl: string;
+  baseUrl: string
   /** The model id at that base, e.g. `ornith`. */
-  model: string;
+  model: string
 }
 
 /**
@@ -156,100 +156,100 @@ export interface AgentTarget {
 export function parseClaudeEnvelope(stdout: string): AgenticOutcome {
   // `--output-format json` prints the envelope alone; `stream-json` prints
   // it as the last of many progress lines. Same fields either way.
-  const envelope = eventOf(stdout) ?? lastResultLine(stdout);
+  const envelope = eventOf(stdout) ?? lastResultLine(stdout)
   if (envelope === undefined) {
-    return { ok: false, failure: "claude did not print a parseable JSON envelope on stdout" };
+    return { ok: false, failure: 'claude did not print a parseable JSON envelope on stdout' }
   }
-  return envelopeOutcome(envelope);
+  return envelopeOutcome(envelope)
 }
 
 /** The verdict a claude-shaped `result` envelope carries; failure lives in `is_error`, never the exit code. */
 function envelopeOutcome(envelope: Record<string, unknown>): AgenticOutcome {
-  const result = typeof envelope.result === "string" ? envelope.result : undefined;
+  const result = typeof envelope.result === 'string' ? envelope.result : undefined
   // Carried on the failure path too: a run that errored after spending is a
   // run that spent, and dropping the figure there is how a month undercounts.
-  const usage = envelopeUsage(envelope);
+  const usage = envelopeUsage(envelope)
   if (envelope.is_error) {
     const reason =
-      (typeof envelope.terminal_reason === "string" ? envelope.terminal_reason : undefined) ??
-      (typeof envelope.subtype === "string" ? envelope.subtype : undefined) ??
-      "is_error";
-    return { ok: false, failure: `agentic envelope failure: ${reason}`, result, usage };
+      (typeof envelope.terminal_reason === 'string' ? envelope.terminal_reason : undefined) ??
+      (typeof envelope.subtype === 'string' ? envelope.subtype : undefined) ??
+      'is_error'
+    return { ok: false, failure: `agentic envelope failure: ${reason}`, result, usage }
   }
-  return { ok: true, result, usage };
+  return { ok: true, result, usage }
 }
 
 /** The last `{"type":"result",...}` line of a stream-json log -- every line before it is progress and carries no verdict. */
 function lastResultLine(stdout: string): Record<string, unknown> | undefined {
-  let outcome: Record<string, unknown> | undefined;
-  for (const line of stdout.split("\n")) {
-    const event = eventOf(line);
-    if (event !== null && event.type === "result") {
-      outcome = event;
+  let outcome: Record<string, unknown> | undefined
+  for (const line of stdout.split('\n')) {
+    const event = eventOf(line)
+    if (event !== null && event.type === 'result') {
+      outcome = event
     }
   }
-  return outcome;
+  return outcome
 }
 
 /** Text a claude `stream-json` line adds to the answer: only partial-message content deltas, so a whole `assistant` message never repeats what its deltas already carried. */
 function claudeDelta(event: Record<string, unknown>): string {
-  if (event.type !== "stream_event" || !isRecord(event.event)) {
-    return "";
+  if (event.type !== 'stream_event' || !isRecord(event.event)) {
+    return ''
   }
-  const inner = event.event;
-  if (inner.type !== "content_block_delta" || !isRecord(inner.delta)) {
-    return "";
+  const inner = event.event
+  if (inner.type !== 'content_block_delta' || !isRecord(inner.delta)) {
+    return ''
   }
-  return inner.delta.type === "text_delta" && typeof inner.delta.text === "string"
+  return inner.delta.type === 'text_delta' && typeof inner.delta.text === 'string'
     ? inner.delta.text
-    : "";
+    : ''
 }
 
 /** Text a cursor `stream-json` line adds to the answer: the text parts of each `assistant` message. */
 function cursorDelta(event: Record<string, unknown>): string {
   if (
-    event.type !== "assistant" ||
+    event.type !== 'assistant' ||
     !isRecord(event.message) ||
     !Array.isArray(event.message.content)
   ) {
-    return "";
+    return ''
   }
   return event.message.content
     .map((part) =>
-      isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : "",
+      isRecord(part) && part.type === 'text' && typeof part.text === 'string' ? part.text : '',
     )
-    .join("");
+    .join('')
 }
 
 /** What one line of `agentId`'s stdout adds to the streamed answer -- the empty string for progress, verdicts and noise. */
 export function agentDelta(agentId: string, line: string): string {
-  const event = eventOf(line);
-  const agent = AGENTS[agentId];
-  return event === null || agent === undefined ? "" : agent.delta(event);
+  const event = eventOf(line)
+  const agent = AGENTS[agentId]
+  return event === null || agent === undefined ? '' : agent.delta(event)
 }
 
 /** `{"name":"APIError","data":{"message":"..."}}` -- the message where there is one, the name otherwise. */
 function opencodeErrorMessage(error: unknown): string {
   if (!isRecord(error)) {
-    return "error";
+    return 'error'
   }
-  if (isRecord(error.data) && typeof error.data.message === "string") {
-    return error.data.message;
+  if (isRecord(error.data) && typeof error.data.message === 'string') {
+    return error.data.message
   }
-  return typeof error.name === "string" ? error.name : "error";
+  return typeof error.name === 'string' ? error.name : 'error'
 }
 
 /** One NDJSON line as an event, or `null` for a blank or unparseable one -- neither of which counts as an event. */
 function eventOf(line: string): Record<string, unknown> | null {
-  return line.trim() === "" ? null : parseRecord(line);
+  return line.trim() === '' ? null : parseRecord(line)
 }
 
 /** The answer an event carries, which is the empty string for every event that is not a text part. */
 function answerTextOf(event: Record<string, unknown>): string {
-  if (event.type !== "text" || !isRecord(event.part) || typeof event.part.text !== "string") {
-    return "";
+  if (event.type !== 'text' || !isRecord(event.part) || typeof event.part.text !== 'string') {
+    return ''
   }
-  return event.part.text;
+  return event.part.text
 }
 
 /**
@@ -273,53 +273,53 @@ function answerTextOf(event: Record<string, unknown>): string {
  * across with no arithmetic of engined's own.
  */
 function opencodeUsage(event: Record<string, unknown>): Usage | undefined {
-  const part = recordAt(event, "part");
-  const tokens = recordAt(part, "tokens");
+  const part = recordAt(event, 'part')
+  const tokens = recordAt(part, 'tokens')
   return usageOrUndefined({
-    prompt_tokens: numberAt(tokens, "input"),
-    completion_tokens: numberAt(tokens, "output"),
-    total_tokens: numberAt(tokens, "total"),
-    cost_usd: numberAt(part, "cost"),
-  });
+    prompt_tokens: numberAt(tokens, 'input'),
+    completion_tokens: numberAt(tokens, 'output'),
+    total_tokens: numberAt(tokens, 'total'),
+    cost_usd: numberAt(part, 'cost'),
+  })
 }
 
 export function parseOpencodeEvents(stdout: string): AgenticOutcome {
-  let text = "";
-  let failure: string | undefined;
-  let events = 0;
-  let usage: Usage | undefined;
-  for (const line of stdout.split("\n")) {
-    const event = eventOf(line);
+  let text = ''
+  let failure: string | undefined
+  let events = 0
+  let usage: Usage | undefined
+  for (const line of stdout.split('\n')) {
+    const event = eventOf(line)
     if (event === null) {
-      continue;
+      continue
     }
-    events += 1;
-    if (event.type === "step_finish") {
+    events += 1
+    if (event.type === 'step_finish') {
       // A run of several steps ends on the last one's figures.
-      usage = opencodeUsage(event) ?? usage;
+      usage = opencodeUsage(event) ?? usage
     }
-    if (event.type === "error") {
+    if (event.type === 'error') {
       // The first error is the cause; the ones after it are usually its wake.
-      failure ??= opencodeErrorMessage(event.error);
+      failure ??= opencodeErrorMessage(event.error)
     } else {
-      text += answerTextOf(event);
+      text += answerTextOf(event)
     }
   }
   if (events === 0) {
-    return { ok: false, failure: "opencode did not print parseable JSON events on stdout" };
+    return { ok: false, failure: 'opencode did not print parseable JSON events on stdout' }
   }
   if (failure !== undefined) {
     return {
       ok: false,
       failure: `agentic event failure: ${failure}`,
-      result: text === "" ? undefined : text,
+      result: text === '' ? undefined : text,
       usage,
-    };
+    }
   }
-  if (text === "") {
-    return { ok: false, failure: "opencode finished without printing an answer", usage };
+  if (text === '') {
+    return { ok: false, failure: 'opencode finished without printing an answer', usage }
   }
-  return { ok: true, result: text, usage };
+  return { ok: true, result: text, usage }
 }
 
 /**
@@ -331,11 +331,11 @@ export function parseOpencodeEvents(stdout: string): AgenticOutcome {
  * verdict, so only the last `result` line found is read.
  */
 export function parseCursorEvents(stdout: string): AgenticOutcome {
-  const outcome = lastResultLine(stdout);
+  const outcome = lastResultLine(stdout)
   if (outcome === undefined) {
-    return { ok: false, failure: "cursor did not print a parseable result on stdout" };
+    return { ok: false, failure: 'cursor did not print a parseable result on stdout' }
   }
-  return envelopeOutcome(outcome);
+  return envelopeOutcome(outcome)
 }
 
 /**
@@ -359,36 +359,36 @@ export function parseCursorEvents(stdout: string): AgenticOutcome {
  * per call forever.
  */
 function renderOpencodeConfig(upstream: AgentTarget): {
-  env: Record<string, string>;
-  cleanup: () => void;
+  env: Record<string, string>
+  cleanup: () => void
 } {
-  mkdirSync(stateDir(), { recursive: true });
-  const dir = mkdtempSync(join(stateDir(), "agentic-opencode-"));
-  const path = join(dir, "config.json");
+  mkdirSync(stateDir(), { recursive: true })
+  const dir = mkdtempSync(join(stateDir(), 'agentic-opencode-'))
+  const path = join(dir, 'config.json')
   writeFileSync(
     path,
     JSON.stringify({
-      $schema: "https://opencode.ai/config.json",
+      $schema: 'https://opencode.ai/config.json',
       provider: {
         engined: {
-          npm: "@ai-sdk/openai-compatible",
-          name: "engined",
+          npm: '@ai-sdk/openai-compatible',
+          name: 'engined',
           // The door does not check a key on loopback, but the provider
           // package requires the field to be present at all.
-          options: { baseURL: upstream.baseUrl, apiKey: "unused" },
+          options: { baseURL: upstream.baseUrl, apiKey: 'unused' },
           models: { [upstream.model]: { name: upstream.model } },
         },
       },
       model: `engined/${upstream.model}`,
-      permission: { "*": "deny", edit: "deny", bash: "deny", webfetch: "deny" },
+      permission: { '*': 'deny', edit: 'deny', bash: 'deny', webfetch: 'deny' },
       tools: { write: false, edit: false, patch: false, bash: false },
     }),
-    "utf8",
-  );
+    'utf8',
+  )
   return {
     env: { OPENCODE_CONFIG: path },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
+  }
 }
 
 /**
@@ -402,7 +402,7 @@ function renderOpencodeConfig(upstream: AgentTarget): {
  * from `config.ts`'s `~/.local/share/` prefix, which IS engined's own data.
  */
 function cursorVersionsDir(): string {
-  return join(homedir(), ".local/share/cursor-agent/versions");
+  return join(homedir(), '.local/share/cursor-agent/versions')
 }
 
 /**
@@ -419,35 +419,35 @@ export function resolveCursorBinary(
   which: (cmd: string) => string | null = Bun.which,
   versionsDir: string = cursorVersionsDir(),
 ): string {
-  const onPath = which("agent");
+  const onPath = which('agent')
   if (onPath !== null) {
-    return onPath;
+    return onPath
   }
-  let versions: string[] = [];
+  let versions: string[] = []
   try {
-    versions = readdirSync(versionsDir).sort();
+    versions = readdirSync(versionsDir).sort()
   } catch {
     // No installer directory either -- versions stays empty, and the
     // throw below reports both lookups failed.
   }
-  const newest = versions.at(-1);
-  const binary = newest === undefined ? undefined : join(versionsDir, newest, "cursor-agent");
+  const newest = versions.at(-1)
+  const binary = newest === undefined ? undefined : join(versionsDir, newest, 'cursor-agent')
   if (binary !== undefined && existsSync(binary)) {
-    return binary;
+    return binary
   }
   throw new Error(
     `cursor's "agent" binary was not found on PATH or under ${versionsDir} -- install it with "curl https://cursor.com/install | bash"`,
-  );
+  )
 }
 
 const AGENTS: Record<string, AgentCli> = {
   claude: {
-    id: "claude",
-    pkg: "@anthropic-ai/claude-code",
-    floor: "flags",
-    wire: "anthropic",
+    id: 'claude',
+    pkg: '@anthropic-ai/claude-code',
+    floor: 'flags',
+    wire: 'anthropic',
     launch: (mcpConfigPath, streaming) => [
-      "-p",
+      '-p',
       ...(streaming === true ? CLAUDE_STREAM_FORMAT : CLAUDE_OUTPUT_FORMAT),
       ...AGENTIC_FLOOR,
       mcpConfigPath,
@@ -456,35 +456,35 @@ const AGENTS: Record<string, AgentCli> = {
     delta: claudeDelta,
   },
   opencode: {
-    id: "opencode",
-    pkg: "opencode-ai",
-    floor: "sandbox",
-    wire: "openai",
+    id: 'opencode',
+    pkg: 'opencode-ai',
+    floor: 'sandbox',
+    wire: 'openai',
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
-    launch: () => ["run", "--format", "json"],
+    launch: () => ['run', '--format', 'json'],
     parse: parseOpencodeEvents,
     delta: answerTextOf,
     configure: renderOpencodeConfig,
   },
   cursor: {
-    id: "cursor",
+    id: 'cursor',
     // Nominal, for spec.ts's parse-time check only: `bunx cursor-agent@<pin>`
     // resolves to an unrelated third-party npm package ("Task sequence
     // creator for Cursor AI agents", zalab-inc, versions 1.0.0-1.0.3 only) --
     // measured, and no `@anysphere/cursor-agent` or `@cursor/cli` package
     // exists either. `resolveBinary` below is the real launch path.
-    pkg: "cursor-agent",
-    floor: "flags",
+    pkg: 'cursor-agent',
+    floor: 'flags',
     resolveBinary: resolveCursorBinary,
     // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself
     // as normalizing cursor's own request shape "into the standard OpenAI
     // Chat Completions format" before it reaches a model -- the closest
     // available classification of the two this repo has. Nominal only: no
     // `configure` is declared below, so no route can actually reach it yet.
-    wire: "openai",
+    wire: 'openai',
     // cursor has no config-path flag of its own -- `mcpConfigPath` is part
     // of every agent's `launch` signature but unused here.
-    launch: () => ["-p", ...CURSOR_OUTPUT_FORMAT, ...CURSOR_FLOOR],
+    launch: () => ['-p', ...CURSOR_OUTPUT_FORMAT, ...CURSOR_FLOOR],
     parse: parseCursorEvents,
     delta: cursorDelta,
     // No `configure`: `CURSOR_API_KEY` is checked against Cursor's own key
@@ -496,11 +496,11 @@ const AGENTS: Record<string, AgentCli> = {
     // door here would turn every launch into a guaranteed failure, ambient
     // ones included -- worse than leaving it on its own login.
   },
-};
+}
 
-export const AGENT_IDS = Object.keys(AGENTS);
+export const AGENT_IDS = Object.keys(AGENTS)
 
 /** `undefined` for a name no agent answers to, which the spec parser turns into a `ParseError`. */
 export function agentCli(id: string): AgentCli | undefined {
-  return AGENTS[id];
+  return AGENTS[id]
 }

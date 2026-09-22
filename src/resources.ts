@@ -18,11 +18,11 @@
  * snippet below is the only thing that needs a container.
  */
 
-const KIB = 1024;
+const KIB = 1024
 /** `drm-memory-gtt: \t2048 KiB` -- the kernel pads keys, so the key needs trimming. */
-const FDINFO_LINE = /^(?<file>[^:]+):(?<key>[^:]+):(?<value>.*)$/;
-const AMOUNT = /^(\d+)\s*KiB$/;
-const DIGITS = /^\d+$/;
+const FDINFO_LINE = /^(?<file>[^:]+):(?<key>[^:]+):(?<value>.*)$/
+const AMOUNT = /^(\d+)\s*KiB$/
+const DIGITS = /^\d+$/
 
 export interface EngineResources {
   /**
@@ -41,7 +41,7 @@ export interface EngineResources {
    * 6.67 GiB was cached safetensors, not anything the engine needs held. Read
    * it as a live figure, never as "how much RAM this engine requires".
    */
-  memory_bytes: number | null;
+  memory_bytes: number | null
   /**
    * Graphics memory this container's processes hold, in bytes, or null when
    * the container has no DRM device to account for at all.
@@ -52,7 +52,7 @@ export interface EngineResources {
    * box, VRAM alone was 292 MiB against 14810 MiB of GTT: reporting it by
    * itself would have shown 2% of what was actually held.
    */
-  graphics_bytes: number | null;
+  graphics_bytes: number | null
 }
 
 /**
@@ -61,47 +61,47 @@ export interface EngineResources {
  * device is present at all, and the rest is raw fdinfo for the parser below.
  */
 export const RESOURCE_PROBE_SH =
-  "cat /sys/fs/cgroup/memory.current 2>/dev/null || echo -; " +
-  "if [ -d /dev/dri ]; then echo dri; else echo no-dri; fi; " +
+  'cat /sys/fs/cgroup/memory.current 2>/dev/null || echo -; ' +
+  'if [ -d /dev/dri ]; then echo dri; else echo no-dri; fi; ' +
   "grep -H -e '^drm-client-id' -e '^drm-memory-vram' -e '^drm-memory-gtt' " +
-  "/proc/[0-9]*/fdinfo/* 2>/dev/null || true";
+  '/proc/[0-9]*/fdinfo/* 2>/dev/null || true'
 
 function kib(value: string): number {
-  const amount: RegExpExecArray | null = AMOUNT.exec(value.trim());
-  return Number(amount?.[1] ?? 0);
+  const amount: RegExpExecArray | null = AMOUNT.exec(value.trim())
+  return Number(amount?.[1] ?? 0)
 }
 
 /** One fd's reading, before the per-client fold below collapses the repeats. */
 interface FdEntry {
-  client?: string;
-  vram: number;
-  gtt: number;
+  client?: string
+  vram: number
+  gtt: number
 }
 
 /** One `FILE:key:value` line folded into the entry for its fd. */
 function foldLine(perFile: Map<string, FdEntry>, line: string): void {
-  const match: RegExpExecArray | null = FDINFO_LINE.exec(line);
-  const parts: Partial<Record<string, string>> | undefined = match?.groups;
-  const file = parts?.file;
-  const value = parts?.value;
+  const match: RegExpExecArray | null = FDINFO_LINE.exec(line)
+  const parts: Partial<Record<string, string>> | undefined = match?.groups
+  const file = parts?.file
+  const value = parts?.value
   if (parts === undefined || file === undefined || value === undefined) {
-    return;
+    return
   }
-  const entry = perFile.get(file) ?? { vram: 0, gtt: 0 };
+  const entry = perFile.get(file) ?? { vram: 0, gtt: 0 }
   switch (parts.key?.trim()) {
-    case "drm-client-id":
-      entry.client = value.trim();
-      break;
-    case "drm-memory-vram":
-      entry.vram = kib(value);
-      break;
-    case "drm-memory-gtt":
-      entry.gtt = kib(value);
-      break;
+    case 'drm-client-id':
+      entry.client = value.trim()
+      break
+    case 'drm-memory-vram':
+      entry.vram = kib(value)
+      break
+    case 'drm-memory-gtt':
+      entry.gtt = kib(value)
+      break
     default:
-      return;
+      return
   }
-  perFile.set(file, entry);
+  perFile.set(file, entry)
 }
 
 /**
@@ -112,35 +112,35 @@ function foldLine(perFile: Map<string, FdEntry>, line: string): void {
  * `drm-client-id` reproduces the real figure.
  */
 export function parseGraphicsBytes(fdinfo: string): number {
-  const perFile = new Map<string, FdEntry>();
-  for (const line of fdinfo.split("\n")) {
-    foldLine(perFile, line);
+  const perFile = new Map<string, FdEntry>()
+  for (const line of fdinfo.split('\n')) {
+    foldLine(perFile, line)
   }
 
-  const perClient = new Map<string, { vram: number; gtt: number }>();
+  const perClient = new Map<string, { vram: number; gtt: number }>()
   for (const [file, entry] of perFile) {
     // An fd with no client id belongs to no client that can be deduplicated
     // against, so it keys on its own path and is counted once.
-    const key = entry.client ?? file;
-    const held = perClient.get(key);
+    const key = entry.client ?? file
+    const held = perClient.get(key)
     perClient.set(key, {
       vram: Math.max(held?.vram ?? 0, entry.vram),
       gtt: Math.max(held?.gtt ?? 0, entry.gtt),
-    });
+    })
   }
 
-  let total = 0;
+  let total = 0
   for (const { vram, gtt } of perClient.values()) {
-    total += (vram + gtt) * KIB;
+    total += (vram + gtt) * KIB
   }
-  return total;
+  return total
 }
 
 /** Splits `RESOURCE_PROBE_SH`'s output back into the two numbers it carries. */
 export function parseResources(stdout: string): EngineResources {
-  const [memory = "-", dri = "no-dri", ...rest] = stdout.split("\n");
+  const [memory = '-', dri = 'no-dri', ...rest] = stdout.split('\n')
   return {
     memory_bytes: DIGITS.test(memory.trim()) ? Number(memory.trim()) : null,
-    graphics_bytes: dri.trim() === "dri" ? parseGraphicsBytes(rest.join("\n")) : null,
-  };
+    graphics_bytes: dri.trim() === 'dri' ? parseGraphicsBytes(rest.join('\n')) : null,
+  }
 }

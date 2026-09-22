@@ -1,19 +1,19 @@
-import { beforeAll, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { rmSync } from 'node:fs'
 import {
   defaultAgenticSpawn,
   observeAgentVersion,
   type RunAgenticResult,
   runAgentic,
-} from "../../src/agentic.ts";
-import { PROBE_ENV_ALLOWLIST, plantCursorPromptHook } from "../../src/agenticProbeHarness.ts";
+} from '../../src/agentic.ts'
+import { PROBE_ENV_ALLOWLIST, plantCursorPromptHook } from '../../src/agenticProbeHarness.ts'
 import {
   agentEnv,
   agenticIntegrityTests,
   agenticProbeGateTest,
   scratchWorktree,
   skipTitle,
-} from "./fixtures.ts";
+} from './fixtures.ts'
 
 /**
  * A real round trip against the real `agent -p` CLI, resolved on this box's
@@ -43,12 +43,12 @@ const {
   agentVersion,
   ready: AGENTIC_READY,
   skipReason: SKIP_REASON,
-} = agentEnv("ENGINED_TEST_CURSOR_VERSION");
+} = agentEnv('ENGINED_TEST_CURSOR_VERSION')
 
 /** A real observed round trip through `agent -p` took 3-9s; genuine headroom over that. */
-const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000;
+const REAL_ROUND_TRIP_TIMEOUT_MS = 60_000
 /** The probe-gate test below makes two real round trips sequentially. */
-const PROBE_GATE_TIMEOUT_MS = 180_000;
+const PROBE_GATE_TIMEOUT_MS = 180_000
 
 /**
  * Set once, before any real round trip below runs. `undefined` means the
@@ -57,29 +57,29 @@ const PROBE_GATE_TIMEOUT_MS = 180_000;
  * a self-update the operator's `ENGINED_TEST_CURSOR_VERSION` has not caught
  * up with yet, never a bare assertion failure inside a 60s-timeout test.
  */
-let staleVersionReason: string | undefined;
+let staleVersionReason: string | undefined
 
 beforeAll(async () => {
   if (!AGENTIC_READY) {
-    return;
+    return
   }
-  const observed = await observeAgentVersion("cursor", agentVersion(), defaultAgenticSpawn);
+  const observed = await observeAgentVersion('cursor', agentVersion(), defaultAgenticSpawn)
   if (!observed.ok) {
-    staleVersionReason = `cursor's binary could not be observed: ${observed.error}`;
-    return;
+    staleVersionReason = `cursor's binary could not be observed: ${observed.error}`
+    return
   }
   if (observed.version !== agentVersion()) {
-    staleVersionReason = `ENGINED_TEST_CURSOR_VERSION is "${agentVersion()}", but this box's "agent --version" now reports "${observed.version}" -- cursor self-updated since the pin was set; re-run with ENGINED_TEST_CURSOR_VERSION=${observed.version}`;
+    staleVersionReason = `ENGINED_TEST_CURSOR_VERSION is "${agentVersion()}", but this box's "agent --version" now reports "${observed.version}" -- cursor self-updated since the pin was set; re-run with ENGINED_TEST_CURSOR_VERSION=${observed.version}`
   }
-});
+})
 
 function assertVersionCurrent(): void {
   if (staleVersionReason !== undefined) {
-    throw new Error(staleVersionReason);
+    throw new Error(staleVersionReason)
   }
 }
 
-const WORKTREE_PREFIX = "engined-cursor-";
+const WORKTREE_PREFIX = 'engined-cursor-'
 
 /**
  * PATH, unlike claude's own version of this call: cursor's floor is a mode,
@@ -88,52 +88,52 @@ const WORKTREE_PREFIX = "engined-cursor-";
  * back "ls: command not found" (exit 127).
  */
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
-  assertVersionCurrent();
+  assertVersionCurrent()
   return runAgentic({
-    agent: "cursor",
+    agent: 'cursor',
     agentVersion: agentVersion(),
     args: {},
-    envAllowlist: [...PROBE_ENV_ALLOWLIST, "PATH"],
+    envAllowlist: [...PROBE_ENV_ALLOWLIST, 'PATH'],
     workdir,
     prompt,
     spawn: defaultAgenticSpawn,
     bunx: bunx(),
-  });
+  })
 }
 
 agenticIntegrityTests({
-  title: "cursor agentic probes (local)",
+  title: 'cursor agentic probes (local)',
   ready: AGENTIC_READY,
   skipReason: SKIP_REASON,
   prefix: WORKTREE_PREFIX,
-  hookName: "beforeSubmitPrompt",
+  hookName: 'beforeSubmitPrompt',
   plantHook: plantCursorPromptHook,
   call: callAgentic,
   timeoutMs: REAL_ROUND_TRIP_TIMEOUT_MS,
-});
+})
 
 describe.skipIf(!AGENTIC_READY)(
-  skipTitle("cursor agentic provenance (local)", AGENTIC_READY, SKIP_REASON),
+  skipTitle('cursor agentic provenance (local)', AGENTIC_READY, SKIP_REASON),
   () => {
     test(
       "provenance: the result's version is the pin that was actually launched, and the answer is real text out of the stream-json envelope",
       async () => {
-        const workdir = scratchWorktree(WORKTREE_PREFIX);
-        const result = await callAgentic(workdir, "Reply with exactly the word: pong");
-        rmSync(workdir, { recursive: true, force: true });
+        const workdir = scratchWorktree(WORKTREE_PREFIX)
+        const result = await callAgentic(workdir, 'Reply with exactly the word: pong')
+        rmSync(workdir, { recursive: true, force: true })
 
-        expect(result.status).toBe(200);
+        expect(result.status).toBe(200)
         // Honest by construction, not by luck: `beforeAll` above already
         // proved CURSOR_VERSION matches what "agent --version" reports on
         // this box, so this equality is a real claim about what ran, not a
         // tautological echo of an unverified env var.
-        expect(result.version).toBe(CURSOR_VERSION);
-        expect(result.result?.toLowerCase()).toContain("pong");
+        expect(result.version).toBe(CURSOR_VERSION)
+        expect(result.result?.toLowerCase()).toContain('pong')
       },
       REAL_ROUND_TRIP_TIMEOUT_MS,
-    );
+    )
   },
-);
+)
 
 /**
  * A dedicated engine id under `spec_dir` (reusing the real shipped
@@ -141,13 +141,13 @@ describe.skipIf(!AGENTIC_READY)(
  * `verified_version` file.
  */
 agenticProbeGateTest({
-  title: "cursor agentic probes gate serving via the real registry (local)",
+  title: 'cursor agentic probes gate serving via the real registry (local)',
   ready: AGENTIC_READY,
   skipReason: SKIP_REASON,
-  engineId: "engined-local-test-cursor-probe-gate",
-  agent: "cursor",
+  engineId: 'engined-local-test-cursor-probe-gate',
+  agent: 'cursor',
   bunx,
   agentVersion,
   timeoutMs: PROBE_GATE_TIMEOUT_MS,
   precondition: assertVersionCurrent,
-});
+})

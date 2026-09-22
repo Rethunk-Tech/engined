@@ -5,14 +5,14 @@
  * trust is worse than one that refuses to start.
  */
 
-import { join } from "node:path";
-import { ParseError } from "./errors/parse.ts";
-import { dataHome, expandTilde } from "./paths.ts";
-import type { ModelCapabilities, Role, VisionKind } from "./types.ts";
-import { isRecord } from "./types.ts";
+import { join } from 'node:path'
+import { ParseError } from './errors/parse.ts'
+import { dataHome, expandTilde } from './paths.ts'
+import type { ModelCapabilities, Role, VisionKind } from './types.ts'
+import { isRecord } from './types.ts'
 
-export const ROLES: readonly Role[] = ["chat", "vision", "embedding", "rerank"];
-export const VISION_KINDS: readonly VisionKind[] = ["describe", "read"];
+export const ROLES: readonly Role[] = ['chat', 'vision', 'embedding', 'rerank']
+export const VISION_KINDS: readonly VisionKind[] = ['describe', 'read']
 
 /**
  * `~/.local/share/` in a config path means "wherever engined's own data
@@ -23,101 +23,101 @@ export const VISION_KINDS: readonly VisionKind[] = ["describe", "read"];
  * consults it and drifts to `$HOME/.local/share` regardless. Any other tilde
  * path is a literal home-directory reference and expands as one.
  */
-export const XDG_DATA_TILDE_PREFIX = "~/.local/share/";
+export const XDG_DATA_TILDE_PREFIX = '~/.local/share/'
 export function expandConfigPath(p: string): string {
   return p.startsWith(XDG_DATA_TILDE_PREFIX)
     ? join(dataHome(), p.slice(XDG_DATA_TILDE_PREFIX.length))
-    : expandTilde(p);
+    : expandTilde(p)
 }
 
 /** Closed sets: a typo'd key would otherwise silently do nothing. */
 export const ENGINE_KEYS = new Set([
-  "id",
-  "disable",
-  "spec_dir",
-  "models_dir",
-  "models_max",
-  "idle_stop_seconds",
-  "drain_timeout_seconds",
-  "ready_timeout_s",
-  "agent_version",
-  "kind",
-  "args",
-]);
+  'id',
+  'disable',
+  'spec_dir',
+  'models_dir',
+  'models_max',
+  'idle_stop_seconds',
+  'drain_timeout_seconds',
+  'ready_timeout_s',
+  'agent_version',
+  'kind',
+  'args',
+])
 export const UPSTREAM_KEYS = new Set([
-  "id",
-  "base_url",
-  "secret",
-  "egress",
-  "wire",
-  "disable",
-  "inventory_max_age_seconds",
-  "inventory_refresh_seconds",
-]);
+  'id',
+  'base_url',
+  'secret',
+  'egress',
+  'wire',
+  'disable',
+  'inventory_max_age_seconds',
+  'inventory_refresh_seconds',
+])
 /** Re-fetch interval when an upstream omits `inventory_refresh_seconds`. */
-export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600;
-export const SECRET_KEYS = new Set(["service", "username", "header", "scheme"]);
+export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600
+export const SECRET_KEYS = new Set(['service', 'username', 'header', 'scheme'])
 export const MODEL_KEYS = new Set([
-  "id",
-  "input",
-  "output",
-  "context_in",
-  "context_out",
-  "reasoning",
-]);
+  'id',
+  'input',
+  'output',
+  'context_in',
+  'context_out',
+  'reasoning',
+])
 export const ROUTE_KEYS = new Set([
-  "engine",
-  "model",
-  "wire_model",
-  "upstream",
-  "filename",
-  "role",
-  "vision",
-  "translate",
-  "keep_resident",
-  "streaming",
-  "args",
-  "disable",
-  "input",
-  "output",
-  "context_in",
-  "context_out",
-  "reasoning",
-]);
-export const CHAIN_KEYS = new Set(["id", "hops", "disable"]);
+  'engine',
+  'model',
+  'wire_model',
+  'upstream',
+  'filename',
+  'role',
+  'vision',
+  'translate',
+  'keep_resident',
+  'streaming',
+  'args',
+  'disable',
+  'input',
+  'output',
+  'context_in',
+  'context_out',
+  'reasoning',
+])
+export const CHAIN_KEYS = new Set(['id', 'hops', 'disable'])
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
 export function asArray(v: unknown, key: string, file: string): unknown[] {
   if (v === undefined) {
-    return [];
+    return []
   }
   if (!Array.isArray(v)) {
-    throw new ParseError(`"${key}" must be an array of tables`, file);
+    throw new ParseError(`"${key}" must be an array of tables`, file)
   }
-  return v;
+  return v
 }
 
 export function requireString(v: unknown, label: string, file: string): string {
-  if (typeof v !== "string" || v === "") {
-    throw new ParseError(`${label} is missing or empty`, file);
+  if (typeof v !== 'string' || v === '') {
+    throw new ParseError(`${label} is missing or empty`, file)
   }
-  return v;
+  return v
 }
 
 /** One helper for both optional-typed keys; `kind` selects "string" or "number". */
-export function optional<T extends "string" | "number" | "boolean">(
+export function optional<T extends 'string' | 'number' | 'boolean'>(
   v: unknown,
   kind: T,
   label: string,
   file: string,
-): (T extends "string" ? string : T extends "number" ? number : boolean) | undefined {
+): (T extends 'string' ? string : T extends 'number' ? number : boolean) | undefined {
   if (v === undefined) {
-    return;
+    return
   }
   if (typeof v !== kind) {
-    throw new ParseError(`${label} must be a ${kind}`, file);
+    throw new ParseError(`${label} must be a ${kind}`, file)
   }
-  return v as T extends "string" ? string : T extends "number" ? number : boolean;
+  return v as T extends 'string' ? string : T extends 'number' ? number : boolean
 }
 
 /** `disable = true` is the only value that ever sets the derived flag; absent or `false` both mean "not disabled", so the flag is never explicitly `false`. */
@@ -126,7 +126,7 @@ export function parseDisable(
   label: string,
   file: string,
 ): boolean | undefined {
-  return optional(raw.disable, "boolean", `${label} "disable"`, file) === true ? true : undefined;
+  return optional(raw.disable, 'boolean', `${label} "disable"`, file) === true ? true : undefined
 }
 
 /**
@@ -137,18 +137,18 @@ export function parseDisable(
  */
 export function asArgs(v: unknown, site: string, file: string): Record<string, unknown> {
   if (v === undefined) {
-    return {};
+    return {}
   }
   if (!isRecord(v)) {
-    throw new ParseError(`${site} "args" must be a table`, file);
+    throw new ParseError(`${site} "args" must be a table`, file)
   }
   for (const [key, value] of Object.entries(v)) {
-    const kind = typeof value;
-    if (kind !== "string" && kind !== "number" && kind !== "boolean") {
-      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, file);
+    const kind = typeof value
+    if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') {
+      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, file)
     }
   }
-  return v;
+  return v
 }
 
 /**
@@ -166,7 +166,7 @@ export function assertKnownKeys(
 ): void {
   for (const key of Object.keys(raw)) {
     if (!keys.has(key)) {
-      throw new ParseError(`${site} has unrecognised key "${key}"`, file);
+      throw new ParseError(`${site} has unrecognised key "${key}"`, file)
     }
   }
 }
@@ -179,19 +179,19 @@ export function requireTable(
   file: string,
 ): Record<string, unknown> {
   if (!isRecord(raw)) {
-    throw new ParseError(`${site} must be a table`, file);
+    throw new ParseError(`${site} must be a table`, file)
   }
-  assertKnownKeys(raw, site, keys, file);
-  return raw;
+  assertKnownKeys(raw, site, keys, file)
+  return raw
 }
 
 export const CAPABILITY_FIELDS = [
-  "input",
-  "output",
-  "context_in",
-  "context_out",
-  "reasoning",
-] as const;
+  'input',
+  'output',
+  'context_in',
+  'context_out',
+  'reasoning',
+] as const
 
 export function parseCapabilities(
   raw: Record<string, unknown>,
@@ -203,26 +203,26 @@ export function parseCapabilities(
       ? undefined
       : asArray(raw[key], `${site} "${key}"`, file).map((v, i) =>
           requireString(v, `${site} "${key}[${i}]"`, file),
-        );
+        )
   return {
-    input: stringArray("input"),
-    output: stringArray("output"),
-    context_in: optional(raw.context_in, "number", `${site} "context_in"`, file),
-    context_out: optional(raw.context_out, "number", `${site} "context_out"`, file),
-    reasoning: stringArray("reasoning"),
-  };
+    input: stringArray('input'),
+    output: stringArray('output'),
+    context_in: optional(raw.context_in, 'number', `${site} "context_in"`, file),
+    context_out: optional(raw.context_out, 'number', `${site} "context_out"`, file),
+    reasoning: stringArray('reasoning'),
+  }
 }
 
 /** Later layers win field by field: the `[[model]]` row, then what the role implies, then the route's own declaration. */
 export function mergeCapabilities(...layers: readonly ModelCapabilities[]): ModelCapabilities {
-  const merged: ModelCapabilities = {};
+  const merged: ModelCapabilities = {}
   for (const key of CAPABILITY_FIELDS) {
     for (const layer of layers) {
-      const v = layer[key];
+      const v = layer[key]
       if (v !== undefined) {
-        (merged as Record<string, unknown>)[key] = v;
+        ;(merged as Record<string, unknown>)[key] = v
       }
     }
   }
-  return merged;
+  return merged
 }

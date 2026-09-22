@@ -4,7 +4,7 @@
  * says when it is ready to answer.
  */
 
-import type { Artifact, EngineKind, ReadyProbe, UpstreamTrait, Volume } from "./types.ts";
+import type { Artifact, EngineKind, ReadyProbe, UpstreamTrait, Volume } from './types.ts'
 
 interface SpecCommon {
   /**
@@ -14,33 +14,33 @@ interface SpecCommon {
    * engine that cannot chunk and claims it can hands the caller a 502 on
    * every streamed request.
    */
-  streaming: boolean;
-  serves: string[];
+  streaming: boolean
+  serves: string[]
   /** Allowlist. A `--user` unit hands every child the manager's environment. */
-  env: string[];
-  command: string[];
+  env: string[]
+  command: string[]
   /**
    * How this engine gets an upstream when a route names none. Required on
    * every spec: a spec-full engine has no other source of truth for its
    * trait, unlike a spec-less one, which takes it from the built-in
    * `KIND_TRAITS` table keyed by `kind` instead.
    */
-  upstream: UpstreamTrait;
+  upstream: UpstreamTrait
 }
 
 export interface ContainerSpec extends SpecCommon {
-  kind: Exclude<EngineKind, "agentic-cli">;
+  kind: Exclude<EngineKind, 'agentic-cli'>
   /**
    * Absent on the built-in spec a spec-less engine takes (one declaring
    * `kind` in config, e.g. a pure `openai-http` proxy) -- it launches
    * nothing, so it has no image to declare. `isContainerSpec` is what a
    * caller checks before ever reading this.
    */
-  image?: string;
-  obtain: "pull" | "build";
-  devices: string[];
-  group_add: string[];
-  security_opt: string[];
+  image?: string
+  obtain: 'pull' | 'build'
+  devices: string[]
+  group_add: string[]
+  security_opt: string[]
   /**
    * Run the container under docker's own init, so it is PID 1 rather than the
    * engine's own process. Linux gives PID 1 no default signal disposition, so
@@ -52,8 +52,8 @@ export interface ContainerSpec extends SpecCommon {
    * other engine here stops cleanly on its own, and wrapping those buys
    * nothing.
    */
-  init: boolean;
-  entrypoint?: string[];
+  init: boolean
+  entrypoint?: string[]
   /**
    * The comfy workflow `POST /openai/v1/images/generations` renders, as a path
    * this spec's own `{spec_dir}` resolves. Shipped with the engine because the
@@ -61,7 +61,7 @@ export interface ContainerSpec extends SpecCommon {
    * image or an error from inside comfy, never one naming the graph. Only the
    * checkpoint filenames vary by install, and those come from the route.
    */
-  images_workflow?: string;
+  images_workflow?: string
   /**
    * The graph `POST /openai/v1/images/edits` renders: the same job with the
    * caller's own image encoded into the starting latent instead of an empty
@@ -70,10 +70,10 @@ export interface ContainerSpec extends SpecCommon {
    * graph with a dead LoadImage node in the text-to-image path would be one
    * more thing to get wrong on every render that never uploads anything.
    */
-  images_edit_workflow?: string;
-  volumes: Volume[];
-  artifacts: Artifact[];
-  ready: ReadyProbe;
+  images_edit_workflow?: string
+  volumes: Volume[]
+  artifacts: Artifact[]
+  ready: ReadyProbe
 }
 
 /**
@@ -81,15 +81,15 @@ export interface ContainerSpec extends SpecCommon {
  * not apply and there is no bind-mount for a `spec_dir` override to swap.
  */
 export interface AgenticSpec extends SpecCommon {
-  kind: "agentic-cli";
+  kind: 'agentic-cli'
   /** Which agent CLI this launches; `agents.ts` holds everything that differs between them. */
-  agent: string;
+  agent: string
 }
 
-export type Spec = ContainerSpec | AgenticSpec;
+export type Spec = ContainerSpec | AgenticSpec
 
 /** A `ContainerSpec` that can actually be run: `image` is the one field a spec-less engine's built-in spec omits, and `isContainerSpec` is the only way to reach this type. */
-export type RunnableContainerSpec = ContainerSpec & { image: string };
+export type RunnableContainerSpec = ContainerSpec & { image: string }
 
 /**
  * A declared `image`, not `kind !== "agentic-cli"`: a spec-less engine's
@@ -100,12 +100,12 @@ export type RunnableContainerSpec = ContainerSpec & { image: string };
  * never has to re-assert what this already proved.
  */
 export function isContainerSpec(s: Spec): s is RunnableContainerSpec {
-  return s.kind !== "agentic-cli" && s.image !== undefined;
+  return s.kind !== 'agentic-cli' && s.image !== undefined
 }
 
 /** A spec paired with where it was read from, because status reports which won. */
 export interface LoadedSpec {
-  spec: Spec;
+  spec: Spec
   /** The directory it was built from — shipped, or a `spec_dir` override. */
-  source: string;
+  source: string
 }

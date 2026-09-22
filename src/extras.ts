@@ -15,25 +15,25 @@ import {
   JSON_CONTENT_TYPE,
   jsonError,
   STATUS_BAD_REQUEST,
-} from "./http.ts";
-import { errMessage, parseRecord } from "./types.ts";
+} from './http.ts'
+import { errMessage, parseRecord } from './types.ts'
 
 /** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {
   if (bodyText === undefined) {
-    return JSON.stringify({ model });
+    return JSON.stringify({ model })
   }
-  const parsed = parseRecord(bodyText);
+  const parsed = parseRecord(bodyText)
   if (parsed === null) {
-    throw new SyntaxError("request body must be a JSON object");
+    throw new SyntaxError('request body must be a JSON object')
   }
-  return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed);
+  return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed)
 }
 
 /** Where the request goes: the engine's own base URL, and its own path for this verb. */
 interface ExtrasTarget {
-  baseUrl: string;
-  enginePath: string;
+  baseUrl: string
+  enginePath: string
 }
 
 /**
@@ -48,21 +48,21 @@ export async function proxyExtras(
   residentModel: string | null,
   httpClient: HttpClient = fetch,
 ): Promise<Response> {
-  const url = new URL(req.url);
-  const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  let body = hasBody ? await req.text() : undefined;
+  const url = new URL(req.url)
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+  let body = hasBody ? await req.text() : undefined
   if (residentModel !== null && hasBody) {
     try {
-      body = injectModel(body, residentModel);
+      body = injectModel(body, residentModel)
     } catch (err) {
-      return jsonError(STATUS_BAD_REQUEST, errMessage(err));
+      return jsonError(STATUS_BAD_REQUEST, errMessage(err))
     }
   }
 
-  const upstream = new URL(target.enginePath + url.search, target.baseUrl);
+  const upstream = new URL(target.enginePath + url.search, target.baseUrl)
   return httpClient(upstream.toString(), {
     method: req.method,
     headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body,
-  });
+  })
 }

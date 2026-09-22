@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { bindDualFamily } from "../../src/main.ts";
-import { LOCAL } from "./exclusive.ts";
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { bindDualFamily } from '../../src/main.ts'
+import { LOCAL } from './exclusive.ts'
 
 /**
  * `bindDualFamily` is exported specifically so a test binds through the
@@ -19,36 +19,36 @@ import { LOCAL } from "./exclusive.ts";
  * real socket opened directly in the body would bind on every `bun test`
  * run, ENGINED_LOCAL or not, and never get closed.
  */
-const MARKER = "engined-network-local-smoke";
+const MARKER = 'engined-network-local-smoke'
 
-describe.skipIf(!LOCAL)("dual-family real socket (local)", () => {
-  let bound: ReturnType<typeof bindDualFamily> | undefined;
+describe.skipIf(!LOCAL)('dual-family real socket (local)', () => {
+  let bound: ReturnType<typeof bindDualFamily> | undefined
 
   beforeAll(() => {
-    bound = bindDualFamily(() => new Response(MARKER), 0);
-  });
+    bound = bindDualFamily(() => new Response(MARKER), 0)
+  })
 
   afterAll(() => {
-    bound?.v4.stop(true);
-    bound?.v6.stop(true);
-  });
+    bound?.v4.stop(true)
+    bound?.v6.stop(true)
+  })
 
-  test("127.0.0.1 and [::1] both answer on the same real port", async () => {
+  test('127.0.0.1 and [::1] both answer on the same real port', async () => {
     if (!bound) {
-      throw new Error("beforeAll did not run -- bound is unset");
+      throw new Error('beforeAll did not run -- bound is unset')
     }
-    const { port } = bound.v4;
-    expect(bound.v6.port).toBe(port);
+    const { port } = bound.v4
+    expect(bound.v6.port).toBe(port)
 
-    const v4 = await fetch(`http://127.0.0.1:${port}/`);
-    const v6 = await fetch(`http://[::1]:${port}/`);
+    const v4 = await fetch(`http://127.0.0.1:${port}/`)
+    const v6 = await fetch(`http://[::1]:${port}/`)
 
-    expect(v4.status).toBe(200);
-    expect(await v4.text()).toBe(MARKER);
-    expect(v6.status).toBe(200);
-    expect(await v6.text()).toBe(MARKER);
-  });
-});
+    expect(v4.status).toBe(200)
+    expect(await v4.text()).toBe(MARKER)
+    expect(v6.status).toBe(200)
+    expect(await v6.text()).toBe(MARKER)
+  })
+})
 
 /**
  * A cold start -- container plus a multi-gigabyte GGUF -- routinely outruns
@@ -56,28 +56,28 @@ describe.skipIf(!LOCAL)("dual-family real socket (local)", () => {
  * at all. That is why this needs a real socket: the in-process `fetch` call
  * every other test makes never opens one, so it cannot observe the timer.
  */
-describe.skipIf(!LOCAL)("slow response over a real socket (local)", () => {
-  const SLOWER_THAN_BUN_DEFAULT_MS = 12_000;
-  let bound: ReturnType<typeof bindDualFamily> | undefined;
+describe.skipIf(!LOCAL)('slow response over a real socket (local)', () => {
+  const SLOWER_THAN_BUN_DEFAULT_MS = 12_000
+  let bound: ReturnType<typeof bindDualFamily> | undefined
 
   beforeAll(() => {
     bound = bindDualFamily(async () => {
-      await Bun.sleep(SLOWER_THAN_BUN_DEFAULT_MS);
-      return new Response(MARKER);
-    }, 0);
-  });
+      await Bun.sleep(SLOWER_THAN_BUN_DEFAULT_MS)
+      return new Response(MARKER)
+    }, 0)
+  })
 
   afterAll(() => {
-    bound?.v4.stop(true);
-    bound?.v6.stop(true);
-  });
+    bound?.v4.stop(true)
+    bound?.v6.stop(true)
+  })
 
   test("an answer slower than Bun's default idle timeout still reaches the caller", async () => {
     if (!bound) {
-      throw new Error("beforeAll did not run -- bound is unset");
+      throw new Error('beforeAll did not run -- bound is unset')
     }
-    const res = await fetch(`http://127.0.0.1:${bound.v4.port}/`);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe(MARKER);
-  }, 60_000);
-});
+    const res = await fetch(`http://127.0.0.1:${bound.v4.port}/`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe(MARKER)
+  }, 60_000)
+})

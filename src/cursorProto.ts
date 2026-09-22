@@ -8,57 +8,57 @@
  * be dead weight beside the handful of messages this door encodes.
  */
 
-const CONTINUATION = 128;
-const GROUP = 128;
-const WIRE_VARINT = 0;
-const WIRE_LENGTH = 2;
+const CONTINUATION = 128
+const GROUP = 128
+const WIRE_VARINT = 0
+const WIRE_LENGTH = 2
 /** Connect stream frames start with a flag byte and a 4-byte length. */
-export const ENVELOPE_HEADER = 5;
+export const ENVELOPE_HEADER = 5
 
 /** Connect marks the final frame of a stream with this flag. */
-const FLAG_END_STREAM = 2;
+const FLAG_END_STREAM = 2
 
 export function varint(value: number): Uint8Array {
-  const out: number[] = [];
-  let n = value;
+  const out: number[] = []
+  let n = value
   do {
-    const byte = n % GROUP;
-    n = Math.floor(n / GROUP);
-    out.push(n > 0 ? byte + CONTINUATION : byte);
-  } while (n > 0);
-  return Uint8Array.from(out);
+    const byte = n % GROUP
+    n = Math.floor(n / GROUP)
+    out.push(n > 0 ? byte + CONTINUATION : byte)
+  } while (n > 0)
+  return Uint8Array.from(out)
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(total);
-  let at = 0;
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const out = new Uint8Array(total)
+  let at = 0
   for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
+    out.set(p, at)
+    at += p.length
   }
-  return out;
+  return out
 }
 
 function tag(fieldNo: number, wire: number): Uint8Array {
-  return varint(fieldNo * 8 + wire);
+  return varint(fieldNo * 8 + wire)
 }
 
 /** A length-delimited field: a nested message or a `bytes` value. */
 export function bytesField(fieldNo: number, payload: Uint8Array): Uint8Array {
-  return concat([tag(fieldNo, WIRE_LENGTH), varint(payload.length), payload]);
+  return concat([tag(fieldNo, WIRE_LENGTH), varint(payload.length), payload])
 }
 
 export function stringField(fieldNo: number, value: string): Uint8Array {
-  return bytesField(fieldNo, new TextEncoder().encode(value));
+  return bytesField(fieldNo, new TextEncoder().encode(value))
 }
 
 export function intField(fieldNo: number, value: number): Uint8Array {
-  return concat([tag(fieldNo, WIRE_VARINT), varint(value)]);
+  return concat([tag(fieldNo, WIRE_VARINT), varint(value)])
 }
 
 export function message(...parts: Uint8Array[]): Uint8Array {
-  return concat(parts);
+  return concat(parts)
 }
 
 /**
@@ -67,20 +67,20 @@ export function message(...parts: Uint8Array[]): Uint8Array {
  * is why the flag is a parameter rather than two functions.
  */
 export function envelope(payload: Uint8Array, flags = 0): Uint8Array {
-  const out = new Uint8Array(ENVELOPE_HEADER + payload.length);
-  out[0] = flags;
-  new DataView(out.buffer).setUint32(1, payload.length, false);
-  out.set(payload, ENVELOPE_HEADER);
-  return out;
+  const out = new Uint8Array(ENVELOPE_HEADER + payload.length)
+  out[0] = flags
+  new DataView(out.buffer).setUint32(1, payload.length, false)
+  out.set(payload, ENVELOPE_HEADER)
+  return out
 }
 
 export function endOfStream(): Uint8Array {
-  return envelope(new TextEncoder().encode("{}"), FLAG_END_STREAM);
+  return envelope(new TextEncoder().encode('{}'), FLAG_END_STREAM)
 }
 
 export interface Field {
-  no: number;
-  value: number | Uint8Array;
+  no: number
+  value: number | Uint8Array
 }
 
 /**
@@ -89,71 +89,71 @@ export interface Field {
  * and this door only ever reads a handful of known fields.
  */
 export function decode(buf: Uint8Array): Field[] {
-  const out: Field[] = [];
-  let i = 0;
+  const out: Field[] = []
+  let i = 0
   while (i < buf.length) {
-    let key = 0;
-    let shift = 1;
+    let key = 0
+    let shift = 1
     for (;;) {
-      const byte = buf[i];
+      const byte = buf[i]
       if (byte === undefined) {
-        return out;
+        return out
       }
-      i += 1;
-      key += (byte % GROUP) * shift;
+      i += 1
+      key += (byte % GROUP) * shift
       if (byte < CONTINUATION) {
-        break;
+        break
       }
-      shift *= GROUP;
+      shift *= GROUP
     }
-    const no = Math.floor(key / 8);
-    const wire = key % 8;
+    const no = Math.floor(key / 8)
+    const wire = key % 8
     if (wire === WIRE_LENGTH) {
-      let len = 0;
-      let mul = 1;
+      let len = 0
+      let mul = 1
       for (;;) {
-        const byte = buf[i];
+        const byte = buf[i]
         if (byte === undefined) {
-          return out;
+          return out
         }
-        i += 1;
-        len += (byte % GROUP) * mul;
+        i += 1
+        len += (byte % GROUP) * mul
         if (byte < CONTINUATION) {
-          break;
+          break
         }
-        mul *= GROUP;
+        mul *= GROUP
       }
-      out.push({ no, value: buf.subarray(i, i + len) });
-      i += len;
+      out.push({ no, value: buf.subarray(i, i + len) })
+      i += len
     } else if (wire === WIRE_VARINT) {
-      let v = 0;
-      let mul = 1;
+      let v = 0
+      let mul = 1
       for (;;) {
-        const byte = buf[i];
+        const byte = buf[i]
         if (byte === undefined) {
-          return out;
+          return out
         }
-        i += 1;
-        v += (byte % GROUP) * mul;
+        i += 1
+        v += (byte % GROUP) * mul
         if (byte < CONTINUATION) {
-          break;
+          break
         }
-        mul *= GROUP;
+        mul *= GROUP
       }
-      out.push({ no, value: v });
+      out.push({ no, value: v })
     } else {
-      return out;
+      return out
     }
   }
-  return out;
+  return out
 }
 
 export function fieldBytes(fields: Field[], no: number): Uint8Array | undefined {
-  const hit = fields.find((f) => f.no === no && f.value instanceof Uint8Array);
-  return hit?.value as Uint8Array | undefined;
+  const hit = fields.find((f) => f.no === no && f.value instanceof Uint8Array)
+  return hit?.value as Uint8Array | undefined
 }
 
 export function fieldString(fields: Field[], no: number): string | undefined {
-  const raw = fieldBytes(fields, no);
-  return raw === undefined ? undefined : new TextDecoder().decode(raw);
+  const raw = fieldBytes(fields, no)
+  return raw === undefined ? undefined : new TextDecoder().decode(raw)
 }

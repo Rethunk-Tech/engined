@@ -24,10 +24,10 @@
  * against exfiltration, and an agent given a private repository is trusted
  * with its contents either way.
  */
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import process from "node:process";
-import { stateDir } from "./paths.ts";
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import process from 'node:process'
+import { stateDir } from './paths.ts'
 
 /**
  * Writable, engined-owned, and never inside a repository -- so the agent keeps
@@ -36,20 +36,20 @@ import { stateDir } from "./paths.ts";
  * provider on every single call.
  */
 export function sandboxHome(agentId: string): string {
-  const home = join(stateDir(), "agentic-home", agentId);
-  mkdirSync(home, { recursive: true });
-  return home;
+  const home = join(stateDir(), 'agentic-home', agentId)
+  mkdirSync(home, { recursive: true })
+  return home
 }
 
 interface SandboxInput {
   /** Absolute `bwrap` path, resolved by the install script the way `bunx` is. */
-  bwrap: string;
+  bwrap: string
   /** The agent's writable state directory, from `sandboxHome`. */
-  home: string;
+  home: string
   /** Bound read-only over itself: the one directory the agent was pointed at. */
-  workdir: string;
+  workdir: string
   /** The launch the sandbox wraps, `bunx` path first. */
-  argv: readonly string[];
+  argv: readonly string[]
 }
 
 /**
@@ -67,27 +67,27 @@ interface SandboxInput {
 export function sandboxArgv(input: SandboxInput): string[] {
   return [
     input.bwrap,
-    "--ro-bind",
-    "/",
-    "/",
-    "--proc",
-    "/proc",
-    "--dev",
-    "/dev",
-    "--tmpfs",
-    "/tmp",
-    "--bind",
+    '--ro-bind',
+    '/',
+    '/',
+    '--proc',
+    '/proc',
+    '--dev',
+    '/dev',
+    '--tmpfs',
+    '/tmp',
+    '--bind',
     input.home,
     input.home,
-    "--ro-bind",
+    '--ro-bind',
     input.workdir,
     input.workdir,
     // Belt and braces beside defaultAgenticSpawn's process-group kill: if
     // engined dies without getting its signal out, the sandbox still goes.
-    "--die-with-parent",
-    "--",
+    '--die-with-parent',
+    '--',
     ...input.argv,
-  ];
+  ]
 }
 
 /**
@@ -98,11 +98,11 @@ export function sandboxArgv(input: SandboxInput): string[] {
  * running a write-capable agent loose in someone's repository.
  */
 export function resolveBwrap(): string | null {
-  const configured = process.env.ENGINED_BWRAP;
-  if (configured !== undefined && configured !== "") {
-    return configured;
+  const configured = process.env.ENGINED_BWRAP
+  if (configured !== undefined && configured !== '') {
+    return configured
   }
-  return Bun.which("bwrap");
+  return Bun.which('bwrap')
 }
 
 /**
@@ -115,18 +115,18 @@ export function resolveBwrap(): string | null {
 export function sandboxEnv(home: string): Record<string, string> {
   return {
     HOME: home,
-    XDG_DATA_HOME: join(home, "data"),
-    XDG_CONFIG_HOME: join(home, "config"),
-    XDG_STATE_HOME: join(home, "state"),
-    XDG_CACHE_HOME: join(home, "cache"),
+    XDG_DATA_HOME: join(home, 'data'),
+    XDG_CONFIG_HOME: join(home, 'config'),
+    XDG_STATE_HOME: join(home, 'state'),
+    XDG_CACHE_HOME: join(home, 'cache'),
     // The child's environment is an allowlist, so it has no TMPDIR unless one
     // is put there. Without it `bunx` refuses to run at all, with an error
     // about a temporary directory that says nothing about a sandbox --
     // measured, and the reason this is not left to the ambient environment.
-    TMPDIR: "/tmp",
-    BUN_TMPDIR: "/tmp",
+    TMPDIR: '/tmp',
+    BUN_TMPDIR: '/tmp',
     // Inside the writable home rather than the tmpfs, so a fetched agent
     // package survives to the next launch instead of being downloaded again.
-    BUN_INSTALL: join(home, "bun"),
-  };
+    BUN_INSTALL: join(home, 'bun'),
+  }
 }

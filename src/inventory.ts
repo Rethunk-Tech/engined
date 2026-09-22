@@ -4,36 +4,36 @@
  * once older than the upstream's max age.
  */
 
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
-import type { Exec as SecretExec } from "./exec.ts";
-import type { HttpClient } from "./http.ts";
-import { upstreamInventoryDir } from "./paths.ts";
-import { errMessage, isRecord, MS_PER_SECOND, type Upstream, WILDCARD_MODEL } from "./types.ts";
-import { resolveUpstream, upstreamUrl } from "./upstream.ts";
+import type { Exec as SecretExec } from './exec.ts'
+import type { HttpClient } from './http.ts'
+import { upstreamInventoryDir } from './paths.ts'
+import { errMessage, isRecord, MS_PER_SECOND, type Upstream, WILDCARD_MODEL } from './types.ts'
+import { resolveUpstream, upstreamUrl } from './upstream.ts'
 
-const MODELS_PATH = "/models";
-const CACHE_FILE = "inventory.json";
-const ENCODED_SLASH = "%2F";
+const MODELS_PATH = '/models'
+const CACHE_FILE = 'inventory.json'
+const ENCODED_SLASH = '%2F'
 
 export interface InventoryOptions {
-  fetch?: HttpClient;
-  secretExec?: SecretExec;
-  now?: () => number;
+  fetch?: HttpClient
+  secretExec?: SecretExec
+  now?: () => number
   /** Defaults to `stateDir()`. Tests redirect this so nothing writes under the operator's state. */
-  stateRoot?: string;
+  stateRoot?: string
 }
 
 export interface InventoryLookup {
-  ids: string[];
+  ids: string[]
   /** Set when ids came from an in-age cache because the live fetch failed. */
-  fetchError?: string;
+  fetchError?: string
 }
 
 interface CachedInventory {
-  fetchedAt: number;
-  ids: string[];
+  fetchedAt: number
+  ids: string[]
 }
 
 /**
@@ -43,62 +43,62 @@ interface CachedInventory {
  */
 export function encodeAddressSegment(providerId: string): string | undefined {
   if (providerId === WILDCARD_MODEL || providerId.includes(ENCODED_SLASH)) {
-    return;
+    return
   }
-  return providerId.replaceAll("/", ENCODED_SLASH);
+  return providerId.replaceAll('/', ENCODED_SLASH)
 }
 
 /** Reverse of `encodeAddressSegment`: only `%2F` becomes `/`. */
 export function decodeAddressSegment(segment: string): string {
-  return segment.replaceAll(ENCODED_SLASH, "/");
+  return segment.replaceAll(ENCODED_SLASH, '/')
 }
 
 function isFresh(fetchedAt: number, maxAgeSeconds: number, now: number): boolean {
-  return now - fetchedAt <= maxAgeSeconds * MS_PER_SECOND;
+  return now - fetchedAt <= maxAgeSeconds * MS_PER_SECOND
 }
 
 function parseCache(raw: unknown): CachedInventory | undefined {
-  if (!isRecord(raw) || typeof raw.fetched_at !== "number" || !Array.isArray(raw.ids)) {
-    return;
+  if (!isRecord(raw) || typeof raw.fetched_at !== 'number' || !Array.isArray(raw.ids)) {
+    return
   }
-  if (!raw.ids.every((id): id is string => typeof id === "string")) {
-    return;
+  if (!raw.ids.every((id): id is string => typeof id === 'string')) {
+    return
   }
   return {
     fetchedAt: raw.fetched_at,
     ids: raw.ids.filter((id) => encodeAddressSegment(id) !== undefined),
-  };
+  }
 }
 
 function parseModelsBody(raw: unknown): string[] | undefined {
   if (!(isRecord(raw) && Array.isArray(raw.data))) {
-    return;
+    return
   }
-  const ids: string[] = [];
+  const ids: string[] = []
   for (const row of raw.data) {
-    if (!isRecord(row) || typeof row.id !== "string") {
-      continue;
+    if (!isRecord(row) || typeof row.id !== 'string') {
+      continue
     }
     if (encodeAddressSegment(row.id) === undefined) {
-      continue;
+      continue
     }
-    ids.push(row.id);
+    ids.push(row.id)
   }
-  return ids;
+  return ids
 }
 
 /** Live catalog cache, one in-memory entry per upstream, mirrored under `upstreams/<id>/`. */
 export class Inventory {
-  private readonly mem = new Map<string, CachedInventory>();
-  private readonly opts: InventoryOptions;
+  private readonly mem = new Map<string, CachedInventory>()
+  private readonly opts: InventoryOptions
 
   constructor(opts: InventoryOptions = {}) {
-    this.opts = opts;
+    this.opts = opts
   }
 
   /** Drop in-memory entries so the next peek re-reads disk. Files stay. */
   forget(): void {
-    this.mem.clear();
+    this.mem.clear()
   }
 
   /**
@@ -106,93 +106,93 @@ export class Inventory {
    * the file is past max age (and then the file is removed).
    */
   peek(upstream: Upstream): string[] {
-    return this.loadFresh(upstream)?.ids ?? [];
+    return this.loadFresh(upstream)?.ids ?? []
   }
 
   async refresh(upstream: Upstream): Promise<InventoryLookup> {
-    const live = await this.fetchIds(upstream);
+    const live = await this.fetchIds(upstream)
     if (live.ok) {
-      const cached: CachedInventory = { fetchedAt: this.now(), ids: live.ids };
-      this.mem.set(upstream.id, cached);
-      this.writeFile(upstream.id, cached);
-      return { ids: live.ids };
+      const cached: CachedInventory = { fetchedAt: this.now(), ids: live.ids }
+      this.mem.set(upstream.id, cached)
+      this.writeFile(upstream.id, cached)
+      return { ids: live.ids }
     }
-    const cached = this.loadFresh(upstream);
+    const cached = this.loadFresh(upstream)
     if (cached !== undefined) {
-      return { ids: cached.ids, fetchError: live.error };
+      return { ids: cached.ids, fetchError: live.error }
     }
-    return { ids: [], fetchError: live.error };
+    return { ids: [], fetchError: live.error }
   }
 
   private now(): number {
-    return this.opts.now?.() ?? Date.now();
+    return this.opts.now?.() ?? Date.now()
   }
 
   private cachePath(upstreamId: string): string {
     if (this.opts.stateRoot !== undefined) {
-      return join(this.opts.stateRoot, "upstreams", upstreamId, CACHE_FILE);
+      return join(this.opts.stateRoot, 'upstreams', upstreamId, CACHE_FILE)
     }
-    return join(upstreamInventoryDir(upstreamId), CACHE_FILE);
+    return join(upstreamInventoryDir(upstreamId), CACHE_FILE)
   }
 
   private loadFresh(upstream: Upstream): CachedInventory | undefined {
-    const maxAge = upstream.inventory_max_age_seconds;
+    const maxAge = upstream.inventory_max_age_seconds
     if (maxAge === undefined) {
-      return;
+      return
     }
-    const fromMem = this.mem.get(upstream.id);
+    const fromMem = this.mem.get(upstream.id)
     if (fromMem !== undefined) {
       if (isFresh(fromMem.fetchedAt, maxAge, this.now())) {
-        return fromMem;
+        return fromMem
       }
-      this.mem.delete(upstream.id);
-      this.dropFile(upstream.id);
-      return;
+      this.mem.delete(upstream.id)
+      this.dropFile(upstream.id)
+      return
     }
-    const fromDisk = this.readFile(upstream.id);
+    const fromDisk = this.readFile(upstream.id)
     if (fromDisk === undefined) {
-      return;
+      return
     }
     if (!isFresh(fromDisk.fetchedAt, maxAge, this.now())) {
-      this.dropFile(upstream.id);
-      return;
+      this.dropFile(upstream.id)
+      return
     }
-    this.mem.set(upstream.id, fromDisk);
-    return fromDisk;
+    this.mem.set(upstream.id, fromDisk)
+    return fromDisk
   }
 
   private readFile(upstreamId: string): CachedInventory | undefined {
-    let text: string;
+    let text: string
     try {
-      text = readFileSync(this.cachePath(upstreamId), "utf8");
+      text = readFileSync(this.cachePath(upstreamId), 'utf8')
     } catch {
-      return;
+      return
     }
-    let raw: unknown;
+    let raw: unknown
     try {
-      raw = JSON.parse(text);
+      raw = JSON.parse(text)
     } catch {
-      this.dropFile(upstreamId);
-      return;
+      this.dropFile(upstreamId)
+      return
     }
-    const parsed = parseCache(raw);
+    const parsed = parseCache(raw)
     if (parsed === undefined) {
-      this.dropFile(upstreamId);
+      this.dropFile(upstreamId)
     }
-    return parsed;
+    return parsed
   }
 
   private writeFile(upstreamId: string, cached: CachedInventory): void {
-    const path = this.cachePath(upstreamId);
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify({ fetched_at: cached.fetchedAt, ids: cached.ids })}\n`);
-    renameSync(tmp, path);
+    const path = this.cachePath(upstreamId)
+    mkdirSync(dirname(path), { recursive: true })
+    const tmp = `${path}.tmp`
+    writeFileSync(tmp, `${JSON.stringify({ fetched_at: cached.fetchedAt, ids: cached.ids })}\n`)
+    renameSync(tmp, path)
   }
 
   private dropFile(upstreamId: string): void {
     try {
-      unlinkSync(this.cachePath(upstreamId));
+      unlinkSync(this.cachePath(upstreamId))
     } catch {
       // Absent is the desired state.
     }
@@ -201,33 +201,33 @@ export class Inventory {
   private async fetchIds(
     upstream: Upstream,
   ): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> {
-    const resolution = await resolveUpstream(upstream, this.opts.secretExec);
+    const resolution = await resolveUpstream(upstream, this.opts.secretExec)
     if (!resolution.ok) {
-      return { ok: false, error: resolution.error };
+      return { ok: false, error: resolution.error }
     }
-    const http = this.opts.fetch ?? fetch;
-    let res: Response;
+    const http = this.opts.fetch ?? fetch
+    let res: Response
     try {
       res = await http(upstreamUrl(resolution.endpoint.base_url, MODELS_PATH), {
-        method: "GET",
+        method: 'GET',
         headers: resolution.endpoint.headers,
-      });
+      })
     } catch (err) {
-      return { ok: false, error: errMessage(err) };
+      return { ok: false, error: errMessage(err) }
     }
     if (!res.ok) {
-      return { ok: false, error: `GET ${MODELS_PATH} returned HTTP ${res.status}` };
+      return { ok: false, error: `GET ${MODELS_PATH} returned HTTP ${res.status}` }
     }
-    let body: unknown;
+    let body: unknown
     try {
-      body = await res.json();
+      body = await res.json()
     } catch (err) {
-      return { ok: false, error: errMessage(err) };
+      return { ok: false, error: errMessage(err) }
     }
-    const ids = parseModelsBody(body);
+    const ids = parseModelsBody(body)
     if (ids === undefined) {
-      return { ok: false, error: `GET ${MODELS_PATH} was not an OpenAI models list` };
+      return { ok: false, error: `GET ${MODELS_PATH} was not an OpenAI models list` }
     }
-    return { ok: true, ids };
+    return { ok: true, ids }
   }
 }

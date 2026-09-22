@@ -20,15 +20,15 @@
  * kind of drift this repo keeps getting bitten by.
  */
 
-import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from "./http.ts";
-import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from "./probeImage.ts";
-import { CONTRACT } from "./responses.ts";
+import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from './http.ts'
+import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
+import { CONTRACT } from './responses.ts'
 import {
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
   errMessage,
-} from "./types.ts";
+} from './types.ts'
 
 /** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */
 export function visionRequestBody(modelId: string): string {
@@ -36,28 +36,28 @@ export function visionRequestBody(modelId: string): string {
     model: modelId,
     messages: [
       {
-        role: "user",
+        role: 'user',
         content: [
           {
-            type: "text",
-            text: "This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.",
+            type: 'text',
+            text: 'This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.',
           },
-          { type: "image_url", image_url: { url: SPLIT_PNG_DATA_URI } },
+          { type: 'image_url', image_url: { url: SPLIT_PNG_DATA_URI } },
         ],
       },
     ],
     max_tokens: VISION_MAX_TOKENS,
-  });
+  })
 }
 
 /** How many digits the read probe puts in the image: long enough that a guess cannot land it, short enough to stay one glance for a reader. */
-const READ_PROBE_DIGITS = 8;
+const READ_PROBE_DIGITS = 8
 
 /** A fresh string per run, so no answer can come from having seen this image before. */
 export function readProbeText(): string {
   return Array.from({ length: READ_PROBE_DIGITS }, () =>
     String(Math.floor(Math.random() * DIGIT_GLYPHS.length)),
-  ).join("");
+  ).join('')
 }
 
 /** The chat body for a `read` route: the digits as an image, and an instruction with no scene in it to describe. */
@@ -66,27 +66,27 @@ function visionReadRequestBody(modelId: string, text: string): string {
     model: modelId,
     messages: [
       {
-        role: "user",
+        role: 'user',
         content: [
-          { type: "text", text: "Read the digits in this image. Answer with the digits only." },
+          { type: 'text', text: 'Read the digits in this image. Answer with the digits only.' },
           {
-            type: "image_url",
+            type: 'image_url',
             image_url: {
-              url: `data:image/png;base64,${Buffer.from(digitsPng(text)).toString("base64")}`,
+              url: `data:image/png;base64,${Buffer.from(digitsPng(text)).toString('base64')}`,
             },
           },
         ],
       },
     ],
     max_tokens: READ_MAX_TOKENS,
-  });
+  })
 }
 
 /** Room for the digits plus whatever framing a model insists on, and no more. */
-const READ_MAX_TOKENS = 64;
+const READ_MAX_TOKENS = 64
 
 /** Every digit in the reply, in order, with the prose a model may wrap them in dropped. */
-const NON_DIGITS = /\D+/g;
+const NON_DIGITS = /\D+/g
 
 /**
  * The digits, in the order they were drawn. Punctuation and framing are
@@ -98,11 +98,11 @@ export function visionReadVerdict(
   expected: string,
   reply: string,
 ): { ok: boolean; detail: string } {
-  const seen = reply.replace(NON_DIGITS, "");
+  const seen = reply.replace(NON_DIGITS, '')
   if (!seen.includes(expected)) {
-    return { ok: false, detail: `expected ${expected}, read ${JSON.stringify(reply)}` };
+    return { ok: false, detail: `expected ${expected}, read ${JSON.stringify(reply)}` }
   }
-  return { ok: true, detail: `read ${expected}` };
+  return { ok: true, detail: `read ${expected}` }
 }
 
 /**
@@ -111,35 +111,35 @@ export function visionReadVerdict(
  * plausible-but-wrong description cannot reach by guessing.
  */
 export function visionVerdict(reply: string): { ok: boolean; detail: string } {
-  const seen = reply.toLowerCase();
-  const red = seen.indexOf("red");
-  const blue = seen.indexOf("blue");
+  const seen = reply.toLowerCase()
+  const red = seen.indexOf('red')
+  const blue = seen.indexOf('blue')
   if (red < 0 || blue < 0) {
     return {
       ok: false,
-      detail: `named ${red < 0 ? "no red" : "no blue"}: ${JSON.stringify(reply)}`,
-    };
+      detail: `named ${red < 0 ? 'no red' : 'no blue'}: ${JSON.stringify(reply)}`,
+    }
   }
   if (red > blue) {
-    return { ok: false, detail: `named the halves in the wrong order: ${JSON.stringify(reply)}` };
+    return { ok: false, detail: `named the halves in the wrong order: ${JSON.stringify(reply)}` }
   }
-  return { ok: true, detail: JSON.stringify(reply) };
+  return { ok: true, detail: JSON.stringify(reply) }
 }
 
 /** How much of an error body is worth a journal line: enough to name the failure, not enough to bury it. */
-const ERROR_BODY_CHARS = 200;
+const ERROR_BODY_CHARS = 200
 
 /** One line per vision address the door offers, in the order the menu listed them. */
 interface ProbeLine {
-  address: string;
-  ok: boolean;
-  detail: string;
+  address: string
+  ok: boolean
+  detail: string
 }
 
 interface ProbeReport {
   /** False only when an address answered and got it wrong, or could not be reached at all. A door offering nothing to prove is `true` with one line saying so. */
-  ok: boolean;
-  lines: ProbeLine[];
+  ok: boolean
+  lines: ProbeLine[]
 }
 
 /**
@@ -156,17 +156,17 @@ interface ProbeReport {
  * it.
  */
 function canAnswer(state: unknown): boolean {
-  return typeof state === "string" && state !== "unavailable";
+  return typeof state === 'string' && state !== 'unavailable'
 }
 
 /** The subset of a `/openai/v1/models` row this probe reads. Parsed from the wire, so it is narrowed here rather than imported: a row is whatever the running door sent, not whatever this build's `ModelRow` says. */
 interface MenuRow {
-  id?: unknown;
-  role?: unknown;
-  vision?: unknown;
-  state?: unknown;
-  translate?: unknown;
-  serves?: unknown;
+  id?: unknown
+  role?: unknown
+  vision?: unknown
+  state?: unknown
+  translate?: unknown
+  serves?: unknown
 }
 
 /**
@@ -187,33 +187,33 @@ async function staleDoorLine(
   doorUrl: string,
   fetchImpl: typeof fetch,
 ): Promise<ProbeLine | undefined> {
-  let contract: unknown;
+  let contract: unknown
   try {
-    const res = await fetchImpl(`${doorUrl}/engined/v1/engines`);
+    const res = await fetchImpl(`${doorUrl}/engined/v1/engines`)
     if (!res.ok) {
-      await discardBody(res);
+      await discardBody(res)
       return {
         address: doorUrl,
         ok: false,
         detail: `the door answered http ${res.status} for its own engine list`,
-      };
+      }
     }
-    ({ contract } = (await res.json()) as { contract?: unknown });
+    ;({ contract } = (await res.json()) as { contract?: unknown })
   } catch (err) {
     return {
       address: doorUrl,
       ok: false,
       detail: `the door could not be reached: ${errMessage(err)}`,
-    };
+    }
   }
   if (contract === CONTRACT) {
-    return undefined;
+    return undefined
   }
   return {
     address: doorUrl,
     ok: false,
     detail: `the running door reports contract ${String(contract)}; this probe ships with ${CONTRACT}. It predates this build -- run scripts/install.sh to bring the daemon up to the bundle this probe ships with.`,
-  };
+  }
 }
 
 /**
@@ -233,11 +233,11 @@ export async function runProbes(
   doorUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ProbeReport> {
-  let rows: MenuRow[];
+  let rows: MenuRow[]
   try {
-    const menu = await fetchImpl(`${doorUrl}/openai/v1/models`);
+    const menu = await fetchImpl(`${doorUrl}/openai/v1/models`)
     if (!menu.ok) {
-      await discardBody(menu);
+      await discardBody(menu)
       return {
         ok: false,
         lines: [
@@ -247,38 +247,38 @@ export async function runProbes(
             detail: `the door answered http ${menu.status} for its own model menu`,
           },
         ],
-      };
+      }
     }
-    const body = (await menu.json()) as { data?: MenuRow[] };
-    rows = body.data ?? [];
+    const body = (await menu.json()) as { data?: MenuRow[] }
+    rows = body.data ?? []
   } catch (err) {
-    const message = errMessage(err);
+    const message = errMessage(err)
     return {
       ok: false,
       lines: [{ address: doorUrl, ok: false, detail: `the door could not be reached: ${message}` }],
-    };
+    }
   }
 
-  const stale = await staleDoorLine(doorUrl, fetchImpl);
+  const stale = await staleDoorLine(doorUrl, fetchImpl)
   if (stale !== undefined) {
-    return { ok: false, lines: [stale] };
+    return { ok: false, lines: [stale] }
   }
 
   const lines = [
     ...(await probeVision(doorUrl, rows, fetchImpl)),
     ...(await probeRerank(doorUrl, rows, fetchImpl)),
     ...(await probeTranslations(doorUrl, rows, fetchImpl)),
-  ];
+  ]
   // One line for a door with nothing configured to prove, rather than one per
   // family saying the same thing: nothing here is wrong, and a report that
   // says so three times buries the one run where something is.
   if (lines.length === 0) {
     return {
       ok: true,
-      lines: [{ address: doorUrl, ok: true, detail: "no reachable address to prove" }],
-    };
+      lines: [{ address: doorUrl, ok: true, detail: 'no reachable address to prove' }],
+    }
   }
-  return { ok: lines.every((l) => l.ok), lines };
+  return { ok: lines.every((l) => l.ok), lines }
 }
 
 /** Every vision address the door lists, each sent the ground-truth check its own `vision` kind can answer. */
@@ -289,17 +289,17 @@ async function probeVision(
 ): Promise<ProbeLine[]> {
   const vision = rows.filter(
     (r): r is MenuRow & { id: string } =>
-      r.role === "vision" && canAnswer(r.state) && typeof r.id === "string",
-  );
+      r.role === 'vision' && canAnswer(r.state) && typeof r.id === 'string',
+  )
   if (vision.length === 0) {
-    return [];
+    return []
   }
 
-  const lines: ProbeLine[] = [];
+  const lines: ProbeLine[] = []
   for (const row of vision) {
-    lines.push({ address: row.id, ...(await probeOne(doorUrl, row, fetchImpl)) });
+    lines.push({ address: row.id, ...(await probeOne(doorUrl, row, fetchImpl)) })
   }
-  return lines;
+  return lines
 }
 
 /**
@@ -313,14 +313,14 @@ async function probeVision(
  * 7.8e-11 and 4.9e-11, so a model that is working clears this by orders of
  * magnitude and one that is not cannot land on it by chance.
  */
-const RERANK_QUERY = "How do I stop a running container?";
+const RERANK_QUERY = 'How do I stop a running container?'
 const RERANK_DOCUMENTS = [
-  "Bananas ripen faster when kept in a paper bag.",
-  "Run docker stop followed by the container name.",
-  "The Treaty of Utrecht was signed in 1713.",
-];
+  'Bananas ripen faster when kept in a paper bag.',
+  'Run docker stop followed by the container name.',
+  'The Treaty of Utrecht was signed in 1713.',
+]
 /** The index into `RERANK_DOCUMENTS` that answers `RERANK_QUERY`. */
-const RERANK_ANSWER = 1;
+const RERANK_ANSWER = 1
 
 async function probeRerank(
   doorUrl: string,
@@ -329,16 +329,16 @@ async function probeRerank(
 ): Promise<ProbeLine[]> {
   const rerank = rows.filter(
     (r): r is MenuRow & { id: string } =>
-      r.role === "rerank" && canAnswer(r.state) && typeof r.id === "string",
-  );
+      r.role === 'rerank' && canAnswer(r.state) && typeof r.id === 'string',
+  )
   if (rerank.length === 0) {
-    return [];
+    return []
   }
-  const lines: ProbeLine[] = [];
+  const lines: ProbeLine[] = []
   for (const row of rerank) {
-    lines.push({ address: row.id, ...(await probeOneRerank(doorUrl, row.id, fetchImpl)) });
+    lines.push({ address: row.id, ...(await probeOneRerank(doorUrl, row.id, fetchImpl)) })
   }
-  return lines;
+  return lines
 }
 
 async function probeOneRerank(
@@ -348,33 +348,33 @@ async function probeOneRerank(
 ): Promise<{ ok: boolean; detail: string }> {
   try {
     const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_RERANK}`, {
-      method: "POST",
+      method: 'POST',
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({
         model: address,
         query: RERANK_QUERY,
         documents: RERANK_DOCUMENTS,
       }),
-    });
+    })
     if (!res.ok) {
       return {
         ok: false,
         detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
-      };
+      }
     }
-    const body = (await res.json()) as { results?: { index?: unknown }[] };
-    const top = body.results?.[0]?.index;
-    if (typeof top !== "number") {
-      return { ok: false, detail: "the reply carried no ranked results" };
+    const body = (await res.json()) as { results?: { index?: unknown }[] }
+    const top = body.results?.[0]?.index
+    if (typeof top !== 'number') {
+      return { ok: false, detail: 'the reply carried no ranked results' }
     }
     return top === RERANK_ANSWER
       ? { ok: true, detail: `ranked the answering document first (index ${top})` }
       : {
           ok: false,
           detail: `ranked index ${top} first; the document answering the query is index ${RERANK_ANSWER}`,
-        };
+        }
   } catch (err) {
-    return { ok: false, detail: errMessage(err) };
+    return { ok: false, detail: errMessage(err) }
   }
 }
 
@@ -390,25 +390,25 @@ async function probeOneRerank(
  */
 function checkFor(row: MenuRow & { id: string }):
   | {
-      body: string;
-      verdict: (reply: string) => { ok: boolean; detail: string };
+      body: string
+      verdict: (reply: string) => { ok: boolean; detail: string }
     }
   | undefined {
-  if (row.vision === "read") {
-    const text = readProbeText();
+  if (row.vision === 'read') {
+    const text = readProbeText()
     return {
       body: visionReadRequestBody(row.id, text),
       verdict: (reply) => visionReadVerdict(text, reply),
-    };
+    }
   }
-  if (row.vision === "describe") {
-    return { body: visionRequestBody(row.id), verdict: visionVerdict };
+  if (row.vision === 'describe') {
+    return { body: visionRequestBody(row.id), verdict: visionVerdict }
   }
   // Config requires a kind on every vision route, so a row without one came
   // from a door older than that rule. Guessing here is what this whole module
   // exists to stop: the wrong guess fails a working model and reads as a
   // vision defect.
-  return undefined;
+  return undefined
 }
 
 async function probeOne(
@@ -416,30 +416,30 @@ async function probeOne(
   row: MenuRow & { id: string },
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
-  const check = checkFor(row);
+  const check = checkFor(row)
   if (check === undefined) {
     return {
       ok: false,
       detail:
-        "the running door reports no `vision` kind for this address, so there is no way to tell which check it can answer. It predates this probe -- run scripts/install.sh to bring the daemon up to the bundle this probe ships with.",
-    };
+        'the running door reports no `vision` kind for this address, so there is no way to tell which check it can answer. It predates this probe -- run scripts/install.sh to bring the daemon up to the bundle this probe ships with.',
+    }
   }
   try {
     const res = await fetchImpl(`${doorUrl}/openai/v1/chat/completions`, {
-      method: "POST",
+      method: 'POST',
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: check.body,
-    });
+    })
     if (!res.ok) {
       return {
         ok: false,
         detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
-      };
+      }
     }
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    return check.verdict(body.choices?.[0]?.message?.content ?? "");
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+    return check.verdict(body.choices?.[0]?.message?.content ?? '')
   } catch (err) {
-    return { ok: false, detail: errMessage(err) };
+    return { ok: false, detail: errMessage(err) }
   }
 }
 
@@ -469,45 +469,45 @@ async function probeTranslations(
       r.role === undefined &&
       r.translate !== true &&
       canAnswer(r.state) &&
-      typeof r.id === "string" &&
+      typeof r.id === 'string' &&
       Array.isArray(r.serves) &&
       r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),
-  );
+  )
   if (englishOnly.length === 0) {
-    return [];
+    return []
   }
-  const lines: ProbeLine[] = [];
+  const lines: ProbeLine[] = []
   for (const row of englishOnly) {
-    lines.push({ address: row.id, ...(await probeOneRefusal(doorUrl, row.id, fetchImpl)) });
+    lines.push({ address: row.id, ...(await probeOneRefusal(doorUrl, row.id, fetchImpl)) })
   }
-  return lines;
+  return lines
 }
 
 /** A few bytes standing in for a recording: enough to pass the upload check, never enough to be decoded, because the refusal lands first. */
-const NOT_REALLY_AUDIO = new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0]);
+const NOT_REALLY_AUDIO = new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0])
 
 async function probeOneRefusal(
   doorUrl: string,
   address: string,
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
-  const form = new FormData();
-  form.append("file", new Blob([NOT_REALLY_AUDIO]), "probe.wav");
-  form.append("model", address);
+  const form = new FormData()
+  form.append('file', new Blob([NOT_REALLY_AUDIO]), 'probe.wav')
+  form.append('model', address)
   try {
     const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
-      method: "POST",
+      method: 'POST',
       body: form,
-    });
-    const text = await res.text();
+    })
+    const text = await res.text()
     if (res.status === STATUS_BAD_REQUEST) {
-      return { ok: true, detail: "refused to translate, as a route not declaring it must" };
+      return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
     }
     return {
       ok: false,
       detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ERROR_BODY_CHARS)}`,
-    };
+    }
   } catch (err) {
-    return { ok: false, detail: errMessage(err) };
+    return { ok: false, detail: errMessage(err) }
   }
 }

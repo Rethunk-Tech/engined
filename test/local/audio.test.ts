@@ -1,13 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { handleSpeech } from "../../src/audioSpeech.ts";
-import { handleTranscription } from "../../src/audioTranscribe.ts";
-import { DockerLifecycle, dockerExec } from "../../src/docker.ts";
-import { loadSpec } from "../../src/spec.ts";
-import { isContainerSpec } from "../../src/specTypes.ts";
-import type { EngineEntry } from "../../src/types.ts";
+import { afterAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { handleSpeech } from '../../src/audioSpeech.ts'
+import { handleTranscription } from '../../src/audioTranscribe.ts'
+import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
+import { loadSpec } from '../../src/spec.ts'
+import { isContainerSpec } from '../../src/specTypes.ts'
+import type { EngineEntry } from '../../src/types.ts'
 import {
   BUNX,
   CONFIG_EXAMPLE,
@@ -16,8 +16,8 @@ import {
   LOCAL,
   specImage,
   TEST_NAME_PREFIX,
-} from "./exclusive.ts";
-import { loadLocalConfig, skipTitle } from "./fixtures.ts";
+} from './exclusive.ts'
+import { loadLocalConfig, skipTitle } from './fixtures.ts'
 
 /**
  * Drives `handleSpeech` (audio.ts) against the real chatterbox-multi container
@@ -29,11 +29,11 @@ import { loadLocalConfig, skipTitle } from "./fixtures.ts";
  * NDJSON-speaking process, or proved the "unavailable, naming the artifact's
  * obtain command" status against a real image.
  */
-const READY_TIMEOUT_S = 120;
-const IDLE_STOP_SECONDS = 60;
-const TEST_TIMEOUT_MS = 180_000;
+const READY_TIMEOUT_S = 120
+const IDLE_STOP_SECONDS = 60
+const TEST_TIMEOUT_MS = 180_000
 /** Two cold containers and a large-v3 load, back to back. */
-const ROUND_TRIP_TIMEOUT_MS = 600_000;
+const ROUND_TRIP_TIMEOUT_MS = 600_000
 
 /**
  * whisper's real weights, read from `config.example.toml` against the repo's
@@ -52,31 +52,31 @@ const ROUND_TRIP_TIMEOUT_MS = 600_000;
  * proves nothing.
  */
 function whisperModelsDir(): { dir?: string; error?: string } {
-  const { config, error } = loadLocalConfig();
+  const { config, error } = loadLocalConfig()
   if (!config) {
-    return { error };
+    return { error }
   }
-  const dir = config.engines.find((e) => e.id === "whisper")?.models_dir;
+  const dir = config.engines.find((e) => e.id === 'whisper')?.models_dir
   return dir === undefined
     ? { error: `${CONFIG_EXAMPLE}: no whisper engine declaring a models_dir` }
-    : { dir };
+    : { dir }
 }
 
-const WHISPER_MODELS = whisperModelsDir();
+const WHISPER_MODELS = whisperModelsDir()
 
 /** `models_dir: "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to substitute cleanly; chatterbox-multi's spec has no such placeholder. */
 function ttsEngine(id: string): EngineEntry {
-  return { id, args: {}, models_dir: "/unused" };
+  return { id, args: {}, models_dir: '/unused' }
 }
 
-const KOKORO_IMAGE = LOCAL ? specImage(ttsEngine("kokoro")) : undefined;
-const PIPER_IMAGE = LOCAL ? specImage(ttsEngine("piper")) : undefined;
-const CHATTERBOX_IMAGE = LOCAL ? specImage(ttsEngine("chatterbox-multi")) : undefined;
-const WHISPER_IMAGE = LOCAL ? specImage(ttsEngine("whisper")) : undefined;
-const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE);
-const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE);
-const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE);
-const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
+const KOKORO_IMAGE = LOCAL ? specImage(ttsEngine('kokoro')) : undefined
+const PIPER_IMAGE = LOCAL ? specImage(ttsEngine('piper')) : undefined
+const CHATTERBOX_IMAGE = LOCAL ? specImage(ttsEngine('chatterbox-multi')) : undefined
+const WHISPER_IMAGE = LOCAL ? specImage(ttsEngine('whisper')) : undefined
+const HAVE_CHATTERBOX = CHATTERBOX_IMAGE !== undefined && imageBuilt(CHATTERBOX_IMAGE)
+const HAVE_KOKORO = KOKORO_IMAGE !== undefined && imageBuilt(KOKORO_IMAGE)
+const HAVE_WHISPER = WHISPER_IMAGE !== undefined && imageBuilt(WHISPER_IMAGE)
+const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE)
 
 // No room check: every engine here is a TTS or STT one, all under ~3.5 GiB and
 // resident together without contention, and this tier's own containers take
@@ -85,54 +85,54 @@ const HAVE_PIPER = PIPER_IMAGE !== undefined && imageBuilt(PIPER_IMAGE);
 
 describe.skipIf(!HAVE_CHATTERBOX)(
   skipTitle(
-    "chatterbox-multi speech door (local)",
+    'chatterbox-multi speech door (local)',
     HAVE_CHATTERBOX,
     CHATTERBOX_IMAGE === undefined
       ? "chatterbox-multi's spec.toml did not resolve an image"
       : `${CHATTERBOX_IMAGE} is not built`,
   ),
   () => {
-    const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
-    const engine: EngineEntry = { id: "chatterbox-multi", args: {} };
-    const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+    const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX)
+    const engine: EngineEntry = { id: 'chatterbox-multi', args: {} }
+    const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
     if (!isContainerSpec(loaded.spec)) {
-      throw new Error("chatterbox-multi spec.toml did not parse as a container spec");
+      throw new Error('chatterbox-multi spec.toml did not parse as a container spec')
     }
-    const { spec } = loaded;
+    const { spec } = loaded
 
     afterAll(async () => {
-      await lifecycle.shutdown();
-    });
+      await lifecycle.shutdown()
+    })
 
     test(
-      "a real chatterbox-multi container starts on demand and its NDJSON is translated into real WAV bytes",
+      'a real chatterbox-multi container starts on demand and its NDJSON is translated into real WAV bytes',
       async () => {
         const start = async (id: string) => {
           const status = await lifecycle.start(id, spec, {
             idleStopSeconds: IDLE_STOP_SECONDS,
             readyTimeoutS: READY_TIMEOUT_S,
             specSource: loaded.source,
-          });
-          return { private_url: status.private_url };
-        };
+          })
+          return { private_url: status.private_url }
+        }
 
         const result = await handleSpeech(
-          { engine: "chatterbox-multi", input: "hello there" },
+          { engine: 'chatterbox-multi', input: 'hello there' },
           start,
-        );
+        )
 
-        expect(result.status).toBe(200);
-        expect(result.bytes).toBeDefined();
-        const bytes = result.bytes as Uint8Array;
+        expect(result.status).toBe(200)
+        expect(result.bytes).toBeDefined()
+        const bytes = result.bytes as Uint8Array
         // The WAV RIFF magic, not just "some bytes came back" -- a door
         // that forwarded the raw NDJSON envelope unparsed would also
         // produce a non-empty byte array.
-        expect(Buffer.from(bytes.slice(0, 4)).toString("ascii")).toBe("RIFF");
+        expect(Buffer.from(bytes.slice(0, 4)).toString('ascii')).toBe('RIFF')
       },
       TEST_TIMEOUT_MS,
-    );
+    )
   },
-);
+)
 
 /**
  * A scratch, empty `models_dir` keeps this from ever touching the
@@ -142,7 +142,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
  */
 describe.skipIf(!HAVE_WHISPER)(
   skipTitle(
-    "whisper unavailable status against real docker (local)",
+    'whisper unavailable status against real docker (local)',
     HAVE_WHISPER,
     WHISPER_IMAGE === undefined
       ? "whisper's spec.toml did not resolve an image"
@@ -150,43 +150,43 @@ describe.skipIf(!HAVE_WHISPER)(
   ),
   () => {
     const scratchModelsDir = HAVE_WHISPER
-      ? mkdtempSync(join(tmpdir(), "engined-whisper-empty-"))
-      : "";
+      ? mkdtempSync(join(tmpdir(), 'engined-whisper-empty-'))
+      : ''
 
     afterAll(() => {
-      if (scratchModelsDir !== "") {
-        rmSync(scratchModelsDir, { recursive: true, force: true });
+      if (scratchModelsDir !== '') {
+        rmSync(scratchModelsDir, { recursive: true, force: true })
       }
-    });
+    })
 
     test(
       "an empty models_dir reports unavailable naming the artifact's own obtain command, via real image inspection",
       async () => {
-        const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
+        const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX)
         const engine: EngineEntry = {
-          id: "whisper",
+          id: 'whisper',
           args: {},
           models_dir: scratchModelsDir,
-        };
-        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
+        }
+        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
         if (!isContainerSpec(loaded.spec)) {
-          throw new Error("whisper spec.toml did not parse as a container spec");
+          throw new Error('whisper spec.toml did not parse as a container spec')
         }
 
-        const status = await lifecycle.probe("whisper", loaded.spec, loaded.source);
+        const status = await lifecycle.probe('whisper', loaded.spec, loaded.source)
 
-        expect(status.state).toBe("unavailable");
-        expect(status.state).not.toBe("installed");
+        expect(status.state).toBe('unavailable')
+        expect(status.state).not.toBe('installed')
         // Never a container that starts and dies: the image itself must
         // have been found (otherwise fix would be a "docker build"
         // command, not this artifact's own obtain line).
-        expect(status.fix).toBe(loaded.spec.artifacts[0]?.obtain);
-        expect(status.fix).toContain("curl");
+        expect(status.fix).toBe(loaded.spec.artifacts[0]?.obtain)
+        expect(status.fix).toContain('curl')
       },
       TEST_TIMEOUT_MS,
-    );
+    )
   },
-);
+)
 
 /**
  * Nothing in this tier touched kokoro before this block, and whisper was only
@@ -200,19 +200,19 @@ describe.skipIf(!HAVE_WHISPER)(
  * would otherwise be skipped wholesale whenever kokoro's image is missing.
  */
 const TTS_ROUND_TRIPS: { id: string; ready: boolean }[] = [
-  { id: "kokoro", ready: HAVE_KOKORO },
-  { id: "piper", ready: HAVE_PIPER },
-];
+  { id: 'kokoro', ready: HAVE_KOKORO },
+  { id: 'piper', ready: HAVE_PIPER },
+]
 
 /** Which of the two preconditions failed, so a skipped round trip never reads as "some image is missing" when the real cause is the example config. */
 function roundTripSkipReason(id: string, ready: boolean): string {
   return ready && HAVE_WHISPER
     ? `whisper's models_dir did not resolve: ${WHISPER_MODELS.error}`
-    : `${id} or whisper is not built`;
+    : `${id} or whisper is not built`
 }
 
 for (const tts of TTS_ROUND_TRIPS) {
-  const roundTripReady = tts.ready && HAVE_WHISPER && WHISPER_MODELS.dir !== undefined;
+  const roundTripReady = tts.ready && HAVE_WHISPER && WHISPER_MODELS.dir !== undefined
   describe.skipIf(!roundTripReady)(
     skipTitle(
       `${tts.id} -> whisper round trip (local)`,
@@ -220,98 +220,98 @@ for (const tts of TTS_ROUND_TRIPS) {
       roundTripSkipReason(tts.id, tts.ready),
     ),
     () => {
-      const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX);
+      const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX)
 
       function startFor(id: string) {
         const engine: EngineEntry = {
           id,
           args: {},
           models_dir: WHISPER_MODELS.dir,
-        };
-        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX });
-        if (!isContainerSpec(loaded.spec)) {
-          throw new Error(`${id} spec.toml did not parse as a container spec`);
         }
-        const { spec } = loaded;
+        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
+        if (!isContainerSpec(loaded.spec)) {
+          throw new Error(`${id} spec.toml did not parse as a container spec`)
+        }
+        const { spec } = loaded
         return async (requested: string) => {
           const status = await lifecycle.start(requested, spec, {
             idleStopSeconds: IDLE_STOP_SECONDS,
             readyTimeoutS: READY_TIMEOUT_S,
             specSource: loaded.source,
-          });
-          return { private_url: status.private_url };
-        };
+          })
+          return { private_url: status.private_url }
+        }
       }
 
       afterAll(async () => {
-        await lifecycle.shutdown();
-      });
+        await lifecycle.shutdown()
+      })
 
       test(
         `${tts.id} speaks a phrase and whisper reads that same phrase back`,
         async () => {
           const spoken = await handleSpeech(
-            { engine: tts.id, input: "The quick brown fox." },
+            { engine: tts.id, input: 'The quick brown fox.' },
             startFor(tts.id),
-          );
-          expect(spoken.status).toBe(200);
-          const wav = spoken.bytes as Uint8Array;
+          )
+          expect(spoken.status).toBe(200)
+          const wav = spoken.bytes as Uint8Array
           // RIFF, not merely non-empty: a door forwarding the engine's raw
           // NDJSON envelope would also produce bytes.
-          expect(Buffer.from(wav.slice(0, 4)).toString("ascii")).toBe("RIFF");
+          expect(Buffer.from(wav.slice(0, 4)).toString('ascii')).toBe('RIFF')
 
           const heard = await handleTranscription(
             {
-              engine: "whisper",
-              model: "medium.en",
+              engine: 'whisper',
+              model: 'medium.en',
               file: wav as Uint8Array<ArrayBuffer>,
-              response_format: "text",
+              response_format: 'text',
             },
-            startFor("whisper"),
-          );
-          expect(heard.status).toBe(200);
+            startFor('whisper'),
+          )
+          expect(heard.status).toBe(200)
           // `text` must come back as bare text, not a JSON envelope: a consumer
           // that asks for text stores this body verbatim as the transcript.
-          expect(typeof heard.body).toBe("string");
-          expect(String(heard.body).toLowerCase()).toContain("quick brown fox");
+          expect(typeof heard.body).toBe('string')
+          expect(String(heard.body).toLowerCase()).toContain('quick brown fox')
         },
         ROUND_TRIP_TIMEOUT_MS,
-      );
+      )
 
       test(
         `${tts.id}'s phrase streams as segments and ends on the buffered transcript, exactly`,
         async () => {
           const spoken = await handleSpeech(
-            { engine: tts.id, input: "The quick brown fox jumps over the lazy dog." },
+            { engine: tts.id, input: 'The quick brown fox jumps over the lazy dog.' },
             startFor(tts.id),
-          );
-          const wav = spoken.bytes as Uint8Array<ArrayBuffer>;
+          )
+          const wav = spoken.bytes as Uint8Array<ArrayBuffer>
 
           const buffered = await handleTranscription(
-            { engine: "whisper", model: "medium.en", file: wav },
-            startFor("whisper"),
-          );
+            { engine: 'whisper', model: 'medium.en', file: wav },
+            startFor('whisper'),
+          )
           const streamed = await handleTranscription(
-            { engine: "whisper", model: "medium.en", file: wav, stream: true },
-            startFor("whisper"),
-          );
-          expect(streamed.status).toBe(200);
+            { engine: 'whisper', model: 'medium.en', file: wav, stream: true },
+            startFor('whisper'),
+          )
+          expect(streamed.status).toBe(200)
 
           const frames = (await new Response(streamed.stream).text())
-            .split("\n")
+            .split('\n')
             .filter((line) => line.length > 0)
-            .map((line) => JSON.parse(line) as { phase: string; text?: string });
-          expect(frames.filter((frame) => frame.phase === "segment").length).toBeGreaterThan(0);
+            .map((line) => JSON.parse(line) as { phase: string; text?: string })
+          expect(frames.filter((frame) => frame.phase === 'segment').length).toBeGreaterThan(0)
 
           // Byte for byte, not "close enough": a consumer should not be able to
           // tell which of the engine's two decode paths answered it, and the
           // two binaries behind them do not share sampling defaults.
-          const done = frames.at(-1);
-          expect(done?.phase).toBe("done");
-          expect(done?.text).toBe((buffered.body as { text: string }).text);
+          const done = frames.at(-1)
+          expect(done?.phase).toBe('done')
+          expect(done?.text).toBe((buffered.body as { text: string }).text)
         },
         ROUND_TRIP_TIMEOUT_MS,
-      );
+      )
     },
-  );
+  )
 }

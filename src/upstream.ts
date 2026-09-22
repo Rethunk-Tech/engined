@@ -15,32 +15,32 @@
  * or an error body from anywhere in here.
  */
 
-import type { Exec as SecretExec } from "./exec.ts";
-import { STATUS_BAD_GATEWAY, STATUS_UNAVAILABLE } from "./http.ts";
-import { resolveSecret } from "./secrets.ts";
-import type { Upstream } from "./types.ts";
+import type { Exec as SecretExec } from './exec.ts'
+import { STATUS_BAD_GATEWAY, STATUS_UNAVAILABLE } from './http.ts'
+import { resolveSecret } from './secrets.ts'
+import type { Upstream } from './types.ts'
 
 /** Where an upstream actually is, and what proves we may talk to it. */
 export interface UpstreamEndpoint {
   /** The configured `base_url`, verbatim — engined writes no port for anything but this. */
-  base_url: string;
+  base_url: string
   /** `{ [secret.header]: <resolved value>, or "<scheme> <resolved value>" when the secret names one }`. One header, named by config. */
-  headers: Record<string, string>;
+  headers: Record<string, string>
 }
 
 type UpstreamResolution =
   | { ok: true; endpoint: UpstreamEndpoint }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string }
 
 /** `header` and `scheme` ride along so a caller never has to reach back into `upstream.secret` the resolver already validated. */
 type SecretResolution =
   | { ok: true; value: string; header: string; scheme?: string }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string }
 
-const TRAILING_SLASHES = /\/+$/;
-const LEADING_SLASHES = /^\/+/;
+const TRAILING_SLASHES = /\/+$/
+const LEADING_SLASHES = /^\/+/
 /** Anchored on the segment boundary so `/v1beta/...` is left alone. */
-const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/;
+const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/
 
 /**
  * The raw secret, for the one caller that needs the value itself rather than
@@ -65,9 +65,9 @@ export async function resolveUpstreamSecret(
       // sign-in.
       status: STATUS_BAD_GATEWAY,
       error: `upstream "${upstream.id}" has no configured secret`,
-    };
+    }
   }
-  const outcome = await resolveSecret(upstream.secret, secretExec);
+  const outcome = await resolveSecret(upstream.secret, secretExec)
   return outcome.ok
     ? {
         ok: true,
@@ -75,12 +75,12 @@ export async function resolveUpstreamSecret(
         header: upstream.secret.header,
         scheme: upstream.secret.scheme,
       }
-    : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix };
+    : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix }
 }
 
 /** One wording for the missing-address refusal, shared by every caller that has to have one. */
 export function noBaseUrlFix(upstreamId: string): string {
-  return `upstream "${upstreamId}" has no configured base_url`;
+  return `upstream "${upstreamId}" has no configured base_url`
 }
 
 /** The address and the one header, for every caller that speaks HTTP straight to an upstream. */
@@ -90,11 +90,11 @@ export async function resolveUpstream(
 ): Promise<UpstreamResolution> {
   if (upstream.base_url === undefined) {
     // 502, not 503: misconfiguration, which no amount of waiting fixes.
-    return { ok: false, status: STATUS_BAD_GATEWAY, error: noBaseUrlFix(upstream.id) };
+    return { ok: false, status: STATUS_BAD_GATEWAY, error: noBaseUrlFix(upstream.id) }
   }
-  const resolved = await resolveUpstreamSecret(upstream, secretExec);
+  const resolved = await resolveUpstreamSecret(upstream, secretExec)
   if (!resolved.ok) {
-    return resolved;
+    return resolved
   }
   return {
     ok: true,
@@ -105,7 +105,7 @@ export async function resolveUpstream(
           resolved.scheme === undefined ? resolved.value : `${resolved.scheme} ${resolved.value}`,
       },
     },
-  };
+  }
 }
 
 /**
@@ -116,7 +116,7 @@ export async function resolveUpstream(
  * `https://api.kimi.com/coding/` both carry a path that has to survive.
  */
 export function upstreamUrl(base: string, path: string): string {
-  return `${base.replace(TRAILING_SLASHES, "")}/${path.replace(LEADING_SLASHES, "")}`;
+  return `${base.replace(TRAILING_SLASHES, '')}/${path.replace(LEADING_SLASHES, '')}`
 }
 
 /**
@@ -131,5 +131,5 @@ export function upstreamUrl(base: string, path: string): string {
  * documentation is the kind that gets copied wrong once and debugged twice.
  */
 export function upstreamPath(doorPath: string): string {
-  return doorPath.replace(DOOR_VERSION_PREFIX, "");
+  return doorPath.replace(DOOR_VERSION_PREFIX, '')
 }

@@ -4,9 +4,9 @@
  * A handle never carries the uploader's own filename.
  */
 
-import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomBytes } from 'node:crypto'
+import { mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 /**
  * `POST /engined/v1/audio/voices`: a multipart upload of one reference
  * recording, answered with the handle a later `/audio/speech` call names as
@@ -19,27 +19,27 @@ import { join } from "node:path";
  * the door takes the bytes, chooses the name, and is the only party that
  * ever knows the path.
  */
-import process from "node:process";
-import { jsonError, STATUS_BAD_REQUEST, STATUS_PAYLOAD_TOO_LARGE } from "./http.ts";
-import { voicesDir } from "./paths.ts";
-import { errMessage } from "./types.ts";
-export const VOICE_UPLOAD_PATH = "/engined/v1/audio/voices";
+import process from 'node:process'
+import { jsonError, STATUS_BAD_REQUEST, STATUS_PAYLOAD_TOO_LARGE } from './http.ts'
+import { voicesDir } from './paths.ts'
+import { errMessage } from './types.ts'
+export const VOICE_UPLOAD_PATH = '/engined/v1/audio/voices'
 
 /** Where each `engines/chatterbox-*` spec.toml mounts `{state_dir}/voices`. The two are one pair; changing either alone breaks every clone. */
-export const VOICE_CONTAINER_DIR = "/voices";
+export const VOICE_CONTAINER_DIR = '/voices'
 
 /** Marks a `voice` field as a handle this door issued rather than a path baked into an engine image, which still passes through untouched. */
-const VOICE_HANDLE_PREFIX = "vc_";
+const VOICE_HANDLE_PREFIX = 'vc_'
 
 /**
  * The whole handle, and the only string ever joined onto `voicesDir()`: 16
  * random bytes plus a short suffix, so no caller-supplied character reaches
  * a path and no handle is guessable.
  */
-const VOICE_HANDLE_RE = /^vc_[0-9a-f]{32}\.[a-z0-9]{1,4}$/;
+const VOICE_HANDLE_RE = /^vc_[0-9a-f]{32}\.[a-z0-9]{1,4}$/
 
 /** 128 bits: the handle is the only thing standing between one caller's uploads and another's, so it is guessed, not enumerated. */
-const VOICE_ID_BYTES = 16;
+const VOICE_ID_BYTES = 16
 
 /**
  * A reference voice is a few seconds of speech -- chatterbox conditions on
@@ -48,7 +48,7 @@ const VOICE_ID_BYTES = 16;
  * transcription upload is allowed to be. It bounds one file; VOICE_KEEP
  * bounds the store.
  */
-const MAX_VOICE_BYTES = 16_777_216;
+const MAX_VOICE_BYTES = 16_777_216
 
 /**
  * How many uploads the store keeps. A count, like the comfy binding table's
@@ -58,15 +58,15 @@ const MAX_VOICE_BYTES = 16_777_216;
  * falls off the end is what nothing has spoken with. 64 x MAX_VOICE_BYTES is
  * the worst case at 1 GiB; a real store of 10-second clips is a few MB.
  */
-const VOICE_KEEP = 64;
+const VOICE_KEEP = 64
 
 /** The suffix `voiceSuffix` will accept from an upload, and the same shape `VOICE_HANDLE_RE` will later match back. */
-const VOICE_SUFFIX_RE = /^[a-z0-9]{1,4}$/;
+const VOICE_SUFFIX_RE = /^[a-z0-9]{1,4}$/
 
 /** The suffix is cosmetic -- the engine's loader sniffs content -- but a wrong-looking one invites a bug report, so a plain one from the upload is kept and anything else becomes `wav`. */
 function voiceSuffix(name: string): string {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  return VOICE_SUFFIX_RE.test(ext) && ext !== name ? ext : "wav";
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+  return VOICE_SUFFIX_RE.test(ext) && ext !== name ? ext : 'wav'
 }
 
 /**
@@ -77,51 +77,51 @@ function voiceSuffix(name: string): string {
  */
 function evictVoices(): void {
   try {
-    const dir = voicesDir();
+    const dir = voicesDir()
     const files = readdirSync(dir)
       .map((name) => ({ name, used: statSync(join(dir, name)).mtimeMs }))
-      .sort((a, b) => a.used - b.used);
+      .sort((a, b) => a.used - b.used)
     for (const { name } of files.slice(0, Math.max(0, files.length - VOICE_KEEP))) {
-      rmSync(join(dir, name));
+      rmSync(join(dir, name))
     }
   } catch (err) {
-    process.stderr.write(`voice store not trimmed: ${errMessage(err)}\n`);
+    process.stderr.write(`voice store not trimmed: ${errMessage(err)}\n`)
   }
 }
 
 export async function handleVoiceUpload(req: Request): Promise<Response> {
-  const declared = Number(req.headers.get("content-length") ?? Number.NaN);
+  const declared = Number(req.headers.get('content-length') ?? Number.NaN)
   if (Number.isFinite(declared) && declared > MAX_VOICE_BYTES) {
     return jsonError(
       STATUS_PAYLOAD_TOO_LARGE,
       `reference voice is ${declared} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    );
+    )
   }
-  let file: FormDataEntryValue | null = null;
+  let file: FormDataEntryValue | null = null
   try {
-    file = (await req.formData()).get("file");
+    file = (await req.formData()).get('file')
   } catch {
     // Not multipart at all, which the same message covers as a missing part.
   }
   if (!(file instanceof Blob)) {
-    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with a `file` part");
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with a `file` part')
   }
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  const bytes = new Uint8Array(await file.arrayBuffer())
   if (bytes.byteLength === 0) {
-    return jsonError(STATUS_BAD_REQUEST, "multipart form carried no `file` part");
+    return jsonError(STATUS_BAD_REQUEST, 'multipart form carried no `file` part')
   }
   if (bytes.byteLength > MAX_VOICE_BYTES) {
     return jsonError(
       STATUS_PAYLOAD_TOO_LARGE,
       `reference voice is ${bytes.byteLength} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    );
+    )
   }
-  const name = file instanceof File ? file.name : "";
-  const voice = `${VOICE_HANDLE_PREFIX}${randomBytes(VOICE_ID_BYTES).toString("hex")}.${voiceSuffix(name)}`;
-  mkdirSync(voicesDir(), { recursive: true });
-  writeFileSync(join(voicesDir(), voice), bytes);
-  evictVoices();
-  return Response.json({ voice, bytes: bytes.byteLength });
+  const name = file instanceof File ? file.name : ''
+  const voice = `${VOICE_HANDLE_PREFIX}${randomBytes(VOICE_ID_BYTES).toString('hex')}.${voiceSuffix(name)}`
+  mkdirSync(voicesDir(), { recursive: true })
+  writeFileSync(join(voicesDir(), voice), bytes)
+  evictVoices()
+  return Response.json({ voice, bytes: bytes.byteLength })
 }
 
 /**
@@ -134,20 +134,20 @@ export async function handleVoiceUpload(req: Request): Promise<Response> {
  */
 export function resolveVoice(voice: string | undefined): string | undefined | Response {
   if (voice === undefined || !voice.startsWith(VOICE_HANDLE_PREFIX)) {
-    return voice;
+    return voice
   }
   if (!VOICE_HANDLE_RE.test(voice)) {
-    return jsonError(STATUS_BAD_REQUEST, `"${voice}" is not a voice handle this door issued`);
+    return jsonError(STATUS_BAD_REQUEST, `"${voice}" is not a voice handle this door issued`)
   }
-  const path = join(voicesDir(), voice);
+  const path = join(voicesDir(), voice)
   try {
-    const now = new Date();
-    utimesSync(path, now, now);
+    const now = new Date()
+    utimesSync(path, now, now)
   } catch {
     return jsonError(
       STATUS_BAD_REQUEST,
       `voice "${voice}" is not held by this door -- upload it again`,
-    );
+    )
   }
-  return `${VOICE_CONTAINER_DIR}/${voice}`;
+  return `${VOICE_CONTAINER_DIR}/${voice}`
 }

@@ -5,14 +5,14 @@
  * line the call is entitled to.
  */
 
-import type { DoorResponse, EngineStart, SpeechRequestBody } from "./audio.ts";
-import { SPEECH_DOOR_KEYS } from "./audio.ts";
-import { handleSpeech } from "./audioSpeech.ts";
-import { classifyResult, type HopExec, runChain, wrapStream } from "./chain.ts";
-import { resolveModel, resolveQualified, routeEgress } from "./dispatch.ts";
-import type { DoorContext } from "./doorContext.ts";
-import { DEFAULT_IDLE_STOP_SECONDS } from "./engines.ts";
-import { EngineBusyError } from "./errors/engineBusy.ts";
+import type { DoorResponse, EngineStart, SpeechRequestBody } from './audio.ts'
+import { SPEECH_DOOR_KEYS } from './audio.ts'
+import { handleSpeech } from './audioSpeech.ts'
+import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
+import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
+import type { DoorContext } from './doorContext.ts'
+import { DEFAULT_IDLE_STOP_SECONDS } from './engines.ts'
+import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
@@ -21,8 +21,8 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   TEXT_CONTENT_TYPE,
-} from "./http.ts";
-import { recordCall } from "./provenance.ts";
+} from './http.ts'
+import { recordCall } from './provenance.ts'
 import {
   CONTENT_ENDPOINT_SPEECH,
   type Config,
@@ -31,19 +31,19 @@ import {
   qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
-} from "./types.ts";
-import { resolveUpstream } from "./upstream.ts";
-import { resolveVoice } from "./voices.ts";
+} from './types.ts'
+import { resolveUpstream } from './upstream.ts'
+import { resolveVoice } from './voices.ts'
 
 interface AudioCallInfo {
-  engineId: string;
+  engineId: string
   /** The model segment of the resolved address, when the engine's routes carry one. Absent for a modelless engine. */
-  model?: string;
+  model?: string
   /** The resolved route's `[[upstream]]` id, or `"local"`. Absent for an ambient route, the same disposition a chat hop's carries. */
-  upstream?: string;
-  requested: string;
-  result: DoorResponse;
-  startedAt: number;
+  upstream?: string
+  requested: string
+  result: DoorResponse
+  startedAt: number
 }
 
 /**
@@ -55,14 +55,14 @@ interface AudioCallInfo {
  * success, and one that died mid-body is not.
  */
 function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
-  const { engineId, model, upstream, requested, result, startedAt } = info;
+  const { engineId, model, upstream, requested, result, startedAt } = info
   const emit = (audioBytes: number, streamFailure?: string): void => {
     const verdict = classifyResult({
       status: result.status,
-      body: audioBytes > 0 ? "audio" : result.body,
-    });
-    const ok = verdict.ok && streamFailure === undefined;
-    const failure = streamFailure ?? verdict.failure;
+      body: audioBytes > 0 ? 'audio' : result.body,
+    })
+    const ok = verdict.ok && streamFailure === undefined
+    const failure = streamFailure ?? verdict.failure
     recordCall(
       {
         chain: null,
@@ -87,18 +87,18 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
         upstream_used: ok ? (upstream ?? null) : null,
       },
       ctx.doorOpts.write,
-    );
-  };
+    )
+  }
   if (!result.stream) {
-    emit(result.bytes?.byteLength ?? 0);
-    return result;
+    emit(result.bytes?.byteLength ?? 0)
+    return result
   }
   return {
     ...result,
     stream: wrapStream(result.stream, (ok, streamFailure, bytes) =>
-      emit(bytes ?? 0, ok ? undefined : (streamFailure ?? "stream ended before completion")),
+      emit(bytes ?? 0, ok ? undefined : (streamFailure ?? 'stream ended before completion')),
     ),
-  };
+  }
 }
 
 function doorResponseToResponse(result: DoorResponse): Response {
@@ -106,7 +106,7 @@ function doorResponseToResponse(result: DoorResponse): Response {
     return new Response(result.stream, {
       status: result.status,
       headers: { [CONTENT_TYPE]: result.contentType },
-    });
+    })
   }
   if (result.bytes) {
     // `Buffer.from` rather than the raw `Uint8Array`: DoorResponse.bytes is
@@ -115,20 +115,20 @@ function doorResponseToResponse(result: DoorResponse): Response {
     return new Response(Buffer.from(result.bytes), {
       status: result.status,
       headers: { [CONTENT_TYPE]: result.contentType },
-    });
+    })
   }
   if (result.contentType === TEXT_CONTENT_TYPE) {
     return new Response(String(result.body), {
       status: result.status,
       headers: { [CONTENT_TYPE]: result.contentType },
-    });
+    })
   }
-  return Response.json(result.body, { status: result.status });
+  return Response.json(result.body, { status: result.status })
 }
 
 /** Whether this call's `audioStart` actually took a lease -- the only thing entitled to give one back. */
 export interface AudioLease {
-  held: boolean;
+  held: boolean
 }
 
 /**
@@ -148,10 +148,10 @@ export interface AudioLease {
  */
 function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease): void {
   if (!leased.held) {
-    return;
+    return
   }
-  const engine = ctx.registry.entry(engineId);
-  ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
+  const engine = ctx.registry.entry(engineId)
+  ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
 }
 
 /**
@@ -170,13 +170,13 @@ function endAudioLease(
   result: DoorResponse,
 ): DoorResponse {
   if (!result.stream) {
-    armAudioIdleStop(ctx, engineId, leased);
-    return result;
+    armAudioIdleStop(ctx, engineId, leased)
+    return result
   }
   return {
     ...result,
     stream: wrapStream(result.stream, () => armAudioIdleStop(ctx, engineId, leased)),
-  };
+  }
 }
 
 /**
@@ -193,7 +193,7 @@ export function finishAudioCall(
 ): Response {
   return doorResponseToResponse(
     endAudioLease(ctx, info.engineId, leased, recordAudioCall(ctx, info)),
-  );
+  )
 }
 
 /**
@@ -205,7 +205,7 @@ export type AudioAttempt = (
   engineId: string,
   model: string | undefined,
   start: EngineStart,
-) => Promise<DoorResponse>;
+) => Promise<DoorResponse>
 
 /**
  * What one chain hop resolves to for an audio endpoint. `resolveQualified` is
@@ -216,15 +216,15 @@ export type AudioAttempt = (
  * fails as itself rather than being dispatched to an engine that cannot answer.
  */
 function audioHopRoute(ctx: DoorContext, hop: string, endpoint: string) {
-  const segments = qualifiedSegments(hop);
+  const segments = qualifiedSegments(hop)
   if (segments === undefined) {
-    return { ok: false as const, error: `chain hop "${hop}" is not a qualified @/ address` };
+    return { ok: false as const, error: `chain hop "${hop}" is not a qualified @/ address` }
   }
   return resolveQualified(segments, {
     endpoint,
     config: ctx.getConfig(),
     registry: ctx.registry,
-  });
+  })
 }
 
 /**
@@ -243,36 +243,36 @@ function audioHopExec(
   setContentType: (ct: string) => void,
 ): HopExec {
   return async (hop) => {
-    const dispatch = audioHopRoute(ctx, hop, endpoint);
+    const dispatch = audioHopRoute(ctx, hop, endpoint)
     if (!dispatch.ok) {
-      return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(dispatch.error) };
+      return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(dispatch.error) }
     }
-    const { route } = dispatch;
-    const leased: AudioLease = { held: false };
+    const { route } = dispatch
+    const leased: AudioLease = { held: false }
     const result = endAudioLease(
       ctx,
       route.engine,
       leased,
       await attempt(route.engine, route.model, audioStart(ctx, leased)),
-    );
-    setContentType(result.contentType);
+    )
+    setContentType(result.contentType)
     return {
       status: result.status,
       body: result.body,
       bytes: result.bytes,
       stream: result.stream,
       upstreamUsed: route.upstream ?? undefined,
-    };
-  };
+    }
+  }
 }
 
 interface AudioChain {
-  chain: string;
-  hops: readonly string[];
-  requested: string;
-  endpoint: string;
-  attempt: AudioAttempt;
-  signal?: AbortSignal;
+  chain: string
+  hops: readonly string[]
+  requested: string
+  endpoint: string
+  attempt: AudioAttempt
+  signal?: AbortSignal
 }
 
 /**
@@ -286,26 +286,26 @@ interface AudioChain {
  * the name here would change what an engine receives.
  */
 export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Response> {
-  let contentType = JSON_CONTENT_TYPE;
-  const config = ctx.getConfig();
+  let contentType = JSON_CONTENT_TYPE
+  const config = ctx.getConfig()
   const result = await runChain([...opts.hops], {
     chain: opts.chain,
     requested: opts.requested,
     egressOf: (hop): Egress => {
-      const dispatch = audioHopRoute(ctx, hop, opts.endpoint);
+      const dispatch = audioHopRoute(ctx, hop, opts.endpoint)
       // Fail closed, the same reading the chat door's own egressOf takes: a hop
       // that resolves to no route could be anything, so it is treated as remote.
-      return dispatch.ok ? routeEgress(dispatch.route, config) : "remote";
+      return dispatch.ok ? routeEgress(dispatch.route, config) : 'remote'
     },
     // Every audio hop is a container or a vendor's HTTP endpoint; none is an
     // agentic CLI, so there is one budget rather than a per-kind lookup.
     timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
     signal: opts.signal,
     exec: audioHopExec(ctx, opts.endpoint, opts.attempt, (ct) => {
-      contentType = ct;
+      contentType = ct
     }),
     write: ctx.doorOpts.write,
-  });
+  })
   return doorResponseToResponse({
     status: result.status,
     // Nothing answered, so the body is the chain's own JSON refusal rather than
@@ -315,7 +315,7 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
     body: result.body,
     bytes: result.bytes,
     stream: result.stream,
-  });
+  })
 }
 
 /**
@@ -324,16 +324,16 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
  * "scribe_v1".
  */
 export function singleAudioRoute(route: ResolvedRoute): {
-  engineId: string;
-  model?: string;
-  upstream?: string;
+  engineId: string
+  model?: string
+  upstream?: string
 } {
   return {
     engineId: route.engine,
     model: route.model,
     // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
     upstream: route.upstream ?? undefined,
-  };
+  }
 }
 
 /** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone, excluding disabled routes exactly as `routeForHop` does for the rest. */
@@ -344,7 +344,7 @@ function audioRoute(
 ): ResolvedRoute | undefined {
   return model === undefined
     ? config.routes.find((r) => r.disabled !== true && r.engine === id && r.model === undefined)
-    : routeForHop(config.routes, id, model);
+    : routeForHop(config.routes, id, model)
 }
 
 async function remoteAudioStart(
@@ -352,14 +352,14 @@ async function remoteAudioStart(
   id: string,
   upstreamId: string,
 ): Promise<Awaited<ReturnType<EngineStart>>> {
-  const upstream = ctx.getConfig().upstreams.find((u) => u.id === upstreamId);
+  const upstream = ctx.getConfig().upstreams.find((u) => u.id === upstreamId)
   if (upstream === undefined) {
-    return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` };
+    return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` }
   }
-  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
+  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
   return resolution.ok
     ? { private_url: null, remote: resolution.endpoint }
-    : { private_url: null, unavailable: resolution.error };
+    : { private_url: null, unavailable: resolution.error }
 }
 
 /**
@@ -374,11 +374,11 @@ async function remoteAudioStart(
  */
 export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
-    const engine = ctx.registry.entry(id);
-    const route = audioRoute(ctx.getConfig(), id, model);
-    const upstreamId = route?.upstream ?? null;
-    if (engine && upstreamId !== null && upstreamId !== "local") {
-      return remoteAudioStart(ctx, id, upstreamId);
+    const engine = ctx.registry.entry(id)
+    const route = audioRoute(ctx.getConfig(), id, model)
+    const upstreamId = route?.upstream ?? null
+    if (engine && upstreamId !== null && upstreamId !== 'local') {
+      return remoteAudioStart(ctx, id, upstreamId)
     }
     try {
       // The lease is the registry's to take, not this door's: taken here it
@@ -386,23 +386,23 @@ export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
       // zero leases in that gap stops the container under this request.
       // Paired with the `armAudioIdleStop` on the way out, which releases
       // only what was actually taken.
-      await ctx.registry.start(id, model, { lease: true });
+      await ctx.registry.start(id, model, { lease: true })
     } catch (err) {
       if (err instanceof EngineBusyError) {
-        return { private_url: null, conflict: err.message };
+        return { private_url: null, conflict: err.message }
       }
-      throw err;
+      throw err
     }
     // `EngineStatus` (the wire type `registry.start` returns) carries no
     // container address at all -- the internal runtime read is `lifecycle`'s
     // own, the same source the comfy proxy resolves against.
-    const status = ctx.lifecycle.getStatus(id);
+    const status = ctx.lifecycle.getStatus(id)
     // `active_leases` is reported for a running container and no other, which
     // is the one condition `beginLease` takes a lease under. Read in the same
     // tick, it answers whether the start above took one.
-    leased.held = status.active_leases !== undefined;
-    return { private_url: status.private_url };
-  };
+    leased.held = status.active_leases !== undefined
+    return { private_url: status.private_url }
+  }
 }
 
 export async function handleAudioSpeech(
@@ -410,54 +410,54 @@ export async function handleAudioSpeech(
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, ctx.getConfig(), ctx.registry);
+  const rawModel = typeof body.model === 'string' ? body.model : undefined
+  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, ctx.getConfig(), ctx.registry)
   if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+    return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }
-  const voice = resolveVoice(typeof body.voice === "string" ? body.voice : undefined);
+  const voice = resolveVoice(typeof body.voice === 'string' ? body.voice : undefined)
   if (voice instanceof Response) {
-    return voice;
+    return voice
   }
   const extra = Object.fromEntries(
     Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
-  );
+  )
   // A speech request carries no model of its own -- every TTS route is
   // modelless -- so the only thing a hop changes is which engine it names.
   const attempt: AudioAttempt = (hopEngine, _model, start) => {
     const speechReq: SpeechRequestBody = {
       engine: hopEngine,
-      input: typeof body.input === "string" ? body.input : "",
-      response_format: typeof body.response_format === "string" ? body.response_format : undefined,
-      stream: body.stream === "ndjson" ? "ndjson" : body.stream === true,
+      input: typeof body.input === 'string' ? body.input : '',
+      response_format: typeof body.response_format === 'string' ? body.response_format : undefined,
+      stream: body.stream === 'ndjson' ? 'ndjson' : body.stream === true,
       voice,
-      speed: typeof body.speed === "number" ? body.speed : undefined,
-      instructions: typeof body.instructions === "string" ? body.instructions : undefined,
+      speed: typeof body.speed === 'number' ? body.speed : undefined,
+      instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
       ...(Object.keys(extra).length > 0 ? { extra } : {}),
-    };
-    return handleSpeech(speechReq, start);
-  };
+    }
+    return handleSpeech(speechReq, start)
+  }
 
-  if (resolved.kind === "chain") {
+  if (resolved.kind === 'chain') {
     return runAudioChain(ctx, {
       chain: resolved.chain,
       hops: resolved.hops,
-      requested: rawModel ?? "",
+      requested: rawModel ?? '',
       endpoint: CONTENT_ENDPOINT_SPEECH,
       attempt,
       signal,
-    });
+    })
   }
 
-  const { engineId, upstream } = singleAudioRoute(resolved.route);
-  const leased: AudioLease = { held: false };
-  const startedAt = Date.now();
-  const result = await attempt(engineId, undefined, audioStart(ctx, leased));
+  const { engineId, upstream } = singleAudioRoute(resolved.route)
+  const leased: AudioLease = { held: false }
+  const startedAt = Date.now()
+  const result = await attempt(engineId, undefined, audioStart(ctx, leased))
   return finishAudioCall(ctx, leased, {
     engineId,
     upstream,
-    requested: rawModel ?? "",
+    requested: rawModel ?? '',
     result,
     startedAt,
-  });
+  })
 }

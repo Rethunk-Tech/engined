@@ -16,7 +16,7 @@ import {
   ndjsonRelay,
   TEXT_RESPONSE_FORMATS,
   type TranscriptionRequestBody,
-} from "./audio.ts";
+} from './audio.ts'
 import {
   CONTENT_TYPE,
   discardBody,
@@ -28,9 +28,9 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
   TEXT_CONTENT_TYPE,
-} from "./http.ts";
-import { parseRecord } from "./types.ts";
-import { type UpstreamEndpoint, upstreamUrl } from "./upstream.ts";
+} from './http.ts'
+import { parseRecord } from './types.ts'
+import { type UpstreamEndpoint, upstreamUrl } from './upstream.ts'
 
 /**
  * ElevenLabs returns words with timings, so `srt`/`vtt` are buildable — and
@@ -38,7 +38,7 @@ import { type UpstreamEndpoint, upstreamUrl } from "./upstream.ts";
  * asked this door for. Rejected while that is still true, in the same spirit
  * as `SPEECH_RESPONSE_FORMATS` rejecting mp3 rather than mislabelling WAV.
  */
-const REMOTE_TEXT_RESPONSE_FORMATS = new Set(["text"]);
+const REMOTE_TEXT_RESPONSE_FORMATS = new Set(['text'])
 
 /**
  * The ElevenLabs Scribe dialect. `model` is the door's own resolved model --
@@ -52,50 +52,47 @@ async function transcribeRemote(
   model: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
-  const format = req.response_format;
-  if (format !== undefined && !REMOTE_TEXT_RESPONSE_FORMATS.has(format) && format !== "json") {
+  const format = req.response_format
+  if (format !== undefined && !REMOTE_TEXT_RESPONSE_FORMATS.has(format) && format !== 'json') {
     return errorResponse(
       STATUS_BAD_REQUEST,
       `${req.engine}: response_format must be one of: text, json`,
-    );
+    )
   }
 
   // No prompt here: this speaks the remote STT dialect (`model_id`,
   // `language_code`), which has no equivalent of whisper's initial prompt.
-  const form = new FormData();
-  form.append("file", new Blob([req.file]), "audio");
-  form.append("model_id", model);
+  const form = new FormData()
+  form.append('file', new Blob([req.file]), 'audio')
+  form.append('model_id', model)
   if (req.language !== undefined) {
-    form.append("language_code", req.language);
+    form.append('language_code', req.language)
   }
 
-  const res = await fetchImpl(upstreamUrl(remote.base_url, "/speech-to-text"), {
-    method: "POST",
+  const res = await fetchImpl(upstreamUrl(remote.base_url, '/speech-to-text'), {
+    method: 'POST',
     headers: remote.headers,
     body: form,
-  });
+  })
   if (!res.ok) {
-    await discardBody(res);
+    await discardBody(res)
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: /speech-to-text returned ${res.status}`,
-    );
+    )
   }
 
-  const text = parseRecord(await res.text())?.text;
-  if (typeof text !== "string") {
-    return errorResponse(
-      STATUS_BAD_GATEWAY,
-      `${req.engine}: /speech-to-text carried no transcript`,
-    );
+  const text = parseRecord(await res.text())?.text
+  if (typeof text !== 'string') {
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /speech-to-text carried no transcript`)
   }
   if (format !== undefined && REMOTE_TEXT_RESPONSE_FORMATS.has(format)) {
-    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: text };
+    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: text }
   }
   // The door's own JSON shape, not the upstream's: a consumer that switched
   // engines would otherwise start seeing ElevenLabs' word timings and
   // language-probability fields appear and disappear with the engine id.
-  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text } };
+  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: { text } }
 }
 
 /**
@@ -104,7 +101,7 @@ async function transcribeRemote(
  * always served, so a caller that does not ask to stream reaches the same
  * handler it always did.
  */
-const TRANSCRIPTION_STREAM_PATH = "/v1/audio/transcriptions/stream";
+const TRANSCRIPTION_STREAM_PATH = '/v1/audio/transcriptions/stream'
 
 /**
  * Whisper's `initial_prompt` is a fixed window -- half the text context, 224
@@ -118,8 +115,8 @@ const TRANSCRIPTION_STREAM_PATH = "/v1/audio/transcriptions/stream";
  * consumers guessed it independently and disagreed about which vocabulary
  * survives, which is the failure a shared door exists to prevent.
  */
-const MAX_BIAS_TERMS = 24;
-const MAX_BIAS_TERM_LENGTH = 40;
+const MAX_BIAS_TERMS = 24
+const MAX_BIAS_TERM_LENGTH = 40
 
 /**
  * The comma-separated vocabulary the engine will actually see, or `undefined`
@@ -140,41 +137,41 @@ const MAX_BIAS_TERM_LENGTH = 40;
  */
 function cappedBiasPrompt(prompt: string | undefined): string | undefined {
   if (prompt === undefined) {
-    return undefined;
+    return undefined
   }
-  const terms = prompt.split(",");
-  const seen = new Set<string>();
-  const kept: string[] = [];
+  const terms = prompt.split(',')
+  const seen = new Set<string>()
+  const kept: string[] = []
   for (let i = terms.length - 1; i >= 0 && kept.length < MAX_BIAS_TERMS; i -= 1) {
-    const term = (terms[i] ?? "").trim().slice(0, MAX_BIAS_TERM_LENGTH);
-    const key = term.toLowerCase();
-    if (term !== "" && !seen.has(key)) {
-      seen.add(key);
-      kept.push(term);
+    const term = (terms[i] ?? '').trim().slice(0, MAX_BIAS_TERM_LENGTH)
+    const key = term.toLowerCase()
+    if (term !== '' && !seen.has(key)) {
+      seen.add(key)
+      kept.push(term)
     }
   }
-  return kept.length === 0 ? undefined : kept.reverse().join(", ");
+  return kept.length === 0 ? undefined : kept.reverse().join(', ')
 }
 
 /** The transcription fields the door forwards, and nothing an engine invents beside them. */
 function vettedTranscriptFrame(frame: Frame): Record<string, unknown> | undefined {
-  if (typeof frame.phase !== "string") {
-    return undefined;
+  if (typeof frame.phase !== 'string') {
+    return undefined
   }
-  const out: Record<string, unknown> = { phase: frame.phase };
-  if (typeof frame.text === "string") {
-    out.text = frame.text;
+  const out: Record<string, unknown> = { phase: frame.phase }
+  if (typeof frame.text === 'string') {
+    out.text = frame.text
   }
-  if (typeof frame.start === "number") {
-    out.start = frame.start;
+  if (typeof frame.start === 'number') {
+    out.start = frame.start
   }
-  if (typeof frame.end === "number") {
-    out.end = frame.end;
+  if (typeof frame.end === 'number') {
+    out.end = frame.end
   }
-  if (typeof frame.detail === "string") {
-    out.detail = frame.detail;
+  if (typeof frame.detail === 'string') {
+    out.detail = frame.detail
   }
-  return out;
+  return out
 }
 
 /**
@@ -187,46 +184,46 @@ async function transcribeStreamed(
   privateUrl: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
-  const query = new URLSearchParams();
+  const query = new URLSearchParams()
   if (req.language !== undefined) {
-    query.set("language", req.language);
+    query.set('language', req.language)
   }
-  const prompt = cappedBiasPrompt(req.prompt);
+  const prompt = cappedBiasPrompt(req.prompt)
   if (prompt !== undefined) {
-    query.set("prompt", prompt);
+    query.set('prompt', prompt)
   }
-  const suffix = query.size > 0 ? `?${query}` : "";
+  const suffix = query.size > 0 ? `?${query}` : ''
   const res = await fetchImpl(`http://${privateUrl}${TRANSCRIPTION_STREAM_PATH}${suffix}`, {
-    method: "POST",
+    method: 'POST',
     headers: { [CONTENT_TYPE]: OCTET_STREAM_CONTENT_TYPE },
     body: req.file,
-  });
+  })
   if (!res.ok) {
-    await discardBody(res);
+    await discardBody(res)
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: ${TRANSCRIPTION_STREAM_PATH} returned ${res.status}`,
-    );
+    )
   }
-  const { body } = res;
+  const { body } = res
   if (body === null) {
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: ${TRANSCRIPTION_STREAM_PATH} streamed no body`,
-    );
+    )
   }
-  return ndjsonRelay(ndjsonFrames(body), vettedTranscriptFrame);
+  return ndjsonRelay(ndjsonFrames(body), vettedTranscriptFrame)
 }
 
 /** `undefined` when the request is well-formed; a 400 response otherwise. */
 function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResponse | undefined {
   if (!req.engine) {
-    return errorResponse(STATUS_BAD_REQUEST, "engine is required");
+    return errorResponse(STATUS_BAD_REQUEST, 'engine is required')
   }
   // A live body's emptiness is not knowable here -- the engine answers a body
   // that turned out to carry nothing with its own 400.
   if (!liveUpload(req) && req.file.length === 0) {
-    return errorResponse(STATUS_BAD_REQUEST, "file is required");
+    return errorResponse(STATUS_BAD_REQUEST, 'file is required')
   }
   // srt/vtt/text format a whole transcript, and a streamed reply has no whole
   // transcript to format. Refused rather than ignored: honouring neither the
@@ -239,7 +236,7 @@ function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResp
     return errorResponse(
       STATUS_BAD_REQUEST,
       `a streamed transcription answers in NDJSON frames, so response_format "${req.response_format}" does not apply`,
-    );
+    )
   }
   // The streamed path is the door's own route on the whisper wrapper, whose
   // two query levers are language and prompt -- it has no channel for this
@@ -248,10 +245,10 @@ function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResp
   if (req.stream === true && req.translate === true) {
     return errorResponse(
       STATUS_BAD_REQUEST,
-      "a translation cannot be streamed; send it as a buffered request",
-    );
+      'a translation cannot be streamed; send it as a buffered request',
+    )
   }
-  return undefined;
+  return undefined
 }
 
 /** The OpenAI verb as whisper-server has always answered it: one multipart form up, one whole body back. */
@@ -260,40 +257,40 @@ async function transcribeLocal(
   privateUrl: string,
   fetchImpl: HttpClient,
 ): Promise<DoorResponse> {
-  const form = new FormData();
-  form.append("file", new Blob([req.file]), "audio");
+  const form = new FormData()
+  form.append('file', new Blob([req.file]), 'audio')
   if (req.language !== undefined) {
-    form.append("language", req.language);
+    form.append('language', req.language)
   }
   // whisper-server parses this per request, so the same loaded model answers
   // both verbs -- no second container and no restart to translate.
   if (req.translate === true) {
-    form.append("translate", "true");
+    form.append('translate', 'true')
   }
   if (req.response_format !== undefined) {
-    form.append("response_format", req.response_format);
+    form.append('response_format', req.response_format)
   }
-  const prompt = cappedBiasPrompt(req.prompt);
+  const prompt = cappedBiasPrompt(req.prompt)
   if (prompt !== undefined) {
-    form.append("prompt", prompt);
+    form.append('prompt', prompt)
   }
 
   const res = await fetchImpl(`http://${privateUrl}/v1/audio/transcriptions`, {
-    method: "POST",
+    method: 'POST',
     body: form,
-  });
+  })
   if (!res.ok) {
-    await discardBody(res);
+    await discardBody(res)
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${req.engine}: /v1/audio/transcriptions returned ${res.status}`,
-    );
+    )
   }
 
   if (req.response_format !== undefined && TEXT_RESPONSE_FORMATS.has(req.response_format)) {
-    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: await res.text() };
+    return { status: STATUS_OK, contentType: TEXT_CONTENT_TYPE, body: await res.text() }
   }
-  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: await res.json() };
+  return { status: STATUS_OK, contentType: JSON_CONTENT_TYPE, body: await res.json() }
 }
 
 export async function handleTranscription(
@@ -301,15 +298,15 @@ export async function handleTranscription(
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
-  const invalid = invalidTranscriptionRequest(req);
+  const invalid = invalidTranscriptionRequest(req)
   if (invalid) {
-    return invalid;
+    return invalid
   }
 
-  const engine = await start(req.engine, req.model);
-  const conflict = conflictResponse(engine);
+  const engine = await start(req.engine, req.model)
+  const conflict = conflictResponse(engine)
   if (conflict) {
-    return conflict;
+    return conflict
   }
   if (engine.remote !== undefined) {
     if (liveUpload(req) || req.stream === true) {
@@ -319,24 +316,18 @@ export async function handleTranscription(
       return errorResponse(
         STATUS_BAD_REQUEST,
         `${req.engine} is a remote address, and no remote transcription dialect streams`,
-      );
+      )
     }
     if (req.model === undefined) {
-      return errorResponse(
-        STATUS_BAD_GATEWAY,
-        `${req.engine} requires a model, and none was named`,
-      );
+      return errorResponse(STATUS_BAD_GATEWAY, `${req.engine} requires a model, and none was named`)
     }
-    return await transcribeRemote(req, engine.remote, req.model, fetchImpl);
+    return await transcribeRemote(req, engine.remote, req.model, fetchImpl)
   }
   if (engine.private_url === null) {
-    return errorResponse(
-      STATUS_UNAVAILABLE,
-      engine.unavailable ?? `${req.engine} is not available`,
-    );
+    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.engine} is not available`)
   }
   if (liveUpload(req) || req.stream === true) {
-    return await transcribeStreamed(req, engine.private_url, fetchImpl);
+    return await transcribeStreamed(req, engine.private_url, fetchImpl)
   }
-  return await transcribeLocal(req, engine.private_url, fetchImpl);
+  return await transcribeLocal(req, engine.private_url, fetchImpl)
 }

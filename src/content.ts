@@ -4,15 +4,15 @@
  * on. Each resolves an address to a chain of hops and hands them to `runChain`.
  */
 
-import { handleAudioSpeech } from "./audioDoor.ts";
-import { handleAudioTranscription } from "./audioDoorTranscribe.ts";
-import { parseHop, runChain } from "./chain.ts";
-import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from "./control.ts";
-import { type Dispatch, resolveModel } from "./dispatch.ts";
-import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
-import { EngineBusyError } from "./errors/engineBusy.ts";
-import { proxyExtras } from "./extras.ts";
-import { buildHopExec, egressOf, timeoutSecondsForKind } from "./hop.ts";
+import { handleAudioSpeech } from './audioDoor.ts'
+import { handleAudioTranscription } from './audioDoorTranscribe.ts'
+import { parseHop, runChain } from './chain.ts'
+import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.ts'
+import { type Dispatch, resolveModel } from './dispatch.ts'
+import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import { EngineBusyError } from './errors/engineBusy.ts'
+import { proxyExtras } from './extras.ts'
+import { buildHopExec, egressOf, timeoutSecondsForKind } from './hop.ts'
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
@@ -22,11 +22,11 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
   STATUS_UNAVAILABLE,
-} from "./http.ts";
-import { handleImageEdit } from "./imageEdits.ts";
-import { handleImageGeneration } from "./images.ts";
-import { hopForwardsTools } from "./modelsMenu.ts";
-import { readJsonBody } from "./requestBody.ts";
+} from './http.ts'
+import { handleImageEdit } from './imageEdits.ts'
+import { handleImageGeneration } from './images.ts'
+import { hopForwardsTools } from './modelsMenu.ts'
+import { readJsonBody } from './requestBody.ts'
 import {
   CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
@@ -40,35 +40,35 @@ import {
   isEgress,
   MS_PER_SECOND,
   type ResolvedRoute,
-} from "./types.ts";
+} from './types.ts'
 
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
-const SSE_KEEPALIVE_MS = 30_000;
+const SSE_KEEPALIVE_MS = 30_000
 
 function chatTimeoutMs(ctx: DoorContext): (hop: string) => number {
-  const config = ctx.getConfig();
+  const config = ctx.getConfig()
   return (hop) => {
-    const { engine: engineId } = parseHop(hop);
-    return timeoutSecondsForKind(ctx.registry.get(engineId)?.kind, config) * MS_PER_SECOND;
-  };
+    const { engine: engineId } = parseHop(hop)
+    return timeoutSecondsForKind(ctx.registry.get(engineId)?.kind, config) * MS_PER_SECOND
+  }
 }
 
 interface ContentRequest {
-  pathname: string;
-  rawModel: string;
-  body: Record<string, unknown>;
+  pathname: string
+  rawModel: string
+  body: Record<string, unknown>
   /** The client's signal, carried this far so an abandoned chat stops the chain instead of running every hop to its full budget. */
-  signal: AbortSignal;
+  signal: AbortSignal
   /** This request arrived on a launch-scoped `/openai/v1/<nonce>/...` URL. */
-  launchScoped: boolean;
+  launchScoped: boolean
 }
 
 /** `undefined` when the caller left it out (no ceiling); a legal `Egress` string when it named one. A value that is neither is the caller's own mistake, not a silent no-ceiling. */
 function parseMaxEgress(raw: unknown): { ok: true; value: Egress | undefined } | { ok: false } {
   if (raw === undefined) {
-    return { ok: true, value: undefined };
+    return { ok: true, value: undefined }
   }
-  return isEgress(raw) ? { ok: true, value: raw } : { ok: false };
+  return isEgress(raw) ? { ok: true, value: raw } : { ok: false }
 }
 
 /** Every verb whose route comes from the body's own `model` string -- chat, embeddings, rerank. `chain`, `model` and `engine` dispatches all become one or more `@/engine/model` hops through `runChain`, which is also where the one provenance line per call is emitted. */
@@ -77,18 +77,18 @@ async function handleModelRouted(
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
 ): Promise<Response> {
-  const { pathname, rawModel, body, signal, launchScoped } = content;
-  const maxEgress = parseMaxEgress(body.max_egress);
+  const { pathname, rawModel, body, signal, launchScoped } = content
+  const maxEgress = parseMaxEgress(body.max_egress)
   if (!maxEgress.ok) {
     return jsonError(
       STATUS_BAD_REQUEST,
-      `max_egress must be one of: ${Object.keys(EGRESS_RANK).join(", ")}`,
-    );
+      `max_egress must be one of: ${Object.keys(EGRESS_RANK).join(', ')}`,
+    )
   }
-  const hops = resolved.kind === "chain" ? [...resolved.hops] : [routeAddress(resolved.route)];
-  const chainName = resolved.kind === "chain" ? resolved.chain : null;
+  const hops = resolved.kind === 'chain' ? [...resolved.hops] : [routeAddress(resolved.route)]
+  const chainName = resolved.kind === 'chain' ? resolved.chain : null
 
-  let contentType: string = JSON_CONTENT_TYPE;
+  let contentType: string = JSON_CONTENT_TYPE
   const result = await runChain(hops, {
     chain: chainName,
     requested: rawModel,
@@ -102,7 +102,7 @@ async function handleModelRouted(
         pathname,
         rawBody: body,
         setContentType: (ct) => {
-          contentType = ct;
+          contentType = ct
         },
         toolsHonourableElsewhere: hops.some((hop) =>
           hopForwardsTools(hop, ctx.getConfig().routes, (id) => ctx.registry.get(id)),
@@ -112,19 +112,19 @@ async function handleModelRouted(
       launchScoped,
     ),
     write: ctx.doorOpts.write,
-  });
+  })
 
   if (result.stream) {
     return new Response(result.stream, {
       status: result.status,
       headers: { [CONTENT_TYPE]: contentType },
-    });
+    })
   }
-  return Response.json(result.body, { status: result.status });
+  return Response.json(result.body, { status: result.status })
 }
 
 /** Tokenize and apply-template are chat tools; asking the router for any other role would inject the wrong model. */
-const EXTRAS_ROLE = "chat";
+const EXTRAS_ROLE = 'chat'
 
 /**
  * The GGUF extras inject when the body names none. A `keep_resident` chat
@@ -137,10 +137,10 @@ function extrasChatRoute(config: Config, engineId: string): ResolvedRoute | unde
       r.disabled !== true &&
       r.engine === engineId &&
       r.role === EXTRAS_ROLE &&
-      r.upstream === "local" &&
+      r.upstream === 'local' &&
       r.model !== undefined,
-  );
-  return locals.find((r) => r.keep_resident === true) ?? locals[0];
+  )
+  return locals.find((r) => r.keep_resident === true) ?? locals[0]
 }
 
 export async function handleExtras(
@@ -149,35 +149,35 @@ export async function handleExtras(
   engineId: string,
   verb: string,
 ): Promise<Response> {
-  const engineEntry = ctx.registry.entry(engineId);
+  const engineEntry = ctx.registry.entry(engineId)
   if (!engineEntry) {
-    return jsonError(STATUS_BAD_REQUEST, `unknown engine "${engineId}"`);
+    return jsonError(STATUS_BAD_REQUEST, `unknown engine "${engineId}"`)
   }
   // Without this the router would happily start whisper and post a chat body into it.
   if (!ctx.registry.isLocalLlama(engineId)) {
-    return jsonError(STATUS_BAD_REQUEST, `engine "${engineId}" does not serve ${verb}`);
+    return jsonError(STATUS_BAD_REQUEST, `engine "${engineId}" does not serve ${verb}`)
   }
-  const status = await ctx.registry.start(engineId);
+  const status = await ctx.registry.start(engineId)
   // `EngineStatus` carries no container address; the internal runtime read
   // is `lifecycle`'s own, the same source the comfy proxy resolves against.
-  const privateUrl = ctx.lifecycle.getStatus(engineId).private_url;
+  const privateUrl = ctx.lifecycle.getStatus(engineId).private_url
   if (privateUrl === null) {
-    return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`);
+    return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`)
   }
-  const router = getLlamaRouter(ctx, engineEntry);
-  let residentModel = router.residentModel(EXTRAS_ROLE);
+  const router = getLlamaRouter(ctx, engineEntry)
+  let residentModel = router.residentModel(EXTRAS_ROLE)
   if (residentModel === null) {
-    const chatRoute = extrasChatRoute(ctx.getConfig(), engineId);
+    const chatRoute = extrasChatRoute(ctx.getConfig(), engineId)
     if (chatRoute !== undefined) {
       try {
-        await router.warm(chatRoute, req.signal);
+        await router.warm(chatRoute, req.signal)
       } catch (err) {
         if (err instanceof EngineBusyError) {
-          return jsonError(STATUS_CONFLICT, err.message);
+          return jsonError(STATUS_CONFLICT, err.message)
         }
-        return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
+        return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
       }
-      residentModel = router.residentModel(EXTRAS_ROLE);
+      residentModel = router.residentModel(EXTRAS_ROLE)
     }
   }
   return proxyExtras(
@@ -185,7 +185,7 @@ export async function handleExtras(
     { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },
     residentModel,
     ctx.doorOpts.extrasHttpClient,
-  );
+  )
 }
 
 export async function handleContent(
@@ -195,41 +195,41 @@ export async function handleContent(
   launchScoped: boolean,
 ): Promise<Response> {
   if (pathname === CONTENT_ENDPOINT_TRANSCRIPTIONS || pathname === CONTENT_ENDPOINT_TRANSLATIONS) {
-    return handleAudioTranscription(ctx, req, pathname);
+    return handleAudioTranscription(ctx, req, pathname)
   }
   // Multipart like the audio verbs, and read before `readJsonBody` for the
   // same reason: the image is the request, not a field inside a JSON body.
   if (pathname === CONTENT_ENDPOINT_IMAGE_EDITS) {
     // The signal ends a render nobody is waiting for: a diffusion job holds the
     // GPU, and this door runs one at a time.
-    return handleImageEdit(ctx, req, req.signal);
+    return handleImageEdit(ctx, req, req.signal)
   }
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req)
   if (body instanceof Response) {
-    return body;
+    return body
   }
   if (pathname === CONTENT_ENDPOINT_SPEECH) {
     // The signal is what stops a speech chain advancing to a second engine for
     // an answer the caller is no longer there to receive.
-    return handleAudioSpeech(ctx, body, req.signal);
+    return handleAudioSpeech(ctx, body, req.signal)
   }
   if (pathname === CONTENT_ENDPOINT_IMAGES) {
     // The signal ends a render nobody is waiting for: a diffusion job holds the
     // GPU, and this door runs one at a time.
-    return handleImageGeneration(ctx, body, req.signal);
+    return handleImageGeneration(ctx, body, req.signal)
   }
-  const rawModel = typeof body.model === "string" ? body.model : undefined;
-  const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry);
+  const rawModel = typeof body.model === 'string' ? body.model : undefined
+  const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry)
   if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+    return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }
   return handleModelRouted(ctx, resolved, {
     pathname,
-    rawModel: rawModel ?? "",
+    rawModel: rawModel ?? '',
     body,
     signal: req.signal,
     launchScoped,
-  });
+  })
 }
 
 /**
@@ -242,65 +242,65 @@ export async function handleContent(
  * have to poll once anyway to find out where it stands.
  */
 export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Response {
-  const encoder = new TextEncoder();
+  const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      let open = true;
+      let open = true
       const send = (event: string, data: unknown): void => {
         if (!open) {
-          return;
+          return
         }
         try {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
         } catch {
           // The client went away between the abort check and the write.
-          open = false;
+          open = false
         }
-      };
+      }
 
       const unwatch = ctx.registry.watch((status) => {
-        send("engine", engineWithLlamaRoles(ctx, status));
-      });
+        send('engine', engineWithLlamaRoles(ctx, status))
+      })
       const keepalive = setInterval(() => {
         if (open) {
           try {
-            controller.enqueue(encoder.encode(": keepalive\n\n"));
+            controller.enqueue(encoder.encode(': keepalive\n\n'))
           } catch {
-            open = false;
+            open = false
           }
         }
-      }, SSE_KEEPALIVE_MS);
+      }, SSE_KEEPALIVE_MS)
 
       const close = (): void => {
-        open = false;
-        clearInterval(keepalive);
-        unwatch();
+        open = false
+        clearInterval(keepalive)
+        unwatch()
         try {
-          controller.close();
+          controller.close()
         } catch {
           // Already closed by the client's disconnect.
         }
-      };
-      signal.addEventListener("abort", close, { once: true });
+      }
+      signal.addEventListener('abort', close, { once: true })
 
       ctx.registry
         .list()
         .then((listed) => {
-          attachLlamaRoles(ctx, listed.engines);
-          send("snapshot", listed);
+          attachLlamaRoles(ctx, listed.engines)
+          send('snapshot', listed)
         })
         .catch(() => {
           // A snapshot that cannot be built is not a reason to deny the
           // client the live frames it actually subscribed for.
-        });
+        })
     },
-  });
+  })
 
   return new Response(stream, {
     headers: {
       [CONTENT_TYPE]: SSE_CONTENT_TYPE,
-      "cache-control": "no-cache",
-      connection: "keep-alive",
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
     },
-  });
+  })
 }

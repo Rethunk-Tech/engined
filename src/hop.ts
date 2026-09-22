@@ -9,16 +9,16 @@
  * serve those same paths unprefixed. Strip ours before forwarding, or the
  * upstream is asked for a path only this door knows about.
  */
-export const OPENAI_PREFIX = "/openai";
+export const OPENAI_PREFIX = '/openai'
 export function enginePath(doorPath: string): string {
-  return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath;
+  return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath
 }
 
-import { execAgentic } from "./agenticHop.ts";
-import { resolveUpstreamModelId } from "./agenticRedirect.ts";
-import { type HopExec, type HopResult, parseHop } from "./chain.ts";
-import { resolveServedRoute, routeEgress } from "./dispatch.ts";
-import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
+import { execAgentic } from './agenticHop.ts'
+import { resolveUpstreamModelId } from './agenticRedirect.ts'
+import { type HopExec, type HopResult, parseHop } from './chain.ts'
+import { resolveServedRoute, routeEgress } from './dispatch.ts'
+import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
@@ -26,10 +26,10 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
-} from "./http.ts";
-import { reportedModelFrom } from "./llama.ts";
-import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from "./types.ts";
-import { resolveUpstream, upstreamPath, upstreamUrl } from "./upstream.ts";
+} from './http.ts'
+import { reportedModelFrom } from './llama.ts'
+import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
+import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
 
 /**
  * An explicit `null` from the caller unsets a wire default rather than being
@@ -45,19 +45,19 @@ function withoutCallerNulls(
   merged: Record<string, unknown>,
   caller: Record<string, unknown>,
 ): Record<string, unknown> {
-  const out = { ...merged };
+  const out = { ...merged }
   for (const [key, value] of Object.entries(caller)) {
     if (value === null) {
-      delete out[key];
+      delete out[key]
     }
   }
-  return out;
+  return out
 }
 
 function stripField(body: Record<string, unknown>, field: string): Record<string, unknown> {
-  const rest = { ...body };
-  delete rest[field];
-  return rest;
+  const rest = { ...body }
+  delete rest[field]
+  return rest
 }
 
 /**
@@ -76,11 +76,11 @@ export function openAiRequestInit(
   signal: AbortSignal,
 ): RequestInit {
   return {
-    method: "POST",
+    method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify({ ...stripField(rawBody, "workdir"), model: resolvedModelId }),
+    body: JSON.stringify({ ...stripField(rawBody, 'workdir'), model: resolvedModelId }),
     signal,
-  };
+  }
 }
 
 /**
@@ -92,34 +92,34 @@ export function openAiRequestInit(
  * rule every other unresolvable-address case follows.
  */
 export function egressOf(ctx: DoorContext, hop: string): Egress {
-  const config = ctx.getConfig();
-  const { engine: engineId, upstream: upstreamSeg, model } = parseHop(hop);
+  const config = ctx.getConfig()
+  const { engine: engineId, upstream: upstreamSeg, model } = parseHop(hop)
   const route = resolveServedRoute({
     config,
     engineId,
     modelSeg: model,
     upstreamSeg,
     inventory: ctx.registry.inventory,
-  });
-  return route === undefined ? "remote" : routeEgress(route, config);
+  })
+  return route === undefined ? 'remote' : routeEgress(route, config)
 }
 
 export interface HopRequest {
-  pathname: string;
-  rawBody: Record<string, unknown>;
-  setContentType: (ct: string) => void;
+  pathname: string
+  rawBody: Record<string, unknown>
+  setContentType: (ct: string) => void
   /** Whether ANY hop of the chain this one belongs to forwards tool-calling fields, which is what makes an agentic hop's refusal advance rather than terminate. */
-  toolsHonourableElsewhere: boolean;
+  toolsHonourableElsewhere: boolean
   /** Whether the caller addressed a chain rather than one engine. Nothing in the hops themselves answers this, and a chain caller owns none of the omissions a single hop's own shape needs. */
-  inChain: boolean;
+  inChain: boolean
 }
 
 /** One `openai-http` hop, resolved: the engine answering it, the model segment it was addressed by, and the route (if any) that segment resolved to. */
 interface HttpHop {
-  engineEntry: EngineEntry;
-  modelSeg: string;
-  route: ResolvedRoute | undefined;
-  req: HopRequest & { signal: AbortSignal };
+  engineEntry: EngineEntry
+  modelSeg: string
+  route: ResolvedRoute | undefined
+  req: HopRequest & { signal: AbortSignal }
 }
 
 /**
@@ -136,24 +136,24 @@ async function execLlama(
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`model "${modelSeg}" not found on "${engineEntry.id}"`),
-    };
+    }
   }
-  const router = getLlamaRouter(ctx, engineEntry);
+  const router = getLlamaRouter(ctx, engineEntry)
   // Both fetchBuffered and fetchStreamed take this same `init`, so
   // rewriting `model` once here fixes both proxy paths.
-  const init = openAiRequestInit(req.rawBody, route.model ?? modelSeg, req.signal);
+  const init = openAiRequestInit(req.rawBody, route.model ?? modelSeg, req.signal)
   // `modelResident` comes back with the hop, read under the same lease: from
   // the engine's own /v1/models — never the router's cached command
   // bookkeeping, and never model_reported: the two answer different questions
   // and one silently standing in for the other defeats provenance.
-  const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init);
-  const { stream, modelReported } = await readHopBody(response, req.setContentType);
+  const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init)
+  const { stream, modelReported } = await readHopBody(response, req.setContentType)
   return {
     status: response.status,
     stream,
     modelReported,
     modelResident,
-  };
+  }
 }
 
 /**
@@ -171,8 +171,8 @@ async function readHopBody(
   response: Response,
   setContentType: (ct: string) => void,
 ): Promise<{ stream: ReadableStream<Uint8Array> | undefined; modelReported: string | undefined }> {
-  const contentType = response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE;
-  setContentType(contentType);
+  const contentType = response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE
+  setContentType(contentType)
   if (contentType.includes(JSON_CONTENT_TYPE)) {
     // `.clone()` before `.body` is ever touched: reading the getter first
     // disturbs the body Bun's clone() then tees from.
@@ -181,32 +181,32 @@ async function readHopBody(
         .clone()
         .json()
         .catch(() => undefined),
-    );
-    return { stream: response.body ?? undefined, modelReported };
+    )
+    return { stream: response.body ?? undefined, modelReported }
   }
   if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
-    const [forCaller, forSniff] = response.body.tee();
-    return { stream: forCaller, modelReported: await firstReportedModel(forSniff) };
+    const [forCaller, forSniff] = response.body.tee()
+    return { stream: forCaller, modelReported: await firstReportedModel(forSniff) }
   }
-  return { stream: response.body ?? undefined, modelReported: undefined };
+  return { stream: response.body ?? undefined, modelReported: undefined }
 }
 
-const SSE_FRAME_BOUNDARY = "\n\n";
+const SSE_FRAME_BOUNDARY = '\n\n'
 
 /** The first `data:` line in one SSE frame that parses to an object carrying `model`, if any. */
 function reportedModelFromFrame(frame: string): string | undefined {
-  for (const line of frame.split("\n")) {
-    if (!line.startsWith("data:")) {
-      continue;
+  for (const line of frame.split('\n')) {
+    if (!line.startsWith('data:')) {
+      continue
     }
-    const data = line.slice("data:".length).trim();
-    if (data === "" || data === "[DONE]") {
-      continue;
+    const data = line.slice('data:'.length).trim()
+    if (data === '' || data === '[DONE]') {
+      continue
     }
     try {
-      const model = reportedModelFrom(JSON.parse(data));
+      const model = reportedModelFrom(JSON.parse(data))
       if (model !== undefined) {
-        return model;
+        return model
       }
     } catch {
       // Not JSON -- the next frame might still carry it.
@@ -222,32 +222,32 @@ function reportedModelFromFrame(frame: string): string | undefined {
  * `undefined`: an absent field is honest, a guessed one is not.
  */
 async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<string | undefined> {
-  const reader = sniff.getReader();
-  const decoder = new TextDecoder();
-  let buffered = "";
+  const reader = sniff.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read()
       if (value) {
-        buffered += decoder.decode(value, { stream: true });
+        buffered += decoder.decode(value, { stream: true })
       }
-      const frames = buffered.split(SSE_FRAME_BOUNDARY);
-      buffered = frames.pop() ?? "";
+      const frames = buffered.split(SSE_FRAME_BOUNDARY)
+      buffered = frames.pop() ?? ''
       for (const frame of frames) {
-        const model = reportedModelFromFrame(frame);
+        const model = reportedModelFromFrame(frame)
         if (model !== undefined) {
-          return model;
+          return model
         }
       }
       if (done) {
-        return;
+        return
       }
     }
   } catch {
     // A sniff-read failure is not the caller's failure: the tee's other
     // branch shares the same underlying source and reports it independently.
   } finally {
-    reader.cancel().catch(() => undefined);
+    reader.cancel().catch(() => undefined)
   }
 }
 
@@ -266,51 +266,51 @@ async function execRemoteHttp(
   ctx: DoorContext,
   { engineEntry, modelSeg, route, req }: HttpHop,
 ): Promise<HopResult> {
-  const config = ctx.getConfig();
+  const config = ctx.getConfig()
   // The route's own upstream carries the address and secret; the engine
   // itself has none of its own.
   const upstream =
     route?.upstream === undefined || route.upstream === null
       ? undefined
-      : config.upstreams.find((u) => u.id === route.upstream);
+      : config.upstreams.find((u) => u.id === route.upstream)
   if (upstream === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`engine "${engineEntry.id}" has no resolvable upstream`),
-    };
+    }
   }
-  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec);
+  const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
   if (!resolution.ok) {
-    return { status: resolution.status, body: jsonErrorBody(resolution.error) };
+    return { status: resolution.status, body: jsonErrorBody(resolution.error) }
   }
-  const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg, upstream.id);
+  const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg, upstream.id)
   if (modelId === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
       body: jsonErrorBody(`engine "${engineEntry.id}" requires a model, and none was named`),
-    };
+    }
   }
   // [engine.args] are engine-level wire defaults (reasoning_effort, and
   // whatever else this upstream takes) -- the caller's own body wins, the same
   // way a [model.args] key wins over [engine.args] one layer down.
-  const callerBody = stripField(req.rawBody, "max_egress");
-  const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody);
-  const init = openAiRequestInit(body, modelId, req.signal);
+  const callerBody = stripField(req.rawBody, 'max_egress')
+  const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody)
+  const init = openAiRequestInit(body, modelId, req.signal)
   const response = await fetch(
     upstreamUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
     {
       ...init,
       headers: { ...(init.headers as Record<string, string>), ...resolution.endpoint.headers },
     },
-  );
-  const { stream, modelReported } = await readHopBody(response, req.setContentType);
-  return { status: response.status, stream, modelReported };
+  )
+  const { stream, modelReported } = await readHopBody(response, req.setContentType)
+  return { status: response.status, stream, modelReported }
 }
 
 export function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: boolean): HopExec {
   return async (hop, signal) => {
-    const { engine: engineId, upstream: upstreamSeg, model: modelSeg } = parseHop(hop);
-    const kind = ctx.registry.get(engineId)?.kind;
+    const { engine: engineId, upstream: upstreamSeg, model: modelSeg } = parseHop(hop)
+    const kind = ctx.registry.get(engineId)?.kind
     // Which of the two openai-http proxies applies is the resolved route's
     // question, not the engine's: `upstream === "local"` is this box's own
     // llama-server, anything else is proxied elsewhere with no local router.
@@ -322,8 +322,8 @@ export function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: bo
       modelSeg,
       upstreamSeg,
       inventory: ctx.registry.inventory,
-    });
-    const upstreamUsed = route?.upstream ?? undefined;
+    })
+    const upstreamUsed = route?.upstream ?? undefined
     const result = await execHop(ctx, req, {
       engineId,
       modelSeg,
@@ -331,22 +331,22 @@ export function buildHopExec(ctx: DoorContext, req: HopRequest, launchScoped: bo
       route,
       launchScoped,
       signal,
-    });
-    return { ...result, upstreamUsed };
-  };
+    })
+    return { ...result, upstreamUsed }
+  }
 }
 
 interface HopDispatch {
-  engineId: string;
-  modelSeg: string;
-  kind: EngineKind | undefined;
-  route: ResolvedRoute | undefined;
-  launchScoped: boolean;
-  signal: AbortSignal;
+  engineId: string
+  modelSeg: string
+  kind: EngineKind | undefined
+  route: ResolvedRoute | undefined
+  launchScoped: boolean
+  signal: AbortSignal
 }
 
 async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promise<HopResult> {
-  const { engineId, modelSeg, kind, route, launchScoped, signal } = d;
+  const { engineId, modelSeg, kind, route, launchScoped, signal } = d
   // Keyed on the RESOLVED engine, never the caller's literal model string:
   // a one-segment address that resolves to an agentic route is the same
   // attack as naming that engine outright, and refusing only the literal
@@ -355,16 +355,16 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
   // the credential-shaped statuses `classifyResult` advances past, and this
   // is a proven refusal, not a transport hiccup a next hop might route
   // around.
-  if (launchScoped && kind === "agentic-cli") {
+  if (launchScoped && kind === 'agentic-cli') {
     return {
       status: STATUS_FORBIDDEN,
       envelopeFailure: true,
       body: jsonErrorBody(
         `engine "${engineId}" is agentic and cannot be reached from a launch-scoped door`,
       ),
-    };
+    }
   }
-  if (kind === "agentic-cli") {
+  if (kind === 'agentic-cli') {
     return await execAgentic(ctx, {
       engineId,
       modelSeg,
@@ -376,19 +376,19 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
         toolsHonourableElsewhere: req.toolsHonourableElsewhere,
         inChain: req.inChain,
       },
-    });
+    })
   }
-  const engineEntry = ctx.registry.entry(engineId);
-  if (kind === "openai-http" && engineEntry && route !== undefined && route.upstream !== "local") {
-    return await execRemoteHttp(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } });
+  const engineEntry = ctx.registry.entry(engineId)
+  if (kind === 'openai-http' && engineEntry && route !== undefined && route.upstream !== 'local') {
+    return await execRemoteHttp(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } })
   }
-  if (kind === "openai-http" && engineEntry) {
-    return await execLlama(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } });
+  if (kind === 'openai-http' && engineEntry) {
+    return await execLlama(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } })
   }
   return {
     status: STATUS_BAD_GATEWAY,
     body: jsonErrorBody(`engine "${engineId}" of kind "${kind}" cannot serve this request`),
-  };
+  }
 }
 
 /**
@@ -400,5 +400,5 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
  * allowed to contain agentic hops.
  */
 export function timeoutSecondsForKind(kind: EngineKind | undefined, config: Config): number {
-  return kind === "agentic-cli" ? config.agent_timeout_seconds : config.chat_timeout_seconds;
+  return kind === 'agentic-cli' ? config.agent_timeout_seconds : config.chat_timeout_seconds
 }

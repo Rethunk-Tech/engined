@@ -4,21 +4,21 @@
  * Every one of them answers about engines rather than serving content.
  */
 
-import { parseHop } from "./chain.ts";
-import { resolveQualified } from "./dispatch.ts";
-import { type DoorContext, getLlamaRouter } from "./doorContext.ts";
-import type { EngineRegistry } from "./engines.ts";
-import { EngineBusyError } from "./errors/engineBusy.ts";
+import { parseHop } from './chain.ts'
+import { resolveQualified } from './dispatch.ts'
+import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import type { EngineRegistry } from './engines.ts'
+import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   jsonError,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
-} from "./http.ts";
-import { readJsonBody } from "./requestBody.ts";
-import type { EngineStatus, StartResponse, StartRow } from "./responses.ts";
-import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from "./types.ts";
+} from './http.ts'
+import { readJsonBody } from './requestBody.ts'
+import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
+import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from './types.ts'
 
 /**
  * How long a hold stands without being renewed. Long enough for the slowest
@@ -27,11 +27,11 @@ import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from "
  * asked for it -- the caller most likely to want a hold is a test run, which is
  * the caller most likely to die holding one.
  */
-const DEFAULT_HOLD_SECONDS = 1800;
-const MAX_HOLD_SECONDS = 3600;
+const DEFAULT_HOLD_SECONDS = 1800
+const MAX_HOLD_SECONDS = 3600
 /** Enough to see a crash's stack without streaming a whole boot log by default. */
-const DEFAULT_LOG_TAIL = 200;
-const MAX_LOG_TAIL = 5000;
+const DEFAULT_LOG_TAIL = 200
+const MAX_LOG_TAIL = 5000
 
 /**
  * Contention comes from the routers, which the door owns and the registry has
@@ -44,30 +44,30 @@ const MAX_LOG_TAIL = 5000;
  */
 export function attachLlamaRoles(ctx: DoorContext, engines: EngineStatus[]): void {
   for (const engine of engines) {
-    const busy = ctx.llamaRouters.get(engine.id)?.contention();
+    const busy = ctx.llamaRouters.get(engine.id)?.contention()
     if (busy !== undefined && busy.length > 0) {
-      engine.roles = busy;
+      engine.roles = busy
     }
   }
 }
 
 /** Live SSE frames are one engine; the poller's loop is the same reading. */
 export function engineWithLlamaRoles(ctx: DoorContext, status: EngineStatus): EngineStatus {
-  const busy = ctx.llamaRouters.get(status.id)?.contention();
+  const busy = ctx.llamaRouters.get(status.id)?.contention()
   if (busy === undefined || busy.length === 0) {
-    return status;
+    return status
   }
-  return { ...status, roles: busy };
+  return { ...status, roles: busy }
 }
 
 export async function handleEngines(
   ctx: DoorContext,
   configErr: string | undefined,
 ): Promise<Response> {
-  const listed = await ctx.registry.list();
-  attachLlamaRoles(ctx, listed.engines);
-  listed.config_error = configErr;
-  return Response.json(listed);
+  const listed = await ctx.registry.list()
+  attachLlamaRoles(ctx, listed.engines)
+  listed.config_error = configErr
+  return Response.json(listed)
 }
 
 /**
@@ -82,39 +82,39 @@ function resolveStartRoutes(
   model: string,
   ctx: DoorContext,
 ): { ok: true; routes: readonly ResolvedRoute[] } | { ok: false; error: string } {
-  const config = ctx.getConfig();
-  const chainHops = config.chains[model];
+  const config = ctx.getConfig()
+  const chainHops = config.chains[model]
   if (chainHops !== undefined) {
-    const [first] = chainHops;
+    const [first] = chainHops
     if (first === undefined) {
-      return { ok: false, error: `chain "${model}" has no hops` };
+      return { ok: false, error: `chain "${model}" has no hops` }
     }
-    const hop = parseHop(first);
-    const route = routeForHop(config.routes, hop.engine, hop.model, hop.upstream);
+    const hop = parseHop(first)
+    const route = routeForHop(config.routes, hop.engine, hop.model, hop.upstream)
     return route === undefined
       ? { ok: false, error: `chain "${model}"'s first hop "${first}" does not resolve to a route` }
-      : { ok: true, routes: [route] };
+      : { ok: true, routes: [route] }
   }
-  const segments = qualifiedSegments(model);
+  const segments = qualifiedSegments(model)
   if (segments === undefined) {
-    return { ok: false, error: `unknown model "${model}"` };
+    return { ok: false, error: `unknown model "${model}"` }
   }
   if (segments.length === 1) {
-    const modelId = segments[0] as string;
-    const candidates = config.routes.filter((r) => !r.disabled && r.model === modelId);
+    const modelId = segments[0] as string
+    const candidates = config.routes.filter((r) => !r.disabled && r.model === modelId)
     return candidates.length === 0
       ? { ok: false, error: `model "${modelId}" does not exist` }
-      : { ok: true, routes: candidates };
+      : { ok: true, routes: candidates }
   }
-  const resolved = resolveQualified(segments, { config, registry: ctx.registry });
-  return resolved.ok ? { ok: true, routes: [resolved.route] } : resolved;
+  const resolved = resolveQualified(segments, { config, registry: ctx.registry })
+  return resolved.ok ? { ok: true, routes: [resolved.route] } : resolved
 }
 
 /** The canonical `@/...` a route answers for -- always the fully explicit form, never a URL. A start row reports it; a chat dispatch walks it as the one hop `runChain` takes. */
 export function routeAddress(route: ResolvedRoute): string {
-  const upstreamPart = route.upstream === null ? "" : `/${route.upstream}`;
-  const modelPart = route.model === undefined ? "" : `/${route.model}`;
-  return `@/${route.engine}${upstreamPart}${modelPart}`;
+  const upstreamPart = route.upstream === null ? '' : `/${route.upstream}`
+  const modelPart = route.model === undefined ? '' : `/${route.model}`
+  return `@/${route.engine}${upstreamPart}${modelPart}`
 }
 
 /**
@@ -132,49 +132,49 @@ export function routeAddress(route: ResolvedRoute): string {
  * carries `filename` and no `role`, and `warm` throws on a roleless model.
  */
 async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<StartRow> {
-  const address = routeAddress(route);
-  const { engine: engineId, upstream } = route;
-  if (upstream !== "local") {
-    const status = ctx.registry.get(engineId);
+  const address = routeAddress(route)
+  const { engine: engineId, upstream } = route
+  if (upstream !== 'local') {
+    const status = ctx.registry.get(engineId)
     const row = {
       address,
       engine: engineId,
       upstream,
-      state: status?.state ?? "unavailable",
-      fix: `upstream "${upstream ?? "ambient"}" is not local; nothing to start here`,
+      state: status?.state ?? 'unavailable',
+      fix: `upstream "${upstream ?? 'ambient'}" is not local; nothing to start here`,
       started: false,
-    };
-    return row;
+    }
+    return row
   }
   if (ctx.registry.isLocalLlama(engineId)) {
-    const engineEntry = ctx.registry.entry(engineId);
+    const engineEntry = ctx.registry.entry(engineId)
     if (engineEntry === undefined) {
       const row = {
         address,
         engine: engineId,
         upstream,
-        state: "unavailable" as const,
+        state: 'unavailable' as const,
         fix: `unknown engine "${engineId}"`,
         started: false,
-      };
-      return row;
+      }
+      return row
     }
     // `warm` reports whether this call is the one that swapped the resident
     // -- its own lease queue already knows, computed per caller -- so two
     // concurrent starts on one cold model never both claim they started it.
-    const started = await getLlamaRouter(ctx, engineEntry).warm(route);
-    const status = ctx.registry.get(engineId);
+    const started = await getLlamaRouter(ctx, engineEntry).warm(route)
+    const status = ctx.registry.get(engineId)
     const row = {
       address,
       engine: engineId,
       upstream,
-      state: status?.state ?? "unavailable",
+      state: status?.state ?? 'unavailable',
       fix: status?.fix,
       started,
-    };
-    return row;
+    }
+    return row
   }
-  const status = await ctx.registry.start(engineId, route.model);
+  const status = await ctx.registry.start(engineId, route.model)
   const row = {
     address,
     engine: engineId,
@@ -182,8 +182,8 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
     state: status.state,
     fix: status.fix,
     started: status.launched,
-  };
-  return row;
+  }
+  return row
 }
 
 /**
@@ -193,26 +193,26 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
  * address; this verb only answers what state it is in.
  */
 export async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req)
   if (body instanceof Response) {
-    return body;
+    return body
   }
-  const model = typeof body.model === "string" ? body.model : "";
-  if (model === "") {
-    return jsonError(STATUS_BAD_REQUEST, "model is required");
+  const model = typeof body.model === 'string' ? body.model : ''
+  if (model === '') {
+    return jsonError(STATUS_BAD_REQUEST, 'model is required')
   }
-  const resolved = resolveStartRoutes(model, ctx);
+  const resolved = resolveStartRoutes(model, ctx)
   if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error);
+    return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }
   try {
-    const data = await Promise.all(resolved.routes.map((route) => startRoute(ctx, route)));
-    return Response.json({ object: "list", data } satisfies StartResponse);
+    const data = await Promise.all(resolved.routes.map((route) => startRoute(ctx, route)))
+    return Response.json({ object: 'list', data } satisfies StartResponse)
   } catch (err) {
     if (err instanceof EngineBusyError) {
-      return jsonError(STATUS_CONFLICT, err.message);
+      return jsonError(STATUS_CONFLICT, err.message)
     }
-    return jsonError(STATUS_BAD_GATEWAY, errMessage(err));
+    return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
   }
 }
 
@@ -231,31 +231,31 @@ export async function handleHold(
   id: string,
   url: URL,
 ): Promise<Response> {
-  const asked = Number(url.searchParams.get("seconds") ?? DEFAULT_HOLD_SECONDS);
+  const asked = Number(url.searchParams.get('seconds') ?? DEFAULT_HOLD_SECONDS)
   const seconds = Number.isFinite(asked)
     ? Math.min(Math.max(1, Math.trunc(asked)), MAX_HOLD_SECONDS)
-    : DEFAULT_HOLD_SECONDS;
+    : DEFAULT_HOLD_SECONDS
   try {
-    return Response.json(await registry.hold(id, seconds));
+    return Response.json(await registry.hold(id, seconds))
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+    return jsonError(STATUS_NOT_FOUND, errMessage(err))
   }
 }
 
 /** `POST /engined/v1/engines/<id>/unhold`: ends a hold early rather than waiting out its TTL. */
 export async function handleUnhold(registry: EngineRegistry, id: string): Promise<Response> {
   try {
-    return Response.json(await registry.unhold(id));
+    return Response.json(await registry.unhold(id))
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+    return jsonError(STATUS_NOT_FOUND, errMessage(err))
   }
 }
 
 export async function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
   try {
-    return Response.json(await registry.stop(id));
+    return Response.json(await registry.stop(id))
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err));
+    return jsonError(STATUS_NOT_FOUND, errMessage(err))
   }
 }
 
@@ -268,20 +268,20 @@ export async function handleLogs(
   id: string,
   url: URL,
 ): Promise<Response> {
-  const asked = Number(url.searchParams.get("tail") ?? DEFAULT_LOG_TAIL);
+  const asked = Number(url.searchParams.get('tail') ?? DEFAULT_LOG_TAIL)
   const tail = Number.isFinite(asked)
     ? Math.min(Math.max(1, Math.trunc(asked)), MAX_LOG_TAIL)
-    : DEFAULT_LOG_TAIL;
-  const res = await registry.logs(id, tail);
-  return "error" in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res);
+    : DEFAULT_LOG_TAIL
+  const res = await registry.logs(id, tail)
+  return 'error' in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res)
 }
 
 export async function handleRelease(registry: EngineRegistry, id: string): Promise<Response> {
-  const res = await registry.release(id);
-  return "error" in res ? jsonError(STATUS_BAD_REQUEST, res.error) : Response.json(res);
+  const res = await registry.release(id)
+  return 'error' in res ? jsonError(STATUS_BAD_REQUEST, res.error) : Response.json(res)
 }
 
 export async function handleResources(registry: EngineRegistry, id: string): Promise<Response> {
-  const res = await registry.resources(id);
-  return "error" in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res);
+  const res = await registry.resources(id)
+  return 'error' in res ? jsonError(STATUS_NOT_FOUND, res.error) : Response.json(res)
 }

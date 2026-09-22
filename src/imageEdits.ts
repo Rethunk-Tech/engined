@@ -4,8 +4,8 @@
  * because the request arrives as a form rather than JSON and carries pixels.
  */
 
-import type { DoorContext } from "./doorContext.ts";
-import { type HttpClient, jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from "./http.ts";
+import type { DoorContext } from './doorContext.ts'
+import { type HttpClient, jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
 import {
   commonValues,
   imageRoute,
@@ -14,8 +14,8 @@ import {
   renderWith,
   SEED_MAX,
   workflowPathFor,
-} from "./images.ts";
-import { CONTENT_ENDPOINT_IMAGE_EDITS, parseRecord } from "./types.ts";
+} from './images.ts'
+import { CONTENT_ENDPOINT_IMAGE_EDITS, parseRecord } from './types.ts'
 
 /**
  * The default an img2img caller gets when they say nothing.
@@ -37,93 +37,91 @@ import { CONTENT_ENDPOINT_IMAGE_EDITS, parseRecord } from "./types.ts";
  * lower denoise, and 0.8-0.85 is simply unmeasured here rather than known to
  * be too low.
  */
-const DEFAULT_DENOISE = 0.9;
+const DEFAULT_DENOISE = 0.9
 
 /**
  * An uploaded image is held in memory whole before it is forwarded, so an
  * oversized one is refused rather than read. Generous for anything a
  * diffusion model will accept as a starting point.
  */
-const MAX_IMAGE_UPLOAD_BYTES = 33_554_432;
+const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
 
 interface EditRequest {
-  prompt: string;
-  negative: string;
-  n: number;
-  seed: number;
+  prompt: string
+  negative: string
+  n: number
+  seed: number
   /** How much of the input the sampler discards: 1.0 would keep none of it, which is the other verb. */
-  denoise: number;
-  image: Blob;
+  denoise: number
+  image: Blob
 }
 
 /** One numeric multipart field, or the 400 naming it. A form field is a string, so the whole point is refusing what does not parse rather than letting `Number()` produce a NaN nothing checks. */
 function numberField(form: FormData, key: string): number | undefined | Response {
-  const raw = form.get(key);
+  const raw = form.get(key)
   if (raw === null) {
-    return undefined;
+    return undefined
   }
-  const value = typeof raw === "string" ? Number(raw) : Number.NaN;
-  return Number.isFinite(value)
-    ? value
-    : jsonError(STATUS_BAD_REQUEST, `"${key}" must be a number`);
+  const value = typeof raw === 'string' ? Number(raw) : Number.NaN
+  return Number.isFinite(value) ? value : jsonError(STATUS_BAD_REQUEST, `"${key}" must be a number`)
 }
 
 /** The `image` part, or the 400 for a form that carries none, an empty one, or one too large to hold in memory. */
 function editImage(form: FormData): Blob | Response {
-  const image = form.get("image");
+  const image = form.get('image')
   if (!(image instanceof Blob) || image.size === 0) {
-    return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required');
+    return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required')
   }
   if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
     return jsonError(
       STATUS_BAD_REQUEST,
       `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    );
+    )
   }
-  return image;
+  return image
 }
 
 /** The multipart fields the edits verb reads, or the 400 that says which one is wrong. */
 function parseEditRequest(form: FormData): EditRequest | Response {
-  const image = editImage(form);
+  const image = editImage(form)
   if (image instanceof Response) {
-    return image;
+    return image
   }
-  const rawPrompt = form.get("prompt");
-  const prompt = typeof rawPrompt === "string" ? rawPrompt.trim() : "";
-  if (prompt === "") {
-    return jsonError(STATUS_BAD_REQUEST, '"prompt" is required and must be a non-empty string');
+  const rawPrompt = form.get('prompt')
+  const prompt = typeof rawPrompt === 'string' ? rawPrompt.trim() : ''
+  if (prompt === '') {
+    return jsonError(STATUS_BAD_REQUEST, '"prompt" is required and must be a non-empty string')
   }
-  const n = numberField(form, "n");
+  const n = numberField(form, 'n')
   if (n instanceof Response) {
-    return n;
+    return n
   }
   if (n !== undefined && (!Number.isInteger(n) || n < 1 || n > MAX_N)) {
-    return jsonError(STATUS_BAD_REQUEST, `"n" must be a whole number from 1 to ${MAX_N}`);
+    return jsonError(STATUS_BAD_REQUEST, `"n" must be a whole number from 1 to ${MAX_N}`)
   }
-  const seed = numberField(form, "seed");
+  const seed = numberField(form, 'seed')
   if (seed instanceof Response) {
-    return seed;
+    return seed
   }
-  const denoise = numberField(form, "denoise");
+  const denoise = numberField(form, 'denoise')
   if (denoise instanceof Response) {
-    return denoise;
+    return denoise
   }
   // 0 would answer with the image it was handed, which is a request the door
   // can satisfy without a GPU and a caller never means. 1.0 keeps none of the
   // input, which is what /images/generations already is.
   if (denoise !== undefined && (denoise <= 0 || denoise > 1)) {
-    return jsonError(STATUS_BAD_REQUEST, '"denoise" must be greater than 0 and at most 1');
+    return jsonError(STATUS_BAD_REQUEST, '"denoise" must be greater than 0 and at most 1')
   }
-  const negative = form.get("negative_prompt");
+  const negative = form.get('negative_prompt')
   return {
     prompt,
-    negative: typeof negative === "string" ? negative : "",
+    negative: typeof negative === 'string' ? negative : '',
     n: n ?? 1,
     seed: seed ?? Math.floor(Math.random() * SEED_MAX),
     denoise: denoise ?? DEFAULT_DENOISE,
     image,
-  };
+  }
 }
 
 /**
@@ -137,24 +135,24 @@ async function uploadInputImage(
   httpClient: HttpClient,
   image: Blob,
 ): Promise<string | Refusal> {
-  const form = new FormData();
-  form.append("image", image, "engined_edit_input");
+  const form = new FormData()
+  form.append('image', image, 'engined_edit_input')
   // Without this a second edit of the same name is stored beside the first as
   // "engined_edit_input (1)", and the graph would load whichever the first
   // upload left behind.
-  form.append("overwrite", "true");
-  const res = await httpClient(`${base}/upload/image`, { method: "POST", body: form });
-  const text = await res.text();
-  const record = res.ok ? parseRecord(text) : undefined;
-  const name = record?.name;
-  if (typeof name !== "string") {
+  form.append('overwrite', 'true')
+  const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: form })
+  const text = await res.text()
+  const record = res.ok ? parseRecord(text) : undefined
+  const name = record?.name
+  if (typeof name !== 'string') {
     return {
       status: STATUS_BAD_GATEWAY,
       error: `comfy would not accept the uploaded image: ${text.slice(0, 300)}`,
-    };
+    }
   }
-  const subfolder = typeof record?.subfolder === "string" ? record.subfolder : "";
-  return subfolder === "" ? name : `${subfolder}/${name}`;
+  const subfolder = typeof record?.subfolder === 'string' ? record.subfolder : ''
+  return subfolder === '' ? name : `${subfolder}/${name}`
 }
 
 /**
@@ -172,45 +170,45 @@ export async function handleImageEdit(
   req: Request,
   signal?: AbortSignal,
 ): Promise<Response> {
-  let form: FormData;
+  let form: FormData
   try {
-    form = await req.formData();
+    form = await req.formData()
   } catch {
-    return jsonError(STATUS_BAD_REQUEST, "expected a multipart form with an `image` part");
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an `image` part')
   }
-  const rawModel = form.get("model");
+  const rawModel = form.get('model')
   const target = imageRoute(
     ctx,
-    typeof rawModel === "string" ? rawModel : undefined,
+    typeof rawModel === 'string' ? rawModel : undefined,
     CONTENT_ENDPOINT_IMAGE_EDITS,
-  );
+  )
   if (target instanceof Response) {
-    return target;
+    return target
   }
-  const request = parseEditRequest(form);
+  const request = parseEditRequest(form)
   if (request instanceof Response) {
-    return request;
+    return request
   }
-  const path = workflowPathFor(ctx, target.route.engine, "images_edit_workflow");
+  const path = workflowPathFor(ctx, target.route.engine, 'images_edit_workflow')
   if (path instanceof Response) {
-    return path;
+    return path
   }
   return await renderWith(ctx, {
     route: target.route,
-    rawModel: typeof rawModel === "string" ? rawModel : undefined,
+    rawModel: typeof rawModel === 'string' ? rawModel : undefined,
     workflowPath: path,
     n: request.n,
     plan: async (base, httpClient) => {
-      const image = await uploadInputImage(base, httpClient, request.image);
-      if (typeof image !== "string") {
-        return image;
+      const image = await uploadInputImage(base, httpClient, request.image)
+      if (typeof image !== 'string') {
+        return image
       }
       return (index: number) => ({
         ...commonValues(request, target.checkpoints, index),
         image,
         denoise: request.denoise,
-      });
+      })
     },
     signal,
-  });
+  })
 }

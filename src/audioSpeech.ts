@@ -4,7 +4,7 @@
  * a PCM frame stream; never mislabels one as the other.
  */
 
-import { createHash } from "node:crypto";
+import { createHash } from 'node:crypto'
 import {
   conflictResponse,
   type DoorResponse,
@@ -17,7 +17,7 @@ import {
   type StartedEngine,
   speakableText,
   streamedSpeech,
-} from "./audio.ts";
+} from './audio.ts'
 import {
   CONTENT_TYPE,
   discardBody,
@@ -28,30 +28,30 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
   WAV_CONTENT_TYPE,
-} from "./http.ts";
+} from './http.ts'
 
 /** `undefined` when the request body is well-formed; a 400 response otherwise. */
 function invalidSpeechRequest(req: SpeechRequestBody): DoorResponse | undefined {
   if (!req.engine) {
-    return errorResponse(STATUS_BAD_REQUEST, "engine is required");
+    return errorResponse(STATUS_BAD_REQUEST, 'engine is required')
   }
   if (!req.input) {
-    return errorResponse(STATUS_BAD_REQUEST, "input is required");
+    return errorResponse(STATUS_BAD_REQUEST, 'input is required')
   }
   if (req.response_format !== undefined && !SPEECH_RESPONSE_FORMATS.has(req.response_format)) {
     return errorResponse(
       STATUS_BAD_REQUEST,
-      `response_format must be one of: ${[...SPEECH_RESPONSE_FORMATS].join(", ")}`,
-    );
+      `response_format must be one of: ${[...SPEECH_RESPONSE_FORMATS].join(', ')}`,
+    )
   }
-  return undefined;
+  return undefined
 }
 
 /** `undefined` when `engine` is a running local container this door can speak to; the error response otherwise. */
 function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse | undefined {
-  const conflict = conflictResponse(engine);
+  const conflict = conflictResponse(engine)
   if (conflict) {
-    return conflict;
+    return conflict
   }
   if (engine.remote !== undefined) {
     // No remote TTS upstream is configured, so no remote TTS dialect ships.
@@ -60,12 +60,12 @@ function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse
     return errorResponse(
       STATUS_BAD_GATEWAY,
       `${name} is a remote address, and no remote speech dialect ships`,
-    );
+    )
   }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${name} is not available`);
+    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${name} is not available`)
   }
-  return undefined;
+  return undefined
 }
 
 /**
@@ -87,11 +87,11 @@ function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse
  * stock phrase costs a neural TTS seconds and costs this nothing, and every
  * consumer that says it banks that rather than the one that measured it.
  */
-const SPEECH_CACHE_MAX_BYTES = 67_108_864;
+const SPEECH_CACHE_MAX_BYTES = 67_108_864
 
 /** Insertion-ordered, so re-inserting on read leaves the first key the least recently used. */
-const speechCache = new Map<string, Buffer>();
-let speechCacheBytes = 0;
+const speechCache = new Map<string, Buffer>()
+let speechCacheBytes = 0
 
 /**
  * Everything that decides the bytes, and nothing that does not.
@@ -104,41 +104,41 @@ let speechCacheBytes = 0;
  * engine emits WAV and anything else is already a 400, so it never changes a byte.
  */
 function speechCacheKey(req: SpeechRequestBody, text: string): string {
-  return createHash("sha256")
+  return createHash('sha256')
     .update(
       JSON.stringify([req.engine, text, req.voice, req.speed, req.instructions, req.extra ?? null]),
     )
-    .digest("hex");
+    .digest('hex')
 }
 
 function cachedSpeech(key: string): Buffer | undefined {
-  const hit = speechCache.get(key);
+  const hit = speechCache.get(key)
   if (hit !== undefined) {
-    speechCache.delete(key);
-    speechCache.set(key, hit);
+    speechCache.delete(key)
+    speechCache.set(key, hit)
   }
-  return hit;
+  return hit
 }
 
 function storeSpeech(key: string, bytes: Buffer): void {
   if (bytes.byteLength > SPEECH_CACHE_MAX_BYTES) {
-    return;
+    return
   }
-  speechCache.set(key, bytes);
-  speechCacheBytes += bytes.byteLength;
+  speechCache.set(key, bytes)
+  speechCacheBytes += bytes.byteLength
   for (const [oldest, old] of speechCache) {
     if (speechCacheBytes <= SPEECH_CACHE_MAX_BYTES) {
-      break;
+      break
     }
-    speechCache.delete(oldest);
-    speechCacheBytes -= old.byteLength;
+    speechCache.delete(oldest)
+    speechCacheBytes -= old.byteLength
   }
 }
 
 /** The cache outlives one request by design, so a suite counting engine calls starts from empty. */
 export function resetSpeechCache(): void {
-  speechCache.clear();
-  speechCacheBytes = 0;
+  speechCache.clear()
+  speechCacheBytes = 0
 }
 
 export async function handleSpeech(
@@ -146,24 +146,24 @@ export async function handleSpeech(
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
 ): Promise<DoorResponse> {
-  const invalid = invalidSpeechRequest(req);
+  const invalid = invalidSpeechRequest(req)
   if (invalid) {
-    return invalid;
+    return invalid
   }
-  const text = speakableText(req.input);
+  const text = speakableText(req.input)
   // Refused before an engine is started: an input that was nothing but markup
   // reaches the engine as an empty utterance, and "synthesized no audio" sends
   // the caller looking at the container for a body it never sent.
-  if (text.trim() === "") {
-    return errorResponse(STATUS_BAD_REQUEST, "input carries no speakable text");
+  if (text.trim() === '') {
+    return errorResponse(STATUS_BAD_REQUEST, 'input carries no speakable text')
   }
-  const ndjson = req.stream === "ndjson";
-  const streaming = req.stream === true || ndjson;
+  const ndjson = req.stream === 'ndjson'
+  const streaming = req.stream === true || ndjson
 
-  const engine = await start(req.engine);
-  const unusable = unusableSpeechEngine(req.engine, engine);
+  const engine = await start(req.engine)
+  const unusable = unusableSpeechEngine(req.engine, engine)
   if (unusable) {
-    return unusable;
+    return unusable
   }
 
   // After the engine is resolved, never before it. Skipping `start` on a hit
@@ -182,15 +182,15 @@ export async function handleSpeech(
   // the stock phrases this exists for, and it is what majordomo's own cache, the
   // one consumer that measured this, already did unconditionally. A caller that
   // wants variation varies something in the key, most simply `speed`.
-  const cacheKey = streaming ? undefined : speechCacheKey(req, text);
+  const cacheKey = streaming ? undefined : speechCacheKey(req, text)
   if (cacheKey !== undefined) {
-    const hit = cachedSpeech(cacheKey);
+    const hit = cachedSpeech(cacheKey)
     if (hit !== undefined) {
-      return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: hit };
+      return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: hit }
     }
   }
   const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
-    method: "POST",
+    method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify({
       text,
@@ -203,31 +203,31 @@ export async function handleSpeech(
       prompt: req.instructions,
       ...req.extra,
     }),
-  });
+  })
   if (!res.ok) {
-    await discardBody(res);
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts returned ${res.status}`);
+    await discardBody(res)
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts returned ${res.status}`)
   }
 
   if (streaming) {
-    const { body } = res;
+    const { body } = res
     if (body === null) {
-      return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts streamed no body`);
+      return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts streamed no body`)
     }
-    return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.engine, body);
+    return ndjson ? ndjsonSpeech(body) : await streamedSpeech(req.engine, body)
   }
 
-  const { audio, error } = extractAudioFromNdjson(await res.text());
+  const { audio, error } = extractAudioFromNdjson(await res.text())
   if (error !== undefined) {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts failed: ${error}`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts failed: ${error}`)
   }
   if (audio === undefined) {
-    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts response carried no audio`);
+    return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts response carried no audio`)
   }
 
-  const bytes = Buffer.from(audio, "base64");
+  const bytes = Buffer.from(audio, 'base64')
   if (cacheKey !== undefined) {
-    storeSpeech(cacheKey, bytes);
+    storeSpeech(cacheKey, bytes)
   }
-  return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes };
+  return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes }
 }

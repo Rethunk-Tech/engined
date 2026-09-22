@@ -6,45 +6,45 @@
  * loop against a fault no restart can clear.
  */
 
-import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import process from "node:process";
-import { FatalError } from "./errors/fatal.ts";
-import { makeTestRoot } from "./test-support.ts";
+import { expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import process from 'node:process'
+import { FatalError } from './errors/fatal.ts'
+import { makeTestRoot } from './test-support.ts'
 
-const TEST_ROOT = makeTestRoot("engined-startup-test-");
-const RX_RESTART_PREVENT_EXIT_STATUS = /^RestartPreventExitStatus=(\d+)$/m;
+const TEST_ROOT = makeTestRoot('engined-startup-test-')
+const RX_RESTART_PREVENT_EXIT_STATUS = /^RestartPreventExitStatus=(\d+)$/m
 
 /** An XDG pair that redirects both `configPath()` and `installDir()` at a scratch tree. */
 function scratchHome(
   specBody: string,
   configBody: string,
 ): { XDG_CONFIG_HOME: string; XDG_DATA_HOME: string } {
-  const base = mkdtempSync(join(TEST_ROOT, "engined-startup-"));
-  const configHome = join(base, "config");
-  const dataHome = join(base, "data");
-  mkdirSync(join(configHome, "engined"), { recursive: true });
-  mkdirSync(join(dataHome, "engined", "engines", "probe"), { recursive: true });
-  writeFileSync(join(configHome, "engined", "config.toml"), configBody);
-  writeFileSync(join(dataHome, "engined", "engines", "probe", "spec.toml"), specBody);
-  return { XDG_CONFIG_HOME: configHome, XDG_DATA_HOME: dataHome };
+  const base = mkdtempSync(join(TEST_ROOT, 'engined-startup-'))
+  const configHome = join(base, 'config')
+  const dataHome = join(base, 'data')
+  mkdirSync(join(configHome, 'engined'), { recursive: true })
+  mkdirSync(join(dataHome, 'engined', 'engines', 'probe'), { recursive: true })
+  writeFileSync(join(configHome, 'engined', 'config.toml'), configBody)
+  writeFileSync(join(dataHome, 'engined', 'engines', 'probe', 'spec.toml'), specBody)
+  return { XDG_CONFIG_HOME: configHome, XDG_DATA_HOME: dataHome }
 }
 
 async function runDaemon(env: Record<string, string>): Promise<{ code: number; stderr: string }> {
-  const proc = Bun.spawn(["bun", join(import.meta.dir, "main.ts")], {
+  const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts')], {
     env: { ...process.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stderr = await new Response(proc.stderr).text();
-  return { code: await proc.exited, stderr };
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const stderr = await new Response(proc.stderr).text()
+  return { code: await proc.exited, stderr }
 }
 
 // A spec placeholder the config never supplies is a parse fault, and specs load
 // eagerly at construction -- so this must exit like a bad config, not like a
 // crash. It fails before any listener is bound, so no port is ever claimed.
-test("an unresolved spec placeholder exits 78 rather than crashing", async () => {
+test('an unresolved spec placeholder exits 78 rather than crashing', async () => {
   const env = scratchHome(
     [
       'kind = "tts"',
@@ -52,22 +52,22 @@ test("an unresolved spec placeholder exits 78 rather than crashing", async () =>
       'image = "probe:local"',
       'obtain = "build"',
       'serves = ["/openai/v1/audio/speech"]',
-      "command = []",
-      "",
-      "[[volume]]",
+      'command = []',
+      '',
+      '[[volume]]',
       'name = "{models_dir}"',
       'path = "/models"',
-      "",
-      "[ready]",
+      '',
+      '[ready]',
       'path   = "/health"',
-      "status = 200",
-    ].join("\n"),
-    ["listen_port = 39218", "", "[[engine]]", 'id     = "probe"'].join("\n"),
-  );
-  const { code, stderr } = await runDaemon(env);
-  expect(code).toBe(FatalError.EXIT_CODE);
-  expect(stderr).toContain("unresolved placeholder {models_dir}");
-});
+      'status = 200',
+    ].join('\n'),
+    ['listen_port = 39218', '', '[[engine]]', 'id     = "probe"'].join('\n'),
+  )
+  const { code, stderr } = await runDaemon(env)
+  expect(code).toBe(FatalError.EXIT_CODE)
+  expect(stderr).toContain('unresolved placeholder {models_dir}')
+})
 
 // A port already bound (by anything, not necessarily another engined) is
 // fatal rather than a restart-loop candidate -- proven live earlier this
@@ -75,10 +75,10 @@ test("an unresolved spec placeholder exits 78 rather than crashing", async () =>
 // NRestarts=0). 39219 here is a second, distinct scratch port from
 // startup.test.ts's other test (39218) -- never 29200, which the real
 // engined.service is bound to and serving on right now.
-test("a port already bound at startup exits 78 naming the port, not a restart loop", async () => {
-  const port = 39_219;
+test('a port already bound at startup exits 78 naming the port, not a restart loop', async () => {
+  const port = 39_219
   const holder = Bun.listen({
-    hostname: "127.0.0.1",
+    hostname: '127.0.0.1',
     port,
     // Bun's runtime requires at least one of data/drain, despite both being
     // typed optional -- this listener only needs to occupy the port.
@@ -87,7 +87,7 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
         // never receives real traffic; the listener exists only to hold the port
       },
     },
-  });
+  })
   try {
     const env = scratchHome(
       [
@@ -96,29 +96,29 @@ test("a port already bound at startup exits 78 naming the port, not a restart lo
         'image = "probe:local"',
         'obtain = "build"',
         'serves = ["/openai/v1/audio/speech"]',
-        "command = []",
-        "",
-        "[ready]",
+        'command = []',
+        '',
+        '[ready]',
         'path   = "/health"',
-        "status = 200",
-      ].join("\n"),
-      [`listen_port = ${port}`, "", "[[engine]]", 'id     = "probe"'].join("\n"),
-    );
-    const { code, stderr } = await runDaemon(env);
-    expect(code).toBe(FatalError.EXIT_CODE);
-    expect(stderr).toContain(String(port));
-    expect(stderr).toContain("already in use");
+        'status = 200',
+      ].join('\n'),
+      [`listen_port = ${port}`, '', '[[engine]]', 'id     = "probe"'].join('\n'),
+    )
+    const { code, stderr } = await runDaemon(env)
+    expect(code).toBe(FatalError.EXIT_CODE)
+    expect(stderr).toContain(String(port))
+    expect(stderr).toContain('already in use')
   } finally {
-    holder.stop(true);
+    holder.stop(true)
   }
-});
+})
 
 // The unit's RestartPreventExitStatus and FatalError.EXIT_CODE are one fact
 // split across two files that nothing else compares. Without this, changing
 // the constant leaves every test green while every fatal fault becomes a
 // restart loop -- the exact failure the exit code exists to prevent.
-test("the unit template prevents restart on the same code FatalError exits with", () => {
-  const unit = readFileSync(join(import.meta.dir, "../scripts/engined.service.in"), "utf8");
-  const match = unit.match(RX_RESTART_PREVENT_EXIT_STATUS);
-  expect(match?.[1]).toBe(String(FatalError.EXIT_CODE));
-});
+test('the unit template prevents restart on the same code FatalError exits with', () => {
+  const unit = readFileSync(join(import.meta.dir, '../scripts/engined.service.in'), 'utf8')
+  const match = unit.match(RX_RESTART_PREVENT_EXIT_STATUS)
+  expect(match?.[1]).toBe(String(FatalError.EXIT_CODE))
+})

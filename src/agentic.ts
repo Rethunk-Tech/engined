@@ -20,29 +20,29 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import process from "node:process";
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import process from 'node:process'
 import {
   type AgentCli,
   type AgenticOutcome,
   type AgentTarget,
   agentCli,
   agentDelta,
-} from "./agents.ts";
-import type { ExecResult } from "./exec.ts";
-import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from "./http.ts";
-import { stateDir } from "./paths.ts";
-import type { Usage } from "./provenance.ts";
-import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from "./sandbox.ts";
-import { argvFromArgs, errMessage } from "./types.ts";
+} from './agents.ts'
+import type { ExecResult } from './exec.ts'
+import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
+import { stateDir } from './paths.ts'
+import type { Usage } from './provenance.ts'
+import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from './sandbox.ts'
+import { argvFromArgs, errMessage } from './types.ts'
 
-const STDERR_TAIL_CHARS = 300;
+const STDERR_TAIL_CHARS = 300
 
 /** Whitespace-collapsed last few hundred characters: enough to name the fault, bounded so a fix line stays a line. */
 function stderrTail(stderr: string): string | undefined {
-  const flat = stderr.replace(/\s+/g, " ").trim();
-  return flat === "" ? undefined : flat.slice(-STDERR_TAIL_CHARS);
+  const flat = stderr.replace(/\s+/g, ' ').trim()
+  return flat === '' ? undefined : flat.slice(-STDERR_TAIL_CHARS)
 }
 
 /**
@@ -52,15 +52,15 @@ function stderrTail(stderr: string): string | undefined {
  * there is nothing per-engine to render.
  */
 function mcpEmptyConfigPath(): string {
-  return `${stateDir()}/agentic-mcp-empty.json`;
+  return `${stateDir()}/agentic-mcp-empty.json`
 }
 
 /** Rendered fresh before every launch so the flag always names a file that exists. */
 export function renderEmptyMcpConfig(): string {
-  const path = mcpEmptyConfigPath();
-  mkdirSync(stateDir(), { recursive: true });
-  writeFileSync(path, JSON.stringify({ mcpServers: {} }), "utf8");
-  return path;
+  const path = mcpEmptyConfigPath()
+  mkdirSync(stateDir(), { recursive: true })
+  writeFileSync(path, JSON.stringify({ mcpServers: {} }), 'utf8')
+  return path
 }
 
 /**
@@ -74,13 +74,13 @@ export function renderEmptyMcpConfig(): string {
  * handed the unscoped door.
  */
 export function mintLaunchNonce(): string {
-  return crypto.randomUUID().replace(/-/g, "");
+  return crypto.randomUUID().replace(/-/g, '')
 }
 
 interface AgenticSpawnOptions {
-  cwd: string;
-  env: Record<string, string>;
-  input: string;
+  cwd: string
+  env: Record<string, string>
+  input: string
   /**
    * `runOneHop`'s per-hop timeout, or a caller giving up early. Killed on
    * the whole process GROUP, never just the returned pid -- confirmed live
@@ -93,71 +93,71 @@ interface AgenticSpawnOptions {
    * way. `detached: true` below is what makes `-child.pid` a valid target: it
    * gives the child its own process group whose pgid equals its pid.
    */
-  signal?: AbortSignal;
+  signal?: AbortSignal
   /** Each stdout chunk as it arrives, ahead of the buffered whole the promise resolves with. */
-  onStdout?: (chunk: string) => void;
+  onStdout?: (chunk: string) => void
 }
 
-export type AgenticSpawn = (argv: string[], opts: AgenticSpawnOptions) => Promise<ExecResult>;
+export type AgenticSpawn = (argv: string[], opts: AgenticSpawnOptions) => Promise<ExecResult>
 
 /** Graceful-then-forceful: real work (writes, network calls) gets a chance to unwind before the group is SIGKILLed out from under it. */
-const KILL_GRACE_MS = 3000;
+const KILL_GRACE_MS = 3000
 
 export async function defaultAgenticSpawn(
   argv: string[],
   opts: AgenticSpawnOptions,
 ): Promise<ExecResult> {
   if (argv.length === 0) {
-    throw new Error("agentic launch argv is empty");
+    throw new Error('agentic launch argv is empty')
   }
   const child = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,
     detached: true,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  let killTimer: ReturnType<typeof setTimeout> | undefined;
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  let killTimer: ReturnType<typeof setTimeout> | undefined
 
   function killGroup(sig: NodeJS.Signals): void {
     try {
-      process.kill(-child.pid, sig);
+      process.kill(-child.pid, sig)
     } catch {
       // Already gone -- nothing left to signal.
     }
   }
 
   function onAbort(): void {
-    killGroup("SIGTERM");
-    killTimer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
+    killGroup('SIGTERM')
+    killTimer = setTimeout(() => killGroup('SIGKILL'), KILL_GRACE_MS)
   }
 
   if (opts.signal?.aborted) {
-    onAbort();
+    onAbort()
   } else {
-    opts.signal?.addEventListener("abort", onAbort);
+    opts.signal?.addEventListener('abort', onAbort)
   }
-  child.stdin.write(opts.input);
-  child.stdin.end();
+  child.stdin.write(opts.input)
+  child.stdin.end()
   try {
     const [stdout, stderr, exitCode] = await Promise.all([
       teeText(child.stdout, opts.onStdout),
       new Response(child.stderr).text(),
       child.exited,
-    ]);
+    ])
     // Killed by our own abort: rejecting (rather than resolving with
     // whatever partial stdout it managed) is what lets runOneHop's own
     // catch block -- which checks `controller.signal.aborted` -- record
     // this as "timeout" instead of an ordinary envelope failure, the same
     // distinction the openai-http path's aborted fetch() already gets.
     if (opts.signal?.aborted) {
-      throw new Error("agentic launch aborted");
+      throw new Error('agentic launch aborted')
     }
-    return { stdout, stderr, exitCode };
+    return { stdout, stderr, exitCode }
   } finally {
-    opts.signal?.removeEventListener("abort", onAbort);
-    clearTimeout(killTimer);
+    opts.signal?.removeEventListener('abort', onAbort)
+    clearTimeout(killTimer)
   }
 }
 
@@ -167,22 +167,22 @@ async function teeText(
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
   if (onChunk === undefined) {
-    return new Response(stream).text();
+    return new Response(stream).text()
   }
-  let all = "";
+  let all = ''
   for await (const text of stream.pipeThrough(new TextDecoderStream())) {
-    all += text;
-    onChunk(text);
+    all += text
+    onChunk(text)
   }
-  return all;
+  return all
 }
 
 export interface ObservedVersion {
-  ok: boolean;
+  ok: boolean
   /** Present only when `ok` -- what the binary itself reports. */
-  version?: string;
+  version?: string
   /** Present only when `!ok` -- why nothing could be observed. */
-  error?: string;
+  error?: string
 }
 
 /**
@@ -203,44 +203,44 @@ export async function observeAgentVersion(
   configuredVersion: string,
   agenticSpawn: AgenticSpawn = defaultAgenticSpawn,
 ): Promise<ObservedVersion> {
-  const cli = agentCli(agent);
+  const cli = agentCli(agent)
   if (cli?.resolveBinary === undefined) {
-    return { ok: true, version: configuredVersion };
+    return { ok: true, version: configuredVersion }
   }
-  let binary: string;
+  let binary: string
   try {
-    binary = cli.resolveBinary();
+    binary = cli.resolveBinary()
   } catch (err) {
-    return { ok: false, error: errMessage(err) };
+    return { ok: false, error: errMessage(err) }
   }
-  let spawned: ExecResult;
+  let spawned: ExecResult
   try {
-    spawned = await agenticSpawn([binary, "--version"], { cwd: tmpdir(), env: {}, input: "" });
+    spawned = await agenticSpawn([binary, '--version'], { cwd: tmpdir(), env: {}, input: '' })
   } catch (err) {
-    return { ok: false, error: errMessage(err) };
+    return { ok: false, error: errMessage(err) }
   }
-  const version = spawned.stdout.trim();
-  if (spawned.exitCode !== 0 || version === "") {
-    return { ok: false, error: `"${binary} --version" did not print a version` };
+  const version = spawned.stdout.trim()
+  if (spawned.exitCode !== 0 || version === '') {
+    return { ok: false, error: `"${binary} --version" did not print a version` }
   }
-  return { ok: true, version };
+  return { ok: true, version }
 }
 
 interface BuildArgvInput {
   /** The absolute path the install script resolved — never a bare `bunx`, never a path this module guesses. */
-  bunx: string;
+  bunx: string
   /** Which agent CLI, from the spec. `agents.ts` supplies its package and its launch argv. */
-  agent: string;
+  agent: string
   /** The configured pin, e.g. `"1.2.3"` — never `"latest"`. */
-  agentVersion: string;
+  agentVersion: string
   /** `[engine.args]`, rendered last so the operator can extend but never precede or replace what came before. */
-  args: Record<string, unknown>;
+  args: Record<string, unknown>
   /** The rendered empty MCP config claude's `--strict-mcp-config` must name — a bare flag closes nothing. Ignored by an agent that takes no such flag. */
-  mcpConfigPath: string;
+  mcpConfigPath: string
   /** Launch in the agent's streamed output format, for a caller reading deltas as they print. */
-  streaming?: boolean;
+  streaming?: boolean
   /** Overrides the agent's own `resolveBinary` for a test, which cannot redirect `Bun.which` or `homedir()` in-process. Ignored for an npm-pinned agent. */
-  resolveBinary?: () => string;
+  resolveBinary?: () => string
 }
 
 /**
@@ -256,19 +256,19 @@ interface BuildArgvInput {
  * through to a bare command name a spawned child's own PATH might not carry.
  */
 export function buildArgv(input: BuildArgvInput): string[] {
-  const agent = agentCli(input.agent);
+  const agent = agentCli(input.agent)
   if (agent === undefined) {
-    throw new Error(`unknown agent "${input.agent}"`);
+    throw new Error(`unknown agent "${input.agent}"`)
   }
   const command =
     agent.resolveBinary === undefined
       ? [input.bunx, `${agent.pkg}@${input.agentVersion}`]
-      : [(input.resolveBinary ?? agent.resolveBinary)()];
+      : [(input.resolveBinary ?? agent.resolveBinary)()]
   return [
     ...command,
     ...agent.launch(input.mcpConfigPath, input.streaming === true),
     ...argvFromArgs(input.args),
-  ];
+  ]
 }
 
 /** Spawned processes get an allowlist, never the ambient environment — a `--user` unit hands every child the manager's environment otherwise, secrets included. */
@@ -276,33 +276,33 @@ export function buildChildEnv(
   allowlist: readonly string[],
   ambient: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = {}
   for (const key of allowlist) {
-    const value = ambient[key];
+    const value = ambient[key]
     if (value !== undefined) {
-      out[key] = value;
+      out[key] = value
     }
   }
-  return out;
+  return out
 }
 
 interface RunAgenticInput {
   /** Which agent CLI the spec declared. Decides the argv, the parser and where the floor comes from. */
-  agent: string;
-  agentVersion: string;
-  args: Record<string, unknown>;
-  envAllowlist: readonly string[];
+  agent: string
+  agentVersion: string
+  args: Record<string, unknown>
+  envAllowlist: readonly string[]
   /** Where the process starts. Absent or empty is a 400 that never advances a chain — it is not a read boundary either way. */
-  workdir: string | undefined;
-  prompt: string;
-  spawn: AgenticSpawn;
+  workdir: string | undefined
+  prompt: string
+  spawn: AgenticSpawn
   /** The absolute path `resolveBunx` produced, which refuses to be empty. */
-  bunx: string;
+  bunx: string
   /** Overrides `resolveBwrap` for a test. Only ever consulted for a `sandbox` agent. */
-  bwrap?: string | null;
+  bwrap?: string | null
   /** Where this agent's own model lives. Required by an agent with a `configure`; ignored by one without. */
-  upstream?: AgentTarget;
-  ambientEnv?: NodeJS.ProcessEnv;
+  upstream?: AgentTarget
+  ambientEnv?: NodeJS.ProcessEnv
   /**
    * Set on the child unconditionally, after the allowlist — a different
    * thing from ambient inheritance. `envAllowlist` governs what leaks in
@@ -311,20 +311,20 @@ interface RunAgenticInput {
    * deliberately chooses for this one launch, such as redirecting a remote
    * upstream's base URL and key. Wins on a name collision with the allowlist.
    */
-  extraEnv?: Record<string, string>;
+  extraEnv?: Record<string, string>
   /** Forwarded to `spawn` verbatim; see `AgenticSpawnOptions.signal`. Absent for a probe run, which has no chain hop or timeout above it. */
-  signal?: AbortSignal;
+  signal?: AbortSignal
   /** Answer text as the CLI prints it. Presence switches the launch to the agent's streamed output format; the verdict still comes from `parse` over the whole stdout. */
-  onDelta?: (text: string) => void;
+  onDelta?: (text: string) => void
   /** See `BuildArgvInput.resolveBinary`. */
-  resolveBinary?: () => string;
+  resolveBinary?: () => string
 }
 
 export interface RunAgenticResult {
-  status: number;
-  ok: boolean;
-  result?: string;
-  failure?: string;
+  status: number
+  ok: boolean
+  result?: string
+  failure?: string
   /**
    * True only when the envelope itself carried `is_error` or failed to
    * parse — never for the 400 workdir-required rejection, which is a
@@ -332,13 +332,13 @@ export interface RunAgenticResult {
    * keep an envelope failure from advancing a chain the way a genuine
    * upstream 5xx does.
    */
-  envelopeFailure: boolean;
+  envelopeFailure: boolean
   /** The tail of what the CLI wrote to stderr when its envelope could not be read -- the only place a launch that never answered explains itself. */
-  stderrTail?: string;
+  stderrTail?: string
   /** The pin actually embedded in the launched argv. Absent when no process was spawned (the workdir-required 400). */
-  version?: string;
+  version?: string
   /** What the CLI said the run cost, off its own envelope. Absent for a launch that never produced one. */
-  usage?: Usage;
+  usage?: Usage
 }
 
 /**
@@ -354,7 +354,7 @@ function configureUpstream(
   env: Record<string, string>,
 ): { cleanup?: () => void; error?: RunAgenticResult } {
   if (agent.configure === undefined) {
-    return {};
+    return {}
   }
   if (upstream === undefined) {
     return {
@@ -364,25 +364,25 @@ function configureUpstream(
         failure: `agent "${agent.id}" has to be pointed at a model; dispatch through a route that names one`,
         envelopeFailure: false,
       },
-    };
+    }
   }
-  const configured = agent.configure(upstream);
-  Object.assign(env, configured.env);
-  return { cleanup: configured.cleanup };
+  const configured = agent.configure(upstream)
+  Object.assign(env, configured.env)
+  return { cleanup: configured.cleanup }
 }
 
 interface SandboxFloorInput {
-  workdir: string;
-  argv: string[];
-  env: Record<string, string>;
+  workdir: string
+  argv: string[]
+  env: Record<string, string>
   /** Overrides `resolveBwrap()`; only ever set by a test. */
-  bwrapOverride: string | null | undefined;
+  bwrapOverride: string | null | undefined
 }
 
 /** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
 export function usableBwrap(override?: string | null): string | null {
-  const bwrap = override === undefined ? resolveBwrap() : override;
-  return bwrap === null || bwrap === "" ? null : bwrap;
+  const bwrap = override === undefined ? resolveBwrap() : override
+  return bwrap === null || bwrap === '' ? null : bwrap
 }
 
 /** `argv` wrapped under bwrap for a `sandbox`-floor agent, `home`'s env merged into `env` in place -- unchanged for a `flags` agent, or a 503 when this box has no bwrap to wrap it with. */
@@ -390,11 +390,11 @@ function applySandboxFloor(
   agent: AgentCli,
   input: SandboxFloorInput,
 ): { argv: string[]; error?: RunAgenticResult } {
-  const { workdir, argv, env, bwrapOverride } = input;
-  if (agent.floor !== "sandbox") {
-    return { argv };
+  const { workdir, argv, env, bwrapOverride } = input
+  if (agent.floor !== 'sandbox') {
+    return { argv }
   }
-  const bwrap = usableBwrap(bwrapOverride);
+  const bwrap = usableBwrap(bwrapOverride)
   if (bwrap === null) {
     // Never a fallback to an unsandboxed launch: this agent's whole floor is
     // the mount table, so without it there is no floor to run under at all.
@@ -406,17 +406,17 @@ function applySandboxFloor(
         failure: `agent "${agent.id}" needs bwrap for its read-only floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
         envelopeFailure: false,
       },
-    };
+    }
   }
-  const home = sandboxHome(agent.id);
-  Object.assign(env, sandboxEnv(home));
-  return { argv: sandboxArgv({ bwrap, home, workdir, argv }) };
+  const home = sandboxHome(agent.id)
+  Object.assign(env, sandboxEnv(home))
+  return { argv: sandboxArgv({ bwrap, home, workdir, argv }) }
 }
 
 interface LaunchInput {
-  argv: string[];
-  env: Record<string, string>;
-  workdir: string;
+  argv: string[]
+  env: Record<string, string>
+  workdir: string
 }
 
 /** The actual launch, once every gate above has cleared: spawn `argv`, then hand the raw stdout to this agent's own envelope parser -- the one place a run's success is decided. */
@@ -425,30 +425,30 @@ async function spawnAndParse(
   launch: LaunchInput,
   input: RunAgenticInput,
 ): Promise<RunAgenticResult> {
-  const { onDelta } = input;
-  let pending = "";
+  const { onDelta } = input
+  let pending = ''
   const onStdout =
     onDelta === undefined
       ? undefined
       : (chunk: string): void => {
-          pending += chunk;
-          const lines = pending.split("\n");
-          pending = lines.pop() ?? "";
+          pending += chunk
+          const lines = pending.split('\n')
+          pending = lines.pop() ?? ''
           for (const line of lines) {
-            const text = agentDelta(agent.id, line);
-            if (text !== "") {
-              onDelta(text);
+            const text = agentDelta(agent.id, line)
+            if (text !== '') {
+              onDelta(text)
             }
           }
-        };
+        }
   const spawned = await input.spawn(launch.argv, {
     cwd: launch.workdir,
     env: launch.env,
     input: input.prompt,
     signal: input.signal,
     onStdout,
-  });
-  const outcome: AgenticOutcome = agent.parse(spawned.stdout);
+  })
+  const outcome: AgenticOutcome = agent.parse(spawned.stdout)
   return {
     status: outcome.ok ? STATUS_OK : STATUS_BAD_GATEWAY,
     ok: outcome.ok,
@@ -460,26 +460,26 @@ async function spawnAndParse(
     // errored after spending still spent.
     usage: outcome.usage,
     stderrTail: outcome.ok ? undefined : stderrTail(spawned.stderr),
-  };
+  }
 }
 
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
-  if (input.workdir === undefined || input.workdir === "") {
+  if (input.workdir === undefined || input.workdir === '') {
     return {
       status: STATUS_BAD_REQUEST,
       ok: false,
-      failure: "workdir is required for an agentic attempt",
+      failure: 'workdir is required for an agentic attempt',
       envelopeFailure: false,
-    };
+    }
   }
-  const agent = agentCli(input.agent);
+  const agent = agentCli(input.agent)
   if (agent === undefined) {
     return {
       status: STATUS_BAD_REQUEST,
       ok: false,
       failure: `unknown agent "${input.agent}"`,
       envelopeFailure: false,
-    };
+    }
   }
   let argv: string[] = buildArgv({
     bunx: input.bunx,
@@ -489,17 +489,17 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     mcpConfigPath: renderEmptyMcpConfig(),
     streaming: input.onDelta !== undefined,
     resolveBinary: input.resolveBinary,
-  });
+  })
   const env: Record<string, string> = {
     ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
-  };
+  }
   // Whatever `configure` wrote (opencode's per-launch config file) outlives
   // this call only until the spawn it was rendered for returns -- the
   // `try` below covers the bwrap-missing and spawn-throws paths too, since
   // the file is already on disk by the time either can happen.
-  const configured = configureUpstream(agent, input.upstream, env);
+  const configured = configureUpstream(agent, input.upstream, env)
   if (configured.error) {
-    return configured.error;
+    return configured.error
   }
   try {
     const sandboxed = applySandboxFloor(agent, {
@@ -507,14 +507,14 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       argv,
       env,
       bwrapOverride: input.bwrap,
-    });
+    })
     if (sandboxed.error) {
-      return sandboxed.error;
+      return sandboxed.error
     }
-    ({ argv } = sandboxed);
-    Object.assign(env, input.extraEnv);
-    return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input);
+    ;({ argv } = sandboxed)
+    Object.assign(env, input.extraEnv)
+    return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input)
   } finally {
-    configured.cleanup?.();
+    configured.cleanup?.()
   }
 }

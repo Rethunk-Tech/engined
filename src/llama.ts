@@ -10,9 +10,9 @@
  * that established this design. Every per-model flag therefore goes through
  * the INI, never through the load call's body.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import type { DockerLifecycle } from "./docker.ts";
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import type { DockerLifecycle } from './docker.ts'
 import {
   CONTENT_TYPE,
   discardBody,
@@ -21,24 +21,24 @@ import {
   JSON_CONTENT_TYPE,
   SSE_CONTENT_TYPE,
   STATUS_BAD_REQUEST,
-} from "./http.ts";
+} from './http.ts'
 import {
   AUTO_PARALLEL,
   buildLlamaSpec,
   mergedArgs,
   readIfExists,
   renderPresetIni,
-} from "./llamaSpec.ts";
-import { llamaPresetPath } from "./paths.ts";
-import type { RoleContention } from "./responses.ts";
-import type { EngineEntry, ResolvedRoute, Role } from "./types.ts";
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from "./types.ts";
+} from './llamaSpec.ts'
+import { llamaPresetPath } from './paths.ts'
+import type { RoleContention } from './responses.ts'
+import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
+import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 
 interface RoleWaiter {
-  modelId: string;
+  modelId: string
   /** `true` when this waiter's own grant is the one that swapped the resident. */
-  resolve: (swapped: boolean) => void;
-  reject: (err: unknown) => void;
+  resolve: (swapped: boolean) => void
+  reject: (err: unknown) => void
 }
 
 /**
@@ -47,37 +47,37 @@ interface RoleWaiter {
  * engine and not which GGUF answered. Provenance's `model_reported`.
  */
 export function reportedModelFrom(body: unknown): string | undefined {
-  if (typeof body !== "object" || body === null) {
-    return;
+  if (typeof body !== 'object' || body === null) {
+    return
   }
-  const { model } = body as { model?: unknown };
-  return typeof model === "string" ? model : undefined;
+  const { model } = body as { model?: unknown }
+  return typeof model === 'string' ? model : undefined
 }
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
-const DEFAULT_POLL_INTERVAL_MS = 250;
+const DEFAULT_POLL_INTERVAL_MS = 250
 /**
  * The message bodies llama-server SENDS: the statuses they ride on are the
  * registry's in `http.ts`, only the wording is llama-server's own, so only
  * the wording is named here. This one is llama-server's answer once its own
  * residency disagrees with this router's.
  */
-const MODEL_NOT_LOADED_MESSAGE = "model is not loaded";
+const MODEL_NOT_LOADED_MESSAGE = 'model is not loaded'
 /** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
-const PROXY_UNREACHABLE_MESSAGE = "Could not establish connection";
+const PROXY_UNREACHABLE_MESSAGE = 'Could not establish connection'
 
 /** Not an upstream status like the group above: the bytes this door writes while a cold swap is still waiting. */
-const WARMING_COMMENT = new TextEncoder().encode(": warming\n\n");
+const WARMING_COMMENT = new TextEncoder().encode(': warming\n\n')
 
 /** One entry of llama-server's `GET /v1/models`, in the only shape this router reads. */
 interface ListedModel {
-  id: string;
-  status?: { value?: string };
+  id: string
+  status?: { value?: string }
 }
 
 interface RoleState {
-  activeModelId: string | null;
-  activeCount: number;
+  activeModelId: string | null
+  activeCount: number
   /**
    * The door's own admission ceiling while `activeModelId` is resident:
    * `capacityFor`'s reading of that model's merged `parallel`, kept here
@@ -87,9 +87,9 @@ interface RoleState {
    * `Infinity` until the first model loads, since nothing is in flight to
    * admit against before there is a resident model to read a `parallel` off.
    */
-  capacity: number;
-  queue: RoleWaiter[];
-  pumping: boolean;
+  capacity: number
+  queue: RoleWaiter[]
+  pumping: boolean
 }
 
 /**
@@ -98,19 +98,19 @@ interface RoleState {
  * name a model promoted after the fact.
  */
 export interface LlamaHop {
-  response: Response;
-  modelResident: string | undefined;
+  response: Response
+  modelResident: string | undefined
 }
 
 export interface LlamaRouterOptions {
-  enginesRoot: string;
-  bunx: string;
-  idleStopSeconds: number;
-  readyTimeoutS: number;
+  enginesRoot: string
+  bunx: string
+  idleStopSeconds: number
+  readyTimeoutS: number
   /** Defaults under the one writable state dir; tests always override this. */
-  presetHostPath?: string;
-  httpClient?: HttpClient;
-  pollIntervalMs?: number;
+  presetHostPath?: string
+  httpClient?: HttpClient
+  pollIntervalMs?: number
 }
 
 /**
@@ -119,8 +119,8 @@ export interface LlamaRouterOptions {
  * corrupt that response instead of merely being ignored.
  */
 function wantsStream(init: RequestInit): boolean {
-  const { body } = init;
-  return typeof body === "string" && parseRecord(body)?.stream === true;
+  const { body } = init
+  return typeof body === 'string' && parseRecord(body)?.stream === true
 }
 
 /**
@@ -137,56 +137,56 @@ function pipeUpstream(
   return new ReadableStream<Uint8Array>({
     start: (controller) => {
       if (emitWarming) {
-        controller.enqueue(WARMING_COMMENT);
+        controller.enqueue(WARMING_COMMENT)
       }
       if (!reader) {
-        controller.close();
-        release();
+        controller.close()
+        release()
       }
     },
     pull: async (controller) => {
       if (!reader) {
-        return;
+        return
       }
       try {
-        const { done, value } = await reader.read();
+        const { done, value } = await reader.read()
         if (done) {
-          controller.close();
-          release();
-          return;
+          controller.close()
+          release()
+          return
         }
-        controller.enqueue(value);
+        controller.enqueue(value)
       } catch (err) {
-        controller.error(err instanceof Error ? err : new Error(String(err)));
-        release();
+        controller.error(err instanceof Error ? err : new Error(String(err)))
+        release()
       }
     },
     cancel: (reason) => {
-      release();
+      release()
       // A client disconnecting mid-stream cancels this ReadableStream, but
       // that alone leaves the upstream llama-server connection open (and its
       // reader pending) until GC -- cancel it too so the socket closes now,
       // not eventually.
-      reader?.cancel(reason).catch(() => undefined);
+      reader?.cancel(reason).catch(() => undefined)
     },
-  });
+  })
 }
 
 export class LlamaRouter {
-  private readonly roleStates = new Map<Role, RoleState>();
-  private readonly httpClient: HttpClient;
-  private readonly pollIntervalMs: number;
-  private readonly presetHostPath: string;
-  private totalActive = 0;
+  private readonly roleStates = new Map<Role, RoleState>()
+  private readonly httpClient: HttpClient
+  private readonly pollIntervalMs: number
+  private readonly presetHostPath: string
+  private totalActive = 0
   /** De-dupes concurrent first-requests the same way `DockerLifecycle.start`'s own `startPromise` does -- `ensureStarted` now has a second mutating step (a recreate) that isn't safe to double-fire. */
-  private ensureStartedPromise: Promise<void> | null = null;
+  private ensureStartedPromise: Promise<void> | null = null
   /** See `pinContainer`: at most one, held for the life of the router. */
-  private containerLease: "none" | "held" = "none";
+  private containerLease: 'none' | 'held' = 'none'
 
-  private readonly engine: EngineEntry;
-  private readonly routes: readonly ResolvedRoute[];
-  private readonly lifecycle: DockerLifecycle;
-  private readonly opts: LlamaRouterOptions;
+  private readonly engine: EngineEntry
+  private readonly routes: readonly ResolvedRoute[]
+  private readonly lifecycle: DockerLifecycle
+  private readonly opts: LlamaRouterOptions
 
   constructor(
     engine: EngineEntry,
@@ -194,13 +194,13 @@ export class LlamaRouter {
     lifecycle: DockerLifecycle,
     opts: LlamaRouterOptions,
   ) {
-    this.engine = engine;
-    this.routes = routes;
-    this.lifecycle = lifecycle;
-    this.opts = opts;
-    this.httpClient = opts.httpClient ?? fetch;
-    this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
+    this.engine = engine
+    this.routes = routes
+    this.lifecycle = lifecycle
+    this.opts = opts
+    this.httpClient = opts.httpClient ?? fetch
+    this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath()
   }
 
   /**
@@ -210,7 +210,7 @@ export class LlamaRouter {
    * this never creates an entry for a role nothing has touched yet.
    */
   residentModel(role: Role): string | null {
-    return this.roleStates.get(role)?.activeModelId ?? null;
+    return this.roleStates.get(role)?.activeModelId ?? null
   }
 
   /**
@@ -221,14 +221,14 @@ export class LlamaRouter {
    * container up. Taken once, on the first lease of the process.
    */
   private pinContainer(): void {
-    if (this.containerLease === "held") {
-      return;
+    if (this.containerLease === 'held') {
+      return
     }
     if (!this.routes.some((r) => r.keep_resident === true)) {
-      return;
+      return
     }
-    this.containerLease = "held";
-    this.lifecycle.beginLease(this.engine.id);
+    this.containerLease = 'held'
+    this.lifecycle.beginLease(this.engine.id)
   }
 
   /** The route this role returns to when nothing is waiting, if config pinned one. */
@@ -236,7 +236,7 @@ export class LlamaRouter {
     return this.routes.find(
       (r): r is ResolvedRoute & { model: string } =>
         r.role === role && r.keep_resident === true && r.model !== undefined,
-    );
+    )
   }
 
   /**
@@ -251,13 +251,13 @@ export class LlamaRouter {
    * residency -- `keep_resident` is what makes residency survive.
    */
   async warm(route: ResolvedRoute, signal?: AbortSignal | null): Promise<boolean> {
-    const { role, model } = route;
+    const { role, model } = route
     if (role === undefined || model === undefined) {
-      throw new Error(`route on engine "${route.engine}" has no role or model to warm`);
+      throw new Error(`route on engine "${route.engine}" has no role or model to warm`)
     }
-    const swapped = await this.beginLease(role, model, signal);
-    this.finishLease(role);
-    return swapped;
+    const swapped = await this.beginLease(role, model, signal)
+    this.finishLease(role)
+    return swapped
   }
 
   /**
@@ -267,13 +267,13 @@ export class LlamaRouter {
    * traffic it is describing.
    */
   contention(): RoleContention[] {
-    const busy: RoleContention[] = [];
+    const busy: RoleContention[] = []
     for (const [role, state] of this.roleStates) {
       if (state.activeCount > 0 || state.queue.length > 0) {
-        busy.push({ role, active: state.activeCount, waiting: state.queue.length });
+        busy.push({ role, active: state.activeCount, waiting: state.queue.length })
       }
     }
-    return busy;
+    return busy
   }
 
   /**
@@ -285,11 +285,11 @@ export class LlamaRouter {
    * outstanding is two independent occupancy trackers over one llama-server.
    */
   hasOutstandingLeases(): boolean {
-    return this.totalActive > 0;
+    return this.totalActive > 0
   }
 
   private roleState(role: Role): RoleState {
-    let state = this.roleStates.get(role);
+    let state = this.roleStates.get(role)
     if (!state) {
       state = {
         activeModelId: null,
@@ -297,10 +297,10 @@ export class LlamaRouter {
         capacity: Number.POSITIVE_INFINITY,
         queue: [],
         pumping: false,
-      };
-      this.roleStates.set(role, state);
+      }
+      this.roleStates.set(role, state)
     }
-    return state;
+    return state
   }
 
   /**
@@ -315,30 +315,30 @@ export class LlamaRouter {
   private capacityFor(role: Role, modelId: string): number {
     const route = this.routes.find(
       (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
-    );
-    const { parallel } = mergedArgs(this.engine, route);
-    return typeof parallel === "number" && Number.isInteger(parallel) && parallel > 0
+    )
+    const { parallel } = mergedArgs(this.engine, route)
+    return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
       ? parallel
-      : AUTO_PARALLEL;
+      : AUTO_PARALLEL
   }
 
   /** `private_url` from `getStatus` carries no scheme -- `docker.ts`'s own readiness poll prepends one too. */
   private baseUrl(): string {
-    const url = this.lifecycle.getStatus(this.engine.id).private_url;
+    const url = this.lifecycle.getStatus(this.engine.id).private_url
     if (url === null) {
-      throw new Error(`${this.engine.id}: no private_url; container is not running`);
+      throw new Error(`${this.engine.id}: no private_url; container is not running`)
     }
-    return `http://${url}`;
+    return `http://${url}`
   }
 
   /** Shared by every caller in-flight at once -- see `ensureStartedPromise`'s own comment. */
   private ensureStarted(): Promise<void> {
     if (!this.ensureStartedPromise) {
       this.ensureStartedPromise = this.doEnsureStarted().finally(() => {
-        this.ensureStartedPromise = null;
-      });
+        this.ensureStartedPromise = null
+      })
     }
-    return this.ensureStartedPromise;
+    return this.ensureStartedPromise
   }
 
   /**
@@ -362,21 +362,21 @@ export class LlamaRouter {
    * in-flight lease exists on the container for this engine when this fires.
    */
   private async doEnsureStarted(): Promise<void> {
-    const nextPreset = renderPresetIni(this.engine, this.routes);
-    const wasRunning = this.lifecycle.getStatus(this.engine.id).state === "running";
+    const nextPreset = renderPresetIni(this.engine, this.routes)
+    const wasRunning = this.lifecycle.getStatus(this.engine.id).state === 'running'
     if (wasRunning) {
       if (readIfExists(this.presetHostPath) === nextPreset) {
-        return;
+        return
       }
-      await this.lifecycle.removeEngine(this.engine.id);
+      await this.lifecycle.removeEngine(this.engine.id)
     }
-    mkdirSync(dirname(this.presetHostPath), { recursive: true });
-    writeFileSync(this.presetHostPath, nextPreset, "utf8");
-    const spec = buildLlamaSpec(this.engine, this.opts, this.presetHostPath);
+    mkdirSync(dirname(this.presetHostPath), { recursive: true })
+    writeFileSync(this.presetHostPath, nextPreset, 'utf8')
+    const spec = buildLlamaSpec(this.engine, this.opts, this.presetHostPath)
     await this.lifecycle.start(this.engine.id, spec, {
       idleStopSeconds: this.opts.idleStopSeconds,
       readyTimeoutS: this.opts.readyTimeoutS,
-    });
+    })
     // A fresh child holds nothing, so no role has a resident model or a known
     // capacity any more. `activeCount` is not the child's state though: it
     // counts leases callers are still holding and will each release exactly
@@ -384,8 +384,8 @@ export class LlamaRouter {
     // leases live. Zeroing it lets the pump swap out from under them and
     // admits a second full set of requests onto the same llama.cpp slots.
     for (const state of this.roleStates.values()) {
-      state.activeModelId = null;
-      state.capacity = Number.POSITIVE_INFINITY;
+      state.activeModelId = null
+      state.capacity = Number.POSITIVE_INFINITY
     }
   }
 
@@ -413,7 +413,7 @@ export class LlamaRouter {
    * false even though the model was cold when it asked.
    */
   private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<boolean> {
-    const state = this.roleState(role);
+    const state = this.roleState(role)
     return new Promise<boolean>((resolve, reject) => {
       if (
         !state.pumping &&
@@ -421,51 +421,51 @@ export class LlamaRouter {
         state.activeModelId === modelId &&
         state.activeCount < state.capacity
       ) {
-        state.activeCount++;
-        resolve(false);
-        return;
+        state.activeCount++
+        resolve(false)
+        return
       }
-      let onAbort: (() => void) | undefined;
+      let onAbort: (() => void) | undefined
       const cleanup = () => {
         if (onAbort) {
-          signal?.removeEventListener("abort", onAbort);
+          signal?.removeEventListener('abort', onAbort)
         }
-      };
+      }
       const waiter: RoleWaiter = {
         modelId,
         resolve: (swapped) => {
-          cleanup();
-          resolve(swapped);
+          cleanup()
+          resolve(swapped)
         },
         reject: (err) => {
-          cleanup();
-          reject(err);
+          cleanup()
+          reject(err)
         },
-      };
-      state.queue.push(waiter);
+      }
+      state.queue.push(waiter)
       if (signal) {
         onAbort = () => {
-          const idx = state.queue.indexOf(waiter);
+          const idx = state.queue.indexOf(waiter)
           if (idx === -1) {
-            return;
+            return
           }
-          state.queue.splice(idx, 1);
-          waiter.reject(signal.reason ?? new Error("lease request aborted while queued"));
-        };
-        if (signal.aborted) {
-          onAbort();
-          return;
+          state.queue.splice(idx, 1)
+          waiter.reject(signal.reason ?? new Error('lease request aborted while queued'))
         }
-        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) {
+          onAbort()
+          return
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
       }
-      this.runPump(role);
-    });
+      this.runPump(role)
+    })
   }
 
   private releaseLease(role: Role): void {
-    const state = this.roleState(role);
-    state.activeCount = Math.max(0, state.activeCount - 1);
-    this.runPump(role);
+    const state = this.roleState(role)
+    state.activeCount = Math.max(0, state.activeCount - 1)
+    this.runPump(role)
   }
 
   /**
@@ -475,25 +475,25 @@ export class LlamaRouter {
    * next release retries.
    */
   private async rewarmPinned(role: Role, state: RoleState): Promise<boolean> {
-    const pinned = this.pinnedFor(role);
+    const pinned = this.pinnedFor(role)
     if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned.model) {
-      return false;
+      return false
     }
     try {
-      await this.swapResident(role, pinned.model);
+      await this.swapResident(role, pinned.model)
     } catch {
-      return false;
+      return false
     }
-    state.activeModelId = pinned.model;
-    state.capacity = this.capacityFor(role, pinned.model);
-    return true;
+    state.activeModelId = pinned.model
+    state.capacity = this.capacityFor(role, pinned.model)
+    return true
   }
 
   /** `pump` itself never rejects -- a failed swap is routed to its waiter's own `reject` -- so a catch here only guards a bug in pump. */
   private runPump(role: Role): void {
     this.pump(role).catch((_err: unknown) => {
       // pump() never rejects by design; nothing to do beyond not crashing.
-    });
+    })
   }
 
   /**
@@ -506,66 +506,66 @@ export class LlamaRouter {
    * queued behind a swap cannot starve it.
    */
   private async pump(role: Role): Promise<void> {
-    const state = this.roleState(role);
+    const state = this.roleState(role)
     if (state.pumping) {
-      return;
+      return
     }
-    state.pumping = true;
+    state.pumping = true
     try {
       for (;;) {
-        const [front] = state.queue;
+        const [front] = state.queue
         if (!front) {
           // Re-check the queue after a re-warm rather than returning: a request
           // arriving during the swap queues behind a pump that is already
           // running, and would otherwise never be woken.
           if (await this.rewarmPinned(role, state)) {
-            continue;
+            continue
           }
-          return;
+          return
         }
         if (state.activeModelId === front.modelId) {
           if (state.activeCount >= state.capacity) {
             // At the door, not the queue: the front waiter stays put and the
             // next `releaseLease` re-runs the pump, exactly as a swap stalls
             // on `activeCount > 0` below.
-            return;
+            return
           }
-          state.queue.shift();
-          state.activeCount++;
-          front.resolve(false);
-          continue;
+          state.queue.shift()
+          state.activeCount++
+          front.resolve(false)
+          continue
         }
         if (state.activeCount > 0) {
-          return;
+          return
         }
-        state.queue.shift();
-        await this.admitAfterSwap(role, state, front);
+        state.queue.shift()
+        await this.admitAfterSwap(role, state, front)
       }
     } finally {
-      state.pumping = false;
+      state.pumping = false
     }
   }
 
   /** Swaps the resident to `front`'s GGUF and grants it the first slot; a failed swap rejects only `front`. */
   private async admitAfterSwap(role: Role, state: RoleState, front: RoleWaiter): Promise<void> {
     try {
-      await this.swapResident(role, front.modelId);
+      await this.swapResident(role, front.modelId)
     } catch (err) {
-      front.reject(err);
-      return;
+      front.reject(err)
+      return
     }
-    state.activeModelId = front.modelId;
-    state.capacity = this.capacityFor(role, front.modelId);
-    state.activeCount++;
-    front.resolve(true);
+    state.activeModelId = front.modelId
+    state.capacity = this.capacityFor(role, front.modelId)
+    state.activeCount++
+    front.resolve(true)
   }
 
   private async swapResident(role: Role, modelId: string): Promise<void> {
-    const state = this.roleState(role);
+    const state = this.roleState(role)
     if (state.activeModelId !== null) {
-      await this.unload(state.activeModelId);
+      await this.unload(state.activeModelId)
     }
-    await this.loadAndWait(modelId);
+    await this.loadAndWait(modelId)
   }
 
   /**
@@ -576,15 +576,15 @@ export class LlamaRouter {
    * role's belief matching what the child actually holds.
    */
   private async unload(modelId: string): Promise<void> {
-    const res = await this.fetchUpstreamOnce("/models/unload", {
-      method: "POST",
+    const res = await this.fetchUpstreamOnce('/models/unload', {
+      method: 'POST',
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
-    });
+    })
     if (!res.ok) {
-      throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`);
+      throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`)
     }
-    await discardBody(res);
+    await discardBody(res)
   }
 
   /**
@@ -606,47 +606,47 @@ export class LlamaRouter {
    * instead of wedging the role's pump forever.
    */
   private async loadAndWait(modelId: string): Promise<void> {
-    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND;
-    const triggerRes = await this.fetchUpstreamOnce("/models/load", {
-      method: "POST",
+    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND
+    const triggerRes = await this.fetchUpstreamOnce('/models/load', {
+      method: 'POST',
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({ model: modelId }),
-    });
+    })
     if (triggerRes.status === STATUS_BAD_REQUEST) {
-      const body = (await triggerRes.json()) as { error?: { message?: string } };
-      if (body.error?.message !== "model is already running") {
-        throw new Error(`${modelId}: load failed: ${body.error?.message ?? "400"}`);
+      const body = (await triggerRes.json()) as { error?: { message?: string } }
+      if (body.error?.message !== 'model is already running') {
+        throw new Error(`${modelId}: load failed: ${body.error?.message ?? '400'}`)
       }
       // Already running by another caller's race -- fall through to confirm
       // real readiness via /v1/models rather than trusting this 400 alone.
     } else if (triggerRes.ok) {
-      await discardBody(triggerRes);
+      await discardBody(triggerRes)
     } else {
-      throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`);
+      throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`)
     }
     const resident = await pollUntil(
-      async () => (await this.modelStatus(modelId)) === "loaded",
+      async () => (await this.modelStatus(modelId)) === 'loaded',
       deadline,
       this.pollIntervalMs,
-    );
+    )
     if (!resident) {
       throw new Error(
         `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
-      );
+      )
     }
   }
 
   /** The engine's own view of what it holds. Both callers below read it fresh; neither caches. */
   private async listedModels(): Promise<ListedModel[]> {
-    const res = await this.fetchUpstreamOnce("/v1/models", { method: "GET" });
-    const body = (await res.json()) as { data?: ListedModel[] };
-    return body.data ?? [];
+    const res = await this.fetchUpstreamOnce('/v1/models', { method: 'GET' })
+    const body = (await res.json()) as { data?: ListedModel[] }
+    return body.data ?? []
   }
 
   /** One model's readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
   private async modelStatus(modelId: string): Promise<string | undefined> {
-    const listed = await this.listedModels();
-    return listed.find((m) => m.id === modelId)?.status?.value;
+    const listed = await this.listedModels()
+    return listed.find((m) => m.id === modelId)?.status?.value
   }
 
   /**
@@ -667,11 +667,11 @@ export class LlamaRouter {
    * `residentModel` is the point, and caching would dissolve it.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
-    const listed = await this.listedModels();
+    const listed = await this.listedModels()
     const roleIds = new Set(
       this.routes.filter((r) => r.role === role && r.model !== undefined).map((r) => r.model),
-    );
-    return listed.find((m) => roleIds.has(m.id) && m.status?.value === "loaded")?.id;
+    )
+    return listed.find((m) => roleIds.has(m.id) && m.status?.value === 'loaded')?.id
   }
 
   /**
@@ -689,13 +689,13 @@ export class LlamaRouter {
    * buffering it.
    */
   proxy(route: ResolvedRoute, path: string, init: RequestInit): Promise<LlamaHop> {
-    const { role, model } = route;
+    const { role, model } = route
     if (role === undefined || model === undefined) {
-      throw new Error(`route on engine "${route.engine}" has no role or model to proxy`);
+      throw new Error(`route on engine "${route.engine}" has no role or model to proxy`)
     }
     return wantsStream(init)
       ? this.fetchStreamed(role, model, path, init)
-      : this.fetchBuffered(role, model, path, init);
+      : this.fetchBuffered(role, model, path, init)
   }
 
   /**
@@ -708,21 +708,21 @@ export class LlamaRouter {
     modelId: string,
     signal?: AbortSignal | null,
   ): Promise<boolean> {
-    await this.ensureStarted();
-    const swapped = await this.acquireLease(role, modelId, signal);
-    this.totalActive++;
+    await this.ensureStarted()
+    const swapped = await this.acquireLease(role, modelId, signal)
+    this.totalActive++
     if (this.totalActive === 1) {
-      this.lifecycle.beginLease(this.engine.id);
+      this.lifecycle.beginLease(this.engine.id)
     }
-    this.pinContainer();
-    return swapped;
+    this.pinContainer()
+    return swapped
   }
 
   private finishLease(role: Role): void {
-    this.totalActive--;
-    this.releaseLease(role);
+    this.totalActive--
+    this.releaseLease(role)
     if (this.totalActive === 0) {
-      this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds);
+      this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds)
     }
   }
 
@@ -738,11 +738,11 @@ export class LlamaRouter {
     signal: AbortSignal | null | undefined,
     fn: () => Promise<T>,
   ): Promise<T> {
-    await this.beginLease(role, modelId, signal);
+    await this.beginLease(role, modelId, signal)
     try {
-      return await fn();
+      return await fn()
     } finally {
-      this.finishLease(role);
+      this.finishLease(role)
     }
   }
 
@@ -765,20 +765,20 @@ export class LlamaRouter {
    */
   private async fetchUpstreamOnce(path: string, init: RequestInit): Promise<Response> {
     try {
-      return await this.httpClient(`${this.baseUrl()}${path}`, init);
+      return await this.httpClient(`${this.baseUrl()}${path}`, init)
     } catch (err) {
       // A cancelled request is the door's own timeout budget expiring, not a
       // container that went away: retrying it would outlive the budget that
       // just fired, and turn a chain's 503 into a late 200.
       if (init.signal?.aborted === true) {
-        throw err;
+        throw err
       }
-      const reconciled = await this.lifecycle.reconcile(this.engine.id);
-      if (reconciled.state === "running") {
-        throw err;
+      const reconciled = await this.lifecycle.reconcile(this.engine.id)
+      if (reconciled.state === 'running') {
+        throw err
       }
-      await this.ensureStarted();
-      return await this.httpClient(`${this.baseUrl()}${path}`, init);
+      await this.ensureStarted()
+      return await this.httpClient(`${this.baseUrl()}${path}`, init)
     }
   }
 
@@ -807,23 +807,23 @@ export class LlamaRouter {
     init: RequestInit,
     modelId?: string,
   ): Promise<Response> {
-    const res = await this.fetchUpstreamOnce(path, init);
+    const res = await this.fetchUpstreamOnce(path, init)
     if (modelId === undefined) {
-      return res;
+      return res
     }
-    const fault = await this.residencyFault(res);
-    if (fault === "none") {
-      return res;
+    const fault = await this.residencyFault(res)
+    if (fault === 'none') {
+      return res
     }
     // An unreachable child is one the router is still advertising as loaded,
     // so reloading first would be a no-op and the retry would land on the same
     // dying process. Waiting for the router to admit the instance is gone is
     // what makes the reload real.
-    if (fault === "unreachable") {
-      await this.awaitInstanceGone(modelId);
+    if (fault === 'unreachable') {
+      await this.awaitInstanceGone(modelId)
     }
-    await this.loadAndWait(modelId);
-    return await this.fetchUpstreamOnce(path, init);
+    await this.loadAndWait(modelId)
+    return await this.fetchUpstreamOnce(path, init)
   }
 
   /**
@@ -834,22 +834,22 @@ export class LlamaRouter {
    * failed turns one bad answer into two. Reads a clone so the caller still
    * owns an unconsumed body on every path.
    */
-  private async residencyFault(res: Response): Promise<"none" | "not-loaded" | "unreachable"> {
+  private async residencyFault(res: Response): Promise<'none' | 'not-loaded' | 'unreachable'> {
     if (res.ok) {
-      return "none";
+      return 'none'
     }
-    let body: string;
+    let body: string
     try {
-      body = await res.clone().text();
+      body = await res.clone().text()
     } catch {
-      return "none";
+      return 'none'
     }
     // The router writes this one as plain text, not as its JSON error shape.
     if (res.status === HTTP_SERVER_ERROR_MIN && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
-      return "unreachable";
+      return 'unreachable'
     }
-    const error = parseRecord(body)?.error;
-    return isRecord(error) && error.message === MODEL_NOT_LOADED_MESSAGE ? "not-loaded" : "none";
+    const error = parseRecord(body)?.error
+    return isRecord(error) && error.message === MODEL_NOT_LOADED_MESSAGE ? 'not-loaded' : 'none'
   }
 
   /**
@@ -860,10 +860,10 @@ export class LlamaRouter {
    */
   private async awaitInstanceGone(modelId: string): Promise<void> {
     await pollUntil(
-      async () => (await this.modelStatus(modelId)) !== "loaded",
+      async () => (await this.modelStatus(modelId)) !== 'loaded',
       Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND,
       this.pollIntervalMs,
-    );
+    )
   }
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
@@ -874,13 +874,13 @@ export class LlamaRouter {
     init: RequestInit,
   ): Promise<LlamaHop> {
     return this.withLease(role, modelId, init.signal, async () => {
-      const upstream = await this.fetchUpstream(path, init, modelId);
-      const body = await upstream.arrayBuffer();
+      const upstream = await this.fetchUpstream(path, init, modelId)
+      const body = await upstream.arrayBuffer()
       return {
         response: new Response(body, { status: upstream.status, headers: upstream.headers }),
         modelResident: await this.residentModelId(role),
-      };
-    });
+      }
+    })
   }
 
   /**
@@ -902,31 +902,31 @@ export class LlamaRouter {
     path: string,
     init: RequestInit,
   ): Promise<LlamaHop> {
-    const state = this.roleState(role);
-    const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId);
-    await this.beginLease(role, modelId, init.signal);
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const state = this.roleState(role)
+    const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId)
+    await this.beginLease(role, modelId, init.signal)
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
     const release = this.streamRelease(role, init.signal, (reason) => {
-      reader?.cancel(reason).catch(() => undefined);
-    });
+      reader?.cancel(reason).catch(() => undefined)
+    })
     // Everything between the lease and the `Response` can throw -- the fetch
     // itself, and the provenance read, whose `res.json()` rejects on any
     // non-JSON body llama-server writes. Without this the lease is never
     // released and the engine's idle-stop is never armed again.
     try {
-      const upstream = await this.fetchUpstream(path, init, modelId);
-      reader = upstream.body?.getReader();
-      const modelResident = await this.residentModelId(role);
+      const upstream = await this.fetchUpstream(path, init, modelId)
+      reader = upstream.body?.getReader()
+      const modelResident = await this.residentModelId(role)
       return {
         response: new Response(pipeUpstream(reader, emitWarming, release), {
           status: upstream.status,
           headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
         }),
         modelResident,
-      };
+      }
     } catch (err) {
-      release();
-      throw err;
+      release()
+      throw err
     }
   }
 
@@ -947,24 +947,24 @@ export class LlamaRouter {
     signal: AbortSignal | null | undefined,
     cancelUpstream: (reason: unknown) => void,
   ): () => void {
-    let released = false;
+    let released = false
     const release = () => {
       if (released) {
-        return;
+        return
       }
-      released = true;
-      signal?.removeEventListener("abort", onAbort);
-      this.finishLease(role);
-    };
-    const onAbort = () => {
-      release();
-      cancelUpstream(signal?.reason);
-    };
-    if (signal?.aborted) {
-      onAbort();
-    } else {
-      signal?.addEventListener("abort", onAbort, { once: true });
+      released = true
+      signal?.removeEventListener('abort', onAbort)
+      this.finishLease(role)
     }
-    return release;
+    const onAbort = () => {
+      release()
+      cancelUpstream(signal?.reason)
+    }
+    if (signal?.aborted) {
+      onAbort()
+    } else {
+      signal?.addEventListener('abort', onAbort, { once: true })
+    }
+    return release
   }
 }

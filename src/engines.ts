@@ -5,10 +5,10 @@
  * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import process from "node:process";
-import { mintLaunchNonce, type ObservedVersion, observeAgentVersion } from "./agentic.ts";
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import process from 'node:process'
+import { mintLaunchNonce, type ObservedVersion, observeAgentVersion } from './agentic.ts'
 import {
   type AgenticProbeOutcome,
   type AgenticProbeRunner,
@@ -19,9 +19,9 @@ import {
   readVerifiedVersion,
   roundTripTargetFor,
   writeVerifiedVersion,
-} from "./agenticProbe.ts";
-import { DEFAULT_INVENTORY_REFRESH_SECONDS } from "./configParse.ts";
-import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from "./docker.ts";
+} from './agenticProbe.ts'
+import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
+import { DockerLifecycle, dockerExec, type Probe, type RuntimeStatus } from './docker.ts'
 import {
   baseStatus,
   buildEntries,
@@ -30,23 +30,23 @@ import {
   hasLocalBinding,
   isLocalLlama,
   statusFrom,
-} from "./engineEntries.ts";
-import { EngineBusyError } from "./errors/engineBusy.ts";
-import { FatalError } from "./errors/fatal.ts";
-import type { Exec } from "./exec.ts";
-import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from "./http.ts";
-import { Inventory } from "./inventory.ts";
-import { renderPresetIni } from "./llamaSpec.ts";
-import { llamaPresetPath } from "./paths.ts";
-import type { EngineResources } from "./resources.ts";
-import { CONTRACT, type EngineStatus, type EnginesResponse } from "./responses.ts";
-import type { SpecLoadOptions } from "./spec.ts";
+} from './engineEntries.ts'
+import { EngineBusyError } from './errors/engineBusy.ts'
+import { FatalError } from './errors/fatal.ts'
+import type { Exec } from './exec.ts'
+import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from './http.ts'
+import { Inventory } from './inventory.ts'
+import { renderPresetIni } from './llamaSpec.ts'
+import { llamaPresetPath } from './paths.ts'
+import type { EngineResources } from './resources.ts'
+import { CONTRACT, type EngineStatus, type EnginesResponse } from './responses.ts'
+import type { SpecLoadOptions } from './spec.ts'
 import {
   type AgenticSpec,
   isContainerSpec,
   type RunnableContainerSpec,
   type Spec,
-} from "./specTypes.ts";
+} from './specTypes.ts'
 import {
   type Config,
   type EngineEntry,
@@ -56,14 +56,14 @@ import {
   routeForHop,
   type Upstream,
   WILDCARD_MODEL,
-} from "./types.ts";
+} from './types.ts'
 
 /** Set at build time by the install script; absent in a working-tree run. */
-declare const ENGINED_COMMIT: string | undefined;
+declare const ENGINED_COMMIT: string | undefined
 
 /** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
-export const DEFAULT_IDLE_STOP_SECONDS = 900;
-export const DEFAULT_READY_TIMEOUT_S = 60;
+export const DEFAULT_IDLE_STOP_SECONDS = 900
+export const DEFAULT_READY_TIMEOUT_S = 60
 
 /**
  * Comfy is the one engine whose idleness engined cannot observe, because it
@@ -73,54 +73,54 @@ export const DEFAULT_READY_TIMEOUT_S = 60;
  * (minutes), so a job that starts is noticed well before a stale deadline
  * inherited from the last empty poll could fire mid-job.
  */
-const COMFY_POLL_INTERVAL_MS = 15_000;
+const COMFY_POLL_INTERVAL_MS = 15_000
 
 export interface QueueSnapshot {
-  queue_running: unknown[];
-  queue_pending: unknown[];
+  queue_running: unknown[]
+  queue_pending: unknown[]
 }
 
-type QueueFetch = (url: string) => Promise<QueueSnapshot>;
+type QueueFetch = (url: string) => Promise<QueueSnapshot>
 /** Overridable for tests; the release POST is the only other call engined makes into a running container. */
-export type ReleaseFetch = (url: string, body: unknown) => Promise<{ ok: boolean; status: number }>;
+export type ReleaseFetch = (url: string, body: unknown) => Promise<{ ok: boolean; status: number }>
 
 async function defaultReleaseFetch(
   url: string,
   body: unknown,
 ): Promise<{ ok: boolean; status: number }> {
   const res = await fetch(url, {
-    method: "POST",
+    method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
-  });
+  })
   // The status is the whole answer here; the body is never read, so release it.
-  await discardBody(res);
-  return { ok: res.ok, status: res.status };
+  await discardBody(res)
+  return { ok: res.ok, status: res.status }
 }
 
 async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
-  const res = await fetch(url);
-  return (await res.json()) as QueueSnapshot;
+  const res = await fetch(url)
+  return (await res.json()) as QueueSnapshot
 }
 
 function isQueueEmpty(q: QueueSnapshot): boolean {
-  return q.queue_running.length === 0 && q.queue_pending.length === 0;
+  return q.queue_running.length === 0 && q.queue_pending.length === 0
 }
 
 export interface RegistryOptions {
   /** Root of the shipped `engines/` directory, passed straight through to `loadSpec`. */
-  enginesRoot: string;
-  bunx: string;
+  enginesRoot: string
+  bunx: string
   /** Injected together so the image probe below agrees with a test's fake lifecycle. */
-  exec?: Exec;
-  probe?: Probe;
-  lifecycle?: DockerLifecycle;
+  exec?: Exec
+  probe?: Probe
+  lifecycle?: DockerLifecycle
   /** Overridable for tests: a fast interval against a fake `/queue` response. */
-  queueFetch?: QueueFetch;
-  releaseFetch?: ReleaseFetch;
-  comfyPollIntervalMs?: number;
+  queueFetch?: QueueFetch
+  releaseFetch?: ReleaseFetch
+  comfyPollIntervalMs?: number
   /** Absent by default: an agentic-cli engine whose pin has never been proved stays `unavailable` until one is injected. */
-  agenticProbeRunner?: AgenticProbeRunner;
+  agenticProbeRunner?: AgenticProbeRunner
   /**
    * The door's own live launch nonces, which a round-trip probe's launch is
    * registered in for as long as it runs. `createDoor` passes the set it
@@ -128,7 +128,7 @@ export interface RegistryOptions {
    * URL it hands a probe, but nothing is listening for that nonce, so a
    * probe that calls back is refused as unknown.
    */
-  launchNonces?: Set<string>;
+  launchNonces?: Set<string>
   /**
    * Overridable for tests: what `agenticStatus` treats as an agent's actual
    * running version, checked against the proved one on every status poll.
@@ -137,15 +137,15 @@ export interface RegistryOptions {
    * -- an npm-pinned agent (claude, opencode) never spawns anything here,
    * since its `bunx` pin already IS the observed version.
    */
-  observeAgentVersion?: (agent: string, configuredVersion: string) => Promise<ObservedVersion>;
+  observeAgentVersion?: (agent: string, configuredVersion: string) => Promise<ObservedVersion>
   /** Defaults under the one writable state dir; tests always override this. Must be the same path the door hands `LlamaRouter`, since one writes the file the other mounts. */
-  presetHostPath?: string;
+  presetHostPath?: string
   /** Provider catalog cache. Tests pass a pre-filled instance; production builds one in `createDoor`. */
-  inventory?: Inventory;
+  inventory?: Inventory
 }
 
 /** Where every container-kind engine's models_dir is bind-mounted; `filename` on a route is relative to it. */
-const MODEL_MOUNT_PATH = "/models";
+const MODEL_MOUNT_PATH = '/models'
 
 /**
  * The `-m <path>` pair in a stt-kind engine's own command, rewritten to name
@@ -156,63 +156,63 @@ const MODEL_MOUNT_PATH = "/models";
  * actually take a model file and is a startup-time mistake, not a runtime one.
  */
 function withModelFile(spec: RunnableContainerSpec, filename: string): RunnableContainerSpec {
-  const idx = spec.command.indexOf("-m");
+  const idx = spec.command.indexOf('-m')
   if (idx === -1 || spec.command[idx + 1] === undefined) {
     throw new FatalError(
       `image "${spec.image}": no "-m <path>" pair in its command to substitute a model into`,
-    );
+    )
   }
-  const command = [...spec.command];
-  command[idx + 1] = `${MODEL_MOUNT_PATH}/${filename}`;
-  return { ...spec, command };
+  const command = [...spec.command]
+  command[idx + 1] = `${MODEL_MOUNT_PATH}/${filename}`
+  return { ...spec, command }
 }
 
 export class EngineRegistry {
-  private readonly exec: Exec;
-  private readonly lifecycle: DockerLifecycle;
-  private readonly specOptions: SpecLoadOptions;
-  private readonly queueFetch: QueueFetch;
-  private readonly releaseFetch: ReleaseFetch;
-  private readonly comfyPollIntervalMs: number;
-  private readonly agenticProbeRunner?: AgenticProbeRunner;
-  private readonly launchNonces: Set<string>;
+  private readonly exec: Exec
+  private readonly lifecycle: DockerLifecycle
+  private readonly specOptions: SpecLoadOptions
+  private readonly queueFetch: QueueFetch
+  private readonly releaseFetch: ReleaseFetch
+  private readonly comfyPollIntervalMs: number
+  private readonly agenticProbeRunner?: AgenticProbeRunner
+  private readonly launchNonces: Set<string>
   private readonly observeAgentVersion: (
     agent: string,
     configuredVersion: string,
-  ) => Promise<ObservedVersion>;
-  private readonly presetHostPath: string;
-  readonly inventory: Inventory;
+  ) => Promise<ObservedVersion>
+  private readonly presetHostPath: string
+  readonly inventory: Inventory
   /**
    * The shape each running container was started under, set when this registry
    * starts one. A later start overwrites it and only a running engine is ever
    * asked, so a leftover entry for something stopped cannot report a
    * supersession that is not there.
    */
-  private readonly launchedShape = new Map<string, string>();
-  private config: Config;
-  private entries: Entry[];
-  private byId: Map<string, Entry>;
-  private comfyTimers: ReturnType<typeof setInterval>[] = [];
-  private inventoryTimers: ReturnType<typeof setInterval>[] = [];
+  private readonly launchedShape = new Map<string, string>()
+  private config: Config
+  private entries: Entry[]
+  private byId: Map<string, Entry>
+  private comfyTimers: ReturnType<typeof setInterval>[] = []
+  private inventoryTimers: ReturnType<typeof setInterval>[] = []
   /** Last failed catalog fetch per engine, while an in-age cache is still served. */
-  private readonly inventoryFetchErrors = new Map<string, string>();
+  private readonly inventoryFetchErrors = new Map<string, string>()
   /**
    * Last observed `/queue` emptiness per comfy-kind engine id. The lease is
    * armed once per transition into empty, never re-armed on every poll while
    * it stays empty — re-arming on every tick would reset the countdown
    * before it ever elapsed.
    */
-  private readonly comfyQueueEmpty = new Map<string, boolean>();
+  private readonly comfyQueueEmpty = new Map<string, boolean>()
   /** Per-engine agentic-probe cache/dedupe; see `runAgenticProbe`. */
   private readonly agenticProbeState = new Map<
     string,
     { version: string; outcome?: AgenticProbeOutcome; promise?: Promise<AgenticProbeOutcome> }
-  >();
+  >()
   /** Last version observation per agentic engine id, and the one refresh in flight for it; see `observedVersion`. */
   private readonly versionObservations = new Map<
     string,
     { configured: string; last?: ObservedVersion; inFlight?: Promise<ObservedVersion> }
-  >();
+  >()
   /**
    * The model each container-kind engine's own `start()` last requested --
    * whisper's only consumer today. Compared against a fresh `start(id, model)`
@@ -221,7 +221,7 @@ export class EngineRegistry {
    * model (started via the plain warm path) has no entry here, which reads as
    * "unknown" rather than any real model id.
    */
-  private readonly residentModel = new Map<string, string | undefined>();
+  private readonly residentModel = new Map<string, string | undefined>()
 
   /**
    * How many `start()` calls are inside their own container work for each
@@ -230,38 +230,38 @@ export class EngineRegistry {
    * round trips -- a competing model switch reading leases in that window
    * sees zero and would stop the container under a request already admitted.
    */
-  private readonly startsInFlight = new Map<string, number>();
+  private readonly startsInFlight = new Map<string, number>()
 
   constructor(config: Config, opts: RegistryOptions) {
-    this.exec = opts.exec ?? dockerExec;
-    this.lifecycle = opts.lifecycle ?? new DockerLifecycle(this.exec, opts.probe);
+    this.exec = opts.exec ?? dockerExec
+    this.lifecycle = opts.lifecycle ?? new DockerLifecycle(this.exec, opts.probe)
     this.specOptions = {
       enginesRoot: opts.enginesRoot,
       bunx: opts.bunx,
-    };
-    this.queueFetch = opts.queueFetch ?? defaultQueueFetch;
-    this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch;
-    this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS;
-    this.agenticProbeRunner = opts.agenticProbeRunner;
-    this.launchNonces = opts.launchNonces ?? new Set();
-    this.observeAgentVersion = opts.observeAgentVersion ?? observeAgentVersion;
-    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath();
-    this.inventory = opts.inventory ?? new Inventory();
-    this.config = config;
-    this.entries = buildEntries(config, this.specOptions, this.presetHostPath);
-    this.byId = new Map(this.entries.map((e) => [e.engine.id, e]));
+    }
+    this.queueFetch = opts.queueFetch ?? defaultQueueFetch
+    this.releaseFetch = opts.releaseFetch ?? defaultReleaseFetch
+    this.comfyPollIntervalMs = opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS
+    this.agenticProbeRunner = opts.agenticProbeRunner
+    this.launchNonces = opts.launchNonces ?? new Set()
+    this.observeAgentVersion = opts.observeAgentVersion ?? observeAgentVersion
+    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath()
+    this.inventory = opts.inventory ?? new Inventory()
+    this.config = config
+    this.entries = buildEntries(config, this.specOptions, this.presetHostPath)
+    this.byId = new Map(this.entries.map((e) => [e.engine.id, e]))
     // Attached here, not passed to the constructor above: `createDoor` builds
     // its own lifecycle to share with the llama routers and hands it in, and
     // a constructor argument would never reach that one.
     this.lifecycle.onChange((id) => {
-      this.announce(id);
-    });
-    this.comfyTimers = this.startComfyWatches(this.entries);
+      this.announce(id)
+    })
+    this.comfyTimers = this.startComfyWatches(this.entries)
   }
 
   /** How many catalog refresh intervals are armed. Tests the clear-and-restart, not a live signal. */
   inventoryWatchCount(): number {
-    return this.inventoryTimers.length;
+    return this.inventoryTimers.length
   }
 
   /**
@@ -269,8 +269,8 @@ export class EngineRegistry {
    * not sit on the provider; the first menu after boot may still be empty.
    */
   startInventoryRefresh(): void {
-    this.restartInventoryWatches();
-    this.refreshInventories();
+    this.restartInventoryWatches()
+    this.refreshInventories()
   }
 
   private wildcardUpstreams(): Upstream[] {
@@ -278,57 +278,57 @@ export class EngineRegistry {
       this.config.routes
         .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream !== null)
         .map((r) => r.upstream as string),
-    );
-    return this.config.upstreams.filter((u) => ids.has(u.id));
+    )
+    return this.config.upstreams.filter((u) => ids.has(u.id))
   }
 
   private clearInventoryTimers(): void {
     for (const timer of this.inventoryTimers) {
-      clearInterval(timer);
+      clearInterval(timer)
     }
-    this.inventoryTimers = [];
+    this.inventoryTimers = []
   }
 
   private restartInventoryWatches(): void {
-    this.clearInventoryTimers();
+    this.clearInventoryTimers()
     this.inventoryTimers = this.wildcardUpstreams().map((u) =>
       setInterval(
         () => {
-          this.refreshOneInventory(u).catch(() => undefined);
+          this.refreshOneInventory(u).catch(() => undefined)
         },
         (u.inventory_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS) * MS_PER_SECOND,
       ),
-    );
+    )
   }
 
   private refreshInventories(): void {
     for (const u of this.wildcardUpstreams()) {
-      this.refreshOneInventory(u).catch(() => undefined);
+      this.refreshOneInventory(u).catch(() => undefined)
     }
   }
 
   private async refreshOneInventory(upstream: Upstream): Promise<void> {
-    const result = await this.inventory.refresh(upstream);
+    const result = await this.inventory.refresh(upstream)
     const engines = new Set(
       this.config.routes
         .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream === upstream.id)
         .map((r) => r.engine),
-    );
+    )
     for (const id of engines) {
       if (result.fetchError === undefined) {
-        this.inventoryFetchErrors.delete(id);
+        this.inventoryFetchErrors.delete(id)
       } else {
-        this.inventoryFetchErrors.set(id, result.fetchError);
+        this.inventoryFetchErrors.set(id, result.fetchError)
       }
     }
   }
 
   private withInventoryFix(status: EngineStatus): EngineStatus {
     if (status.fix !== undefined) {
-      return status;
+      return status
     }
-    const fetchError = this.inventoryFetchErrors.get(status.id);
-    return fetchError === undefined ? status : { ...status, fix: fetchError };
+    const fetchError = this.inventoryFetchErrors.get(status.id)
+    return fetchError === undefined ? status : { ...status, fix: fetchError }
   }
 
   /**
@@ -336,7 +336,7 @@ export class EngineRegistry {
    * removes exactly its own listener and a reconnect is a fresh entry rather
    * than a duplicate of the old one.
    */
-  private readonly watchers = new Set<(status: EngineStatus) => void>();
+  private readonly watchers = new Set<(status: EngineStatus) => void>()
 
   /**
    * Subscribe to state changes; the returned function unsubscribes. Callers
@@ -345,23 +345,23 @@ export class EngineRegistry {
    * polling the stream exists to remove.
    */
   watch(listener: (status: EngineStatus) => void): () => void {
-    this.watchers.add(listener);
-    return () => this.watchers.delete(listener);
+    this.watchers.add(listener)
+    return () => this.watchers.delete(listener)
   }
 
   /** A listener that throws must not stop the others from hearing about it. */
   private announce(id: string): void {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry || this.watchers.size === 0) {
-      return;
+      return
     }
     // syncStatus, not statusFor: the async one runs an installability probe,
     // which is both a docker round trip on every transition and a path that
     // can itself transition -- announcing from inside it would recurse.
-    const status = this.syncStatus(entry);
+    const status = this.syncStatus(entry)
     for (const listener of this.watchers) {
       try {
-        listener(status);
+        listener(status)
       } catch {
         // A broken subscriber is its own problem; the lifecycle transition
         // that triggered this has already happened either way.
@@ -372,12 +372,12 @@ export class EngineRegistry {
   /** One poll timer per `comfy`-kind engine; idleness for it comes from nowhere else. */
   private startComfyWatches(entries: Entry[]): ReturnType<typeof setInterval>[] {
     return entries
-      .filter((e) => !e.engine.disabled && e.spec.spec.kind === "comfy")
+      .filter((e) => !e.engine.disabled && e.spec.spec.kind === 'comfy')
       .map((entry) =>
         setInterval(() => {
-          this.pollComfyQueue(entry).catch(() => undefined);
+          this.pollComfyQueue(entry).catch(() => undefined)
         }, this.comfyPollIntervalMs),
-      );
+      )
   }
 
   /**
@@ -390,36 +390,36 @@ export class EngineRegistry {
    */
   private async pollComfyQueue(entry: Entry): Promise<void> {
     if (!isContainerSpec(entry.spec.spec)) {
-      return;
+      return
     }
-    const { engine } = entry;
-    const status = this.lifecycle.getStatus(engine.id);
-    if (status.state !== "running" || status.private_url === null) {
-      this.comfyQueueEmpty.delete(engine.id);
-      return;
+    const { engine } = entry
+    const status = this.lifecycle.getStatus(engine.id)
+    if (status.state !== 'running' || status.private_url === null) {
+      this.comfyQueueEmpty.delete(engine.id)
+      return
     }
-    let queue: QueueSnapshot;
+    let queue: QueueSnapshot
     try {
-      queue = await this.queueFetch(`http://${status.private_url}/queue`);
+      queue = await this.queueFetch(`http://${status.private_url}/queue`)
     } catch {
       // A refused poll is the only signal engined gets that this container
       // died underneath it -- nothing else asks docker about a comfy engine
       // between starts. `reconcile` lets docker decide, so a poll that failed
       // against a container still genuinely up changes nothing here.
-      const reconciled = await this.lifecycle.reconcile(engine.id);
-      if (reconciled.state !== "running") {
-        this.comfyQueueEmpty.delete(engine.id);
+      const reconciled = await this.lifecycle.reconcile(engine.id)
+      if (reconciled.state !== 'running') {
+        this.comfyQueueEmpty.delete(engine.id)
       }
-      return;
+      return
     }
-    const empty = isQueueEmpty(queue);
+    const empty = isQueueEmpty(queue)
     // Unknown starts as empty: a first observation of a BUSY queue is then a
     // real transition and takes a lease, rather than leaving a working Comfy
     // counting down against the idle-stop its own start armed.
-    const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? true;
-    this.comfyQueueEmpty.set(engine.id, empty);
+    const wasEmpty = this.comfyQueueEmpty.get(engine.id) ?? true
+    this.comfyQueueEmpty.set(engine.id, empty)
     if (empty && !wasEmpty) {
-      this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS);
+      this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
     } else if (!empty && wasEmpty) {
       // The lease alone cancels the pending stop, and taking it synchronously
       // is the point: a docker round trip here is a window in which the
@@ -427,7 +427,7 @@ export class EngineRegistry {
       // landing in it stops a comfy the queue has just reported working. The
       // queue answering at all is better proof the container is up than any
       // reconcile.
-      this.lifecycle.beginLease(engine.id);
+      this.lifecycle.beginLease(engine.id)
     }
   }
 
@@ -438,20 +438,20 @@ export class EngineRegistry {
    * authoritative, async check.
    */
   private syncStatus(entry: Entry): EngineStatus {
-    const { engine } = entry;
+    const { engine } = entry
     if (engine.disabled) {
-      return this.disabledStatus(entry);
+      return this.disabledStatus(entry)
     }
 
-    const { spec } = entry.spec;
+    const { spec } = entry.spec
     if (!isContainerSpec(spec)) {
       return this.withInventoryFix({
         ...baseStatus(engine, spec, this.config.routes),
-        state: "installed",
-      });
+        state: 'installed',
+      })
     }
 
-    const runtime = this.lifecycle.getStatus(engine.id);
+    const runtime = this.lifecycle.getStatus(engine.id)
     return this.withInventoryFix(
       statusFrom({
         engine,
@@ -460,7 +460,7 @@ export class EngineRegistry {
         routes: this.config.routes,
         superseded: this.supersededBy(entry, runtime),
       }),
-    );
+    )
   }
 
   /**
@@ -472,17 +472,17 @@ export class EngineRegistry {
    * one would be reporting a problem that does not exist.
    */
   private supersededBy(entry: Entry, runtime: RuntimeStatus): string | undefined {
-    if (runtime.state !== "running") {
-      return undefined;
+    if (runtime.state !== 'running') {
+      return undefined
     }
-    const launched = this.launchedShape.get(entry.engine.id);
+    const launched = this.launchedShape.get(entry.engine.id)
     if (
       launched === undefined ||
       launched === engineShape(entry.engine, entry.spec.spec, this.config.routes)
     ) {
-      return undefined;
+      return undefined
     }
-    return `curl -s -X POST localhost:${this.config.listen_port}/engined/v1/engines/${entry.engine.id}/stop`;
+    return `curl -s -X POST localhost:${this.config.listen_port}/engined/v1/engines/${entry.engine.id}/stop`
   }
 
   /**
@@ -493,13 +493,13 @@ export class EngineRegistry {
    * every other unavailable engine.
    */
   private disabledStatus(entry: Entry): EngineStatus {
-    const { engine, spec } = entry;
+    const { engine, spec } = entry
     return {
       ...baseStatus(engine, spec.spec, this.config.routes),
-      state: "unavailable",
+      state: 'unavailable',
       disabled: true,
       fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
-    };
+    }
   }
 
   /**
@@ -511,19 +511,19 @@ export class EngineRegistry {
    */
   private async statusFor(entry: Entry, fresh = true): Promise<EngineStatus> {
     if (entry.engine.disabled) {
-      return this.disabledStatus(entry);
+      return this.disabledStatus(entry)
     }
-    const { spec, source } = entry.spec;
+    const { spec, source } = entry.spec
     if (!isContainerSpec(spec)) {
-      if (spec.kind === "agentic-cli") {
-        return this.agenticStatus(entry.engine, spec, fresh);
+      if (spec.kind === 'agentic-cli') {
+        return this.agenticStatus(entry.engine, spec, fresh)
       }
       // A spec-less proxy: nothing to probe and nothing resident -- an
       // address is either configured or it is not, and syncStatus's
       // optimistic `installed` already says as much.
-      return this.syncStatus(entry);
+      return this.syncStatus(entry)
     }
-    const { engine } = entry;
+    const { engine } = entry
     return this.withInventoryFix(
       statusFrom({
         engine,
@@ -536,7 +536,7 @@ export class EngineRegistry {
         ),
         routes: this.config.routes,
       }),
-    );
+    )
   }
 
   /**
@@ -564,45 +564,40 @@ export class EngineRegistry {
     spec: AgenticSpec,
     fresh: boolean,
   ): Promise<EngineStatus> {
-    const base = baseStatus(engine, spec, this.config.routes);
-    const provable = await this.provableVersion(engine, spec.agent, fresh);
-    if ("fix" in provable) {
-      return { ...base, state: "unavailable", fix: provable.fix };
+    const base = baseStatus(engine, spec, this.config.routes)
+    const provable = await this.provableVersion(engine, spec.agent, fresh)
+    if ('fix' in provable) {
+      return { ...base, state: 'unavailable', fix: provable.fix }
     }
-    const { version } = provable;
-    const proved = readVerifiedVersion(engine.id);
+    const { version } = provable
+    const proved = readVerifiedVersion(engine.id)
     if (proved === version) {
-      return { ...base, state: "installed" };
+      return { ...base, state: 'installed' }
     }
     if (this.agenticProbeRunner === undefined) {
       return {
         ...base,
-        state: "unavailable",
+        state: 'unavailable',
         fix: noProbeRunnerConfiguredFix(engine.id, version, proved),
-      };
+      }
     }
-    const outcome = await this.runAgenticProbe(
-      engine,
-      version,
-      spec.agent,
-      this.agenticProbeRunner,
-    );
+    const outcome = await this.runAgenticProbe(engine, version, spec.agent, this.agenticProbeRunner)
     if (!outcome.ok) {
       return {
         ...base,
-        state: "unavailable",
+        state: 'unavailable',
         fix: probeFailedFix({
           engineId: engine.id,
           observed: version,
           proved,
-          failedProbe: outcome.failedProbe ?? "unknown",
+          failedProbe: outcome.failedProbe ?? 'unknown',
           detail: outcome.detail,
         }),
-      };
+      }
     }
-    writeVerifiedVersion(engine.id, version);
-    this.agenticProbeState.delete(engine.id);
-    return { ...base, state: "installed" };
+    writeVerifiedVersion(engine.id, version)
+    this.agenticProbeState.delete(engine.id)
+    return { ...base, state: 'installed' }
   }
 
   /**
@@ -616,15 +611,15 @@ export class EngineRegistry {
     fresh: boolean,
   ): Promise<{ version: string } | { fix: string }> {
     if (engine.agent_version === undefined) {
-      return { fix: noAgentVersionConfiguredFix(engine.id) };
+      return { fix: noAgentVersionConfiguredFix(engine.id) }
     }
-    const observed = await this.observedVersion(engine.id, agent, engine.agent_version, fresh);
+    const observed = await this.observedVersion(engine.id, agent, engine.agent_version, fresh)
     if (!observed.ok) {
-      return { fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? "unknown") };
+      return { fix: agentBinaryUnresolvedFix(engine.id, observed.error ?? 'unknown') }
     }
     return observed.version === undefined
-      ? { fix: agentBinaryUnresolvedFix(engine.id, "no version reported") }
-      : { version: observed.version };
+      ? { fix: agentBinaryUnresolvedFix(engine.id, 'no version reported') }
+      : { version: observed.version }
   }
 
   /**
@@ -653,20 +648,20 @@ export class EngineRegistry {
     configuredVersion: string,
     fresh: boolean,
   ): Promise<ObservedVersion> {
-    const cached = this.versionObservations.get(engineId);
+    const cached = this.versionObservations.get(engineId)
     const state =
-      cached?.configured === configuredVersion ? cached : { configured: configuredVersion };
-    this.versionObservations.set(engineId, state);
+      cached?.configured === configuredVersion ? cached : { configured: configuredVersion }
+    this.versionObservations.set(engineId, state)
     if (state.inFlight === undefined) {
       state.inFlight = this.observeAgentVersion(agent, configuredVersion)
         .catch((err): ObservedVersion => ({ ok: false, error: errMessage(err) }))
         .then((observed) => {
-          state.last = observed;
-          state.inFlight = undefined;
-          return observed;
-        });
+          state.last = observed
+          state.inFlight = undefined
+          return observed
+        })
     }
-    return fresh || state.last === undefined ? state.inFlight : Promise.resolve(state.last);
+    return fresh || state.last === undefined ? state.inFlight : Promise.resolve(state.last)
   }
 
   /**
@@ -687,81 +682,81 @@ export class EngineRegistry {
     agent: string,
     runner: AgenticProbeRunner,
   ): Promise<AgenticProbeOutcome> {
-    const cached = this.agenticProbeState.get(engine.id);
+    const cached = this.agenticProbeState.get(engine.id)
     if (cached?.version === version) {
       if (cached.promise !== undefined) {
-        return cached.promise;
+        return cached.promise
       }
       if (cached.outcome) {
-        return Promise.resolve(cached.outcome);
+        return Promise.resolve(cached.outcome)
       }
     }
-    const nonce = mintLaunchNonce();
-    const roundTrip = roundTripTargetFor(engine.id, this.config, nonce);
+    const nonce = mintLaunchNonce()
+    const roundTrip = roundTripTargetFor(engine.id, this.config, nonce)
     if (roundTrip !== undefined) {
-      this.launchNonces.add(nonce);
+      this.launchNonces.add(nonce)
     }
     const promise = runner(version, agent, roundTrip)
       .then((outcome) => {
         this.agenticProbeState.set(engine.id, {
           version,
           outcome: outcome.ok ? undefined : outcome,
-        });
-        return outcome;
+        })
+        return outcome
       })
       .finally(() => {
-        this.launchNonces.delete(nonce);
-      });
-    this.agenticProbeState.set(engine.id, { version, promise });
-    return promise;
+        this.launchNonces.delete(nonce)
+      })
+    this.agenticProbeState.set(engine.id, { version, promise })
+    return promise
   }
 
   async list(): Promise<EnginesResponse> {
-    const engines = await Promise.all(this.entries.map((e) => this.statusFor(e, false)));
+    const engines = await Promise.all(this.entries.map((e) => this.statusFor(e, false)))
     return {
       contract: CONTRACT,
-      commit: typeof ENGINED_COMMIT === "string" ? ENGINED_COMMIT : "unknown",
+      commit: typeof ENGINED_COMMIT === 'string' ? ENGINED_COMMIT : 'unknown',
       engines,
-    };
+    }
   }
 
   /** Whether an id names the local llama, which is the only engine the extras routes can address. */
   isLocalLlama(id: string): boolean {
-    const entry = this.byId.get(id);
-    return entry !== undefined && isLocalLlama(entry.engine, entry.spec.spec.kind);
+    const entry = this.byId.get(id)
+    return entry !== undefined && isLocalLlama(entry.engine, entry.spec.spec.kind)
   }
 
   /** Endpoints a given *engine* id serves, for the door's model/endpoint mismatch check. */
   serves(id: string): string[] {
-    return this.byId.get(id)?.spec.spec.serves ?? [];
+    return this.byId.get(id)?.spec.spec.serves ?? []
   }
 
   /** The configured engine itself — secret, base_url, args, timeouts — as distinct from `get`'s runtime status. */
   entry(id: string): EngineEntry | undefined {
-    return this.byId.get(id)?.engine;
+    return this.byId.get(id)?.engine
   }
 
   /** This engine's resolved spec, for a door verb that reads something the spec ships (a comfy engine's `images_workflow`). */
   specFor(id: string): Spec | undefined {
-    return this.byId.get(id)?.spec.spec;
+    return this.byId.get(id)?.spec.spec
   }
 
   /** Sync accessor: reports the lifecycle's cached state — no image probe, no keyring lookup. */
   get(id: string): EngineStatus | undefined {
-    const entry = this.byId.get(id);
-    return entry ? this.syncStatus(entry) : undefined;
+    const entry = this.byId.get(id)
+    return entry ? this.syncStatus(entry) : undefined
   }
 
   /** The route `model` names on `id`, or `undefined` when no model was asked for. Throws when one was asked for and none matches. */
   private routeForStart(id: string, model: string | undefined): ResolvedRoute | undefined {
     if (model === undefined) {
-      return undefined;
+      return undefined
     }
-    const route = routeForHop(this.config.routes, id, model);
+    const route = routeForHop(this.config.routes, id, model)
     if (route === undefined) {
-      throw new Error(`model "${model}" not found on "${id}"`);
+      throw new Error(`model "${model}" not found on "${id}"`)
     }
-    return route;
+    return route
   }
 
   /**
@@ -774,23 +769,23 @@ export class EngineRegistry {
    */
   private async stopForModelSwitch(id: string, model: string | undefined): Promise<void> {
     if (model === undefined || this.residentModel.get(id) === model) {
-      return;
+      return
     }
     if ((this.startsInFlight.get(id) ?? 0) > 0) {
       throw new EngineBusyError(
         `engine "${id}" is starting for another request; switching to model "${model}" would stop it under a request already admitted`,
-      );
+      )
     }
-    const current = this.lifecycle.getStatus(id);
-    if (current.state !== "running") {
-      return;
+    const current = this.lifecycle.getStatus(id)
+    if (current.state !== 'running') {
+      return
     }
     if ((current.active_leases ?? 0) > 0) {
       throw new EngineBusyError(
         `engine "${id}" is serving ${current.active_leases} active request(s); switching to model "${model}" would stop them mid-flight`,
-      );
+      )
     }
-    await this.lifecycle.stop(id);
+    await this.lifecycle.stop(id)
   }
 
   /**
@@ -812,42 +807,42 @@ export class EngineRegistry {
     model?: string,
     opts?: { lease?: boolean },
   ): Promise<EngineStatus & { launched: boolean }> {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      throw new Error(`unknown engine "${id}"`);
+      throw new Error(`unknown engine "${id}"`)
     }
     // Listed by `GET /engined/v1/engines` and startable are different things: an
     // operator can see it is off, and starting it is still the config edit.
     if (entry.engine.disabled) {
-      throw new Error(`engine "${id}" is disabled in config`);
+      throw new Error(`engine "${id}" is disabled in config`)
     }
     // Refused rather than queued: the holder wants the weights out of the pool,
     // and a start that waited would leave the caller blocked for as long as the
     // hold stands with nothing said about why.
-    const heldMs = this.lifecycle.heldMsFor(id);
+    const heldMs = this.lifecycle.heldMsFor(id)
     if (heldMs > 0) {
       throw new Error(
         `engine "${id}" is held for another ${Math.ceil(heldMs / MS_PER_SECOND)}s; whatever took the hold wants this engine's memory`,
-      );
+      )
     }
     if (!isContainerSpec(entry.spec.spec)) {
       // Nothing to warm up: a spec-less proxy or an agentic-cli engine has
       // no standing container.
-      return { ...(await this.statusFor(entry)), launched: false };
+      return { ...(await this.statusFor(entry)), launched: false }
     }
     // A fresh start's first queue observation must be a real transition, not
     // one suppressed by stale queue-emptiness from an earlier session.
-    this.comfyQueueEmpty.delete(id);
+    this.comfyQueueEmpty.delete(id)
     if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
-      this.renderLocalLlamaPreset(entry.engine);
+      this.renderLocalLlamaPreset(entry.engine)
     }
-    const route = this.routeForStart(id, model);
+    const route = this.routeForStart(id, model)
     const spec =
-      route?.filename !== undefined && entry.spec.spec.kind === "stt"
+      route?.filename !== undefined && entry.spec.spec.kind === 'stt'
         ? withModelFile(entry.spec.spec, route.filename)
-        : entry.spec.spec;
-    await this.stopForModelSwitch(id, model);
-    this.startsInFlight.set(id, (this.startsInFlight.get(id) ?? 0) + 1);
+        : entry.spec.spec
+    await this.stopForModelSwitch(id, model)
+    this.startsInFlight.set(id, (this.startsInFlight.get(id) ?? 0) + 1)
     try {
       // `launched` is the lifecycle start lock's own answer to "did this call
       // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
@@ -856,25 +851,25 @@ export class EngineRegistry {
         idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
         readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
         specSource: entry.spec.source,
-      });
-      this.residentModel.set(id, model);
-      this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes));
+      })
+      this.residentModel.set(id, model)
+      this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes))
       if (opts?.lease === true) {
-        this.lifecycle.beginLease(id);
+        this.lifecycle.beginLease(id)
       }
-      return { ...(await this.statusFor(entry)), launched: launched ?? false };
+      return { ...(await this.statusFor(entry)), launched: launched ?? false }
     } finally {
-      this.leaveStart(id);
+      this.leaveStart(id)
     }
   }
 
   /** The `finally` half of `startsInFlight`: the entry is dropped at zero rather than left holding a 0. */
   private leaveStart(id: string): void {
-    const left = (this.startsInFlight.get(id) ?? 1) - 1;
+    const left = (this.startsInFlight.get(id) ?? 1) - 1
     if (left > 0) {
-      this.startsInFlight.set(id, left);
+      this.startsInFlight.set(id, left)
     } else {
-      this.startsInFlight.delete(id);
+      this.startsInFlight.delete(id)
     }
   }
 
@@ -887,10 +882,10 @@ export class EngineRegistry {
    */
   private renderLocalLlamaPreset(engine: EngineEntry): void {
     const routes = this.config.routes.filter(
-      (r) => r.engine === engine.id && r.upstream === "local",
-    );
-    mkdirSync(dirname(this.presetHostPath), { recursive: true });
-    writeFileSync(this.presetHostPath, renderPresetIni(engine, routes), "utf8");
+      (r) => r.engine === engine.id && r.upstream === 'local',
+    )
+    mkdirSync(dirname(this.presetHostPath), { recursive: true })
+    writeFileSync(this.presetHostPath, renderPresetIni(engine, routes), 'utf8')
   }
 
   /**
@@ -899,34 +894,34 @@ export class EngineRegistry {
    * says so rather than returning an empty result that reads like a quiet one.
    */
   private containerRefusal(id: string): { error: string } | undefined {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      return { error: `unknown engine "${id}"` };
+      return { error: `unknown engine "${id}"` }
     }
     if (!isContainerSpec(entry.spec.spec)) {
-      return { error: `"${id}" runs no container of its own` };
+      return { error: `"${id}" runs no container of its own` }
     }
-    return undefined;
+    return undefined
   }
 
   /** `docker logs --tail` for a container-backed engine. */
   async logs(id: string, tail: number): Promise<{ lines: string[] } | { error: string }> {
-    const refusal = this.containerRefusal(id);
+    const refusal = this.containerRefusal(id)
     if (refusal) {
-      return refusal;
+      return refusal
     }
-    const res = await this.lifecycle.logs(id, tail);
-    return res.ok ? { lines: res.lines } : { error: res.error };
+    const res = await this.lifecycle.logs(id, tail)
+    return res.ok ? { lines: res.lines } : { error: res.error }
   }
 
   /** What a running container holds. See resources.ts for why RAM alone is not the answer. */
   async resources(id: string): Promise<EngineResources | { error: string }> {
-    const refusal = this.containerRefusal(id);
+    const refusal = this.containerRefusal(id)
     if (refusal) {
-      return refusal;
+      return refusal
     }
-    const res = await this.lifecycle.resources(id);
-    return res.ok ? res.resources : { error: res.error };
+    const res = await this.lifecycle.resources(id)
+    return res.ok ? res.resources : { error: res.error }
   }
 
   /**
@@ -935,15 +930,15 @@ export class EngineRegistry {
    * reports the same state, so a consumer never has to check first.
    */
   async stop(id: string): Promise<EngineStatus> {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      throw new Error(`unknown engine "${id}"`);
+      throw new Error(`unknown engine "${id}"`)
     }
     if (isContainerSpec(entry.spec.spec)) {
-      this.comfyQueueEmpty.delete(id);
-      await this.lifecycle.stop(id);
+      this.comfyQueueEmpty.delete(id)
+      await this.lifecycle.stop(id)
     }
-    return this.statusFor(entry);
+    return this.statusFor(entry)
   }
 
   /**
@@ -953,26 +948,26 @@ export class EngineRegistry {
    * could want back.
    */
   async hold(id: string, seconds: number): Promise<EngineStatus> {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      throw new Error(`unknown engine "${id}"`);
+      throw new Error(`unknown engine "${id}"`)
     }
     if (!isContainerSpec(entry.spec.spec)) {
-      throw new Error(`engine "${id}" runs no container, so there is nothing to hold`);
+      throw new Error(`engine "${id}" runs no container, so there is nothing to hold`)
     }
-    this.comfyQueueEmpty.delete(id);
-    await this.lifecycle.hold(id, seconds * MS_PER_SECOND);
-    return this.statusFor(entry);
+    this.comfyQueueEmpty.delete(id)
+    await this.lifecycle.hold(id, seconds * MS_PER_SECOND)
+    return this.statusFor(entry)
   }
 
   /** Ends a hold early. Idempotent, because the state the caller wants is "not held" either way. */
   unhold(id: string): Promise<EngineStatus> {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      throw new Error(`unknown engine "${id}"`);
+      throw new Error(`unknown engine "${id}"`)
     }
-    this.lifecycle.unhold(id);
-    return this.statusFor(entry);
+    this.lifecycle.unhold(id)
+    return this.statusFor(entry)
   }
 
   /**
@@ -989,26 +984,26 @@ export class EngineRegistry {
    * schedule work that cannot fit.
    */
   async release(id: string): Promise<{ released: true } | { error: string }> {
-    const entry = this.byId.get(id);
+    const entry = this.byId.get(id)
     if (!entry) {
-      return { error: `unknown engine "${id}"` };
+      return { error: `unknown engine "${id}"` }
     }
-    const { kind } = entry.spec.spec;
-    if (kind !== "comfy") {
-      return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` };
+    const { kind } = entry.spec.spec
+    if (kind !== 'comfy') {
+      return { error: `"${id}" (${kind}) has no release endpoint; stop it instead` }
     }
-    const endpoint = { path: "/free", body: { unload_models: true, free_memory: true } };
-    const status = this.lifecycle.getStatus(id);
-    if (status.state !== "running" || status.private_url === null) {
+    const endpoint = { path: '/free', body: { unload_models: true, free_memory: true } }
+    const status = this.lifecycle.getStatus(id)
+    if (status.state !== 'running' || status.private_url === null) {
       // Nothing is loaded, so nothing is held -- the caller's intent is
       // already satisfied and failing here would make them special-case it.
-      return { released: true };
+      return { released: true }
     }
     const res = await this.releaseFetch(
       `http://${status.private_url}${endpoint.path}`,
       endpoint.body,
-    );
-    return res.ok ? { released: true } : { error: `${id}: release failed with HTTP ${res.status}` };
+    )
+    return res.ok ? { released: true } : { error: `${id}: release failed with HTTP ${res.status}` }
   }
 
   /**
@@ -1018,10 +1013,10 @@ export class EngineRegistry {
    * reach it either and this line is the only trace it outlived the reload.
    */
   private teardown(id: string): void {
-    this.launchedShape.delete(id);
+    this.launchedShape.delete(id)
     this.lifecycle.removeEngine(id).catch((err: unknown) => {
-      process.stderr.write(`${id}: teardown after reload failed: ${errMessage(err)}\n`);
-    });
+      process.stderr.write(`${id}: teardown after reload failed: ${errMessage(err)}\n`)
+    })
   }
 
   /**
@@ -1031,13 +1026,13 @@ export class EngineRegistry {
    * shape changed is left alone until its next start.
    */
   reload(config: Config): void {
-    const newEntries = buildEntries(config, this.specOptions, this.presetHostPath);
+    const newEntries = buildEntries(config, this.specOptions, this.presetHostPath)
     // A newly-disabled engine is torn down like a removed one: it keeps its
     // entry so the route can report it, but nothing of it may keep running.
-    const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id));
+    const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id))
     for (const old of this.entries) {
       if (!newIds.has(old.engine.id)) {
-        this.teardown(old.engine.id);
+        this.teardown(old.engine.id)
       }
     }
     // A second, independent pass: an engine present in BOTH configs -- the
@@ -1051,32 +1046,32 @@ export class EngineRegistry {
     // class this delivery removes elsewhere.
     for (const old of this.entries) {
       if (!newIds.has(old.engine.id)) {
-        continue;
+        continue
       }
-      const hadLocal = hasLocalBinding(old.engine.id, this.config.routes);
-      const hasLocal = hasLocalBinding(old.engine.id, config.routes);
+      const hadLocal = hasLocalBinding(old.engine.id, this.config.routes)
+      const hasLocal = hasLocalBinding(old.engine.id, config.routes)
       if (hadLocal && !hasLocal) {
-        this.teardown(old.engine.id);
+        this.teardown(old.engine.id)
       }
     }
-    this.config = config;
-    this.entries = newEntries;
-    this.byId = new Map(newEntries.map((e) => [e.engine.id, e]));
+    this.config = config
+    this.entries = newEntries
+    this.byId = new Map(newEntries.map((e) => [e.engine.id, e]))
     for (const timer of this.comfyTimers) {
-      clearInterval(timer);
+      clearInterval(timer)
     }
-    this.comfyTimers = this.startComfyWatches(newEntries);
-    this.inventory.forget();
-    this.inventoryFetchErrors.clear();
-    this.startInventoryRefresh();
+    this.comfyTimers = this.startComfyWatches(newEntries)
+    this.inventory.forget()
+    this.inventoryFetchErrors.clear()
+    this.startInventoryRefresh()
   }
 
   async shutdown(): Promise<void> {
     for (const timer of this.comfyTimers) {
-      clearInterval(timer);
+      clearInterval(timer)
     }
-    this.comfyTimers = [];
-    this.clearInventoryTimers();
-    await this.lifecycle.shutdown();
+    this.comfyTimers = []
+    this.clearInventoryTimers()
+    await this.lifecycle.shutdown()
   }
 }

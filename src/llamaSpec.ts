@@ -7,23 +7,23 @@
  * the INI, never through the load call's body.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { ParseError } from "./errors/parse.ts";
-import { loadSpec, type SpecLoadOptions } from "./spec.ts";
-import type { RunnableContainerSpec } from "./specTypes.ts";
-import { isContainerSpec } from "./specTypes.ts";
-import type { EngineEntry, ResolvedRoute } from "./types.ts";
+import { existsSync, readFileSync } from 'node:fs'
+import { ParseError } from './errors/parse.ts'
+import { loadSpec, type SpecLoadOptions } from './spec.ts'
+import type { RunnableContainerSpec } from './specTypes.ts'
+import { isContainerSpec } from './specTypes.ts'
+import type { EngineEntry, ResolvedRoute } from './types.ts'
 
-export const PRESET_CONTAINER_PATH = "/preset.ini";
-export const MODELS_CONTAINER_PATH = "/models";
+export const PRESET_CONTAINER_PATH = '/preset.ini'
+export const MODELS_CONTAINER_PATH = '/models'
 
 function iniLines(args: Record<string, unknown>): string[] {
-  return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`);
+  return Object.entries(args).map(([k, v]) => `${k} = ${String(v)}`)
 }
 
 /** `undefined` on a first start (nothing mounted yet) rather than throwing -- absence is the normal case, not an error. */
 export function readIfExists(path: string): string | undefined {
-  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  return existsSync(path) ? readFileSync(path, 'utf8') : undefined
 }
 
 /**
@@ -37,7 +37,7 @@ export function readIfExists(path: string): string | undefined {
  * hold. Exported so that test can compare against it rather than a second
  * copy of the constant.
  */
-export const AUTO_PARALLEL = 4;
+export const AUTO_PARALLEL = 4
 
 /**
  * Precedence in one place: a route key beats the engine key naming it. The
@@ -48,7 +48,7 @@ export function mergedArgs(
   engine: EngineEntry,
   route: { args: Record<string, unknown> } | undefined,
 ): Record<string, unknown> {
-  return { ...engine.args, ...route?.args };
+  return { ...engine.args, ...route?.args }
 }
 
 /**
@@ -65,11 +65,11 @@ export function renderPresetIni(engine: EngineEntry, routes: readonly ResolvedRo
         r.engine === engine.id && r.filename !== undefined && r.model !== undefined,
     )
     .map((r) => {
-      const args = mergedArgs(engine, r);
-      const lines = [`model = ${MODELS_CONTAINER_PATH}/${r.filename}`, ...iniLines(args)];
-      return `[${r.model}]\n${lines.join("\n")}`;
+      const args = mergedArgs(engine, r)
+      const lines = [`model = ${MODELS_CONTAINER_PATH}/${r.filename}`, ...iniLines(args)]
+      return `[${r.model}]\n${lines.join('\n')}`
     })
-    .join("\n\n");
+    .join('\n\n')
 }
 
 /**
@@ -93,21 +93,21 @@ export function buildLlamaSpec(
     enginesRoot: opts.enginesRoot,
     bunx: opts.bunx,
     presetIni: PRESET_CONTAINER_PATH,
-  });
+  })
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
       `engine "${engine.id}": llama spec must be a container spec`,
       loaded.source,
-    );
+    )
   }
   if (engine.models_dir === undefined) {
-    throw new ParseError(`engine "${engine.id}": llama engine has no models_dir`, loaded.source);
+    throw new ParseError(`engine "${engine.id}": llama engine has no models_dir`, loaded.source)
   }
-  const { spec } = loaded;
+  const { spec } = loaded
   spec.volumes = [
     ...spec.volumes,
     { name: engine.models_dir, path: MODELS_CONTAINER_PATH, read_only: true },
     { name: presetHostPath, path: PRESET_CONTAINER_PATH, read_only: true },
-  ];
-  return spec;
+  ]
+  return spec
 }

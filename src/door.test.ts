@@ -1,18 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { request as httpRequest } from "node:http";
-import { dirname, join } from "node:path";
-import process from "node:process";
-import type { AgenticSpawn } from "./agentic.ts";
-import type { AgenticProbeRunner } from "./agenticProbe.ts";
-import { resolveRedirect } from "./agenticRedirect.ts";
-import { loadConfig } from "./config.ts";
-import { DockerLifecycle, NAME_PREFIX, type Probe } from "./docker.ts";
-import type { DoorOptions } from "./doorContext.ts";
-import type { Exec, ExecResult } from "./exec.ts";
-import { timeoutSecondsForKind } from "./hop.ts";
-import type { HttpClient } from "./http.ts";
-import { bindDualFamily, createDoor, type Door, resolveBunx } from "./main.ts";
+import { describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
+import { dirname, join } from 'node:path'
+import process from 'node:process'
+import type { AgenticSpawn } from './agentic.ts'
+import type { AgenticProbeRunner } from './agenticProbe.ts'
+import { resolveRedirect } from './agenticRedirect.ts'
+import { loadConfig } from './config.ts'
+import { DockerLifecycle, NAME_PREFIX, type Probe } from './docker.ts'
+import type { DoorOptions } from './doorContext.ts'
+import type { Exec, ExecResult } from './exec.ts'
+import { timeoutSecondsForKind } from './hop.ts'
+import type { HttpClient } from './http.ts'
+import { bindDualFamily, createDoor, type Door, resolveBunx } from './main.ts'
 import {
   assertReportedAndResident,
   BUNX,
@@ -31,21 +31,21 @@ import {
   soleProvenanceRecord,
   tempPresetPath,
   writeEngineSpec,
-} from "./test-support.ts";
-import type { Config, EngineEntry, Upstream } from "./types.ts";
+} from './test-support.ts'
+import type { Config, EngineEntry, Upstream } from './types.ts'
 
-const TEST_ROOT = makeTestRoot("engined-door-test-");
+const TEST_ROOT = makeTestRoot('engined-door-test-')
 /** A plausible launch-scoped door URL for a `resolveRedirect` unit test that never touches the real door. */
-const TEST_DOOR_URL = "http://127.0.0.1:29200/openai/v1/deadbeefdeadbeefdeadbeefdeadbeef";
+const TEST_DOOR_URL = 'http://127.0.0.1:29200/openai/v1/deadbeefdeadbeefdeadbeefdeadbeef'
 
-const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true });
+const PASSING_PROBE: AgenticProbeRunner = () => Promise.resolve({ ok: true })
 
 /** Every door test that posts a chat completion sends the same request shape; only the JSON body differs. */
 function chatRequest(body: unknown): Request {
-  return new Request("http://engined/openai/v1/chat/completions", {
-    method: "POST",
+  return new Request('http://engined/openai/v1/chat/completions', {
+    method: 'POST',
     body: JSON.stringify(body),
-  });
+  })
 }
 
 /**
@@ -55,14 +55,14 @@ function chatRequest(body: unknown): Request {
  * check needs `config.listen_port` to equal it, so the caller picks the port
  * first via `deadPort()` and builds both the config and this bind from it.
  */
-function startDualBind(fetch: Door["fetch"], port: number): { stop: () => void } {
-  const { v4, v6 } = bindDualFamily(fetch, port);
+function startDualBind(fetch: Door['fetch'], port: number): { stop: () => void } {
+  const { v4, v6 } = bindDualFamily(fetch, port)
   return {
     stop: () => {
-      v4.stop();
-      v6.stop();
+      v4.stop()
+      v6.stop()
     },
-  };
+  }
 }
 
 /** `Host` is a forbidden header for the Fetch API; `node:http` allows the override the test needs. */
@@ -73,57 +73,57 @@ function rawRequest(
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
-      { hostname: "127.0.0.1", port, path, method: "GET", headers },
+      { hostname: '127.0.0.1', port, path, method: 'GET', headers },
       (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => {
-          body += chunk;
-        });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        let body = ''
+        res.on('data', (chunk: Buffer) => {
+          body += chunk
+        })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
       },
-    );
-    req.on("error", reject);
-    req.end();
-  });
+    )
+    req.on('error', reject)
+    req.end()
+  })
 }
 
 /** Every Origin/Host/dual-bind check binds a real door on an ephemeral port for `fn`'s duration, then tears it down; only the config and the request/assertion differ. */
 async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): Promise<T> {
-  const door = createDoor(cfg, { enginesRoot: "/nonexistent", bunx: BUNX });
-  const bound = startDualBind(door.fetch, cfg.listen_port);
+  const door = createDoor(cfg, { enginesRoot: '/nonexistent', bunx: BUNX })
+  const bound = startDualBind(door.fetch, cfg.listen_port)
   try {
-    return await fn(cfg.listen_port);
+    return await fn(cfg.listen_port)
   } finally {
-    bound.stop();
+    bound.stop()
   }
 }
 
-describe("the door: Origin/Host check", () => {
+describe('the door: Origin/Host check', () => {
   // The foreign-Origin, Origin:null and clean-request cases are covered by
   // integration.test.ts's own Origin guard test; `Host` is Fetch-forbidden,
   // so only this real-socket, raw `node:http` request can exercise it.
-  test("a Host outside the loopback set is refused, on a GET", async () => {
-    const port = deadPort();
+  test('a Host outside the loopback set is refused, on a GET', async () => {
+    const port = deadPort()
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const res = await rawRequest(port, "/openai/v1/models", { Host: `evil.example:${port}` });
-      expect(res.status).toBe(403);
-    });
-  });
-});
+      const res = await rawRequest(port, '/openai/v1/models', { Host: `evil.example:${port}` })
+      expect(res.status).toBe(403)
+    })
+  })
+})
 
-describe("the door: dual-family bind", () => {
-  test("both 127.0.0.1 and [::1] answer on the same configured port", async () => {
-    const port = deadPort();
+describe('the door: dual-family bind', () => {
+  test('both 127.0.0.1 and [::1] answer on the same configured port', async () => {
+    const port = deadPort()
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const v4 = await fetch(`http://127.0.0.1:${port}/openai/v1/models`);
-      const v6 = await fetch(`http://[::1]:${port}/openai/v1/models`);
-      expect(v4.status).toBe(200);
-      expect(v6.status).toBe(200);
-    });
-  });
-});
+      const v4 = await fetch(`http://127.0.0.1:${port}/openai/v1/models`)
+      const v6 = await fetch(`http://[::1]:${port}/openai/v1/models`)
+      expect(v4.status).toBe(200)
+      expect(v6.status).toBe(200)
+    })
+  })
+})
 
-describe("the door: SIGHUP reload", () => {
+describe('the door: SIGHUP reload', () => {
   // A spec-less kind (never reads a spec file, so "/nonexistent" below is
   // fine) with a modelless route: the parse-tier split already forbids
   // filename/role on it, so there is nothing left for the kind-dependent
@@ -140,40 +140,40 @@ kind = "stt"
 [[route]]
 engine = "claude"
 upstream = "local"
-`;
+`
 
-  test("broken TOML on reload keeps the previous config serving and names the parse error", async () => {
-    const dir = mkdtempSync(join(TEST_ROOT, "engined-reload-"));
-    const path = join(dir, "config.toml");
-    writeFileSync(path, GOOD_CONFIG);
+  test('broken TOML on reload keeps the previous config serving and names the parse error', async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, 'engined-reload-'))
+    const path = join(dir, 'config.toml')
+    writeFileSync(path, GOOD_CONFIG)
 
     const door = createDoor(loadConfig(path), {
-      enginesRoot: "/nonexistent",
+      enginesRoot: '/nonexistent',
       bunx: BUNX,
-    });
+    })
     const before = (await (
-      await door.fetch(new Request("http://engined/engined/v1/engines"))
+      await door.fetch(new Request('http://engined/engined/v1/engines'))
     ).json()) as {
-      engines: { id: string }[];
-    };
-    expect(before.engines.map((e) => e.id)).toEqual(["claude"]);
+      engines: { id: string }[]
+    }
+    expect(before.engines.map((e) => e.id)).toEqual(['claude'])
 
-    writeFileSync(path, "not valid toml {{{");
-    door.reload(path);
+    writeFileSync(path, 'not valid toml {{{')
+    door.reload(path)
 
-    expect(door.configError()).toBeDefined();
+    expect(door.configError()).toBeDefined()
     const after = (await (
-      await door.fetch(new Request("http://engined/engined/v1/engines"))
+      await door.fetch(new Request('http://engined/engined/v1/engines'))
     ).json()) as {
-      engines: { id: string }[];
-      config_error: string;
-    };
+      engines: { id: string }[]
+      config_error: string
+    }
     // Previous config still serving: the same engine, not an empty list.
-    expect(after.engines.map((e) => e.id)).toEqual(["claude"]);
-    expect(after.config_error).toBeDefined();
-    expect(after.config_error).toContain(path);
-  });
-});
+    expect(after.engines.map((e) => e.id)).toEqual(['claude'])
+    expect(after.config_error).toBeDefined()
+    expect(after.config_error).toContain(path)
+  })
+})
 
 const LOCAL_LLAMA_SPEC = `
 kind = "openai-http"
@@ -186,7 +186,7 @@ command = []
 [ready]
 path = "/health"
 status = 200
-`;
+`
 
 const CLAUDE_SPEC = `
 kind = "agentic-cli"
@@ -195,7 +195,7 @@ agent = "claude"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 env = ["HOME"]
-`;
+`
 
 const OPENCODE_SPEC = `
 kind = "agentic-cli"
@@ -204,7 +204,7 @@ agent = "opencode"
 serves = ["/openai/v1/chat/completions"]
 command = ["{bunx}", "opencode-ai@{agent_version}", "run"]
 env = ["HOME"]
-`;
+`
 
 /** models_dir for its own bind mount, zero `[[model]]` rows. */
 const COMFY_SPEC = `
@@ -218,26 +218,26 @@ command = []
 [ready]
 path = "/queue"
 status = 200
-`;
+`
 
 /** Image present with one exposed port, a fresh host port per "port" lookup. */
 function llamaExec(): Exec {
-  let port = 41_000;
+  let port = 41_000
   return (args) => {
-    let result: ExecResult = { stdout: "", stderr: "", exitCode: 0 };
-    if (args[0] === "image" && args[1] === "inspect") {
-      result = inspectSinglePort(8080);
-    } else if (args[0] === "port") {
-      port += 1;
-      result = portResult(port);
-    } else if (args[0] === "inspect") {
-      result = containerRunning();
+    let result: ExecResult = { stdout: '', stderr: '', exitCode: 0 }
+    if (args[0] === 'image' && args[1] === 'inspect') {
+      result = inspectSinglePort(8080)
+    } else if (args[0] === 'port') {
+      port += 1
+      result = portResult(port)
+    } else if (args[0] === 'inspect') {
+      result = containerRunning()
     }
-    return Promise.resolve(result);
-  };
+    return Promise.resolve(result)
+  }
 }
 
-const READY_200: Probe = () => Promise.resolve({ status: 200 });
+const READY_200: Probe = () => Promise.resolve({ status: 200 })
 
 /** Every llama-routed door test shares this enginesRoot/bunx/probe/preset wiring; only the config, the http client, and the exec fake (a second engine's failover tests supply their own) vary. */
 function createLlamaDoor(
@@ -250,7 +250,7 @@ function createLlamaDoor(
     cfg,
     { enginesRoot: root, bunx: BUNX, exec, probe: READY_200 },
     { llamaPresetHostPath: tempPresetPath(TEST_ROOT), ...doorOpts },
-  );
+  )
 }
 
 /** `/models/load` and `/models/unload` answer immediately; every other call is recorded.
@@ -259,19 +259,19 @@ function createLlamaDoor(
  * "loaded" -- an already-resident model's 400 "already running" fires before the
  * child is actually able to serve, so it is not the signal `loadAndWait` trusts. */
 function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
-  const control = llamaControlPlane();
+  const control = llamaControlPlane()
   return (url: string, init?: RequestInit) => {
-    const controlled = control(url, init);
+    const controlled = control(url, init)
     if (controlled) {
-      return Promise.resolve(controlled);
+      return Promise.resolve(controlled)
     }
-    if (typeof init?.body === "string") {
-      recorded.push({ body: init.body });
+    if (typeof init?.body === 'string') {
+      recorded.push({ body: init.body })
     }
     return Promise.resolve(
-      Response.json({ id: "resp-1", choices: [{ message: { content: "hi" } }] }),
-    );
-  };
+      Response.json({ id: 'resp-1', choices: [{ message: { content: 'hi' } }] }),
+    )
+  }
 }
 
 /** A real `config.toml` on disk, for a test that must go through `door.reload(path)` -- not the in-memory `Config` shortcut `llamaDoorConfig` uses. */
@@ -298,20 +298,20 @@ upstream = "local"
 model = "other"
 filename = "y.gguf"
 role = "chat"
-`;
+`
 }
 
 /** A fresh root/spec.toml plus an on-disk config.toml naming "ornith" and "other", both real files backing the same local-llama engine -- the reload-race test's own on-disk config, since it must go through `door.reload(path)`, not the in-memory `Config` shortcut. */
 function setupReloadRaceConfig(): { root: string; configFilePath: string } {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-  const modelsDir = mkdtempSync(join(TEST_ROOT, "engined-models-"));
-  writeFileSync(join(modelsDir, "x.gguf"), "");
-  writeFileSync(join(modelsDir, "y.gguf"), "");
-  const configDir = mkdtempSync(join(TEST_ROOT, "engined-config-"));
-  const configFilePath = join(configDir, "config.toml");
-  writeFileSync(configFilePath, llamaTomlConfig(modelsDir));
-  return { root, configFilePath };
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
+  const modelsDir = mkdtempSync(join(TEST_ROOT, 'engined-models-'))
+  writeFileSync(join(modelsDir, 'x.gguf'), '')
+  writeFileSync(join(modelsDir, 'y.gguf'), '')
+  const configDir = mkdtempSync(join(TEST_ROOT, 'engined-config-'))
+  const configFilePath = join(configDir, 'config.toml')
+  writeFileSync(configFilePath, llamaTomlConfig(modelsDir))
+  return { root, configFilePath }
 }
 
 /**
@@ -326,38 +326,38 @@ function makeReloadRaceClient(
 ): HttpClient {
   return async (url, init) => {
     const body =
-      typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
-    if (url.endsWith("/models/load")) {
-      calls.push(`load:${body?.model}`);
-      return Response.json({ success: true });
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as { model?: string }) : undefined
+    if (url.endsWith('/models/load')) {
+      calls.push(`load:${body?.model}`)
+      return Response.json({ success: true })
     }
-    if (url.endsWith("/models/unload")) {
-      calls.push(`unload:${body?.model}`);
-      return Response.json({ status: "ok" });
+    if (url.endsWith('/models/unload')) {
+      calls.push(`unload:${body?.model}`)
+      return Response.json({ status: 'ok' })
     }
-    if (url.endsWith("/v1/models")) {
+    if (url.endsWith('/v1/models')) {
       const lastLoad = [...calls]
         .reverse()
-        .find((c) => c.startsWith("load:"))
-        ?.slice(5);
+        .find((c) => c.startsWith('load:'))
+        ?.slice(5)
       return Response.json({
-        data: lastLoad === undefined ? [] : [{ id: lastLoad, status: { value: "loaded" } }],
-      });
+        data: lastLoad === undefined ? [] : [{ id: lastLoad, status: { value: 'loaded' } }],
+      })
     }
     // The chat completion call itself.
-    if (body?.model === "ornith") {
-      calls.push("chat-start:ornith");
-      ornithStarted();
-      await gate;
-      calls.push("chat-end:ornith");
-      return Response.json({ id: "r1", choices: [{ message: { content: "ornith-answer" } }] });
+    if (body?.model === 'ornith') {
+      calls.push('chat-start:ornith')
+      ornithStarted()
+      await gate
+      calls.push('chat-end:ornith')
+      return Response.json({ id: 'r1', choices: [{ message: { content: 'ornith-answer' } }] })
     }
-    calls.push("chat:other");
-    return Response.json({ id: "r2", choices: [{ message: { content: "other-answer" } }] });
-  };
+    calls.push('chat:other')
+    return Response.json({ id: 'r2', choices: [{ message: { content: 'other-answer' } }] })
+  }
 }
 
-describe("the door: reload mid in-flight request", () => {
+describe('the door: reload mid in-flight request', () => {
   /**
    * In-flight leases finish against the engine list they started on. A reload
    * must keep routing new requests through the existing `LlamaRouter` until
@@ -367,112 +367,112 @@ describe("the door: reload mid in-flight request", () => {
    * being served from. A same-role request for a different model therefore
    * queues behind the one in flight rather than racing it on a second tracker.
    */
-  test("a same-role request for a different model still queues behind one already in flight, even after a reload lands between them", async () => {
-    const { root, configFilePath } = setupReloadRaceConfig();
+  test('a same-role request for a different model still queues behind one already in flight, even after a reload lands between them', async () => {
+    const { root, configFilePath } = setupReloadRaceConfig()
 
-    const calls: string[] = [];
-    let releaseOrnith: () => void = () => undefined;
+    const calls: string[] = []
+    let releaseOrnith: () => void = () => undefined
     const gate = new Promise<void>((r) => {
-      releaseOrnith = r;
-    });
-    let ornithStarted: () => void = () => undefined;
+      releaseOrnith = r
+    })
+    let ornithStarted: () => void = () => undefined
     const ornithStartedPromise = new Promise<void>((r) => {
-      ornithStarted = r;
-    });
-    const client = makeReloadRaceClient(calls, gate, ornithStarted);
+      ornithStarted = r
+    })
+    const client = makeReloadRaceClient(calls, gate, ornithStarted)
     const door = createLlamaDoor(loadConfig(configFilePath), root, {
       llamaHttpClient: client,
       write: () => undefined,
-    });
+    })
 
     const ornithReq = door.fetch(
-      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
-    );
-    await ornithStartedPromise;
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    await ornithStartedPromise
 
     // The reload lands while ornith's lease is still held -- same file,
     // content unchanged, only to exercise the router-cache swap itself.
-    door.reload(configFilePath);
+    door.reload(configFilePath)
 
     const otherReq = door.fetch(
-      chatRequest({ model: "@/local-llama/other", messages: [{ role: "user", content: "hi" }] }),
-    );
+      chatRequest({ model: '@/local-llama/other', messages: [{ role: 'user', content: 'hi' }] }),
+    )
     // Let the pump run as far as it can while ornith's lease is still held.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
 
-    const otherTouchedWhileOrnithHeld = calls.some((c) => c.includes("other"));
-    expect(otherTouchedWhileOrnithHeld).toBe(false);
+    const otherTouchedWhileOrnithHeld = calls.some((c) => c.includes('other'))
+    expect(otherTouchedWhileOrnithHeld).toBe(false)
 
-    releaseOrnith();
+    releaseOrnith()
     const ornithBody = (await (await ornithReq).json()) as {
-      choices: { message: { content: string } }[];
-    };
+      choices: { message: { content: string } }[]
+    }
     const otherBody = (await (await otherReq).json()) as {
-      choices: { message: { content: string } }[];
-    };
-    expect(ornithBody.choices[0]?.message.content).toBe("ornith-answer");
-    expect(otherBody.choices[0]?.message.content).toBe("other-answer");
+      choices: { message: { content: string } }[]
+    }
+    expect(ornithBody.choices[0]?.message.content).toBe('ornith-answer')
+    expect(otherBody.choices[0]?.message.content).toBe('other-answer')
 
     // Whatever "other" activity happened, it is strictly after ornith's own
     // chat call ended -- a real, serialized swap, not a race against it.
-    const chatEndIdx = calls.indexOf("chat-end:ornith");
-    const otherActivityIdx = calls.findIndex((c) => c.includes("other"));
-    expect(chatEndIdx).toBeGreaterThan(-1);
-    expect(otherActivityIdx).toBeGreaterThan(chatEndIdx);
-  });
-});
+    const chatEndIdx = calls.indexOf('chat-end:ornith')
+    const otherActivityIdx = calls.findIndex((c) => c.includes('other'))
+    expect(chatEndIdx).toBeGreaterThan(-1)
+    expect(otherActivityIdx).toBeGreaterThan(chatEndIdx)
+  })
+})
 
 describe("timeoutSecondsForKind: the budget follows the hop's own engine kind", () => {
-  test("an agentic-cli hop gets agent_timeout_seconds", () => {
-    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 });
-    expect(timeoutSecondsForKind("agentic-cli", cfg)).toBe(3600);
-  });
+  test('an agentic-cli hop gets agent_timeout_seconds', () => {
+    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 })
+    expect(timeoutSecondsForKind('agentic-cli', cfg)).toBe(3600)
+  })
 
-  test("every other kind gets chat_timeout_seconds -- including inside a chain", () => {
-    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 });
-    expect(timeoutSecondsForKind("openai-http", cfg)).toBe(30);
-    expect(timeoutSecondsForKind("tts", cfg)).toBe(30);
-    expect(timeoutSecondsForKind(undefined, cfg)).toBe(30);
-  });
-});
+  test('every other kind gets chat_timeout_seconds -- including inside a chain', () => {
+    const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 })
+    expect(timeoutSecondsForKind('openai-http', cfg)).toBe(30)
+    expect(timeoutSecondsForKind('tts', cfg)).toBe(30)
+    expect(timeoutSecondsForKind(undefined, cfg)).toBe(30)
+  })
+})
 
-const RX_ENGINED_BUNX_UNSET = /ENGINED_BUNX is not set/;
+const RX_ENGINED_BUNX_UNSET = /ENGINED_BUNX is not set/
 
-describe("resolveBunx: the ENGINED_BUNX invariant", () => {
-  const noBunxOnPath = () => null;
+describe('resolveBunx: the ENGINED_BUNX invariant', () => {
+  const noBunxOnPath = () => null
 
-  test("ENGINED_BUNX set is used verbatim, PATH never consulted", () => {
+  test('ENGINED_BUNX set is used verbatim, PATH never consulted', () => {
     const which = (cmd: string) => {
-      throw new Error(`which() must not be called when ENGINED_BUNX is set, got: ${cmd}`);
-    };
-    expect(resolveBunx({ ENGINED_BUNX: "/opt/engined/state/bunx" }, which)).toBe(
-      "/opt/engined/state/bunx",
-    );
-  });
+      throw new Error(`which() must not be called when ENGINED_BUNX is set, got: ${cmd}`)
+    }
+    expect(resolveBunx({ ENGINED_BUNX: '/opt/engined/state/bunx' }, which)).toBe(
+      '/opt/engined/state/bunx',
+    )
+  })
 
-  test("ENGINED_BUNX unset falls back to PATH -- the legitimate working-tree dev-run path", () => {
-    const which = (cmd: string) => (cmd === "bunx" ? "/home/dev/.bun/bin/bunx" : null);
-    expect(resolveBunx({}, which)).toBe("/home/dev/.bun/bin/bunx");
-  });
+  test('ENGINED_BUNX unset falls back to PATH -- the legitimate working-tree dev-run path', () => {
+    const which = (cmd: string) => (cmd === 'bunx' ? '/home/dev/.bun/bin/bunx' : null)
+    expect(resolveBunx({}, which)).toBe('/home/dev/.bun/bin/bunx')
+  })
 
-  test("ENGINED_BUNX empty string is treated the same as unset, not used verbatim", () => {
-    const which = () => "/home/dev/.bun/bin/bunx";
-    expect(resolveBunx({ ENGINED_BUNX: "" }, which)).toBe("/home/dev/.bun/bin/bunx");
-  });
+  test('ENGINED_BUNX empty string is treated the same as unset, not used verbatim', () => {
+    const which = () => '/home/dev/.bun/bin/bunx'
+    expect(resolveBunx({ ENGINED_BUNX: '' }, which)).toBe('/home/dev/.bun/bin/bunx')
+  })
 
   /**
    * An unresolvable bunx has to be fatal here. A `?? "bunx"` style fallback is
    * always a truthy string, so it would defer the failure to spawn time with no
    * indication of which of the two lookups came up empty.
    */
-  test("neither ENGINED_BUNX nor a PATH bunx is fatal", () => {
-    expect(() => resolveBunx({}, noBunxOnPath)).toThrow(RX_ENGINED_BUNX_UNSET);
-  });
-});
+  test('neither ENGINED_BUNX nor a PATH bunx is fatal', () => {
+    expect(() => resolveBunx({}, noBunxOnPath)).toThrow(RX_ENGINED_BUNX_UNSET)
+  })
+})
 
-describe("the door: chain timeout follows the hop, not the chain", () => {
+describe('the door: chain timeout follows the hop, not the chain', () => {
   /**
    * `chat_timeout_seconds` is scoped to "one engine," per attempt, and being
    * part of a chain does not widen it: `chatTimeoutMs` owes
@@ -482,145 +482,145 @@ describe("the door: chain timeout follows the hop, not the chain", () => {
    * upstream's artificial delay and `agent_timeout_seconds` well over it, so
    * the outcome (timeout vs success) proves which budget actually applied.
    */
-  test("a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
-    const UPSTREAM_DELAY_MS = 150;
+  test('a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds', async () => {
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
+    const UPSTREAM_DELAY_MS = 150
     const cfg = config({
       chat_timeout_seconds: 0.05,
       agent_timeout_seconds: 10,
-      engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
-      routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
-      chains: { "chain-x": ["@/local-llama/ornith"] },
-    });
+      engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
+      routes: [route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' })],
+      chains: { 'chain-x': ['@/local-llama/ornith'] },
+    })
     const client: HttpClient = (url, init) => {
-      if (url.endsWith("/models/load")) {
-        return Promise.resolve(Response.json({ success: true }));
+      if (url.endsWith('/models/load')) {
+        return Promise.resolve(Response.json({ success: true }))
       }
-      if (url.endsWith("/models/unload")) {
-        return Promise.resolve(Response.json({ status: "ok" }));
+      if (url.endsWith('/models/unload')) {
+        return Promise.resolve(Response.json({ status: 'ok' }))
       }
-      if (url.endsWith("/v1/models")) {
+      if (url.endsWith('/v1/models')) {
         return Promise.resolve(
-          Response.json({ data: [{ id: "ornith", status: { value: "loaded" } }] }),
-        );
+          Response.json({ data: [{ id: 'ornith', status: { value: 'loaded' } }] }),
+        )
       }
       // The chat completion call itself: artificially slow, and it actually
       // honours cancellation -- the real thing the fix has to reach in order
       // to matter, not just the number chatTimeoutMs computes.
       return new Promise((resolve, reject) => {
         const timer = setTimeout(
-          () => resolve(Response.json({ id: "r1", choices: [{ message: { content: "hi" } }] })),
+          () => resolve(Response.json({ id: 'r1', choices: [{ message: { content: 'hi' } }] })),
           UPSTREAM_DELAY_MS,
-        );
-        init?.signal?.addEventListener("abort", () => {
-          clearTimeout(timer);
-          reject(new Error("aborted"));
-        });
-      });
-    };
-    const { lines, write } = collectLines();
+        )
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new Error('aborted'))
+        })
+      })
+    }
+    const { lines, write } = collectLines()
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: client,
       write,
-    });
+    })
 
     const res = await door.fetch(
-      chatRequest({ model: "chain-x", messages: [{ role: "user", content: "hi" }] }),
-    );
-    await res.text();
+      chatRequest({ model: 'chain-x', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    await res.text()
 
-    expect(res.status).toBe(503);
-    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe("timeout");
-  });
-});
+    expect(res.status).toBe(503)
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe('timeout')
+  })
+})
 
 function llamaDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
   const cfg = config({
-    engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
-    routes: [route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" })],
-  });
-  return { cfg, root };
+    engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
+    routes: [route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' })],
+  })
+  return { cfg, root }
 }
 
 /** Same shape as `llamaDoorConfig`, plus a comfy engine alongside it -- a second no-egress, models_dir engine with no `[[model]]` naming it. */
 function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
-  const { cfg, root } = llamaDoorConfig();
-  writeEngineSpec(root, "comfy", COMFY_SPEC);
+  const { cfg, root } = llamaDoorConfig()
+  writeEngineSpec(root, 'comfy', COMFY_SPEC)
   return {
     cfg: {
       ...cfg,
-      engines: [...cfg.engines, engine({ id: "comfy", models_dir: "/data/comfy" })],
+      engines: [...cfg.engines, engine({ id: 'comfy', models_dir: '/data/comfy' })],
     },
     root,
-  };
+  }
 }
 
-describe("the door: a JSON body that is not a table is a 400", () => {
+describe('the door: a JSON body that is not a table is a 400', () => {
   // Each of these is valid JSON, so parsing cannot reject them -- only the
   // table check can. `null` is the one a `typeof body === "object"` guard
   // would wave through to a property read.
-  const NOT_A_TABLE = ["null", "[]", "42", '"hi"'];
-  const BODY_ROUTES = ["/openai/v1/chat/completions", "/engined/v1/start"];
+  const NOT_A_TABLE = ['null', '[]', '42', '"hi"']
+  const BODY_ROUTES = ['/openai/v1/chat/completions', '/engined/v1/start']
 
   for (const pathname of BODY_ROUTES) {
     for (const raw of NOT_A_TABLE) {
       test(`${pathname} refuses ${raw}`, async () => {
-        const door = createDoor(config(), { enginesRoot: "/nonexistent", bunx: BUNX });
+        const door = createDoor(config(), { enginesRoot: '/nonexistent', bunx: BUNX })
         const res = await door.fetch(
-          new Request(`http://engined${pathname}`, { method: "POST", body: raw }),
-        );
-        expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: "invalid JSON body" });
-      });
+          new Request(`http://engined${pathname}`, { method: 'POST', body: raw }),
+        )
+        expect(res.status).toBe(400)
+        expect(await res.json()).toEqual({ error: 'invalid JSON body' })
+      })
     }
   }
-});
+})
 
-describe("the door: content routing", () => {
-  test("a chat against a resolvable llama model reaches the router and returns its body", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const recorded: { body: string }[] = [];
-    const { lines, write } = collectLines();
+describe('the door: content routing', () => {
+  test('a chat against a resolvable llama model reaches the router and returns its body', async () => {
+    const { cfg, root } = llamaDoorConfig()
+    const recorded: { body: string }[] = []
+    const { lines, write } = collectLines()
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
       write,
-    });
+    })
     const res = await door.fetch(
-      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
-    );
-    const body = (await res.json()) as { choices: { message: { content: string } }[] };
-    expect(body.choices[0]?.message.content).toBe("hi");
-    expect(soleProvenanceRecord(lines).engine_used).toBe("local-llama");
-  });
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    const body = (await res.json()) as { choices: { message: { content: string } }[] }
+    expect(body.choices[0]?.message.content).toBe('hi')
+    expect(soleProvenanceRecord(lines).engine_used).toBe('local-llama')
+  })
 
-  test("workdir is stripped and reasoning_effort passes through to an openai-http hop", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const recorded: { body: string }[] = [];
+  test('workdir is stripped and reasoning_effort passes through to an openai-http hop', async () => {
+    const { cfg, root } = llamaDoorConfig()
+    const recorded: { body: string }[] = []
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
       write: () => undefined,
-    });
+    })
     const res = await door.fetch(
       chatRequest({
-        model: "@/local-llama/ornith",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/should/not/reach/llama",
-        reasoning_effort: "high",
+        model: '@/local-llama/ornith',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/should/not/reach/llama',
+        reasoning_effort: 'high',
       }),
-    );
+    )
     // The response is a lazily-produced stream: reading it to completion is
     // what actually drives `runLease`'s upstream call, the same as a real
     // consumer would.
-    await res.text();
-    expect(recorded).toHaveLength(1);
-    const forwarded = JSON.parse(recorded[0]?.body ?? "{}") as Record<string, unknown>;
-    expect(forwarded.workdir).toBeUndefined();
-    expect(forwarded.reasoning_effort).toBe("high");
-  });
-});
+    await res.text()
+    expect(recorded).toHaveLength(1)
+    const forwarded = JSON.parse(recorded[0]?.body ?? '{}') as Record<string, unknown>
+    expect(forwarded.workdir).toBeUndefined()
+    expect(forwarded.reasoning_effort).toBe('high')
+  })
+})
 
 /**
  * `/models/load` and `/models/unload` always succeed; `/openai/v1/models` reports whichever id last
@@ -631,32 +631,32 @@ describe("the door: content routing", () => {
  * itself, for the caller to answer.
  */
 function llamaLifecycleResponse(url: string, chatAnswered: boolean): Response | undefined {
-  if (url.endsWith("/models/load")) {
-    return Response.json({ success: true });
+  if (url.endsWith('/models/load')) {
+    return Response.json({ success: true })
   }
-  if (url.endsWith("/models/unload")) {
-    return Response.json({ status: "ok" });
+  if (url.endsWith('/models/unload')) {
+    return Response.json({ status: 'ok' })
   }
-  if (url.endsWith("/v1/models")) {
-    const id = chatAnswered ? "ornith-real" : "ornith";
-    return Response.json({ data: [{ id, status: { value: "loaded" } }] });
+  if (url.endsWith('/v1/models')) {
+    const id = chatAnswered ? 'ornith-real' : 'ornith'
+    return Response.json({ data: [{ id, status: { value: 'loaded' } }] })
   }
 }
 
 function makeStaleReportedHttpClient(): HttpClient {
-  let chatAnswered = false;
+  let chatAnswered = false
   return (url: string) => {
-    const lifecycle = llamaLifecycleResponse(url, chatAnswered);
+    const lifecycle = llamaLifecycleResponse(url, chatAnswered)
     if (lifecycle) {
-      return Promise.resolve(lifecycle);
+      return Promise.resolve(lifecycle)
     }
-    chatAnswered = true;
+    chatAnswered = true
     // The engine echoes the router id it was given back in `model` -- the
     // INI section name, never the GGUF that actually answered.
     return Promise.resolve(
-      Response.json({ id: "resp-1", model: "ornith", choices: [{ message: { content: "hi" } }] }),
-    );
-  };
+      Response.json({ id: 'resp-1', model: 'ornith', choices: [{ message: { content: 'hi' } }] }),
+    )
+  }
 }
 
 /**
@@ -666,172 +666,172 @@ function makeStaleReportedHttpClient(): HttpClient {
  * boundaries is exercised the same way a real upstream would split it.
  */
 function makeStreamingReportedHttpClient(chunks: string[]): HttpClient {
-  let chatAnswered = false;
+  let chatAnswered = false
   return (url: string) => {
-    const lifecycle = llamaLifecycleResponse(url, chatAnswered);
+    const lifecycle = llamaLifecycleResponse(url, chatAnswered)
     if (lifecycle) {
-      return Promise.resolve(lifecycle);
+      return Promise.resolve(lifecycle)
     }
-    chatAnswered = true;
-    const encoder = new TextEncoder();
+    chatAnswered = true
+    const encoder = new TextEncoder()
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         for (const chunk of chunks) {
-          controller.enqueue(encoder.encode(chunk));
+          controller.enqueue(encoder.encode(chunk))
         }
-        controller.close();
+        controller.close()
       },
-    });
+    })
     return Promise.resolve(
-      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
-    );
-  };
+      new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+    )
+  }
 }
 
 /** Two models on one role, same shape as the provenance fixture above, so `model_reported` and `model_resident` are guaranteed to differ. */
 function streamingDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
   const cfg = config({
-    engines: [engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 })],
+    engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
     routes: [
-      route({ engine: "local-llama", model: "ornith", filename: "ornith.gguf", role: "chat" }),
+      route({ engine: 'local-llama', model: 'ornith', filename: 'ornith.gguf', role: 'chat' }),
       route({
-        engine: "local-llama",
-        model: "ornith-real",
-        filename: "ornith-real.gguf",
-        role: "chat",
+        engine: 'local-llama',
+        model: 'ornith-real',
+        filename: 'ornith-real.gguf',
+        role: 'chat',
       }),
     ],
-  });
-  return { cfg, root };
+  })
+  return { cfg, root }
 }
 
 const STREAM_REQUEST_BODY = JSON.stringify({
-  model: "@/local-llama/ornith",
-  messages: [{ role: "user", content: "hi" }],
+  model: '@/local-llama/ornith',
+  messages: [{ role: 'user', content: 'hi' }],
   stream: true,
-});
+})
 
 /** A fresh `LlamaRouter`'s first streaming call always emits this ahead of the real bytes -- see `emitWarming` in llama.ts. Asserted here, not worked around, so the byte-identity check covers it too. */
-const WARMING_COMMENT = ": warming\n\n";
+const WARMING_COMMENT = ': warming\n\n'
 
 /** Every streaming-provenance test sends the same request through a fresh llama door; only the upstream chunks, the door's `write` sink and the assertion differ. */
 function fetchStreamChat(cfg: Config, root: string, doorOpts: DoorOptions): Promise<Response> {
   return Promise.resolve(
     createLlamaDoor(cfg, root, doorOpts).fetch(
-      new Request("http://engined/openai/v1/chat/completions", {
-        method: "POST",
+      new Request('http://engined/openai/v1/chat/completions', {
+        method: 'POST',
         body: STREAM_REQUEST_BODY,
       }),
     ),
-  );
+  )
 }
 
-describe("the door: streaming provenance", () => {
-  test("a streaming llama hop records model_reported from the first SSE frame, and it differs from model_resident", async () => {
-    const { cfg, root } = streamingDoorConfig();
-    const { lines, write } = collectLines();
+describe('the door: streaming provenance', () => {
+  test('a streaming llama hop records model_reported from the first SSE frame, and it differs from model_resident', async () => {
+    const { cfg, root } = streamingDoorConfig()
+    const { lines, write } = collectLines()
     const chunks = [
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"Hel"}}]}\n\n',
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
+      'data: [DONE]\n\n',
+    ]
     const res = await fetchStreamChat(cfg, root, {
       llamaHttpClient: makeStreamingReportedHttpClient(chunks),
       write,
-    });
-    await res.text();
-    assertReportedAndResident(lines, "ornith", "ornith-real");
-  });
+    })
+    await res.text()
+    assertReportedAndResident(lines, 'ornith', 'ornith-real')
+  })
 
   test("the caller's stream is byte-identical to what the upstream sent, tee in place", async () => {
-    const { cfg, root } = streamingDoorConfig();
+    const { cfg, root } = streamingDoorConfig()
     const chunks = [
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"Hel"}}]}\n\n',
       'data: {"id":"1","model":"ornith","choices":[{"delta":{"content":"lo"}}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
+      'data: [DONE]\n\n',
+    ]
     const res = await fetchStreamChat(cfg, root, {
       llamaHttpClient: makeStreamingReportedHttpClient(chunks),
       write: () => undefined,
-    });
-    const body = await res.text();
-    expect(body).toBe(WARMING_COMMENT + chunks.join(""));
-  });
+    })
+    const body = await res.text()
+    expect(body).toBe(WARMING_COMMENT + chunks.join(''))
+  })
 
-  test("a stream whose frames carry no model id leaves model_reported absent, and the response still completes", async () => {
-    const { cfg, root } = streamingDoorConfig();
-    const { lines, write } = collectLines();
+  test('a stream whose frames carry no model id leaves model_reported absent, and the response still completes', async () => {
+    const { cfg, root } = streamingDoorConfig()
+    const { lines, write } = collectLines()
     const chunks = [
       'data: {"id":"1","choices":[{"delta":{"content":"Hi"}}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
+      'data: [DONE]\n\n',
+    ]
     const res = await fetchStreamChat(cfg, root, {
       llamaHttpClient: makeStreamingReportedHttpClient(chunks),
       write,
-    });
-    const body = await res.text();
-    expect(body).toBe(WARMING_COMMENT + chunks.join(""));
-    expect(soleProvenanceRecord(lines).attempts[0]?.model_reported).toBeUndefined();
-  });
-});
+    })
+    const body = await res.text()
+    expect(body).toBe(WARMING_COMMENT + chunks.join(''))
+    expect(soleProvenanceRecord(lines).attempts[0]?.model_reported).toBeUndefined()
+  })
+})
 
-describe("the door: provenance model fields", () => {
-  test("a completed llama hop carries model_reported and model_resident, and they differ", async () => {
-    const { cfg, root } = streamingDoorConfig();
-    const { lines, write } = collectLines();
+describe('the door: provenance model fields', () => {
+  test('a completed llama hop carries model_reported and model_resident, and they differ', async () => {
+    const { cfg, root } = streamingDoorConfig()
+    const { lines, write } = collectLines()
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeStaleReportedHttpClient(),
       write,
-    });
+    })
     const res = await door.fetch(
-      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
-    );
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
-    await res.json();
-    assertReportedAndResident(lines, "ornith", "ornith-real");
-  });
-});
+    await res.json()
+    assertReportedAndResident(lines, 'ornith', 'ornith-real')
+  })
+})
 
-describe("the door: agentic and chain routing", () => {
+describe('the door: agentic and chain routing', () => {
   // The 400-without-workdir shape itself is covered by two survivors:
   // agentic.test.ts's "runAgentic: workdir absent is 400 and never spawns"
   // (the function, including the never-spawns assertion) and
   // integration.test.ts's "an agentic attempt with no workdir returns 400"
   // (the same rejection through a real door).
 
-  test("an unproved agentic engine does not spawn", async () => {
-    const id = "claude-unproved";
-    clearVerifiedVersion(id);
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, id, CLAUDE_SPEC);
+  test('an unproved agentic engine does not spawn', async () => {
+    const id = 'claude-unproved'
+    clearVerifiedVersion(id)
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    writeEngineSpec(root, id, CLAUDE_SPEC)
     const cfg = config({
-      routes: [route({ engine: id, model: "assistant", upstream: null })],
-      engines: [engine({ id, agent_version: "9.9.9" })],
-    });
-    const spawnCalls: unknown[] = [];
+      routes: [route({ engine: id, model: 'assistant', upstream: null })],
+      engines: [engine({ id, agent_version: '9.9.9' })],
+    })
+    const spawnCalls: unknown[] = []
     const fakeSpawn: AgenticSpawn = (argv, opts) => {
-      spawnCalls.push({ argv, opts });
+      spawnCalls.push({ argv, opts })
       return Promise.resolve({
         stdout: '{"is_error":false,"result":"hi"}',
-        stderr: "",
+        stderr: '',
         exitCode: 0,
-      });
-    };
+      })
+    }
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX },
       { agenticSpawn: fakeSpawn, write: () => undefined },
-    );
+    )
     const res = await door.fetch(
       chatRequest({
         model: `@/${id}/assistant`,
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp",
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp',
       }),
-    );
+    )
     // A lone-hop dispatch that fails now advances like any other unavailable
     // engine (finding 1), so it lands in runChain's own generic "every
     // engine in this chain failed" exhaustion body -- the same wrapping the
@@ -839,12 +839,12 @@ describe("the door: agentic and chain routing", () => {
     // per-engine fix text (naming `id` and "9.9.9") still exists, just on
     // the `HopResult` before runChain gets it; see `execAgentic`'s proof-gate
     // branch and the "missing secret" test below for that assertion.
-    expect(res.status).toBe(503);
-    expect(spawnCalls).toHaveLength(0);
-  });
-});
+    expect(res.status).toBe(503)
+    expect(spawnCalls).toHaveLength(0)
+  })
+})
 
-describe("the door: chain skips an engine that fails its version proof", () => {
+describe('the door: chain skips an engine that fails its version proof', () => {
   /**
    * A chain skips an unavailable engine. An engine that
    * cannot prove its agent_version pin is exactly "unavailable" -- the
@@ -854,54 +854,54 @@ describe("the door: chain skips an engine that fails its version proof", () => {
    * `classifyResult` treats `envelopeFailure` as never-advancing regardless of
    * status, which would make the first hop terminal instead of skipped.
    */
-  test("a chain whose first hop fails its version proof advances to the second hop", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    for (const id of ["claude-unproved", "claude-b"]) {
-      writeEngineSpec(root, id, CLAUDE_SPEC);
+  test('a chain whose first hop fails its version proof advances to the second hop', async () => {
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    for (const id of ['claude-unproved', 'claude-b']) {
+      writeEngineSpec(root, id, CLAUDE_SPEC)
     }
-    clearVerifiedVersion("claude-unproved");
-    clearVerifiedVersion("claude-b");
+    clearVerifiedVersion('claude-unproved')
+    clearVerifiedVersion('claude-b')
     const cfg = config({
       engines: [
-        engine({ id: "claude-unproved", agent_version: "1.2.3" }),
-        engine({ id: "claude-b", agent_version: "4.5.6" }),
+        engine({ id: 'claude-unproved', agent_version: '1.2.3' }),
+        engine({ id: 'claude-b', agent_version: '4.5.6' }),
       ],
-      chains: { "chain-x": ["@/claude-unproved/x", "@/claude-b/y"] },
-    });
+      chains: { 'chain-x': ['@/claude-unproved/x', '@/claude-b/y'] },
+    })
     // Only claude-b's pin is provable -- claude-unproved's proof always
     // fails, the same as the standalone "unproved agentic engine" test above.
     const probeRunner: AgenticProbeRunner = (version) =>
-      Promise.resolve(version === "4.5.6" ? { ok: true } : { ok: false, failedProbe: "boom" });
-    const hopBCalls: string[][] = [];
+      Promise.resolve(version === '4.5.6' ? { ok: true } : { ok: false, failedProbe: 'boom' })
+    const hopBCalls: string[][] = []
     const spawn: AgenticSpawn = (argv) => {
-      hopBCalls.push(argv);
+      hopBCalls.push(argv)
       return Promise.resolve({
         stdout: '{"is_error":false,"result":"hi"}',
-        stderr: "",
+        stderr: '',
         exitCode: 0,
-      });
-    };
-    const { lines, write } = collectLines();
+      })
+    }
+    const { lines, write } = collectLines()
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: probeRunner },
       { agenticSpawn: spawn, write },
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "chain-x",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp",
+        model: 'chain-x',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp',
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(hopBCalls).toHaveLength(1);
-    expect(hopBCalls[0]).toContain("@anthropic-ai/claude-code@4.5.6");
-    expect(soleProvenanceRecord(lines).engine_used).toBe("claude-b");
-    clearVerifiedVersion("claude-unproved");
-    clearVerifiedVersion("claude-b");
-  });
-});
+    )
+    expect(res.status).toBe(200)
+    expect(hopBCalls).toHaveLength(1)
+    expect(hopBCalls[0]).toContain('@anthropic-ai/claude-code@4.5.6')
+    expect(soleProvenanceRecord(lines).engine_used).toBe('claude-b')
+    clearVerifiedVersion('claude-unproved')
+    clearVerifiedVersion('claude-b')
+  })
+})
 
 describe("the door: an agentic hop's own timeout actually aborts it", () => {
   /**
@@ -915,98 +915,98 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
    * here and this promise never settles, so the request hangs until bun's
    * own test timeout fails it rather than the door's short budget.
    */
-  test("a hung agentic spawn is aborted by agent_timeout_seconds instead of holding its slot forever", async () => {
-    const id = "claude-hangs";
-    clearVerifiedVersion(id);
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    writeEngineSpec(root, id, CLAUDE_SPEC);
-    const workdir = mkdtempSync(join(TEST_ROOT, "engined-workdir-"));
+  test('a hung agentic spawn is aborted by agent_timeout_seconds instead of holding its slot forever', async () => {
+    const id = 'claude-hangs'
+    clearVerifiedVersion(id)
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    writeEngineSpec(root, id, CLAUDE_SPEC)
+    const workdir = mkdtempSync(join(TEST_ROOT, 'engined-workdir-'))
     const cfg = config({
-      routes: [route({ engine: id, model: "assistant", upstream: null })],
+      routes: [route({ engine: id, model: 'assistant', upstream: null })],
       // Well under bun's own per-test timeout, so a correct fix resolves
       // fast and a regression fails this test rather than hanging the suite.
       agent_timeout_seconds: 0.05,
-      engines: [engine({ id, agent_version: "1.2.3" })],
-    });
+      engines: [engine({ id, agent_version: '1.2.3' })],
+    })
     const spawn: AgenticSpawn = (_argv, opts) =>
       new Promise((_resolve, reject) => {
-        opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-      });
-    const { lines, write } = collectLines();
+        opts.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    const { lines, write } = collectLines()
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       { agenticSpawn: spawn, write },
-    );
+    )
 
     const res = await door.fetch(
       chatRequest({
         model: `@/${id}/assistant`,
-        messages: [{ role: "user", content: "hi" }],
+        messages: [{ role: 'user', content: 'hi' }],
         workdir,
       }),
-    );
-    await res.text();
+    )
+    await res.text()
 
-    expect(res.status).toBe(503);
-    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe("timeout");
-    clearVerifiedVersion(id);
-  });
-});
+    expect(res.status).toBe(503)
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe('timeout')
+    clearVerifiedVersion(id)
+  })
+})
 
-describe("the door: chain routing", () => {
+describe('the door: chain routing', () => {
   test("a chain whose first hop's envelope fails is terminal there: the second hop's own spawn log stays empty", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-    for (const id of ["claude-a", "claude-b"]) {
-      writeEngineSpec(root, id, CLAUDE_SPEC);
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    for (const id of ['claude-a', 'claude-b']) {
+      writeEngineSpec(root, id, CLAUDE_SPEC)
     }
-    clearVerifiedVersion("claude-a");
-    clearVerifiedVersion("claude-b");
+    clearVerifiedVersion('claude-a')
+    clearVerifiedVersion('claude-b')
     // Distinct pins so one shared spawn can tell the hops apart by argv and
     // keep a separate call log per hop -- the discriminating assertion is
     // against the next hop's own log, not the response status.
     const cfg = config({
       engines: [
-        engine({ id: "claude-a", agent_version: "1.2.3" }),
-        engine({ id: "claude-b", agent_version: "4.5.6" }),
+        engine({ id: 'claude-a', agent_version: '1.2.3' }),
+        engine({ id: 'claude-b', agent_version: '4.5.6' }),
       ],
-      chains: { "chain-x": ["@/claude-a/x", "@/claude-b/y"] },
-    });
-    const hopACalls: string[][] = [];
-    const hopBCalls: string[][] = [];
+      chains: { 'chain-x': ['@/claude-a/x', '@/claude-b/y'] },
+    })
+    const hopACalls: string[][] = []
+    const hopBCalls: string[][] = []
     // claude-a's stdout fails to parse -- a proven envelope failure, terminal
     // regardless of status, never a transport error a retry might route around.
     const spawn: AgenticSpawn = (argv) => {
-      (argv.includes("@anthropic-ai/claude-code@1.2.3") ? hopACalls : hopBCalls).push(argv);
-      return Promise.resolve({ stdout: "not json", stderr: "", exitCode: 0 });
-    };
-    const { lines, write } = collectLines();
+      ;(argv.includes('@anthropic-ai/claude-code@1.2.3') ? hopACalls : hopBCalls).push(argv)
+      return Promise.resolve({ stdout: 'not json', stderr: '', exitCode: 0 })
+    }
+    const { lines, write } = collectLines()
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       { agenticSpawn: spawn, write },
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "chain-x",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp",
+        model: 'chain-x',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp',
       }),
-    );
-    expect(res.status).toBe(502);
-    expect(hopACalls).toHaveLength(1);
-    expect(hopBCalls).toHaveLength(0);
-    const record = soleProvenanceRecord(lines);
-    expect(record.engine_used).toBe("claude-a");
-    expect(record.attempts).toHaveLength(1);
-    expect(record.attempts[0]).toMatchObject({ engine: "claude-a", ok: false });
-    clearVerifiedVersion("claude-a");
-    clearVerifiedVersion("claude-b");
-  });
-});
+    )
+    expect(res.status).toBe(502)
+    expect(hopACalls).toHaveLength(1)
+    expect(hopBCalls).toHaveLength(0)
+    const record = soleProvenanceRecord(lines)
+    expect(record.engine_used).toBe('claude-a')
+    expect(record.attempts).toHaveLength(1)
+    expect(record.attempts[0]).toMatchObject({ engine: 'claude-a', ok: false })
+    clearVerifiedVersion('claude-a')
+    clearVerifiedVersion('claude-b')
+  })
+})
 
-const FAILOVER_DEAD_PORT = 46_001;
-const FAILOVER_LIVE_PORT = 46_002;
+const FAILOVER_DEAD_PORT = 46_001
+const FAILOVER_LIVE_PORT = 46_002
 
 /** One shared docker fake for two engines, distinguished by the container name docker.ts always passes. */
 function twoEngineExec(): Exec {
@@ -1015,7 +1015,7 @@ function twoEngineExec(): Exec {
       [`${NAME_PREFIX}llama-dead`]: FAILOVER_DEAD_PORT,
       [`${NAME_PREFIX}llama-live`]: FAILOVER_LIVE_PORT,
     },
-  });
+  })
 }
 
 /** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each
@@ -1027,48 +1027,48 @@ function makeSplitHttpClient(
   deadCalls: string[],
   liveCalls: string[],
 ): HttpClient {
-  const control = llamaControlPlane();
+  const control = llamaControlPlane()
   return (url: string, init?: RequestInit) => {
-    const controlled = control(url, init);
+    const controlled = control(url, init)
     if (controlled) {
-      return Promise.resolve(controlled);
+      return Promise.resolve(controlled)
     }
-    const { port } = new URL(url);
+    const { port } = new URL(url)
     if (port === String(FAILOVER_DEAD_PORT)) {
-      deadCalls.push(url);
-      return Promise.resolve(Response.json({ error: "dead" }, { status: deadStatus }));
+      deadCalls.push(url)
+      return Promise.resolve(Response.json({ error: 'dead' }, { status: deadStatus }))
     }
-    liveCalls.push(url);
+    liveCalls.push(url)
     return Promise.resolve(
-      Response.json({ id: "resp-live", choices: [{ message: { content: "live" } }] }),
-    );
-  };
+      Response.json({ id: 'resp-live', choices: [{ message: { content: 'live' } }] }),
+    )
+  }
 }
 
 function twoEngineDoorConfig(): { cfg: Config; root: string } {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  for (const id of ["llama-dead", "llama-live"]) {
-    writeEngineSpec(root, id, LOCAL_LLAMA_SPEC);
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  for (const id of ['llama-dead', 'llama-live']) {
+    writeEngineSpec(root, id, LOCAL_LLAMA_SPEC)
   }
   const cfg = config({
     engines: [
-      engine({ id: "llama-dead", models_dir: "/data/dead", models_max: 1 }),
-      engine({ id: "llama-live", models_dir: "/data/live", models_max: 1 }),
+      engine({ id: 'llama-dead', models_dir: '/data/dead', models_max: 1 }),
+      engine({ id: 'llama-live', models_dir: '/data/live', models_max: 1 }),
     ],
     routes: [
-      route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
-      route({ engine: "llama-live", model: "live-model", filename: "l.gguf", role: "chat" }),
+      route({ engine: 'llama-dead', model: 'dead-model', filename: 'd.gguf', role: 'chat' }),
+      route({ engine: 'llama-live', model: 'live-model', filename: 'l.gguf', role: 'chat' }),
     ],
-    chains: { "chain-failover": ["@/llama-dead/dead-model", "@/llama-live/live-model"] },
-  });
-  return { cfg, root };
+    chains: { 'chain-failover': ['@/llama-dead/dead-model', '@/llama-live/live-model'] },
+  })
+  return { cfg, root }
 }
 
 describe("the door: a llama hop's real status decides chain advance", () => {
   test("a 500 from the first hop advances: the second hop's upstream received a request", async () => {
-    const { cfg, root } = twoEngineDoorConfig();
-    const deadCalls: string[] = [];
-    const liveCalls: string[] = [];
+    const { cfg, root } = twoEngineDoorConfig()
+    const deadCalls: string[] = []
+    const liveCalls: string[] = []
     const door = createLlamaDoor(
       cfg,
       root,
@@ -1077,24 +1077,24 @@ describe("the door: a llama hop's real status decides chain advance", () => {
         write: () => undefined,
       },
       twoEngineExec(),
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "chain-failover",
-        messages: [{ role: "user", content: "hi" }],
+        model: 'chain-failover',
+        messages: [{ role: 'user', content: 'hi' }],
       }),
-    );
-    const body = (await res.json()) as { choices: { message: { content: string } }[] };
-    expect(res.status).toBe(200);
-    expect(body.choices[0]?.message.content).toBe("live");
-    expect(deadCalls.length).toBeGreaterThan(0);
-    expect(liveCalls.length).toBeGreaterThan(0);
-  });
+    )
+    const body = (await res.json()) as { choices: { message: { content: string } }[] }
+    expect(res.status).toBe(200)
+    expect(body.choices[0]?.message.content).toBe('live')
+    expect(deadCalls.length).toBeGreaterThan(0)
+    expect(liveCalls.length).toBeGreaterThan(0)
+  })
 
   test("a 400 from the first hop does not advance: the second hop's upstream is never touched", async () => {
-    const { cfg, root } = twoEngineDoorConfig();
-    const deadCalls: string[] = [];
-    const liveCalls: string[] = [];
+    const { cfg, root } = twoEngineDoorConfig()
+    const deadCalls: string[] = []
+    const liveCalls: string[] = []
     const door = createLlamaDoor(
       cfg,
       root,
@@ -1103,38 +1103,38 @@ describe("the door: a llama hop's real status decides chain advance", () => {
         write: () => undefined,
       },
       twoEngineExec(),
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "chain-failover",
-        messages: [{ role: "user", content: "hi" }],
+        model: 'chain-failover',
+        messages: [{ role: 'user', content: 'hi' }],
       }),
-    );
-    await res.text();
-    expect(res.status).toBe(400);
-    expect(deadCalls.length).toBeGreaterThan(0);
-    expect(liveCalls).toHaveLength(0);
-  });
-});
+    )
+    await res.text()
+    expect(res.status).toBe(400)
+    expect(deadCalls.length).toBeGreaterThan(0)
+    expect(liveCalls).toHaveLength(0)
+  })
+})
 
-const TOOL_FALLBACK_LLAMA_PORT = 46_003;
+const TOOL_FALLBACK_LLAMA_PORT = 46_003
 
 const TOOL_CALL_ANSWER = {
-  id: "resp-tools",
+  id: 'resp-tools',
   choices: [
     {
       index: 0,
       message: {
-        role: "assistant",
+        role: 'assistant',
         content: null,
         tool_calls: [
-          { id: "call-1", type: "function", function: { name: "now", arguments: "{}" } },
+          { id: 'call-1', type: 'function', function: { name: 'now', arguments: '{}' } },
         ],
       },
-      finish_reason: "tool_calls",
+      finish_reason: 'tool_calls',
     },
   ],
-};
+}
 
 /**
  * A chain that falls back off a tool-capable llama hop onto an agentic one.
@@ -1148,36 +1148,36 @@ const TOOL_CALL_ANSWER = {
  * reached it rather than merely that the agentic hop was skipped.
  */
 function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "llama-dead", LOCAL_LLAMA_SPEC);
-  writeEngineSpec(root, "claude", CLAUDE_SPEC);
-  clearVerifiedVersion("claude");
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'llama-dead', LOCAL_LLAMA_SPEC)
+  writeEngineSpec(root, 'claude', CLAUDE_SPEC)
+  clearVerifiedVersion('claude')
   const cfg = config({
     engines: [
-      engine({ id: "llama-dead", models_dir: "/data/dead", models_max: 1 }),
+      engine({ id: 'llama-dead', models_dir: '/data/dead', models_max: 1 }),
       claudeEngine(),
     ],
     routes: [
-      route({ engine: "llama-dead", model: "dead-model", filename: "d.gguf", role: "chat" }),
-      route({ engine: "claude", model: "x", upstream: null }),
+      route({ engine: 'llama-dead', model: 'dead-model', filename: 'd.gguf', role: 'chat' }),
+      route({ engine: 'claude', model: 'x', upstream: null }),
     ],
     chains: {
-      "chain-tools": ["@/llama-dead/dead-model", "@/claude/x"],
-      "chain-rev": ["@/claude/x", "@/llama-dead/dead-model"],
+      'chain-tools': ['@/llama-dead/dead-model', '@/claude/x'],
+      'chain-rev': ['@/claude/x', '@/llama-dead/dead-model'],
       // No hop here can honour a tool call, and none reads a workdir from a
       // caller who addressed the chain: the two refusals a chain caller can
       // meet, with nothing behind either to soften them.
-      "chain-agentic-only": ["@/claude/x"],
+      'chain-agentic-only': ['@/claude/x'],
     },
-  });
-  const control = llamaControlPlane();
+  })
+  const control = llamaControlPlane()
   const llamaHttpClient: HttpClient = (url, init) =>
     Promise.resolve(
       control(url, init) ??
         (llamaAnswers
           ? Response.json(TOOL_CALL_ANSWER)
-          : Response.json({ error: "dead" }, { status: 500 })),
-    );
+          : Response.json({ error: 'dead' }, { status: 500 })),
+    )
   return createDoor(
     cfg,
     {
@@ -1193,275 +1193,275 @@ function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
       llamaPresetHostPath: tempPresetPath(TEST_ROOT),
       llamaHttpClient,
       agenticSpawn: (argv) => {
-        spawnCalls.push(argv);
+        spawnCalls.push(argv)
         return Promise.resolve({
           stdout: '{"is_error":false,"result":"here is prose"}',
-          stderr: "",
+          stderr: '',
           exitCode: 0,
-        });
+        })
       },
       write: () => undefined,
     },
-  );
+  )
 }
 
 /** Every tool-refusal case sends the same function under both spellings; only the body shape around it differs. */
-const TOOL_NOW = { type: "function", function: { name: "now", parameters: {} } };
+const TOOL_NOW = { type: 'function', function: { name: 'now', parameters: {} } }
 
 /** One tool-fallback door per call, posted a chat body and read back whole -- the spawn log is what proves the agent was never reached. */
 async function toolFallbackCall(
   body: Record<string, unknown>,
   agenticFirst = false,
 ): Promise<{
-  status: number;
+  status: number
   body: {
-    choices?: { finish_reason?: string }[];
-    error?: string;
-    attempts?: { failure?: string }[];
-  };
-  spawnCalls: string[][];
+    choices?: { finish_reason?: string }[]
+    error?: string
+    attempts?: { failure?: string }[]
+  }
+  spawnCalls: string[][]
 }> {
-  const spawnCalls: string[][] = [];
-  const door = toolFallbackDoor(spawnCalls, agenticFirst);
-  const res = await door.fetch(chatRequest(body));
-  return { status: res.status, body: await res.json(), spawnCalls };
+  const spawnCalls: string[][] = []
+  const door = toolFallbackDoor(spawnCalls, agenticFirst)
+  const res = await door.fetch(chatRequest(body))
+  return { status: res.status, body: await res.json(), spawnCalls }
 }
 
-describe("the door: a tool call never falls back into prose", () => {
-  test("a chain falling off a llama hop onto an agentic one refuses the tools it cannot honour instead of answering", async () => {
+describe('the door: a tool call never falls back into prose', () => {
+  test('a chain falling off a llama hop onto an agentic one refuses the tools it cannot honour instead of answering', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "chain-tools",
-      messages: [{ role: "user", content: "what time is it" }],
-      workdir: "/tmp",
+      model: 'chain-tools',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      workdir: '/tmp',
       tools: [TOOL_NOW],
       parallel_tool_calls: true,
-    });
+    })
     // The agent is never launched at all, so there is no prose to return.
     // A tool-capable hop was in this chain and merely failed, so the refusal
     // advances and the chain exhausts -- it does not terminate on the caller.
-    expect(spawnCalls).toHaveLength(0);
-    expect(status).toBe(503);
-    expect(body.error).toBe("every engine in this chain failed");
-    expect(body.attempts).toHaveLength(2);
-    expect(body.choices).toBeUndefined();
-    clearVerifiedVersion("claude");
-  });
+    expect(spawnCalls).toHaveLength(0)
+    expect(status).toBe(503)
+    expect(body.error).toBe('every engine in this chain failed')
+    expect(body.attempts).toHaveLength(2)
+    expect(body.choices).toBeUndefined()
+    clearVerifiedVersion('claude')
+  })
 
   // `workdir` means nothing to the llama hop that answers this, so the caller
   // had no reason to send one -- and the agentic hop it is reached through
   // must not turn that into a terminal 400 the chain cannot get past.
-  test("a chain whose first hop is agentic still reaches the tool-capable hop behind it with no workdir sent", async () => {
+  test('a chain whose first hop is agentic still reaches the tool-capable hop behind it with no workdir sent', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall(
       {
-        model: "chain-rev",
-        messages: [{ role: "user", content: "what time is it" }],
+        model: 'chain-rev',
+        messages: [{ role: 'user', content: 'what time is it' }],
         tools: [TOOL_NOW],
       },
       true,
-    );
-    expect(status).toBe(200);
-    expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
-});
+    )
+    expect(status).toBe(200)
+    expect(body.choices?.[0]?.finish_reason).toBe('tool_calls')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
+})
 
 describe("the door: a missing workdir is the chain's business, not the caller's", () => {
   // `workdir` is meaningful to an agentic hop and to nothing else, so a
   // caller who addressed a chain had no reason to send one. The hop that
   // cannot run without it is a shape mismatch like any other, whether or not
   // the body also carries a field this engine cannot honour.
-  test("a chain whose first hop is agentic advances past it when no workdir and no tools were sent", async () => {
+  test('a chain whose first hop is agentic advances past it when no workdir and no tools were sent', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall(
       {
-        model: "chain-rev",
-        messages: [{ role: "user", content: "what time is it" }],
+        model: 'chain-rev',
+        messages: [{ role: 'user', content: 'what time is it' }],
       },
       true,
-    );
-    expect(status).toBe(200);
-    expect(body.choices?.[0]?.finish_reason).toBe("tool_calls");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
+    )
+    expect(status).toBe(200)
+    expect(body.choices?.[0]?.finish_reason).toBe('tool_calls')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
 
   // The counterpart the advance must not swallow: naming the engine itself
   // makes the omission the caller's own, and it stays terminal.
-  test("naming the agentic engine directly with no workdir is still a terminal 400 naming it", async () => {
+  test('naming the agentic engine directly with no workdir is still a terminal 400 naming it', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
-    });
-    expect(status).toBe(400);
-    expect(body.error).toContain("workdir is required");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
-});
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('workdir is required')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the door: a chain nothing in it can honour answers the caller, not a dead engine", () => {
+describe('the door: a chain nothing in it can honour answers the caller, not a dead engine', () => {
   // No hop can honour `tools`, so the refusal is terminal wherever it is
   // reached from -- and a caller who left out the `workdir` only an agentic
   // hop reads still gets told the one thing they can act on.
-  test("an all-agentic chain names the field it cannot honour even with no workdir sent", async () => {
+  test('an all-agentic chain names the field it cannot honour even with no workdir sent', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "chain-agentic-only",
-      messages: [{ role: "user", content: "what time is it" }],
+      model: 'chain-agentic-only',
+      messages: [{ role: 'user', content: 'what time is it' }],
       tools: [TOOL_NOW],
-    });
-    expect(status).toBe(400);
-    expect(body.error).toContain("cannot honour tools");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('cannot honour tools')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
 
   // The missing workdir still advances, and the exhausted chain has to say
   // what actually happened: `http 502` alone reads as an engine that failed.
-  test("an all-agentic chain with no workdir exhausts, and the attempt records why", async () => {
+  test('an all-agentic chain with no workdir exhausts, and the attempt records why', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "chain-agentic-only",
-      messages: [{ role: "user", content: "what time is it" }],
-    });
-    expect(status).toBe(503);
-    expect(body.attempts).toHaveLength(1);
-    expect(body.attempts?.[0]?.failure).toContain("carried no workdir");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
+      model: 'chain-agentic-only',
+      messages: [{ role: 'user', content: 'what time is it' }],
+    })
+    expect(status).toBe(503)
+    expect(body.attempts).toHaveLength(1)
+    expect(body.attempts?.[0]?.failure).toContain('carried no workdir')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
 
-  test("a max_egress that is not an egress is a 400 naming the values that are", async () => {
+  test('a max_egress that is not an egress is a 400 naming the values that are', async () => {
     const { status, body } = await toolFallbackCall({
-      model: "chain-agentic-only",
-      messages: [{ role: "user", content: "what time is it" }],
-      max_egress: "internet",
-    });
-    expect(status).toBe(400);
-    expect(body.error).toBe("max_egress must be one of: none, lan, remote");
-  });
-});
+      model: 'chain-agentic-only',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      max_egress: 'internet',
+    })
+    expect(status).toBe(400)
+    expect(body.error).toBe('max_egress must be one of: none, lan, remote')
+  })
+})
 
-describe("the door: an agentic engine named directly refuses the tool field by name", () => {
-  test("naming the agentic engine directly is terminal and names the field, not a 503 that reads as a dead box", async () => {
+describe('the door: an agentic engine named directly refuses the tool field by name', () => {
+  test('naming the agentic engine directly is terminal and names the field, not a 503 that reads as a dead box', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
-      workdir: "/tmp",
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      workdir: '/tmp',
       tools: [TOOL_NOW],
-    });
-    expect(status).toBe(400);
-    expect(body.error).toContain("cannot honour tools");
-    expect(spawnCalls).toHaveLength(0);
-    expect(body.choices).toBeUndefined();
-    clearVerifiedVersion("claude");
-  });
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('cannot honour tools')
+    expect(spawnCalls).toHaveLength(0)
+    expect(body.choices).toBeUndefined()
+    clearVerifiedVersion('claude')
+  })
 
-  test("the legacy functions/function_call spelling is refused too, not answered in prose", async () => {
+  test('the legacy functions/function_call spelling is refused too, not answered in prose', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
-      workdir: "/tmp",
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      workdir: '/tmp',
       functions: [TOOL_NOW.function],
-      function_call: "auto",
-    });
-    expect(status).toBe(400);
-    expect(body.error).toContain("cannot honour functions");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
-});
+      function_call: 'auto',
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('cannot honour functions')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the door: a body that demands no tool call is answered", () => {
-  test("the shapes that demand nothing -- empty tools, tool_choice none, text response_format -- are answered", async () => {
+describe('the door: a body that demands no tool call is answered', () => {
+  test('the shapes that demand nothing -- empty tools, tool_choice none, text response_format -- are answered', async () => {
     const { status, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
-      workdir: "/tmp",
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      workdir: '/tmp',
       tools: [],
-      tool_choice: "none",
+      tool_choice: 'none',
       parallel_tool_calls: false,
-      response_format: { type: "text" },
-    });
-    expect(status).toBe(200);
-    expect(spawnCalls).toHaveLength(1);
-    clearVerifiedVersion("claude");
-  });
+      response_format: { type: 'text' },
+    })
+    expect(status).toBe(200)
+    expect(spawnCalls).toHaveLength(1)
+    clearVerifiedVersion('claude')
+  })
 
-  test("a caller who also forgot workdir is told about the workdir, which is the mistake they own first", async () => {
+  test('a caller who also forgot workdir is told about the workdir, which is the mistake they own first', async () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
       tools: [TOOL_NOW],
-    });
-    expect(status).toBe(400);
-    expect(body.error).toContain("workdir is required");
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
+    })
+    expect(status).toBe(400)
+    expect(body.error).toContain('workdir is required')
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
 
   // A non-empty tool list under `tool_choice: "none"` is the only shape a
   // client that carries tools and wants words actually sends, so refusing it
   // would refuse the traffic this whole refusal exists to keep serving.
   test('a real tool list under tool_choice "none" is answered, not refused for carrying one', async () => {
     const { status, spawnCalls } = await toolFallbackCall({
-      model: "@/claude/x",
-      messages: [{ role: "user", content: "what time is it" }],
-      workdir: "/tmp",
+      model: '@/claude/x',
+      messages: [{ role: 'user', content: 'what time is it' }],
+      workdir: '/tmp',
       tools: [TOOL_NOW],
-      tool_choice: "none",
-    });
-    expect(status).toBe(200);
-    expect(spawnCalls).toHaveLength(1);
-    clearVerifiedVersion("claude");
-  });
-});
+      tool_choice: 'none',
+    })
+    expect(status).toBe(200)
+    expect(spawnCalls).toHaveLength(1)
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the door: which addresses forward a tool call is discoverable", () => {
-  test("the models menu says which addresses forward a tool call before the first one is sent", async () => {
-    const door = toolFallbackDoor([]);
-    const res = await door.fetch(new Request("http://engined/openai/v1/models"));
-    const { data } = (await res.json()) as { data: { id: string; tools: boolean }[] };
-    expect(data.find((r) => r.id === "chain-tools")?.tools).toBe(false);
-    expect(data.find((r) => r.id === "@/llama-dead/dead-model")?.tools).toBe(true);
-    clearVerifiedVersion("claude");
-  });
+describe('the door: which addresses forward a tool call is discoverable', () => {
+  test('the models menu says which addresses forward a tool call before the first one is sent', async () => {
+    const door = toolFallbackDoor([])
+    const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+    const { data } = (await res.json()) as { data: { id: string; tools: boolean }[] }
+    expect(data.find((r) => r.id === 'chain-tools')?.tools).toBe(false)
+    expect(data.find((r) => r.id === '@/llama-dead/dead-model')?.tools).toBe(true)
+    clearVerifiedVersion('claude')
+  })
 
-  test("the same chain without tool-calling fields still falls back and answers", async () => {
-    const spawnCalls: string[][] = [];
-    const door = toolFallbackDoor(spawnCalls);
+  test('the same chain without tool-calling fields still falls back and answers', async () => {
+    const spawnCalls: string[][] = []
+    const door = toolFallbackDoor(spawnCalls)
     const res = await door.fetch(
       chatRequest({
-        model: "chain-tools",
-        messages: [{ role: "user", content: "what time is it" }],
-        workdir: "/tmp",
+        model: 'chain-tools',
+        messages: [{ role: 'user', content: 'what time is it' }],
+        workdir: '/tmp',
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(spawnCalls).toHaveLength(1);
-    clearVerifiedVersion("claude");
-  });
-});
+    )
+    expect(res.status).toBe(200)
+    expect(spawnCalls).toHaveLength(1)
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the door: extras injects the resident model for the right role", () => {
-  test("with a vision model and a chat model both resident, an extras call injects the chat model", async () => {
-    const { cfg, root } = llamaDoorConfig();
+describe('the door: extras injects the resident model for the right role', () => {
+  test('with a vision model and a chat model both resident, an extras call injects the chat model', async () => {
+    const { cfg, root } = llamaDoorConfig()
     const cfgWithVision: Config = {
       ...cfg,
       routes: [
         ...cfg.routes,
-        route({ engine: "local-llama", model: "vision-a", filename: "v.gguf", role: "vision" }),
+        route({ engine: 'local-llama', model: 'vision-a', filename: 'v.gguf', role: 'vision' }),
       ],
-    };
-    const recorded: { body: string }[] = [];
-    const extrasCalls: string[] = [];
+    }
+    const recorded: { body: string }[] = []
+    const extrasCalls: string[] = []
     const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
-      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
-      return Promise.resolve(Response.json({ ok: true }));
-    };
+      extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
+      return Promise.resolve(Response.json({ ok: true }))
+    }
     const door = createLlamaDoor(cfgWithVision, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
       extrasHttpClient: extrasClient,
       write: () => undefined,
-    });
+    })
 
     // Warm both roles: chat first, then vision *last* — a door-side "last
     // model proxied to this engine, any role" approximation would report
@@ -1469,143 +1469,143 @@ describe("the door: extras injects the resident model for the right role", () =>
     // the chat role specifically must still report the chat model.
     await (
       await door.fetch(
-        chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
+        chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
       )
-    ).text();
+    ).text()
     await (
       await door.fetch(
         chatRequest({
-          model: "@/local-llama/vision-a",
-          messages: [{ role: "user", content: "hi" }],
+          model: '@/local-llama/vision-a',
+          messages: [{ role: 'user', content: 'hi' }],
         }),
       )
-    ).text();
+    ).text()
 
     await door.fetch(
-      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
-        method: "POST",
-        body: JSON.stringify({ content: "hello" }),
+      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello' }),
       }),
-    );
+    )
 
-    expect(extrasCalls).toHaveLength(1);
-    const forwarded = JSON.parse(extrasCalls[0] ?? "{}") as { model?: string };
-    expect(forwarded.model).toBe("ornith");
-  });
-});
+    expect(extrasCalls).toHaveLength(1)
+    const forwarded = JSON.parse(extrasCalls[0] ?? '{}') as { model?: string }
+    expect(forwarded.model).toBe('ornith')
+  })
+})
 
-describe("the door: extras address one named engine, and refuse any other", () => {
+describe('the door: extras address one named engine, and refuse any other', () => {
   /**
    * `:id` is a raw engine id, so a comfy-shaped engine carrying `models_dir`
    * alongside local-llama is no longer an ambiguity -- it is simply a
    * different id. What matters is that naming it is refused rather than
    * starting that container and posting a chat body into it.
    */
-  test("tokenize against the named llama engine reaches it, and against a comfy-shaped engine 400s", async () => {
-    const { cfg, root } = llamaDoorConfigWithComfy();
-    const recorded: { body: string }[] = [];
-    const extrasCalls: string[] = [];
+  test('tokenize against the named llama engine reaches it, and against a comfy-shaped engine 400s', async () => {
+    const { cfg, root } = llamaDoorConfigWithComfy()
+    const recorded: { body: string }[] = []
+    const extrasCalls: string[] = []
     const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
-      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
-      return Promise.resolve(Response.json({ tokens: [1, 2, 3] }));
-    };
+      extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
+      return Promise.resolve(Response.json({ tokens: [1, 2, 3] }))
+    }
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
       extrasHttpClient: extrasClient,
       write: () => undefined,
-    });
+    })
 
     const res = await door.fetch(
-      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
-        method: "POST",
-        body: JSON.stringify({ content: "hello" }),
+      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello' }),
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(extrasCalls).toHaveLength(1);
-    expect(JSON.parse(extrasCalls[0] ?? "{}")).toMatchObject({ model: "ornith" });
+    )
+    expect(res.status).toBe(200)
+    expect(extrasCalls).toHaveLength(1)
+    expect(JSON.parse(extrasCalls[0] ?? '{}')).toMatchObject({ model: 'ornith' })
 
     // Naming the comfy-shaped engine is refused before its container is touched.
     const wrong = await door.fetch(
-      new Request("http://engined/engined/v1/engines/comfy/tokenize", {
-        method: "POST",
-        body: JSON.stringify({ content: "hello" }),
+      new Request('http://engined/engined/v1/engines/comfy/tokenize', {
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello' }),
       }),
-    );
-    expect(wrong.status).toBe(400);
-    expect(extrasCalls).toHaveLength(1);
-  });
+    )
+    expect(wrong.status).toBe(400)
+    expect(extrasCalls).toHaveLength(1)
+  })
 
-  test("tokenize with no chat yet warm-loads the local chat route before injecting it", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const extrasCalls: string[] = [];
+  test('tokenize with no chat yet warm-loads the local chat route before injecting it', async () => {
+    const { cfg, root } = llamaDoorConfig()
+    const extrasCalls: string[] = []
     const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
-      extrasCalls.push(typeof init?.body === "string" ? init.body : "");
-      return Promise.resolve(Response.json({ tokens: [1] }));
-    };
-    const recorded: { body: string }[] = [];
+      extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
+      return Promise.resolve(Response.json({ tokens: [1] }))
+    }
+    const recorded: { body: string }[] = []
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient(recorded),
       extrasHttpClient: extrasClient,
       write: () => undefined,
-    });
+    })
     const res = await door.fetch(
-      new Request("http://engined/engined/v1/engines/local-llama/tokenize", {
-        method: "POST",
-        body: JSON.stringify({ content: "hello" }),
+      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello' }),
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(JSON.parse(extrasCalls[0] ?? "{}")).toMatchObject({ model: "ornith", content: "hello" });
-  });
-});
+    )
+    expect(res.status).toBe(200)
+    expect(JSON.parse(extrasCalls[0] ?? '{}')).toMatchObject({ model: 'ornith', content: 'hello' })
+  })
+})
 
 function fakeExec(value: string | undefined): Exec {
   return (args) => {
-    if (args[0] === "lookup" && value !== undefined) {
-      return Promise.resolve({ stdout: value, stderr: "", exitCode: 0 });
+    if (args[0] === 'lookup' && value !== undefined) {
+      return Promise.resolve({ stdout: value, stderr: '', exitCode: 0 })
     }
-    return Promise.resolve({ stdout: "", stderr: "", exitCode: 1 });
-  };
+    return Promise.resolve({ stdout: '', stderr: '', exitCode: 1 })
+  }
 }
 
 /** Moonshot serves an Anthropic-shaped endpoint, so claude's own launch redirects to it unchanged -- only its upstream differs. */
 function moonshotUpstream(): Upstream {
   return {
-    id: "moonshot",
-    base_url: "https://api.kimi.com/coding/",
-    secret: { service: "moonshot-api", username: "kimi-k2.7-code", header: "x-api-key" },
-    egress: "remote",
-    wire: "anthropic",
-  };
+    id: 'moonshot',
+    base_url: 'https://api.kimi.com/coding/',
+    secret: { service: 'moonshot-api', username: 'kimi-k2.7-code', header: 'x-api-key' },
+    egress: 'remote',
+    wire: 'anthropic',
+  }
 }
 
 function claudeEngine(): EngineEntry {
-  return engine({ id: "claude", agent_version: "1.2.3" });
+  return engine({ id: 'claude', agent_version: '1.2.3' })
 }
 
 /** claude's real shipped spec, since the moonshot redirect is a route naming a different upstream on the same real agentic engine -- not a second, spec-less one. */
 function redirectDoorRoot(): string {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "claude", CLAUDE_SPEC);
-  return root;
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'claude', CLAUDE_SPEC)
+  return root
 }
 
 /** What a faked claude spawn prints when its kimi-routed launch answers. */
 const KIMI_ANSWER: ExecResult = {
   stdout: '{"is_error":false,"result":"answered via kimi"}',
-  stderr: "",
+  stderr: '',
   exitCode: 0,
-};
+}
 
 /** An agentic chat request: one user message, launched in a scratch workdir. */
-function scratchChatRequest(model: string, content = "hi"): Request {
-  return chatRequest({ model, messages: [{ role: "user", content }], workdir: "/tmp/scratch" });
+function scratchChatRequest(model: string, content = 'hi'): Request {
+  return chatRequest({ model, messages: [{ role: 'user', content }], workdir: '/tmp/scratch' })
 }
 
 /** The chat request every kimi-routed test posts: the moonshot-routed claude model. */
-function kimiChatRequest(content = "hi"): Request {
-  return scratchChatRequest("@/claude/kimi-k3", content);
+function kimiChatRequest(content = 'hi'): Request {
+  return scratchChatRequest('@/claude/kimi-k3', content)
 }
 
 /** claude routed to moonshot for kimi-k3, plus whatever other routes a test needs. */
@@ -1613,8 +1613,8 @@ function kimiRoutedConfig(...extraRoutes: ReturnType<typeof route>[]): Config {
   return config({
     engines: [claudeEngine()],
     upstreams: [moonshotUpstream()],
-    routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }), ...extraRoutes],
-  });
+    routes: [route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' }), ...extraRoutes],
+  })
 }
 
 /** A door over claude whose spawn is faked and whose secret lookup resolves to `secret` (or is left real when absent). */
@@ -1627,28 +1627,28 @@ function createClaudeDoor(cfg: Config, root: string, spawn: AgenticSpawn, secret
       ...(secret === undefined ? {} : { secretExec: fakeExec(secret) }),
       write: () => undefined,
     },
-  );
+  )
 }
 
 /** A real door over claude, routed to moonshot for one model, its resolved secret and every spawned argv/env recorded rather than actually launched. */
 function createKimiDoor(ambientSibling = false): {
-  door: Door;
-  spawnCalls: { argv: string[]; env: Record<string, string> }[];
+  door: Door
+  spawnCalls: { argv: string[]; env: Record<string, string> }[]
 } {
-  const root = redirectDoorRoot();
+  const root = redirectDoorRoot()
   const cfg = config({
     engines: [claudeEngine()],
     upstreams: [moonshotUpstream()],
     routes: [
-      route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
-      ...(ambientSibling ? [route({ engine: "claude", upstream: null, model: "kimi-k3" })] : []),
+      route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' }),
+      ...(ambientSibling ? [route({ engine: 'claude', upstream: null, model: 'kimi-k3' })] : []),
     ],
-  });
-  const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+  })
+  const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
   const spawn: AgenticSpawn = (spawnArgv, opts) => {
-    spawnCalls.push({ argv: spawnArgv, env: opts.env });
-    return Promise.resolve(KIMI_ANSWER);
-  };
+    spawnCalls.push({ argv: spawnArgv, env: opts.env })
+    return Promise.resolve(KIMI_ANSWER)
+  }
   const door = createDoor(
     cfg,
     {
@@ -1658,12 +1658,12 @@ function createKimiDoor(ambientSibling = false): {
     },
     {
       agenticSpawn: spawn,
-      secretExec: fakeExec("kimi-secret-value"),
-      agenticAmbientEnv: { HOME: "/home/test", GITHUB_TOKEN: "ghp_leaked_repo_scope" },
+      secretExec: fakeExec('kimi-secret-value'),
+      agenticAmbientEnv: { HOME: '/home/test', GITHUB_TOKEN: 'ghp_leaked_repo_scope' },
       write: () => undefined,
     },
-  );
-  return { door, spawnCalls };
+  )
+  return { door, spawnCalls }
 }
 
 /** The stream-json lines a claude CLI prints for a two-chunk "pong". */
@@ -1672,102 +1672,102 @@ const STREAMED_PONG_LINES = [
   '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
   '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ng"}}}',
   '{"type":"result","subtype":"success","is_error":false,"result":"pong"}',
-];
+]
 
 /** A spawn that prints `lines` to stdout as it goes, recording each argv it was launched with. */
 function streamingSpawn(lines: string[], argvSeen: string[][]): AgenticSpawn {
   return (spawnArgv, opts) => {
-    argvSeen.push(spawnArgv);
+    argvSeen.push(spawnArgv)
     for (const line of lines) {
-      opts.onStdout?.(`${line}\n`);
+      opts.onStdout?.(`${line}\n`)
     }
-    return Promise.resolve({ stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 });
-  };
+    return Promise.resolve({ stdout: `${lines.join('\n')}\n`, stderr: '', exitCode: 0 })
+  }
 }
 
-describe("the door: remote-agentic redirect streams as the CLI prints", () => {
-  test("stream: true on an agentic hop is SSE chunks as the CLI prints them, launched in its streamed format", async () => {
-    clearVerifiedVersion("claude");
-    const argvSeen: string[][] = [];
+describe('the door: remote-agentic redirect streams as the CLI prints', () => {
+  test('stream: true on an agentic hop is SSE chunks as the CLI prints them, launched in its streamed format', async () => {
+    clearVerifiedVersion('claude')
+    const argvSeen: string[][] = []
     const door = createClaudeDoor(
       kimiRoutedConfig(),
       redirectDoorRoot(),
       streamingSpawn(STREAMED_PONG_LINES, argvSeen),
-      "k",
-    );
+      'k',
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "ping" }],
-        workdir: "/tmp/scratch",
+        model: '@/claude/kimi-k3',
+        messages: [{ role: 'user', content: 'ping' }],
+        workdir: '/tmp/scratch',
         stream: true,
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/event-stream");
-    const text = await res.text();
-    const contents = [...text.matchAll(/"content":"([^"]*)"/g)].map((m) => m[1]);
-    expect(contents).toEqual(["po", "ng"]);
-    expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
-    expect(argvSeen[0]).toContain("stream-json");
-    expect(argvSeen[0]).toContain("--include-partial-messages");
-    expect(argvSeen[0]).not.toContain("json");
-  });
-});
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/event-stream')
+    const text = await res.text()
+    const contents = [...text.matchAll(/"content":"([^"]*)"/g)].map((m) => m[1])
+    expect(contents).toEqual(['po', 'ng'])
+    expect(text.trimEnd().endsWith('data: [DONE]')).toBe(true)
+    expect(argvSeen[0]).toContain('stream-json')
+    expect(argvSeen[0]).toContain('--include-partial-messages')
+    expect(argvSeen[0]).not.toContain('json')
+  })
+})
 
-describe("the door: remote-agentic redirect (claude routed to a moonshot upstream)", () => {
-  test("the upstream segment picks the route: beside an ambient route on the same model, the three-segment address still redirects and the two-segment one runs ambient with the model in its env", async () => {
-    clearVerifiedVersion("claude");
-    const { door, spawnCalls } = createKimiDoor(true);
-    const messages = [{ role: "user", content: "hi" }];
-    const workdir = "/tmp/scratch";
+describe('the door: remote-agentic redirect (claude routed to a moonshot upstream)', () => {
+  test('the upstream segment picks the route: beside an ambient route on the same model, the three-segment address still redirects and the two-segment one runs ambient with the model in its env', async () => {
+    clearVerifiedVersion('claude')
+    const { door, spawnCalls } = createKimiDoor(true)
+    const messages = [{ role: 'user', content: 'hi' }]
+    const workdir = '/tmp/scratch'
 
     const redirected = await door.fetch(
-      chatRequest({ model: "@/claude/moonshot/kimi-k3", messages, workdir }),
-    );
-    expect(redirected.status).toBe(200);
-    expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+      chatRequest({ model: '@/claude/moonshot/kimi-k3', messages, workdir }),
+    )
+    expect(redirected.status).toBe(200)
+    expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
 
-    const ambient = await door.fetch(chatRequest({ model: "@/claude/kimi-k3", messages, workdir }));
-    expect(ambient.status).toBe(200);
-    const env = spawnCalls[1]?.env ?? {};
-    expect("ANTHROPIC_BASE_URL" in env).toBe(false);
-    expect("ANTHROPIC_API_KEY" in env).toBe(false);
-    expect(env.ANTHROPIC_MODEL).toBe("kimi-k3");
-  });
+    const ambient = await door.fetch(chatRequest({ model: '@/claude/kimi-k3', messages, workdir }))
+    expect(ambient.status).toBe(200)
+    const env = spawnCalls[1]?.env ?? {}
+    expect('ANTHROPIC_BASE_URL' in env).toBe(false)
+    expect('ANTHROPIC_API_KEY' in env).toBe(false)
+    expect(env.ANTHROPIC_MODEL).toBe('kimi-k3')
+  })
 
-  test("redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv", async () => {
-    clearVerifiedVersion("claude");
-    const { door, spawnCalls } = createKimiDoor();
-    const res = await door.fetch(kimiChatRequest());
-    const body = (await res.json()) as { choices: { message: { content: string } }[] };
-    expect(res.status).toBe(200);
-    expect(body.choices[0]?.message.content).toBe("answered via kimi");
+  test('redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv', async () => {
+    clearVerifiedVersion('claude')
+    const { door, spawnCalls } = createKimiDoor()
+    const res = await door.fetch(kimiChatRequest())
+    const body = (await res.json()) as { choices: { message: { content: string } }[] }
+    expect(res.status).toBe(200)
+    expect(body.choices[0]?.message.content).toBe('answered via kimi')
 
-    expect(spawnCalls).toHaveLength(1);
-    const { env, argv } = spawnCalls[0] ?? { env: {}, argv: [] };
+    expect(spawnCalls).toHaveLength(1)
+    const { env, argv } = spawnCalls[0] ?? { env: {}, argv: [] }
 
     // Redirect variables and the resolved key reach the child; ambient GITHUB_TOKEN does not.
-    expect(env.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
-    expect(env.ANTHROPIC_API_KEY).toBe("kimi-secret-value");
-    expect(env.ANTHROPIC_MODEL).toBe("kimi-k3");
-    expect("GITHUB_TOKEN" in env).toBe(false);
-    expect(Object.values(env)).not.toContain("ghp_leaked_repo_scope");
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
+    expect(env.ANTHROPIC_API_KEY).toBe('kimi-secret-value')
+    expect(env.ANTHROPIC_MODEL).toBe('kimi-k3')
+    expect('GITHUB_TOKEN' in env).toBe(false)
+    expect(Object.values(env)).not.toContain('ghp_leaked_repo_scope')
     // secret.header "x-api-key": the Bearer variable is never set.
-    expect("ANTHROPIC_AUTH_TOKEN" in env).toBe(false);
+    expect('ANTHROPIC_AUTH_TOKEN' in env).toBe(false)
 
     // The full floor is still present in argv, all three flags individually.
-    expect(argv).toContain("--safe-mode");
-    expect(argv).toContain("--strict-mcp-config");
-    const toolsIdx = argv.indexOf("--tools");
-    expect(toolsIdx).toBeGreaterThan(-1);
-    expect(argv[toolsIdx + 1]).toBe("Read,Grep,Glob");
+    expect(argv).toContain('--safe-mode')
+    expect(argv).toContain('--strict-mcp-config')
+    const toolsIdx = argv.indexOf('--tools')
+    expect(toolsIdx).toBeGreaterThan(-1)
+    expect(argv[toolsIdx + 1]).toBe('Read,Grep,Glob')
 
     // The resolved secret appears nowhere in argv.
-    expect(argv.some((a) => a.includes("kimi-secret-value"))).toBe(false);
-    clearVerifiedVersion("claude");
-  });
-});
+    expect(argv.some((a) => a.includes('kimi-secret-value'))).toBe(false)
+    clearVerifiedVersion('claude')
+  })
+})
 
 /**
  * An Anthropic-compatible Bearer gateway (OpenRouter-shaped): `secret.header`
@@ -1777,85 +1777,85 @@ describe("the door: remote-agentic redirect (claude routed to a moonshot upstrea
  */
 function bearerGatewayUpstream(): Upstream {
   return {
-    id: "openrouter",
-    base_url: "https://openrouter.ai/api/v1",
+    id: 'openrouter',
+    base_url: 'https://openrouter.ai/api/v1',
     secret: {
-      service: "openrouter-api",
-      username: "claude-code",
-      header: "authorization",
-      scheme: "Bearer",
+      service: 'openrouter-api',
+      username: 'claude-code',
+      header: 'authorization',
+      scheme: 'Bearer',
     },
-    egress: "remote",
-    wire: "anthropic",
-  };
+    egress: 'remote',
+    wire: 'anthropic',
+  }
 }
 
-describe("the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)", () => {
+describe('the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)', () => {
   test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN to the RAW value even though secret.scheme is "Bearer" -- the CLI prepends its own, so redirectEnv must not double it', async () => {
-    clearVerifiedVersion("claude");
-    const root = redirectDoorRoot();
+    clearVerifiedVersion('claude')
+    const root = redirectDoorRoot()
     const cfg = config({
       engines: [claudeEngine()],
       upstreams: [bearerGatewayUpstream()],
-      routes: [route({ engine: "claude", upstream: "openrouter", model: "sonnet-5" })],
-    });
-    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+      routes: [route({ engine: 'claude', upstream: 'openrouter', model: 'sonnet-5' })],
+    })
+    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
     const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      spawnCalls.push({ argv: spawnArgv, env: opts.env });
+      spawnCalls.push({ argv: spawnArgv, env: opts.env })
       return Promise.resolve({
         stdout: '{"is_error":false,"result":"answered via openrouter"}',
-        stderr: "",
+        stderr: '',
         exitCode: 0,
-      });
-    };
+      })
+    }
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       {
         agenticSpawn: spawn,
-        secretExec: fakeExec("or-secret-value"),
+        secretExec: fakeExec('or-secret-value'),
         write: () => undefined,
       },
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "@/claude/sonnet-5",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
+        model: '@/claude/sonnet-5',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp/scratch',
       }),
-    );
-    expect(res.status).toBe(200);
-    expect(spawnCalls).toHaveLength(1);
-    const { env } = spawnCalls[0] ?? { env: {} as Record<string, string> };
+    )
+    expect(res.status).toBe(200)
+    expect(spawnCalls).toHaveLength(1)
+    const { env } = spawnCalls[0] ?? { env: {} as Record<string, string> }
 
-    expect(env.ANTHROPIC_BASE_URL).toBe("https://openrouter.ai/api/v1");
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("or-secret-value");
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('or-secret-value')
     // Present and empty, not absent: an unset ANTHROPIC_API_KEY leaves the
     // CLI defaulting to x-api-key, which 401s against a Bearer-only gateway.
-    expect("ANTHROPIC_API_KEY" in env).toBe(true);
-    expect(env.ANTHROPIC_API_KEY).toBe("");
-    clearVerifiedVersion("claude");
-  });
-});
+    expect('ANTHROPIC_API_KEY' in env).toBe(true)
+    expect(env.ANTHROPIC_API_KEY).toBe('')
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the door: remote-agentic redirect, unproved pin never reaches a spawn", () => {
-  test("no agenticProbeRunner configured: the request is refused 503 and the spawn count stays zero", async () => {
-    clearVerifiedVersion("claude");
-    const root = redirectDoorRoot();
+describe('the door: remote-agentic redirect, unproved pin never reaches a spawn', () => {
+  test('no agenticProbeRunner configured: the request is refused 503 and the spawn count stays zero', async () => {
+    clearVerifiedVersion('claude')
+    const root = redirectDoorRoot()
     const cfg = config({
       engines: [claudeEngine()],
       upstreams: [moonshotUpstream()],
-      routes: [route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" })],
-    });
-    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = [];
+      routes: [route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' })],
+    })
+    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
     const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      spawnCalls.push({ argv: spawnArgv, env: opts.env });
+      spawnCalls.push({ argv: spawnArgv, env: opts.env })
       return Promise.resolve({
         stdout: '{"is_error":false,"result":"should never run"}',
-        stderr: "",
+        stderr: '',
         exitCode: 0,
-      });
-    };
+      })
+    }
     // No `agenticProbeRunner` in registryOpts: the pin has never been proved
     // and nothing can prove it, so the gate must refuse rather than serve.
     const door = createDoor(
@@ -1866,37 +1866,37 @@ describe("the door: remote-agentic redirect, unproved pin never reaches a spawn"
       },
       {
         agenticSpawn: spawn,
-        secretExec: fakeExec("kimi-secret-value"),
+        secretExec: fakeExec('kimi-secret-value'),
         write: () => undefined,
       },
-    );
+    )
     const res = await door.fetch(
       chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
+        model: '@/claude/kimi-k3',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp/scratch',
       }),
-    );
+    )
 
-    expect(res.status).toBe(503);
-    expect(spawnCalls).toHaveLength(0);
-    clearVerifiedVersion("claude");
-  });
-});
+    expect(res.status).toBe(503)
+    expect(spawnCalls).toHaveLength(0)
+    clearVerifiedVersion('claude')
+  })
+})
 
 /** `resolveRedirect` for claude's kimi-k3 route onto `upstream`, with the secret lookup faked to `secret`. */
 function redirectKimi(upstream: Upstream, cfg: Config, secret: string | undefined) {
   return resolveRedirect({
     upstream,
-    engineId: "claude",
-    modelSeg: "kimi-k3",
+    engineId: 'claude',
+    modelSeg: 'kimi-k3',
     config: cfg,
     doorUrl: TEST_DOOR_URL,
     secretExec: fakeExec(secret),
-  });
+  })
 }
 
-describe("the door: remote-agentic redirect, missing secret", () => {
+describe('the door: remote-agentic redirect, missing secret', () => {
   test("a missing secret's HopResult carries the secret-tool store command", async () => {
     // Direct: runChain's own exhaustion wrapper replaces a lone hop's body
     // with a generic "every engine in this chain failed" once it classifies
@@ -1904,125 +1904,125 @@ describe("the door: remote-agentic redirect, missing secret", () => {
     // only observable on the HopResult resolveRedirect itself produces,
     // before runChain ever sees it. resolveRedirect takes the upstream
     // directly -- an engine has no address of its own to substitute onto.
-    const redirect = await redirectKimi(moonshotUpstream(), config(), undefined);
-    expect(redirect.ok).toBe(false);
+    const redirect = await redirectKimi(moonshotUpstream(), config(), undefined)
+    expect(redirect.ok).toBe(false)
     if (redirect.ok) {
-      throw new Error("expected resolveRedirect to fail for a missing secret");
+      throw new Error('expected resolveRedirect to fail for a missing secret')
     }
-    expect(redirect.result.status).toBe(503);
-    const failBody = redirect.result.body as { error: string };
-    expect(failBody.error).toContain("secret-tool store");
-    expect(failBody.error).toContain("moonshot-api");
-  });
+    expect(redirect.result.status).toBe(503)
+    const failBody = redirect.result.body as { error: string }
+    expect(failBody.error).toContain('secret-tool store')
+    expect(failBody.error).toContain('moonshot-api')
+  })
 
-  test("an upstream with a secret but no base_url refuses instead of redirecting nowhere", async () => {
+  test('an upstream with a secret but no base_url refuses instead of redirecting nowhere', async () => {
     // Config requires a base_url alongside a secret but not the converse, so
     // this shape is legal and must not reach the child as an undefined
     // upstream.
-    const addressless: Upstream = { ...moonshotUpstream(), base_url: undefined };
-    const redirect = await redirectKimi(addressless, config(), "k");
-    expect(redirect.ok).toBe(false);
+    const addressless: Upstream = { ...moonshotUpstream(), base_url: undefined }
+    const redirect = await redirectKimi(addressless, config(), 'k')
+    expect(redirect.ok).toBe(false)
     if (redirect.ok) {
-      throw new Error("expected resolveRedirect to fail without a base_url");
+      throw new Error('expected resolveRedirect to fail without a base_url')
     }
-    expect(redirect.result.status).toBe(502);
-    expect((redirect.result.body as { error: string }).error).toContain("no configured base_url");
-  });
+    expect(redirect.result.status).toBe(502)
+    expect((redirect.result.body as { error: string }).error).toContain('no configured base_url')
+  })
 
   test("a route's wire_model reaches ANTHROPIC_MODEL, not the address segment", async () => {
     const cfg = config({
       routes: [
         route({
-          engine: "claude",
-          model: "kimi-k3",
-          wire_model: "moonshot/kimi-k3-0905",
-          upstream: "moonshot",
+          engine: 'claude',
+          model: 'kimi-k3',
+          wire_model: 'moonshot/kimi-k3-0905',
+          upstream: 'moonshot',
         }),
       ],
-    });
-    const redirect = await redirectKimi(moonshotUpstream(), cfg, "k");
-    expect(redirect.ok).toBe(true);
+    })
+    const redirect = await redirectKimi(moonshotUpstream(), cfg, 'k')
+    expect(redirect.ok).toBe(true)
     if (!redirect.ok) {
-      throw new Error("expected resolveRedirect to succeed");
+      throw new Error('expected resolveRedirect to succeed')
     }
-    expect(redirect.env.ANTHROPIC_MODEL).toBe("moonshot/kimi-k3-0905");
-  });
-});
+    expect(redirect.env.ANTHROPIC_MODEL).toBe('moonshot/kimi-k3-0905')
+  })
+})
 
-describe("the door: remote-agentic redirect, missing secret does not take down other engines", () => {
-  test("the local engine still serves, and the kimi attempt is reported as a clean 503", async () => {
-    const root = redirectDoorRoot();
-    writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+describe('the door: remote-agentic redirect, missing secret does not take down other engines', () => {
+  test('the local engine still serves, and the kimi attempt is reported as a clean 503', async () => {
+    const root = redirectDoorRoot()
+    writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
     const cfg = config({
       engines: [
         claudeEngine(),
-        engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+        engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 }),
       ],
       upstreams: [moonshotUpstream()],
       routes: [
-        route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
-        route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+        route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' }),
+        route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' }),
       ],
-    });
-    const recorded: { body: string }[] = [];
+    })
+    const recorded: { body: string }[] = []
     const door = createLlamaDoor(cfg, root, {
       secretExec: fakeExec(undefined),
       llamaHttpClient: makeLlamaHttpClient(recorded),
       write: () => undefined,
-    });
+    })
 
     const kimiRes = await door.fetch(
       chatRequest({
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "hi" }],
-        workdir: "/tmp/scratch",
+        model: '@/claude/kimi-k3',
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: '/tmp/scratch',
       }),
-    );
-    expect(kimiRes.status).toBe(503);
+    )
+    expect(kimiRes.status).toBe(503)
 
     const llamaRes = await door.fetch(
-      chatRequest({ model: "@/local-llama/ornith", messages: [{ role: "user", content: "hi" }] }),
-    );
-    expect(llamaRes.status).toBe(200);
-  });
-});
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    expect(llamaRes.status).toBe(200)
+  })
+})
 
 /** `${doorUrl}/chat/completions`, the request a launched child's own OpenAI-compatible traffic would make. */
 function scopedChatRequest(doorUrl: string, body: unknown): Request {
   return new Request(`${doorUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  })
 }
 
 /** The URL `redirectEnv` hands a child: the door on loopback, scoped by a 32-hex launch nonce. */
-const RX_LAUNCH_SCOPED_DOOR_URL = /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/;
+const RX_LAUNCH_SCOPED_DOOR_URL = /^http:\/\/127\.0\.0\.1:\d+\/openai\/v1\/[0-9a-f]{32}$/
 
 /** What a faked opencode spawn prints when it answers. */
 const OPENCODE_ANSWER: ExecResult = {
   stdout: '{"type":"text","part":{"text":"hi"}}\n{"type":"step_finish"}',
-  stderr: "",
+  stderr: '',
   exitCode: 0,
-};
+}
 
 /** An engines root carrying opencode's spec, and a config with its one local route. */
 function opencodeDoorConfig(): { cfg: Config; root: string } {
-  const root = redirectDoorRoot();
-  writeEngineSpec(root, "opencode", OPENCODE_SPEC);
+  const root = redirectDoorRoot()
+  writeEngineSpec(root, 'opencode', OPENCODE_SPEC)
   const cfg = config({
-    engines: [engine({ id: "opencode", agent_version: "1.0.0" })],
-    routes: [route({ engine: "opencode", model: "code", upstream: "local" })],
-  });
-  return { cfg, root };
+    engines: [engine({ id: 'opencode', agent_version: '1.0.0' })],
+    routes: [route({ engine: 'opencode', model: 'code', upstream: 'local' })],
+  })
+  return { cfg, root }
 }
 
 /** The door URL `renderOpencodeConfig` wrote into the rendered file at `path`. */
 function renderedOpencodeBaseUrl(path: string): string {
-  const rendered = JSON.parse(readFileSync(path, "utf8")) as {
-    provider: { engined: { options: { baseURL: string } } };
-  };
-  return rendered.provider.engined.options.baseURL;
+  const rendered = JSON.parse(readFileSync(path, 'utf8')) as {
+    provider: { engined: { options: { baseURL: string } } }
+  }
+  return rendered.provider.engined.options.baseURL
 }
 
 /**
@@ -2037,23 +2037,23 @@ async function withOpencodeLaunchEnv(body: () => Promise<void>): Promise<void> {
   const previous = {
     XDG_STATE_HOME: process.env.XDG_STATE_HOME,
     ENGINED_BWRAP: process.env.ENGINED_BWRAP,
-  };
-  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, "engined-state-"));
-  process.env.ENGINED_BWRAP = "/bin/true";
+  }
+  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, 'engined-state-'))
+  process.env.ENGINED_BWRAP = '/bin/true'
   try {
-    await body();
+    await body()
   } finally {
     for (const [name, value] of Object.entries(previous)) {
       if (value === undefined) {
-        delete process.env[name];
+        delete process.env[name]
       } else {
-        process.env[name] = value;
+        process.env[name] = value
       }
     }
   }
 }
 
-describe("the launch-scoped door", () => {
+describe('the launch-scoped door', () => {
   /**
    * claude routed at moonshot: `redirectEnv`'s own path, and the one that
    * needs no `bwrap` (claude's floor is argv, not the sandbox) -- so this
@@ -2061,99 +2061,99 @@ describe("the launch-scoped door", () => {
    * with nothing faked but the spawn.
    */
   test("redirectEnv's own output carries the launch-scoped door URL, and a child POSTing back to it naming an agentic engine is refused", async () => {
-    const cfg = kimiRoutedConfig(route({ engine: "claude", model: "sonnet-5", upstream: null }));
-    let capturedEnv: Record<string, string> = {};
+    const cfg = kimiRoutedConfig(route({ engine: 'claude', model: 'sonnet-5', upstream: null }))
+    let capturedEnv: Record<string, string> = {}
     // The nonce lives only until runAgentic returns, so the recursive call
     // naming another agentic engine has to be made FROM INSIDE the fake
     // spawn, while the launch it belongs to is still in flight -- exactly
     // where a real child's own traffic would originate.
-    let recursive: { status: number; body: string } | undefined;
+    let recursive: { status: number; body: string } | undefined
     const spawn: AgenticSpawn = async (_argv, opts) => {
-      capturedEnv = opts.env;
-      const doorUrl = opts.env.ENGINED_DOOR_URL ?? "";
+      capturedEnv = opts.env
+      const doorUrl = opts.env.ENGINED_DOOR_URL ?? ''
       // The refusal is keyed on the RESOLVED engine, not the literal
       // string -- a one-segment address that resolves to claude is the
       // same attack as naming "claude" outright.
       const res = await door.fetch(
         scopedChatRequest(doorUrl, {
-          model: "@/claude/sonnet-5",
-          messages: [{ role: "user", content: "escape" }],
+          model: '@/claude/sonnet-5',
+          messages: [{ role: 'user', content: 'escape' }],
         }),
-      );
-      recursive = { status: res.status, body: await res.text() };
-      return KIMI_ANSWER;
-    };
-    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn, "kimi-secret-value");
-    clearVerifiedVersion("claude");
-    const res = await door.fetch(kimiChatRequest());
-    expect(res.status).toBe(200);
+      )
+      recursive = { status: res.status, body: await res.text() }
+      return KIMI_ANSWER
+    }
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn, 'kimi-secret-value')
+    clearVerifiedVersion('claude')
+    const res = await door.fetch(kimiChatRequest())
+    expect(res.status).toBe(200)
 
     // redirectEnv's own output: the launch-scoped URL, not the plain door.
-    expect(capturedEnv.ENGINED_DOOR_URL).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
+    expect(capturedEnv.ENGINED_DOOR_URL).toMatch(RX_LAUNCH_SCOPED_DOOR_URL)
     // The redirect itself is untouched by the door URL's addition.
-    expect(capturedEnv.ANTHROPIC_BASE_URL).toBe("https://api.kimi.com/coding/");
+    expect(capturedEnv.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
 
-    expect(recursive?.status).toBe(403);
-    expect(recursive?.body).toContain("agentic");
-    clearVerifiedVersion("claude");
-  });
+    expect(recursive?.status).toBe(403)
+    expect(recursive?.body).toContain('agentic')
+    clearVerifiedVersion('claude')
+  })
 
-  test("the same address, off the launch-scoped prefix, is an ordinary request -- refused only on the scoped URL", async () => {
+  test('the same address, off the launch-scoped prefix, is an ordinary request -- refused only on the scoped URL', async () => {
     const cfg = config({
       engines: [claudeEngine()],
-      routes: [route({ engine: "claude", model: "sonnet-5", upstream: null })],
-    });
+      routes: [route({ engine: 'claude', model: 'sonnet-5', upstream: null })],
+    })
     const spawn: AgenticSpawn = () =>
-      Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' });
-    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn);
-    clearVerifiedVersion("claude");
-    const res = await door.fetch(scratchChatRequest("@/claude/sonnet-5"));
-    expect(res.status).toBe(200);
-    clearVerifiedVersion("claude");
-  });
-});
+      Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' })
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn)
+    clearVerifiedVersion('claude')
+    const res = await door.fetch(scratchChatRequest('@/claude/sonnet-5'))
+    expect(res.status).toBe(200)
+    clearVerifiedVersion('claude')
+  })
+})
 
 /** claude routed to moonshot beside a local llama, so a launched child has a non-agentic engine to call back to. */
 function kimiBesideLlamaConfig(root: string): Config {
-  writeEngineSpec(root, "local-llama", LOCAL_LLAMA_SPEC);
+  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
   return config({
     engines: [
       claudeEngine(),
-      engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
+      engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 }),
     ],
     upstreams: [moonshotUpstream()],
     routes: [
-      route({ engine: "claude", upstream: "moonshot", model: "kimi-k3" }),
-      route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+      route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' }),
+      route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' }),
     ],
-  });
+  })
 }
 
-describe("the launch-scoped door: what a child may call back to", () => {
+describe('the launch-scoped door: what a child may call back to', () => {
   test("a non-agentic engine's request is served on the launch-scoped URL, and still recorded", async () => {
-    const root = redirectDoorRoot();
-    const cfg = kimiBesideLlamaConfig(root);
-    const recorded: { body: string }[] = [];
-    const { lines, write } = collectLines();
+    const root = redirectDoorRoot()
+    const cfg = kimiBesideLlamaConfig(root)
+    const recorded: { body: string }[] = []
+    const { lines, write } = collectLines()
     // The nonce lives only until `runAgentic` returns, so the recursive,
     // non-agentic request has to be made FROM INSIDE the fake spawn, while
     // the launch it belongs to is still in flight.
-    let innerStatus: number | undefined;
+    let innerStatus: number | undefined
     const spawn: AgenticSpawn = async (_argv, opts) => {
-      const doorUrl = opts.env.ENGINED_DOOR_URL ?? "";
+      const doorUrl = opts.env.ENGINED_DOOR_URL ?? ''
       const inner = await door.fetch(
         scopedChatRequest(doorUrl, {
-          model: "@/local-llama/ornith",
-          messages: [{ role: "user", content: "from the sandbox" }],
+          model: '@/local-llama/ornith',
+          messages: [{ role: 'user', content: 'from the sandbox' }],
         }),
-      );
-      innerStatus = inner.status;
+      )
+      innerStatus = inner.status
       // The response body is a stream even for a buffered JSON reply
       // (readHopBody), and its provenance line is not emitted until the
       // stream is actually drained -- consume it or the line never lands.
-      await inner.text();
-      return KIMI_ANSWER;
-    };
+      await inner.text()
+      return KIMI_ANSWER
+    }
     const door = createDoor(
       cfg,
       {
@@ -2165,109 +2165,109 @@ describe("the launch-scoped door: what a child may call back to", () => {
       },
       {
         agenticSpawn: spawn,
-        secretExec: fakeExec("kimi-secret-value"),
+        secretExec: fakeExec('kimi-secret-value'),
         llamaHttpClient: makeLlamaHttpClient(recorded),
         llamaPresetHostPath: tempPresetPath(TEST_ROOT),
         write,
       },
-    );
-    clearVerifiedVersion("claude");
-    const outer = await door.fetch(kimiChatRequest());
-    expect(outer.status).toBe(200);
+    )
+    clearVerifiedVersion('claude')
+    const outer = await door.fetch(kimiChatRequest())
+    expect(outer.status).toBe(200)
     // The inner, non-agentic request succeeded (200) from inside the launch.
-    expect(innerStatus).toBe(200);
+    expect(innerStatus).toBe(200)
     // Still recorded: the launch-scoped local-llama call left its own
     // provenance line, egress-checked and accounted for like any other.
-    expect(lines.some((l) => JSON.parse(l).attempts?.[0]?.engine === "local-llama")).toBe(true);
-    clearVerifiedVersion("claude");
-  });
-});
+    expect(lines.some((l) => JSON.parse(l).attempts?.[0]?.engine === 'local-llama')).toBe(true)
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the launch-scoped door: a nonce outlives nothing", () => {
-  test("a request on a retired nonce is refused, regardless of which engine it names", async () => {
-    let capturedDoorUrl = "";
+describe('the launch-scoped door: a nonce outlives nothing', () => {
+  test('a request on a retired nonce is refused, regardless of which engine it names', async () => {
+    let capturedDoorUrl = ''
     const spawn: AgenticSpawn = (_argv, opts) => {
-      capturedDoorUrl = opts.env.ENGINED_DOOR_URL ?? "";
-      return Promise.resolve(KIMI_ANSWER);
-    };
+      capturedDoorUrl = opts.env.ENGINED_DOOR_URL ?? ''
+      return Promise.resolve(KIMI_ANSWER)
+    }
     const door = createClaudeDoor(
       kimiRoutedConfig(),
       redirectDoorRoot(),
       spawn,
-      "kimi-secret-value",
-    );
-    clearVerifiedVersion("claude");
-    const res = await door.fetch(kimiChatRequest());
-    expect(res.status).toBe(200);
+      'kimi-secret-value',
+    )
+    clearVerifiedVersion('claude')
+    const res = await door.fetch(kimiChatRequest())
+    expect(res.status).toBe(200)
 
     // The launch this nonce belonged to has already finished by the time
     // door.fetch() above resolved -- so it is retired here, before this
     // second, unrelated request ever names an engine at all.
     const stale = await door.fetch(
       scopedChatRequest(capturedDoorUrl, {
-        model: "@/claude/kimi-k3",
-        messages: [{ role: "user", content: "too late" }],
-        workdir: "/tmp/scratch",
+        model: '@/claude/kimi-k3',
+        messages: [{ role: 'user', content: 'too late' }],
+        workdir: '/tmp/scratch',
       }),
-    );
-    expect(stale.status).toBe(403);
-    expect(JSON.stringify(await stale.json())).toContain("expired");
-    clearVerifiedVersion("claude");
-  });
-});
+    )
+    expect(stale.status).toBe(403)
+    expect(JSON.stringify(await stale.json())).toContain('expired')
+    clearVerifiedVersion('claude')
+  })
+})
 
-describe("the launch-scoped door: the round-trip probe is a launch too", () => {
+describe('the launch-scoped door: the round-trip probe is a launch too', () => {
   /**
    * The probe spawns a real agent against a real door URL, so it is bounded
    * the way a caller's launch is: the URL it dials carries a nonce, an
    * address over it that resolves to an agentic-cli engine is refused, and
    * the nonce dies when the probe returns rather than standing open.
    */
-  test("its dial-back URL is nonce-scoped, refuses an agentic hop, and expires with the probe", async () => {
-    const { cfg, root } = opencodeDoorConfig();
-    let doorUrl = "";
-    let recursive: { status: number; body: string } | undefined;
+  test('its dial-back URL is nonce-scoped, refuses an agentic hop, and expires with the probe', async () => {
+    const { cfg, root } = opencodeDoorConfig()
+    let doorUrl = ''
+    let recursive: { status: number; body: string } | undefined
     const runner: AgenticProbeRunner = async (_version, _agent, roundTrip) => {
-      doorUrl = roundTrip?.baseUrl ?? "";
+      doorUrl = roundTrip?.baseUrl ?? ''
       const res = await door.fetch(
         scopedChatRequest(doorUrl, {
-          model: "@/opencode/code",
-          messages: [{ role: "user", content: "escape" }],
-          workdir: "/tmp/scratch",
+          model: '@/opencode/code',
+          messages: [{ role: 'user', content: 'escape' }],
+          workdir: '/tmp/scratch',
         }),
-      );
-      recursive = { status: res.status, body: await res.text() };
+      )
+      recursive = { status: res.status, body: await res.text() }
       // Failing the pin stops the launch this probe was called for, so the
       // recursive call above is the only agent traffic the test produces.
-      return { ok: false, failedProbe: "answers-a-real-prompt" };
-    };
+      return { ok: false, failedProbe: 'answers-a-real-prompt' }
+    }
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: runner },
       { write: () => undefined },
-    );
-    clearVerifiedVersion("opencode");
-    const res = await door.fetch(scratchChatRequest("@/opencode/code"));
-    expect(res.status).toBe(503);
+    )
+    clearVerifiedVersion('opencode')
+    const res = await door.fetch(scratchChatRequest('@/opencode/code'))
+    expect(res.status).toBe(503)
 
-    expect(doorUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
-    expect(recursive?.status).toBe(403);
-    expect(recursive?.body).toContain("agentic");
+    expect(doorUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL)
+    expect(recursive?.status).toBe(403)
+    expect(recursive?.body).toContain('agentic')
 
     // Released when the probe returned: the same URL is unknown now, not a
     // standing key a leaked probe environment could keep using.
     const stale = await door.fetch(
       scopedChatRequest(doorUrl, {
-        model: "@/opencode/code",
-        messages: [{ role: "user", content: "too late" }],
-        workdir: "/tmp/scratch",
+        model: '@/opencode/code',
+        messages: [{ role: 'user', content: 'too late' }],
+        workdir: '/tmp/scratch',
       }),
-    );
-    expect(stale.status).toBe(403);
-    expect(JSON.stringify(await stale.json())).toContain("expired");
-    clearVerifiedVersion("opencode");
-  });
-});
+    )
+    expect(stale.status).toBe(403)
+    expect(JSON.stringify(await stale.json())).toContain('expired')
+    clearVerifiedVersion('opencode')
+  })
+})
 
 describe("an agentic launch's args", () => {
   /**
@@ -2280,41 +2280,41 @@ describe("an agentic launch's args", () => {
     const cfg = config({
       engines: [
         engine({
-          id: "claude",
-          agent_version: "1.2.3",
-          args: { model: "engine-pin", verbose: true },
+          id: 'claude',
+          agent_version: '1.2.3',
+          args: { model: 'engine-pin', verbose: true },
         }),
       ],
       routes: [
         route({
-          engine: "claude",
-          model: "sonnet-5",
+          engine: 'claude',
+          model: 'sonnet-5',
           upstream: null,
-          args: { model: "route-pin" },
+          args: { model: 'route-pin' },
         }),
       ],
-    });
-    let argv: string[] = [];
+    })
+    let argv: string[] = []
     const spawn: AgenticSpawn = (spawnArgv) => {
-      argv = spawnArgv;
-      return Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' });
-    };
-    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn);
-    clearVerifiedVersion("claude");
-    const res = await door.fetch(scratchChatRequest("@/claude/sonnet-5"));
-    expect(res.status).toBe(200);
+      argv = spawnArgv
+      return Promise.resolve({ ...KIMI_ANSWER, stdout: '{"is_error":false,"result":"answered"}' })
+    }
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn)
+    clearVerifiedVersion('claude')
+    const res = await door.fetch(scratchChatRequest('@/claude/sonnet-5'))
+    expect(res.status).toBe(200)
 
     // The engine key the route did not name still applies.
-    expect(argv).toContain("--verbose");
+    expect(argv).toContain('--verbose')
     // One `--model`, carrying the route's value: a merge, not two copies
     // left to last-wins argument parsing.
-    expect(argv.filter((a) => a === "--model")).toHaveLength(1);
-    expect(argv[argv.indexOf("--model") + 1]).toBe("route-pin");
+    expect(argv.filter((a) => a === '--model')).toHaveLength(1)
+    expect(argv[argv.indexOf('--model') + 1]).toBe('route-pin')
     // Neither table can get ahead of the read-only floor.
-    expect(argv.indexOf("--safe-mode")).toBeLessThan(argv.indexOf("--model"));
-    clearVerifiedVersion("claude");
-  });
-});
+    expect(argv.indexOf('--safe-mode')).toBeLessThan(argv.indexOf('--model'))
+    clearVerifiedVersion('claude')
+  })
+})
 
 describe("the launch-scoped door: opencode's rendered config", () => {
   /**
@@ -2327,25 +2327,25 @@ describe("the launch-scoped door: opencode's rendered config", () => {
    */
   test("renderOpencodeConfig's own rendered file carries the launch-scoped door URL, and is gone once the call ends", () =>
     withOpencodeLaunchEnv(async () => {
-      const { cfg, root } = opencodeDoorConfig();
-      let renderedPath = "";
-      let capturedBaseUrl = "";
+      const { cfg, root } = opencodeDoorConfig()
+      let renderedPath = ''
+      let capturedBaseUrl = ''
       const spawn: AgenticSpawn = (_argv, opts) => {
-        renderedPath = opts.env.OPENCODE_CONFIG ?? "";
-        capturedBaseUrl = renderedOpencodeBaseUrl(renderedPath);
-        return Promise.resolve(OPENCODE_ANSWER);
-      };
-      const door = createClaudeDoor(cfg, root, spawn);
-      clearVerifiedVersion("opencode");
-      const res = await door.fetch(scratchChatRequest("@/opencode/code"));
-      expect(res.status).toBe(200);
-      expect(capturedBaseUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL);
+        renderedPath = opts.env.OPENCODE_CONFIG ?? ''
+        capturedBaseUrl = renderedOpencodeBaseUrl(renderedPath)
+        return Promise.resolve(OPENCODE_ANSWER)
+      }
+      const door = createClaudeDoor(cfg, root, spawn)
+      clearVerifiedVersion('opencode')
+      const res = await door.fetch(scratchChatRequest('@/opencode/code'))
+      expect(res.status).toBe(200)
+      expect(capturedBaseUrl).toMatch(RX_LAUNCH_SCOPED_DOOR_URL)
       // `runAgentic`'s `finally` already ran by the time `door.fetch` above
       // resolved: neither the file nor its `mkdtemp` directory survive it.
-      expect(existsSync(renderedPath)).toBe(false);
-      expect(existsSync(dirname(renderedPath))).toBe(false);
-      clearVerifiedVersion("opencode");
-    }));
+      expect(existsSync(renderedPath)).toBe(false)
+      expect(existsSync(dirname(renderedPath))).toBe(false)
+      clearVerifiedVersion('opencode')
+    }))
 
   /**
    * Two opencode calls in flight together sharing one fixed `stateDir()`
@@ -2357,70 +2357,70 @@ describe("the launch-scoped door: opencode's rendered config", () => {
    */
   test("two concurrent opencode launches never read each other's rendered config", () =>
     withOpencodeLaunchEnv(async () => {
-      const { cfg, root } = opencodeDoorConfig();
-      const paths: string[] = [];
-      const baseUrls: string[] = [];
+      const { cfg, root } = opencodeDoorConfig()
+      const paths: string[] = []
+      const baseUrls: string[] = []
       const spawn: AgenticSpawn = async (_argv, opts) => {
-        const path = opts.env.OPENCODE_CONFIG ?? "";
-        paths.push(path);
+        const path = opts.env.OPENCODE_CONFIG ?? ''
+        paths.push(path)
         // Overlaps the other launch's own write-then-read window rather
         // than racing to read immediately, which would pass by luck alone.
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        baseUrls.push(renderedOpencodeBaseUrl(path));
-        return OPENCODE_ANSWER;
-      };
-      const door = createClaudeDoor(cfg, root, spawn);
-      clearVerifiedVersion("opencode");
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        baseUrls.push(renderedOpencodeBaseUrl(path))
+        return OPENCODE_ANSWER
+      }
+      const door = createClaudeDoor(cfg, root, spawn)
+      clearVerifiedVersion('opencode')
       const results = await Promise.all(
-        [1, 2].map((n) => door.fetch(scratchChatRequest("@/opencode/code", `hi ${n}`))),
-      );
-      expect(results.map((res) => res.status)).toEqual([200, 200]);
+        [1, 2].map((n) => door.fetch(scratchChatRequest('@/opencode/code', `hi ${n}`))),
+      )
+      expect(results.map((res) => res.status)).toEqual([200, 200])
       // Each launch minted its own nonce, so a fixed shared file would have
       // shown the same door URL read back for both -- whichever write lost
       // the race. Two distinct paths and two distinct URLs is the proof
       // neither launch ever read the other's file.
-      expect(paths[0]).not.toBe(paths[1]);
-      expect(baseUrls[0]).not.toBe(baseUrls[1]);
-      expect(existsSync(paths[0] as string)).toBe(false);
-      expect(existsSync(paths[1] as string)).toBe(false);
-      clearVerifiedVersion("opencode");
-    }));
-});
+      expect(paths[0]).not.toBe(paths[1])
+      expect(baseUrls[0]).not.toBe(baseUrls[1])
+      expect(existsSync(paths[0] as string)).toBe(false)
+      expect(existsSync(paths[1] as string)).toBe(false)
+      clearVerifiedVersion('opencode')
+    }))
+})
 
 describe("GET /openai/v1/models: an agentic engine's per-route state factors in that route's own upstream secret", () => {
-  test("the ambient route reports installed; the route keyed to an upstream with no configured secret reports unavailable", async () => {
-    clearVerifiedVersion("claude");
-    const root = redirectDoorRoot();
+  test('the ambient route reports installed; the route keyed to an upstream with no configured secret reports unavailable', async () => {
+    clearVerifiedVersion('claude')
+    const root = redirectDoorRoot()
     const cfg = config({
       engines: [claudeEngine()],
       upstreams: [moonshotUpstream()],
       routes: [
-        route({ engine: "claude", model: "sonnet-5", upstream: null }),
-        route({ engine: "claude", model: "k3", upstream: "moonshot" }),
+        route({ engine: 'claude', model: 'sonnet-5', upstream: null }),
+        route({ engine: 'claude', model: 'k3', upstream: 'moonshot' }),
       ],
-    });
+    })
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
       { secretExec: fakeExec(undefined), write: () => undefined },
-    );
-    const res = await door.fetch(new Request("http://engined/openai/v1/models"));
-    const body = (await res.json()) as { data: { id: string; state: string }[] };
-    const ambient = body.data.find((r) => r.id === "@/claude/sonnet-5");
+    )
+    const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+    const body = (await res.json()) as { data: { id: string; state: string }[] }
+    const ambient = body.data.find((r) => r.id === '@/claude/sonnet-5')
     // Different models on the one engine (not sibling routes on the SAME
     // model), so each keeps the plain two-segment id -- modelRowId only
     // reaches for the three-segment form when two routes share a model.
-    const keyed = body.data.find((r) => r.id === "@/claude/k3");
+    const keyed = body.data.find((r) => r.id === '@/claude/k3')
 
     // The one proof this engine's pin carries -- the read-only floor -- is
     // upstream-independent, so both routes start from the same base state.
     // Only the keyed route's OWN secret resolution can pull it down from
     // there; the ambient probe passing does not vouch for it.
-    expect(ambient?.state).toBe("installed");
-    expect(keyed?.state).toBe("unavailable");
-    clearVerifiedVersion("claude");
-  });
-});
+    expect(ambient?.state).toBe('installed')
+    expect(keyed?.state).toBe('unavailable')
+    clearVerifiedVersion('claude')
+  })
+})
 
 /** Mirrors engines/whisper's real shape: a real "-m <path>" pair for `withModelFile` to rewrite. */
 const STT_SPEC = `
@@ -2434,69 +2434,69 @@ command = ["--host", "0.0.0.0", "-m", "/models/default.bin"]
 [ready]
 path = "/health"
 status = 200
-`;
+`
 
 /** Every URL the llama router's own HTTP client was asked to hit, alongside the real load/unload/models control-plane replies -- `urls` is what proves a warm actually reached llama-server rather than merely returning without error. */
 function makeRecordingLlamaClient(): { client: HttpClient; urls: string[] } {
-  const control = llamaControlPlane();
-  const urls: string[] = [];
+  const control = llamaControlPlane()
+  const urls: string[] = []
   const client: HttpClient = (url, init) => {
-    urls.push(url);
-    const controlled = control(url, init);
+    urls.push(url)
+    const controlled = control(url, init)
     if (controlled) {
-      return Promise.resolve(controlled);
+      return Promise.resolve(controlled)
     }
     return Promise.resolve(
-      Response.json({ id: "resp-1", choices: [{ message: { content: "hi" } }] }),
-    );
-  };
-  return { client, urls };
+      Response.json({ id: 'resp-1', choices: [{ message: { content: 'hi' } }] }),
+    )
+  }
+  return { client, urls }
 }
 
 function startRequest(model: string): Request {
-  return new Request("http://engined/engined/v1/start", {
-    method: "POST",
+  return new Request('http://engined/engined/v1/start', {
+    method: 'POST',
     body: JSON.stringify({ model }),
-  });
+  })
 }
 
 const WHISPER_SMALL_ROUTE = route({
-  engine: "whisper-like",
-  upstream: "local",
-  model: "small",
-  filename: "small.bin",
-});
+  engine: 'whisper-like',
+  upstream: 'local',
+  model: 'small',
+  filename: 'small.bin',
+})
 
 /** A fresh engines root carrying whisper's spec, and a config with its `small` route plus `extraRoutes`. */
 function whisperDoorConfig(...extraRoutes: ReturnType<typeof route>[]): {
-  cfg: Config;
-  root: string;
+  cfg: Config
+  root: string
 } {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  writeEngineSpec(root, "whisper-like", STT_SPEC);
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, 'whisper-like', STT_SPEC)
   const cfg = config({
-    engines: [engine({ id: "whisper-like", models_dir: "/data/whisper" })],
+    engines: [engine({ id: 'whisper-like', models_dir: '/data/whisper' })],
     routes: [WHISPER_SMALL_ROUTE, ...extraRoutes],
-  });
-  return { cfg, root };
+  })
+  return { cfg, root }
 }
 
 /** llama and whisper side by side, chained llama-first, so a start on the chain has a second hop it must NOT warm. */
 function llamaThenWhisperChainConfig(): { cfg: Config; root: string } {
-  const { root } = llamaDoorConfig();
-  writeEngineSpec(root, "whisper-like", STT_SPEC);
+  const { root } = llamaDoorConfig()
+  writeEngineSpec(root, 'whisper-like', STT_SPEC)
   const cfg = config({
     engines: [
-      engine({ id: "local-llama", models_dir: "/data/gguf", models_max: 1 }),
-      engine({ id: "whisper-like", models_dir: "/data/whisper" }),
+      engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 }),
+      engine({ id: 'whisper-like', models_dir: '/data/whisper' }),
     ],
     routes: [
-      route({ engine: "local-llama", model: "ornith", filename: "x.gguf", role: "chat" }),
+      route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' }),
       WHISPER_SMALL_ROUTE,
     ],
-    chains: { "chain-x": ["@/local-llama/ornith", "@/whisper-like/small"] },
-  });
-  return { cfg, root };
+    chains: { 'chain-x': ['@/local-llama/ornith', '@/whisper-like/small'] },
+  })
+  return { cfg, root }
 }
 
 /**
@@ -2506,121 +2506,121 @@ function llamaThenWhisperChainConfig(): { cfg: Config; root: string } {
  * can stop polling `/openai/v1/models` to tell a cold start from a warm one.
  */
 async function startedFlagsAcrossTwoCalls(): Promise<{
-  firstState: unknown;
-  firstStarted: unknown;
-  secondState: unknown;
-  secondStarted: unknown;
+  firstState: unknown
+  firstStarted: unknown
+  secondState: unknown
+  secondStarted: unknown
 }> {
-  const { cfg, root } = llamaDoorConfig();
-  const { client } = makeRecordingLlamaClient();
-  const door = createLlamaDoor(cfg, root, { llamaHttpClient: client });
+  const { cfg, root } = llamaDoorConfig()
+  const { client } = makeRecordingLlamaClient()
+  const door = createLlamaDoor(cfg, root, { llamaHttpClient: client })
 
-  const first = await door.fetch(startRequest("@/local-llama/ornith"));
-  const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
-  const second = await door.fetch(startRequest("@/local-llama/ornith"));
-  const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+  const first = await door.fetch(startRequest('@/local-llama/ornith'))
+  const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
+  const second = await door.fetch(startRequest('@/local-llama/ornith'))
+  const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
   return {
     firstState: firstBody.data[0]?.state,
     firstStarted: firstBody.data[0]?.started,
     secondState: secondBody.data[0]?.state,
     secondStarted: secondBody.data[0]?.started,
-  };
+  }
 }
 
-describe("POST /engined/v1/start", () => {
-  test("an engine id is not a place: the old per-engine route is a 404", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const door = createLlamaDoor(cfg, root);
+describe('POST /engined/v1/start', () => {
+  test('an engine id is not a place: the old per-engine route is a 404', async () => {
+    const { cfg, root } = llamaDoorConfig()
+    const door = createLlamaDoor(cfg, root)
     const res = await door.fetch(
-      new Request("http://engined/engined/v1/engines/local-llama/start", { method: "POST" }),
-    );
-    expect(res.status).toBe(404);
-  });
+      new Request('http://engined/engined/v1/engines/local-llama/start', { method: 'POST' }),
+    )
+    expect(res.status).toBe(404)
+  })
 
   test("a chain name warms only its first hop's local engine, with no url in the response", async () => {
-    const { cfg, root } = llamaThenWhisperChainConfig();
-    const { client, urls } = makeRecordingLlamaClient();
-    const runLog: string[][] = [];
+    const { cfg, root } = llamaThenWhisperChainConfig()
+    const { client, urls } = makeRecordingLlamaClient()
+    const runLog: string[][] = []
     const door = createLlamaDoor(
       cfg,
       root,
       { llamaHttpClient: client },
       buildExec({ runLog, portSeed: 52_000 }),
-    );
-    const res = await door.fetch(startRequest("chain-x"));
+    )
+    const res = await door.fetch(startRequest('chain-x'))
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { object: string; data: Record<string, unknown>[] };
-    expect(body.data).toHaveLength(1);
-    const [row] = body.data;
-    expect(row?.engine).toBe("local-llama");
-    expect(row?.state).toBe("running");
-    expect(row).not.toHaveProperty("private_url");
-    expect(row).not.toHaveProperty("url");
-    expect(urls.some((u) => u.endsWith("/models/load"))).toBe(true);
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { object: string; data: Record<string, unknown>[] }
+    expect(body.data).toHaveLength(1)
+    const [row] = body.data
+    expect(row?.engine).toBe('local-llama')
+    expect(row?.state).toBe('running')
+    expect(row).not.toHaveProperty('private_url')
+    expect(row).not.toHaveProperty('url')
+    expect(urls.some((u) => u.endsWith('/models/load'))).toBe(true)
     // The chain's second hop is whisper -- fan-out is the first hop's local
     // route only, so its container must never have been started.
-    expect(runLog.some((argv) => argv.some((a) => a.includes("whisper-like")))).toBe(false);
-  });
+    expect(runLog.some((argv) => argv.some((a) => a.includes('whisper-like')))).toBe(false)
+  })
 
-  test("an address whose upstream is not local is a no-op that reports state, not an error", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  test('an address whose upstream is not local is a no-op that reports state, not an error', async () => {
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
     const cfg = config({
       upstreams: [
-        { id: "openrouter", egress: "remote", base_url: "https://openrouter.example/v1" },
+        { id: 'openrouter', egress: 'remote', base_url: 'https://openrouter.example/v1' },
       ],
-      engines: [engine({ id: "hosted", kind: "openai-http" })],
-      routes: [route({ engine: "hosted", model: "gpt-x", upstream: "openrouter" })],
-    });
-    const door = createLlamaDoor(cfg, root);
-    const res = await door.fetch(startRequest("@/hosted/gpt-x"));
+      engines: [engine({ id: 'hosted', kind: 'openai-http' })],
+      routes: [route({ engine: 'hosted', model: 'gpt-x', upstream: 'openrouter' })],
+    })
+    const door = createLlamaDoor(cfg, root)
+    const res = await door.fetch(startRequest('@/hosted/gpt-x'))
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: Record<string, unknown>[] };
-    const [row] = body.data;
-    expect(row?.upstream).toBe("openrouter");
-    expect(String(row?.fix)).toContain("not local");
-    expect(row).not.toHaveProperty("private_url");
-  });
-});
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: Record<string, unknown>[] }
+    const [row] = body.data
+    expect(row?.upstream).toBe('openrouter')
+    expect(String(row?.fix)).toContain('not local')
+    expect(row).not.toHaveProperty('private_url')
+  })
+})
 
 describe("POST /engined/v1/start: which of an engine's routes", () => {
-  test("a chain hop warms the route it will dispatch to, not the first declared", async () => {
-    const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
+  test('a chain hop warms the route it will dispatch to, not the first declared', async () => {
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
     const cfg = config({
       upstreams: [
-        { id: "openrouter", egress: "remote", base_url: "https://openrouter.example/v1" },
+        { id: 'openrouter', egress: 'remote', base_url: 'https://openrouter.example/v1' },
       ],
-      engines: [engine({ id: "hosted", kind: "openai-http" })],
+      engines: [engine({ id: 'hosted', kind: 'openai-http' })],
       // Declaration order puts the keyed upstream first; the ambient route is
       // the one a dispatch of "@/hosted/gpt-x" runs.
       routes: [
-        route({ engine: "hosted", model: "gpt-x", upstream: "openrouter" }),
-        route({ engine: "hosted", model: "gpt-x", upstream: null }),
+        route({ engine: 'hosted', model: 'gpt-x', upstream: 'openrouter' }),
+        route({ engine: 'hosted', model: 'gpt-x', upstream: null }),
       ],
-      chains: { "chain-x": ["@/hosted/gpt-x"] },
-    });
-    const door = createLlamaDoor(cfg, root);
-    const res = await door.fetch(startRequest("chain-x"));
+      chains: { 'chain-x': ['@/hosted/gpt-x'] },
+    })
+    const door = createLlamaDoor(cfg, root)
+    const res = await door.fetch(startRequest('chain-x'))
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: Record<string, unknown>[] };
-    const [row] = body.data;
-    expect(row?.upstream).toBeNull();
-  });
-});
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: Record<string, unknown>[] }
+    const [row] = body.data
+    expect(row?.upstream).toBeNull()
+  })
+})
 
-describe("POST /engined/v1/start: the started field", () => {
-  test("is true only on the call that launches the engine", async () => {
-    const flags = await startedFlagsAcrossTwoCalls();
-    expect(flags.firstState).toBe("running");
-    expect(flags.firstStarted).toBe(true);
-    expect(flags.secondState).toBe("running");
-    expect(flags.secondStarted).toBe(false);
-  });
-});
+describe('POST /engined/v1/start: the started field', () => {
+  test('is true only on the call that launches the engine', async () => {
+    const flags = await startedFlagsAcrossTwoCalls()
+    expect(flags.firstState).toBe('running')
+    expect(flags.firstStarted).toBe(true)
+    expect(flags.secondState).toBe('running')
+    expect(flags.secondStarted).toBe(false)
+  })
+})
 
-describe("POST /engined/v1/start: concurrent calls on a cold container engine", () => {
+describe('POST /engined/v1/start: concurrent calls on a cold container engine', () => {
   /**
    * Two `POST /start` calls racing on one never-started container engine.
    * Before this fix each read `state === "running"` before its own launch
@@ -2628,9 +2628,9 @@ describe("POST /engined/v1/start: concurrent calls on a cold container engine", 
    * true` even though the lifecycle's start lock (`docker.ts`) let only one
    * of them actually spawn the container.
    */
-  test("exactly one of two concurrent starts reports started: true", async () => {
-    const { cfg, root } = whisperDoorConfig();
-    const runLog: string[][] = [];
+  test('exactly one of two concurrent starts reports started: true', async () => {
+    const { cfg, root } = whisperDoorConfig()
+    const runLog: string[][] = []
     const door = createDoor(cfg, {
       enginesRoot: root,
       bunx: BUNX,
@@ -2638,24 +2638,24 @@ describe("POST /engined/v1/start: concurrent calls on a cold container engine", 
         buildExec({ runLog, portSeed: 52_000, runDelayMs: 40 }),
         READY_200,
       ),
-    });
+    })
 
     const [first, second] = await Promise.all([
-      door.fetch(startRequest("@/whisper-like/small")),
-      door.fetch(startRequest("@/whisper-like/small")),
-    ]);
-    const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
-    const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+      door.fetch(startRequest('@/whisper-like/small')),
+      door.fetch(startRequest('@/whisper-like/small')),
+    ])
+    const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
+    const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
 
-    expect(runLog).toHaveLength(1);
-    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started];
-    expect(started.sort()).toEqual([false, true]);
-    expect(firstBody.data[0]?.state).toBe("running");
-    expect(secondBody.data[0]?.state).toBe("running");
-  });
-});
+    expect(runLog).toHaveLength(1)
+    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
+    expect(started.sort()).toEqual([false, true])
+    expect(firstBody.data[0]?.state).toBe('running')
+    expect(secondBody.data[0]?.state).toBe('running')
+  })
+})
 
-describe("POST /engined/v1/start: concurrent calls on a cold llama model", () => {
+describe('POST /engined/v1/start: concurrent calls on a cold llama model', () => {
   /**
    * Two `POST /start` calls racing on one never-warmed llama role. Before
    * this fix `startRoute` read `state === "running"` off the registry
@@ -2663,128 +2663,128 @@ describe("POST /engined/v1/start: concurrent calls on a cold llama model", () =>
    * reported `started: true` even though only one of them was the caller
    * whose lease actually swapped the resident.
    */
-  test("exactly one of two concurrent starts reports started: true", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const { client, urls } = makeRecordingLlamaClient();
-    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client });
+  test('exactly one of two concurrent starts reports started: true', async () => {
+    const { cfg, root } = llamaDoorConfig()
+    const { client, urls } = makeRecordingLlamaClient()
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: client })
 
     const [first, second] = await Promise.all([
-      door.fetch(startRequest("@/local-llama/ornith")),
-      door.fetch(startRequest("@/local-llama/ornith")),
-    ]);
-    const firstBody = (await first.json()) as { data: Record<string, unknown>[] };
-    const secondBody = (await second.json()) as { data: Record<string, unknown>[] };
+      door.fetch(startRequest('@/local-llama/ornith')),
+      door.fetch(startRequest('@/local-llama/ornith')),
+    ])
+    const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
+    const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
 
-    expect(urls.filter((u) => u.endsWith("/models/load"))).toHaveLength(1);
-    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started];
-    expect(started.sort()).toEqual([false, true]);
-    expect(firstBody.data[0]?.state).toBe("running");
-    expect(secondBody.data[0]?.state).toBe("running");
-  });
-});
+    expect(urls.filter((u) => u.endsWith('/models/load'))).toHaveLength(1)
+    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
+    expect(started.sort()).toEqual([false, true])
+    expect(firstBody.data[0]?.state).toBe('running')
+    expect(secondBody.data[0]?.state).toBe('running')
+  })
+})
 
-describe("POST /engined/v1/start: a roleless model on a container engine", () => {
-  test("a roleless model on a container engine takes the stop-and-restart path, not the llama router", async () => {
-    const { cfg, root } = whisperDoorConfig();
-    const { client, urls } = makeRecordingLlamaClient();
-    const runLog: string[][] = [];
+describe('POST /engined/v1/start: a roleless model on a container engine', () => {
+  test('a roleless model on a container engine takes the stop-and-restart path, not the llama router', async () => {
+    const { cfg, root } = whisperDoorConfig()
+    const { client, urls } = makeRecordingLlamaClient()
+    const runLog: string[][] = []
     const door = createLlamaDoor(
       cfg,
       root,
       { llamaHttpClient: client },
       buildExec({ runLog, portSeed: 52_000 }),
-    );
-    const res = await door.fetch(startRequest("@/whisper-like/small"));
+    )
+    const res = await door.fetch(startRequest('@/whisper-like/small'))
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: Record<string, unknown>[] };
-    expect(body.data[0]?.state).toBe("running");
-    expect(runLog).toHaveLength(1);
-    const argv = runLog[0] as string[];
-    expect(argv[argv.indexOf("-m") + 1]).toBe("/models/small.bin");
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: Record<string, unknown>[] }
+    expect(body.data[0]?.state).toBe('running')
+    expect(runLog).toHaveLength(1)
+    const argv = runLog[0] as string[]
+    expect(argv[argv.indexOf('-m') + 1]).toBe('/models/small.bin')
     // The llama router's own HTTP client is never touched by an stt start.
-    expect(urls).toHaveLength(0);
-  });
+    expect(urls).toHaveLength(0)
+  })
 
-  test("held leases return 409 and do not restart", async () => {
+  test('held leases return 409 and do not restart', async () => {
     const { cfg, root } = whisperDoorConfig(
-      route({ engine: "whisper-like", upstream: "local", model: "big", filename: "big.bin" }),
-    );
-    const runLog: string[][] = [];
-    const stopLog: string[][] = [];
+      route({ engine: 'whisper-like', upstream: 'local', model: 'big', filename: 'big.bin' }),
+    )
+    const runLog: string[][] = []
+    const stopLog: string[][] = []
     const lifecycle = new DockerLifecycle(
       buildExec({ runLog, stopLog, portSeed: 52_000 }),
       READY_200,
-    );
+    )
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, lifecycle },
       { llamaPresetHostPath: tempPresetPath(TEST_ROOT) },
-    );
+    )
 
-    const started = await door.fetch(startRequest("@/whisper-like/small"));
-    expect(started.status).toBe(200);
-    expect(runLog).toHaveLength(1);
-    lifecycle.beginLease("whisper-like");
+    const started = await door.fetch(startRequest('@/whisper-like/small'))
+    expect(started.status).toBe(200)
+    expect(runLog).toHaveLength(1)
+    lifecycle.beginLease('whisper-like')
 
-    const res = await door.fetch(startRequest("@/whisper-like/big"));
-    expect(res.status).toBe(409);
-    expect(runLog).toHaveLength(1);
-    expect(stopLog).toHaveLength(0);
-  });
-});
+    const res = await door.fetch(startRequest('@/whisper-like/big'))
+    expect(res.status).toBe(409)
+    expect(runLog).toHaveLength(1)
+    expect(stopLog).toHaveLength(0)
+  })
+})
 
-describe("no response ever carries a container address", () => {
+describe('no response ever carries a container address', () => {
   // Grepping the raw JSON text, not typed field access: a field the wire
   // TYPE no longer declares would still typecheck clean even if some call
   // site smuggled it back in through a spread -- only the actual bytes on
   // the wire prove it is gone.
-  test("GET /engined/v1/engines, with a running llama and a running comfy, mentions no private_url anywhere", async () => {
-    const { cfg: base, root } = llamaDoorConfigWithComfy();
+  test('GET /engined/v1/engines, with a running llama and a running comfy, mentions no private_url anywhere', async () => {
+    const { cfg: base, root } = llamaDoorConfigWithComfy()
     const cfg: Config = {
       ...base,
-      routes: [...base.routes, route({ engine: "comfy", model: undefined, upstream: "local" })],
-    };
+      routes: [...base.routes, route({ engine: 'comfy', model: undefined, upstream: 'local' })],
+    }
     const door = createLlamaDoor(cfg, root, {
       llamaHttpClient: makeLlamaHttpClient([]),
-    });
-    await door.fetch(startRequest("@/local-llama/ornith"));
-    await door.fetch(startRequest("@/comfy/local"));
+    })
+    await door.fetch(startRequest('@/local-llama/ornith'))
+    await door.fetch(startRequest('@/comfy/local'))
 
-    const res = await door.fetch(new Request("http://engined/engined/v1/engines"));
-    const text = await res.text();
-    expect(res.status).toBe(200);
-    expect(text).not.toContain("private_url");
-  });
+    const res = await door.fetch(new Request('http://engined/engined/v1/engines'))
+    const text = await res.text()
+    expect(res.status).toBe(200)
+    expect(text).not.toContain('private_url')
+  })
 
   test("POST /engined/v1/start's own response never mentions private_url", async () => {
-    const { cfg, root } = llamaDoorConfig();
-    const door = createLlamaDoor(cfg, root, { llamaHttpClient: makeLlamaHttpClient([]) });
-    const res = await door.fetch(startRequest("@/local-llama/ornith"));
-    expect(await res.text()).not.toContain("private_url");
-  });
-});
+    const { cfg, root } = llamaDoorConfig()
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: makeLlamaHttpClient([]) })
+    const res = await door.fetch(startRequest('@/local-llama/ornith'))
+    expect(await res.text()).not.toContain('private_url')
+  })
+})
 
 /** Stands in for `globalThis.fetch`, keeping the JSON body of the last outgoing request; `restore` puts the real one back. */
 function captureOutgoingBody(): {
-  body: () => { model?: string } | undefined;
-  restore: () => void;
+  body: () => { model?: string } | undefined
+  restore: () => void
 } {
-  const originalFetch = globalThis.fetch;
-  let captured: { model?: string } | undefined;
+  const originalFetch = globalThis.fetch
+  let captured: { model?: string } | undefined
   globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
     captured =
-      typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: string }) : undefined;
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as { model?: string }) : undefined
     return Promise.resolve(
-      Response.json({ id: "resp-1", choices: [{ message: { content: "ok" } }] }),
-    );
-  }) as typeof fetch;
+      Response.json({ id: 'resp-1', choices: [{ message: { content: 'ok' } }] }),
+    )
+  }) as typeof fetch
   return {
     body: () => captured,
     restore: () => {
-      globalThis.fetch = originalFetch;
+      globalThis.fetch = originalFetch
     },
-  };
+  }
 }
 
 /** A hosted openai-http engine behind an openrouter upstream, serving `hostedRoute`. */
@@ -2792,15 +2792,15 @@ function openrouterHostedConfig(hostedRoute: ReturnType<typeof route>): Config {
   return config({
     upstreams: [
       {
-        id: "openrouter",
-        egress: "remote",
-        base_url: "https://openrouter.example/api/v1",
-        secret: { service: "s", username: "u", header: "authorization" },
+        id: 'openrouter',
+        egress: 'remote',
+        base_url: 'https://openrouter.example/api/v1',
+        secret: { service: 's', username: 'u', header: 'authorization' },
       },
     ],
-    engines: [engine({ id: "hosted", kind: "openai-http" })],
+    engines: [engine({ id: 'hosted', kind: 'openai-http' })],
     routes: [hostedRoute],
-  });
+  })
 }
 
 /** Posts one chat message for `model` to a door over `cfg`, with upstream `fetch` captured; resolves to the door's status and the model id that went out. */
@@ -2808,46 +2808,46 @@ async function outgoingModelFor(
   cfg: Config,
   model: string,
 ): Promise<{ status: number; sent: string | undefined }> {
-  const root = mkdtempSync(join(TEST_ROOT, "engined-door-"));
-  const outgoing = captureOutgoingBody();
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  const outgoing = captureOutgoingBody()
   try {
-    const door = createLlamaDoor(cfg, root, { secretExec: fakeExec("secret-value") });
+    const door = createLlamaDoor(cfg, root, { secretExec: fakeExec('secret-value') })
     const res = await door.fetch(
-      chatRequest({ model, messages: [{ role: "user", content: "hi" }] }),
-    );
-    return { status: res.status, sent: outgoing.body()?.model };
+      chatRequest({ model, messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    return { status: res.status, sent: outgoing.body()?.model }
   } finally {
-    outgoing.restore();
+    outgoing.restore()
   }
 }
 
-describe("wire_model: the id sent upstream can differ from the address segment", () => {
-  test("the remote openai-http proxy sends wire_model in the outgoing request body, not the address segment", async () => {
+describe('wire_model: the id sent upstream can differ from the address segment', () => {
+  test('the remote openai-http proxy sends wire_model in the outgoing request body, not the address segment', async () => {
     const cfg = openrouterHostedConfig(
       route({
-        engine: "hosted",
-        model: "glm-5.2:free",
-        wire_model: "z-ai/glm-5.2:free",
-        upstream: "openrouter",
+        engine: 'hosted',
+        model: 'glm-5.2:free',
+        wire_model: 'z-ai/glm-5.2:free',
+        upstream: 'openrouter',
       }),
-    );
-    const { status, sent } = await outgoingModelFor(cfg, "@/hosted/glm-5.2:free");
-    expect(status).toBe(200);
+    )
+    const { status, sent } = await outgoingModelFor(cfg, '@/hosted/glm-5.2:free')
+    expect(status).toBe(200)
     // The config's own address segment must never leak onto the wire once
     // a wire_model is configured -- the config-read trap this exists to
     // catch is a test that asserts the route's `model` field and calls it
     // proof of what was actually sent.
-    expect(sent).toBe("z-ai/glm-5.2:free");
-    expect(sent).not.toBe("glm-5.2:free");
-  });
+    expect(sent).toBe('z-ai/glm-5.2:free')
+    expect(sent).not.toBe('glm-5.2:free')
+  })
 
-  test("with no wire_model configured, the remote openai-http proxy still sends the address segment verbatim", async () => {
+  test('with no wire_model configured, the remote openai-http proxy still sends the address segment verbatim', async () => {
     const cfg = openrouterHostedConfig(
-      route({ engine: "hosted", model: "sonnet-5", upstream: "openrouter" }),
-    );
-    expect(await outgoingModelFor(cfg, "@/hosted/sonnet-5")).toEqual({
+      route({ engine: 'hosted', model: 'sonnet-5', upstream: 'openrouter' }),
+    )
+    expect(await outgoingModelFor(cfg, '@/hosted/sonnet-5')).toEqual({
       status: 200,
-      sent: "sonnet-5",
-    });
-  });
-});
+      sent: 'sonnet-5',
+    })
+  })
+})
