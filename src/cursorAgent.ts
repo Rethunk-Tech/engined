@@ -47,8 +47,18 @@ const MESSAGE_STARTED_AT_MS = 25;
  */
 const HEARTBEAT_MS = 5000;
 
-/** Stop a runaway model rather than letting one turn loop forever. */
-const MAX_TOOL_ROUNDS = 40;
+/**
+ * Stop a runaway model without cutting off real work: a multi-file build
+ * legitimately runs dozens of rounds, and a turn that hits this ceiling
+ * silently abandons whatever it had not yet committed.
+ */
+const MAX_TOOL_ROUNDS = 150;
+
+/** Rounds left when the model is told to wrap up, so it can still commit. */
+const WRAP_UP_MARGIN = 8;
+
+/** Consecutive completion failures before the turn gives up. */
+const MAX_COMPLETION_FAILURES = 2;
 
 /**
  * Tool output goes into the history verbatim, so one `cat` of a large file
@@ -284,7 +294,15 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
     },
     { role: "user", content: prompt },
   ];
+  let failures = 0;
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    const left = MAX_TOOL_ROUNDS - round;
+    if (left === WRAP_UP_MARGIN) {
+      history.push({
+        role: "user",
+        content: `You have ${WRAP_UP_MARGIN} tool calls left in this turn. Finish what you are doing, commit your work, and give your final answer now.`,
+      });
+    }
     const beat = setInterval(() => send(envelope(heartbeat())), HEARTBEAT_MS);
     const startedAt = Date.now();
     let thought = false;
@@ -316,6 +334,21 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
           }
         },
       });
+    } catch (err) {
+      // One bad completion -- a timeout, a dropped engine -- should cost a
+      // round, not the turn's uncommitted work.
+      clearInterval(beat);
+      const detail = err instanceof Error ? err.message : String(err);
+      if (failures >= MAX_COMPLETION_FAILURES) {
+        send(envelope(textDelta(`engined: chat route failed repeatedly (${detail})`)));
+        return;
+      }
+      failures += 1;
+      history.push({
+        role: "user",
+        content: `The previous request failed (${detail}). Retry the step, or finish and commit what you already have.`,
+      });
+      continue;
     } finally {
       clearInterval(beat);
     }
@@ -361,6 +394,9 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
       history.push({ role: "tool", tool_call_id: call.id, content: clamp(outcome.text) });
     }
   }
+  // Reaching the ceiling is a real outcome; saying nothing leaves the CLI
+  // showing a turn that simply stopped.
+  send(envelope(textDelta("engined: tool-call budget for this turn is exhausted.")));
 }
 
 export interface CursorAgentServer {
