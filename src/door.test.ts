@@ -641,6 +641,7 @@ function llamaLifecycleResponse(url: string, chatAnswered: boolean): Response | 
     const id = chatAnswered ? 'ornith-real' : 'ornith'
     return Response.json({ data: [{ id, status: { value: 'loaded' } }] })
   }
+  return undefined
 }
 
 function makeStaleReportedHttpClient(): HttpClient {

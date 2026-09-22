@@ -24,7 +24,9 @@
     "erasableSyntaxOnly": true,
     "useDefineForClassFields": true,
     "isolatedModules": true,
-    "moduleDetection": "force"
+    "moduleDetection": "force",
+    "noImplicitOverride": true,
+    "noImplicitReturns": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

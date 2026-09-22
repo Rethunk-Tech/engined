@@ -25,6 +25,7 @@ export function readVerifiedVersion(engineId: string): string | undefined {
   } catch {
     // No file yet, or an unreadable one: this engine has no proved version.
   }
+  return undefined
 }
 
 export function writeVerifiedVersion(engineId: string, version: string): void {

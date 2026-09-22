@@ -42,6 +42,7 @@ export function specImage(engine: EngineEntry): string | undefined {
   } catch {
     // Unresolved placeholder or a spec parse failure: undefined is a clean skip.
   }
+  return undefined
 }
 
 /**

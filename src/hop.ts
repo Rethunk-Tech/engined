@@ -212,6 +212,7 @@ function reportedModelFromFrame(frame: string): string | undefined {
       // Not JSON -- the next frame might still carry it.
     }
   }
+  return undefined
 }
 
 /**
@@ -249,6 +250,7 @@ async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<st
   } finally {
     reader.cancel().catch(() => undefined)
   }
+  return undefined
 }
 
 /**

@@ -180,6 +180,7 @@ function routeGet(
   if (resourcesMatch !== undefined) {
     return handleResources(ctx.registry, resourcesMatch)
   }
+  return undefined
 }
 
 function routePost(
@@ -220,6 +221,7 @@ function routePost(
   if (extras?.[1] !== undefined && extras[2] !== undefined) {
     return handleExtras(ctx, req, extras[1], extras[2])
   }
+  return undefined
 }
 
 /**

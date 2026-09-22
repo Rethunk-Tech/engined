@@ -734,6 +734,7 @@ test('a streaming hop whose provenance read gets a non-JSON body releases its le
     if (call.path === MODELS_LIST_PATH && chatAnswered) {
       return new Response('<html>502 Bad Gateway</html>', { status: 502 })
     }
+    return undefined
   })
   const router = routerWithClient(e, [a], client)
 
@@ -1076,6 +1077,7 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
       served404s++
       return Response.json({ error: { message: 'model is not loaded' } }, { status: 400 })
     }
+    return undefined
   })
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
 
@@ -1134,6 +1136,7 @@ test('a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
     if (call.path === LOAD_PATH) {
       child.gone = false
     }
+    return undefined
   })
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
 
