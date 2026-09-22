@@ -22,7 +22,9 @@
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "erasableSyntaxOnly": true,
-    "useDefineForClassFields": true
+    "useDefineForClassFields": true,
+    "isolatedModules": true,
+    "moduleDetection": "force"
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
