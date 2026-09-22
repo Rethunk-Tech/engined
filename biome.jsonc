@@ -19,7 +19,8 @@
       "!**/vendor",
       "!**/public/pagefind",
       "!**/dist-release",
-      "!.claude"
+      "!.claude",
+      "!**/database.types.ts"
     ]
   },
   "formatter": {
@@ -121,7 +122,8 @@
             "skipBlankLines": true,
             "skipIifes": true
           }
-        }
+        },
+        "noUselessUndefined": "off"
       },
       "nursery": {
         "noFloatingPromises": "error",
