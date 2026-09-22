@@ -34,7 +34,7 @@ import { completeLocally } from './cursorChat.ts'
 import { handleCursor, isCursorPath } from './cursorDoor.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
 import type { DoorContext, DoorOptions } from './doorContext.ts'
-import { EngineRegistry, type RegistryOptions } from './engines.ts'
+import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
 import { jsonError, STATUS_FORBIDDEN, STATUS_NOT_FOUND } from './http.ts'
 import { Inventory } from './inventory.ts'
@@ -42,6 +42,7 @@ import { modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
+import type { RegistryOptions } from './registryOptions.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,

@@ -8,15 +8,12 @@
 
 import type { AgenticSpawn } from './agentic.ts'
 import type { DockerLifecycle } from './docker.ts'
-import {
-  DEFAULT_IDLE_STOP_SECONDS,
-  DEFAULT_READY_TIMEOUT_S,
-  type EngineRegistry,
-  type RegistryOptions,
-} from './engines.ts'
+import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
+import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
+import type { RegistryOptions } from './registryOptions.ts'
 import type { Config, EngineEntry } from './types.ts'
 
 export interface DoorOptions {

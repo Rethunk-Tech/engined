@@ -7,7 +7,8 @@
  * the INI, never through the load call's body.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { ParseError } from './errors/parse.ts'
 import { loadSpec, type SpecLoadOptions } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
@@ -110,4 +111,21 @@ export function buildLlamaSpec(
     { name: presetHostPath, path: PRESET_CONTAINER_PATH, read_only: true },
   ]
   return spec
+}
+
+/**
+ * The bind-mounted INI llama-server reads once at startup, re-rendered on
+ * every start so a config edit to `[[route]]`/`[engine.args]` reaches the
+ * container the next time it actually starts, per the reload rule. Filtered
+ * on `(engine, upstream === "local")`: a route proxied to a peer's llama
+ * has nothing resident on this box to render a section for.
+ */
+export function writeLocalPreset(
+  path: string,
+  engine: EngineEntry,
+  allRoutes: readonly ResolvedRoute[],
+): void {
+  const routes = allRoutes.filter((r) => r.engine === engine.id && r.upstream === 'local')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, renderPresetIni(engine, routes), 'utf8')
 }

@@ -33,6 +33,10 @@ import {
   WILDCARD_MODEL,
 } from './types.ts'
 
+/** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
+export const DEFAULT_IDLE_STOP_SECONDS = 900
+export const DEFAULT_READY_TIMEOUT_S = 60
+
 /**
  * A spec-less engine's built-in spec has no spec directory, so its `serves`
  * list cannot come from a spec file. Mirrors the route table in
@@ -431,4 +435,21 @@ export function engineShape(
     ready: engine.ready_timeout_s,
     routes: routes.filter((r) => r.engine === engine.id),
   })
+}
+
+/**
+ * Reported, not inspected: no docker probe, no version proof. `unavailable`
+ * is the honest state -- nothing here is servable -- and `disabled` is what
+ * separates it from an engine that is unavailable for a reason the operator
+ * would have to go fix. `fix` names the edit that undoes it, the same as
+ * every other unavailable engine.
+ */
+export function disabledStatus(entry: Entry, routes: readonly ResolvedRoute[]): EngineStatus {
+  const { engine, spec } = entry
+  return {
+    ...baseStatus(engine, spec.spec, routes),
+    state: 'unavailable',
+    disabled: true,
+    fix: `set "disable = false" on engine "${engine.id}" in config.toml`,
+  }
 }

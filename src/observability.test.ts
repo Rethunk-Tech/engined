@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ReleaseFetch } from './engines.ts'
+import type { ReleaseFetch } from './comfyQueue.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import { createDoor } from './main.ts'
 import {

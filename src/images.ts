@@ -19,7 +19,7 @@ import { classifyResult } from './chain.ts'
 import { submitComfyPrompt } from './comfyProxy.ts'
 import { resolveModel } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { DEFAULT_IDLE_STOP_SECONDS } from './engines.ts'
+import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import {
   discardBody,
   type HttpClient,

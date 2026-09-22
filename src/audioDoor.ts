@@ -11,7 +11,7 @@ import { handleSpeech } from './audioSpeech.ts'
 import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
 import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { DEFAULT_IDLE_STOP_SECONDS } from './engines.ts'
+import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
