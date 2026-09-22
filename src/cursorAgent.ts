@@ -11,6 +11,7 @@
  */
 
 import http2, { type ServerHttp2Stream } from "node:http2";
+import process from "node:process";
 import { gunzipSync } from "node:zlib";
 import { execOutcome, execRequest, type ToolRequest, toolCallMessage } from "./cursorExec.ts";
 import {
@@ -46,6 +47,14 @@ const MESSAGE_STARTED_AT_MS = 25;
  * output.
  */
 const HEARTBEAT_MS = 5000;
+
+/**
+ * One Connect frame per token delta floods the stream -- a 50k-token answer
+ * is 50k frames -- and HTTP/2 flow control eventually drops the session.
+ * Deltas are coalesced into this window instead, which the CLI renders the
+ * same way at a fraction of the frames.
+ */
+const COALESCE_MS = 60;
 
 /**
  * Stop a runaway model without cutting off real work: a multi-file build
@@ -284,6 +293,36 @@ interface Turn {
   total: TurnUsage;
 }
 
+/**
+ * Collect deltas and emit them on a short timer, so a long answer costs tens
+ * of frames rather than tens of thousands.
+ */
+function coalescer(emit: (text: string) => void): {
+  push: (chunk: string) => void;
+  flush: () => void;
+} {
+  let pending = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (pending.length > 0) {
+      const out = pending;
+      pending = "";
+      emit(out);
+    }
+  };
+  return {
+    push: (chunk: string) => {
+      pending += chunk;
+      timer ??= setTimeout(flush, COALESCE_MS);
+    },
+    flush,
+  };
+}
+
 async function runTurn(turn: Turn, prompt: string): Promise<void> {
   const { deps, send, awaitExec, total } = turn;
   const history: ChatMessage[] = [
@@ -307,6 +346,8 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
     const startedAt = Date.now();
     let thought = false;
     let streamed = false;
+    const textOut = coalescer((chunk) => send(envelope(textDelta(chunk))));
+    const thinkOut = coalescer((chunk) => send(envelope(thinkingDelta(chunk))));
     let reply: ChatReply;
     try {
       reply = await deps.complete(history, {
@@ -315,18 +356,19 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
             return;
           }
           if (thought) {
+            thinkOut.flush();
             send(envelope(thinkingCompleted(Date.now() - startedAt)));
             thought = false;
           }
           streamed = true;
-          send(envelope(textDelta(chunk)));
+          textOut.push(chunk);
         },
         thinking: (chunk) => {
           if (chunk.length === 0) {
             return;
           }
           thought = true;
-          send(envelope(thinkingDelta(chunk)));
+          thinkOut.push(chunk);
         },
         toolArgs: (callId, chunk) => {
           if (chunk.length > 0) {
@@ -351,6 +393,8 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
       continue;
     } finally {
       clearInterval(beat);
+      textOut.flush();
+      thinkOut.flush();
     }
     if (thought) {
       send(envelope(thinkingCompleted(Date.now() - startedAt)));
@@ -454,7 +498,10 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
     };
 
     stream.on("data", framer(onFrame));
-    stream.on("error", () => undefined);
+    // Swallowing this hides the one event that explains a dead turn.
+    stream.on("error", (err: Error) => {
+      process.stderr.write(`cursor stream error: ${err.message}\n`);
+    });
   });
   server.listen(port, "127.0.0.1");
   return { stop: () => server.close(), port };
