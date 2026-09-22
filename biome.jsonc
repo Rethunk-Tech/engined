@@ -25,32 +25,18 @@
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100
+    "lineWidth": 100,
+    "lineEnding": "lf"
   },
   "linter": {
     "enabled": true,
     "rules": {
       "preset": "all",
       "correctness": {
-        "noSolidDestructuredProps": "off",
-        "useQwikValidLexicalScope": "off",
-        // engined is a daemon: node:os, node:path and node:child_process are
-        // the intended surface, not a browser-bundle mistake.
         "noNodejsModules": "off"
       },
-      "suspicious": {
-        "noReactSpecificProps": "off"
-      },
+      "suspicious": {},
       "performance": {
-        "useSolidForComponent": "off",
-        "noJsxPropsBind": "off",
-        // Measured 98% false-positive across the fleet: 131 of 134 sites were
-        // correct sequential code. Here every loop it fires on is sequential
-        // because the runtime demands it — readiness and render polls that
-        // must not fire every attempt at once, single-reader stream and
-        // async-generator drains, a chain whose next hop consumes the
-        // previous one's output, and engine probes that would otherwise load
-        // several models into one GPU concurrently.
         "noAwaitInLoops": "off"
       },
       "style": {
@@ -82,6 +68,10 @@
         "noFloatingPromises": "error",
         "noMisusedPromises": "error"
       }
+    },
+    "domains": {
+      "qwik": "none",
+      "solid": "none"
     }
   },
   "javascript": {
@@ -111,14 +101,25 @@
           // and its fakes are the doubles those cases drive -- neither is a
           // second job the file has taken on.
           "style": {
-            "noExcessiveLinesPerFile": "off",
-            "noExcessiveClassesPerFile": "off"
+            "noExcessiveLinesPerFile": {
+              "level": "on",
+              "options": {
+                "maxLines": 1500
+              }
+            },
+            "noExcessiveClassesPerFile": "off",
+            "noMagicNumbers": "off",
+            "noProcessEnv": "off"
           },
           "suspicious": {
             "noBitwiseOperators": "off",
             "noMisplacedAssertion": "off",
             "noSkippedTests": "off",
             "noConsole": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off",
+            "noExcessiveLinesPerFunction": "off"
           }
         }
       }
