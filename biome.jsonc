@@ -56,7 +56,13 @@
         "useExplicitLengthCheck": "off",
         "useErrorCause": "off",
         "useNamingConvention": "off",
-        "useFilenamingConvention": "off",
+        "useFilenamingConvention": {
+          "level": "on",
+          "options": {
+            "strictCase": false,
+            "filenameCases": ["camelCase", "PascalCase", "kebab-case", "export"]
+          }
+        },
         "noProcessEnv": "off",
         "noExcessiveLinesPerFile": {
           "level": "on",
@@ -164,7 +170,14 @@
           },
           "security": { "noSecrets": "off" },
           "performance": { "useTopLevelRegex": "off" },
-          "suspicious": { "noConsole": "off" }
+          "suspicious": {
+            "noConsole": "off"
+          },
+          "style": {
+            "noDefaultExport": "off",
+            "noMagicNumbers": "off",
+            "noProcessEnv": "off"
+          }
         }
       }
     },
@@ -184,7 +197,13 @@
             "noUnresolvedImports": "off"
           },
           "performance": { "useTopLevelRegex": "off" },
-          "suspicious": { "noConsole": "off" }
+          "suspicious": {
+            "noConsole": "off"
+          },
+          "style": {
+            "noDefaultExport": "off",
+            "noProcessEnv": "off"
+          }
         }
       }
     },
