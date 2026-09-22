@@ -34,15 +34,12 @@
     "rules": {
       "preset": "all",
       "correctness": {
-        "noNodejsModules": "off",
         "noSolidDestructuredProps": "off",
         "useQwikValidLexicalScope": "off",
-        "noUndeclaredDependencies": "off",
         "noUnresolvedImports": "off"
       },
       "suspicious": {
         "noReactSpecificProps": "off",
-        "noUndeclaredEnvVars": "off",
         "noExplicitAny": "error"
       },
       "performance": {
@@ -102,9 +99,6 @@
             "maxLines": 500
           }
         },
-        "noParameterProperties": "off",
-        "noExcessiveClassesPerFile": "off",
-        "useConsistentArrayType": "off",
         "useImportType": "error",
         "noNonNullAssertion": "error"
       },
@@ -141,42 +135,18 @@
     }
   },
   "overrides": [
+    // canon ts-biome-00015 — test files
     {
       "includes": [
-        "**/*.test.ts",
-        "**/*.test.tsx",
         "**/*.spec.ts",
         "**/*.spec.tsx",
-        "**/test/**",
-        "**/__tests__/**"
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/__tests__/**",
+        "**/test/**"
       ],
       "linter": {
         "rules": {
-          "correctness": {
-            "noNodejsModules": "off",
-            "noProcessGlobal": "off",
-            "noUnresolvedImports": "off"
-          },
-          "security": { "noSecrets": "off" },
-          "performance": { "useTopLevelRegex": "off" },
-          // A test file's length is the number of cases it covers for one unit,
-          // not a second job the file has taken on.
-          "style": {
-            "noExcessiveLinesPerFile": {
-              "level": "on",
-              "options": {
-                "maxLines": 1500
-              }
-            },
-            "noMagicNumbers": "off",
-            "noProcessEnv": "off"
-          },
-          "suspicious": {
-            "noBitwiseOperators": "off",
-            "noMisplacedAssertion": "off",
-            "noSkippedTests": "off",
-            "noConsole": "off"
-          },
           "complexity": {
             "noExcessiveCognitiveComplexity": {
               "level": "on",
@@ -192,6 +162,36 @@
                 "skipIifes": true
               }
             }
+          },
+          "correctness": {
+            "noNodejsModules": "off",
+            "noProcessGlobal": "off",
+            "noUnresolvedImports": "off"
+          },
+          "performance": {
+            "noNamespaceImport": "off",
+            "useTopLevelRegex": "off"
+          },
+          "security": {
+            "noSecrets": "off"
+          },
+          "style": {
+            "noExcessiveLinesPerFile": {
+              "level": "on",
+              "options": {
+                "maxLines": 1500
+              }
+            },
+            "noMagicNumbers": "off",
+            "noProcessEnv": "off",
+            "useComponentExportOnlyModules": "off"
+          },
+          "suspicious": {
+            "noBitwiseOperators": "off",
+            "noConsole": "off",
+            "noMisplacedAssertion": "off",
+            "noSkippedTests": "off",
+            "useAwait": "off"
           }
         }
       }
@@ -255,6 +255,11 @@
       "linter": {
         "rules": { "correctness": { "noNodejsModules": "off", "noProcessGlobal": "off" } }
       }
+    },
+    {
+      // A Bun daemon: tsconfig.json states lib ESNext, so none of this reaches a browser.
+      "includes": ["src/**", "test/**"],
+      "linter": { "rules": { "correctness": { "noNodejsModules": "off" } } }
     },
     {
       "includes": ["**/*.d.ts"],
