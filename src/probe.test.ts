@@ -220,7 +220,7 @@ test("the probe unit's ExecStart names the flag main.ts branches on", () => {
   const main = readFileSync(join(here, 'main.ts'), 'utf8')
   const flag = unit.match(RX_EXEC_START_FLAG)?.[1]
   expect(flag).toBe('--probe')
-  expect(main).toContain(`process.argv.includes("${flag}")`)
+  expect(main).toContain(`process.argv.includes('${flag}')`)
 })
 
 const RERANK_ROW = { id: '@/llama/rerank', role: 'rerank', state: 'installed' }
