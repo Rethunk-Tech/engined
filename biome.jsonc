@@ -110,7 +110,7 @@
             "skipIifes": true
           }
         },
-        "noUselessUndefined": "off"
+        "noUselessReturn": "off"
       },
       "security": {
         "noSecrets": { "level": "on", "options": { "entropyThreshold": 55 } }

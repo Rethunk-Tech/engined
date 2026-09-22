@@ -183,7 +183,7 @@ test('a request against a stopped engine starts it on demand through the real do
     if (argv[0] === 'port') {
       return { stdout: `127.0.0.1:${fakePort}`, stderr: '', exitCode: 0 }
     }
-    return undefined
+    return
   })
   const lifecycle = makeLifecycle(exec)
   const spec = loadSpecFor('chatterbox-multi')
@@ -434,7 +434,7 @@ test('a second audio caller is visible as a lease while the first is still in fl
     if (argv[0] === 'port') {
       return { stdout: '127.0.0.1:41000', stderr: '', exitCode: 0 }
     }
-    return undefined
+    return
   })
   const lifecycle = makeLifecycle(exec)
   await lifecycle.start('chatterbox-multi', loadSpecFor('chatterbox-multi'), {
@@ -805,7 +805,7 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
     if (argv[0] === 'port') {
       return { stdout: `127.0.0.1:${hostPort}`, stderr: '', exitCode: 0 }
     }
-    return undefined
+    return
   })
   const lifecycle = makeLifecycle(exec)
   const cfg = config({
@@ -846,7 +846,7 @@ function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; li
       const id = Object.keys(ports).find((engineId) => argv[1]?.includes(engineId))
       return { stdout: `127.0.0.1:${ports[id ?? '']}`, stderr: '', exitCode: 0 }
     }
-    return undefined
+    return
   })
   const lifecycle = makeLifecycle(exec)
   const cfg = config({

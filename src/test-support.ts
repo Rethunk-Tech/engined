@@ -294,7 +294,7 @@ export function llamaControlPlane(): (url: string, init?: RequestInit) => Respon
             : [{ id: lastLoadedModel, status: { value: 'loaded' } }],
       })
     }
-    return undefined
+    return
   }
 }
 

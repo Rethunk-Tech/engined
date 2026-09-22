@@ -698,7 +698,7 @@ test('start: a stale container by this name is removed and recreated from the cu
     if (argv[0] === 'port') {
       return portFound(hostPort)
     }
-    return undefined
+    return
   })
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
@@ -750,7 +750,7 @@ test('start: a container already running under this name is force-removed and re
     if (argv[0] === 'port') {
       return portFound(hostPort)
     }
-    return undefined
+    return
   })
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
@@ -771,7 +771,7 @@ test('start: a genuine docker rm failure is surfaced, not swallowed into a doome
         exitCode: 1,
       }
     }
-    return undefined
+    return
   })
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
