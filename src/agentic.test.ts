@@ -427,9 +427,9 @@ function witnessPathFromCwd(cwd: string): string | undefined {
     return
   }
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-    hooks: { UserPromptSubmit: { hooks: { command: string }[] }[] }
+    hooks: Record<string, { hooks: { command: string }[] }[] | undefined>
   }
-  const command = settings.hooks.UserPromptSubmit[0]?.hooks[0]?.command ?? ''
+  const command = settings.hooks.UserPromptSubmit?.[0]?.hooks[0]?.command ?? ''
   return command.split('>>')[1]?.trim()
 }
 

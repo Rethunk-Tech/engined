@@ -931,8 +931,13 @@ describe('comfy proxy: the binding table is bounded', () => {
   test('past its bound the table holds 1000 and the oldest binding is the one gone, in memory and on disk', async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, 'state-bound-'))
     let issued = 0
-    const respond = (url: string): Response =>
-      url.includes('/prompt') ? Response.json({ prompt_id: `job-${++issued}` }) : Response.json({})
+    const respond = (url: string): Response => {
+      if (!url.includes('/prompt')) {
+        return Response.json({})
+      }
+      issued += 1
+      return Response.json({ prompt_id: `job-${issued}` })
+    }
 
     const door = await comfyDoor(recordingComfyClient(respond).client, 40_999, stateHome)
     for (let i = 0; i < 1001; i++) {

@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { posix } from 'node:path'
 import process from 'node:process'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import type { Artifact, Volume } from './types.ts'
+import { type Artifact, isRecord, type Volume } from './types.ts'
 
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/
 
@@ -52,22 +52,23 @@ export function hostPathFor(artifact: Artifact, volumes: readonly Volume[]): str
 
 /** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
 export function parseExposedPort(inspectJson: string, image: string): PortResult {
-  const parsed = JSON.parse(inspectJson) as Array<{
-    Config?: { ExposedPorts?: Record<string, unknown> }
-  }>
-  const exposed = parsed[0]?.Config?.ExposedPorts ?? {}
-  const ports = Object.keys(exposed)
+  // Docker's keys are PascalCase; reading them off a checked record keeps that casing out of our types.
+  const parsed: unknown = JSON.parse(inspectJson)
+  const first = Array.isArray(parsed) ? parsed[0] : undefined
+  const config = isRecord(first) ? first.Config : undefined
+  const exposed = isRecord(config) ? config.ExposedPorts : undefined
+  const ports = isRecord(exposed) ? Object.keys(exposed) : []
   if (ports.length === 0) {
     return { error: `${image} exposes no ports` }
   }
   if (ports.length > 1) {
     return { error: `${image} exposes multiple ports: ${ports.join(', ')}` }
   }
-  const [first] = ports
-  if (first === undefined) {
+  const [port] = ports
+  if (port === undefined) {
     return { error: `${image} exposes no ports` }
   }
-  const portStr = first.split('/')[0] ?? first
+  const portStr = port.split('/')[0] ?? port
   return { port: Number(portStr) }
 }
 

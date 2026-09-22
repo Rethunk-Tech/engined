@@ -421,7 +421,7 @@ export class LlamaRouter {
         state.activeModelId === modelId &&
         state.activeCount < state.capacity
       ) {
-        state.activeCount++
+        state.activeCount += 1
         resolve(false)
         return
       }
@@ -531,7 +531,7 @@ export class LlamaRouter {
             return
           }
           state.queue.shift()
-          state.activeCount++
+          state.activeCount += 1
           front.resolve(false)
           continue
         }
@@ -556,7 +556,7 @@ export class LlamaRouter {
     }
     state.activeModelId = front.modelId
     state.capacity = this.capacityFor(role, front.modelId)
-    state.activeCount++
+    state.activeCount += 1
     front.resolve(true)
   }
 
@@ -710,7 +710,7 @@ export class LlamaRouter {
   ): Promise<boolean> {
     await this.ensureStarted()
     const swapped = await this.acquireLease(role, modelId, signal)
-    this.totalActive++
+    this.totalActive += 1
     if (this.totalActive === 1) {
       this.lifecycle.beginLease(this.engine.id)
     }
@@ -719,7 +719,7 @@ export class LlamaRouter {
   }
 
   private finishLease(role: Role): void {
-    this.totalActive--
+    this.totalActive -= 1
     this.releaseLease(role)
     if (this.totalActive === 0) {
       this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds)
@@ -915,7 +915,7 @@ export class LlamaRouter {
     // released and the engine's idle-stop is never armed again.
     try {
       const upstream = await this.fetchUpstream(path, init, modelId)
-      reader = upstream.body?.getReader()
+      reader = upstream.body?.getReader() as ReadableStreamDefaultReader<Uint8Array> | undefined
       const modelResident = await this.residentModelId(role)
       return {
         response: new Response(pipeUpstream(reader, emitWarming, release), {

@@ -63,7 +63,7 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
       // this build cannot read is an entry it cannot vouch for, and an empty
       // table refuses stored outputs, which is the safe direction to fail.
       if (!isRecord(value) || typeof value.at !== 'number' || !Array.isArray(value.filenames)) {
-        dropped++
+        dropped += 1
         return []
       }
       return [

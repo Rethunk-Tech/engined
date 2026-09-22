@@ -267,7 +267,7 @@ export class DockerLifecycle {
     if (rt?.state !== 'running') {
       return
     }
-    rt.activeLeases++
+    rt.activeLeases += 1
     this.cancelIdle(rt)
   }
 
@@ -308,7 +308,7 @@ export class DockerLifecycle {
       this.stopContainer(rt)
         .then((stopped) => {
           if (!stopped && rt.idleStopAttempts < MAX_IDLE_STOP_RETRIES) {
-            rt.idleStopAttempts++
+            rt.idleStopAttempts += 1
             this.armIdleStop(rt, idleStopSeconds)
           }
         })

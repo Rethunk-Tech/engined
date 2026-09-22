@@ -237,7 +237,7 @@ function gatedClient(
     const url = new URL(String(input))
     if (url.pathname === path && !(once && sawFirst)) {
       sawFirst = true
-      waiting++
+      waiting += 1
       started()
       await gate
     }
@@ -556,7 +556,7 @@ test('/models/load only triggers; readiness is polled via /v1/models until "load
     if (call.path !== MODELS_LIST_PATH) {
       return
     }
-    pollAttempts++
+    pollAttempts += 1
     return modelsList([{ id: 'a', status: pollAttempts < 3 ? 'loading' : 'loaded' }])
   })
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
@@ -1074,7 +1074,7 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
   const { client, calls } = fakeLlama((call) => {
     if (call.path === CHAT_PATH && unloadedBehindBack) {
       unloadedBehindBack = false
-      served404s++
+      served404s += 1
       return Response.json({ error: { message: 'model is not loaded' } }, { status: 400 })
     }
     return undefined
@@ -1122,13 +1122,13 @@ test('a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
       return
     }
     if (call.path === CHAT_PATH) {
-      served500s++
+      served500s += 1
       return new Response('proxy error: Could not establish connection', { status: 500 })
     }
     if (call.path === MODELS_LIST_PATH) {
       // The router keeps claiming the instance for a beat after accepting the unload.
       if (staleAdvertisements > 0) {
-        staleAdvertisements--
+        staleAdvertisements -= 1
         return modelsList([{ id: 'a', status: 'loaded' }])
       }
       return modelsList([{ id: 'a', status: 'unloaded' }])

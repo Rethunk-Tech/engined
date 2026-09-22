@@ -168,7 +168,7 @@ function inspectCountingExec(counter: { count: number }, onInspect: () => ExecRe
   return (args) => {
     const argv = [...args]
     if (argv[0] === 'image' && argv[1] === 'inspect') {
-      counter.count++
+      counter.count += 1
       return Promise.resolve(onInspect())
     }
     return Promise.resolve(ok())
@@ -307,7 +307,7 @@ test('start: a failed artifact check is not cached — a repaired condition re-r
       return Promise.resolve(inspectFound())
     }
     if (argv[0] === 'run' && argv[1] === '--rm') {
-      artifactState.checkCount++
+      artifactState.checkCount += 1
       return Promise.resolve({ stdout: '', stderr: '', exitCode: artifactState.present ? 0 : 1 })
     }
     if (argv[0] === 'start') {
