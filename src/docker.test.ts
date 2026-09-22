@@ -297,8 +297,8 @@ test('start: a failed artifact check is not cached — a repaired condition re-r
       { path: '/models/x.gguf', obtain: 'curl -o /models/x.gguf https://example/x.gguf' },
     ],
   }
-  const STARTS_BEFORE_REPAIR = 2
-  const STARTS_AFTER_REPAIR = 3
+  const StartsBeforeRepair = 2
+  const StartsAfterRepair = 3
   const artifactState: { present: boolean; checkCount: number } = { present: false, checkCount: 0 }
 
   function exec(args: readonly string[]): Promise<ExecResult> {
@@ -332,12 +332,12 @@ test('start: a failed artifact check is not cached — a repaired condition re-r
   // proving the cache clear didn't just make the first result silently pass.
   const stillMissing = await lifecycle.start('needs-artifact', specWithArtifact, START_OPTS)
   expect(stillMissing.state).toBe('unavailable')
-  expect(artifactState.checkCount).toBe(STARTS_BEFORE_REPAIR)
+  expect(artifactState.checkCount).toBe(StartsBeforeRepair)
 
   artifactState.present = true
   const repaired = await lifecycle.start('needs-artifact', specWithArtifact, START_OPTS)
   expect(repaired.state).toBe('running')
-  expect(artifactState.checkCount).toBe(STARTS_AFTER_REPAIR)
+  expect(artifactState.checkCount).toBe(StartsAfterRepair)
 })
 
 describe('hostPathFor', () => {
@@ -644,14 +644,14 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
   // cadence -- this is the fix. One initial attempt plus 3 retries, then it
   // stops re-arming itself rather than retrying forever against a wedged
   // daemon.
-  const RETRY_SETTLE_WAIT_MS = PAST_IDLE_WAIT_MS * 8
-  await Bun.sleep(RETRY_SETTLE_WAIT_MS)
-  const TOTAL_ATTEMPTS_WITH_RETRIES = 4
-  expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES)
+  const RetrySettleWaitMs = PAST_IDLE_WAIT_MS * 8
+  await Bun.sleep(RetrySettleWaitMs)
+  const TotalAttemptsWithRetries = 4
+  expect(stopCalls.length).toBe(TotalAttemptsWithRetries)
 
   // Bounded: waiting again brings no further attempts.
-  await Bun.sleep(RETRY_SETTLE_WAIT_MS)
-  expect(stopCalls.length).toBe(TOTAL_ATTEMPTS_WITH_RETRIES)
+  await Bun.sleep(RetrySettleWaitMs)
+  expect(stopCalls.length).toBe(TotalAttemptsWithRetries)
   expect(lifecycle.getStatus('flaky-stop').state).toBe('running')
 })
 
@@ -659,9 +659,9 @@ test('readiness honours a POST probe and an accept range, not just an exact GET 
   // whisper answers only its inference path, only to POST, and a 4xx there still
   // proves the route exists. A probe that degraded to `GET` and `=== status`
   // would never report ready, and the engine would stall until its timeout.
-  const BAD_REQUEST = 400
-  const ACCEPT_MIN = 200
-  const ACCEPT_MAX = 499
+  const BadRequest = 400
+  const AcceptMin = 200
+  const AcceptMax = 499
   const methods: string[] = []
   const postSpec = {
     ...SPEC,
@@ -669,12 +669,12 @@ test('readiness honours a POST probe and an accept range, not just an exact GET 
       path: '/openai/v1/audio/transcriptions',
       status: READY_STATUS,
       method: 'POST' as const,
-      accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },
+      accept: { min: AcceptMin, max: AcceptMax },
     },
   }
   function recordingProbe(_url: string, method: 'GET' | 'POST'): ReturnType<Probe> {
     methods.push(method)
-    return Promise.resolve({ status: BAD_REQUEST })
+    return Promise.resolve({ status: BadRequest })
   }
 
   const lifecycle = new DockerLifecycle(buildExec({ port: STUB_HOST_PORT_A }), recordingProbe)
@@ -686,8 +686,8 @@ test('readiness honours a POST probe and an accept range, not just an exact GET 
 
 test('start: a stale container by this name is removed and recreated from the current spec, never resumed with docker start', async () => {
   const calls: string[][] = []
-  const DISTINGUISHING_ARG = '--ctx-size=8192'
-  const currentSpec: RunnableContainerSpec = { ...SPEC, command: [DISTINGUISHING_ARG] }
+  const DistinguishingArg = '--ctx-size=8192'
+  const currentSpec: RunnableContainerSpec = { ...SPEC, command: [DistinguishingArg] }
   const hostPort = 40_020
 
   const exec = recordingExec(calls, (argv) => {
@@ -709,7 +709,7 @@ test('start: a stale container by this name is removed and recreated from the cu
   )
   expect(calls.some((c) => c[0] === 'start')).toBe(false)
   const runCall = calls.find((c) => c[0] === 'run' && c.includes('--name'))
-  expect(runCall).toContain(DISTINGUISHING_ARG)
+  expect(runCall).toContain(DistinguishingArg)
 })
 
 test('start: a container already running under this name is force-removed and recreated, not left name-conflicted', async () => {
@@ -736,12 +736,12 @@ test('start: a container already running under this name is force-removed and re
     }
     if (argv[0] === 'run') {
       if (!removed) {
-        const DOCKER_NAME_CONFLICT_EXIT_CODE = 125
+        const DockerNameConflictExitCode = 125
         return {
           stdout: '',
           stderr:
             'docker: Error response from daemon: Conflict. The container name "/engined-running-conflict" is already in use by container ...',
-          exitCode: DOCKER_NAME_CONFLICT_EXIT_CODE,
+          exitCode: DockerNameConflictExitCode,
         }
       }
       return ok()
@@ -780,20 +780,20 @@ test('start: a genuine docker rm failure is surfaced, not swallowed into a doome
 })
 
 test('a 404 never counts as ready, even inside the accept range', async () => {
-  const NOT_FOUND = 404
-  const ACCEPT_MIN = 200
-  const ACCEPT_MAX = 499
+  const NotFound = 404
+  const AcceptMin = 200
+  const AcceptMax = 499
   const notFoundSpec = {
     ...SPEC,
     ready: {
       path: '/openai/v1/audio/transcriptions',
       status: READY_STATUS,
       method: 'POST' as const,
-      accept: { min: ACCEPT_MIN, max: ACCEPT_MAX },
+      accept: { min: AcceptMin, max: AcceptMax },
     },
   }
   function notFoundProbe(): ReturnType<Probe> {
-    return Promise.resolve({ status: NOT_FOUND })
+    return Promise.resolve({ status: NotFound })
   }
 
   const lifecycle = new DockerLifecycle(buildExec({ port: STUB_HOST_PORT_A }), notFoundProbe)
@@ -951,7 +951,7 @@ test('removeEngine keeps a container it could not stop, so shutdown still reache
 })
 
 describe("a spec dir's declared build flags", () => {
-  const BUILD_SPEC: RunnableContainerSpec = {
+  const BuildSpec: RunnableContainerSpec = {
     ...SPEC,
     image: 'engined/chatterbox-en:local',
     obtain: 'build',
@@ -963,7 +963,7 @@ describe("a spec dir's declared build flags", () => {
       inspectCountingExec({ count: 0 }, inspectMissing),
       readyProbe,
     )
-    return (await lifecycle.probe('build-contexts', BUILD_SPEC, dir)).fix
+    return (await lifecycle.probe('build-contexts', BuildSpec, dir)).fix
   }
 
   test('each name=path line becomes a --build-context resolved against the spec dir', async () => {
@@ -976,7 +976,7 @@ describe("a spec dir's declared build flags", () => {
       // command: docker resolves a relative one against its own cwd, which is
       // wherever the operator happens to be standing.
       expect(await buildFix(dir)).toBe(
-        `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, '../shared')} -f ${join(dir, 'Dockerfile')} ${dir}`,
+        `docker build -t ${BuildSpec.image} --build-context shared=${resolve(dir, '../shared')} -f ${join(dir, 'Dockerfile')} ${dir}`,
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -998,7 +998,7 @@ describe("a spec dir's declared build flags", () => {
       // location this has to resolve; a build arg is whatever the Dockerfile
       // means by it.
       expect(await buildFix(dir)).toBe(
-        `docker build -t ${BUILD_SPEC.image} --build-context shared=${resolve(dir, '../shared')}` +
+        `docker build -t ${BuildSpec.image} --build-context shared=${resolve(dir, '../shared')}` +
           ' --build-arg PORT=8005 --build-arg CHECKPOINT_MODULE=chatterbox.tts_turbo' +
           ` -f ${join(dir, 'Dockerfile')} ${dir}`,
       )
@@ -1017,7 +1017,7 @@ describe("a spec dir's declared build flags", () => {
       // A symlink in the spec dir would not do: buildkit reads `-f` off the
       // filesystem but refuses to follow one out of the context.
       expect(await buildFix(dir)).toBe(
-        `docker build -t ${BUILD_SPEC.image} -f ${resolve(dir, '../shared/Dockerfile')} ${dir}`,
+        `docker build -t ${BuildSpec.image} -f ${resolve(dir, '../shared/Dockerfile')} ${dir}`,
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -1034,7 +1034,7 @@ describe("a spec dir's declared build flags", () => {
       // the command it would get if the mechanism did not exist: not a stray
       // space, not an empty flag.
       expect(await buildFix(dir)).toBe(
-        `docker build -t ${BUILD_SPEC.image} -f ${join(dir, 'Dockerfile')} ${dir}`,
+        `docker build -t ${BuildSpec.image} -f ${join(dir, 'Dockerfile')} ${dir}`,
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })

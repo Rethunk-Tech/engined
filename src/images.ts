@@ -373,7 +373,7 @@ export async function renderWith(
       if (!Array.isArray(images)) {
         return refuse(images)
       }
-      data.push(...images.map((b64_json) => ({ b64_json })))
+      data.push(...images.map((b64Json) => ({ b64_json: b64Json })))
     }
     return Response.json({ created: Math.floor(startedAt / 1000), data })
   } catch (err) {

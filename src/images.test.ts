@@ -529,7 +529,7 @@ describe('POST /openai/v1/images/edits', () => {
  * graph edit is exactly the change most likely to introduce one.
  */
 describe('the shipped comfy graphs', () => {
-  const SHARED = {
+  const Shared = {
     ...CHECKPOINTS,
     prompt: 'a red cube',
     negative: '',
@@ -541,8 +541,8 @@ describe('the shipped comfy graphs', () => {
   }
 
   test.each([
-    ['text-to-image.json', { ...SHARED, width: 1024, height: 1024, batch: 1 }],
-    ['image-to-image.json', { ...SHARED, image: 'engined_edit_input', denoise: 0.9 }],
+    ['text-to-image.json', { ...Shared, width: 1024, height: 1024, batch: 1 }],
+    ['image-to-image.json', { ...Shared, image: 'engined_edit_input', denoise: 0.9 }],
   ])('%s parses and every placeholder in it is one the door supplies', (file, values) => {
     const graph = JSON.parse(readFileSync(join(ENGINES_ROOT, 'comfy', file), 'utf8')) as unknown
     const filled = fillWorkflow(graph, values) as Record<string, unknown>

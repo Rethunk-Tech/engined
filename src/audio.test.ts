@@ -46,8 +46,8 @@ const CHATTERBOX_INSPECT = JSON.stringify([
 ])
 
 /** Loads `id`'s real spec.toml and asserts it parsed as a container spec — every engine under test here is one. */
-function loadSpecFor(id: string, models_dir?: string) {
-  const entry: EngineEntry = { id, args: {}, models_dir }
+function loadSpecFor(id: string, modelsDir?: string) {
+  const entry: EngineEntry = { id, args: {}, models_dir: modelsDir }
   const loaded = loadSpec(entry, {
     enginesRoot: join(import.meta.dir, '..', 'engines'),
     bunx: '/opt/engined/state/bunx',

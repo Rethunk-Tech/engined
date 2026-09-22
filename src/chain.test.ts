@@ -634,17 +634,17 @@ test('an absent max_egress applies no ceiling at all: every hop is attempted reg
 })
 
 test('the per-attempt timeout is per hop, not per request: two hops each under the bound both run', async () => {
-  const HOP_DELAY_MS = 100
-  const PER_HOP_TIMEOUT_MS = 400
+  const HopDelayMs = 100
+  const PerHopTimeoutMs = 400
   const up = startBehaviorUpstream({
-    slowFail: { status: 500, body: 'boom', contentType: 'text/plain', delayMs: HOP_DELAY_MS },
-    slowSuccess: { status: 200, body: 'answer', contentType: 'text/plain', delayMs: HOP_DELAY_MS },
+    slowFail: { status: 500, body: 'boom', contentType: 'text/plain', delayMs: HopDelayMs },
+    slowSuccess: { status: 200, body: 'answer', contentType: 'text/plain', delayMs: HopDelayMs },
   })
 
   const result = await runChain(
     ['@/slowFail/model', '@/slowSuccess/model'],
     baseOpts({
-      timeoutMs: () => PER_HOP_TIMEOUT_MS,
+      timeoutMs: () => PerHopTimeoutMs,
       exec: makeExec({ slowFail: up.base, slowSuccess: up.base }),
     }),
   )

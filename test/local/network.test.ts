@@ -57,12 +57,12 @@ describe.skipIf(!LOCAL)('dual-family real socket (local)', () => {
  * every other test makes never opens one, so it cannot observe the timer.
  */
 describe.skipIf(!LOCAL)('slow response over a real socket (local)', () => {
-  const SLOWER_THAN_BUN_DEFAULT_MS = 12_000
+  const SlowerThanBunDefaultMs = 12_000
   let bound: ReturnType<typeof bindDualFamily> | undefined
 
   beforeAll(() => {
     bound = bindDualFamily(async () => {
-      await Bun.sleep(SLOWER_THAN_BUN_DEFAULT_MS)
+      await Bun.sleep(SlowerThanBunDefaultMs)
       return new Response(MARKER)
     }, 0)
   })

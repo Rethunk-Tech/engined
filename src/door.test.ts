@@ -128,7 +128,7 @@ describe('the door: SIGHUP reload', () => {
   // fine) with a modelless route: the parse-tier split already forbids
   // filename/role on it, so there is nothing left for the kind-dependent
   // registry check to gate.
-  const GOOD_CONFIG = `
+  const GoodConfig = `
 [[upstream]]
 id = "local"
 egress = "none"
@@ -145,7 +145,7 @@ upstream = "local"
   test('broken TOML on reload keeps the previous config serving and names the parse error', async () => {
     const dir = mkdtempSync(join(TEST_ROOT, 'engined-reload-'))
     const path = join(dir, 'config.toml')
-    writeFileSync(path, GOOD_CONFIG)
+    writeFileSync(path, GoodConfig)
 
     const door = createDoor(loadConfig(path), {
       enginesRoot: '/nonexistent',
@@ -485,7 +485,7 @@ describe('the door: chain timeout follows the hop, not the chain', () => {
   test('a chain with no agentic hop times out on chat_timeout_seconds rather than surviving on agent_timeout_seconds', async () => {
     const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
     writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
-    const UPSTREAM_DELAY_MS = 150
+    const UpstreamDelayMs = 150
     const cfg = config({
       chat_timeout_seconds: 0.05,
       agent_timeout_seconds: 10,
@@ -511,7 +511,7 @@ describe('the door: chain timeout follows the hop, not the chain', () => {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(
           () => resolve(Response.json({ id: 'r1', choices: [{ message: { content: 'hi' } }] })),
-          UPSTREAM_DELAY_MS,
+          UpstreamDelayMs,
         )
         init?.signal?.addEventListener('abort', () => {
           clearTimeout(timer)
@@ -562,11 +562,11 @@ describe('the door: a JSON body that is not a table is a 400', () => {
   // Each of these is valid JSON, so parsing cannot reject them -- only the
   // table check can. `null` is the one a `typeof body === "object"` guard
   // would wave through to a property read.
-  const NOT_A_TABLE = ['null', '[]', '42', '"hi"']
-  const BODY_ROUTES = ['/openai/v1/chat/completions', '/engined/v1/start']
+  const NotATable = ['null', '[]', '42', '"hi"']
+  const BodyRoutes = ['/openai/v1/chat/completions', '/engined/v1/start']
 
-  for (const pathname of BODY_ROUTES) {
-    for (const raw of NOT_A_TABLE) {
+  for (const pathname of BodyRoutes) {
+    for (const raw of NotATable) {
       test(`${pathname} refuses ${raw}`, async () => {
         const door = createDoor(config(), { enginesRoot: '/nonexistent', bunx: BUNX })
         const res = await door.fetch(

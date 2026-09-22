@@ -1554,7 +1554,7 @@ model = "*"
     ).toThrow(RX_UNRECOGNISED_INVENTORY_KEY)
   })
 
-  const FORBIDDEN_ON_WILDCARD: [string, string][] = [
+  const ForbiddenOnWildcard: [string, string][] = [
     ['filename', 'filename = "x.gguf"'],
     ['role', 'role = "chat"'],
     ['vision', 'vision = "describe"'],
@@ -1564,7 +1564,7 @@ model = "*"
     ['args', '[route.args]\ntemperature = 0.2'],
   ]
 
-  test.each(FORBIDDEN_ON_WILDCARD)('a wildcard must not declare %s', (_key, stanza) => {
+  test.each(ForbiddenOnWildcard)('a wildcard must not declare %s', (_key, stanza) => {
     expect(() => loadConfig(writeConfig(remoteCatalog({ extraRoute: stanza })))).toThrow(
       RX_WILDCARD_MUST_NOT,
     )

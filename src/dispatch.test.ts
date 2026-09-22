@@ -373,7 +373,7 @@ describe('chains', () => {
  * chat, which a two-way embedding-vs-everything split could not express.
  */
 describe("a role's claimed endpoint", () => {
-  const CLAIMED: readonly [Role, string][] = [
+  const Claimed: readonly [Role, string][] = [
     ['embedding', EMBEDDINGS],
     ['rerank', RERANK],
   ]
@@ -386,11 +386,11 @@ describe("a role's claimed endpoint", () => {
     return { cfg, reg: registry(cfg) }
   }
 
-  for (const [role, claimed] of CLAIMED) {
+  for (const [role, claimed] of Claimed) {
     test(`${role} serves ${claimed} and refuses every other path`, () => {
       const { cfg, reg } = withRole(role)
       expect(resolveModel('@/e/m', claimed, cfg, reg).ok).toBe(true)
-      for (const other of [CHAT, ...CLAIMED.map(([, p]) => p).filter((p) => p !== claimed)]) {
+      for (const other of [CHAT, ...Claimed.map(([, p]) => p).filter((p) => p !== claimed)]) {
         expect(resolveModel('@/e/m', other, cfg, reg).ok).toBe(false)
       }
     })
@@ -399,7 +399,7 @@ describe("a role's claimed endpoint", () => {
   test('a chat route is refused on every claimed path, not only embeddings', () => {
     const { cfg, reg } = withRole('chat')
     expect(resolveModel('@/e/m', CHAT, cfg, reg).ok).toBe(true)
-    for (const [, claimed] of CLAIMED) {
+    for (const [, claimed] of Claimed) {
       expect(resolveModel('@/e/m', claimed, cfg, reg).ok).toBe(false)
     }
   })
@@ -413,22 +413,22 @@ describe("a role's claimed endpoint", () => {
  * engine cannot express the question.
  */
 describe("a route's translate declaration", () => {
-  const WHISPER_SERVES = [CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS]
+  const WhisperServes = [CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS]
 
   test('an undeclared route serves transcriptions and not translations', () => {
-    expect(routeServes({}, WHISPER_SERVES)).toEqual([CONTENT_ENDPOINT_TRANSCRIPTIONS])
+    expect(routeServes({}, WhisperServes)).toEqual([CONTENT_ENDPOINT_TRANSCRIPTIONS])
   })
 
   // `translate = false` is a declaration that this model cannot, and must read
   // the same as saying nothing -- not as "the key is present, so allow it".
   test('translate = false is refused exactly as an absent key is', () => {
-    expect(routeServes({ translate: false }, WHISPER_SERVES)).toEqual([
+    expect(routeServes({ translate: false }, WhisperServes)).toEqual([
       CONTENT_ENDPOINT_TRANSCRIPTIONS,
     ])
   })
 
   test('a declared route serves both, because one model answers both verbs', () => {
-    expect(routeServes({ translate: true }, WHISPER_SERVES)).toEqual(WHISPER_SERVES)
+    expect(routeServes({ translate: true }, WhisperServes)).toEqual(WhisperServes)
   })
 
   // The gating is subtractive, so an engine that never offered the path is
@@ -441,11 +441,11 @@ describe("a route's translate declaration", () => {
 })
 
 describe('routeForHop', () => {
-  const AMBIENT_OFF = { ...route({ engine: 'e', model: 'm', upstream: null }), disabled: true }
-  const LOCAL_ON = route({ engine: 'e', model: 'm', upstream: 'local' })
+  const AmbientOff = { ...route({ engine: 'e', model: 'm', upstream: null }), disabled: true }
+  const LocalOn = route({ engine: 'e', model: 'm', upstream: 'local' })
 
   test('a disabled route is never the resolved hop', () => {
-    const routes = [AMBIENT_OFF, LOCAL_ON]
+    const routes = [AmbientOff, LocalOn]
     // Ambient outranks local among served routes -- but this ambient one is
     // not served, so local is the whole served set.
     expect(routeForHop(routes, 'e', 'm')?.upstream).toBe('local')
@@ -453,7 +453,7 @@ describe('routeForHop', () => {
   })
 
   test('a hop whose only route is disabled resolves to nothing', () => {
-    expect(routeForHop([AMBIENT_OFF], 'e', 'm')).toBeUndefined()
+    expect(routeForHop([AmbientOff], 'e', 'm')).toBeUndefined()
   })
 })
 

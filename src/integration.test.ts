@@ -708,8 +708,8 @@ function publicChainFixture(): {
   )
   const remoteSecretExec: Exec = () =>
     Promise.resolve({ stdout: 'remote-key\n', stderr: '', exitCode: 0 })
-  const MISSING_LOCAL_IMAGE = 'local-image-that-does-not-resolve:local'
-  const exec = buildExec({ missingImages: new Set([MISSING_LOCAL_IMAGE]) })
+  const MissingLocalImage = 'local-image-that-does-not-resolve:local'
+  const exec = buildExec({ missingImages: new Set([MissingLocalImage]) })
   return {
     remote,
     cfg: {
@@ -718,7 +718,7 @@ function publicChainFixture(): {
         route({ engine: 'remote', role: 'chat', upstream: 'remote' }),
       ],
       engines: [
-        containerEngine('local', openaiSpec(MISSING_LOCAL_IMAGE)),
+        containerEngine('local', openaiSpec(MissingLocalImage)),
         containerEngine('remote', openaiSpec()),
       ],
       upstreams: [
@@ -841,11 +841,11 @@ test('a completed audio request arms idle-stop the same as a chat lease: the con
   })
   const { port } = fake
   const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': port } })
-  const IDLE_STOP_SECONDS = 0.03
+  const IdleStopSeconds = 0.03
   const config = baseConfig({
     routes: CHATTERBOX_ROUTES,
     engines: [
-      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS }),
+      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IdleStopSeconds }),
     ],
   })
   const door = createDoor(config, {
@@ -908,11 +908,11 @@ test('a streamed audio call holds its lease until the body ends, not until the h
   })
   const { port } = fake
   const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': port } })
-  const IDLE_STOP_SECONDS = 0.03
+  const IdleStopSeconds = 0.03
   const config = baseConfig({
     routes: CHATTERBOX_ROUTES,
     engines: [
-      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IDLE_STOP_SECONDS }),
+      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IdleStopSeconds }),
     ],
   })
   const door = createDoor(config, {

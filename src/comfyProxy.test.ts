@@ -1028,9 +1028,9 @@ describe('comfy proxy: the table is written only when it changed', () => {
 // servable and a busy hour expires one minutes old. Neither is something a
 // consumer holding filenames can plan around; an age is.
 describe('comfy proxy: a binding ages out', () => {
-  const DAY_MS = 24 * 60 * 60 * 1000
+  const DayMs = 24 * 60 * 60 * 1000
   /** `comfyKey`'s own separator: engine, origin, prompt id, NUL between each. */
-  const KEY_PREFIX = 'comfy\u0000local\u0000'
+  const KeyPrefix = 'comfy\u0000local\u0000'
 
   /** Writes the binding table directly, so a test can plant an age without waiting for one. */
   function plantBindings(
@@ -1045,8 +1045,8 @@ describe('comfy proxy: a binding ages out', () => {
   test('a binding older than the ttl is refused, and a recent one beside it is still served', async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, 'state-ttl-'))
     plantBindings(stateHome, {
-      [`${KEY_PREFIX}job-old`]: { at: Date.now() - 8 * DAY_MS, filenames: ['old.png'] },
-      [`${KEY_PREFIX}job-new`]: { at: Date.now() - DAY_MS, filenames: ['new.png'] },
+      [`${KeyPrefix}job-old`]: { at: Date.now() - 8 * DayMs, filenames: ['old.png'] },
+      [`${KeyPrefix}job-new`]: { at: Date.now() - DayMs, filenames: ['new.png'] },
     })
     const { client } = recordingComfyClient((url, init) => {
       if (isQueueRead(url, init)) {
@@ -1079,7 +1079,7 @@ describe('comfy proxy: a binding ages out', () => {
   test('the next save drops what aged out, so the file does not keep it forever', async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, 'state-ttl-save-'))
     plantBindings(stateHome, {
-      [`${KEY_PREFIX}job-old`]: { at: Date.now() - 8 * DAY_MS, filenames: ['old.png'] },
+      [`${KeyPrefix}job-old`]: { at: Date.now() - 8 * DayMs, filenames: ['old.png'] },
     })
     const { client } = recordingComfyClient((url, init) => {
       if (isQueueRead(url, init)) {
@@ -1097,7 +1097,7 @@ describe('comfy proxy: a binding ages out', () => {
     const onDisk = JSON.parse(
       readFileSync(join(stateHome, 'engined', 'comfy-bindings.json'), 'utf8'),
     ) as Record<string, unknown>
-    expect(Object.keys(onDisk)).toEqual([`${KEY_PREFIX}job-fresh`])
+    expect(Object.keys(onDisk)).toEqual([`${KeyPrefix}job-fresh`])
   })
 })
 
