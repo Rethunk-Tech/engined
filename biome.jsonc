@@ -36,7 +36,8 @@
         "noNodejsModules": "off",
         "noSolidDestructuredProps": "off",
         "useQwikValidLexicalScope": "off",
-        "noUndeclaredDependencies": "off"
+        "noUndeclaredDependencies": "off",
+        "noUnresolvedImports": "off"
       },
       "suspicious": {
         "noReactSpecificProps": "off",
