@@ -16,7 +16,7 @@ import {
   type ReleaseFetch,
   releaseComfyMemory,
 } from './comfyQueue.ts'
-import { DockerLifecycle, dockerExec, type RuntimeStatus } from './docker.ts'
+import { DockerLifecycle, dockerExec } from './docker.ts'
 import {
   baseStatus,
   buildEntries,
@@ -38,6 +38,7 @@ import { llamaPresetPath } from './paths.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import type { EngineResources } from './resources.ts'
 import { CONTRACT, type EngineStatus, type EnginesResponse } from './responses.ts'
+import type { RuntimeStatus } from './runtimeTable.ts'
 import type { SpecLoadOptions } from './spec.ts'
 import { isContainerSpec, type Spec } from './specTypes.ts'
 import { type Config, type EngineEntry, errMessage, MS_PER_SECOND } from './types.ts'

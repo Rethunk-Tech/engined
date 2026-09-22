@@ -7,11 +7,11 @@
 
 import { agentCli } from './agents.ts'
 import { buildComfySpec } from './comfy.ts'
-import type { RuntimeStatus } from './docker.ts'
 import { FatalError } from './errors/fatal.ts'
 import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
 import type { EngineStatus } from './responses.ts'
+import type { RuntimeStatus } from './runtimeTable.ts'
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
 import { isContainerSpec, type LoadedSpec, type Spec } from './specTypes.ts'
 import {

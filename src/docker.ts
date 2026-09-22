@@ -10,35 +10,28 @@
  * network installed.
  */
 
-import { existsSync } from 'node:fs'
 import process from 'node:process'
+import { hostBindings, parseHostPort, specDigest } from './dockerArgs.ts'
 import {
-  buildRunArgs,
-  extraBuildArgs,
-  extraBuildContexts,
-  hostBindings,
-  hostPathFor,
-  mountSpec,
-  parseExposedPort,
-  parseHostPort,
-  SPEC_LABEL,
-  specDigest,
-  specDockerfile,
-} from './dockerArgs.ts'
+  checkArtifacts,
+  checkImage,
+  findOrphan,
+  type Result,
+  readHostPort,
+  readLogs,
+  readResources,
+  runContainer,
+} from './dockerCommands.ts'
 import { binExec, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
 import type { EngineResources } from './resources.ts'
-import { parseResources, RESOURCE_PROBE_SH } from './resources.ts'
+import { type Runtime, type RuntimeStatus, RuntimeTable } from './runtimeTable.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import type { Artifact, EngineState, ReadyProbe } from './types.ts'
-
-import { errMessage, MS_PER_SECOND, pollUntil, probeSaysReady } from './types.ts'
+import { errMessage, MS_PER_SECOND, pollUntil, probeSaysReady, type ReadyProbe } from './types.ts'
 
 /** The prefix on every container engined starts, so a stray one is identifiable by name alone. */
 export const NAME_PREFIX = 'engined-'
 const READY_POLL_INTERVAL_MS = 250
-/** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
-const DOCKER_START_FAILURE_EXIT_CODE = 125
 /** A stuck idle-stop is retried this many times, at the same idle-stop cadence, before it is left to the next real request's `endLease` -- bounded so a persistently wedged daemon does not retry forever. */
 const MAX_IDLE_STOP_RETRIES = 3
 /**
@@ -49,7 +42,6 @@ const MAX_IDLE_STOP_RETRIES = 3
  * status GET and never dispatched to holds its GPU until the daemon restarts.
  */
 const ADOPTED_IDLE_STOP_SECONDS = 900
-const NO_SUCH_CONTAINER = /no such container/i
 
 export const dockerExec: Exec = binExec('docker')
 
@@ -68,74 +60,24 @@ interface LifecycleOptions {
   specSource?: string
 }
 
-export interface RuntimeStatus {
-  state: EngineState
-  private_url: string | null
-  fix?: string
-  last_error?: string
-  /** Requests holding this engine open right now. Absent unless it is running. */
-  active_leases?: number
-  /**
-   * Set only by `start()`: whether this call is the one that ran `doStart`,
-   * as opposed to finding the container already running or joining another
-   * caller's in-flight start. Absent from every other return of this type
-   * (`reconcile`, `stop`, `getStatus`) -- there is nothing for them to answer.
-   */
-  launched?: boolean
-}
-
-type Result<T = unknown> = ({ ok: true } & T) | { ok: false; fix?: string; error: string }
-
-interface Runtime {
-  id: string
-  containerName: string
-  state: EngineState
-  hostPort: number | null
-  fix?: string
-  lastError?: string
-  startPromise: Promise<RuntimeStatus> | null
-  idleTimer: ReturnType<typeof setTimeout> | null
-  imageCheck: Promise<Result<{ containerPort: number }>> | null
-  artifactCheck: Promise<Result> | null
-  /** Reset on every fresh `endLease`; counts retries within one continuous idle-stop attempt sequence. */
-  idleStopAttempts: number
-  /** Requests holding this container open. Idle-stop is armed only at zero, so a start with no traffic behind it still counts down. */
-  activeLeases: number
-  /**
-   * Whether this process has already asked docker about a container holding
-   * this name that it did not start. Only an unclean exit can leave one, so
-   * the question has exactly one true answer per process -- once engined has
-   * started or stopped this container itself, the map is the truth and the
-   * docker round trip on every poll would buy nothing.
-   */
-  adoptChecked: boolean
-  /**
-   * Epoch ms until which something outside this process wants this engine
-   * down. The local test tier takes one before it loads llama or comfy itself,
-   * because two copies of either is what this box has no room for.
-   */
-  heldUntil?: number
-}
-
 export class DockerLifecycle {
-  private readonly runtimes = new Map<string, Runtime>()
+  private readonly table: RuntimeTable
   private readonly exec: Exec
   private readonly httpProbe: Probe
-  /**
-   * What this lifecycle's containers are called. Overridden only by the
-   * local tier, which drives real docker: under the default it would name
-   * -- and on teardown stop -- the very containers an installed unit owns.
-   */
-  private readonly namePrefix: string
 
   constructor(
     exec: Exec = dockerExec,
     httpProbe: Probe = defaultProbe,
+    /**
+     * What this lifecycle's containers are called. Overridden only by the
+     * local tier, which drives real docker: under the default it would name
+     * -- and on teardown stop -- the very containers an installed unit owns.
+     */
     namePrefix: string = NAME_PREFIX,
   ) {
     this.exec = exec
     this.httpProbe = httpProbe
-    this.namePrefix = namePrefix
+    this.table = new RuntimeTable(namePrefix)
   }
 
   /**
@@ -145,93 +87,17 @@ export class DockerLifecycle {
    * llama routers and hands it in. A constructor argument is silently
    * dropped by the second path, so the owner attaches instead.
    */
-  private onStateChange: (id: string) => void = () => undefined
-
   onChange(listener: (id: string) => void): void {
-    this.onStateChange = listener
-  }
-
-  /**
-   * The only place `state` is assigned. A write of the same value is not a
-   * change, and every assignment routes through here so a state reached by a
-   * path added later is announced without that path remembering to say so.
-   */
-  private transition(rt: Runtime, state: EngineState): void {
-    if (rt.state === state) {
-      return
-    }
-    rt.state = state
-    this.onStateChange(rt.id)
-  }
-
-  private runtime(id: string): Runtime {
-    let rt = this.runtimes.get(id)
-    if (!rt) {
-      rt = {
-        id,
-        containerName: `${this.namePrefix}${id}`,
-        state: 'installed',
-        hostPort: null,
-        startPromise: null,
-        idleTimer: null,
-        imageCheck: null,
-        artifactCheck: null,
-        idleStopAttempts: 0,
-        activeLeases: 0,
-        adoptChecked: false,
-      }
-      this.runtimes.set(id, rt)
-    }
-    return rt
+    this.table.onChange(listener)
   }
 
   getStatus(id: string): RuntimeStatus {
-    const rt = this.runtimes.get(id)
-    if (!rt) {
-      return { state: 'installed', private_url: null }
-    }
-    return {
-      state: rt.state,
-      private_url:
-        rt.state === 'running' && rt.hostPort !== null ? `127.0.0.1:${rt.hostPort}` : null,
-      fix: rt.fix,
-      last_error: rt.lastError,
-      active_leases: rt.state === 'running' ? rt.activeLeases : undefined,
-    }
+    return this.table.status(id)
   }
 
-  private cancelIdle(rt: Runtime): void {
-    if (rt.idleTimer !== null) {
-      clearTimeout(rt.idleTimer)
-      rt.idleTimer = null
-    }
-  }
-
-  /**
-   * Everything that stops being true the moment the container is no longer
-   * serving: the countdown, the state, the port and the leases. Shared by
-   * every path that learns the container is gone, so one of them can never
-   * again drop a lease the others reset -- a survivor pins the engine's GPU
-   * for the life of the process, because `refreshIdle` refuses to arm while
-   * a lease is held and nothing else re-arms it.
-   */
-  private markStopped(rt: Runtime): void {
-    this.cancelIdle(rt)
-    this.transition(rt, 'installed')
-    rt.hostPort = null
-    rt.activeLeases = 0
-  }
-
-  /**
-   * Refuses to keep an engine down forever. A holder that dies mid-run would
-   * otherwise wedge the engine for the life of the process, and the caller
-   * that most wants a hold is a test run, which is exactly the caller most
-   * likely to die. Re-holding extends, so a long run refreshes rather than
-   * asking for an open-ended one up front.
-   */
+  /** How long a hold on `id` still stands, in ms; zero when none does. */
   heldMsFor(id: string): number {
-    const until = this.runtimes.get(id)?.heldUntil
-    return until === undefined ? 0 : Math.max(0, until - Date.now())
+    return this.table.heldMsFor(id)
   }
 
   /**
@@ -242,18 +108,12 @@ export class DockerLifecycle {
    */
   async hold(id: string, ttlMs: number): Promise<void> {
     await this.stop(id)
-    // `runtime`, not a `runtimes.get`: an engine that has never started has no
-    // entry yet, and holding one down before its first start is exactly the
-    // case a second process asking for the pool is in.
-    this.runtime(id).heldUntil = Date.now() + ttlMs
+    this.table.holdFor(id, ttlMs)
   }
 
   /** Ends a hold early. Idempotent: releasing one that has already expired is the state the caller wanted. */
   unhold(id: string): void {
-    const rt = this.runtimes.get(id)
-    if (rt) {
-      rt.heldUntil = undefined
-    }
+    this.table.unhold(id)
   }
 
   /**
@@ -263,17 +123,17 @@ export class DockerLifecycle {
    * process, since nothing else re-arms the countdown.
    */
   beginLease(id: string): void {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (rt?.state !== 'running') {
       return
     }
     rt.activeLeases += 1
-    this.cancelIdle(rt)
+    this.table.cancelIdle(rt)
   }
 
   /** Releases one lease. The countdown re-arms only once the last one is gone, so it can never fire mid-request. */
   endLease(id: string, idleStopSeconds: number): void {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (rt?.state !== 'running') {
       return
     }
@@ -288,7 +148,7 @@ export class DockerLifecycle {
    * and before this it stayed resident until the process died.
    */
   private refreshIdle(rt: Runtime, idleStopSeconds: number): void {
-    this.cancelIdle(rt)
+    this.table.cancelIdle(rt)
     if (rt.activeLeases > 0 || rt.state !== 'running') {
       return
     }
@@ -330,8 +190,8 @@ export class DockerLifecycle {
     spec: RunnableContainerSpec,
     opts: LifecycleOptions,
   ): Promise<RuntimeStatus> {
-    const rt = this.runtime(id)
-    this.cancelIdle(rt)
+    const rt = this.table.runtime(id)
+    this.table.cancelIdle(rt)
     // Returning the map's record on faith hands back a corpse when the
     // container crashed, was OOM-killed or was removed underneath engined --
     // and starting on faith destroys a container this process never started
@@ -342,7 +202,7 @@ export class DockerLifecycle {
       rt.hostPort !== null
     ) {
       this.refreshIdle(rt, opts.idleStopSeconds)
-      return { ...this.getStatus(id), launched: false }
+      return { ...this.table.status(id), launched: false }
     }
     if (rt.startPromise !== null) {
       // Joining someone else's in-flight start, not running doStart myself --
@@ -377,31 +237,31 @@ export class DockerLifecycle {
     spec?: RunnableContainerSpec,
     idleStopSeconds?: number,
   ): Promise<RuntimeStatus> {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (!rt) {
-      return this.getStatus(id)
+      return this.table.status(id)
     }
     // `warming` is a state this process is actively driving, with an in-flight
     // start that will resolve it -- and the container it names may not exist
     // yet, so asking docker about it would report a live start as dead.
     if (rt.state === 'warming') {
-      return this.getStatus(id)
+      return this.table.status(id)
     }
     if (rt.state === 'running') {
       // Whatever holds this name is this process's own from here on.
       rt.adoptChecked = true
       const res = await this.exec(['inspect', '-f', '{{.State.Running}}', rt.containerName])
       if (res.exitCode === 0 && res.stdout.trim() === 'true') {
-        return this.getStatus(id)
+        return this.table.status(id)
       }
-      this.markStopped(rt)
-      return this.getStatus(id)
+      this.table.markStopped(rt)
+      return this.table.status(id)
     }
     if (spec !== undefined && !rt.adoptChecked) {
       rt.adoptChecked = true
       await this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS)
     }
-    return this.getStatus(id)
+    return this.table.status(id)
   }
 
   /**
@@ -426,7 +286,7 @@ export class DockerLifecycle {
     spec: RunnableContainerSpec,
     idleStopSeconds: number,
   ): Promise<void> {
-    const found = await this.findOrphan(rt.containerName)
+    const found = await findOrphan(this.exec, rt.containerName)
     if (found === null) {
       return
     }
@@ -452,27 +312,8 @@ export class DockerLifecycle {
       return
     }
     rt.hostPort = hostPort
-    this.transition(rt, 'running')
+    this.table.transition(rt, 'running')
     this.refreshIdle(rt, idleStopSeconds)
-  }
-
-  /** Running only: a container that already exited holds nothing, and the next start removes it as it always did. */
-  private async findOrphan(
-    containerName: string,
-  ): Promise<{ digest: string; ports: string } | null> {
-    const res = await this.exec([
-      'ps',
-      '--filter',
-      `name=^${containerName}$`,
-      '--format',
-      `{{.Names}}\t{{.Label "${SPEC_LABEL}"}}\t{{.Ports}}`,
-    ])
-    const line = res.stdout.trim()
-    if (res.exitCode !== 0 || line === '') {
-      return null
-    }
-    const [, digest, ports] = line.split('\t')
-    return { digest: digest ?? '', ports: ports ?? '' }
   }
 
   private declineAdoption(rt: Runtime, reason: string): void {
@@ -488,7 +329,7 @@ export class DockerLifecycle {
     specSource?: string,
     idleStopSeconds?: number,
   ): Promise<RuntimeStatus> {
-    const rt = this.runtime(id)
+    const rt = this.table.runtime(id)
     // Neither `running` nor `installed` is known here, only believed: the
     // first survives in the map long after the container behind it died, and
     // the second is what an empty map says about a container an unclean exit
@@ -504,10 +345,10 @@ export class DockerLifecycle {
     if (!checked.ok) {
       return checked.status
     }
-    this.transition(rt, 'installed')
+    this.table.transition(rt, 'installed')
     rt.fix = undefined
     rt.lastError = undefined
-    return this.getStatus(id)
+    return this.table.status(id)
   }
 
   /** Image then artifacts, in that order: an absent image is the cheaper and more likely fault, and its error names the pull. */
@@ -529,10 +370,10 @@ export class DockerLifecycle {
   }
 
   private fail(id: string, rt: Runtime, error: string, fix?: string): RuntimeStatus {
-    this.transition(rt, 'unavailable')
+    this.table.transition(rt, 'unavailable')
     rt.fix = fix
     rt.lastError = error
-    return this.getStatus(id)
+    return this.table.status(id)
   }
 
   private async doStart(
@@ -541,7 +382,7 @@ export class DockerLifecycle {
     spec: RunnableContainerSpec,
     opts: LifecycleOptions,
   ): Promise<RuntimeStatus> {
-    this.transition(rt, 'warming')
+    this.table.transition(rt, 'warming')
     rt.fix = undefined
     rt.lastError = undefined
 
@@ -549,11 +390,11 @@ export class DockerLifecycle {
     if (!checked.ok) {
       return checked.status
     }
-    const ran = await this.runContainer(rt.containerName, spec, checked.containerPort)
+    const ran = await runContainer(this.exec, rt.containerName, spec, checked.containerPort)
     if (!ran.ok) {
       return this.fail(id, rt, ran.error)
     }
-    const hostPort = await this.readHostPort(rt.containerName, checked.containerPort)
+    const hostPort = await readHostPort(this.exec, rt.containerName, checked.containerPort)
     if (hostPort === null) {
       return this.fail(id, rt, `${rt.containerName}: docker port returned no host binding`)
     }
@@ -571,53 +412,10 @@ export class DockerLifecycle {
     }
 
     rt.hostPort = hostPort
-    this.transition(rt, 'running')
+    this.table.transition(rt, 'running')
     rt.imageCheck = null
     rt.artifactCheck = null
-    return this.getStatus(id)
-  }
-
-  /**
-   * `pull` always has a runnable fix: the image name is the whole command.
-   * `build` does not by default -- `docker build <image>` treats the image
-   * name as a context PATH and fails. A real fix needs the spec's own
-   * directory, which is the build context and where its Dockerfile lives
-   * unless `dockerfile-path` names another. `obtain = "build"` with no
-   * Dockerfile to be found means the image was built elsewhere and only
-   * tagged locally, so naming a path that does not exist would be the same
-   * defect in a new costume.
-   */
-  private buildImageFix(spec: RunnableContainerSpec, specSource?: string): string {
-    if (spec.obtain === 'pull') {
-      return `docker pull ${spec.image}`
-    }
-    if (specSource !== undefined) {
-      const dockerfile = specDockerfile(specSource)
-      if (existsSync(dockerfile)) {
-        return `docker build -t ${spec.image}${extraBuildContexts(specSource)}${extraBuildArgs(specSource)} -f ${dockerfile} ${specSource}`
-      }
-    }
-    const where = specSource === undefined ? '' : ` at ${specSource}`
-    return `${spec.image}: no Dockerfile${where} to build from -- this image must already exist locally, built some other way`
-  }
-
-  private async checkImage(
-    spec: RunnableContainerSpec,
-    specSource?: string,
-  ): Promise<Result<{ containerPort: number }>> {
-    const res = await this.exec(['image', 'inspect', spec.image])
-    if (res.exitCode !== 0) {
-      return {
-        ok: false,
-        fix: this.buildImageFix(spec, specSource),
-        error: `${spec.image}: image not present`,
-      }
-    }
-    const parsed = parseExposedPort(res.stdout, spec.image)
-    if ('error' in parsed) {
-      return { ok: false, error: parsed.error }
-    }
-    return { ok: true, containerPort: parsed.port }
+    return this.table.status(id)
   }
 
   /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix (e.g. `docker pull`) can make it pass, and that fix happens outside this process. */
@@ -627,7 +425,7 @@ export class DockerLifecycle {
     specSource?: string,
   ): Promise<Result<{ containerPort: number }>> {
     if (!rt.imageCheck) {
-      rt.imageCheck = this.checkImage(spec, specSource)
+      rt.imageCheck = checkImage(this.exec, spec, specSource)
     }
     const result = await rt.imageCheck
     if (!result.ok) {
@@ -642,102 +440,13 @@ export class DockerLifecycle {
       return { ok: true }
     }
     if (!rt.artifactCheck) {
-      rt.artifactCheck = this.checkArtifacts(spec)
+      rt.artifactCheck = checkArtifacts(this.exec, spec)
     }
     const result = await rt.artifactCheck
     if (!result.ok) {
       rt.artifactCheck = null
     }
     return result
-  }
-
-  /**
-   * A bind-mounted artifact is a plain host `stat` — no container needed.
-   * What's left after that (a named volume, or nothing declared to mount it
-   * at all) is checked the only way it can be: a short-lived container per
-   * artifact, mounting every volume the spec declares.
-   */
-  private async checkArtifacts(spec: RunnableContainerSpec): Promise<Result> {
-    const needsContainer: Artifact[] = []
-    for (const artifact of spec.artifacts) {
-      const hostPath = hostPathFor(artifact, spec.volumes)
-      if (hostPath === null) {
-        needsContainer.push(artifact)
-      } else if (!existsSync(hostPath)) {
-        return this.missingArtifact(spec.image, artifact)
-      }
-    }
-    if (needsContainer.length === 0) {
-      return { ok: true }
-    }
-    const volumeArgs = spec.volumes.flatMap((v) => ['-v', mountSpec(v)])
-    const checks = await Promise.all(
-      needsContainer.map(async (artifact) => ({
-        artifact,
-        res: await this.exec([
-          'run',
-          '--rm',
-          '--entrypoint',
-          'sh',
-          ...volumeArgs,
-          spec.image,
-          '-c',
-          `test -e '${artifact.path}'`,
-        ]),
-      })),
-    )
-    for (const { artifact, res } of checks) {
-      if (res.exitCode === 0) {
-        continue
-      }
-      if (res.exitCode === DOCKER_START_FAILURE_EXIT_CODE) {
-        return {
-          ok: false,
-          error: `${spec.image}: could not check artifact ${artifact.path} (volume unreachable)`,
-        }
-      }
-      return this.missingArtifact(spec.image, artifact)
-    }
-    return { ok: true }
-  }
-
-  private missingArtifact(image: string, artifact: Artifact): Result {
-    return {
-      ok: false,
-      fix: artifact.obtain,
-      error: `${image}: artifact missing at ${artifact.path}`,
-    }
-  }
-
-  /**
-   * A container by this name is never resumed as-is: its creation-time args
-   * can predate the spec now in force. `-f` is required, not cosmetic: a
-   * still-running container (the exact case a daemon restart leaves behind)
-   * refuses a plain `rm`, and the `docker run` that follows then fails 125
-   * "name already in use" -- indistinguishable from a genuine startup
-   * failure unless something recovers it. "No such container" is the normal
-   * case (nothing to remove) and is not an error; anything else means `run`
-   * would hit the same conflict, so it is surfaced now instead.
-   */
-  private async runContainer(
-    containerName: string,
-    spec: RunnableContainerSpec,
-    containerPort: number,
-  ): Promise<Result> {
-    const rm = await this.exec(['rm', '-f', containerName])
-    if (rm.exitCode !== 0 && !NO_SUCH_CONTAINER.test(rm.stderr)) {
-      return { ok: false, error: rm.stderr.trim() || `docker rm -f failed for ${containerName}` }
-    }
-    const run = await this.exec(buildRunArgs(containerName, spec, containerPort))
-    if (run.exitCode !== 0) {
-      return { ok: false, error: run.stderr.trim() || `docker run failed for ${containerName}` }
-    }
-    return { ok: true }
-  }
-
-  private async readHostPort(containerName: string, containerPort: number): Promise<number | null> {
-    const res = await this.exec(['port', containerName, `${containerPort}/tcp`])
-    return res.exitCode === 0 ? parseHostPort(res.stdout) : null
   }
 
   /**
@@ -776,7 +485,7 @@ export class DockerLifecycle {
   private async stopContainer(rt: Runtime): Promise<boolean> {
     const priorState = rt.state
     const priorPort = rt.hostPort
-    this.markStopped(rt)
+    this.table.markStopped(rt)
     const res = await this.exec(['stop', rt.containerName])
     if (res.exitCode !== 0) {
       rt.lastError = res.stderr.trim() || `docker stop failed for ${rt.containerName}`
@@ -785,7 +494,7 @@ export class DockerLifecycle {
       // truth it held before the attempt.
       if (rt.state === 'installed' && rt.hostPort === null) {
         rt.hostPort = priorPort
-        this.transition(rt, priorState)
+        this.table.transition(rt, priorState)
       }
       return false
     }
@@ -794,27 +503,14 @@ export class DockerLifecycle {
   }
 
   /**
-   * `docker logs --tail`, merged. docker writes the container's stdout to ours
-   * and its stderr to ours, so the two arrive already separated and their
-   * relative order is lost before this sees them -- most engines log to stderr,
-   * so dropping it would return an empty log for a container that is talking.
+   * `docker logs --tail`, stdout and stderr merged.
    *
    * Keyed off the deterministic container name rather than this process's own
    * runtime map, so an engine started by a previous engined still has readable
    * logs. A container that does not exist surfaces docker's own message.
    */
   async logs(id: string, tail: number): Promise<Result<{ lines: string[] }>> {
-    const { containerName } = this.runtime(id)
-    const res = await this.exec(['logs', '--tail', String(tail), containerName])
-    if (res.exitCode !== 0) {
-      return { ok: false, error: res.stderr.trim() || `docker logs failed for ${containerName}` }
-    }
-    const merged = `${res.stdout}${res.stderr}`.split('\n')
-    // A trailing newline yields one empty element that is not a log line.
-    if (merged.at(-1) === '') {
-      merged.pop()
-    }
-    return { ok: true, lines: merged }
+    return await readLogs(this.exec, this.table.runtime(id).containerName, tail)
   }
 
   /**
@@ -823,18 +519,11 @@ export class DockerLifecycle {
    * no cgroup to read, which is a different answer from "holds nothing".
    */
   async resources(id: string): Promise<Result<{ resources: EngineResources }>> {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (rt?.state !== 'running') {
       return { ok: false, error: `"${id}" is not running` }
     }
-    const res = await this.exec(['exec', rt.containerName, 'sh', '-c', RESOURCE_PROBE_SH])
-    if (res.exitCode !== 0) {
-      return {
-        ok: false,
-        error: res.stderr.trim() || `docker exec failed for ${rt.containerName}`,
-      }
-    }
-    return { ok: true, resources: parseResources(res.stdout) }
+    return await readResources(this.exec, rt.containerName)
   }
 
   /**
@@ -843,11 +532,11 @@ export class DockerLifecycle {
    * with the container they belonged to.
    */
   async stop(id: string): Promise<RuntimeStatus> {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (rt && (rt.state === 'running' || rt.state === 'warming')) {
       await this.stopContainer(rt)
     }
-    return this.getStatus(id)
+    return this.table.status(id)
   }
 
   /**
@@ -859,20 +548,21 @@ export class DockerLifecycle {
    * restores the state and port it cleared -- so keeping it costs nothing.
    */
   async removeEngine(id: string): Promise<void> {
-    const rt = this.runtimes.get(id)
+    const rt = this.table.get(id)
     if (!rt) {
       return
     }
     if ((rt.state === 'running' || rt.state === 'warming') && !(await this.stopContainer(rt))) {
       throw new Error(rt.lastError ?? `docker stop failed for ${rt.containerName}`)
     }
-    this.runtimes.delete(id)
+    this.table.delete(id)
   }
 
   /** Stops every container this process started. Called at SIGTERM by the door, not from here. */
   async shutdown(): Promise<void> {
     await Promise.all(
-      [...this.runtimes.values()]
+      this.table
+        .all()
         .filter((rt) => rt.state === 'running' || rt.state === 'warming')
         .map((rt) => this.stopContainer(rt)),
     )
