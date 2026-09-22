@@ -268,24 +268,6 @@
     {
       "includes": ["**/cli.ts", "**/logger.ts", "**/log.ts", "**/main.ts"],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
-    },
-    {
-      // One class each, whose private state cross-cuts every method family:
-      // DockerLifecycle's runtime map, per-engine start locks, leases and
-      // holds; EngineRegistry's entries, statuses and watchers; LlamaRouter's
-      // per-role occupancy and its single in-flight ensure-started promise.
-      // Everything separable was separated -- command-line construction, entry
-      // building, the agentic version proof, the presets INI -- and what is
-      // left cannot be cut without threading that state through an invented
-      // signature or dissolving the class.
-      "includes": ["src/docker.ts", "src/engines.ts", "src/llama.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noExcessiveLinesPerFile": { "level": "on", "options": { "maxLines": 800 } }
-          }
-        }
-      }
     }
   ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
