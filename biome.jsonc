@@ -20,7 +20,9 @@
       "!**/public/pagefind",
       "!**/dist-release",
       "!.claude",
-      "!**/database.types.ts"
+      "!**/database.types.ts",
+      "!**/design/doc-page.js",
+      "!**/design/support.js"
     ]
   },
   "formatter": {
