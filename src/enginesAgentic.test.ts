@@ -8,11 +8,11 @@ import { EngineRegistry } from './engines.ts'
 import {
   AGENTIC,
   AGENTIC_NO_VERSION_PLACEHOLDER,
+  initTestRoot,
   newEnginesRoot,
   registry,
   specLessProxyEngine,
   TTS_EMPTY_COMMAND,
-  useTestRoot,
 } from './enginesFixtures.ts'
 import { FatalError } from './errors/fatal.ts'
 import { stateDir } from './paths.ts'
@@ -28,7 +28,7 @@ import {
 } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
 
-useTestRoot('engined-engines-agentic-test-')
+initTestRoot('engined-engines-agentic-test-')
 
 const RX_WIRE_MISMATCH = /wire "openai".*speaks "anthropic"/
 const RX_IS_SELF = /is "self"/

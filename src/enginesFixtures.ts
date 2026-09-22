@@ -17,13 +17,13 @@ let testRoot: string | undefined
  * once that file's tests finish. Per file, because a root shared across
  * files is gone by the time the second file runs.
  */
-export function useTestRoot(prefix: string): void {
+export function initTestRoot(prefix: string): void {
   testRoot = makeTestRoot(prefix)
 }
 
-function root(): string {
+function testRootDir(): string {
   if (testRoot === undefined) {
-    throw new Error('call useTestRoot at the top of the test file first')
+    throw new Error('call initTestRoot at the top of the test file first')
   }
   return testRoot
 }
@@ -37,7 +37,7 @@ function root(): string {
  * otherwise, not a sandbox.
  */
 export function redirectStateHome(): () => void {
-  const stateHome = mkdtempSync(join(root(), 'engined-state-'))
+  const stateHome = mkdtempSync(join(testRootDir(), 'engined-state-'))
   const previous = process.env.XDG_STATE_HOME
   process.env.XDG_STATE_HOME = stateHome
   return () => {
@@ -50,7 +50,7 @@ export function redirectStateHome(): () => void {
 }
 
 export function newEnginesRoot(): string {
-  return mkdtempSync(join(root(), 'engined-engines-'))
+  return mkdtempSync(join(testRootDir(), 'engined-engines-'))
 }
 
 export const PULLED_CONTAINER = `

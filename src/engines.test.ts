@@ -7,6 +7,7 @@ import { DockerLifecycle, type Probe } from './docker.ts'
 import { buildRunArgs } from './dockerArgs.ts'
 import { EngineRegistry } from './engines.ts'
 import {
+  initTestRoot,
   MISSING_ARTIFACT_EXEC,
   NO_IMAGE_EXEC,
   newEnginesRoot,
@@ -21,7 +22,6 @@ import {
   setupLlama,
   specLessProxyEngine,
   TTS_EMPTY_COMMAND,
-  useTestRoot,
 } from './enginesFixtures.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
@@ -42,7 +42,7 @@ import {
 } from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
 
-useTestRoot('engined-engines-test-')
+initTestRoot('engined-engines-test-')
 
 const RX_DISABLED_START = /is disabled in config/
 const RX_NO_ENDPOINT = /engine "img".*serves no endpoint to ask it through/
