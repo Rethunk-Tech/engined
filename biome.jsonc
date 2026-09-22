@@ -18,7 +18,8 @@
       "!**/*.min.js",
       "!**/vendor",
       "!**/public/pagefind",
-      "!**/dist-release"
+      "!**/dist-release",
+      "!.claude"
     ]
   },
   "formatter": {
@@ -35,10 +36,13 @@
       "correctness": {
         "noNodejsModules": "off",
         "noSolidDestructuredProps": "off",
-        "useQwikValidLexicalScope": "off"
+        "useQwikValidLexicalScope": "off",
+        "noUndeclaredDependencies": "off"
       },
       "suspicious": {
-        "noReactSpecificProps": "off"
+        "noReactSpecificProps": "off",
+        "noUndeclaredEnvVars": "off",
+        "noExplicitAny": "error"
       },
       "performance": {
         "noAwaitInLoops": "off",
@@ -75,7 +79,12 @@
           "options": {
             "maxLines": 500
           }
-        }
+        },
+        "noParameterProperties": "off",
+        "noExcessiveClassesPerFile": "off",
+        "useConsistentArrayType": "off",
+        "useImportType": "error",
+        "noNonNullAssertion": "error"
       },
       "complexity": {
         "noExcessiveCognitiveComplexity": {
