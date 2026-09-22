@@ -33,11 +33,17 @@
     "rules": {
       "preset": "all",
       "correctness": {
-        "noNodejsModules": "off"
+        "noNodejsModules": "off",
+        "noSolidDestructuredProps": "off",
+        "useQwikValidLexicalScope": "off"
       },
-      "suspicious": {},
+      "suspicious": {
+        "noReactSpecificProps": "off"
+      },
       "performance": {
-        "noAwaitInLoops": "off"
+        "noAwaitInLoops": "off",
+        "noJsxPropsBind": "off",
+        "useSolidForComponent": "off"
       },
       "style": {
         "noTernary": "off",
