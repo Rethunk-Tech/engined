@@ -20,7 +20,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowUnusedLabels": false,
-    "allowUnreachableCode": false
+    "allowUnreachableCode": false,
+    "erasableSyntaxOnly": true,
+    "useDefineForClassFields": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
