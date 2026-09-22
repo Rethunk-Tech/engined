@@ -97,7 +97,7 @@ export async function handleVoiceUpload(req: Request): Promise<Response> {
       `reference voice is ${declared} bytes; the limit is ${MAX_VOICE_BYTES}`,
     )
   }
-  let file: FormDataEntryValue | null = null
+  let file: ReturnType<FormData['get']> = null
   try {
     file = (await req.formData()).get('file')
   } catch {
