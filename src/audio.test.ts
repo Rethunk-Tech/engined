@@ -930,7 +930,7 @@ test('a recording streamed as the request body is refused a chain rather than re
   const res = await handleAudioTranscription(ctx, req)
 
   expect(res.status).toBe(400)
-  expect((await res.json()).error).toContain('cannot be replayed')
+  expect(((await res.json()) as { error: string }).error).toContain('cannot be replayed')
 })
 
 test('a speech call records the upstream its route resolved to, not a bare null', async () => {

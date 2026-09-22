@@ -26,7 +26,7 @@ export function isCursorPath(pathname: string): boolean {
 }
 
 function protoResponse(body: Uint8Array): Response {
-  return new Response(body as BodyInit, {
+  return new Response(body, {
     status: 200,
     headers: { 'content-type': PROTO_TYPE },
   })

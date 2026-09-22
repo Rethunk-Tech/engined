@@ -62,10 +62,8 @@ function liveTranscription(req: Request): TranscriptionForm | undefined {
 
 /** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
 async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm | undefined> {
-  let form: FormData
-  try {
-    form = await req.formData()
-  } catch {
+  const form = await req.formData().catch(() => undefined)
+  if (form === undefined) {
     return undefined
   }
   const rawModel = form.get('model')

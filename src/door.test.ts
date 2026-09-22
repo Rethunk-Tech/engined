@@ -1210,22 +1210,20 @@ function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
 const TOOL_NOW = { type: 'function', function: { name: 'now', parameters: {} } }
 
 /** One tool-fallback door per call, posted a chat body and read back whole -- the spawn log is what proves the agent was never reached. */
+type ToolFallbackBody = {
+  choices?: { finish_reason?: string }[]
+  error?: string
+  attempts?: { failure?: string }[]
+}
+
 async function toolFallbackCall(
   body: Record<string, unknown>,
   agenticFirst = false,
-): Promise<{
-  status: number
-  body: {
-    choices?: { finish_reason?: string }[]
-    error?: string
-    attempts?: { failure?: string }[]
-  }
-  spawnCalls: string[][]
-}> {
+): Promise<{ status: number; body: ToolFallbackBody; spawnCalls: string[][] }> {
   const spawnCalls: string[][] = []
   const door = toolFallbackDoor(spawnCalls, agenticFirst)
   const res = await door.fetch(chatRequest(body))
-  return { status: res.status, body: await res.json(), spawnCalls }
+  return { status: res.status, body: (await res.json()) as ToolFallbackBody, spawnCalls }
 }
 
 describe('the door: a tool call never falls back into prose', () => {
@@ -2773,7 +2771,7 @@ function captureOutgoingBody(): {
 } {
   const originalFetch = globalThis.fetch
   let captured: { model?: string } | undefined
-  globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = ((_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     captured =
       typeof init?.body === 'string' ? (JSON.parse(init.body) as { model?: string }) : undefined
     return Promise.resolve(

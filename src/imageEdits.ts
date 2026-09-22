@@ -56,8 +56,11 @@ interface EditRequest {
   image: Blob
 }
 
+/** What `Request.formData()` resolves to; Bun types it apart from the global `FormData` an outgoing form is built with. */
+type RequestForm = Awaited<ReturnType<Request['formData']>>
+
 /** One numeric multipart field, or the 400 naming it. A form field is a string, so the whole point is refusing what does not parse rather than letting `Number()` produce a NaN nothing checks. */
-function numberField(form: FormData, key: string): number | undefined | Response {
+function numberField(form: RequestForm, key: string): number | undefined | Response {
   const raw = form.get(key)
   if (raw === null) {
     return undefined
@@ -67,7 +70,7 @@ function numberField(form: FormData, key: string): number | undefined | Response
 }
 
 /** The `image` part, or the 400 for a form that carries none, an empty one, or one too large to hold in memory. */
-function editImage(form: FormData): Blob | Response {
+function editImage(form: RequestForm): Blob | Response {
   const image = form.get('image')
   if (!(image instanceof Blob) || image.size === 0) {
     return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required')
@@ -82,7 +85,7 @@ function editImage(form: FormData): Blob | Response {
 }
 
 /** The multipart fields the edits verb reads, or the 400 that says which one is wrong. */
-function parseEditRequest(form: FormData): EditRequest | Response {
+function parseEditRequest(form: RequestForm): EditRequest | Response {
   const image = editImage(form)
   if (image instanceof Response) {
     return image
@@ -170,10 +173,8 @@ export async function handleImageEdit(
   req: Request,
   signal?: AbortSignal,
 ): Promise<Response> {
-  let form: FormData
-  try {
-    form = await req.formData()
-  } catch {
+  const form = await req.formData().catch(() => undefined)
+  if (form === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an `image` part')
   }
   const rawModel = form.get('model')
