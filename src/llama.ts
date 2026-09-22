@@ -1,9 +1,9 @@
 /**
  * The llama.cpp router: one container, one `llama-server` in router mode,
  * one resident GGUF per role. Composes `DockerLifecycle` for the container
- * itself and `loadSpec` for the spec and precedence rules;
- * this file owns only what those don't: the presets INI, per-role occupancy,
- * and the load/unload/proxy sequence.
+ * itself, `loadSpec` for the spec and precedence rules, `RoleScheduler` for
+ * per-role occupancy and `LlamaUpstream` for the calls into llama-server;
+ * this file owns the presets INI and the lease/proxy sequence around them.
  *
  * `--models-preset` is the only channel proven to reach a child's argv — a
  * `POST /models/load` with an `args` array left argv unchanged in the probe
@@ -13,15 +13,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { DockerLifecycle } from './docker.ts'
-import {
-  CONTENT_TYPE,
-  discardBody,
-  HTTP_SERVER_ERROR_MIN,
-  type HttpClient,
-  JSON_CONTENT_TYPE,
-  SSE_CONTENT_TYPE,
-  STATUS_BAD_REQUEST,
-} from './http.ts'
+import { CONTENT_TYPE, type HttpClient, SSE_CONTENT_TYPE } from './http.ts'
+import { RoleScheduler } from './llamaRoles.ts'
 import {
   AUTO_PARALLEL,
   buildLlamaSpec,
@@ -29,17 +22,11 @@ import {
   readIfExists,
   renderPresetIni,
 } from './llamaSpec.ts'
+import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
 import type { RoleContention } from './responses.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
-
-interface RoleWaiter {
-  modelId: string
-  /** `true` when this waiter's own grant is the one that swapped the resident. */
-  resolve: (swapped: boolean) => void
-  reject: (err: unknown) => void
-}
+import { parseRecord } from './types.ts'
 
 /**
  * The `model` field a chat/embeddings response body echoes back: the INI
@@ -56,42 +43,6 @@ export function reportedModelFrom(body: unknown): string | undefined {
 
 /** Fixed and internal: not configuration, so no operator ever sees or names it. */
 const DEFAULT_POLL_INTERVAL_MS = 250
-/**
- * The message bodies llama-server SENDS: the statuses they ride on are the
- * registry's in `http.ts`, only the wording is llama-server's own, so only
- * the wording is named here. This one is llama-server's answer once its own
- * residency disagrees with this router's.
- */
-const MODEL_NOT_LOADED_MESSAGE = 'model is not loaded'
-/** The router proxying to a child it has already begun stopping: accepted the unload, has not finished it. */
-const PROXY_UNREACHABLE_MESSAGE = 'Could not establish connection'
-
-/** Not an upstream status like the group above: the bytes this door writes while a cold swap is still waiting. */
-const WARMING_COMMENT = new TextEncoder().encode(': warming\n\n')
-
-/** One entry of llama-server's `GET /v1/models`, in the only shape this router reads. */
-interface ListedModel {
-  id: string
-  status?: { value?: string }
-}
-
-interface RoleState {
-  activeModelId: string | null
-  activeCount: number
-  /**
-   * The door's own admission ceiling while `activeModelId` is resident:
-   * `capacityFor`'s reading of that model's merged `parallel`, kept here
-   * as a real number rather than re-read from the loose args record at
-   * every admission check. Recomputed each time `activeModelId` changes,
-   * since a swap can move a role onto a differently-configured model.
-   * `Infinity` until the first model loads, since nothing is in flight to
-   * admit against before there is a resident model to read a `parallel` off.
-   */
-  capacity: number
-  queue: RoleWaiter[]
-  pumping: boolean
-}
-
 /**
  * One hop's answer, with the GGUF the engine reported holding for the role
  * while that answer was being served. Read under the same lease, so it cannot
@@ -123,59 +74,9 @@ function wantsStream(init: RequestInit): boolean {
   return typeof body === 'string' && parseRecord(body)?.stream === true
 }
 
-/**
- * The consumer-driven half of `fetchStreamed`: chunks piped from the already
- * open upstream reader, and `release` called on whichever terminus arrives --
- * drain, error, or the client cancelling. Module-scope because it touches no
- * router state; the lease is entirely `release`'s business.
- */
-function pipeUpstream(
-  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
-  emitWarming: boolean,
-  release: () => void,
-): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start: (controller) => {
-      if (emitWarming) {
-        controller.enqueue(WARMING_COMMENT)
-      }
-      if (!reader) {
-        controller.close()
-        release()
-      }
-    },
-    pull: async (controller) => {
-      if (!reader) {
-        return
-      }
-      try {
-        const { done, value } = await reader.read()
-        if (done) {
-          controller.close()
-          release()
-          return
-        }
-        controller.enqueue(value)
-      } catch (err) {
-        controller.error(err instanceof Error ? err : new Error(String(err)))
-        release()
-      }
-    },
-    cancel: (reason) => {
-      release()
-      // A client disconnecting mid-stream cancels this ReadableStream, but
-      // that alone leaves the upstream llama-server connection open (and its
-      // reader pending) until GC -- cancel it too so the socket closes now,
-      // not eventually.
-      reader?.cancel(reason).catch(() => undefined)
-    },
-  })
-}
-
 export class LlamaRouter {
-  private readonly roleStates = new Map<Role, RoleState>()
-  private readonly httpClient: HttpClient
-  private readonly pollIntervalMs: number
+  private readonly scheduler: RoleScheduler
+  private readonly upstream: LlamaUpstream
   private readonly presetHostPath: string
   private totalActive = 0
   /** De-dupes concurrent first-requests the same way `DockerLifecycle.start`'s own `startPromise` does -- `ensureStarted` now has a second mutating step (a recreate) that isn't safe to double-fire. */
@@ -198,19 +99,34 @@ export class LlamaRouter {
     this.routes = routes
     this.lifecycle = lifecycle
     this.opts = opts
-    this.httpClient = opts.httpClient ?? fetch
-    this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+    this.upstream = new LlamaUpstream({
+      engineId: engine.id,
+      lifecycle,
+      httpClient: opts.httpClient ?? fetch,
+      readyTimeoutS: opts.readyTimeoutS,
+      pollIntervalMs: opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+      ensureStarted: () => this.ensureStarted(),
+    })
+    this.scheduler = new RoleScheduler({
+      swap: async (from, to) => {
+        if (from !== null) {
+          await this.upstream.unload(from)
+        }
+        await this.upstream.loadAndWait(to)
+      },
+      capacityFor: (role, modelId) => this.capacityFor(role, modelId),
+      pinnedModel: (role) => this.pinnedFor(role)?.model,
+    })
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath()
   }
 
   /**
    * The model id currently resident for `role`, or `null` if none is —
    * occupancy is per role, so a caller asking "the" resident model without
-   * naming one is asking the wrong question. Read-only: unlike `roleState`,
-   * this never creates an entry for a role nothing has touched yet.
+   * naming one is asking the wrong question.
    */
   residentModel(role: Role): string | null {
-    return this.roleStates.get(role)?.activeModelId ?? null
+    return this.scheduler.residentModel(role)
   }
 
   /**
@@ -260,20 +176,9 @@ export class LlamaRouter {
     return swapped
   }
 
-  /**
-   * Every role currently doing something, for the door's own status report.
-   * Read-only in the same sense as `residentModel`: it never creates a role
-   * state, and it takes no lease -- a status read must not queue behind the
-   * traffic it is describing.
-   */
+  /** Every role currently doing something, for the door's own status report; takes no lease. */
   contention(): RoleContention[] {
-    const busy: RoleContention[] = []
-    for (const [role, state] of this.roleStates) {
-      if (state.activeCount > 0 || state.queue.length > 0) {
-        busy.push({ role, active: state.activeCount, waiting: state.queue.length })
-      }
-    }
-    return busy
+    return this.scheduler.contention()
   }
 
   /**
@@ -286,21 +191,6 @@ export class LlamaRouter {
    */
   hasOutstandingLeases(): boolean {
     return this.totalActive > 0
-  }
-
-  private roleState(role: Role): RoleState {
-    let state = this.roleStates.get(role)
-    if (!state) {
-      state = {
-        activeModelId: null,
-        activeCount: 0,
-        capacity: Number.POSITIVE_INFINITY,
-        queue: [],
-        pumping: false,
-      }
-      this.roleStates.set(role, state)
-    }
-    return state
   }
 
   /**
@@ -320,15 +210,6 @@ export class LlamaRouter {
     return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
       ? parallel
       : AUTO_PARALLEL
-  }
-
-  /** `private_url` from `getStatus` carries no scheme -- `docker.ts`'s own readiness poll prepends one too. */
-  private baseUrl(): string {
-    const url = this.lifecycle.getStatus(this.engine.id).private_url
-    if (url === null) {
-      throw new Error(`${this.engine.id}: no private_url; container is not running`)
-    }
-    return `http://${url}`
   }
 
   /** Shared by every caller in-flight at once -- see `ensureStartedPromise`'s own comment. */
@@ -377,276 +258,7 @@ export class LlamaRouter {
       idleStopSeconds: this.opts.idleStopSeconds,
       readyTimeoutS: this.opts.readyTimeoutS,
     })
-    // A fresh child holds nothing, so no role has a resident model or a known
-    // capacity any more. `activeCount` is not the child's state though: it
-    // counts leases callers are still holding and will each release exactly
-    // once, and `fetchUpstreamOnce`'s retry reaches this restart with those
-    // leases live. Zeroing it lets the pump swap out from under them and
-    // admits a second full set of requests onto the same llama.cpp slots.
-    for (const state of this.roleStates.values()) {
-      state.activeModelId = null
-      state.capacity = Number.POSITIVE_INFINITY
-    }
-  }
-
-  /**
-   * Same-GGUF overlap bypasses the queue entirely, up to the role's
-   * `capacity` -- genuine overflow past that joins the back like a real
-   * model swap does, in arrival order, and waits for `pump()` to admit it
-   * once a slot frees. `signal` is the caller's own hop budget, not the
-   * lease grant itself: a caller that aborts while still queued behind a
-   * swap (or behind capacity) must never receive that swap's `pump()` work
-   * on nobody's behalf, so an abort splices the waiter back out instead of
-   * letting it resolve late.
-   *
-   * The bypass also requires the pump to be idle. `pump` never awaits between
-   * shifting a same-model waiter and resolving it, so a pump observed running
-   * from here is parked inside `swapResident` or `rewarmPinned` -- both of
-   * which have already unloaded the old GGUF while `activeModelId` still
-   * names it and the queue is empty. That is exactly the shape the bypass
-   * tests for, and taking it there proxies to a model the child no longer
-   * holds.
-   *
-   * Resolves to whether *this* grant was the one that swapped the resident
-   * in `pump()`'s `admitAfterSwap` -- never a shared flag, since a joiner
-   * admitted moments later onto the same now-resident model must report
-   * false even though the model was cold when it asked.
-   */
-  private acquireLease(role: Role, modelId: string, signal?: AbortSignal | null): Promise<boolean> {
-    const state = this.roleState(role)
-    return new Promise<boolean>((resolve, reject) => {
-      if (
-        !state.pumping &&
-        state.queue.length === 0 &&
-        state.activeModelId === modelId &&
-        state.activeCount < state.capacity
-      ) {
-        state.activeCount += 1
-        resolve(false)
-        return
-      }
-      let onAbort: (() => void) | undefined
-      const cleanup = () => {
-        if (onAbort) {
-          signal?.removeEventListener('abort', onAbort)
-        }
-      }
-      const waiter: RoleWaiter = {
-        modelId,
-        resolve: (swapped) => {
-          cleanup()
-          resolve(swapped)
-        },
-        reject: (err) => {
-          cleanup()
-          reject(err)
-        },
-      }
-      state.queue.push(waiter)
-      if (signal) {
-        onAbort = () => {
-          const idx = state.queue.indexOf(waiter)
-          if (idx === -1) {
-            return
-          }
-          state.queue.splice(idx, 1)
-          waiter.reject(signal.reason ?? new Error('lease request aborted while queued'))
-        }
-        if (signal.aborted) {
-          onAbort()
-          return
-        }
-        signal.addEventListener('abort', onAbort, { once: true })
-      }
-      this.runPump(role)
-    })
-  }
-
-  private releaseLease(role: Role): void {
-    const state = this.roleState(role)
-    state.activeCount = Math.max(0, state.activeCount - 1)
-    this.runPump(role)
-  }
-
-  /**
-   * Reloads what `keep_resident` asked this role to hold, once the role has
-   * drained. True when it swapped, so the pump knows to look at the queue
-   * again. A failed re-warm is nobody's request to fail: it is dropped and the
-   * next release retries.
-   */
-  private async rewarmPinned(role: Role, state: RoleState): Promise<boolean> {
-    const pinned = this.pinnedFor(role)
-    if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned.model) {
-      return false
-    }
-    try {
-      await this.swapResident(role, pinned.model)
-    } catch {
-      return false
-    }
-    state.activeModelId = pinned.model
-    state.capacity = this.capacityFor(role, pinned.model)
-    return true
-  }
-
-  /** `pump` itself never rejects -- a failed swap is routed to its waiter's own `reject` -- so a catch here only guards a bug in pump. */
-  private runPump(role: Role): void {
-    this.pump(role).catch((_err: unknown) => {
-      // pump() never rejects by design; nothing to do beyond not crashing.
-    })
-  }
-
-  /**
-   * Grants queued entries matching the current resident up to its
-   * `capacity` — they share its slots, and the rest wait for a `release` to
-   * call `pump` again rather than being handed a lease the server would
-   * only queue internally with no visibility for this door. The first entry
-   * naming a different GGUF stalls the pump until the resident's in-flight
-   * count drains, then swaps, so a steady stream of same-model traffic
-   * queued behind a swap cannot starve it.
-   */
-  private async pump(role: Role): Promise<void> {
-    const state = this.roleState(role)
-    if (state.pumping) {
-      return
-    }
-    state.pumping = true
-    try {
-      for (;;) {
-        const [front] = state.queue
-        if (!front) {
-          // Re-check the queue after a re-warm rather than returning: a request
-          // arriving during the swap queues behind a pump that is already
-          // running, and would otherwise never be woken.
-          if (await this.rewarmPinned(role, state)) {
-            continue
-          }
-          return
-        }
-        if (state.activeModelId === front.modelId) {
-          if (state.activeCount >= state.capacity) {
-            // At the door, not the queue: the front waiter stays put and the
-            // next `releaseLease` re-runs the pump, exactly as a swap stalls
-            // on `activeCount > 0` below.
-            return
-          }
-          state.queue.shift()
-          state.activeCount += 1
-          front.resolve(false)
-          continue
-        }
-        if (state.activeCount > 0) {
-          return
-        }
-        state.queue.shift()
-        await this.admitAfterSwap(role, state, front)
-      }
-    } finally {
-      state.pumping = false
-    }
-  }
-
-  /** Swaps the resident to `front`'s GGUF and grants it the first slot; a failed swap rejects only `front`. */
-  private async admitAfterSwap(role: Role, state: RoleState, front: RoleWaiter): Promise<void> {
-    try {
-      await this.swapResident(role, front.modelId)
-    } catch (err) {
-      front.reject(err)
-      return
-    }
-    state.activeModelId = front.modelId
-    state.capacity = this.capacityFor(role, front.modelId)
-    state.activeCount += 1
-    front.resolve(true)
-  }
-
-  private async swapResident(role: Role, modelId: string): Promise<void> {
-    const state = this.roleState(role)
-    if (state.activeModelId !== null) {
-      await this.unload(state.activeModelId)
-    }
-    await this.loadAndWait(modelId)
-  }
-
-  /**
-   * A refused unload is the one failure a swap must not ride past: the caller
-   * would load the incoming GGUF beside a ~25 GB one the child still holds,
-   * and `admitAfterSwap` would record the newcomer as the resident either way.
-   * Throwing fails only the request that asked for the swap and leaves the
-   * role's belief matching what the child actually holds.
-   */
-  private async unload(modelId: string): Promise<void> {
-    const res = await this.fetchUpstreamOnce('/models/unload', {
-      method: 'POST',
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: JSON.stringify({ model: modelId }),
-    })
-    if (!res.ok) {
-      throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`)
-    }
-    await discardBody(res)
-  }
-
-  /**
-   * `/models/load` is asynchronous, but not the way it looks from the docs,
-   * and its own response is not the ready signal either -- both probed live
-   * against b10354. It never returns `{"status":"loaded"}`: a not-yet-
-   * resident model answers `{"success":true}` (accepted) and a call for an
-   * already-resident one 400s `{"error":{"message":"model is already
-   * running"}}`. That 400 looked like readiness and is not: on a 23 GB GGUF
-   * it fired ~0.25s after the trigger call, while the child was still on
-   * `text_model` stage 0 of its load, and a request proxied at that point
-   * 503'd. The real signal is `GET /v1/models`'s per-model
-   * `data[].status.value`, which transitions `unloaded -> loading -> loaded`
-   * and only reaches `loaded` once the child is actually able to serve --
-   * confirmed against the same GGUF, ~8s cold. Bounded by `readyTimeoutS` --
-   * the same per-engine budget the container readiness poll uses, since both
-   * are "wait for the engine to become able to serve." A load that never
-   * reaches `loaded` within it throws, so the caller's lease request rejects
-   * instead of wedging the role's pump forever.
-   */
-  private async loadAndWait(modelId: string): Promise<void> {
-    const deadline = Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND
-    const triggerRes = await this.fetchUpstreamOnce('/models/load', {
-      method: 'POST',
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: JSON.stringify({ model: modelId }),
-    })
-    if (triggerRes.status === STATUS_BAD_REQUEST) {
-      const body = (await triggerRes.json()) as { error?: { message?: string } }
-      if (body.error?.message !== 'model is already running') {
-        throw new Error(`${modelId}: load failed: ${body.error?.message ?? '400'}`)
-      }
-      // Already running by another caller's race -- fall through to confirm
-      // real readiness via /v1/models rather than trusting this 400 alone.
-    } else if (triggerRes.ok) {
-      await discardBody(triggerRes)
-    } else {
-      throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`)
-    }
-    const resident = await pollUntil(
-      async () => (await this.modelStatus(modelId)) === 'loaded',
-      deadline,
-      this.pollIntervalMs,
-    )
-    if (!resident) {
-      throw new Error(
-        `${modelId}: did not become resident within readyTimeoutS=${this.opts.readyTimeoutS}s`,
-      )
-    }
-  }
-
-  /** The engine's own view of what it holds. Both callers below read it fresh; neither caches. */
-  private async listedModels(): Promise<ListedModel[]> {
-    const res = await this.fetchUpstreamOnce('/v1/models', { method: 'GET' })
-    const body = (await res.json()) as { data?: ListedModel[] }
-    return body.data ?? []
-  }
-
-  /** One model's readiness field: `unloaded | loading | loaded`, from `GET /v1/models`. */
-  private async modelStatus(modelId: string): Promise<string | undefined> {
-    const listed = await this.listedModels()
-    return listed.find((m) => m.id === modelId)?.status?.value
+    this.scheduler.forgetResidents()
   }
 
   /**
@@ -667,7 +279,7 @@ export class LlamaRouter {
    * `residentModel` is the point, and caching would dissolve it.
    */
   async residentModelId(role: Role): Promise<string | undefined> {
-    const listed = await this.listedModels()
+    const listed = await this.upstream.listedModels()
     const roleIds = new Set(
       this.routes.filter((r) => r.role === role && r.model !== undefined).map((r) => r.model),
     )
@@ -709,7 +321,7 @@ export class LlamaRouter {
     signal?: AbortSignal | null,
   ): Promise<boolean> {
     await this.ensureStarted()
-    const swapped = await this.acquireLease(role, modelId, signal)
+    const swapped = await this.scheduler.acquire(role, modelId, signal)
     this.totalActive += 1
     if (this.totalActive === 1) {
       this.lifecycle.beginLease(this.engine.id)
@@ -720,7 +332,7 @@ export class LlamaRouter {
 
   private finishLease(role: Role): void {
     this.totalActive -= 1
-    this.releaseLease(role)
+    this.scheduler.release(role)
     if (this.totalActive === 0) {
       this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds)
     }
@@ -746,126 +358,6 @@ export class LlamaRouter {
     }
   }
 
-  /**
-   * A container killed from outside engined leaves `state: running` and a
-   * `private_url` nothing listens on. Nothing else ever asks docker about an
-   * `openai-http` engine between starts -- `DockerLifecycle.start` returns
-   * early while it believes the engine is up -- so without this the router
-   * proxies to a dead port for the rest of the process's life, and only a
-   * restart clears it.
-   *
-   * Reconciling here costs a `docker inspect` only once a request has already
-   * failed; doing it before every request would tax every healthy one. Docker
-   * decides, so a genuine upstream error against a live container rethrows
-   * untouched rather than provoking a pointless restart.
-   *
-   * The retry re-sends `init` as given, which every caller builds with a
-   * string body (`main.ts` stringifies the JSON it forwards). A streamed
-   * request body would already be consumed and must not be retried here.
-   */
-  private async fetchUpstreamOnce(path: string, init: RequestInit): Promise<Response> {
-    try {
-      return await this.httpClient(`${this.baseUrl()}${path}`, init)
-    } catch (err) {
-      // A cancelled request is the door's own timeout budget expiring, not a
-      // container that went away: retrying it would outlive the budget that
-      // just fired, and turn a chain's 503 into a late 200.
-      if (init.signal?.aborted === true) {
-        throw err
-      }
-      const reconciled = await this.lifecycle.reconcile(this.engine.id)
-      if (reconciled.state === 'running') {
-        throw err
-      }
-      await this.ensureStarted()
-      return await this.httpClient(`${this.baseUrl()}${path}`, init)
-    }
-  }
-
-  /**
-   * `activeModelId` records what this router last commanded, not what the
-   * engine actually holds, and the two come apart whenever anything unloads
-   * behind it -- an operator poking `/models/unload`, or a router-side
-   * eviction. The lease layer then sees its own belief satisfied, skips the
-   * swap, and proxies to a child that answers 400 "model is not loaded" for
-   * the rest of the process's life: the role never reloads, because nothing
-   * in the request path ever asks the engine who is resident.
-   *
-   * So the 400 is the trigger to reconcile, exactly as a transport failure is
-   * the trigger to reconcile the container in `fetchUpstreamOnce`. Both pay
-   * only once a request has already failed rather than taxing healthy ones,
-   * and both re-send `init` as given -- safe because every caller builds it
-   * with a string body, and a consumed stream must never be retried here.
-   *
-   * `loadAndWait` is the whole repair: the belief is already correct about
-   * WHICH model belongs here, so nothing needs unloading first, and its
-   * `/v1/models` poll is what makes the retry wait for real readiness
-   * instead of racing the child's load.
-   */
-  private async fetchUpstream(
-    path: string,
-    init: RequestInit,
-    modelId?: string,
-  ): Promise<Response> {
-    const res = await this.fetchUpstreamOnce(path, init)
-    if (modelId === undefined) {
-      return res
-    }
-    const fault = await this.residencyFault(res)
-    if (fault === 'none') {
-      return res
-    }
-    // An unreachable child is one the router is still advertising as loaded,
-    // so reloading first would be a no-op and the retry would land on the same
-    // dying process. Waiting for the router to admit the instance is gone is
-    // what makes the reload real.
-    if (fault === 'unreachable') {
-      await this.awaitInstanceGone(modelId)
-    }
-    await this.loadAndWait(modelId)
-    return await this.fetchUpstreamOnce(path, init)
-  }
-
-  /**
-   * Both faults mean "the child that should serve this is not there", and
-   * both are reached only after a request has already failed. They are kept
-   * apart because they need different repairs, and because neither may be
-   * widened into "retry any 5xx": re-sending a request a live child genuinely
-   * failed turns one bad answer into two. Reads a clone so the caller still
-   * owns an unconsumed body on every path.
-   */
-  private async residencyFault(res: Response): Promise<'none' | 'not-loaded' | 'unreachable'> {
-    if (res.ok) {
-      return 'none'
-    }
-    let body: string
-    try {
-      body = await res.clone().text()
-    } catch {
-      return 'none'
-    }
-    // The router writes this one as plain text, not as its JSON error shape.
-    if (res.status === HTTP_SERVER_ERROR_MIN && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
-      return 'unreachable'
-    }
-    const error = parseRecord(body)?.error
-    return isRecord(error) && error.message === MODEL_NOT_LOADED_MESSAGE ? 'not-loaded' : 'none'
-  }
-
-  /**
-   * Bounded by the same `readyTimeoutS` every other "wait for the engine to be
-   * able to serve" uses. Giving up returns rather than throws: the reload and
-   * its own poll follow, and they are better placed to fail with a real reason
-   * than a timeout here would be.
-   */
-  private async awaitInstanceGone(modelId: string): Promise<void> {
-    await pollUntil(
-      async () => (await this.modelStatus(modelId)) !== 'loaded',
-      Date.now() + this.opts.readyTimeoutS * MS_PER_SECOND,
-      this.pollIntervalMs,
-    )
-  }
-
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
   private fetchBuffered(
     role: Role,
@@ -874,7 +366,7 @@ export class LlamaRouter {
     init: RequestInit,
   ): Promise<LlamaHop> {
     return this.withLease(role, modelId, init.signal, async () => {
-      const upstream = await this.fetchUpstream(path, init, modelId)
+      const upstream = await this.upstream.fetch(path, init, modelId)
       const body = await upstream.arrayBuffer()
       return {
         response: new Response(body, { status: upstream.status, headers: upstream.headers }),
@@ -902,8 +394,7 @@ export class LlamaRouter {
     path: string,
     init: RequestInit,
   ): Promise<LlamaHop> {
-    const state = this.roleState(role)
-    const emitWarming = !(state.queue.length === 0 && state.activeModelId === modelId)
+    const emitWarming = !this.scheduler.isResident(role, modelId)
     await this.beginLease(role, modelId, init.signal)
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
     const release = this.streamRelease(role, init.signal, (reason) => {
@@ -914,7 +405,7 @@ export class LlamaRouter {
     // non-JSON body llama-server writes. Without this the lease is never
     // released and the engine's idle-stop is never armed again.
     try {
-      const upstream = await this.fetchUpstream(path, init, modelId)
+      const upstream = await this.upstream.fetch(path, init, modelId)
       reader = upstream.body?.getReader() as ReadableStreamDefaultReader<Uint8Array> | undefined
       const modelResident = await this.residentModelId(role)
       return {
