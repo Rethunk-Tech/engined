@@ -292,6 +292,28 @@ export function resolveModel(
   return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`)
 }
 
+/** Every model and wire id a concrete route already claims on the wildcard template's engine and upstream. */
+function claimedIds(config: Config, template: ResolvedRoute): Set<string> {
+  const claimed = new Set<string>()
+  for (const r of config.routes) {
+    if (
+      r.disabled ||
+      r.engine !== template.engine ||
+      r.upstream !== template.upstream ||
+      r.model === WILDCARD_MODEL
+    ) {
+      continue
+    }
+    if (r.model !== undefined) {
+      claimed.add(r.model)
+    }
+    if (r.wire_model !== undefined) {
+      claimed.add(r.wire_model)
+    }
+  }
+  return claimed
+}
+
 /**
  * Catalog rows synthesized from each wildcard template. A discovered id
  * whose wire id (or address segment) is already claimed by a declared
@@ -307,23 +329,7 @@ export function expandWildcardRoutes(config: Config, inventory: Inventory): Reso
     if (upstream === undefined) {
       continue
     }
-    const claimed = new Set<string>()
-    for (const r of config.routes) {
-      if (
-        r.disabled ||
-        r.engine !== template.engine ||
-        r.upstream !== template.upstream ||
-        r.model === WILDCARD_MODEL
-      ) {
-        continue
-      }
-      if (r.model !== undefined) {
-        claimed.add(r.model)
-      }
-      if (r.wire_model !== undefined) {
-        claimed.add(r.wire_model)
-      }
-    }
+    const claimed = claimedIds(config, template)
     for (const wireId of inventory.peek(upstream)) {
       if (claimed.has(wireId)) {
         continue

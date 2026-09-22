@@ -320,8 +320,42 @@ function coalescer(emit: (text: string) => void): {
   }
 }
 
+/** Execute one round's tool calls through the CLI, in order, and record each outcome in the history. */
+async function runToolCalls(
+  turn: Turn,
+  round: number,
+  calls: ChatReply['toolCalls'],
+  history: ChatMessage[],
+): Promise<void> {
+  const { send, awaitExec } = turn
+  for (const call of calls) {
+    const request = execRequest(round + 1, call.id, toolRequestFrom(call))
+    if (request === undefined) {
+      history.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: `unknown tool ${call.function.name}`,
+      })
+      continue
+    }
+    // The CLI renders from ToolCall frames and executes from the exec
+    // message; sending only the latter runs the tool invisibly.
+    const req = toolRequestFrom(call)
+    const rendered = toolCallMessage(req, call.id)
+    if (rendered !== undefined) {
+      send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)))
+    }
+    send(envelope(request))
+    const outcome = execOutcome(await awaitExec())
+    if (rendered !== undefined) {
+      send(envelope(toolCallFrame(TOOL_CALL_COMPLETED, call.id, rendered)))
+    }
+    history.push({ role: 'tool', tool_call_id: call.id, content: clamp(outcome.text) })
+  }
+}
+
 async function runTurn(turn: Turn, prompt: string): Promise<void> {
-  const { deps, send, awaitExec, total } = turn
+  const { deps, send, total } = turn
   const history: ChatMessage[] = [
     {
       role: 'system',
@@ -410,30 +444,7 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
       return
     }
     history.push({ role: 'assistant', content: reply.text, tool_calls: reply.toolCalls })
-    for (const call of reply.toolCalls) {
-      const request = execRequest(round + 1, call.id, toolRequestFrom(call))
-      if (request === undefined) {
-        history.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: `unknown tool ${call.function.name}`,
-        })
-        continue
-      }
-      // The CLI renders from ToolCall frames and executes from the exec
-      // message; sending only the latter runs the tool invisibly.
-      const req = toolRequestFrom(call)
-      const rendered = toolCallMessage(req, call.id)
-      if (rendered !== undefined) {
-        send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)))
-      }
-      send(envelope(request))
-      const outcome = execOutcome(await awaitExec())
-      if (rendered !== undefined) {
-        send(envelope(toolCallFrame(TOOL_CALL_COMPLETED, call.id, rendered)))
-      }
-      history.push({ role: 'tool', tool_call_id: call.id, content: clamp(outcome.text) })
-    }
+    await runToolCalls(turn, round, reply.toolCalls, history)
   }
   // Reaching the ceiling is a real outcome; saying nothing leaves the CLI
   // showing a turn that simply stopped.

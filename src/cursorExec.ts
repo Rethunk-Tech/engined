@@ -97,6 +97,27 @@ function parsingResult(command: string): Uint8Array {
   )
 }
 
+function grepArgs(req: ToolRequest, path: string, execId: string): Uint8Array {
+  return message(
+    stringField(1, req.pattern ?? ''),
+    stringField(2, path),
+    ...(req.glob === undefined ? [] : [stringField(3, req.glob)]),
+    ...(req.outputMode === undefined ? [] : [stringField(4, req.outputMode)]),
+    ...(req.contextBefore === undefined ? [] : [intField(5, req.contextBefore)]),
+    ...(req.contextAfter === undefined ? [] : [intField(6, req.contextAfter)]),
+    ...(req.context === undefined ? [] : [intField(7, req.context)]),
+    ...(req.caseInsensitive ? [intField(8, 1)] : []),
+    ...(req.fileType === undefined ? [] : [stringField(9, req.fileType)]),
+    ...(req.headLimit === undefined ? [] : [intField(10, req.headLimit)]),
+    ...(req.multiline ? [intField(11, 1)] : []),
+    ...(req.sort === undefined ? [] : [stringField(12, req.sort)]),
+    ...(req.sortAscending ? [intField(13, 1)] : []),
+    // The call id, which every tool carries.
+    stringField(14, execId),
+    ...(req.resultOffset === undefined ? [] : [intField(16, req.resultOffset)]),
+  )
+}
+
 function argsFor(
   req: ToolRequest,
   execId: string,
@@ -142,27 +163,7 @@ function argsFor(
     case 'delete':
       return { field: DELETE, args: message(stringField(1, path), stringField(2, execId)) }
     case 'grep':
-      return {
-        field: GREP,
-        args: message(
-          stringField(1, req.pattern ?? ''),
-          stringField(2, path),
-          ...(req.glob === undefined ? [] : [stringField(3, req.glob)]),
-          ...(req.outputMode === undefined ? [] : [stringField(4, req.outputMode)]),
-          ...(req.contextBefore === undefined ? [] : [intField(5, req.contextBefore)]),
-          ...(req.contextAfter === undefined ? [] : [intField(6, req.contextAfter)]),
-          ...(req.context === undefined ? [] : [intField(7, req.context)]),
-          ...(req.caseInsensitive ? [intField(8, 1)] : []),
-          ...(req.fileType === undefined ? [] : [stringField(9, req.fileType)]),
-          ...(req.headLimit === undefined ? [] : [intField(10, req.headLimit)]),
-          ...(req.multiline ? [intField(11, 1)] : []),
-          ...(req.sort === undefined ? [] : [stringField(12, req.sort)]),
-          ...(req.sortAscending ? [intField(13, 1)] : []),
-          // Every other tool carries its call id; grep was the one that did not.
-          stringField(14, execId),
-          ...(req.resultOffset === undefined ? [] : [intField(16, req.resultOffset)]),
-        ),
-      }
+      return { field: GREP, args: grepArgs(req, path, execId) }
     case 'ls':
       return {
         field: LS,

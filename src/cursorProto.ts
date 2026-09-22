@@ -83,6 +83,23 @@ export interface Field {
   value: number | Uint8Array
 }
 
+/** One varint at `at`: its value and the offset after it, or `undefined` when the buffer ends mid-varint. */
+function readVarint(buf: Uint8Array, at: number): { value: number; next: number } | undefined {
+  let value = 0
+  let mul = 1
+  for (let i = at; ; i += 1) {
+    const byte = buf[i]
+    if (byte === undefined) {
+      return
+    }
+    value += (byte % GROUP) * mul
+    if (byte < CONTINUATION) {
+      return { value, next: i + 1 }
+    }
+    mul *= GROUP
+  }
+}
+
 /**
  * Walk a message into its raw fields. The caller matches field numbers
  * against the schema it expects, because the wire format carries no names
@@ -92,57 +109,25 @@ export function decode(buf: Uint8Array): Field[] {
   const out: Field[] = []
   let i = 0
   while (i < buf.length) {
-    let key = 0
-    let shift = 1
-    for (;;) {
-      const byte = buf[i]
-      if (byte === undefined) {
-        return out
-      }
-      i += 1
-      key += (byte % GROUP) * shift
-      if (byte < CONTINUATION) {
-        break
-      }
-      shift *= GROUP
-    }
-    const no = Math.floor(key / 8)
-    const wire = key % 8
-    if (wire === WIRE_LENGTH) {
-      let len = 0
-      let mul = 1
-      for (;;) {
-        const byte = buf[i]
-        if (byte === undefined) {
-          return out
-        }
-        i += 1
-        len += (byte % GROUP) * mul
-        if (byte < CONTINUATION) {
-          break
-        }
-        mul *= GROUP
-      }
-      out.push({ no, value: buf.subarray(i, i + len) })
-      i += len
-    } else if (wire === WIRE_VARINT) {
-      let v = 0
-      let mul = 1
-      for (;;) {
-        const byte = buf[i]
-        if (byte === undefined) {
-          return out
-        }
-        i += 1
-        v += (byte % GROUP) * mul
-        if (byte < CONTINUATION) {
-          break
-        }
-        mul *= GROUP
-      }
-      out.push({ no, value: v })
-    } else {
+    const key = readVarint(buf, i)
+    if (key === undefined) {
       return out
+    }
+    const no = Math.floor(key.value / 8)
+    const wire = key.value % 8
+    if (wire !== WIRE_LENGTH && wire !== WIRE_VARINT) {
+      return out
+    }
+    const v = readVarint(buf, key.next)
+    if (v === undefined) {
+      return out
+    }
+    if (wire === WIRE_VARINT) {
+      out.push({ no, value: v.value })
+      i = v.next
+    } else {
+      out.push({ no, value: buf.subarray(v.next, v.next + v.value) })
+      i = v.next + v.value
     }
   }
   return out

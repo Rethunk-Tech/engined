@@ -1210,7 +1210,7 @@ function toolFallbackDoor(spawnCalls: string[][], llamaAnswers = false): Door {
 const TOOL_NOW = { type: 'function', function: { name: 'now', parameters: {} } }
 
 /** One tool-fallback door per call, posted a chat body and read back whole -- the spawn log is what proves the agent was never reached. */
-type ToolFallbackBody = {
+interface ToolFallbackBody {
   choices?: { finish_reason?: string }[]
   error?: string
   attempts?: { failure?: string }[]
