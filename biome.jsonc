@@ -30,7 +30,6 @@
     "lineEnding": "lf"
   },
   "linter": {
-    "enabled": true,
     "rules": {
       "preset": "all",
       "correctness": {
@@ -108,13 +107,17 @@
       }
     },
     "domains": {
-      "qwik": "none",
       "solid": "none"
     }
   },
   "javascript": {
     // Bun's runtime global is ambient, supplied by @types/bun rather than an import.
-    "globals": ["Bun"]
+    "globals": ["Bun"],
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all"
+    }
   },
   "overrides": [
     {
