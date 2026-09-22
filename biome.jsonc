@@ -160,8 +160,7 @@
           "security": { "noSecrets": "off" },
           "performance": { "useTopLevelRegex": "off" },
           // A test file's length is the number of cases it covers for one unit,
-          // and its fakes are the doubles those cases drive -- neither is a
-          // second job the file has taken on.
+          // not a second job the file has taken on.
           "style": {
             "noExcessiveLinesPerFile": {
               "level": "on",
@@ -169,7 +168,6 @@
                 "maxLines": 1500
               }
             },
-            "noExcessiveClassesPerFile": "off",
             "noMagicNumbers": "off",
             "noProcessEnv": "off"
           },
@@ -257,6 +255,14 @@
       "linter": {
         "rules": { "correctness": { "noNodejsModules": "off", "noProcessGlobal": "off" } }
       }
+    },
+    {
+      "includes": ["**/*.d.ts"],
+      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+    },
+    {
+      "includes": ["**/cli.ts", "**/logger.ts", "**/log.ts", "**/main.ts"],
+      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     },
     {
       // One class each, whose private state cross-cuts every method family:
