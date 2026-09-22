@@ -106,9 +106,6 @@
         "noFloatingPromises": "error",
         "noMisusedPromises": "error"
       }
-    },
-    "domains": {
-      "solid": "none"
     }
   },
   "javascript": {
