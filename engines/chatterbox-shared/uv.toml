@@ -1,0 +1,6 @@
+# Compile requirements.in for the image's interpreter and GPU: python3.12 from
+# the ROCm base, and the PyTorch packages from the ROCm 7.2 index, not PyPI's
+# CUDA builds.
+[pip]
+python-version = "3.12"
+torch-backend = "rocm7.2"

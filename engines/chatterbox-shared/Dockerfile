@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-RUN pip install --no-cache-dir torch torchvision torchaudio \
-      --index-url https://download.pytorch.org/whl/rocm7.2
-
 COPY --from=shared requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# requirements.txt pins the PyTorch packages to their ROCm 7.2 builds (uv.toml),
+# which only this index carries.
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+      --extra-index-url https://download.pytorch.org/whl/rocm7.2
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
 # and torch==2.5.1, both older than what this build actually installs above.
 # requirements.txt installs the real runtime deps at versions confirmed to

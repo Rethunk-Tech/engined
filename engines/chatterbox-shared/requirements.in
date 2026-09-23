@@ -1,0 +1,30 @@
+# chatterbox-tts (devnen's fork, gfx1151 dtype fixes) is installed --no-deps
+# in the Dockerfile: its pyproject.toml pins numpy<1.26 and torch==2.5.1,
+# neither satisfiable here (numpy<1.26 has no Python 3.12 wheel at all; we
+# run a newer torch on purpose for ROCm 7.2/gfx1151). These are its actual
+# runtime deps, and gradio is left out (its own demo UI, unused -- we only
+# call the library API via app.py). Compile with `uv pip compile
+# requirements.in -o requirements.txt`; uv.toml supplies the target.
+torch
+torchaudio
+torchvision
+numpy
+librosa
+s3tokenizer
+transformers
+diffusers
+resemble-perth
+conformer
+safetensors
+spacy-pkuseg
+pykakasi
+pyloudnorm
+omegaconf
+
+fastapi
+uvicorn[standard]
+soundfile
+
+# resemble-perth's watermarker imports pkg_resources, which setuptools 82 removed;
+# without it perth.PerthImplicitWatermarker is None and every model load fails.
+setuptools<82
