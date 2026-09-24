@@ -1,0 +1,8 @@
+# resemble-perth's watermarker imports pkg_resources. setuptools 82 removed it,
+# and 84 still does not ship it, so every model load fails above this ceiling.
+[[hold]]
+package = "setuptools"
+max_version = "81"
+ecosystem = "pip-tools"
+workspace = "engines/chatterbox-shared"
+reason = "resemble-perth imports pkg_resources, removed in setuptools 82"
