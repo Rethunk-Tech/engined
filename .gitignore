@@ -4,6 +4,7 @@ dist/
 *.tsbuildinfo
 *.db
 __pycache__/
+.repo-ops-holds.txt
 .orchestrate/
 # Rendered by the local tier's router fixtures; regenerated every run.
 test/local/.scratch-preset*.ini
