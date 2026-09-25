@@ -342,6 +342,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
         pump = p
       }),
       version: agentVersion,
+      research: research ? true : undefined,
     }
   }
   return hopResultFromAgenticOutcome(await run, research)
