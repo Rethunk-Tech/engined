@@ -152,7 +152,7 @@ pillow==12.3.0
     # via
     #   diffusers
     #   torchvision
-platformdirs==4.11.12
+platformdirs==4.11.13
     # via
     #   pooch
     #   virtualenv
@@ -277,7 +277,7 @@ typing-inspection==0.4.4
     #   pydantic
 urllib3==2.8.0
     # via requests
-uvicorn==0.53.0
+uvicorn==0.54.0
     # via -r requirements.in
 uvloop==0.22.1
     # via uvicorn
