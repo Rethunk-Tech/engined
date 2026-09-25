@@ -527,6 +527,12 @@ export const AGENTIC_FLOOR = [
  */
 export const CLAUDE_OUTPUT_FORMAT = ['--output-format', 'json'] as const
 
+/**
+ * Names the empty config `--strict-mcp-config` holds claude to. Declared as
+ * prepended so no config can name a second file and open the MCP door.
+ */
+export const CLAUDE_MCP_CONFIG_FLAG = ['--mcp-config'] as const
+
 /** The streamed form: `stream-json` needs `--verbose` in print mode, and partial messages are what make it a stream of deltas rather than one chunk per turn. */
 export const CLAUDE_STREAM_FORMAT = [
   '--output-format',
@@ -565,7 +571,7 @@ export const CURSOR_FLOOR = ['--mode', 'plan', '--trust'] as const
  * `agents.ts` composes each launch from exactly these.
  */
 export const AGENT_PREPENDED_ARGV: Record<string, readonly (readonly string[])[]> = {
-  claude: [CLAUDE_OUTPUT_FORMAT, CLAUDE_STREAM_FORMAT, AGENTIC_FLOOR],
+  claude: [CLAUDE_OUTPUT_FORMAT, CLAUDE_STREAM_FORMAT, AGENTIC_FLOOR, CLAUDE_MCP_CONFIG_FLAG],
   cursor: [CURSOR_OUTPUT_FORMAT, CURSOR_FLOOR],
 }
 

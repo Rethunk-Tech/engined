@@ -184,7 +184,7 @@ test('buildArgv: command[0] is the given bunx path, and the pin appears literall
   expect(argv.some((token) => token.includes('latest'))).toBe(false)
 })
 
-test('buildArgv: --strict-mcp-config is followed literally by the rendered config path, not left bare', () => {
+test('buildArgv: the rendered config path is the value of --mcp-config, never a positional prompt', () => {
   const argv = buildArgv({
     bunx: BUNX,
     agent: 'claude',
@@ -193,9 +193,9 @@ test('buildArgv: --strict-mcp-config is followed literally by the rendered confi
     mcpConfigPath: MCP_CONFIG_PATH,
   })
 
-  const flagIndex = argv.indexOf('--strict-mcp-config')
-  expect(flagIndex).toBeGreaterThan(-1)
-  expect(argv[flagIndex + 1]).toBe(MCP_CONFIG_PATH)
+  expect(argv).toContain('--strict-mcp-config')
+  const pathIndex = argv.indexOf(MCP_CONFIG_PATH)
+  expect(argv[pathIndex - 1]).toBe('--mcp-config')
 })
 
 test('buildArgv: an agent with resolveBinary skips bunx and the pin entirely, using the resolved path as argv[0]', () => {
@@ -451,13 +451,14 @@ test('runAgentic: command[0] resolves from the given bunx and the pin appears in
   expect(argv.some((token) => token.includes('latest'))).toBe(false)
 })
 
-test('runAgentic: --strict-mcp-config in the spawned argv names a real file holding an empty MCP config', async () => {
+test('runAgentic: --mcp-config in the spawned argv names a real file holding an empty MCP config', async () => {
   const { spawn, calls } = fakeOkSpawn()
 
   await runAgenticFixture(spawn)
 
   const [argv] = calls[0] as [string[], unknown]
-  const flagIndex = argv.indexOf('--strict-mcp-config')
+  expect(argv).toContain('--strict-mcp-config')
+  const flagIndex = argv.indexOf('--mcp-config')
   expect(flagIndex).toBeGreaterThan(-1)
   const path = argv[flagIndex + 1] as string
   expect(existsSync(path)).toBe(true)

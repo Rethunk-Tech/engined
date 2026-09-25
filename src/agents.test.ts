@@ -134,6 +134,7 @@ it('claude carries the read-only floor in its launch argv and opencode carries n
     '--output-format',
     'json',
     ...AGENTIC_FLOOR,
+    '--mcp-config',
     '/mcp.json',
   ])
   // Not an oversight: opencode has no tool or permission flag to be given, so

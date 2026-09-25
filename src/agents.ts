@@ -18,6 +18,7 @@ import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
 import {
   AGENTIC_FLOOR,
+  CLAUDE_MCP_CONFIG_FLAG,
   CLAUDE_OUTPUT_FORMAT,
   CLAUDE_STREAM_FORMAT,
   CURSOR_FLOOR,
@@ -458,6 +459,8 @@ const AGENTS: Record<string, AgentCli> = {
         ? ['--safe-mode', '--tools', 'WebSearch,WebFetch', '--strict-mcp-config']
         : AGENTIC_FLOOR),
       ...(systemPrompt === undefined ? [] : ['--append-system-prompt', systemPrompt]),
+      // --strict-mcp-config is a bare switch; a positional path would become the prompt.
+      ...CLAUDE_MCP_CONFIG_FLAG,
       mcpConfigPath,
     ],
     parse: parseClaudeEnvelope,
