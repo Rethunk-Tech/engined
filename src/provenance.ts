@@ -47,6 +47,8 @@ export interface Attempt {
   version?: string
   /** This hop's resolved `[[upstream]]` id, or `"local"`. Absent for an ambient hop, which named no upstream at all. */
   upstream_used?: string
+  /** Present only when this agentic call used the web-only research floor. */
+  research?: true
   /** What the engine said this attempt cost. Absent whenever it reported nothing -- see `streamed`, and `Usage`. */
   usage?: Usage
   /**
@@ -93,6 +95,7 @@ function serializeAttempt(attempt: Attempt): Attempt {
     model_resident: attempt.model_resident,
     version: attempt.version,
     upstream_used: attempt.upstream_used,
+    research: attempt.research,
     usage: attempt.usage,
     streamed: attempt.streamed,
   }

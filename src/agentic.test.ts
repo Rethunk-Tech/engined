@@ -10,7 +10,7 @@ import {
   renderEmptyMcpConfig,
   runAgentic,
 } from './agentic.ts'
-import { promptsFromMessages } from './agenticHop.ts'
+import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
@@ -57,6 +57,40 @@ test("buildArgv: the floor's three flags all survive a long list of other args, 
   for (const forbidden of FORBIDDEN_AGENTIC_FLAGS) {
     expect(argv).not.toContain(forbidden)
   }
+})
+
+test('buildArgv: research replaces claude file tools with WebSearch while normal calls retain them', () => {
+  const normal = buildArgv({
+    bunx: BUNX,
+    agent: 'claude',
+    agentVersion: PIN,
+    args: {},
+    mcpConfigPath: MCP_CONFIG_PATH,
+  })
+  const research = buildArgv({
+    bunx: BUNX,
+    agent: 'claude',
+    agentVersion: PIN,
+    args: {},
+    mcpConfigPath: MCP_CONFIG_PATH,
+    research: true,
+  })
+
+  expect(normal).toContain('Read,Grep,Glob')
+  expect(research).toContain('WebSearch')
+  expect(research).not.toContain('Read,Grep,Glob')
+  expect(research).toContain('--safe-mode')
+  expect(research).toContain('--strict-mcp-config')
+})
+
+test('researchMode: accepts true, false and absence, but rejects non-boolean values', () => {
+  expect(researchMode({ research: true })).toEqual({ ok: true, research: true })
+  expect(researchMode({ research: false })).toEqual({ ok: true, research: false })
+  expect(researchMode({})).toEqual({ ok: true, research: false })
+  expect(researchMode({ research: 'true' })).toEqual({
+    ok: false,
+    error: 'research must be a boolean when present',
+  })
 })
 
 // buildArgv itself stays a dumb assembler: it does not (and should not)
@@ -384,6 +418,16 @@ test('runAgentic: a workdir absent from engined never spawns and names PrivateTm
   expect(result.status).toBe(400)
   expect(result.failure).toContain(`workdir ${workdir} does not exist for engined`)
   expect(result.failure).toContain('PrivateTmp')
+  expect(calls).toHaveLength(0)
+})
+
+test('runAgentic: an agent without a research floor refuses before spawning', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+
+  const result = await runAgenticFixture(spawn, { agent: 'opencode', research: true })
+
+  expect(result.status).toBe(400)
+  expect(result.failure).toContain('agent "opencode" does not support research mode')
   expect(calls).toHaveLength(0)
 })
 

@@ -328,6 +328,10 @@ secret, an envelope that fails before its first delta) is still a plain
 status, and a CLI that fails after its first delta ends the stream with an
 error rather than a stop.
 
+Agentic calls require `"workdir": "<existing directory>"`. They may set
+`"research": true` to give claude web search without file tools; it is `false`
+when absent, and agents without that floor refuse it.
+
 **How much this buys depends on the text.** Kokoro's pipeline splits on
 newlines, not sentences: measured here, four newline-separated lines produced
 four chunks of 1.7–2.0s each, while a single five-sentence paragraph produced

@@ -240,6 +240,8 @@ interface BuildArgvInput {
   streaming?: boolean
   /** Caller-supplied system instructions, passed through an agent's dedicated system-prompt channel. */
   systemPrompt?: string
+  /** Use the claude research floor, which has web search and no file tools. */
+  research?: boolean
   /** Overrides the agent's own `resolveBinary` for a test, which cannot redirect `Bun.which` or `homedir()` in-process. Ignored for an npm-pinned agent. */
   resolveBinary?: () => string
 }
@@ -267,7 +269,12 @@ export function buildArgv(input: BuildArgvInput): string[] {
       : [(input.resolveBinary ?? agent.resolveBinary)()]
   return [
     ...command,
-    ...agent.launch(input.mcpConfigPath, input.streaming === true, input.systemPrompt),
+    ...agent.launch(
+      input.mcpConfigPath,
+      input.streaming === true,
+      input.systemPrompt,
+      input.research === true,
+    ),
     ...argvFromArgs(input.args),
   ]
 }
@@ -297,6 +304,7 @@ interface RunAgenticInput {
   workdir: string | undefined
   prompt: string
   systemPrompt?: string
+  research?: boolean
   spawn: AgenticSpawn
   /** The absolute path `resolveBunx` produced, which refuses to be empty. */
   bunx: string
@@ -495,6 +503,14 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
+  if (input.research === true && agent.id !== 'claude') {
+    return {
+      status: STATUS_BAD_REQUEST,
+      ok: false,
+      failure: `agent "${agent.id}" does not support research mode`,
+      envelopeFailure: false,
+    }
+  }
   let argv: string[] = buildArgv({
     bunx: input.bunx,
     agent: agent.id,
@@ -503,6 +519,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     mcpConfigPath: renderEmptyMcpConfig(),
     streaming: input.onDelta !== undefined,
     systemPrompt: input.systemPrompt,
+    research: input.research,
     resolveBinary: input.resolveBinary,
   })
   const env: Record<string, string> = {

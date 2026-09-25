@@ -121,7 +121,7 @@ let agenticCallSeq = 0
  * fabricated zero reads as a real measurement. A consumer that needs usage
  * needs the CLI to report it first.
  */
-function agenticEnvelope(text: string | undefined): Record<string, unknown> {
+function agenticEnvelope(text: string | undefined, research: boolean): Record<string, unknown> {
   agenticCallSeq += 1
   return {
     id: `agentic-${Date.now()}-${agenticCallSeq}`,
@@ -129,6 +129,7 @@ function agenticEnvelope(text: string | undefined): Record<string, unknown> {
     choices: [
       { index: 0, message: { role: 'assistant', content: text ?? '' }, finish_reason: 'stop' },
     ],
+    ...(research ? { research: true } : {}),
   }
 }
 
@@ -145,7 +146,10 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
-function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgentic>>): HopResult {
+function hopResultFromAgenticOutcome(
+  outcome: Awaited<ReturnType<typeof runAgentic>>,
+  research: boolean,
+): HopResult {
   if (!outcome.ok) {
     return {
       status: outcome.status,
@@ -156,13 +160,15 @@ function hopResultFromAgenticOutcome(outcome: Awaited<ReturnType<typeof runAgent
       bodyCarriesAgentOutput: outcome.envelopeFailure,
       version: outcome.version,
       usage: outcome.usage,
+      research: research ? true : undefined,
     }
   }
   return {
     status: outcome.status,
-    body: agenticEnvelope(outcome.result),
+    body: agenticEnvelope(outcome.result, research),
     version: outcome.version,
     usage: outcome.usage,
+    research: research ? true : undefined,
   }
 }
 
@@ -275,6 +281,7 @@ interface AgenticLaunch {
    */
   dialModel: string
   workdir: string | undefined
+  research: boolean
   extraEnv: Record<string, string> | undefined
   req: AgenticHop['req']
   /** Called when the answer is handed off as a stream that outlives the hop; `run` settles when the child exits. */
@@ -282,7 +289,7 @@ interface AgenticLaunch {
 }
 
 async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<HopResult> {
-  const { spec, args, agentVersion, doorUrl, dialModel, workdir, extraEnv, req } = launch
+  const { spec, args, agentVersion, doorUrl, dialModel, workdir, research, extraEnv, req } = launch
   const { rawBody, signal } = req
   const wantsStream = rawBody.stream === true
   const deltas: string[] = []
@@ -305,6 +312,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     workdir,
     prompt,
     systemPrompt,
+    research,
     spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
     bunx: ctx.registryOpts.bunx,
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,
@@ -336,7 +344,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
       version: agentVersion,
     }
   }
-  return hopResultFromAgenticOutcome(await run)
+  return hopResultFromAgenticOutcome(await run, research)
 }
 
 type AgenticEntry =
@@ -436,6 +444,18 @@ async function preLaunchRefusal(
   return await proveAgenticPin(ctx, engineId)
 }
 
+export function researchMode(
+  body: Record<string, unknown>,
+): { ok: true; research: boolean } | { ok: false; error: string } {
+  const { research } = body
+  if (research === undefined) {
+    return { ok: true, research: false }
+  }
+  return typeof research === 'boolean'
+    ? { ok: true, research }
+    : { ok: false, error: 'research must be a boolean when present' }
+}
+
 export async function execAgentic(
   ctx: DoorContext,
   { engineId, modelSeg, route, req }: AgenticHop,
@@ -446,6 +466,10 @@ export async function execAgentic(
     return entry.result
   }
   const { engineEntry, agentVersion } = entry
+  const requestedResearch = researchMode(req.rawBody)
+  if (!requestedResearch.ok) {
+    return { status: STATUS_BAD_REQUEST, body: jsonErrorBody(requestedResearch.error) }
+  }
 
   // Minted once per launch and revoked the instant this call returns --
   // the only door URL ever handed to this child, and it dies with the
@@ -488,6 +512,7 @@ export async function execAgentic(
       doorUrl,
       dialModel: route?.wire_model ?? modelSeg,
       workdir,
+      research: requestedResearch.research,
       extraEnv,
       req,
       onHandoff: (run) => {
