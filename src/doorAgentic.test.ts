@@ -63,7 +63,7 @@ const KIMI_ANSWER: ExecResult = {
 
 /** An agentic chat request: one user message, launched in a scratch workdir. */
 function scratchChatRequest(model: string, content = 'hi'): Request {
-  return chatRequest({ model, messages: [{ role: 'user', content }], workdir: '/tmp/scratch' })
+  return chatRequest({ model, messages: [{ role: 'user', content }], workdir: TEST_ROOT })
 }
 
 /** The chat request every kimi-routed test posts: the moonshot-routed claude model. */
@@ -162,7 +162,7 @@ describe('the door: remote-agentic redirect streams as the CLI prints', () => {
       chatRequest({
         model: '@/claude/kimi-k3',
         messages: [{ role: 'user', content: 'ping' }],
-        workdir: '/tmp/scratch',
+        workdir: TEST_ROOT,
         stream: true,
       }),
     )
@@ -183,7 +183,7 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
     clearVerifiedVersion('claude')
     const { door, spawnCalls } = createKimiDoor(true)
     const messages = [{ role: 'user', content: 'hi' }]
-    const workdir = '/tmp/scratch'
+    const workdir = TEST_ROOT
 
     const redirected = await door.fetch(
       chatRequest({ model: '@/claude/moonshot/kimi-k3', messages, workdir }),
@@ -284,7 +284,7 @@ describe('the door: remote-agentic redirect (claude routed to a Bearer-gateway u
       chatRequest({
         model: '@/claude/sonnet-5',
         messages: [{ role: 'user', content: 'hi' }],
-        workdir: '/tmp/scratch',
+        workdir: TEST_ROOT,
       }),
     )
     expect(res.status).toBe(200)

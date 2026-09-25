@@ -303,7 +303,7 @@ function runAgenticFixture(
     agentVersion: PIN,
     args: {},
     envAllowlist: ['HOME'],
-    workdir: '/tmp/scratch-workdir',
+    workdir: TEST_ROOT,
     prompt: 'hello',
     bunx: BUNX,
     spawn,
@@ -354,6 +354,18 @@ test.each([
 
   expect(result.status).toBe(400)
   expect(calls.length).toBe(0)
+})
+
+test('runAgentic: a workdir absent from engined never spawns and names PrivateTmp', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+  const workdir = join(TEST_ROOT, `missing-workdir-${crypto.randomUUID()}`)
+
+  const result = await runAgenticFixture(spawn, { workdir })
+
+  expect(result.status).toBe(400)
+  expect(result.failure).toContain(`workdir ${workdir} does not exist for engined`)
+  expect(result.failure).toContain('PrivateTmp')
+  expect(calls).toHaveLength(0)
 })
 
 test('runAgentic: an is_error envelope with exit 0 is reported as a failure, not success', async () => {

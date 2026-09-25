@@ -1,10 +1,9 @@
 /**
  * Launches an agent CLI with writing structurally disabled, always. Because
- * nothing under that floor can write, there is no workdir policy, no
- * allowlist of paths, no snapshot and no undo: the agent returns content and
- * the caller decides whether to write it. `workdir` is where the process
- * starts, not a boundary on what it can read — nothing here should read
- * otherwise, in a comment, a type name or an error string.
+ * nothing under that floor can write, there is no workdir allowlist, no
+ * snapshot and no undo: the agent returns content and the caller decides
+ * whether to write it. `workdir` must be an existing directory where engined
+ * runs, but is not a boundary on what the agent can read.
  *
  * WHERE the floor comes from is per-agent, and `agents.ts` says which. claude
  * honours it as argv, and `assertNoForbiddenFlags` stops a config unsaying it.
@@ -20,7 +19,7 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
 import {
@@ -469,6 +468,18 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       status: STATUS_BAD_REQUEST,
       ok: false,
       failure: 'workdir is required for an agentic attempt',
+      envelopeFailure: false,
+    }
+  }
+  try {
+    if (!statSync(input.workdir).isDirectory()) {
+      throw new Error('not a directory')
+    }
+  } catch {
+    return {
+      status: STATUS_BAD_REQUEST,
+      ok: false,
+      failure: `workdir ${input.workdir} does not exist for engined (the service runs with PrivateTmp, so /tmp and /var/tmp are private to it; use a directory under the user's home)`,
       envelopeFailure: false,
     }
   }
