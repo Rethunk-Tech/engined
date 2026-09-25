@@ -40,9 +40,14 @@ export function promptsFromMessages(body: Record<string, unknown>): {
       .join('\n')
   const systemPrompt = contentFor('system')
   return {
-    prompt: ['user', 'assistant']
-      .map(contentFor)
-      .filter((content) => content !== '')
+    prompt: messages
+      .flatMap((message) =>
+        isRecord(message) &&
+        (message.role === 'user' || message.role === 'assistant') &&
+        String(message.content ?? '') !== ''
+          ? [String(message.content ?? '')]
+          : [],
+      )
       .join('\n'),
     systemPrompt: systemPrompt === '' ? undefined : systemPrompt,
   }
