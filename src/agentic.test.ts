@@ -10,6 +10,7 @@ import {
   renderEmptyMcpConfig,
   runAgentic,
 } from './agentic.ts'
+import { promptsFromMessages } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
@@ -310,6 +311,24 @@ function runAgenticFixture(
     ...overrides,
   })
 }
+
+test('system chat messages reach claude through its system-prompt flag, not stdin', async () => {
+  const { prompt, systemPrompt } = promptsFromMessages({
+    messages: [
+      { role: 'system', content: '<rules>answer JSON</rules>' },
+      { role: 'user', content: '{"contact":"B"}' },
+    ],
+  })
+  const { spawn, calls } = fakeOkSpawn()
+
+  await runAgenticFixture(spawn, { prompt, systemPrompt })
+
+  const [argv, opts] = calls[0] as [string[], { input: string }]
+  const flagIndex = argv.indexOf('--append-system-prompt')
+  expect(argv[flagIndex + 1]).toBe('<rules>answer JSON</rules>')
+  expect(opts.input).toBe('{"contact":"B"}')
+  expect(opts.input).not.toContain('<rules>')
+})
 
 test("runAgentic: the child's stderr reaches neither the result nor the log", async () => {
   // A child that echoes its stdin is the whole risk: journald keeps whatever

@@ -26,12 +26,26 @@ import { loadSpec } from './spec.ts'
 import type { AgenticSpec } from './specTypes.ts'
 import { type EngineEntry, isRecord, type ResolvedRoute } from './types.ts'
 
-/** `claude -p` takes one prompt on stdin; OpenAI's `messages` array has no such shape upstream to borrow. */
-function promptFromMessages(body: Record<string, unknown>): string {
+/** Splits chat messages across the CLI's prompt and system-prompt channels. */
+export function promptsFromMessages(body: Record<string, unknown>): {
+  prompt: string
+  systemPrompt: string | undefined
+} {
   const messages = Array.isArray(body.messages) ? body.messages : []
-  return messages
-    .map((m) => (isRecord(m) ? `${String(m.role ?? 'user')}: ${String(m.content ?? '')}` : ''))
-    .join('\n')
+  const contentFor = (role: string) =>
+    messages
+      .flatMap((message) =>
+        isRecord(message) && message.role === role ? [String(message.content ?? '')] : [],
+      )
+      .join('\n')
+  const systemPrompt = contentFor('system')
+  return {
+    prompt: ['user', 'assistant']
+      .map(contentFor)
+      .filter((content) => content !== '')
+      .join('\n'),
+    systemPrompt: systemPrompt === '' ? undefined : systemPrompt,
+  }
 }
 
 /**
@@ -272,6 +286,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
   const firstSignal = new Promise<'delta' | 'done'>((resolve) => {
     first = resolve
   })
+  const { prompt, systemPrompt } = promptsFromMessages(rawBody)
   const run = runAgentic({
     agent: spec.agent,
     agentVersion,
@@ -283,7 +298,8 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     args,
     envAllowlist: spec.env,
     workdir,
-    prompt: promptFromMessages(rawBody),
+    prompt,
+    systemPrompt,
     spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
     bunx: ctx.registryOpts.bunx,
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,

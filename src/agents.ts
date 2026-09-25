@@ -113,7 +113,7 @@ export interface AgentCli {
    * Argv between the pinned package and the operator's `[engine.args]`: the
    * print flag, the JSON format, and for a `flags` agent the floor itself.
    */
-  launch: (mcpConfigPath: string, streaming?: boolean) => string[]
+  launch: (mcpConfigPath: string, streaming?: boolean, systemPrompt?: string) => string[]
   /** The only place this agent's success is decided. */
   parse: (stdout: string) => AgenticOutcome
   /** The answer text one stdout event adds, for a caller streaming the answer as it is produced; `""` for anything that is not answer text. */
@@ -446,10 +446,11 @@ const AGENTS: Record<string, AgentCli> = {
     pkg: '@anthropic-ai/claude-code',
     floor: 'flags',
     wire: 'anthropic',
-    launch: (mcpConfigPath, streaming) => [
+    launch: (mcpConfigPath, streaming, systemPrompt) => [
       '-p',
       ...(streaming === true ? CLAUDE_STREAM_FORMAT : CLAUDE_OUTPUT_FORMAT),
       ...AGENTIC_FLOOR,
+      ...(systemPrompt === undefined ? [] : ['--append-system-prompt', systemPrompt]),
       mcpConfigPath,
     ],
     parse: parseClaudeEnvelope,

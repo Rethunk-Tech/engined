@@ -238,6 +238,8 @@ interface BuildArgvInput {
   mcpConfigPath: string
   /** Launch in the agent's streamed output format, for a caller reading deltas as they print. */
   streaming?: boolean
+  /** Caller-supplied system instructions, passed through an agent's dedicated system-prompt channel. */
+  systemPrompt?: string
   /** Overrides the agent's own `resolveBinary` for a test, which cannot redirect `Bun.which` or `homedir()` in-process. Ignored for an npm-pinned agent. */
   resolveBinary?: () => string
 }
@@ -265,7 +267,7 @@ export function buildArgv(input: BuildArgvInput): string[] {
       : [(input.resolveBinary ?? agent.resolveBinary)()]
   return [
     ...command,
-    ...agent.launch(input.mcpConfigPath, input.streaming === true),
+    ...agent.launch(input.mcpConfigPath, input.streaming === true, input.systemPrompt),
     ...argvFromArgs(input.args),
   ]
 }
@@ -294,6 +296,7 @@ interface RunAgenticInput {
   /** Where the process starts. Absent or empty is a 400 that never advances a chain — it is not a read boundary either way. */
   workdir: string | undefined
   prompt: string
+  systemPrompt?: string
   spawn: AgenticSpawn
   /** The absolute path `resolveBunx` produced, which refuses to be empty. */
   bunx: string
@@ -499,6 +502,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     args: input.args,
     mcpConfigPath: renderEmptyMcpConfig(),
     streaming: input.onDelta !== undefined,
+    systemPrompt: input.systemPrompt,
     resolveBinary: input.resolveBinary,
   })
   const env: Record<string, string> = {
