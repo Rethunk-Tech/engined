@@ -16,9 +16,9 @@ it. `opencode` exposes no such flag at all, so engined runs it under `bwrap`
 with the workdir bound read-only. An agent declared `sandbox` never launches
 without it: a missing `bwrap` refuses the call rather than running loose.
 
-An opt-in claude research call instead uses `--tools WebSearch` with
-`--safe-mode --strict-mcp-config`: it drops file tools so prompt-injected input
-can expose only content already present in the prompt.
+An opt-in claude research call instead uses `--tools WebSearch,WebFetch` with
+`--safe-mode --strict-mcp-config`: it can search and read the web but has no file
+tools, so whatever it sends out can only be what is already in the prompt.
 
 The guarantee is **integrity, not confidentiality.** `workdir` says where an
 agent begins, not what it may read. Measured: under the full read-only floor,

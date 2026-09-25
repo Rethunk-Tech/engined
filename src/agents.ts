@@ -455,7 +455,7 @@ const AGENTS: Record<string, AgentCli> = {
       '-p',
       ...(streaming === true ? CLAUDE_STREAM_FORMAT : CLAUDE_OUTPUT_FORMAT),
       ...(research === true
-        ? ['--safe-mode', '--tools', 'WebSearch', '--strict-mcp-config']
+        ? ['--safe-mode', '--tools', 'WebSearch,WebFetch', '--strict-mcp-config']
         : AGENTIC_FLOOR),
       ...(systemPrompt === undefined ? [] : ['--append-system-prompt', systemPrompt]),
       mcpConfigPath,

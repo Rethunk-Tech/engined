@@ -59,7 +59,7 @@ test("buildArgv: the floor's three flags all survive a long list of other args, 
   }
 })
 
-test('buildArgv: research replaces claude file tools with WebSearch while normal calls retain them', () => {
+test('buildArgv: research replaces claude file tools with the web tools while normal calls retain them', () => {
   const normal = buildArgv({
     bunx: BUNX,
     agent: 'claude',
@@ -77,7 +77,7 @@ test('buildArgv: research replaces claude file tools with WebSearch while normal
   })
 
   expect(normal).toContain('Read,Grep,Glob')
-  expect(research).toContain('WebSearch')
+  expect(research[research.indexOf('--tools') + 1]).toBe('WebSearch,WebFetch')
   expect(research).not.toContain('Read,Grep,Glob')
   expect(research).toContain('--safe-mode')
   expect(research).toContain('--strict-mcp-config')
