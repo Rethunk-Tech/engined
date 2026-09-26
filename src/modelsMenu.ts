@@ -12,10 +12,13 @@ import {
   routeEgress,
 } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
+import { isLocalLlama } from './engineEntries.ts'
+import { mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   type Config,
+  type EngineEntry,
   type EngineState,
   type ModelCapabilities,
   type ResolvedRoute,
@@ -26,15 +29,57 @@ import {
 } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
 
-/** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. */
-function routeCapabilities(route: ModelCapabilities): ModelCapabilities {
+/** Whatever this route's own capability fields are -- undefined fields drop out of the JSON on their own, so a route naming an undeclared model reports empty capabilities with no special case. `contextIn` overrides `route.context_in` for a route whose window was derived rather than declared. */
+function routeCapabilities(
+  route: ModelCapabilities,
+  contextIn: number | undefined = route.context_in,
+): ModelCapabilities {
   return {
     input: route.input,
     output: route.output,
-    context_in: route.context_in,
+    context_in: contextIn,
     context_out: route.context_out,
     reasoning: route.reasoning,
   }
+}
+
+/**
+ * The context window a single request actually gets on a local llama
+ * container when config left `context_in` undeclared: the same `ctx-size`/
+ * `parallel` merge the launcher renders into the preset INI (`mergedArgs`),
+ * divided across slots exactly as llama-server divides its KV pool -- a
+ * merged `parallel` of a positive integer is `n_slots` independent windows of
+ * `ctx-size / parallel` each (`llamaSpec.ts`'s own comment), otherwise one
+ * unified pool of the whole `ctx-size`. Only meaningful for a locally-hosted
+ * llama container: an `openai-http` proxy to a remote upstream has no
+ * `ctx-size` of its own, and `isLocalLlama` is what tells the two apart.
+ */
+function derivedContextIn(
+  engine: EngineEntry,
+  route: { args: Record<string, unknown> },
+): number | undefined {
+  const { 'ctx-size': ctxSize, parallel } = mergedArgs(engine, route)
+  if (typeof ctxSize !== 'number') {
+    return undefined
+  }
+  return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
+    ? ctxSize / parallel
+    : ctxSize
+}
+
+/** A route's `context_in`: its own declared value always wins; otherwise derived for a local llama route and absent for everything else. Exported for `modelsMenu.test.ts`, which exercises it directly rather than through a full door. */
+export function routeContextIn(
+  route: ResolvedRoute,
+  engine: EngineEntry | undefined,
+  status: EngineStatus | undefined,
+): number | undefined {
+  if (route.context_in !== undefined) {
+    return route.context_in
+  }
+  if (engine === undefined || status === undefined || !isLocalLlama(engine, status.kind)) {
+    return undefined
+  }
+  return derivedContextIn(engine, route)
 }
 
 /**
@@ -116,7 +161,14 @@ async function modelRow(
     vision: route.vision,
     translate: route.translate,
     state,
-    capabilities: routeCapabilities(route),
+    capabilities: routeCapabilities(
+      route,
+      routeContextIn(
+        route,
+        config.engines.find((e) => e.id === route.engine),
+        status,
+      ),
+    ),
   }
 }
 
@@ -146,8 +198,8 @@ export function hopForwardsTools(
   return forwardsTools(statusOf(engine), routeForHop(routes, engine, model, upstream)?.role)
 }
 
-/** One hop of a chain, resolved once: the route it names, its engine's status, and whether it can answer at all. */
-interface ChainHop {
+/** One hop of a chain, resolved once: the route it names, its engine's status, and whether it can answer at all. Exported for `modelsMenu.test.ts`'s `chainContext` coverage. */
+export interface ChainHop {
   hop: string
   route: ResolvedRoute | undefined
   status: EngineStatus | undefined
@@ -209,6 +261,43 @@ function chainServes(walked: readonly ChainHop[]): string[] {
 }
 
 /**
+ * A single hop's `context_in`, declared-or-derived exactly as a direct route
+ * row would report it -- the menu must not tell a caller two different
+ * numbers for the same address depending on whether it was asked for
+ * directly or reached through a chain.
+ */
+function hopContextIn(hop: ChainHop, config: Config): number | undefined {
+  if (hop.route === undefined) {
+    return undefined
+  }
+  return routeContextIn(
+    hop.route,
+    config.engines.find((e) => e.id === hop.route?.engine),
+    hop.status,
+  )
+}
+
+/**
+ * `context_in`/`context_out` across a chain's hops: the MINIMUM of whichever
+ * hops report one, not the first hop's. `tools` demands every hop for the
+ * same reason -- a fallback onto a hop with a smaller window is exactly a
+ * request built against the first hop's context overflowing the hop it
+ * actually lands on. A hop reporting neither is silently skipped rather than
+ * collapsing the whole chain to "unknown".
+ */
+export function chainContext(
+  walked: readonly ChainHop[],
+  config: Config,
+): Pick<ModelCapabilities, 'context_in' | 'context_out'> {
+  const ins = walked.map((h) => hopContextIn(h, config)).filter((v): v is number => v !== undefined)
+  const outs = walked.map((h) => h.route?.context_out).filter((v): v is number => v !== undefined)
+  return {
+    context_in: ins.length === 0 ? undefined : Math.min(...ins),
+    context_out: outs.length === 0 ? undefined : Math.min(...outs),
+  }
+}
+
+/**
  * A chain is not any one engine's route, so it omits engine/upstream/model/
  * egress entirely, and `hops` is what stands in for them: the ordered
  * addresses this id actually resolves to, present here and on no route row.
@@ -220,7 +309,9 @@ function chainServes(walked: readonly ChainHop[]): string[] {
  *
  * `streaming` and `capabilities` come from its FIRST hop -- that is the hop
  * a request starts on, and the one whose shape a caller writes its request
- * against.
+ * against -- except `context_in`/`context_out`, which are the minimum across
+ * every hop that reports one (`chainContext`): a fallback onto a smaller hop
+ * must not overflow the window a caller sized against the first.
  *
  * `state` and `tools` both take EVERY hop, for opposite reasons. `runChain`
  * advances past a hop that cannot answer rather than failing the chain, so
@@ -255,7 +346,10 @@ async function chainRow({
     tools: walked.every((h) => forwardsTools(h.status, h.route?.role)),
     serves: chainServes(walked),
     state: walked.find((h) => h.state !== 'unavailable')?.state ?? 'unavailable',
-    capabilities: lead?.route === undefined ? {} : routeCapabilities(lead.route),
+    capabilities: {
+      ...(lead?.route === undefined ? {} : routeCapabilities(lead.route)),
+      ...chainContext(walked, config),
+    },
     hops: walked.map((h) => h.hop),
     unavailable_hops: dead.length === 0 ? undefined : dead,
   }

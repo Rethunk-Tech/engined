@@ -116,7 +116,9 @@ export interface EnginesResponse {
  * `(engine, model)` pair on a different upstream. A chain row omits
  * `engine`/`upstream`/`model`/`egress`: no single one answers for every hop,
  * so `streaming` and `capabilities` are its first hop's instead -- that is
- * the hop a request starts on.
+ * the hop a request starts on -- except `capabilities.context_in`/
+ * `context_out`, which are the minimum reported by any hop, since a fallback
+ * onto a smaller hop must not overflow a window sized against the first.
  */
 export interface ModelRow {
   id: string
