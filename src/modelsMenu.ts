@@ -46,25 +46,31 @@ function routeCapabilities(
 /**
  * The context window a single request actually gets on a local llama
  * container when config left `context_in` undeclared: the same `ctx-size`/
- * `parallel` merge the launcher renders into the preset INI (`mergedArgs`),
- * divided across slots exactly as llama-server divides its KV pool -- a
- * merged `parallel` of a positive integer is `n_slots` independent windows of
- * `ctx-size / parallel` each (`llamaSpec.ts`'s own comment), otherwise one
- * unified pool of the whole `ctx-size`. Only meaningful for a locally-hosted
- * llama container: an `openai-http` proxy to a remote upstream has no
- * `ctx-size` of its own, and `isLocalLlama` is what tells the two apart.
+ * `parallel`/`kv-unified` merge the launcher renders into the preset INI
+ * (`mergedArgs`), divided across slots exactly as llama-server divides its KV
+ * pool -- a merged `parallel` of a positive integer is `n_slots` independent
+ * windows of `ctx-size / parallel` each (`llamaSpec.ts`'s own comment),
+ * *unless* `kv-unified` is explicitly set: that flag overrides whatever
+ * `parallel` would otherwise pick, giving every slot the one shared,
+ * whole-`ctx-size` pool regardless (measured on ornith: `parallel = 4` with
+ * `kv-unified = true` still reports `n_ctx = 262144`, the undivided size, on
+ * every slot). `kv-unified` absent falls back to `parallel`'s own default:
+ * unified only when `parallel` is not a positive integer. Only meaningful for
+ * a locally-hosted llama container: an `openai-http` proxy to a remote
+ * upstream has no `ctx-size` of its own, and `isLocalLlama` is what tells the
+ * two apart.
  */
 function derivedContextIn(
   engine: EngineEntry,
   route: { args: Record<string, unknown> },
 ): number | undefined {
-  const { 'ctx-size': ctxSize, parallel } = mergedArgs(engine, route)
+  const { 'ctx-size': ctxSize, parallel, 'kv-unified': kvUnified } = mergedArgs(engine, route)
   if (typeof ctxSize !== 'number') {
     return undefined
   }
-  return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
-    ? ctxSize / parallel
-    : ctxSize
+  const splitsAcrossSlots =
+    typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
+  return kvUnified === true || !splitsAcrossSlots ? ctxSize : ctxSize / parallel
 }
 
 /** A route's `context_in`: its own declared value always wins; otherwise derived for a local llama route and absent for everything else. Exported for `modelsMenu.test.ts`, which exercises it directly rather than through a full door. */

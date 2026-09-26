@@ -33,6 +33,19 @@ test('a local llama route with no declared context_in derives it from ctx-size /
   expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(65_536)
 })
 
+test('an explicit kv-unified keeps the whole ctx-size even with a positive parallel', () => {
+  // Live proof: ornith runs ctx-size=262144, parallel=4, kv-unified=true, and
+  // the resident engine's GET /slots reports n_ctx=262144 on all four slots
+  // -- kv-unified gives them one shared pool, not four divided ones.
+  const eng = engine({ id: 'llama', models_dir: '/models', args: {} })
+  const r = route({
+    engine: 'llama',
+    model: 'ornith',
+    args: { 'ctx-size': 262_144, parallel: 4, 'kv-unified': true },
+  })
+  expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(262_144)
+})
+
 test('parallel <= 0 (llama.cpp auto) reports the whole ctx-size, not a divided window', () => {
   const eng = engine({
     id: 'llama',

@@ -200,7 +200,10 @@ export class LlamaRouter {
    * forwarding a burst to queue invisibly inside llama-server's scheduler.
    * Capping here is the only place that cap belongs: writing a positive
    * `parallel` into config to get one instead turns off the child's
-   * `kv_unified` and divides `ctx-size` across its slots.
+   * `kv_unified` and divides `ctx-size` across its slots, unless `kv-unified`
+   * is itself set to keep the whole pool shared regardless of slot count
+   * (`modelsMenu.ts`'s `derivedContextIn`) -- either way the slot count this
+   * caps at is `parallel`'s own, so that override changes nothing here.
    */
   private capacityFor(role: Role, modelId: string): number {
     const route = this.routes.find(
