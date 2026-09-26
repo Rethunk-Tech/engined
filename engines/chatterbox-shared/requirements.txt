@@ -152,7 +152,7 @@ pillow==12.3.0
     # via
     #   diffusers
     #   torchvision
-platformdirs==4.11.13
+platformdirs==4.11.15
     # via
     #   pooch
     #   virtualenv
