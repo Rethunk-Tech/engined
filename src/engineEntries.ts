@@ -188,6 +188,7 @@ function checkLocalFileDisposition(
     assertFieldDisposition(rules.filename, r.filename !== undefined, 'filename', site)
     assertFieldDisposition(rules.role, r.role !== undefined, 'role', site)
     assertFieldDisposition(rules.translate, r.translate !== undefined, 'translate', site)
+    assertFieldDisposition(rules.fim, r.fim !== undefined, 'fim', site)
     if (rules.args === 'forbidden' && Object.keys(r.args).length > 0) {
       throw new FatalError(`${site} must not declare "args"`)
     }

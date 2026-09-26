@@ -7,6 +7,7 @@
 import { handleAudioSpeech } from './audioDoor.ts'
 import { handleAudioTranscription } from './audioDoorTranscribe.ts'
 import { parseHop, runChain } from './chain.ts'
+import { handleCompletions } from './completions.ts'
 import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.ts'
 import { type Dispatch, resolveModel } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
@@ -28,6 +29,7 @@ import { handleImageGeneration } from './images.ts'
 import { hopForwardsTools } from './modelsMenu.ts'
 import { readJsonBody } from './requestBody.ts'
 import {
+  CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_SPEECH,
@@ -217,6 +219,9 @@ export async function handleContent(
     // The signal ends a render nobody is waiting for: a diffusion job holds the
     // GPU, and this door runs one at a time.
     return handleImageGeneration(ctx, body, req.signal)
+  }
+  if (pathname === CONTENT_ENDPOINT_COMPLETIONS) {
+    return handleCompletions(ctx, body, req.signal)
   }
   const rawModel = typeof body.model === 'string' ? body.model : undefined
   const resolved = resolveModel(rawModel, pathname, {

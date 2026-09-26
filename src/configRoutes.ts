@@ -52,6 +52,7 @@ export interface RawRoute {
   role?: Role
   vision?: VisionKind
   translate?: boolean
+  fim?: boolean
   keep_resident?: boolean
   streaming?: boolean
   args: Record<string, unknown>
@@ -88,6 +89,7 @@ export function parseRouteRaw(
       'role',
       'vision',
       'translate',
+      'fim',
       'keep_resident',
       'wire_model',
       'args',
@@ -139,6 +141,7 @@ export function parseRouteRaw(
     role: roleStr as Role | undefined,
     vision: visionStr as VisionKind | undefined,
     translate: optional(raw.translate, 'boolean', `${site} "translate"`, file),
+    fim: optional(raw.fim, 'boolean', `${site} "fim"`, file),
     keep_resident: optional(raw.keep_resident, 'boolean', `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, 'boolean', `${site} "streaming"`, file),
     args,
@@ -323,6 +326,7 @@ export function resolveRoute({
     role: raw.role,
     vision: raw.vision,
     translate: raw.translate,
+    fim: raw.fim,
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
     args: raw.args,

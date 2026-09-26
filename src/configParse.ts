@@ -75,6 +75,7 @@ export const ROUTE_KEYS = new Set([
   'role',
   'vision',
   'translate',
+  'fim',
   'keep_resident',
   'streaming',
   'args',

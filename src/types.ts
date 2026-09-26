@@ -80,13 +80,15 @@ export type UpstreamTrait = 'self' | 'optional' | 'required'
 /** Whether a route field is mandatory, forbidden, or takes either -- the split predicate's answer once `kind` is known. */
 export type Disposition = 'required' | 'forbidden' | 'allowed'
 
-/** `filename`/`role`/`args`/`translate` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
+/** `filename`/`role`/`args`/`translate`/`fim` dispositions for a route on a given engine kind, checked at registry construction once `kind` is known. */
 interface RouteFieldRules {
   filename: Disposition
   role: Disposition
   args: Disposition
   /** Only an `stt` route can mean anything by it: every other kind would carry a key nothing reads. */
   translate: Disposition
+  /** Only a local llama route speaks `/infill`; every other kind would carry a key nothing reads. */
+  fim: Disposition
 }
 
 /**
@@ -104,7 +106,13 @@ export const KIND_TRAITS: Record<
     // A spec-less openai-http engine (openrouter) is a pure proxy: it must
     // name the one upstream it proxies to, there being no "self" to default to.
     upstream: 'required',
-    localFile: { filename: 'required', role: 'required', args: 'allowed', translate: 'forbidden' },
+    localFile: {
+      filename: 'required',
+      role: 'required',
+      args: 'allowed',
+      translate: 'forbidden',
+      fim: 'allowed',
+    },
   },
   // The only kind that runs no container at all.
   'agentic-cli': {
@@ -115,6 +123,7 @@ export const KIND_TRAITS: Record<
       role: 'forbidden',
       args: 'forbidden',
       translate: 'forbidden',
+      fim: 'forbidden',
     },
   },
   tts: {
@@ -125,12 +134,19 @@ export const KIND_TRAITS: Record<
       role: 'forbidden',
       args: 'forbidden',
       translate: 'forbidden',
+      fim: 'forbidden',
     },
   },
   stt: {
     container: true,
     upstream: 'self',
-    localFile: { filename: 'required', role: 'forbidden', args: 'allowed', translate: 'allowed' },
+    localFile: {
+      filename: 'required',
+      role: 'forbidden',
+      args: 'allowed',
+      translate: 'allowed',
+      fim: 'forbidden',
+    },
   },
   comfy: {
     container: true,
@@ -141,6 +157,7 @@ export const KIND_TRAITS: Record<
       role: 'forbidden',
       args: 'forbidden',
       translate: 'forbidden',
+      fim: 'forbidden',
     },
   },
 }
@@ -203,6 +220,8 @@ export interface EngineCapability extends ModelCapabilities {
   vision?: VisionKind
   /** See `ResolvedRoute.translate`. Absent on every route that did not declare it. */
   translate?: boolean
+  /** See `ResolvedRoute.fim`. Absent on every route that did not declare it. */
+  fim?: boolean
 }
 
 /**
@@ -217,6 +236,8 @@ export const CONTENT_ENDPOINT_TRANSLATIONS = '/openai/v1/audio/translations'
 export const CONTENT_ENDPOINT_IMAGES = '/openai/v1/images/generations'
 export const CONTENT_ENDPOINT_IMAGE_EDITS = '/openai/v1/images/edits'
 export const CONTENT_ENDPOINT_RERANK = '/openai/v1/rerank'
+/** The legacy OpenAI completions shape, mapped onto llama-server's `/infill` — see `completions.ts`. Never claimed by a role: it answers alongside chat on the same route, opted into per route by `fim`, not exclusive to it. */
+export const CONTENT_ENDPOINT_COMPLETIONS = '/openai/v1/completions'
 
 /**
  * The one door path a role answers to the exclusion of every other role.
@@ -241,6 +262,7 @@ const CLAIMED_ENDPOINTS: ReadonlySet<string> = new Set(Object.values(ROLE_ENDPOI
 export interface RouteServesFields {
   role?: Role
   translate?: boolean
+  fim?: boolean
 }
 
 /**
@@ -253,9 +275,15 @@ export interface RouteServesFields {
  * file and not the role that separates a whisper route that can translate
  * from one that cannot. Every stt route on an engine whose spec serves that
  * path would otherwise inherit it, English-only weights and all.
+ *
+ * Completions is the same shape of question for a different reason: every
+ * local llama route's engine spec lists it (llama-server's `/infill` answers
+ * for any resident GGUF), but not every GGUF is worth pointing a FIM client
+ * at, so a route opts in with `fim` rather than inheriting it just for being
+ * on the engine.
  */
 export function routeServes(route: RouteServesFields, engineServes: readonly string[]): string[] {
-  const { role, translate } = route
+  const { role, translate, fim } = route
   const byRole =
     role === undefined
       ? [...engineServes]
@@ -263,9 +291,11 @@ export function routeServes(route: RouteServesFields, engineServes: readonly str
           const claimed = ROLE_ENDPOINT[role]
           return claimed === undefined ? !CLAIMED_ENDPOINTS.has(path) : path === claimed
         })
-  return translate === true
-    ? byRole
-    : byRole.filter((path) => path !== CONTENT_ENDPOINT_TRANSLATIONS)
+  const withTranslate =
+    translate === true ? byRole : byRole.filter((path) => path !== CONTENT_ENDPOINT_TRANSLATIONS)
+  return fim === true
+    ? withTranslate
+    : withTranslate.filter((path) => path !== CONTENT_ENDPOINT_COMPLETIONS)
 }
 
 /** Names a keyring pair, an address and the wire it speaks -- *where* the bytes for a route come from, never *how* they are produced. */
@@ -327,6 +357,15 @@ export interface ResolvedRoute extends ModelCapabilities {
    * so the refusal is a 400 naming the address rather than a silent no-op.
    */
   translate?: boolean
+  /**
+   * This route answers `/openai/v1/completions` too, mapped onto llama-
+   * server's `/infill` (`completions.ts`) -- fill-in-the-middle, not every
+   * resident GGUF's strength, and not implied by `role = "chat"`. A route
+   * that does not declare it does not serve that verb (`routeServes`), so an
+   * unopted route's completion request gets the door's normal 4xx naming the
+   * address rather than a silent pass-through to a model nobody vetted for it.
+   */
+  fim?: boolean
   /**
    * Load this GGUF when its engine starts, and reload it whenever its role
    * falls idle again — warmth guaranteed against idleness, never against

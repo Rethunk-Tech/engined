@@ -24,6 +24,7 @@ import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from
 import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
 import { CONTRACT } from './responses.ts'
 import {
+  CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
@@ -268,6 +269,7 @@ export async function runProbes(
     ...(await probeVision(doorUrl, rows, fetchImpl)),
     ...(await probeRerank(doorUrl, rows, fetchImpl)),
     ...(await probeTranslations(doorUrl, rows, fetchImpl)),
+    ...(await probeCompletions(doorUrl, rows, fetchImpl)),
   ]
   // One line for a door with nothing configured to prove, rather than one per
   // family saying the same thing: nothing here is wrong, and a report that
@@ -373,6 +375,74 @@ async function probeOneRerank(
           ok: false,
           detail: `ranked index ${top} first; the document answering the query is index ${RERANK_ANSWER}`,
         }
+  } catch (err) {
+    return { ok: false, detail: errMessage(err) }
+  }
+}
+
+/**
+ * The fill-in-the-middle ground truth: a one-line function body sits between
+ * a known prefix and a known suffix, so the check is on the reply carrying
+ * *any* text at all rather than on the exact tokens -- measured against the
+ * resident model, the first line was correct in 3/4 runs, which is a real
+ * model working, not a guessable string this probe could pin further without
+ * flagging a fine daemon as broken on its off run.
+ */
+const FIM_PREFIX = 'def add(a, b):\n    '
+const FIM_SUFFIX = '\n\nprint(add(1, 2))\n'
+const FIM_MAX_TOKENS = 16
+
+async function probeCompletions(
+  doorUrl: string,
+  rows: readonly MenuRow[],
+  fetchImpl: typeof fetch,
+): Promise<ProbeLine[]> {
+  const fim = rows.filter(
+    (r): r is MenuRow & { id: string } =>
+      canAnswer(r.state) &&
+      typeof r.id === 'string' &&
+      Array.isArray(r.serves) &&
+      r.serves.includes(CONTENT_ENDPOINT_COMPLETIONS),
+  )
+  if (fim.length === 0) {
+    return []
+  }
+  const lines: ProbeLine[] = []
+  for (const row of fim) {
+    lines.push({ address: row.id, ...(await probeOneCompletion(doorUrl, row.id, fetchImpl)) })
+  }
+  return lines
+}
+
+async function probeOneCompletion(
+  doorUrl: string,
+  address: string,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_COMPLETIONS}`, {
+      method: 'POST',
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+      body: JSON.stringify({
+        model: address,
+        prompt: FIM_PREFIX,
+        suffix: FIM_SUFFIX,
+        max_tokens: FIM_MAX_TOKENS,
+        stop: ['\n'],
+      }),
+    })
+    if (!res.ok) {
+      return {
+        ok: false,
+        detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
+      }
+    }
+    const body = (await res.json()) as { choices?: { text?: unknown }[] }
+    const text = body.choices?.[0]?.text
+    if (typeof text !== 'string' || text.trim() === '') {
+      return { ok: false, detail: 'the reply carried no completion text' }
+    }
+    return { ok: true, detail: `completed: ${JSON.stringify(text)}` }
   } catch (err) {
     return { ok: false, detail: errMessage(err) }
   }

@@ -388,3 +388,47 @@ test('a running route that declares translate is not asked to refuse', async () 
   expect(report.ok).toBe(true)
   expect(report.lines[0]?.detail).toBe('no reachable address to prove')
 })
+
+const FIM_ROW = {
+  id: '@/llama/ornith',
+  role: 'chat',
+  state: 'installed',
+  serves: ['/openai/v1/chat/completions', '/openai/v1/completions'],
+}
+
+/** A door answering the completions verb with `text` in the OpenAI legacy shape, whatever it was asked. */
+function fakeCompletionsDoor(rows: unknown[], text: string): typeof fetch {
+  return ((input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.endsWith('/engined/v1/engines')) {
+      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
+    }
+    if (url.endsWith('/openai/v1/models')) {
+      return Promise.resolve(Response.json({ object: 'list', data: rows }))
+    }
+    return Promise.resolve(Response.json({ choices: [{ text, finish_reason: 'stop' }] }))
+  }) as typeof fetch
+}
+
+test('the completions probe passes when the reply carries a non-empty completion', async () => {
+  const report = await runProbes('http://door', fakeCompletionsDoor([FIM_ROW], '    return a + b'))
+
+  expect(report.ok).toBe(true)
+  expect(report.lines[0]?.address).toBe('@/llama/ornith')
+})
+
+test('the completions probe fails when the reply carries no completion text', async () => {
+  const report = await runProbes('http://door', fakeCompletionsDoor([FIM_ROW], ''))
+
+  expect(report.ok).toBe(false)
+  expect(report.lines[0]?.detail).toBe('the reply carried no completion text')
+})
+
+test('only a route serving /openai/v1/completions is probed: a plain chat route is left alone', async () => {
+  const chatOnly = { ...FIM_ROW, serves: ['/openai/v1/chat/completions'] }
+
+  const report = await runProbes('http://door', fakeCompletionsDoor([chatOnly], 'unused'))
+
+  expect(report.lines).toHaveLength(1)
+  expect(report.lines[0]?.detail).toBe('no reachable address to prove')
+})

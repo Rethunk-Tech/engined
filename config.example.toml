@@ -157,6 +157,12 @@ filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
 role = "chat"                                                         # chat | vision | embedding | rerank. Required: occupancy is one
 # resident GGUF per role, so without a role models_max is
 # just an arbitrary number with nothing to enforce.
+fim = true # Opts this route into POST /openai/v1/completions
+# (input_prefix/input_suffix mapped onto llama-server's own
+# /infill) alongside chat on the same GGUF -- every resident
+# model answers /infill, but not every one is worth pointing a
+# FIM client at, so this is per route rather than inherited
+# from the engine.
 # keep_resident = true   # Load at engine start and reload whenever this role
 # falls idle. A different model on this role still
 # wins the swap -- this only decides what the role
