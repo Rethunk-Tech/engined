@@ -107,6 +107,7 @@ async function modelRow(
     engine: route.engine,
     upstream: route.upstream ?? undefined,
     model: route.model,
+    display_name: route.display_name,
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),

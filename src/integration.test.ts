@@ -170,6 +170,7 @@ function modelsListConfig(): Config {
         upstream: 'local',
         filename: 'ornith.gguf',
         role: 'chat',
+        display_name: 'Ornith',
       }),
       route({
         engine: 'local',
@@ -266,7 +267,13 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     // `?? []` below is only a real fallback if the type admits its absence.
     const body = (await res.json()) as {
       object: string
-      data?: Array<{ id: string; streaming: boolean; serves: string[]; role?: string }>
+      data?: Array<{
+        id: string
+        streaming: boolean
+        serves: string[]
+        role?: string
+        display_name?: string
+      }>
     }
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
@@ -313,6 +320,12 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     // take one from, both report none rather than guessing at one.
     expect(rows.find((r) => r.id === '@/claude/sonnet-5')?.role).toBeUndefined()
     expect(rows.find((r) => r.id === 'chain-x')?.role).toBeUndefined()
+    expect(rows.find((r) => r.id === '@/local/ornith')?.display_name).toBe('Ornith')
+    for (const r of rows) {
+      if (r.id !== '@/local/ornith') {
+        expect(r.display_name).toBeUndefined()
+      }
+    }
     const chatToEmbed = await chatToEmbeddingRoute(door)
     expect(chatToEmbed.status).toBe(400)
     expect(await chatToEmbed.text()).toContain('does not serve')

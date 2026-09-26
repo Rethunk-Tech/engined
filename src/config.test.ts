@@ -963,6 +963,42 @@ wire_modell = "y"
   })
 })
 
+describe('display_name: presentation only, never an address', () => {
+  test('survives parsing and is absent when not configured', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+display_name = "Claude Sonnet 5"
+
+[[route]]
+engine = "claude"
+model = "plain"
+`
+    const cfg = loadConfig(writeConfig(toml))
+    expect(cfg.routes.find((r) => r.model === 'sonnet-5')?.display_name).toBe('Claude Sonnet 5')
+    expect(cfg.routes.find((r) => r.model === 'plain')?.display_name).toBeUndefined()
+  })
+
+  test('an empty string is rejected at parse', () => {
+    const toml = `
+[[engine]]
+id = "claude"
+kind = "agentic-cli"
+
+[[route]]
+engine = "claude"
+model = "sonnet-5"
+display_name = ""
+`
+    expect(() => loadConfig(writeConfig(toml))).toThrow(/display_name/)
+  })
+})
+
 describe('upstream defaulting by trait', () => {
   test('a route naming no upstream on an "optional"-trait (agentic-cli) engine is ambient', () => {
     const toml = `

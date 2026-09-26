@@ -15,7 +15,7 @@ the bytes for a request come from and carries `base_url`, `secret` and
 execute a request. `[[model]]` is optional, declared only where there is a
 capability worth recording. `[[route]]` pairs an engine with an upstream and,
 where one applies, a model, and carries everything specific to that pairing:
-`filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `streaming`, `args`. `[[chain]]` is an
+`filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `display_name`, `streaming`, `args`. `[[chain]]` is an
 ordered fallback list of route addresses.
 
 ## Config versus spec, and why the split is not tidiness
@@ -51,7 +51,7 @@ error by design rather than a silent no-op.
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
 | `inventory_max_age_seconds`, `inventory_refresh_seconds` | `[[upstream]]` only — how long a cached provider `/models` list stays usable, and how often to re-fetch it (default 3600). Max age is required when a wildcard route names this upstream, must be greater than zero, and refresh must be less than max age |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
-| `engine`, `upstream`, `model`, `wire_model`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
+| `engine`, `upstream`, `model`, `wire_model`, `display_name`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `display_name` is a human label a client may show; it is not an address and is omitted from `/openai/v1/models` when unset. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
 | `hops` | `[[chain]]` — an ordered list of route addresses |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its

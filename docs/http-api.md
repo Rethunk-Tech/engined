@@ -157,9 +157,10 @@ lives only on this menu.
 
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
-is `{id, engine, upstream, model, egress, streaming, tools, serves, role, vision, state,
+is `{id, engine, upstream, model, display_name, egress, streaming, tools, serves, role, vision, state,
 capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
-that has any.
+that has any. `display_name` is present only when the route declared one; a
+row without it omits the field, and a chain never carries it.
 
 `hops` is where a chain says what it resolves to, and the only place it can:
 a chain is not any one engine's route, so `engine`, `upstream`, `model` and

@@ -69,6 +69,7 @@ export const ROUTE_KEYS = new Set([
   'engine',
   'model',
   'wire_model',
+  'display_name',
   'upstream',
   'filename',
   'role',

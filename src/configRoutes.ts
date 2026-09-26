@@ -46,6 +46,7 @@ export interface RawRoute {
   engine: string
   model?: string
   wire_model?: string
+  display_name?: string
   declaredUpstream?: string
   filename?: string
   role?: Role
@@ -97,6 +98,10 @@ export function parseRouteRaw(
     }
   }
   const wireModel = optional(raw.wire_model, 'string', `${site} "wire_model"`, file)
+  const displayName =
+    raw.display_name === undefined
+      ? undefined
+      : requireString(raw.display_name, `${site} "display_name"`, file)
   const rawFilename = optional(raw.filename, 'string', `${site} "filename"`, file)
   const roleStr = optional(raw.role, 'string', `${site} "role"`, file)
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {
@@ -128,6 +133,7 @@ export function parseRouteRaw(
     engine: engineId,
     model: modelStr,
     wire_model: wireModel,
+    display_name: displayName,
     declaredUpstream: optional(raw.upstream, 'string', `${site} "upstream"`, file),
     filename: rawFilename === undefined ? undefined : expandConfigPath(rawFilename),
     role: roleStr as Role | undefined,
@@ -311,6 +317,7 @@ export function resolveRoute({
     engine: raw.engine,
     model: raw.model,
     wire_model: raw.wire_model,
+    display_name: raw.display_name,
     upstream: upstreamId,
     filename: raw.filename,
     role: raw.role,

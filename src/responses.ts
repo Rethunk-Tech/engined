@@ -123,6 +123,11 @@ export interface ModelRow {
   engine?: string
   upstream?: string
   model?: string
+  /**
+   * Presentation only. Present when the route declared one; omitted otherwise
+   * and on every chain row. Never an address.
+   */
+  display_name?: string
   egress?: Egress
   streaming: boolean
   /**
