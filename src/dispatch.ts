@@ -4,6 +4,7 @@
  * without `Bun.serve` or docker.
  */
 
+import { groupCursorModels, resolveCursorVariant } from './cursorModels.ts'
 import type { EngineRegistry } from './engines.ts'
 import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
 import type { Config, Egress, ResolvedRoute } from './types.ts'
@@ -26,11 +27,49 @@ export type Dispatch =
   | ModelDispatch
   | { ok: true; kind: 'chain'; chain: string; hops: readonly string[] }
 
-/** Everything one resolution reads. No `endpoint` skips the serves check: starting a container asks nothing about which door path the engine answers. */
+/** Everything one resolution reads. No `endpoint` skips the serves check: starting a container asks nothing about which door path the engine answers. `body` is the caller's own JSON, read only for the cursor engine's `reasoning_effort`/`service_tier` -- absent for every caller (start, audio, images) that never carries either. */
 interface ResolveCtx {
   endpoint?: string
   config: Config
   registry: EngineRegistry
+  body?: Record<string, unknown>
+}
+
+const CURSOR_ENGINE_ID = 'cursor'
+
+/**
+ * `@/cursor/<base>` collapses Cursor's own flat, per-reasoning-level model
+ * ids onto one address per base (`modelsMenu.ts` builds the menu row this
+ * mirrors). `reasoning_effort` and `service_tier` pick which of the base's
+ * real, still-literal routes actually answers -- so this runs ahead of the
+ * plain exact-model-string lookup below, which would otherwise hand every
+ * request for a base the same bare/default variant regardless of what the
+ * caller asked for.
+ *
+ * Gated on every one of this engine's routes being ambient (`upstream ===
+ * null`, cursor's own shape): a config that instead points an engine literally
+ * named "cursor" at a real upstream is a different engine in every way that
+ * matters here, and must not have its own model ids swallowed by this.
+ */
+function resolveCursorBase(
+  engineRoutes: readonly ResolvedRoute[],
+  seg: string,
+  body: Record<string, unknown> | undefined,
+): ResolvedRoute | undefined {
+  const served = engineRoutes.filter((r) => !r.disabled && r.model !== undefined)
+  if (served.length === 0 || !served.every((r) => r.upstream === null)) {
+    return undefined
+  }
+  const groups = groupCursorModels(served.map((r) => r.model as string))
+  const group = groups.get(seg)
+  if (group === undefined) {
+    return undefined
+  }
+  const reasoningEffort =
+    typeof body?.reasoning_effort === 'string' ? body.reasoning_effort : undefined
+  const serviceTier = typeof body?.service_tier === 'string' ? body.service_tier : undefined
+  const picked = resolveCursorVariant(group, { reasoningEffort, serviceTier })
+  return picked === undefined ? undefined : served.find((r) => r.model === picked.id)
 }
 
 function fail(error: string): { ok: false; error: string } {
@@ -95,6 +134,12 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Mo
     return fail(`engine "${engineSeg}" is disabled in config`)
   }
   const engineRoutes = ctx.config.routes.filter((r) => r.engine === engineSeg)
+  if (engineSeg === CURSOR_ENGINE_ID) {
+    const cursorRoute = resolveCursorBase(engineRoutes, seg, ctx.body)
+    if (cursorRoute !== undefined) {
+      return withEndpointCheck(cursorRoute, ctx)
+    }
+  }
   const modelless = engineRoutes.some((r) => r.model === undefined)
   if (modelless) {
     const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg)
@@ -277,8 +322,7 @@ function resolveChain(model: string, endpoint: string, config: Config): Dispatch
 export function resolveModel(
   model: string | undefined,
   endpoint: string,
-  config: Config,
-  registry: EngineRegistry,
+  ctx: { config: Config; registry: EngineRegistry; body?: Record<string, unknown> },
 ): Dispatch {
   if (model === undefined || model === '') {
     return fail('model is required')
@@ -286,10 +330,10 @@ export function resolveModel(
 
   const segments = qualifiedSegments(model)
   if (segments !== undefined) {
-    return resolveQualified(segments, { endpoint, config, registry })
+    return resolveQualified(segments, { endpoint, ...ctx })
   }
 
-  return resolveChain(model, endpoint, config) ?? fail(`unknown model "${model}"`)
+  return resolveChain(model, endpoint, ctx.config) ?? fail(`unknown model "${model}"`)
 }
 
 /** Every model and wire id a concrete route already claims on the wildcard template's engine and upstream. */

@@ -5,6 +5,7 @@
  */
 
 import { parseHop, routeForChainHop } from './chain.ts'
+import { cursorBaseDisplayName, groupCursorModels, representativeVariant } from './cursorModels.ts'
 import {
   CHAIN_ENDPOINTS,
   expandWildcardRoutes,
@@ -362,6 +363,43 @@ async function chainRow({
 }
 
 /**
+ * Cursor lists dozens of ids per base model, one per reasoning depth and
+ * priority tier (`cursorModels.ts`'s own grammar) -- a menu built straight
+ * off `config.routes` would show every one of them as its own row. This
+ * replaces that whole run with one row per base, its `reasoning` capability
+ * listing the levels `dispatch.ts`'s own `resolveCursorBase` can actually
+ * reach for it, so the menu and the dispatcher never disagree about what a
+ * base offers.
+ */
+export function collapseCursorRoutes(routes: readonly ResolvedRoute[]): ResolvedRoute[] {
+  const cursorRoutes = routes.filter((r) => r.engine === 'cursor' && r.model !== undefined)
+  if (cursorRoutes.length === 0 || !cursorRoutes.every((r) => r.upstream === null)) {
+    return [...routes]
+  }
+  const rest = routes.filter((r) => !(r.engine === 'cursor' && r.model !== undefined))
+  const byModel = new Map(cursorRoutes.map((r) => [r.model as string, r]))
+  const groups = groupCursorModels(cursorRoutes.map((r) => r.model as string))
+  const collapsed: ResolvedRoute[] = []
+  for (const [base, group] of groups) {
+    const repRoute = byModel.get(representativeVariant(group.variants).id)
+    if (repRoute === undefined) {
+      continue
+    }
+    collapsed.push({
+      ...repRoute,
+      model: base,
+      display_name: cursorBaseDisplayName(
+        group.variants,
+        (id) => byModel.get(id)?.display_name,
+        base,
+      ),
+      reasoning: group.reasoning,
+    })
+  }
+  return [...rest, ...collapsed]
+}
+
+/**
  * `GET /openai/v1/models`: every dispatchable address, as a row carrying its
  * own capabilities rather than a bare id -- async and authoritative, so
  * `state` reflects a real probe rather than the sync lifecycle cache.
@@ -379,10 +417,10 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
   const statuses = new Map(engines.map((e) => [e.id, e]))
   const servedEngines = new Set(engines.filter((e) => e.serves.length > 0).map((e) => e.id))
 
-  const listed = [
+  const listed = collapseCursorRoutes([
     ...config.routes.filter((r) => !r.disabled && r.model !== WILDCARD_MODEL),
     ...expandWildcardRoutes(config, ctx.registry.inventory),
-  ]
+  ])
   const rows: ModelRow[] = []
   for (const route of listed) {
     if (!servedEngines.has(route.engine)) {

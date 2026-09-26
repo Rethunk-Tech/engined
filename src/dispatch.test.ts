@@ -56,7 +56,7 @@ describe('disabled engines', () => {
       engines: [remoteOpenaiHttp('engineA'), { ...remoteOpenaiHttp('off'), disabled: true }],
       routes: [route({ engine: 'engineA', model: 'm' }), route({ engine: 'off', model: 'gone' })],
     })
-    const result = resolveModel('@/off/gone', CHAT, cfg, registry(cfg))
+    const result = resolveModel('@/off/gone', CHAT, { config: cfg, registry: registry(cfg) })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.error).toContain('engine "off" is disabled')
   })
@@ -65,7 +65,7 @@ describe('disabled engines', () => {
     const cfg = config({
       engines: [{ ...remoteOpenaiHttp('off'), disabled: true }],
     })
-    const result = resolveModel('@/off/whatever', CHAT, cfg, registry(cfg))
+    const result = resolveModel('@/off/whatever', CHAT, { config: cfg, registry: registry(cfg) })
     expect(result.ok === false && result.error).toContain('engine "off" is disabled')
   })
 
@@ -74,7 +74,7 @@ describe('disabled engines', () => {
       engines: [{ ...remoteTts('voice'), disabled: true }],
       routes: [route({ engine: 'voice', model: undefined, upstream: 'local' })],
     })
-    const result = resolveModel('@/voice/local', SPEECH, cfg, registry(cfg))
+    const result = resolveModel('@/voice/local', SPEECH, { config: cfg, registry: registry(cfg) })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.error).toContain('engine "voice" is disabled')
   })
@@ -90,7 +90,7 @@ describe('bare (unqualified) addressing is gone', () => {
       ],
     })
     const reg = registry(cfg)
-    expect(resolveModel('shared', CHAT, cfg, reg).ok).toBe(false)
+    expect(resolveModel('shared', CHAT, { config: cfg, registry: reg }).ok).toBe(false)
   })
 
   test('the same string qualified with @/ succeeds', () => {
@@ -102,7 +102,7 @@ describe('bare (unqualified) addressing is gone', () => {
       ],
     })
     const reg = registry(cfg)
-    expect(resolveModel('@/engineA/shared', CHAT, cfg, reg)).toEqual(
+    expect(resolveModel('@/engineA/shared', CHAT, { config: cfg, registry: reg })).toEqual(
       modelResolution('engineA', 'shared', 'local'),
     )
   })
@@ -113,9 +113,11 @@ describe('bare (unqualified) addressing is gone', () => {
       routes: [route({ engine: 'solo', model: 'only' })],
     })
     const reg = registry(cfg)
-    expect(resolveModel('only', CHAT, cfg, reg).ok).toBe(false)
-    expect(resolveModel('@/only', CHAT, cfg, reg)).toEqual(modelResolution('solo', 'only', 'local'))
-    expect(resolveModel('@/solo/only', CHAT, cfg, reg)).toEqual(
+    expect(resolveModel('only', CHAT, { config: cfg, registry: reg }).ok).toBe(false)
+    expect(resolveModel('@/only', CHAT, { config: cfg, registry: reg })).toEqual(
+      modelResolution('solo', 'only', 'local'),
+    )
+    expect(resolveModel('@/solo/only', CHAT, { config: cfg, registry: reg })).toEqual(
       modelResolution('solo', 'only', 'local'),
     )
   })
@@ -126,21 +128,21 @@ describe('absent, empty and unknown model', () => {
   const reg = registry(cfg)
 
   test('absent is 400', () => {
-    expect(resolveModel(undefined, CHAT, cfg, reg).ok).toBe(false)
+    expect(resolveModel(undefined, CHAT, { config: cfg, registry: reg }).ok).toBe(false)
   })
 
   test('empty is 400', () => {
-    expect(resolveModel('', CHAT, cfg, reg).ok).toBe(false)
+    expect(resolveModel('', CHAT, { config: cfg, registry: reg }).ok).toBe(false)
   })
 
   test('a bare unrecognised string is 400', () => {
-    const result = resolveModel('nonexistent-thing', CHAT, cfg, reg)
+    const result = resolveModel('nonexistent-thing', CHAT, { config: cfg, registry: reg })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toContain('nonexistent-thing')
   })
 
   test('a bare engine id is 400: the door takes no unqualified engine selector', () => {
-    expect(resolveModel('claude', CHAT, cfg, reg).ok).toBe(false)
+    expect(resolveModel('claude', CHAT, { config: cfg, registry: reg }).ok).toBe(false)
   })
 })
 
@@ -154,26 +156,33 @@ describe('modelless engine addressing', () => {
 
   test('its two-segment engine+upstream form resolves', () => {
     const cfg = modelless('chatterbox-multi')
-    expect(resolveModel('@/chatterbox-multi/local', SPEECH, cfg, registry(cfg))).toEqual(
-      modelResolution('chatterbox-multi', undefined, 'local'),
-    )
+    expect(
+      resolveModel('@/chatterbox-multi/local', SPEECH, { config: cfg, registry: registry(cfg) }),
+    ).toEqual(modelResolution('chatterbox-multi', undefined, 'local'))
   })
 
   test('it has no one-segment form', () => {
     const cfg = modelless('chatterbox-multi')
-    expect(resolveModel('chatterbox-multi', SPEECH, cfg, registry(cfg)).ok).toBe(false)
-    expect(resolveModel('@/chatterbox-multi', SPEECH, cfg, registry(cfg)).ok).toBe(false)
+    expect(
+      resolveModel('chatterbox-multi', SPEECH, { config: cfg, registry: registry(cfg) }).ok,
+    ).toBe(false)
+    expect(
+      resolveModel('@/chatterbox-multi', SPEECH, { config: cfg, registry: registry(cfg) }).ok,
+    ).toBe(false)
   })
 
   test('a third segment is refused: there is no model to name', () => {
     const cfg = modelless('chatterbox-multi')
-    const result = resolveModel('@/chatterbox-multi/local/x', SPEECH, cfg, registry(cfg))
+    const result = resolveModel('@/chatterbox-multi/local/x', SPEECH, {
+      config: cfg,
+      registry: registry(cfg),
+    })
     expect(result.ok).toBe(false)
   })
 
   test("a model-bearing engine's bare id is 400: it cannot answer without a model", () => {
     const cfg = config({ engines: [remoteOpenaiHttp('gguf-host')] })
-    expect(resolveModel('gguf-host', CHAT, cfg, registry(cfg)).ok).toBe(false)
+    expect(resolveModel('gguf-host', CHAT, { config: cfg, registry: registry(cfg) }).ok).toBe(false)
   })
 
   test("comfy's serves names no OpenAI endpoint: its route resolves but no content endpoint accepts it", () => {
@@ -186,7 +195,7 @@ describe('modelless engine addressing', () => {
     // below would report), and only the endpoint gate refuses it -- comfy's
     // real `serves` is its own mediated proxy paths, none of them this
     // door's OpenAI-shaped chat endpoint.
-    const result = resolveModel('@/comfy/local', CHAT, cfg, reg)
+    const result = resolveModel('@/comfy/local', CHAT, { config: cfg, registry: reg })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toContain('does not serve')
   })
@@ -197,7 +206,7 @@ describe('modelless engine addressing', () => {
       routes: [route({ engine: 'comfy', model: undefined, upstream: 'local' })],
     })
     const reg = registry(cfg, ENGINES_ROOT)
-    const result = resolveModel('@/comfy/local/x', CHAT, cfg, reg)
+    const result = resolveModel('@/comfy/local/x', CHAT, { config: cfg, registry: reg })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).not.toContain('does not serve')
   })
@@ -265,23 +274,23 @@ function cursorOnTwoUpstreamsConfig(): Config {
 describe('segment count decides the reading', () => {
   test('a fully-explicit three-segment address resolves', () => {
     const cfg = claudeOnMoonshotConfig()
-    expect(resolveModel('@/claude/moonshot/k3', CHAT, cfg, registry(cfg))).toEqual(
-      modelResolution('claude', 'k3', 'moonshot'),
-    )
+    expect(
+      resolveModel('@/claude/moonshot/k3', CHAT, { config: cfg, registry: registry(cfg) }),
+    ).toEqual(modelResolution('claude', 'k3', 'moonshot'))
   })
 
   test('the same model id on two engines resolves both ways', () => {
     const cfg = ornithOnTwoEnginesConfig()
     const reg = registry(cfg)
-    const a = resolveModel('@/engineA/ornith', CHAT, cfg, reg)
-    const b = resolveModel('@/engineB/ornith', CHAT, cfg, reg)
+    const a = resolveModel('@/engineA/ornith', CHAT, { config: cfg, registry: reg })
+    const b = resolveModel('@/engineB/ornith', CHAT, { config: cfg, registry: reg })
     expect(a.ok && a.kind === 'model' && a.route.engine).toBe('engineA')
     expect(b.ok && b.kind === 'model' && b.route.engine).toBe('engineB')
   })
 
   test('a one-segment address picks the lowest-egress route: local, then lan, then remote, then declaration order', () => {
     const cfg = farAndNearConfig(remoteOpenaiHttp('near'))
-    expect(resolveModel('@/ornith', CHAT, cfg, registry(cfg))).toEqual(
+    expect(resolveModel('@/ornith', CHAT, { config: cfg, registry: registry(cfg) })).toEqual(
       modelResolution('near', 'ornith', 'near-up'),
     )
   })
@@ -291,7 +300,7 @@ describe('segment count decides the reading', () => {
     // resolver commits to it and reports the endpoint mismatch rather than
     // falling through to "far", which does serve it.
     const cfg = farAndNearConfig(remoteTts('near'))
-    const result = resolveModel('@/ornith', CHAT, cfg, registry(cfg))
+    const result = resolveModel('@/ornith', CHAT, { config: cfg, registry: registry(cfg) })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toContain('does not serve')
   })
@@ -299,12 +308,12 @@ describe('segment count decides the reading', () => {
   test('a two-segment address ambiguous across upstreams demands the three-segment form', () => {
     const cfg = cursorOnTwoUpstreamsConfig()
     const reg = registry(cfg)
-    const ambiguous = resolveModel('@/cursor/sonnet-5', CHAT, cfg, reg)
+    const ambiguous = resolveModel('@/cursor/sonnet-5', CHAT, { config: cfg, registry: reg })
     expect(ambiguous.ok).toBe(false)
     expect(!ambiguous.ok && ambiguous.error).toContain('ambiguous')
-    expect(resolveModel('@/cursor/openrouter/sonnet-5', CHAT, cfg, reg)).toEqual(
-      modelResolution('cursor', 'sonnet-5', 'openrouter'),
-    )
+    expect(
+      resolveModel('@/cursor/openrouter/sonnet-5', CHAT, { config: cfg, registry: reg }),
+    ).toEqual(modelResolution('cursor', 'sonnet-5', 'openrouter'))
   })
 
   test('a hop naming a model that exists only on a different engine does not resolve', () => {
@@ -312,7 +321,7 @@ describe('segment count decides the reading', () => {
       engines: [remoteOpenaiHttp('engineA'), remoteOpenaiHttp('engineB')],
       routes: [route({ engine: 'engineA', model: 'ornith' })],
     })
-    const result = resolveModel('@/engineB/ornith', CHAT, cfg, registry(cfg))
+    const result = resolveModel('@/engineB/ornith', CHAT, { config: cfg, registry: registry(cfg) })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toContain('"ornith"')
   })
@@ -325,7 +334,7 @@ describe('endpoint mismatch', () => {
       routes: [route({ engine: 'claude', model: 'sonnet' })],
     })
     const reg = registry(cfg)
-    const result = resolveModel('@/claude/sonnet', SPEECH, cfg, reg)
+    const result = resolveModel('@/claude/sonnet', SPEECH, { config: cfg, registry: reg })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toContain('does not serve')
   })
@@ -338,7 +347,7 @@ describe('chains', () => {
       chains: { 'chain-private': ['@/claude/sonnet'] },
     })
     const reg = registry(cfg)
-    expect(resolveModel('chain-private', CHAT, cfg, reg)).toEqual({
+    expect(resolveModel('chain-private', CHAT, { config: cfg, registry: reg })).toEqual({
       ok: true,
       kind: 'chain',
       chain: 'chain-private',
@@ -349,20 +358,22 @@ describe('chains', () => {
   test('a chain resolves for speech and transcription, the endpoints fallback means something on', () => {
     const cfg = config({ chains: { 'chain-private': ['@/claude/sonnet'] } })
     const reg = registry(cfg)
-    expect(resolveModel('chain-private', SPEECH, cfg, reg).ok).toBe(true)
-    expect(resolveModel('chain-private', TRANSCRIPTIONS, cfg, reg).ok).toBe(true)
+    expect(resolveModel('chain-private', SPEECH, { config: cfg, registry: reg }).ok).toBe(true)
+    expect(resolveModel('chain-private', TRANSCRIPTIONS, { config: cfg, registry: reg }).ok).toBe(
+      true,
+    )
   })
 
   test("a chain posted to embeddings is 400: a second engine's vector is not the first's", () => {
     const cfg = config({ chains: { 'chain-private': ['@/claude/sonnet'] } })
     const reg = registry(cfg)
-    expect(resolveModel('chain-private', EMBEDDINGS, cfg, reg).ok).toBe(false)
+    expect(resolveModel('chain-private', EMBEDDINGS, { config: cfg, registry: reg }).ok).toBe(false)
   })
 
   test('a chain posted to rerank is 400: nothing sends this verb through a fallback list', () => {
     const cfg = config({ chains: { 'chain-private': ['@/claude/sonnet'] } })
     const reg = registry(cfg)
-    expect(resolveModel('chain-private', RERANK, cfg, reg).ok).toBe(false)
+    expect(resolveModel('chain-private', RERANK, { config: cfg, registry: reg }).ok).toBe(false)
   })
 })
 
@@ -389,18 +400,18 @@ describe("a role's claimed endpoint", () => {
   for (const [role, claimed] of Claimed) {
     test(`${role} serves ${claimed} and refuses every other path`, () => {
       const { cfg, reg } = withRole(role)
-      expect(resolveModel('@/e/m', claimed, cfg, reg).ok).toBe(true)
+      expect(resolveModel('@/e/m', claimed, { config: cfg, registry: reg }).ok).toBe(true)
       for (const other of [CHAT, ...Claimed.map(([, p]) => p).filter((p) => p !== claimed)]) {
-        expect(resolveModel('@/e/m', other, cfg, reg).ok).toBe(false)
+        expect(resolveModel('@/e/m', other, { config: cfg, registry: reg }).ok).toBe(false)
       }
     })
   }
 
   test('a chat route is refused on every claimed path, not only embeddings', () => {
     const { cfg, reg } = withRole('chat')
-    expect(resolveModel('@/e/m', CHAT, cfg, reg).ok).toBe(true)
+    expect(resolveModel('@/e/m', CHAT, { config: cfg, registry: reg }).ok).toBe(true)
     for (const [, claimed] of Claimed) {
-      expect(resolveModel('@/e/m', claimed, cfg, reg).ok).toBe(false)
+      expect(resolveModel('@/e/m', claimed, { config: cfg, registry: reg }).ok).toBe(false)
     }
   })
 })
@@ -509,21 +520,30 @@ function registryWith(cfg: Config, inv: Inventory): EngineRegistry {
 describe('wildcard catalog dispatch', () => {
   test('@/engine/* is not a served address', async () => {
     const { inv, cfg } = await catalogInventory(['org/model:free'])
-    const result = resolveModel('@/openrouter/*', CHAT, cfg, registryWith(cfg, inv))
+    const result = resolveModel('@/openrouter/*', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.error).toMatch(/wildcard sentinel/)
   })
 
   test('empty inventory 400s an undeclared catalog id', async () => {
     const { inv, cfg } = await catalogInventory([])
-    const result = resolveModel('@/openrouter/org%2Fmodel:free', CHAT, cfg, registryWith(cfg, inv))
+    const result = resolveModel('@/openrouter/org%2Fmodel:free', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.error).toMatch(/does not exist/)
   })
 
   test('an inventoried slash-bearing id resolves to a synthesized route with wire_model', async () => {
     const { inv, cfg } = await catalogInventory(['org/model:free'])
-    const result = resolveModel('@/openrouter/org%2Fmodel:free', CHAT, cfg, registryWith(cfg, inv))
+    const result = resolveModel('@/openrouter/org%2Fmodel:free', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
     expect(result.ok).toBe(true)
     if (!result.ok || result.kind !== 'model') {
       return
@@ -535,12 +555,10 @@ describe('wildcard catalog dispatch', () => {
 
   test('the declared alias still wins over the same wire id', async () => {
     const { inv, cfg } = await catalogInventory(['cohere/north-mini-code:free', 'org/model:free'])
-    const result = resolveModel(
-      '@/openrouter/north-mini-code:free',
-      CHAT,
-      cfg,
-      registryWith(cfg, inv),
-    )
+    const result = resolveModel('@/openrouter/north-mini-code:free', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
     expect(result.ok).toBe(true)
     if (!result.ok || result.kind !== 'model') {
       return
@@ -552,16 +570,61 @@ describe('wildcard catalog dispatch', () => {
 
   test('a three-segment hop onto an inventoried id also resolves', async () => {
     const { inv, cfg } = await catalogInventory(['org/model:free'])
-    const result = resolveModel(
-      '@/openrouter/openrouter/org%2Fmodel:free',
-      CHAT,
-      cfg,
-      registryWith(cfg, inv),
-    )
+    const result = resolveModel('@/openrouter/openrouter/org%2Fmodel:free', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
     expect(result.ok).toBe(true)
     if (!result.ok || result.kind !== 'model') {
       return
     }
     expect(result.route.wire_model).toBe('org/model:free')
+  })
+})
+
+function cursorAmbientConfig(): Config {
+  return config({
+    engines: [remoteOpenaiHttp('cursor')],
+    routes: [
+      route({ engine: 'cursor', model: 'gpt-5.3-codex', upstream: null }),
+      route({ engine: 'cursor', model: 'gpt-5.3-codex-low', upstream: null }),
+      route({ engine: 'cursor', model: 'gpt-5.3-codex-high', upstream: null }),
+      route({ engine: 'cursor', model: 'gpt-5.3-codex-fast', upstream: null }),
+    ],
+  })
+}
+
+describe('cursor reasoning_effort/service_tier addressing', () => {
+  test('reasoning_effort picks the matching suffixed route, overriding the bare default', () => {
+    const cfg = cursorAmbientConfig()
+    const result = resolveModel('@/cursor/gpt-5.3-codex', CHAT, {
+      config: cfg,
+      registry: registry(cfg),
+      body: {
+        reasoning_effort: 'low',
+      },
+    })
+    expect(result.ok && result.kind === 'model' && result.route.model).toBe('gpt-5.3-codex-low')
+  })
+
+  test('absent reasoning_effort resolves to the bare/default variant', () => {
+    const cfg = cursorAmbientConfig()
+    const result = resolveModel('@/cursor/gpt-5.3-codex', CHAT, {
+      config: cfg,
+      registry: registry(cfg),
+    })
+    expect(result.ok && result.kind === 'model' && result.route.model).toBe('gpt-5.3-codex')
+  })
+
+  test('service_tier "priority" selects the -fast sibling', () => {
+    const cfg = cursorAmbientConfig()
+    const result = resolveModel('@/cursor/gpt-5.3-codex', CHAT, {
+      config: cfg,
+      registry: registry(cfg),
+      body: {
+        service_tier: 'priority',
+      },
+    })
+    expect(result.ok && result.kind === 'model' && result.route.model).toBe('gpt-5.3-codex-fast')
   })
 })

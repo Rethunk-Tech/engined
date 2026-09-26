@@ -422,7 +422,10 @@ export function imageRoute(
   rawModel: string | undefined,
   endpoint: string,
 ): { route: ResolvedRoute; checkpoints: Record<string, unknown> } | Response {
-  const resolved = resolveModel(rawModel, endpoint, ctx.getConfig(), ctx.registry)
+  const resolved = resolveModel(rawModel, endpoint, {
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+  })
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }

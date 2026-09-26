@@ -219,7 +219,11 @@ export async function handleContent(
     return handleImageGeneration(ctx, body, req.signal)
   }
   const rawModel = typeof body.model === 'string' ? body.model : undefined
-  const resolved = resolveModel(rawModel, pathname, ctx.getConfig(), ctx.registry)
+  const resolved = resolveModel(rawModel, pathname, {
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+    body,
+  })
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }

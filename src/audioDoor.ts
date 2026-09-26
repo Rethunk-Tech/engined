@@ -411,7 +411,10 @@ export async function handleAudioSpeech(
   signal?: AbortSignal,
 ): Promise<Response> {
   const rawModel = typeof body.model === 'string' ? body.model : undefined
-  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, ctx.getConfig(), ctx.registry)
+  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, {
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+  })
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }

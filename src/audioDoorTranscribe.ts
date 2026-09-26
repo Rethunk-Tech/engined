@@ -193,7 +193,10 @@ export async function handleAudioTranscription(
   if (form instanceof Response) {
     return form
   }
-  const resolved = resolveModel(form.rawModel ?? undefined, endpoint, ctx.getConfig(), ctx.registry)
+  const resolved = resolveModel(form.rawModel ?? undefined, endpoint, {
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+  })
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }

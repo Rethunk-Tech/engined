@@ -8,7 +8,7 @@
  * runs.
  */
 import { expect, test } from 'bun:test'
-import { type ChainHop, chainContext, routeContextIn } from './modelsMenu.ts'
+import { type ChainHop, chainContext, collapseCursorRoutes, routeContextIn } from './modelsMenu.ts'
 import type { EngineStatus } from './responses.ts'
 import { config, engine, route } from './test-support.ts'
 
@@ -66,9 +66,9 @@ test('a declared context_in always wins over the derived one', () => {
     engine: 'llama',
     model: 'ornith',
     args: { 'ctx-size': 262_144, parallel: 4 },
-    context_in: 1_000,
+    context_in: 1000,
   })
-  expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(1_000)
+  expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(1000)
 })
 
 test('a remote openai-http route (no models_dir) is never derived', () => {
@@ -87,10 +87,10 @@ function chainHop(contextIn: number | undefined, contextOut?: number): ChainHop 
 }
 
 test('a chain reports the minimum context_in/context_out across the hops that declare one', () => {
-  const walked = [chainHop(65_536, 4_096), chainHop(32_768)]
+  const walked = [chainHop(65_536, 4096), chainHop(32_768)]
   expect(chainContext(walked, config())).toEqual({
     context_in: 32_768,
-    context_out: 4_096,
+    context_out: 4096,
   })
 })
 
@@ -100,4 +100,37 @@ test('a chain with no hop reporting a context leaves both absent', () => {
     context_in: undefined,
     context_out: undefined,
   })
+})
+
+test('collapseCursorRoutes replaces every @/cursor/<suffixed> row with one row per base', () => {
+  const others = [route({ engine: 'llama', model: 'ornith', upstream: 'local' })]
+  const cursorRoutes = [
+    route({ engine: 'cursor', model: 'gpt-5.3-codex', upstream: null, display_name: 'Codex 5.3' }),
+    route({
+      engine: 'cursor',
+      model: 'gpt-5.3-codex-low',
+      upstream: null,
+      display_name: 'Codex 5.3 Low',
+    }),
+    route({
+      engine: 'cursor',
+      model: 'gpt-5.3-codex-high',
+      upstream: null,
+      display_name: 'Codex 5.3 High',
+    }),
+  ]
+  const collapsed = collapseCursorRoutes([...others, ...cursorRoutes])
+  expect(collapsed).toHaveLength(2)
+  const codex = collapsed.find((r) => r.engine === 'cursor')
+  expect(codex?.model).toBe('gpt-5.3-codex')
+  expect(codex?.display_name).toBe('Codex 5.3')
+  expect(codex?.reasoning).toEqual(['low', 'medium', 'high'])
+})
+
+test('collapseCursorRoutes leaves a "cursor"-named engine alone when its routes are not ambient', () => {
+  // A config could name a real remote-upstream engine "cursor" for reasons
+  // that have nothing to do with Cursor's own catalog -- only an ambient
+  // (upstream === null) "cursor" engine is Cursor's own addressing.
+  const routes = [route({ engine: 'cursor', model: 'sonnet-5', upstream: 'openrouter' })]
+  expect(collapseCursorRoutes(routes)).toEqual(routes)
 })
