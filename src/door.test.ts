@@ -38,6 +38,7 @@ import {
   route,
   soleProvenanceRecord,
   tempPresetPath,
+  upstream,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -520,6 +521,87 @@ describe('the door: content routing', () => {
     const forwarded = JSON.parse(recorded[0]?.body ?? '{}') as Record<string, unknown>
     expect(forwarded.workdir).toBeUndefined()
     expect(forwarded.reasoning_effort).toBe('high')
+  })
+})
+
+describe('the door: answering-route headers', () => {
+  test('a buffered chat reply names the answering route, upstream, and egress', async () => {
+    const { cfg: base, root } = llamaDoorConfig(TEST_ROOT)
+    const cfg = { ...base, upstreams: [upstream()] }
+    const door = createLlamaDoor(cfg, root, {
+      llamaHttpClient: makeLlamaHttpClient([]),
+      write: () => undefined,
+    })
+    const res = await door.fetch(
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    await res.json()
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-upstream')).toBe('local')
+    expect(res.headers.get('x-engined-egress')).toBe('none')
+    expect(res.headers.get('x-engined-chain')).toBeNull()
+  })
+
+  test('a streamed chat reply carries the same headers before the body resolves', async () => {
+    const { cfg: base, root } = streamingDoorConfig()
+    const cfg = { ...base, upstreams: [upstream()] }
+    const chunks = [
+      'data: {"id":"1","choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: [DONE]\n\n',
+    ]
+    const res = await fetchStreamChat(cfg, root, {
+      llamaHttpClient: makeStreamingReportedHttpClient(chunks),
+      write: () => undefined,
+    })
+    // Headers are already on the `Response` before the stream is read at
+    // all -- the whole point of committing to a hop before the body flows.
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-egress')).toBe('none')
+    await res.text()
+  })
+
+  test('a chain that falls over to its second hop names the second hop, not the first', async () => {
+    const { cfg: base, root } = twoEngineDoorConfig()
+    const cfg = { ...base, upstreams: [upstream()] }
+    const door = createLlamaDoor(
+      cfg,
+      root,
+      { llamaHttpClient: makeSplitHttpClient(500, [], []), write: () => undefined },
+      twoEngineExec(),
+    )
+    const res = await door.fetch(
+      chatRequest({ model: 'chain-failover', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    await res.json()
+    expect(res.headers.get('x-engined-route')).toBe('@/llama-live/live-model')
+    expect(res.headers.get('x-engined-chain')).toBe('chain-failover')
+    expect(res.headers.get('x-engined-egress')).toBe('none')
+  })
+
+  test('a chain nothing in it can answer carries no answering-route headers', async () => {
+    const { cfg: base, root } = twoEngineDoorConfig()
+    const cfg = { ...base, upstreams: [upstream()] }
+    const control = llamaControlPlane()
+    const everyHopFails: HttpClient = (url, init) => {
+      const controlled = control(url, init)
+      if (controlled) {
+        return Promise.resolve(controlled)
+      }
+      return Promise.resolve(Response.json({ error: 'dead' }, { status: 500 }))
+    }
+    const door = createLlamaDoor(
+      cfg,
+      root,
+      { llamaHttpClient: everyHopFails, write: () => undefined },
+      twoEngineExec(),
+    )
+    const res = await door.fetch(
+      chatRequest({ model: 'chain-failover', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    await res.json()
+    expect(res.status).toBe(503)
+    expect(res.headers.get('x-engined-route')).toBeNull()
+    expect(res.headers.get('x-engined-chain')).toBeNull()
   })
 })
 

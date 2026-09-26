@@ -17,7 +17,13 @@ import {
   STATUS_UNAUTHORIZED,
   STATUS_UNAVAILABLE,
 } from './http.ts'
-import { type Attempt, type CallRecord, recordCall, type Usage } from './provenance.ts'
+import {
+  type Attempt,
+  answeringHeaders,
+  type CallRecord,
+  recordCall,
+  type Usage,
+} from './provenance.ts'
 import type { Egress } from './types.ts'
 import {
   errMessage,
@@ -100,6 +106,14 @@ interface ChainResult {
   /** The answering hop's binary body, where it had one. Only an audio hop sets it. */
   bytes?: Uint8Array
   engineUsed: string | null
+  /**
+   * The `x-engined-*` headers naming which hop answered, set only once a hop
+   * has actually committed as the answer (`finalizeTerminal`). Absent
+   * whenever no hop did -- an exhausted chain, an egress ceiling that leaves
+   * nothing to attempt, or a client that left mid-chain -- because there is
+   * no route to name in any of those.
+   */
+  headers?: Headers
 }
 
 /** A hop is the two- or three-segment qualified form, `@/<engine>/<model>` or `@/<engine>/<upstream>/<model>`; the third segment is the model only when present. */
@@ -455,18 +469,36 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
   }
 }
 
-/** Commits to a hop as the answer. A streaming result defers its provenance line until the stream ends, so a mid-body death still lands as that attempt's failure. */
+/**
+ * Commits to a hop as the answer. A streaming result defers its provenance
+ * line until the stream ends, so a mid-body death still lands as that
+ * attempt's failure -- but the answering-route headers are built right here,
+ * before either branch returns, because they name which hop is streaming and
+ * a header cannot be added once the body has started.
+ */
 function finalizeTerminal(
-  attempt: Attempt,
-  result: HopResult,
+  terminal: { hop: string; attempt: Attempt; result: HopResult },
   attempts: Attempt[],
   opts: RunChainOptions,
 ): ChainResult {
+  const { hop, attempt, result } = terminal
   const { engine } = attempt
   const upstreamUsed = attempt.upstream_used ?? null
+  const headers = answeringHeaders({
+    route: hop,
+    upstreamUsed,
+    egress: opts.egressOf(hop),
+    chain: opts.chain,
+  })
   if (!result.stream) {
     emit(opts, attempts, engine, upstreamUsed)
-    return { status: result.status, body: result.body, bytes: result.bytes, engineUsed: engine }
+    return {
+      status: result.status,
+      body: result.body,
+      bytes: result.bytes,
+      engineUsed: engine,
+      headers,
+    }
   }
   const scanner = new StreamUsage()
   const stream = wrapStream(
@@ -486,7 +518,7 @@ function finalizeTerminal(
       scanner.push(chunk)
     },
   )
-  return { status: result.status, body: result.body, stream, engineUsed: engine }
+  return { status: result.status, body: result.body, stream, engineUsed: engine, headers }
 }
 
 export async function runChain(hops: string[], opts: RunChainOptions): Promise<ChainResult> {
@@ -512,7 +544,11 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     if (outcome.advance) {
       continue
     }
-    return finalizeTerminal(outcome.attempt, outcome.result as HopResult, attempts, opts)
+    return finalizeTerminal(
+      { hop, attempt: outcome.attempt, result: outcome.result as HopResult },
+      attempts,
+      opts,
+    )
   }
 
   if (opts.signal?.aborted) {

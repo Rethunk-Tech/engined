@@ -117,12 +117,11 @@ async function handleModelRouted(
   })
 
   if (result.stream) {
-    return new Response(result.stream, {
-      status: result.status,
-      headers: { [CONTENT_TYPE]: contentType },
-    })
+    const headers = result.headers ?? new Headers()
+    headers.set(CONTENT_TYPE, contentType)
+    return new Response(result.stream, { status: result.status, headers })
   }
-  return Response.json(result.body, { status: result.status })
+  return Response.json(result.body, { status: result.status, headers: result.headers })
 }
 
 /** Tokenize and apply-template are chat tools; asking the router for any other role would inject the wrong model. */

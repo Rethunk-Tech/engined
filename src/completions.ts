@@ -12,7 +12,8 @@
  * engine's own native completion shape with nothing here to test it against.
  */
 
-import { resolveModel } from './dispatch.ts'
+import { routeAddress } from './control.ts'
+import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { getLlamaRouter } from './doorContext.ts'
 import {
@@ -23,7 +24,7 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
 } from './http.ts'
-import { recordCall, type Usage } from './provenance.ts'
+import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS, isRecord } from './types.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
@@ -270,13 +271,20 @@ export async function handleCompletions(
       headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
     })
   }
+  const headers = answeringHeaders({
+    route: routeAddress(route),
+    upstreamUsed: 'local',
+    egress: routeEgress(route, ctx.getConfig()),
+    chain: null,
+  })
   const contentType = response.headers.get(CONTENT_TYPE) ?? ''
   if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
+    headers.set(CONTENT_TYPE, SSE_CONTENT_TYPE)
     return new Response(mapInfillStream(response.body, modelId), {
       status: response.status,
-      headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
+      headers,
     })
   }
   const parsed: unknown = await response.json().catch(() => ({}))
-  return Response.json(completionEnvelope(modelId, isRecord(parsed) ? parsed : {}))
+  return Response.json(completionEnvelope(modelId, isRecord(parsed) ? parsed : {}), { headers })
 }

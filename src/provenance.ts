@@ -5,6 +5,7 @@
  */
 
 import process from 'node:process'
+import type { Egress } from './types.ts'
 
 /**
  * What one attempt cost, exactly as the engine reported it -- never derived,
@@ -99,6 +100,41 @@ function serializeAttempt(attempt: Attempt): Attempt {
     usage: attempt.usage,
     streamed: attempt.streamed,
   }
+}
+
+/** The caller-visible names for what `answeringHeaders` sets, so a consumer (a VS Code extension, `engined-probe`) reads one constant rather than a string it has to get byte-for-byte right. */
+export const HEADER_ROUTE = 'x-engined-route'
+export const HEADER_UPSTREAM = 'x-engined-upstream'
+export const HEADER_EGRESS = 'x-engined-egress'
+export const HEADER_CHAIN = 'x-engined-chain'
+
+/**
+ * The one place that turns an answering attempt into the headers a caller
+ * sees -- built from the same fields `recordCall` already writes, so a
+ * header can never claim something the provenance line does not. Every
+ * answering site (a chain's terminal hop, or a verb with no chain support at
+ * all) funnels through this rather than formatting its own strings.
+ *
+ * `chain` is set only when the request named one: a caller who addressed a
+ * single route directly gets no chain header at all, not an empty one.
+ */
+export function answeringHeaders(fields: {
+  route: string
+  upstreamUsed: string | null | undefined
+  egress: Egress
+  chain: string | null
+}): Headers {
+  const headers = new Headers({
+    [HEADER_ROUTE]: fields.route,
+    [HEADER_EGRESS]: fields.egress,
+  })
+  if (fields.upstreamUsed !== undefined && fields.upstreamUsed !== null) {
+    headers.set(HEADER_UPSTREAM, fields.upstreamUsed)
+  }
+  if (fields.chain !== null) {
+    headers.set(HEADER_CHAIN, fields.chain)
+  }
+  return headers
 }
 
 export function recordCall(

@@ -224,7 +224,10 @@ export async function handleAudioTranscription(
     })
   }
 
-  const { engineId, model, upstream } = singleAudioRoute(resolved.route)
+  const { engineId, model, upstream, address, egress } = singleAudioRoute(
+    resolved.route,
+    ctx.getConfig(),
+  )
   const leased: AudioLease = { held: false }
   const startedAt = Date.now()
   const result = await attempt(engineId, model, audioStart(ctx, leased))
@@ -232,6 +235,8 @@ export async function handleAudioTranscription(
     engineId,
     model,
     upstream,
+    address,
+    egress,
     requested: form.rawModel ?? '',
     result,
     startedAt,

@@ -252,6 +252,29 @@ A chain hop may leave the machine, and provenance is why that is allowed at
 all. A hop that cannot say which engine answered is not auditable, and an
 unauditable egress is not one this design accepts.
 
+## Answering-route headers
+
+Every content verb — chat completions, completions, embeddings, rerank,
+speech, transcriptions, translations, image generations and edits — answers
+with the same facts provenance already writes to journald, as headers a
+caller can read without tailing a log:
+
+| Header | Carries |
+| --- | --- |
+| `x-engined-route` | the answering address, `@/<engine>/<model>` or the three-segment form when a route carries its own upstream |
+| `x-engined-upstream` | that route's resolved `[[upstream]]` id, or `local`; absent for an ambient route |
+| `x-engined-egress` | that route's `egress` |
+| `x-engined-chain` | the chain name the caller addressed; absent when the caller named a route directly |
+
+For a chain, these name whichever hop actually answered — the second hop of
+a fallover, not the first one that failed. For a streamed reply they are set
+before the body starts, since a header cannot follow the bytes it describes;
+they still name the hop that is streaming. They carry no request or response
+content, only the address, upstream, egress and chain name that provenance
+already records. They are absent on any reply where no route answered — an
+exhausted chain, a refusal before dispatch, or an egress ceiling that leaves
+no hop to try.
+
 ## Engine state
 
 `GET /engined/v1/engines` is the whole operator surface. A running engine also

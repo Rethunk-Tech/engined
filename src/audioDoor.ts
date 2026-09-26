@@ -9,6 +9,7 @@ import type { DoorResponse, EngineStart, SpeechRequestBody } from './audio.ts'
 import { SPEECH_DOOR_KEYS } from './audio.ts'
 import { handleSpeech } from './audioSpeech.ts'
 import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
+import { routeAddress } from './control.ts'
 import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
@@ -22,7 +23,7 @@ import {
   STATUS_BAD_REQUEST,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { recordCall } from './provenance.ts'
+import { answeringHeaders, recordCall } from './provenance.ts'
 import {
   CONTENT_ENDPOINT_SPEECH,
   type Config,
@@ -41,6 +42,9 @@ interface AudioCallInfo {
   model?: string
   /** The resolved route's `[[upstream]]` id, or `"local"`. Absent for an ambient route, the same disposition a chat hop's carries. */
   upstream?: string
+  /** The route's own `@/...` address, for the answering-route header -- this call has no chain fallback, so the route resolved before dispatch is the route that answers. */
+  address: string
+  egress: Egress
   requested: string
   result: DoorResponse
   startedAt: number
@@ -101,29 +105,25 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
   }
 }
 
-function doorResponseToResponse(result: DoorResponse): Response {
+/** `headers` carries the answering-route fields already, if any; every branch just adds its own `Content-Type` on top rather than building a fresh header set. */
+function doorResponseToResponse(result: DoorResponse, headers?: Headers): Response {
+  const out = headers ?? new Headers()
   if (result.stream) {
-    return new Response(result.stream, {
-      status: result.status,
-      headers: { [CONTENT_TYPE]: result.contentType },
-    })
+    out.set(CONTENT_TYPE, result.contentType)
+    return new Response(result.stream, { status: result.status, headers: out })
   }
   if (result.bytes) {
     // `Buffer.from` rather than the raw `Uint8Array`: DoorResponse.bytes is
     // typed as the generic `ArrayBufferLike` view, which Bun's `BodyInit`
     // does not accept directly.
-    return new Response(Buffer.from(result.bytes), {
-      status: result.status,
-      headers: { [CONTENT_TYPE]: result.contentType },
-    })
+    out.set(CONTENT_TYPE, result.contentType)
+    return new Response(Buffer.from(result.bytes), { status: result.status, headers: out })
   }
   if (result.contentType === TEXT_CONTENT_TYPE) {
-    return new Response(String(result.body), {
-      status: result.status,
-      headers: { [CONTENT_TYPE]: result.contentType },
-    })
+    out.set(CONTENT_TYPE, result.contentType)
+    return new Response(String(result.body), { status: result.status, headers: out })
   }
-  return Response.json(result.body, { status: result.status })
+  return Response.json(result.body, { status: result.status, headers: out })
 }
 
 /** Whether this call's `audioStart` actually took a lease -- the only thing entitled to give one back. */
@@ -193,6 +193,12 @@ export function finishAudioCall(
 ): Response {
   return doorResponseToResponse(
     endAudioLease(ctx, info.engineId, leased, recordAudioCall(ctx, info)),
+    answeringHeaders({
+      route: info.address,
+      upstreamUsed: info.upstream ?? null,
+      egress: info.egress,
+      chain: null,
+    }),
   )
 }
 
@@ -306,16 +312,19 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
     }),
     write: ctx.doorOpts.write,
   })
-  return doorResponseToResponse({
-    status: result.status,
-    // Nothing answered, so the body is the chain's own JSON refusal rather than
-    // audio -- the content type a failed hop happened to set last would type it
-    // as the sound it never produced.
-    contentType: result.engineUsed === null ? JSON_CONTENT_TYPE : contentType,
-    body: result.body,
-    bytes: result.bytes,
-    stream: result.stream,
-  })
+  return doorResponseToResponse(
+    {
+      status: result.status,
+      // Nothing answered, so the body is the chain's own JSON refusal rather than
+      // audio -- the content type a failed hop happened to set last would type it
+      // as the sound it never produced.
+      contentType: result.engineUsed === null ? JSON_CONTENT_TYPE : contentType,
+      body: result.body,
+      bytes: result.bytes,
+      stream: result.stream,
+    },
+    result.headers,
+  )
 }
 
 /**
@@ -323,16 +332,23 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
  * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
  * "scribe_v1".
  */
-export function singleAudioRoute(route: ResolvedRoute): {
+export function singleAudioRoute(
+  route: ResolvedRoute,
+  config: Config,
+): {
   engineId: string
   model?: string
   upstream?: string
+  address: string
+  egress: Egress
 } {
   return {
     engineId: route.engine,
     model: route.model,
     // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
     upstream: route.upstream ?? undefined,
+    address: routeAddress(route),
+    egress: routeEgress(route, config),
   }
 }
 
@@ -452,13 +468,15 @@ export async function handleAudioSpeech(
     })
   }
 
-  const { engineId, upstream } = singleAudioRoute(resolved.route)
+  const { engineId, upstream, address, egress } = singleAudioRoute(resolved.route, ctx.getConfig())
   const leased: AudioLease = { held: false }
   const startedAt = Date.now()
   const result = await attempt(engineId, undefined, audioStart(ctx, leased))
   return finishAudioCall(ctx, leased, {
     engineId,
     upstream,
+    address,
+    egress,
     requested: rawModel ?? '',
     result,
     startedAt,

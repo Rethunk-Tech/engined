@@ -19,6 +19,7 @@ import {
   route,
   soleProvenanceRecord,
   tempPresetPath,
+  upstream,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -181,6 +182,24 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(soleProvenanceRecord(lines).engine_used).toBe('local-llama')
   })
 
+  test('a buffered completions reply carries the answering-route headers', async () => {
+    const { cfg: base, root } = fimDoorConfig(TEST_ROOT, true)
+    const cfg = { ...base, upstreams: [upstream()] }
+    const door = doorFor(cfg, root, makeInfillHttpClient([], 'buffered'), () => undefined)
+    const res = await door.fetch(
+      completionsRequest({
+        model: '@/local-llama/ornith',
+        prompt: 'def add(a, b):\n    ',
+        suffix: '\n\nprint(add(1, 2))\n',
+      }),
+    )
+    await res.json()
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-upstream')).toBe('local')
+    expect(res.headers.get('x-engined-egress')).toBe('none')
+    expect(res.headers.get('x-engined-chain')).toBeNull()
+  })
+
   test('a stopped_limit reply reports finish_reason "length"', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const recorded: { url: string; body: string }[] = []
@@ -240,6 +259,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(res.status).toBeGreaterThanOrEqual(400)
     expect(res.status).toBeLessThan(500)
     expect(recorded).toHaveLength(0)
+    expect(res.headers.get('x-engined-route')).toBeNull()
   })
 
   test('an unknown model on the completions path is refused the same way any other unknown model is', async () => {

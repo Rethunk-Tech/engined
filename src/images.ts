@@ -17,7 +17,8 @@
 import { readFileSync } from 'node:fs'
 import { classifyResult } from './chain.ts'
 import { submitComfyPrompt } from './comfyProxy.ts'
-import { resolveModel } from './dispatch.ts'
+import { routeAddress } from './control.ts'
+import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import {
@@ -28,7 +29,7 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
 } from './http.ts'
-import { recordCall } from './provenance.ts'
+import { answeringHeaders, recordCall } from './provenance.ts'
 import { isContainerSpec } from './specTypes.ts'
 import {
   CONTENT_ENDPOINT_IMAGES,
@@ -375,7 +376,17 @@ export async function renderWith(
       }
       data.push(...images.map((b64Json) => ({ b64_json: b64Json })))
     }
-    return Response.json({ created: Math.floor(startedAt / 1000), data })
+    return Response.json(
+      { created: Math.floor(startedAt / 1000), data },
+      {
+        headers: answeringHeaders({
+          route: routeAddress(route),
+          upstreamUsed: route.upstream ?? null,
+          egress: routeEgress(route, ctx.getConfig()),
+          chain: null,
+        }),
+      },
+    )
   } catch (err) {
     return refuse({ status: STATUS_BAD_GATEWAY, error: errMessage(err) })
   } finally {
