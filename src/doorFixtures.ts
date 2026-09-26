@@ -4,12 +4,14 @@ import { mkdtempSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { AgenticProbeRunner } from './agenticProbe.ts'
 import type { Probe } from './docker.ts'
+import { NAME_PREFIX } from './docker.ts'
 import type { DoorOptions } from './doorContext.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { createDoor, type Door } from './main.ts'
 import {
   BUNX,
+  buildExec,
   config,
   containerRunning,
   engine,
@@ -147,6 +149,66 @@ export function llamaDoorConfig(testRoot: string): { cfg: Config; root: string }
   const cfg = config({
     engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
     routes: [route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' })],
+  })
+  return { cfg, root }
+}
+
+const FAILOVER_DEAD_PORT = 46_001
+const FAILOVER_LIVE_PORT = 46_002
+
+/** One shared docker fake for two engines, distinguished by the container name docker.ts always passes. Shared by the answering-route-headers and chain-advance suites. */
+export function twoEngineExec(): Exec {
+  return buildExec({
+    portByContainer: {
+      [`${NAME_PREFIX}llama-dead`]: FAILOVER_DEAD_PORT,
+      [`${NAME_PREFIX}llama-live`]: FAILOVER_LIVE_PORT,
+    },
+  })
+}
+
+/** The "dead" upstream answers with `deadStatus`; the "live" one always succeeds. Each
+ * records its own calls. `/models/load` and `/openai/v1/models` mirror the real b10354
+ * contract, probed live: accept, then report "loaded" -- the ready signal
+ * `loadAndWait` actually polls for. */
+export function makeSplitHttpClient(
+  deadStatus: number,
+  deadCalls: string[],
+  liveCalls: string[],
+): HttpClient {
+  const control = llamaControlPlane()
+  return (url: string, init?: RequestInit) => {
+    const controlled = control(url, init)
+    if (controlled) {
+      return Promise.resolve(controlled)
+    }
+    const { port } = new URL(url)
+    if (port === String(FAILOVER_DEAD_PORT)) {
+      deadCalls.push(url)
+      return Promise.resolve(Response.json({ error: 'dead' }, { status: deadStatus }))
+    }
+    liveCalls.push(url)
+    return Promise.resolve(
+      Response.json({ id: 'resp-live', choices: [{ message: { content: 'live' } }] }),
+    )
+  }
+}
+
+/** Two llama engines chained as a failover pair, its specs written under a fresh directory in `testRoot`. */
+export function twoEngineDoorConfig(testRoot: string): { cfg: Config; root: string } {
+  const root = mkdtempSync(join(testRoot, 'engined-door-'))
+  for (const id of ['llama-dead', 'llama-live']) {
+    writeEngineSpec(root, id, LOCAL_LLAMA_SPEC)
+  }
+  const cfg = config({
+    engines: [
+      engine({ id: 'llama-dead', models_dir: '/data/dead', models_max: 1 }),
+      engine({ id: 'llama-live', models_dir: '/data/live', models_max: 1 }),
+    ],
+    routes: [
+      route({ engine: 'llama-dead', model: 'dead-model', filename: 'd.gguf', role: 'chat' }),
+      route({ engine: 'llama-live', model: 'live-model', filename: 'l.gguf', role: 'chat' }),
+    ],
+    chains: { 'chain-failover': ['@/llama-dead/dead-model', '@/llama-live/live-model'] },
   })
   return { cfg, root }
 }
