@@ -43,6 +43,7 @@ import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
 import type { RegistryOptions } from './registryOptions.ts'
+import { handleTokenizeRoute, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -197,6 +198,9 @@ function routePost(
   }
   if (pathname === START_PATH) {
     return handleStart(ctx, req)
+  }
+  if (pathname === TOKENIZE_PATH) {
+    return handleTokenizeRoute(ctx, req)
   }
   const stopMatch = pathname.match(STOP_RE)?.[1]
   if (stopMatch !== undefined) {

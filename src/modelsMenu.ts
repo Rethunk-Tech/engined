@@ -16,6 +16,7 @@ import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
 import { mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
+import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   type Config,
@@ -154,6 +155,13 @@ async function modelRow(
 ): Promise<ModelRow> {
   const status = statuses.get(route.engine)
   const state = await remoteRouteState(ctx, route, status?.state ?? 'unavailable')
+  const serves = routeServes(route, status?.serves ?? [])
+  // Vocab-only tokenize needs no engine `serves` entry of its own: a route
+  // advertises it whenever its GGUF's vocab is one this door can read cold,
+  // regardless of whether the engine is even running.
+  if (await supportsVocabTokenize(route, config)) {
+    serves.push(TOKENIZE_PATH)
+  }
   return {
     id: modelRowId(route, siblingCount),
     engine: route.engine,
@@ -163,7 +171,7 @@ async function modelRow(
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),
-    serves: routeServes(route, status?.serves ?? []),
+    serves,
     role: route.role,
     vision: route.vision,
     translate: route.translate,

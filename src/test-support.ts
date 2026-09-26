@@ -7,7 +7,7 @@
 import { afterAll } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Exec, ExecResult } from './exec.ts'
 import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
@@ -296,6 +296,55 @@ export function llamaControlPlane(): (url: string, init?: RequestInit) => Respon
     }
     return
   }
+}
+
+/**
+ * A minimal, on-disk GGUF file carrying only the metadata key/value section
+ * -- no tensors -- for `ggufMetadata.ts`'s reader to run against without a
+ * real (multi-gigabyte) model file. String and string-array values are the
+ * only two shapes `bpeVocab.ts` reads, so they are the only two this writes.
+ */
+export function writeGgufFixture(path: string, kv: Record<string, string | string[]>): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const chunks: Buffer[] = []
+  const u32 = (n: number) => {
+    const b = Buffer.alloc(4)
+    b.writeUInt32LE(n)
+    chunks.push(b)
+  }
+  const u64 = (n: number) => {
+    const b = Buffer.alloc(8)
+    b.writeBigUInt64LE(BigInt(n))
+    chunks.push(b)
+  }
+  const str = (s: string) => {
+    const bytes = Buffer.from(s, 'utf8')
+    u64(bytes.length)
+    chunks.push(bytes)
+  }
+  const GgufTypeString = 8
+  const GgufTypeArray = 9
+
+  chunks.push(Buffer.from('GGUF', 'ascii'))
+  u32(3) // version
+  u64(0) // tensor_count
+  const entries = Object.entries(kv)
+  u64(entries.length)
+  for (const [key, value] of entries) {
+    str(key)
+    if (Array.isArray(value)) {
+      u32(GgufTypeArray)
+      u32(GgufTypeString)
+      u64(value.length)
+      for (const s of value) {
+        str(s)
+      }
+    } else {
+      u32(GgufTypeString)
+      str(value)
+    }
+  }
+  writeFileSync(path, Buffer.concat(chunks))
 }
 
 /**

@@ -27,6 +27,7 @@ treated as a caller.
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
 | `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
+| `/engined/v1/tokenize` | POST | `{model: "@/engine/model", content}` in, `{tokens: <count>}` out — a vocab-only token count for a local GGUF route, no engine started and no weights loaded. See [Vocab-only tokenize](#vocab-only-tokenize) |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/engined/v1/engines/:id/hold` | POST | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands |
@@ -407,6 +408,30 @@ theirs can load. It is the difference between "the model is still loading" and
 "three requests are ahead of you", which `state` alone cannot express. A role
 with nothing running and nothing queued is omitted rather than reported as
 zero, and a kind with no roles carries no `roles` at all.
+
+### Vocab-only tokenize
+
+`POST /engined/v1/tokenize` takes `{ "model": "@/engine/model", "content": "<text>" }`
+and answers `{ "tokens": <count> }` — a token count read straight off the
+route's own GGUF vocab, never by starting the engine or loading its weights.
+This is what a caller wanting an accurate count for a route's model should
+use instead of `/engined/v1/engines/:id/tokenize`: that one proxies to
+llama-server, which in router mode has to load the model just to answer.
+
+Only reachable for a local route whose GGUF uses byte-level BPE
+(`tokenizer.ggml.model = "gpt2"`) with a pretokenizer this door knows how to
+split — `qwen2`, `qwen35` and `gpt2` today, read off `tokenizer.ggml.pre`. A
+route that qualifies advertises `/engined/v1/tokenize` in its `GET
+/openai/v1/models` row's `serves`; naming a route that does not (a remote
+route, a non-BPE vocab, or an unrecognized pretokenizer) is a 400 naming why.
+
+The count does not add a BOS/EOS token (matching llama-server's own
+`/tokenize`, which defaults `add_special` to `false`), and it does not run
+`messages`/chat-template expansion — only `content`, tokenized as literal
+text. A `content` string containing a literal special-token marker (e.g.
+`<|im_start|>`) is counted as ordinary text here, where llama-server's
+`parse_special` default would instead recognize it as one token; this only
+differs from llama-server's own count on that one shape of input.
 
 ## Translations
 
