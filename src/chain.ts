@@ -489,6 +489,10 @@ function finalizeTerminal(
     upstreamUsed,
     egress: opts.egressOf(hop),
     chain: opts.chain,
+    // Absent for a streaming result: an agentic hop's own usage (and its
+    // cost) is not read until the stream ends, well after these headers are
+    // already on the wire -- see `answeringHeaders`'s own comment.
+    costUsd: attempt.usage?.cost_usd,
   })
   if (!result.stream) {
     emit(opts, attempts, engine, upstreamUsed)

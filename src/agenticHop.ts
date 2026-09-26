@@ -542,12 +542,17 @@ function agenticSse(
   const encoder = new TextEncoder()
   agenticCallSeq += 1
   const id = `agentic-${Date.now()}-${agenticCallSeq}`
-  const chunk = (delta: Record<string, unknown>, finish: string | null): Uint8Array =>
+  const chunk = (
+    delta: Record<string, unknown>,
+    finish: string | null,
+    extra?: Record<string, unknown>,
+  ): Uint8Array =>
     encoder.encode(
       `data: ${JSON.stringify({
         id,
         object: 'chat.completion.chunk',
         choices: [{ index: 0, delta, finish_reason: finish }],
+        ...extra,
       })}\n\n`,
     )
   return new ReadableStream({
@@ -566,7 +571,18 @@ function agenticSse(
             controller.error(new Error(outcome.failure ?? 'agentic call failed'))
             return
           }
-          controller.enqueue(chunk({}, 'stop'))
+          // The answering-route headers went out before this process had
+          // even exited, so they could not carry its cost -- this is the
+          // first point it is known, and the last chunk of the reply is the
+          // only place left to say it.
+          const costUsd = outcome.usage?.cost_usd
+          controller.enqueue(
+            chunk(
+              {},
+              'stop',
+              costUsd === undefined ? undefined : { engined: { cost_usd: costUsd } },
+            ),
+          )
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         },

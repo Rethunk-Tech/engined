@@ -176,6 +176,33 @@ describe('the door: remote-agentic redirect streams as the CLI prints', () => {
     expect(argvSeen[0]).toContain('--include-partial-messages')
     expect(argvSeen[0]).not.toContain('json')
   })
+
+  test("the final chunk carries the run's own cost, since it is not known until the process exits", async () => {
+    clearVerifiedVersion('claude')
+    const lines = [
+      ...STREAMED_PONG_LINES.slice(0, -1),
+      '{"type":"result","subtype":"success","is_error":false,"result":"pong","total_cost_usd":0.05}',
+    ]
+    const door = createClaudeDoor(
+      kimiRoutedConfig(),
+      redirectDoorRoot(),
+      streamingSpawn(lines, []),
+      'k',
+    )
+    const res = await door.fetch(
+      chatRequest({
+        model: '@/claude/kimi-k3',
+        messages: [{ role: 'user', content: 'ping' }],
+        workdir: TEST_ROOT,
+        stream: true,
+      }),
+    )
+    const text = await res.text()
+    const finalFrame = text.trimEnd().split('\n\n').at(-2)
+    expect(JSON.parse(finalFrame?.slice('data:'.length) ?? '{}').engined).toEqual({
+      cost_usd: 0.05,
+    })
+  })
 })
 
 describe('the door: remote-agentic redirect (claude routed to a moonshot upstream)', () => {

@@ -265,15 +265,24 @@ caller can read without tailing a log:
 | `x-engined-upstream` | that route's resolved `[[upstream]]` id, or `local`; absent for an ambient route |
 | `x-engined-egress` | that route's `egress` |
 | `x-engined-chain` | the chain name the caller addressed; absent when the caller named a route directly |
+| `x-engined-cost-usd` | what the answering hop itself reported the call cost, in dollars; only an agentic CLI reports one, so absent for every other engine |
 
 For a chain, these name whichever hop actually answered — the second hop of
 a fallover, not the first one that failed. For a streamed reply they are set
 before the body starts, since a header cannot follow the bytes it describes;
 they still name the hop that is streaming. They carry no request or response
-content, only the address, upstream, egress and chain name that provenance
-already records. They are absent on any reply where no route answered — an
-exhausted chain, a refusal before dispatch, or an egress ceiling that leaves
-no hop to try.
+content, only the address, upstream, egress, chain name and cost that
+provenance already records. They are absent on any reply where no route
+answered — an exhausted chain, a refusal before dispatch, or an egress
+ceiling that leaves no hop to try.
+
+An agentic hop's own cost is known only once its process exits, which for a
+streamed reply is after `x-engined-cost-usd` has already gone out headerless.
+That reply's final SSE chunk carries it instead, as an `engined` object beside
+the chunk's own `choices`: `{"id":"...","object":"chat.completion.chunk",
+"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"engined":
+{"cost_usd":0.0123}}`. Absent under the same rule as the header: no cost
+reported, no field.
 
 ## Engine state
 

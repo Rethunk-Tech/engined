@@ -540,6 +540,8 @@ describe('the door: answering-route headers', () => {
     expect(res.headers.get('x-engined-upstream')).toBe('local')
     expect(res.headers.get('x-engined-egress')).toBe('none')
     expect(res.headers.get('x-engined-chain')).toBeNull()
+    // llama never reports a dollar cost, so the header is absent rather than a fabricated zero.
+    expect(res.headers.get('x-engined-cost-usd')).toBeNull()
   })
 
   test('a streamed chat reply carries the same headers before the body resolves', async () => {
@@ -602,6 +604,39 @@ describe('the door: answering-route headers', () => {
     expect(res.status).toBe(503)
     expect(res.headers.get('x-engined-route')).toBeNull()
     expect(res.headers.get('x-engined-chain')).toBeNull()
+  })
+
+  test('a buffered claude reply carries x-engined-cost-usd from its own total_cost_usd', async () => {
+    const id = 'claude-cost'
+    clearVerifiedVersion(id)
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    writeEngineSpec(root, id, CLAUDE_SPEC)
+    const cfg = config({
+      routes: [route({ engine: id, model: 'assistant', upstream: null })],
+      engines: [engine({ id, agent_version: '1.2.3' })],
+    })
+    const spawn: AgenticSpawn = () =>
+      Promise.resolve({
+        stdout: '{"is_error":false,"result":"hi","total_cost_usd":0.2236745}',
+        stderr: '',
+        exitCode: 0,
+      })
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, write: () => undefined },
+    )
+    const res = await door.fetch(
+      chatRequest({
+        model: `@/${id}/assistant`,
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir: TEST_ROOT,
+      }),
+    )
+    await res.json()
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-engined-cost-usd')).toBe('0.2236745')
+    clearVerifiedVersion(id)
   })
 })
 

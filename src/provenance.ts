@@ -107,6 +107,8 @@ export const HEADER_ROUTE = 'x-engined-route'
 export const HEADER_UPSTREAM = 'x-engined-upstream'
 export const HEADER_EGRESS = 'x-engined-egress'
 export const HEADER_CHAIN = 'x-engined-chain'
+/** Only ever set for an agentic hop that reported its own dollar cost -- see `Usage.cost_usd`. Absent, never a fabricated zero, for every other engine. */
+export const HEADER_COST_USD = 'x-engined-cost-usd'
 
 /**
  * The one place that turns an answering attempt into the headers a caller
@@ -117,12 +119,18 @@ export const HEADER_CHAIN = 'x-engined-chain'
  *
  * `chain` is set only when the request named one: a caller who addressed a
  * single route directly gets no chain header at all, not an empty one.
+ *
+ * `costUsd` is absent whenever the answering hop is streaming: an agentic
+ * CLI's cost is only known once its process exits, which for a streamed
+ * reply is after these headers already went out. That figure reaches the
+ * caller in the stream's own final chunk instead -- see `agenticSse`.
  */
 export function answeringHeaders(fields: {
   route: string
   upstreamUsed: string | null | undefined
   egress: Egress
   chain: string | null
+  costUsd?: number
 }): Headers {
   const headers = new Headers({
     [HEADER_ROUTE]: fields.route,
@@ -133,6 +141,9 @@ export function answeringHeaders(fields: {
   }
   if (fields.chain !== null) {
     headers.set(HEADER_CHAIN, fields.chain)
+  }
+  if (fields.costUsd !== undefined) {
+    headers.set(HEADER_COST_USD, String(fields.costUsd))
   }
   return headers
 }
