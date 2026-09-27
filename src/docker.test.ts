@@ -173,6 +173,40 @@ function inspectCountingExec(counter: { count: number }, onInspect: () => ExecRe
 const STUB_HOST_PORT_A = 40_000
 const STUB_HOST_PORT_B = 40_001
 const IDLE_STOP_SECONDS = 0.03
+
+function idleLifecycle() {
+  const stopLog: string[][] = []
+  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe)
+  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 }
+  return { stopLog, lifecycle, opts }
+}
+
+function startMissRunPortExec(
+  port: number,
+  onArgv: (argv: string[]) => ExecResult | undefined = () => undefined,
+): Exec {
+  return (args) => {
+    const argv = [...args]
+    if (argv[0] === 'image' && argv[1] === 'inspect') {
+      return Promise.resolve(inspectFound())
+    }
+    const override = onArgv(argv)
+    if (override !== undefined) {
+      return Promise.resolve(override)
+    }
+    if (argv[0] === 'start') {
+      return Promise.resolve(startMiss())
+    }
+    if (argv[0] === 'run') {
+      return Promise.resolve(ok())
+    }
+    if (argv[0] === 'port') {
+      return Promise.resolve(portResult(port))
+    }
+    return Promise.resolve(ok())
+  }
+}
+
 const OUTLAST_WAIT_MS = 80
 const SHORT_WAIT_MS = 10
 const PAST_IDLE_WAIT_MS = 60
@@ -218,9 +252,7 @@ test('start: two concurrent calls against a stopped engine spawn exactly one con
 })
 
 test('a held lease outlasts idle-stop; a lease-less start still counts down', async () => {
-  const stopLog: string[][] = []
-  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe)
-  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 }
+  const { stopLog, lifecycle, opts } = idleLifecycle()
 
   await lifecycle.start('idle-test', SPEC, opts)
   lifecycle.beginLease('idle-test')
@@ -267,9 +299,7 @@ test('an engine warmed by start and never dispatched to still idle-stops', async
 })
 
 test('concurrent leases: the countdown starts only when the last one is released', async () => {
-  const stopLog: string[][] = []
-  const lifecycle = new DockerLifecycle(buildExec({ stopLog, port: STUB_HOST_PORT_B }), readyProbe)
-  const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 }
+  const { stopLog, lifecycle, opts } = idleLifecycle()
 
   await lifecycle.start('two-leases', SPEC, opts)
   lifecycle.beginLease('two-leases')
@@ -296,26 +326,13 @@ test('start: a failed artifact check is not cached — a repaired condition re-r
   const StartsAfterRepair = 3
   const artifactState: { present: boolean; checkCount: number } = { present: false, checkCount: 0 }
 
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args]
-    if (argv[0] === 'image' && argv[1] === 'inspect') {
-      return Promise.resolve(inspectFound())
-    }
+  const exec = startMissRunPortExec(40_010, (argv) => {
     if (argv[0] === 'run' && argv[1] === '--rm') {
       artifactState.checkCount += 1
-      return Promise.resolve({ stdout: '', stderr: '', exitCode: artifactState.present ? 0 : 1 })
+      return { stdout: '', stderr: '', exitCode: artifactState.present ? 0 : 1 }
     }
-    if (argv[0] === 'start') {
-      return Promise.resolve(startMiss())
-    }
-    if (argv[0] === 'run') {
-      return Promise.resolve(ok())
-    }
-    if (argv[0] === 'port') {
-      return Promise.resolve(portResult(40_010))
-    }
-    return Promise.resolve(ok())
-  }
+    return
+  })
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
 
@@ -602,26 +619,13 @@ test('probe: a missing image is not cached -- a pull between polls is picked up 
 
 test('idle-stop failure is recorded as last_error, not thrown, the container stays running, and the timer retries a bounded number of times with no new traffic', async () => {
   const stopCalls: string[][] = []
-  function exec(args: readonly string[]): Promise<ExecResult> {
-    const argv = [...args]
-    if (argv[0] === 'image' && argv[1] === 'inspect') {
-      return Promise.resolve(inspectFound())
-    }
-    if (argv[0] === 'start') {
-      return Promise.resolve(startMiss())
-    }
-    if (argv[0] === 'run') {
-      return Promise.resolve(ok())
-    }
-    if (argv[0] === 'port') {
-      return Promise.resolve(portResult(40_003))
-    }
+  const exec = startMissRunPortExec(40_003, (argv) => {
     if (argv[0] === 'stop') {
       stopCalls.push(argv)
-      return Promise.resolve({ stdout: '', stderr: 'container is not running', exitCode: 1 })
+      return { stdout: '', stderr: 'container is not running', exitCode: 1 }
     }
-    return Promise.resolve(ok())
-  }
+    return
+  })
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
   const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 }
