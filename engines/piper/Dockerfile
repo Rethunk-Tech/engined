@@ -1,4 +1,4 @@
-# Piper TTS, CPU only. Ported from bastion-client-discord's
+# Piper TTS, CPU only. Ported from a Discord bot's
 # internal/voicebootstrap, which downloaded a prebuilt piper tarball and
 # cmake-built nothing but shipped its own shared libraries -- the work this
 # engine removes from that repo.
@@ -46,7 +46,7 @@ RUN pip install --no-cache-dir \
 # posture: without this the first real request burns the adapter's timeout on
 # a cold 63 MB download and looks like a hung engine.
 #
-# The exact pair bastion-client-discord fetched
+# The exact pair a Discord bot image fetched
 # (internal/voicebootstrap/manifest.go), so the operator hears the same voice
 # after the move rather than a differently-tuned one that "sounds a bit off"
 # with nothing to point at.

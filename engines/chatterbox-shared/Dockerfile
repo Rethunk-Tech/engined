@@ -8,12 +8,12 @@
 # context named in that spec dir's `build-contexts`; app.py comes from the
 # spec dir itself.
 #
-# Verified against sagaforge-ts's docker/chatterbox/Dockerfile (read-only
+# Verified against the fleet chatterbox image (read-only
 # fleet access, not a summary). Two-stage, same pattern as docker/comfyui:
 # minimal rocm/dev-ubuntu-24.04 (not rocm/pytorch or "-complete" -- the
 # official PyTorch ROCm wheel already bundles MIOpen/rocBLAS/etc., so a base
 # that also ships those just duplicates them). Build tools never reach the
-# runtime image. The wrapper is sagaforge's own FastAPI app speaking the
+# runtime image. The wrapper is a FastAPI app speaking the
 # NDJSON /v1/tts contract src/audio.ts translates -- the upstream devnen repo
 # has no compatible HTTP surface of its own.
 FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder

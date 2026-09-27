@@ -19,27 +19,26 @@ require an engined change, the line has been drawn wrong.
 ## Sole ownership of local inference
 
 Nothing else on this box starts an inference container: under load, `docker
-ps` shows `engined-*` only. `majordomo`, `paper-trail`, `sagaforge-ts`,
-`bastion-client-discord`, `earshot`, `Rethunk-AI/maitre` and `engined-vscode`
-reach this door for chat, embeddings, vision, speech and transcription, as do
-`citadel` and `prepaudit` when they run on this box. None of them supervises a
-server or downloads weights.
+ps` shows `engined-*` only. Local apps for chat, speech, vision, embeddings,
+and an editor extension (`engined-vscode`) reach this door, as do other
+on-box consumers of the same verbs. None of them supervises a server or
+downloads weights.
 
 A consumer that keeps its own runner has not been cut over, only pointed
 twice.
 
 The door is loopback-only, so anything deployed elsewhere is outside it:
-hosted `prepaudit` pools and production `citadel` bring their own providers,
-or run without the capability.
+deployments elsewhere bring their own providers, or run without the
+capability.
 
 Two deliberate exceptions:
 
-- `Rethunk-AI/bakeoff` is a benchmark harness whose whole purpose is
-  measuring engine *configurations*, and routing it through a broker that owns
-  the args would measure the broker instead. It never runs concurrently with
+- A benchmark harness whose whole purpose is measuring engine
+  *configurations* is not routed through this door: a broker that owns the
+  args would measure the broker instead. It never runs concurrently with
   production inference.
-- `majordomo`'s Cursor backend runs its own Cursor SDK agent, with its own
-  key, because it executes tools and writes to its workspace. engined's
+- A consumer that runs its own tool-executing agent, with its own key, keeps
+  that agent because it executes tools and writes to its workspace. engined's
   agentic engines are read-only by design and cannot stand in for it.
 
 ## Why 29200
@@ -47,7 +46,7 @@ Two deliberate exceptions:
 Unassigned, and stays that way. IANA lists 29170–29998 with no service in it;
 it sits below the ephemeral floor (`ip_local_port_range` starts at 32768 here)
 so no outbound connection can take it first; it avoids the `188xx` block
-sagaforge reserves and the informal squatters nearby — PyTorch distributed
+a video-production consumer reserves and the informal squatters nearby — PyTorch distributed
 defaults distributed training port to 29500, Gerrit uses 29418.
 
 The alternative was 8080, `llama-server`'s own default. Every consumer
@@ -58,7 +57,7 @@ else on 8080, consumers deliver document text, conversation turns and
 `workdir` paths naming private repositories to whatever holds the port, and
 get back a 404 page they report as a parse error. An unassigned port turns
 that silent misdirect into `ECONNREFUSED`. The known holder of 8080 here is
-`bakeoff`, binding it for `llama-swap`.
+a benchmark harness, binding it for `llama-swap`.
 
 **The door is the only port engined writes down for anything it runs.** The
 container side comes from the image's `EXPOSE`, the host side from Docker.

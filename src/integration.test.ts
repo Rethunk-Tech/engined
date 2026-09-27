@@ -278,7 +278,7 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
 
     // Parsed the way a consumer parses it: a bare array leaves `data`
     // undefined, which reads as "this engine has no models" rather than as
-    // an error. sagaforge-ts's probeModels is written exactly like this.
+    // an error. A video-production consumer's model probe is written exactly like this.
     const rows = body.data ?? []
     const ids = rows.map((m) => m.id)
     expect(body.object).toBe('list')

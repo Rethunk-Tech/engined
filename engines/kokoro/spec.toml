@@ -39,7 +39,7 @@ path = "/root/.cache/miopen"
 # socket). A load failure crashes the process before the port ever opens, so
 # a connect here cannot happen before the pipeline is real; app.py exposes
 # no other endpoint that touches it more directly, and none was added to a
-# wrapper vendored verbatim from sagaforge rather than authored here.
+# wrapper checked against the fleet kokoro wrapper rather than authored here.
 [ready]
 path = "/health"
 status = 200

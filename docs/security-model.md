@@ -118,11 +118,11 @@ This is accepted and named rather than implied. Closing it would mean putting
 managed containers on a docker network and reaching them from engined alone,
 which the port read-back already makes possible.
 
-One consumer is a browser: sagaforge's `/settings/engines` is a read-mostly
-client of `GET /engined/v1/engines`, and a page served from sagaforge's own origin
-sends one. It is refused, and reaches engined through the sagaforge daemon it
-is already talking to. Allowlisting a consumer's origin would reopen the hole
-this check exists to close.
+One consumer is a browser: a video-production consumer's browser-based
+settings page is a read-mostly client of `GET /engined/v1/engines`, and a
+page served from that consumer's own origin sends one. It is refused, and
+reaches engined through the daemon it is already talking to. Allowlisting a
+consumer's origin would reopen the hole this check exists to close.
 
 ## The unit sandbox does not survive docker
 

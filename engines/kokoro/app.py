@@ -1,4 +1,4 @@
-"""Thin HTTP wrapper around Kokoro-82M for the sagaforge AudioAdapter contract
+"""Thin HTTP wrapper around Kokoro-82M for the OpenAI-compatible speech contract
 (packages/daemon/src/adapters/audio/chatterbox.ts) — the SAME NDJSON /v1/tts contract
 docker/chatterbox/app.py speaks, not a new protocol — a second TTS engine implementing this
 contract reuses that adapter unmodified.

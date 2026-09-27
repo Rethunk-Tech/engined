@@ -26,11 +26,9 @@ import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from './fixtu
  * every other engine does.
  *
  * Image tags are read from the real engines/llama and engines/comfy
- * spec.toml via `loadSpec`, not hardcoded -- llama's tag already
- * drifted once within this session (sagaforge-llama-cpp:local ->
- * engined-llama-cpp:local), and the old tag is still a real image on this
- * box, so a hardcoded copy would run green against the wrong artifact
- * instead of failing loudly.
+ * spec.toml via `loadSpec`, not hardcoded -- a hardcoded copy would
+ * not fail loudly on a rename, it would quietly run green against the
+ * wrong artifact. The tag in spec is the one this suite must drive.
  */
 const READY_TIMEOUT_S = 240
 const LLAMA_IDLE_STOP_SECONDS = 900

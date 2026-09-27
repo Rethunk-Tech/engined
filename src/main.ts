@@ -114,8 +114,8 @@ function isLoopbackHost(hostHeader: string, port: number): boolean {
 /**
  * Every endpoint including reads, before routing. Any `Origin` header at all
  * is refused — including the literal string `"null"` — because engined never
- * allowlists a consumer's origin: the one browser consumer (sagaforge's
- * settings page) reaches engined through the daemon it already talks to, and
+ * allowlists a consumer's origin: the one browser consumer (a video-production
+ * consumer's browser-based settings page) reaches engined through the daemon it already talks to, and
  * a request with no `Origin` (every CLI and server consumer) is unaffected.
  */
 function checkOrigin(req: Request, port: number): Response | null {

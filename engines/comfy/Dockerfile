@@ -1,4 +1,4 @@
-# Verified against sagaforge-ts's docker/comfyui/Dockerfile (read-only fleet
+# Verified against the fleet ComfyUI image (read-only fleet
 # access, not a summary). Two-stage, restored from the prior single-stage
 # reconstruction now that the runtime copy can be confirmed correct: the
 # runtime stage needs exactly /opt/venv (the ROCm PyTorch install) and

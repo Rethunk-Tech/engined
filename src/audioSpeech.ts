@@ -179,7 +179,7 @@ export async function handleSpeech(
   //
   // Synthesis is stochastic, so this does change behaviour -- a repeated request
   // returns the same rendition rather than a fresh one. That is the point for
-  // the stock phrases this exists for, and it is what majordomo's own cache, the
+  // the stock phrases this exists for, and it is what a chat consumer's own cache, the
   // one consumer that measured this, already did unconditionally. A caller that
   // wants variation varies something in the key, most simply `speed`.
   const cacheKey = streaming ? undefined : speechCacheKey(req, text)

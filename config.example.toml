@@ -608,7 +608,7 @@ idle_stop_seconds = 1800
 # This is not a memory decision and no vram flag prevents it: measured at the
 # moment it happened, comfy reported 94 GB free against the ~6 GB the incoming
 # model needed, so its own free_memory() pass unloads nothing. A consumer that
-# alternates image and video work in one job -- sagaforge does, per episode --
+# alternates image and video work in one job -- a video-production consumer does, per episode --
 # otherwise pays a full reload on every switch back.
 #
 # `highvram` is kept for steady-state residency, not for that: it does NOT

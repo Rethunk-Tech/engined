@@ -449,7 +449,7 @@ const TOOL_CALL_ANSWER = {
 /**
  * A chain that falls back off a tool-capable llama hop onto an agentic one.
  * `chain-public` in `config.example.toml` has this exact shape, and a
- * consumer running a real tool loop over it (majordomo does) gets whatever
+ * consumer running a real tool loop over it (a chat consumer does) gets whatever
  * the last hop returns.
  *
  * `chain-rev` is the same pair the other way round, for the case where the

@@ -138,7 +138,7 @@ hears a level change.
 `engines/kokoro/`. Follows ComfyUI's base pattern — `rocm/dev-ubuntu-24.04:7.2.4`
 plus the official PyTorch ROCm wheel — and takes the full GPU flags
 (`/dev/kfd`, `/dev/dri`, `video`), not the Vulkan-only pair llama uses.
-Ported from sagaforge-ts's `Dockerfile.rocm` rather than the vendored
+Ported from the fleet Comfy ROCm image rather than the vendored
 `ghcr.io/remsky` image: that one speaks OpenAI's `/v1/audio/speech` natively,
 while the audio door already translates the NDJSON `/v1/tts` contract this
 build speaks, and taking it would need a second path through a door meant to

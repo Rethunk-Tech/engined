@@ -1,6 +1,6 @@
 # Kokoro-82M TTS, ROCm variant (gfx1151 / Strix Halo), self-built. Ported
-# from sagaforge-ts's docker/kokoro/Dockerfile.rocm (read from source, not a
-# summary) rather than pulling majordomo's vendored ghcr.io/remsky
+# from the fleet kokoro ROCm image (read from source, not a
+# summary) rather than pulling a vendored ghcr.io/remsky
 # kokoro-fastapi image: that image speaks OpenAI's /v1/audio/speech
 # natively, and engined's audio door already translates the native NDJSON
 # /v1/tts contract this build speaks (src/audio.ts) -- taking the vendor

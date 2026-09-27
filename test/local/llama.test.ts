@@ -26,11 +26,9 @@ import { loadLocalConfig, skipTitle } from './fixtures.ts'
  * matches the real model tree.
  *
  * The image tag is read from the real `engines/llama/spec.toml` via
- * `loadSpec`, not hardcoded: that tag already drifted once within this
- * session (sagaforge-llama-cpp:local -> engined-llama-cpp:local, when
- * llama got its own vendored Dockerfile), and the old tag is STILL a
- * real image on this box -- a hardcoded copy here would not fail loudly on
- * a rename, it would quietly run green against the wrong artifact.
+ * `loadSpec`, not hardcoded: a hardcoded copy would not fail loudly on a
+ * rename, it would quietly run green against the wrong artifact. The tag
+ * in spec is the one this suite must drive.
  *
  * Closes local-tier gaps the Opus audit found unverifiable: concurrent
  * cross-role decode, single-owner-under-load, embedding co-residency and

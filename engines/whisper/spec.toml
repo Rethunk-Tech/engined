@@ -9,7 +9,7 @@ upstream = "self"
 # "exposes no ports". `./Dockerfile` adds only that missing metadata on top
 # of the same pinned base.
 image = "engined-whisper:local"
-obtain = "build"                             # pull | build; build reads ./Dockerfile here
+obtain = "build"                                                              # pull | build; build reads ./Dockerfile here
 serves = ["/openai/v1/audio/transcriptions", "/openai/v1/audio/translations"]
 
 # whisper.cpp streams. The binary this image ships does not expose it. Both
@@ -133,7 +133,7 @@ command = [
 # than inferred from the engine, and why an undeclared route does not serve
 # /openai/v1/audio/translations at all.
 
-# majordomo's own probe: /health is not confirmed to exist on this image (a
+# a chat consumer's own probe: /health is not confirmed to exist on this image (a
 # bootstrap script tries it and falls back), so readiness POSTs the real
 # inference path instead. Any 2xx or 4xx proves the dialect endpoint exists --
 # a missing file or invalid multipart body still answers from the route.
