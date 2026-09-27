@@ -56,8 +56,9 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
+  OPENAI_MODELS_PATH,
 } from './routeServes.ts'
-import { handleTokenizeRoute, OPENAI_MODELS_PATH, TOKENIZE_PATH } from './tokenizeRoute.ts'
+import { handleTokenizeRoute, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH, handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
 import { handleVoiceUpload, VOICE_UPLOAD_PATH } from './voices.ts'
@@ -83,7 +84,7 @@ const START_PATH = '/engined/v1/start'
  * second.
  */
 function engineVerbRe(verb: string): RegExp {
-  return new RegExp(`^/engined/v1/engines/([^/]+)/${verb}$`)
+  return new RegExp(`^${ENGINED_ENGINES_PATH}/([^/]+)/${verb}$`)
 }
 const STOP_RE = engineVerbRe('stop')
 const LOGS_RE = engineVerbRe('logs')
@@ -166,7 +167,7 @@ function routeGet(
   if (pathname === ENGINED_ENGINES_PATH) {
     return handleEngines(ctx, configErr)
   }
-  if (pathname === '/engined/v1/engines/events') {
+  if (pathname === `${ENGINED_ENGINES_PATH}/events`) {
     return handleEngineEvents(ctx, signal)
   }
   if (pathname === USAGE_PATH) {

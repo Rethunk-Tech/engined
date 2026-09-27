@@ -14,7 +14,7 @@ import {
 } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
-import { mergedArgs } from './llamaSpec.ts'
+import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
@@ -65,13 +65,12 @@ function derivedContextIn(
   engine: EngineEntry,
   route: { args: Record<string, unknown> },
 ): number | undefined {
-  const { 'ctx-size': ctxSize, parallel, 'kv-unified': kvUnified } = mergedArgs(engine, route)
+  const { 'ctx-size': ctxSize, 'kv-unified': kvUnified } = mergedArgs(engine, route)
   if (typeof ctxSize !== 'number') {
     return undefined
   }
-  const splitsAcrossSlots =
-    typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
-  return kvUnified === true || !splitsAcrossSlots ? ctxSize : ctxSize / parallel
+  const parallel = explicitParallel(engine, route)
+  return kvUnified === true || parallel === undefined ? ctxSize : ctxSize / parallel
 }
 
 /** A route's `context_in`: its own declared value always wins; otherwise derived for a local llama route and absent for everything else. Exported for `modelsMenu.test.ts`, which exercises it directly rather than through a full door. */

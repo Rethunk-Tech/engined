@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { ParseError } from './errors/parse.ts'
-import { localRoutesOf } from './localRoutes.ts'
+import { localRoutesOf } from './routeAddress.ts'
 import { loadSpec, type SpecLoadOptions } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -51,6 +51,17 @@ export function mergedArgs(
   route: { args: Record<string, unknown> } | undefined,
 ): Record<string, unknown> {
   return { ...engine.args, ...route?.args }
+}
+
+/** The merged `parallel` when it is a positive integer the door can admit against; `undefined` for auto (`-1`) or an unset/non-integer key, which is `AUTO_PARALLEL` at the call site. */
+export function explicitParallel(
+  engine: EngineEntry,
+  route: { args: Record<string, unknown> } | undefined,
+): number | undefined {
+  const { parallel } = mergedArgs(engine, route)
+  return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
+    ? parallel
+    : undefined
 }
 
 /**

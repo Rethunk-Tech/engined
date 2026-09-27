@@ -24,13 +24,13 @@ import {
 import {
   AUTO_PARALLEL,
   buildLlamaSpec,
-  mergedArgs,
+  explicitParallel,
   readIfExists,
   renderPresetIni,
 } from './llamaSpec.ts'
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
-import { parseRecord } from './records.ts'
+import { isRecord, parseRecord } from './records.ts'
 import type { RoleContention } from './responses.ts'
 import { ggufPath } from './tokenizeRoute.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
@@ -41,10 +41,10 @@ import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
  * engine and not which GGUF answered. Provenance's `model_reported`.
  */
 export function reportedModelFrom(body: unknown): string | undefined {
-  if (typeof body !== 'object' || body === null) {
+  if (!isRecord(body)) {
     return
   }
-  const { model } = body as { model?: unknown }
+  const { model } = body
   return typeof model === 'string' ? model : undefined
 }
 
@@ -227,10 +227,8 @@ export class LlamaRouter {
     const route = this.routes.find(
       (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
     )
-    const { parallel } = mergedArgs(this.engine, route)
-    return typeof parallel === 'number' && Number.isInteger(parallel) && parallel > 0
-      ? parallel
-      : AUTO_PARALLEL
+    const parallel = explicitParallel(this.engine, route)
+    return parallel ?? AUTO_PARALLEL
   }
 
   /** Shared by every caller in-flight at once -- see `ensureStartedPromise`'s own comment. */
@@ -356,8 +354,8 @@ export class LlamaRouter {
     init: RequestInit,
   ): Promise<{ init: RequestInit; release: () => void }> {
     const untouched = { init, release: () => undefined }
-    const { parallel } = mergedArgs(this.engine, route)
-    if (typeof parallel !== 'number' || !Number.isInteger(parallel) || parallel < 2) {
+    const parallel = explicitParallel(this.engine, route)
+    if (parallel === undefined || parallel < 2) {
       return untouched
     }
     if (typeof init.body !== 'string') {
