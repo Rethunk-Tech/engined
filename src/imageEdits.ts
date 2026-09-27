@@ -7,6 +7,7 @@
 import type { DoorContext } from './doorContext.ts'
 import {
   declaredOverLimit,
+  ENGINE_ERROR_CHARS,
   type HttpClient,
   jsonError,
   STATUS_BAD_GATEWAY,
@@ -158,7 +159,7 @@ async function uploadInputImage(
   if (typeof name !== 'string') {
     return {
       status: STATUS_BAD_GATEWAY,
-      error: `comfy would not accept the uploaded image: ${text.slice(0, 300)}`,
+      error: `comfy would not accept the uploaded image: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
     }
   }
   const subfolder = typeof record?.subfolder === 'string' ? record.subfolder : ''

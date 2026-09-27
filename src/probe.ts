@@ -24,6 +24,7 @@ import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from
 import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
 import { CONTRACT } from './responses.ts'
 import {
+  CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
@@ -129,6 +130,25 @@ export function visionVerdict(reply: string): { ok: boolean; detail: string } {
 
 /** How much of an error body is worth a journal line: enough to name the failure, not enough to bury it. */
 const ERROR_BODY_CHARS = 200
+
+async function postProbe(
+  fetchImpl: typeof fetch,
+  url: string,
+  body: string,
+): Promise<Response | { ok: false; detail: string }> {
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+    body,
+  })
+  if (!res.ok) {
+    return {
+      ok: false,
+      detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
+    }
+  }
+  return res
+}
 
 /** One line per vision address the door offers, in the order the menu listed them. */
 interface ProbeLine {
@@ -349,20 +369,17 @@ async function probeOneRerank(
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_RERANK}`, {
-      method: 'POST',
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: JSON.stringify({
+    const res = await postProbe(
+      fetchImpl,
+      `${doorUrl}${CONTENT_ENDPOINT_RERANK}`,
+      JSON.stringify({
         model: address,
         query: RERANK_QUERY,
         documents: RERANK_DOCUMENTS,
       }),
-    })
-    if (!res.ok) {
-      return {
-        ok: false,
-        detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
-      }
+    )
+    if (!(res instanceof Response)) {
+      return res
     }
     const body = (await res.json()) as { results?: { index?: unknown }[] }
     const top = body.results?.[0]?.index
@@ -420,22 +437,19 @@ async function probeOneCompletion(
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_COMPLETIONS}`, {
-      method: 'POST',
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: JSON.stringify({
+    const res = await postProbe(
+      fetchImpl,
+      `${doorUrl}${CONTENT_ENDPOINT_COMPLETIONS}`,
+      JSON.stringify({
         model: address,
         prompt: FIM_PREFIX,
         suffix: FIM_SUFFIX,
         max_tokens: FIM_MAX_TOKENS,
         stop: ['\n'],
       }),
-    })
-    if (!res.ok) {
-      return {
-        ok: false,
-        detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
-      }
+    )
+    if (!(res instanceof Response)) {
+      return res
     }
     const body = (await res.json()) as { choices?: { text?: unknown }[] }
     const text = body.choices?.[0]?.text
@@ -495,16 +509,9 @@ async function probeOne(
     }
   }
   try {
-    const res = await fetchImpl(`${doorUrl}/openai/v1/chat/completions`, {
-      method: 'POST',
-      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body: check.body,
-    })
-    if (!res.ok) {
-      return {
-        ok: false,
-        detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
-      }
+    const res = await postProbe(fetchImpl, `${doorUrl}${CONTENT_ENDPOINT_CHAT}`, check.body)
+    if (!(res instanceof Response)) {
+      return res
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] }
     return check.verdict(body.choices?.[0]?.message?.content ?? '')

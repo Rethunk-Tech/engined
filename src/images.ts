@@ -23,6 +23,7 @@ import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   discardBody,
+  ENGINE_ERROR_CHARS,
   type HttpClient,
   jsonError,
   jsonErrorBody,
@@ -221,7 +222,7 @@ async function submitAll({
     if (promptId === undefined) {
       return {
         status: answered.status === 200 ? STATUS_BAD_GATEWAY : answered.status,
-        error: `@/${route.engine} refused the render: ${(await answered.text()).slice(0, 300)}`,
+        error: `@/${route.engine} refused the render: ${(await answered.text()).slice(0, ENGINE_ERROR_CHARS)}`,
       }
     }
     ids.push(promptId)

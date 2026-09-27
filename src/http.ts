@@ -19,6 +19,9 @@ export const STATUS_CLIENT_CLOSED = 499
 export const STATUS_BAD_GATEWAY = 502
 export const STATUS_UNAVAILABLE = 503
 
+/** How much of an engine's error body is worth repeating: enough to name the failure, not the whole reply. */
+export const ENGINE_ERROR_CHARS = 300
+
 /**
  * The header every response here sets, and the media types this door speaks:
  * JSON for the OpenAI shapes, SSE for a streamed hop or the engine-event
