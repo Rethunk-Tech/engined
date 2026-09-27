@@ -52,4 +52,18 @@ describe('classifyPrompt', () => {
     expect(classified.sizeClass).toBe('long')
     expect(classified.fingerprint).toBeDefined()
   })
+
+  test('a megabyte of spaces classifies in under 500 ms', async () => {
+    const path = join(TEST_ROOT, `spaces-${Math.random().toString(36).slice(2)}.gguf`)
+    writeGgufFixture(path, {
+      'general.architecture': 'qwen3',
+      'tokenizer.ggml.model': 'gpt2',
+      'tokenizer.ggml.pre': 'gpt2',
+      'tokenizer.ggml.tokens': ['a', 'b'],
+      'tokenizer.ggml.merges': [],
+    })
+    const started = performance.now()
+    await classifyPrompt(path, ' '.repeat(1024 * 1024), 256)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
 })

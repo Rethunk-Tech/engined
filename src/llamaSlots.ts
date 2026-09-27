@@ -121,7 +121,7 @@ async function tokenIdsOf(
       if (ids.length >= need || end === text.length) {
         return ids
       }
-      end = Math.min(text.length, end + step)
+      end = Math.min(text.length, end * 2)
     }
   } catch {
     return undefined
