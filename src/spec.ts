@@ -1,6 +1,6 @@
 /**
  * Loads, validates and resolves an engine spec: the shipped `engines/<id>/spec.toml`,
- * or a `spec_dir` override that replaces it wholesale. See `types.ts` for the
+ * or a `spec_dir` override that replaces it wholesale. See `agenticArgs.ts` for the
  * shapes and the agentic floor this module enforces on every launch.
  */
 

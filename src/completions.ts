@@ -2,7 +2,7 @@
  * `POST /openai/v1/completions`: the legacy OpenAI completions shape, mapped
  * onto llama-server's own `/infill` -- fill-in-the-middle, `input_prefix`/
  * `input_suffix` rather than a single prompt. Only a local llama route that
- * opted in with `fim` (`types.ts`'s `routeServes`) can answer it; every other
+ * opted in with `fim` (`routeServes.ts`'s `routeServes`) can answer it; every other
  * dispatch is refused with the door's normal 4xx before this file is reached.
  *
  * Reuses `LlamaRouter.proxy` exactly as chat does -- the same lease, warm-up
