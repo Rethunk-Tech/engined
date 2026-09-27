@@ -16,13 +16,21 @@ function recordingClient(handler: (url: string, init?: RequestInit) => Response)
   return { client, calls }
 }
 
-test('POST /tokenize with no model in the body gets the resident injected', async () => {
-  const { client, calls } = recordingClient(() => Response.json({ tokens: [1, 2, 3] }))
-  const req = new Request(`${BASE}/tokenize`, {
+function tokenizeHiRequest() {
+  return new Request(`${BASE}/tokenize`, {
     method: 'POST',
     body: JSON.stringify({ content: 'hi' }),
   })
-  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, 'ornith', client)
+}
+
+test('POST /tokenize with no model in the body gets the resident injected', async () => {
+  const { client, calls } = recordingClient(() => Response.json({ tokens: [1, 2, 3] }))
+  const res = await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: BASE, enginePath: '/tokenize' },
+    'ornith',
+    client,
+  )
 
   expect(res.status).toBe(200)
   const sentBody = calls[0]?.init?.body
@@ -66,11 +74,12 @@ test('the upstream response body passes through unmodified, SSE included', async
 
 test('no resident model: injectable endpoints are forwarded without a model, letting the upstream 400', async () => {
   const { client, calls } = recordingClient(() => new Response(null, { status: 400 }))
-  const req = new Request(`${BASE}/tokenize`, {
-    method: 'POST',
-    body: JSON.stringify({ content: 'hi' }),
-  })
-  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, null, client)
+  const res = await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: BASE, enginePath: '/tokenize' },
+    null,
+    client,
+  )
 
   expect(res.status).toBe(400)
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string }
