@@ -27,4 +27,29 @@ describe('classifyPrompt', () => {
       createHash('sha256').update(ids.slice(0, 2048).join(',')).digest('hex'),
     )
   })
+
+  test('a token-poor prefix does not tokenize the rest of a long prompt', async () => {
+    const path = join(TEST_ROOT, `sparse-${Math.random().toString(36).slice(2)}.gguf`)
+    const bTokens = ['b']
+    const merges: string[] = []
+    let chunk = 'b'
+    for (let i = 0; i < 12; i++) {
+      merges.push(`${chunk} ${chunk}`)
+      chunk += chunk
+      bTokens.push(chunk)
+    }
+    writeGgufFixture(path, {
+      'general.architecture': 'qwen3',
+      'tokenizer.ggml.model': 'gpt2',
+      'tokenizer.ggml.pre': 'gpt2',
+      'tokenizer.ggml.tokens': [...bTokens, 'a'],
+      'tokenizer.ggml.merges': merges,
+    })
+    const text = `${'b'.repeat(3000)}${'a'.repeat(5_000_000)}`
+    const started = performance.now()
+    const classified = await classifyPrompt(path, text, 256)
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(classified.sizeClass).toBe('long')
+    expect(classified.fingerprint).toBeDefined()
+  })
 })

@@ -113,12 +113,16 @@ async function tokenIdsOf(
 ): Promise<number[] | undefined> {
   try {
     const vocab = await loadBpeVocab(ggufPath)
-    const prefixLen = Math.min(text.length, longThresholdTokens * PREFIX_CHARS_PER_TOKEN)
-    const prefixIds = bpeTokenIds(vocab, text.slice(0, prefixLen))
-    if (prefixIds.length >= longThresholdTokens || prefixLen === text.length) {
-      return prefixIds
+    const need = Math.max(longThresholdTokens, FINGERPRINT_TOKEN_COUNT)
+    const step = need * PREFIX_CHARS_PER_TOKEN
+    let end = Math.min(text.length, step)
+    for (;;) {
+      const ids = bpeTokenIds(vocab, text.slice(0, end))
+      if (ids.length >= need || end === text.length) {
+        return ids
+      }
+      end = Math.min(text.length, end + step)
     }
-    return bpeTokenIds(vocab, text)
   } catch {
     return undefined
   }
