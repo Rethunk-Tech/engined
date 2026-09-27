@@ -36,8 +36,8 @@ function testRootDir(): string {
  * case, and writes there land on the real operator's state directory
  * otherwise, not a sandbox.
  */
-export function redirectStateHome(): () => void {
-  const stateHome = mkdtempSync(join(testRootDir(), 'engined-state-'))
+export function redirectStateHome(root?: string): () => void {
+  const stateHome = mkdtempSync(join(root ?? testRootDir(), 'engined-state-'))
   const previous = process.env.XDG_STATE_HOME
   process.env.XDG_STATE_HOME = stateHome
   return () => {
@@ -184,7 +184,6 @@ function missingArtifactExec(args: readonly string[]): Promise<ExecResult> {
 }
 
 export const OK_EXEC: Exec = okExec
-export const NO_IMAGE_EXEC: Exec = noImageExec
 export const MISSING_ARTIFACT_EXEC: Exec = missingArtifactExec
 
 export function registry(

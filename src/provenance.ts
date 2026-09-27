@@ -113,13 +113,13 @@ function serializeAttempt(attempt: Attempt): Attempt {
   }
 }
 
-/** The caller-visible names for what `answeringHeaders` sets, so a consumer (a VS Code extension, `engined-probe`) reads one constant rather than a string it has to get byte-for-byte right. */
-export const HEADER_ROUTE = 'x-engined-route'
-export const HEADER_UPSTREAM = 'x-engined-upstream'
-export const HEADER_EGRESS = 'x-engined-egress'
-export const HEADER_CHAIN = 'x-engined-chain'
+/** The caller-visible names for what `answeringHeaders` sets, so a consumer reads one constant rather than a string it has to get byte-for-byte right. */
+const HEADER_ROUTE = 'x-engined-route'
+const HEADER_UPSTREAM = 'x-engined-upstream'
+const HEADER_EGRESS = 'x-engined-egress'
+const HEADER_CHAIN = 'x-engined-chain'
 /** Only ever set for an agentic hop that reported its own dollar cost -- see `Usage.cost_usd`. Absent, never a fabricated zero, for every other engine. */
-export const HEADER_COST_USD = 'x-engined-cost-usd'
+const HEADER_COST_USD = 'x-engined-cost-usd'
 
 /**
  * The one place that turns an answering attempt into the headers a caller

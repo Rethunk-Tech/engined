@@ -9,9 +9,9 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import process from 'node:process'
 import { resetSpeechCache } from './audioSpeech.ts'
 import type { DoorOptions } from './doorContext.ts'
+import { redirectStateHome } from './enginesFixtures.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import { HTTP_CLIENT_ERROR_MIN } from './http.ts'
 import { createDoor, type Door } from './main.ts'
@@ -30,6 +30,7 @@ import {
   upstream,
 } from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
+import { VOICE_CONTAINER_DIR } from './voices.ts'
 
 // One door per process in production, so the synthesis cache is module-level.
 // A suite builds many doors in one process, so without this an earlier test's
@@ -1484,19 +1485,6 @@ test('a chain reports the first hop that can answer as its state and names every
 /** The shape `handleVoiceUpload` issues: the door's own name for the file, never the caller's. */
 const VOICE_HANDLE = /^vc_[0-9a-f]{32}\.wav$/
 
-/** Points the voice store at a scratch directory for one test, returning the undo -- the real one holds the operator's own uploads. */
-function redirectStateHome(): () => void {
-  const prior = process.env.XDG_STATE_HOME
-  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, 'engined-voices-'))
-  return () => {
-    if (prior === undefined) {
-      delete process.env.XDG_STATE_HOME
-    } else {
-      process.env.XDG_STATE_HOME = prior
-    }
-  }
-}
-
 /**
  * The upload verb, end to end. A voice clone only works if the engine can
  * read the reference, so what matters is the string the engine is finally
@@ -1522,7 +1510,7 @@ test("an uploaded reference voice reaches the engine as the door's own path, and
     }),
     { ...REGISTRY_OPTS, exec },
   )
-  const restoreStateHome = redirectStateHome()
+  const restoreStateHome = redirectStateHome(TEST_ROOT)
 
   try {
     const form = new FormData()
@@ -1541,7 +1529,7 @@ test("an uploaded reference voice reaches the engine as the door's own path, and
       req('POST', '/openai/v1/audio/speech', { body: { model: CHATTERBOX, input: 'hi', voice } }),
     )
     expect(spoken.status).toBe(200)
-    expect(seen[0]?.voice).toBe(`/voices/${voice}`)
+    expect(seen[0]?.voice).toBe(`${VOICE_CONTAINER_DIR}/${voice}`)
 
     // A well-formed handle for a file this door does not hold, and a
     // malformed one: neither may reach the engine as a path.

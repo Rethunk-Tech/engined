@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { buildLlamaSpec, MODELS_CONTAINER_PATH, PRESET_CONTAINER_PATH } from './llamaSpec.ts'
 import { loadSpec } from './spec.ts'
+import { isContainerSpec } from './specTypes.ts'
 import {
   BUNX,
   engine as baseEngine,
@@ -10,6 +12,7 @@ import {
   writeEngineSpec,
 } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
+import { VOICE_CONTAINER_DIR } from './voices.ts'
 
 const RX_HOME_PATH = /\/home\/[^/"]+/
 
@@ -130,6 +133,30 @@ describe('shipped specs', () => {
     ['chatterbox-en', true],
   ] as const)('the shipped %s spec declares streaming = %p', (id, streaming) => {
     expect(loadShipped({ id }).spec.streaming).toBe(streaming)
+  })
+
+  test('chatterbox volume path and llama model paths match the container-path constants', () => {
+    for (const id of ['chatterbox-en', 'chatterbox-multi'] as const) {
+      const { spec } = loadShipped({ id })
+      if (!isContainerSpec(spec)) {
+        throw new Error(`${id} spec is not a container`)
+      }
+      expect(spec.volumes.map((v) => v.path)).toContain(VOICE_CONTAINER_DIR)
+    }
+    const llama = buildLlamaSpec(
+      engine({ id: 'llama', models_dir: '/data/models', models_max: 4 }),
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+      '/tmp/presets.ini',
+    )
+    const llamaPaths = llama.volumes.map((v) => v.path)
+    expect(llamaPaths).toContain(MODELS_CONTAINER_PATH)
+    expect(llamaPaths).toContain(PRESET_CONTAINER_PATH)
+    const example = readFileSync(join(import.meta.dir, '..', 'config.example.toml'), 'utf8')
+    const mmproj = [...example.matchAll(/mmproj\s*=\s*"(\/[^"]+)"/g)].map((m) => m[1] as string)
+    expect(mmproj.length).toBeGreaterThan(0)
+    for (const path of mmproj) {
+      expect(path.startsWith(`${MODELS_CONTAINER_PATH}/`)).toBe(true)
+    }
   })
 
   // The regression guard: a literal /home/<user>/... path in a shipped spec
