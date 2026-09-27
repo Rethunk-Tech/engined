@@ -75,7 +75,7 @@ silently, admitting more or fewer than the child agreed to.
 
 ## Cache-aware slot placement
 
-Measured on ornith's own `parallel = 2` against real VS Code Copilot chats: a
+Measured on ornith (live config `parallel = 4`) against real VS Code Copilot chats: a
 new chat's ~31k-token prompt, identical in its first ~30k tokens to the
 previous chat's, was fully re-prefilled (47-50s) because Copilot's small side
 requests (10-276 tokens) landed by llama's own cross-request LRU on the slot
@@ -102,3 +102,27 @@ it did before this existed. A caller-supplied `id_slot` is never touched.
 engined's own bookkeeping of what it last placed, not a read of the child's
 real occupancy. It is memory-resident per `(engine, model)` and does not
 survive a config reload that recreates the container.
+
+## Reusing a cached prompt on a hybrid model
+
+Ornith is a hybrid (recurrent + attention) model: llama-server can resume a
+cached prompt only at a message boundary, not at an arbitrary token. A request
+whose prompt differs anywhere inside a message is recomputed from that
+message's start. Measured on ornith with a 31k-token prompt changed at 85%:
+
+| Same text sent as | Tokens reused | Prefill |
+| --- | --- | --- |
+| 1 message | 0 | 52.5 s |
+| 16 messages | 21,849 | 17.8 s |
+| 64 messages | 26,014 | 11.4 s |
+
+VS Code Copilot sends its agent instructions as one ~15k-token user message
+that changes somewhere per chat, so new chats reused only the ~16k-token tool
+block and took ~30 s. engined-vscode now splits long user messages at
+structural boundaries (its `src/promptSplit.ts`); new chats then reprocess
+about 520 tokens, 2-6 s end to end. A consumer that sends long, partly-changing
+messages to a hybrid route gets the same benefit from splitting them.
+
+Measured and not worth it for this: `--checkpoint-min-step 1024` (default
+8192) reused exactly as much as the default, and `--cache-idle-slots` with the
+default `--cache-ram` never restored anything on this model. Neither is set.
