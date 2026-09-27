@@ -13,6 +13,7 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
+  OCTET_STREAM_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
@@ -139,7 +140,7 @@ const COMFY_DRAIN_POLL_MS = 500
  * render that legitimately exceeds it answers 503 naming the engine and the
  * key to raise, which is recoverable; an unbounded wait is not.
  */
-const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * 1000
+const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * MS_PER_SECOND
 
 /** This engine's own ceiling, or the default above. */
 function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {
@@ -353,7 +354,7 @@ export async function proxyComfyView(
   const res = await httpClient(`${base}/view?${params.toString()}`)
   return new Response(res.body, {
     status: res.status,
-    headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? 'application/octet-stream' },
+    headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? OCTET_STREAM_CONTENT_TYPE },
   })
 }
 

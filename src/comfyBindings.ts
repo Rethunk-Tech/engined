@@ -11,7 +11,7 @@ import process from 'node:process'
 import type { ComfyBinding, ComfyBindings, DoorContext } from './doorContext.ts'
 import { stateDir } from './paths.ts'
 import { writeToStdout } from './provenance.ts'
-import { errMessage, isRecord, parseRecord } from './types.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './types.ts'
 export const COMFY_KEY_SEP = '\u0000'
 
 export function comfyKey(engineId: string, origin: string, promptId: string): string {
@@ -88,7 +88,7 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
  * surprised, short enough that the table does not accumulate a binding per
  * prompt forever on a box that renders daily.
  */
-export const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * MS_PER_SECOND
 
 /** Whether a binding bound at `at` has aged out. */
 export function expired(at: number, now: number): boolean {

@@ -74,6 +74,7 @@ export function declaredOverLimit(req: Request, max: number): number | undefined
 /** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
 export const HTTP_CLIENT_ERROR_MIN = 400
 export const HTTP_SERVER_ERROR_MIN = 500
+export const STATUS_INTERNAL_SERVER_ERROR = HTTP_SERVER_ERROR_MIN
 export const HTTP_SERVER_ERROR_MAX = 600
 
 /** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */

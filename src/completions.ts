@@ -28,7 +28,13 @@ import {
   sseDataPayloads,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
-import { CONTENT_ENDPOINT_COMPLETIONS, isRecord, parseRecord } from './types.ts'
+import {
+  CONTENT_ENDPOINT_COMPLETIONS,
+  isRecord,
+  LOCAL_UPSTREAM,
+  MS_PER_SECOND,
+  parseRecord,
+} from './types.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
 const INFILL_PATH = '/infill'
@@ -119,7 +125,7 @@ function completionEnvelope(modelId: string, frame: InfillFrame): Record<string,
   return {
     id: `cmpl-${Date.now()}-${completionSeq}`,
     object: 'text_completion',
-    created: Math.floor(Date.now() / 1000),
+    created: Math.floor(Date.now() / MS_PER_SECOND),
     model: modelId,
     choices: [
       {
@@ -217,7 +223,7 @@ export async function handleCompletions(
   // llama route's role+model are what `LlamaRouter.proxy` can dial.
   if (
     engineEntry === undefined ||
-    route.upstream !== 'local' ||
+    route.upstream !== LOCAL_UPSTREAM ||
     route.role === undefined ||
     route.model === undefined
   ) {
@@ -252,7 +258,7 @@ export async function handleCompletions(
           ok: false,
           ...(verdict.failure === undefined ? {} : { failure: verdict.failure }),
           duration_ms: Date.now() - startedAt,
-          upstream_used: 'local',
+          upstream_used: LOCAL_UPSTREAM,
           egress: routeEgress(route, ctx.getConfig()),
         },
       ],
@@ -275,18 +281,18 @@ export async function handleCompletions(
         model: modelId,
         ok: true,
         duration_ms: Date.now() - startedAt,
-        upstream_used: 'local',
+        upstream_used: LOCAL_UPSTREAM,
         egress: routeEgress(route, ctx.getConfig()),
       },
     ],
     engine_used: route.engine,
-    upstream_used: 'local',
+    upstream_used: LOCAL_UPSTREAM,
   }
   recordCall(record, ctx.doorOpts.write)
   ctx.usage.record(record)
   const headers = answeringHeaders({
     route: routeAddress(route, ctx.getConfig().routes),
-    upstreamUsed: 'local',
+    upstreamUsed: LOCAL_UPSTREAM,
     egress: routeEgress(route, ctx.getConfig()),
     chain: null,
   })

@@ -26,7 +26,8 @@ import {
   message,
   stringField,
 } from './cursorProto.ts'
-import { parseRecord } from './types.ts'
+import { STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
+import { errMessage, parseRecord } from './types.ts'
 
 const RUN_PATH = '/agent.v1.AgentService/Run'
 const CONNECT_STREAM_TYPE = 'application/connect+proto'
@@ -407,7 +408,7 @@ async function runTurn(turn: Turn, prompt: string): Promise<void> {
       // One bad completion -- a timeout, a dropped engine -- should cost a
       // round, not the turn's uncommitted work.
       clearInterval(beat)
-      const detail = err instanceof Error ? err.message : String(err)
+      const detail = errMessage(err)
       if (failures >= MAX_COMPLETION_FAILURES) {
         send(envelope(textDelta(`engined: chat route failed repeatedly (${detail})`)))
         return
@@ -460,11 +461,11 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
   const server = http2.createServer()
   server.on('stream', (stream: ServerHttp2Stream, headers) => {
     if (headers[':path'] !== RUN_PATH) {
-      stream.respond({ ':status': 404 })
+      stream.respond({ ':status': STATUS_NOT_FOUND })
       stream.end()
       return
     }
-    stream.respond({ ':status': 200, 'content-type': CONNECT_STREAM_TYPE })
+    stream.respond({ ':status': STATUS_OK, 'content-type': CONNECT_STREAM_TYPE })
 
     let started = false
     let deliverExec: ((payload: Uint8Array) => void) | undefined
@@ -492,7 +493,7 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
       const total: TurnUsage = { input: 0, output: 0, cacheRead: 0 }
       runTurn({ deps, send: (frame) => stream.write(Buffer.from(frame)), awaitExec, total }, prompt)
         .catch((err: unknown) => {
-          const detail = err instanceof Error ? err.message : String(err)
+          const detail = errMessage(err)
           stream.write(Buffer.from(envelope(textDelta(`engined: ${detail}`))))
         })
         .finally(() => {

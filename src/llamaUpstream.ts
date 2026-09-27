@@ -8,10 +8,10 @@ import type { DockerLifecycle } from './docker.ts'
 import {
   CONTENT_TYPE,
   discardBody,
-  HTTP_SERVER_ERROR_MIN,
   type HttpClient,
   JSON_CONTENT_TYPE,
   STATUS_BAD_REQUEST,
+  STATUS_INTERNAL_SERVER_ERROR,
 } from './http.ts'
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 
@@ -294,7 +294,7 @@ export class LlamaUpstream {
       return 'none'
     }
     // The router writes this one as plain text, not as its JSON error shape.
-    if (res.status === HTTP_SERVER_ERROR_MIN && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
+    if (res.status === STATUS_INTERNAL_SERVER_ERROR && body.includes(PROXY_UNREACHABLE_MESSAGE)) {
       return 'unreachable'
     }
     const error = parseRecord(body)?.error

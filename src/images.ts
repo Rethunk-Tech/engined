@@ -383,7 +383,7 @@ export async function renderWith(
       data.push(...images.map((b64Json) => ({ b64_json: b64Json })))
     }
     return Response.json(
-      { created: Math.floor(startedAt / 1000), data },
+      { created: Math.floor(startedAt / MS_PER_SECOND), data },
       {
         headers: answeringHeaders({
           route: routeAddress(route, ctx.getConfig().routes),

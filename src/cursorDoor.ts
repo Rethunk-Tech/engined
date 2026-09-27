@@ -15,6 +15,7 @@
 
 import { bytesField, intField, message, stringField } from './cursorProto.ts'
 import type { DoorContext } from './doorContext.ts'
+import { CONTENT_TYPE, STATUS_OK } from './http.ts'
 import type { ResolvedRoute } from './types.ts'
 
 const AISERVER_PREFIX = '/aiserver.v1.'
@@ -27,8 +28,8 @@ export function isCursorPath(pathname: string): boolean {
 
 function protoResponse(body: Uint8Array): Response {
   return new Response(body, {
-    status: 200,
-    headers: { 'content-type': PROTO_TYPE },
+    status: STATUS_OK,
+    headers: { [CONTENT_TYPE]: PROTO_TYPE },
   })
 }
 
