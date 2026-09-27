@@ -33,6 +33,11 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 - **Agentic CLIs as an engine kind** — `claude` and `opencode`, both with
   writing disabled: claude by its own flags, opencode by a `bwrap` sandbox,
   because it has no flag that would do it.
+- **Fill-in-the-middle** — `POST /openai/v1/completions` over llama's own `/infill`, for a route that opts in.
+- **Vision bridge** — a text-only chat route can take an image attachment by
+  captioning it through a vision route first.
+- **Per-day usage totals** — `GET /engined/v1/usage` sums provenance without
+  keeping request content.
 - **Failures name their own fix** — literal `docker build` or `secret-tool store`.
 
 ## Documentation

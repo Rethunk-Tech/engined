@@ -376,7 +376,7 @@ image, the GGUF or the mmproj build changes. Treat vision as unproven until
 you have done that for your own consumer; the other roles carry no equivalent
 caveat.
 
-`src/visionProbe.ts` is that check, and two things run it. `test/local/llama.test.ts`
+`src/probe.ts` is that check, and two things run it. `test/local/llama.test.ts`
 drives it against the router directly, and the install ships it as a weekly
 `systemd --user` timer (`engined-probe.timer`) that runs
 `main.js --probe` against the live door -- every vision address the

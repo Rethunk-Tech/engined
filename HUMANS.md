@@ -41,6 +41,21 @@ fails at parse. Secrets go in the keyring, not the config:
 secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 ```
 
+Opt a local llama chat route into fill-in-the-middle, or give a text-only
+chat route an image-attach path through a vision route on the same box —
+both are per route, both shown on the `ornith` route in
+[config.example.toml](config.example.toml):
+
+```toml
+[[route]]
+engine        = "llama"
+upstream      = "local"
+model         = "ornith"
+role          = "chat"
+fim           = true                 # answers POST /openai/v1/completions alongside chat
+vision_bridge = "@/llama/vision"     # must resolve to a served role = "vision" route
+```
+
 Full schema: [docs/configuration.md](docs/configuration.md).
 
 ## Verify
@@ -69,9 +84,15 @@ systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
 ```
 
-What a paid upstream has cost is those same lines. Each attempt carries the
-`usage` the engine reported, so a month is a sum rather than a provider
-dashboard:
+For a quick per-day, per-route total without folding journald yourself:
+
+```sh
+curl -s 'localhost:29200/engined/v1/usage?days=7' | jq
+```
+
+What a paid upstream has cost in finer detail is those same lines. Each
+attempt carries the `usage` the engine reported, so a month is a sum rather
+than a provider dashboard:
 
 ```sh
 journalctl --user -u engined --since '30 days ago' -o cat \

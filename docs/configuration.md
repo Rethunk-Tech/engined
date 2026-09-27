@@ -15,8 +15,9 @@ the bytes for a request come from and carries `base_url`, `secret` and
 execute a request. `[[model]]` is optional, declared only where there is a
 capability worth recording. `[[route]]` pairs an engine with an upstream and,
 where one applies, a model, and carries everything specific to that pairing:
-`filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `display_name`, `streaming`, `args`. `[[chain]]` is an
-ordered fallback list of route addresses.
+`filename`, `role`, `vision`, `translate`, `fim`, `keep_resident`, `wire_model`,
+`display_name`, `streaming`, `slot_long_threshold`, `vision_bridge`, `args`.
+`[[chain]]` is an ordered fallback list of route addresses.
 
 ## Config versus spec, and why the split is not tidiness
 
@@ -52,6 +53,9 @@ error by design rather than a silent no-op.
 | `inventory_max_age_seconds`, `inventory_refresh_seconds` | `[[upstream]]` only — how long a cached provider `/models` list stays usable, and how often to re-fetch it (default 3600). Max age is required when a wildcard route names this upstream, must be greater than zero, and refresh must be less than max age |
 | `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
 | `engine`, `upstream`, `model`, `wire_model`, `display_name`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `display_name` is a human label a client may show; it is not an address and is omitted from `/openai/v1/models` when unset. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can |
+| `fim` | `[[route]]`, a local llama route only — opts the route into `POST /openai/v1/completions`, llama-server's fill-in-the-middle over `/infill`. Answers alongside chat on the same route rather than claiming a role of its own — see [http-api.md § Fill-in-the-middle](http-api.md#fill-in-the-middle) |
+| `slot_long_threshold` | `[[route]]`, a local llama route whose merged `parallel` is `>= 2` — the vocab-only token count at or above which a request is placed on a LONG slot rather than a SHORT one. Default 4096 — see [tuning.md § Cache-aware slot placement](tuning.md#cache-aware-slot-placement) |
+| `vision_bridge` | `[[route]]`, a `role = "chat"` route only — the address of a `role = "vision"` route on the same box that bridges an image attachment into a caption before dispatch, parse error on a route that is not `role = "chat"` and fatal at load if it does not resolve to a served `role = "vision"` route — see [http-api.md § Vision bridge](http-api.md#vision-bridge) |
 | `hops` | `[[chain]]` — an ordered list of route addresses |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
@@ -67,20 +71,20 @@ loud: whisper handed the translate flag with English-only weights transcribes
 rather than erroring.
 
 `vision` says what a `role = "vision"` model does with an image, which the
-role itself does not: `"describe"` reads a scene back in prose, `"read"`
-recognises the characters printed in one. Both take an image and answer in
-text, so nothing else on a route tells them apart — a consumer wiring up OCR
-and one wiring up captioning are picking between two addresses that otherwise
-look identical. It is required on a vision route and a parse error on any
-other — not defaulted, because the default would be wrong for whichever kind
-it did not name, and a reader sent the describer's check fails it while working
-correctly with nothing in that failure pointing at the config.
+role itself does not — both take an image and answer in text, so nothing else
+on a route tells them apart:
 
-It is also what decides which ground-truth check the vision probe sends
-([engines.md](engines.md#vision-fidelity-llama-vulkan)): a describer is asked
-to name two colours in order, a reader to read a freshly generated digit
-string back. Sending either question to the other model fails a model that is
-working correctly.
+| `vision` | What the model does | Probe question ([engines.md](engines.md#vision-fidelity-llama-vulkan)) |
+| --- | --- | --- |
+| `"describe"` | reads a scene back in prose | name two colours in order |
+| `"read"` | recognises the characters printed in the image | read back a freshly generated digit string |
+
+It is required on a vision route and a parse error on any other — not
+defaulted, because the default would be wrong for whichever kind it did not
+name, and a reader sent the describer's check fails it while working
+correctly with nothing in that failure pointing at the config. Sending
+either probe question to the other model fails a model that is working
+correctly.
 
 Warmth is guaranteed against idleness, never
 against contention: occupancy is still one model per role, so a request for a

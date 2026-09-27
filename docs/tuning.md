@@ -75,14 +75,18 @@ silently, admitting more or fewer than the child agreed to.
 
 ## Cache-aware slot placement
 
-Measured on ornith (live config `parallel = 4`) against real VS Code Copilot chats: a
-new chat's ~31k-token prompt, identical in its first ~30k tokens to the
-previous chat's, was fully re-prefilled (47-50s) because Copilot's small side
-requests (10-276 tokens) landed by llama's own cross-request LRU on the slot
-holding the long cached prompt and overwrote it — the long request then also
-landed by LRU and reprocessed all 30,951 tokens. llama-server's host-RAM
-prompt cache (`--cache-idle-slots`) does not restore on this hybrid model, so
-placement is the fix, not a bigger buffer.
+Measured on ornith (live config `parallel = 4`) against real VS Code Copilot
+chats, a new chat's ~31k-token prompt — identical in its first ~30k tokens to
+the previous chat's — was fully re-prefilled (47-50s):
+
+1. Copilot's small side requests (10-276 tokens) landed, by llama's own
+   cross-request LRU, on the slot holding the long cached prompt.
+2. Each side request overwrote that slot.
+3. The long request then also landed by LRU and reprocessed all 30,951
+   tokens.
+
+llama-server's host-RAM prompt cache (`--cache-idle-slots`) does not restore
+on this hybrid model, so placement is the fix, not a bigger buffer.
 
 For any local llama route whose merged `parallel` is a positive integer
 `>= 2`, `src/llamaSlots.ts` (driven from `LlamaRouter.proxy`, `src/llama.ts`)
@@ -118,10 +122,11 @@ message's start. Measured on ornith with a 31k-token prompt changed at 85%:
 
 VS Code Copilot sends its agent instructions as one ~15k-token user message
 that changes somewhere per chat, so new chats reused only the ~16k-token tool
-block and took ~30 s. engined-vscode now splits long user messages at
-structural boundaries (its `src/promptSplit.ts`); new chats then reprocess
-about 520 tokens, 2-6 s end to end. A consumer that sends long, partly-changing
-messages to a hybrid route gets the same benefit from splitting them.
+block and took ~30 s. `Rethunk-Tech/engined-vscode` now splits long user
+messages at structural boundaries (its own `src/promptSplit.ts`); new chats
+then reprocess about 520 tokens, 2-6 s end to end. A consumer that sends long,
+partly-changing messages to a hybrid route gets the same benefit from
+splitting them.
 
 Measured and not worth it for this: `--checkpoint-min-step 1024` (default
 8192) reused exactly as much as the default, and `--cache-idle-slots` with the

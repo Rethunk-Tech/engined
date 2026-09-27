@@ -16,6 +16,7 @@ treated as a caller.
 | Route | Method | Answered by |
 | --- | --- | --- |
 | `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
+| `/openai/v1/completions` | POST | `llama`, only a route declaring `fim` — legacy OpenAI completions shape over llama's own fill-in-the-middle. See [Fill-in-the-middle](#fill-in-the-middle) |
 | `/openai/v1/embeddings` | POST | `openai-http` |
 | `/openai/v1/rerank` | POST | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank) |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
@@ -65,7 +66,7 @@ only readable once the boundary after it has arrived, so the door holds the
 whole upload before the engine sees a byte of it. The live shape is the same
 verb with `?stream=true` and the audio as the request body:
 
-```
+```sh
 record | curl -sN --no-buffer -X POST -T - -H 'Content-Type: audio/wav' \
   'http://127.0.0.1:29200/openai/v1/audio/transcriptions?stream=true&model=@/whisper/medium.en'
 ```
@@ -96,7 +97,7 @@ A `tts` engine that clones (both chatterbox images) conditions on a reference
 recording, and a container reads only what the door mounted into it — so the
 reference is uploaded, never named:
 
-```
+```sh
 curl -F file=@reference.wav http://127.0.0.1:29200/engined/v1/audio/voices
 {"voice":"vc_cef8305b2eb7c0bf8766de6b1f5d0fab.wav","bytes":176684}
 ```
@@ -142,10 +143,12 @@ an unqualified string resolves only as a chain name, and anything else is a
 
 `@/cursor/<base>` collapses Cursor's own flat catalog (one id per reasoning
 depth and priority tier, e.g. `claude-sonnet-5-thinking-high`) onto one
-address per base. `reasoning_effort` and `service_tier` in the request body
-pick which of the base's real ids actually answers, walking to the nearest
-offered depth when the exact one is absent; `service_tier: "priority"`
-selects the `-fast` sibling at that depth.
+address per base, one row per base rather than one per collided id.
+`capabilities.reasoning` on that row lists the effort words the base actually
+offers (e.g. `["low","medium","high"]`); `reasoning_effort` and
+`service_tier` in the request body pick which of the base's real ids
+actually answers, walking to the nearest offered depth when the exact one is
+absent; `service_tier: "priority"` selects the `-fast` sibling at that depth.
 
 A base where a plain and a `-thinking` sibling carry the same effort word
 (`claude-sonnet-5-high` next to `claude-sonnet-5-thinking-high`) cannot be
@@ -184,6 +187,14 @@ capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
 that has any. `display_name` is present only when the route declared one; a
 row without it omits the field, and a chain never carries it.
 
+`capabilities.context_in` is the route's own declared value when it has one;
+for an undeclared local llama route it is derived instead, from the same
+`ctx-size`/`parallel`/`kv-unified` merge the launcher renders into the preset
+INI — `ctx-size` divided across `parallel`'s slots unless `kv-unified` (or a
+non-splitting `parallel`) gives every slot the whole, undivided pool. Absent
+for any other undeclared route: a remote `openai-http` proxy has no
+`ctx-size` of its own to derive from.
+
 `hops` is where a chain says what it resolves to, and the only place it can:
 a chain is not any one engine's route, so `engine`, `upstream`, `model` and
 `egress` are all absent from its row. It carries the hop addresses in order,
@@ -193,6 +204,11 @@ healthy chain is the least informative row in the menu, since
 `unavailable_hops` is absent precisely when nothing is broken; with it, a
 caller can see that `chain-private` and `@/llama/ornith` are one destination
 listed twice rather than two models.
+
+`capabilities.context_in`/`context_out` on a chain row are the **minimum**
+across its hops, never the first hop's own: a caller planning a prompt size
+against a chain needs the window every hop can actually honour, not the one
+the fallback order happens to try first.
 
 `serves` is the route's own, not its engine's: a role that claims a path
 answers only that path (`embedding` answers `/openai/v1/embeddings`, `rerank`
@@ -223,13 +239,17 @@ on — see [configuration.md](configuration.md).
 A `role = "chat"` route may declare `vision_bridge`, the address of a
 `role = "vision"` route on the same box. When a chat request to it carries an
 OpenAI image content part (`image_url` with a `data:` URI or an `http(s)://`
-one), engined sends each image to the bridge address first, as its own chat
-request — one image per request, a fixed system instruction to transcribe any
-visible text verbatim and then describe the image concisely, low temperature,
-`max_tokens` around 512 — and replaces the image part with a text part
-`[Image N: <caption>]`, in order, before dispatching the rewritten request to
-the route the caller actually addressed. A caller can now attach an image to
-a model that has no image input of its own.
+one), engined bridges it before dispatching the rewritten request to the
+route the caller actually addressed:
+
+| Step | What happens |
+| --- | --- |
+| 1 | each image goes to the bridge address first, one image per request |
+| 2 | the bridge call runs at low temperature, `max_tokens` around 512, with a fixed system instruction to transcribe any visible text verbatim and then describe the image concisely |
+| 3 | the image part is replaced with a text part `[Image N: <caption>]`, in order |
+
+A caller can now attach an image to a model that has no image input of its
+own.
 
 `GET /openai/v1/models` reports `capabilities.input` including `"image"` and a
 `vision_bridge` field naming the bridge address on such a route, so a
@@ -478,6 +498,39 @@ text. A `content` string containing a literal special-token marker (e.g.
 `parse_special` default would instead recognize it as one token; this only
 differs from llama-server's own count on that one shape of input.
 
+### Fill-in-the-middle
+
+`POST /openai/v1/completions` is the legacy OpenAI completions shape, mapped
+onto llama-server's own `/infill`: a caller sends `prompt`/`suffix` instead of
+one contiguous text, and the model fills the gap between them rather than
+continuing off the end.
+
+```sh
+curl -s localhost:29200/openai/v1/completions -H 'content-type: application/json' \
+  -d '{"model":"@/llama/ornith","prompt":"def add(a, b):\n    ","suffix":"\n\nprint(add(1, 2))\n","max_tokens":16}'
+```
+
+Only a local llama route that opted in with `fim = true`
+([configuration.md](configuration.md)) can answer it; every other address is
+refused with the door's normal 4xx before dispatch, and `GET
+/openai/v1/models` advertises `/openai/v1/completions` in such a row's
+`serves`. There is no chain support: nothing has asked for FIM fallback
+across models, and a second engine's own native completion shape has nothing
+here to test it against.
+
+| Field | Meaning |
+| --- | --- |
+| `prompt` | the text before the gap; forwarded as `input_prefix` |
+| `suffix` | the text after the gap; forwarded as `input_suffix` |
+| `extra` | not an OpenAI field: `[{filename, text}]`, neighbouring-file context forwarded to llama-server's own `input_extra` verbatim |
+| `max_tokens`, `temperature`, `stop`, `stream` | forwarded under llama-server's own names (`max_tokens` as `n_predict`) |
+
+The reply is the OpenAI legacy `text_completion` envelope (`choices[0].text`,
+`finish_reason`, `usage` once generation ends) whether buffered or streamed —
+llama-server's own frames and SSE shape never reach the caller. The weekly
+`engined-probe` sends one real fill against every route advertising `fim` and
+fails on a non-2xx.
+
 ## Translations
 
 `POST /openai/v1/audio/translations` is the transcriptions verb with one field
@@ -691,15 +744,18 @@ what the container did:
   so nothing is ever queued behind the running job to inherit the GPU from it.
   An interrupt that arrives after the prompt finished stops nothing at all.
 
-That gate is the one behaviour change a comfy consumer sees. With the container
-free — the ordinary case on a one-GPU box — a submission forwards immediately
-and answers with comfy's own `prompt_id`, exactly as before. With a render in
-flight, `POST /prompt` holds until it ends rather than returning an id for a
-job queued behind it, so the wait moves from comfy's queue to the request. The
-GPU was serial either way; what changes is where the caller waits, and that the
-door can now say what is running. A container that has not drained inside the
-engine's `drain_timeout_seconds` (15 minutes by default) answers 503 naming
-the engine and that key, rather than holding the request forever.
+That gate is the one behaviour change a comfy consumer sees. The GPU was
+serial either way; what changes is where the caller waits, and that the door
+can now say what is running:
+
+| Container state | What `POST /prompt` does |
+| --- | --- |
+| free (the ordinary case on a one-GPU box) | forwards immediately, answers with comfy's own `prompt_id`, exactly as before |
+| render in flight | holds until it ends rather than returning an id for a job queued behind it — the wait moves from comfy's queue to the request |
+
+A container that has not drained inside the engine's `drain_timeout_seconds`
+(15 minutes by default) answers 503 naming the engine and that key, rather
+than holding the request forever.
 
 The binding table those verbs read is bounded twice, by **age** and by
 **count**. A binding is served for **seven days** from the moment its prompt was
@@ -741,11 +797,13 @@ each present only if the engine sent it.
 `cost_usd` appears where the thing that ran worked the price out itself, which
 in practice means the agentic CLIs. It is never engined multiplying tokens by
 a rate card: no rate card lives in this repo, and one that did would be wrong
-the week a provider repriced. It is also why an agentic attempt can carry a
-cost and no `prompt_tokens` — claude splits its input side across three cache
-tiers that bill at different rates (measured 2 / 21863 / 9869 on a four-token
-reply), so their sum is not a prompt size worth charging against, while
-`total_cost_usd` is exactly the figure the question wants. Summing these lines is how you find what a month
+the week a provider repriced.
+
+That is also why an agentic attempt can carry a cost and no `prompt_tokens`:
+claude splits its input side across three cache tiers that bill at different
+rates (measured 2 / 21863 / 9869 on a four-token reply), so their sum is not a
+prompt size worth charging against, while `total_cost_usd` is exactly the
+figure the question wants. Summing these lines is how you find what a month
 on a paid upstream came to, and which consumer spent it — nothing else on the
 box records it.
 
