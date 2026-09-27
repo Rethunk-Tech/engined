@@ -215,8 +215,8 @@ export function parseCapabilities(
   return {
     input: stringArray('input'),
     output: stringArray('output'),
-    context_in: optional(raw.context_in, 'number', `${site} "context_in"`, file),
-    context_out: optional(raw.context_out, 'number', `${site} "context_out"`, file),
+    context_in: optionalPositive(raw.context_in, `${site} "context_in"`, file),
+    context_out: optionalPositive(raw.context_out, `${site} "context_out"`, file),
     reasoning: stringArray('reasoning'),
   }
 }

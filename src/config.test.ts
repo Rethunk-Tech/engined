@@ -617,6 +617,18 @@ test('listen_port of 0 is a parse error', () => {
   )
 })
 
+test('model context_in of 0 is a parse error', () => {
+  expect(() =>
+    loadConfig(
+      writeConfig(`${llamaEngineAndRoute()}
+[[model]]
+id = "ornith"
+context_in = 0
+`),
+    ),
+  ).toThrow(/"context_in" must be greater than 0/)
+})
+
 test('listen_port of a negative value is a parse error', () => {
   expect(() => loadConfig(writeConfig(`listen_port = -1\n${llamaEngineAndRoute()}`))).toThrow(
     RX_LISTEN_PORT_POSITIVE,
