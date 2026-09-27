@@ -36,20 +36,9 @@ import {
 import type { EngineEntry } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-comfy-proxy-')
+afterAll(redirectStateHome(TEST_ROOT))
 
 const RX_DRAIN_TIMEOUT_POSITIVE = /"drain_timeout_seconds" must be greater than 0/
-
-// `comfyDoor` points XDG_STATE_HOME at a scratch dir and leaves it there for
-// the door it just built; restoring it here keeps that out of sibling suites
-// sharing this process.
-const PREVIOUS_STATE_HOME = process.env.XDG_STATE_HOME
-afterAll(() => {
-  if (PREVIOUS_STATE_HOME === undefined) {
-    delete process.env.XDG_STATE_HOME
-  } else {
-    process.env.XDG_STATE_HOME = PREVIOUS_STATE_HOME
-  }
-})
 
 const COMFY_SPEC = `
 kind = "comfy"
@@ -74,9 +63,8 @@ const NODE_TYPE = 'KSampler'
 /**
  * A running comfy engine, ready to proxy through -- `port` need not answer
  * anything real when `comfyHttpClient` intercepts every forwarded call. The
- * binding table lives under `XDG_STATE_HOME`, so each door gets a fresh one
- * unless the caller names an existing one to reopen: sharing it would let one
- * test's bindings make another test's refusal pass for the wrong reason.
+ * binding table lives under `XDG_STATE_HOME`, so each door gets a fresh table
+ * unless the caller names one to reopen.
  */
 async function comfyDoor(
   comfyHttpClient?: HttpClient,
@@ -84,10 +72,7 @@ async function comfyDoor(
   stateHome?: string,
   engineOverrides: Partial<EngineEntry> = {},
 ) {
-  redirectStateHome(TEST_ROOT)
-  if (stateHome !== undefined) {
-    process.env.XDG_STATE_HOME = stateHome
-  }
+  process.env.XDG_STATE_HOME = stateHome ?? mkdtempSync(join(TEST_ROOT, 'comfy-state-'))
   const root = mkdtempSync(join(TEST_ROOT, 'door-'))
   writeEngineSpec(root, 'comfy', COMFY_SPEC)
   const cfg = config({
@@ -1188,15 +1173,15 @@ describe('loading the binding table', () => {
     })
 
     stateWith()
-    const absent: string[] = []
-    expect(loadComfyBindings((line) => absent.push(line)).size).toBe(0)
+    const { lines: absent, write: writeAbsent } = collectLines()
+    expect(loadComfyBindings(writeAbsent).size).toBe(0)
     expect(absent).toEqual([])
   })
 
   test('a table this build can read in full writes nothing', () => {
     stateWith(JSON.stringify({ 'comfy local j': { at: Date.now(), filenames: [] } }))
-    const lines: string[] = []
-    expect(loadComfyBindings((line) => lines.push(line)).size).toBe(1)
+    const { lines, write } = collectLines()
+    expect(loadComfyBindings(write).size).toBe(1)
     expect(lines).toEqual([])
   })
 })

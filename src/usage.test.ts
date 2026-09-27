@@ -12,7 +12,15 @@ import {
   makeLlamaHttpClient,
 } from './doorFixtures.ts'
 import type { CallRecord } from './provenance.ts'
-import { config, engine, makeTestRoot, route, upstream, writeEngineSpec } from './test-support.ts'
+import {
+  collectLines,
+  config,
+  engine,
+  makeTestRoot,
+  route,
+  upstream,
+  writeEngineSpec,
+} from './test-support.ts'
 import { handleUsage, UsageTracker } from './usage.ts'
 
 const TEST_ROOT = makeTestRoot('engined-usage-test-')
@@ -144,8 +152,8 @@ test('flush persists atomically and a fresh tracker reads the same counters back
 test('a corrupt day file is tolerated: that day starts fresh and one line is logged', () => {
   const dir = freshDir()
   writeFileSync(join(dir, '2026-01-01.json'), '{not json')
-  const logged: string[] = []
-  const tracker = new UsageTracker({ stateRoot: dir, now: () => DAY_1, log: (l) => logged.push(l) })
+  const { lines: logged, write } = collectLines()
+  const tracker = new UsageTracker({ stateRoot: dir, now: () => DAY_1, log: write })
   const rows = tracker.read(1)
   expect(rows).toEqual([])
   expect(logged).toHaveLength(1)
@@ -159,8 +167,8 @@ test('a day file that is valid JSON but the wrong shape is tolerated the same wa
     join(dir, '2026-01-01.json'),
     JSON.stringify({ routes: { x: { requests: 'nope' } } }),
   )
-  const logged: string[] = []
-  const tracker = new UsageTracker({ stateRoot: dir, now: () => DAY_1, log: (l) => logged.push(l) })
+  const { lines: logged, write } = collectLines()
+  const tracker = new UsageTracker({ stateRoot: dir, now: () => DAY_1, log: write })
   expect(tracker.read(1)).toEqual([])
   expect(logged).toHaveLength(1)
   tracker.shutdown()
