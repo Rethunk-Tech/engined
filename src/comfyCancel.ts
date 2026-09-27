@@ -1,11 +1,6 @@
 import { comfyKey, liveBinding } from './comfyBindings.ts'
-import {
-  type ComfyProxy,
-  jsonForward,
-  queuedPromptIds,
-  readComfyQueue,
-  withComfySlot,
-} from './comfyProxy.ts'
+import { type ComfyProxy, jsonForward, withComfySlot } from './comfyProxy.ts'
+import { queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
 import {
   CONTENT_TYPE,
   type HttpClient,

@@ -8,7 +8,8 @@
 
 import type { DockerLifecycle } from './docker.ts'
 import type { Entry } from './engineEntries.ts'
-import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from './http.ts'
+import { CONTENT_TYPE, discardBody, type HttpClient, JSON_CONTENT_TYPE } from './http.ts'
+import { parseRecord } from './records.ts'
 import { isContainerSpec } from './specTypes.ts'
 
 /**
@@ -19,8 +20,8 @@ import { isContainerSpec } from './specTypes.ts'
 export const COMFY_POLL_INTERVAL_MS = 15_000
 
 export interface QueueSnapshot {
-  queue_running: unknown[]
-  queue_pending: unknown[]
+  queue_running?: unknown
+  queue_pending?: unknown
 }
 
 export type QueueFetch = (url: string) => Promise<QueueSnapshot>
@@ -41,13 +42,39 @@ export async function defaultReleaseFetch(
   return { ok: res.ok, status: res.status }
 }
 
+/** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
+const COMFY_QUEUE_PROMPT_ID_INDEX = 1
+
+export function queuedPromptIds(entries: unknown): string[] {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => (Array.isArray(entry) ? entry[COMFY_QUEUE_PROMPT_ID_INDEX] : undefined))
+    .filter((id): id is string => typeof id === 'string')
+}
+
+export async function readComfyQueue(
+  base: string,
+  httpClient: HttpClient,
+): Promise<Record<string, unknown> | undefined> {
+  const res = await httpClient(`${base}/queue`)
+  if (!res.ok) {
+    await discardBody(res)
+    return undefined
+  }
+  return parseRecord(await res.text()) ?? undefined
+}
+
 export async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
-  const res = await fetch(url)
-  return (await res.json()) as QueueSnapshot
+  const queue = await readComfyQueue(new URL(url).origin, fetch)
+  if (queue === undefined) {
+    throw new Error('comfy queue could not be read')
+  }
+  return queue
 }
 
 function isQueueEmpty(q: QueueSnapshot): boolean {
-  return q.queue_running.length === 0 && q.queue_pending.length === 0
+  return (
+    queuedPromptIds(q.queue_running).length === 0 && queuedPromptIds(q.queue_pending).length === 0
+  )
 }
 
 export class ComfyQueueWatch {

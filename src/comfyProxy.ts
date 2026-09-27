@@ -5,11 +5,11 @@ import {
   liveBinding,
   saveComfyBindings,
 } from './comfyBindings.ts'
+import { queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
   declaredOverLimit,
-  discardBody,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
@@ -439,25 +439,4 @@ export async function proxyComfyHistory(
     }
   }
   return jsonForward(res, text)
-}
-
-/** comfy's `GET /queue`: each entry is a positional tuple whose second slot is the `prompt_id`. */
-const COMFY_QUEUE_PROMPT_ID_INDEX = 1
-
-export function queuedPromptIds(entries: unknown): string[] {
-  return (Array.isArray(entries) ? entries : [])
-    .map((entry) => (Array.isArray(entry) ? entry[COMFY_QUEUE_PROMPT_ID_INDEX] : undefined))
-    .filter((id): id is string => typeof id === 'string')
-}
-
-export async function readComfyQueue(
-  base: string,
-  httpClient: HttpClient,
-): Promise<Record<string, unknown> | undefined> {
-  const res = await httpClient(`${base}/queue`)
-  if (!res.ok) {
-    await discardBody(res)
-    return undefined
-  }
-  return parseRecord(await res.text()) ?? undefined
 }
