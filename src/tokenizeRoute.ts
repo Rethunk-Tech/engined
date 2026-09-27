@@ -18,16 +18,18 @@ import { type Config, errMessage, qualifiedSegments, type ResolvedRoute } from '
 
 export const TOKENIZE_PATH = '/engined/v1/tokenize'
 
+/** The on-disk GGUF `route` points at, given that engine's `models_dir` -- `undefined` when the route is remote, has no `filename`, or `modelsDir` is unset. */
+export function ggufPath(route: ResolvedRoute, modelsDir: string | undefined): string | undefined {
+  if (route.upstream !== 'local' || route.filename === undefined || modelsDir === undefined) {
+    return undefined
+  }
+  return resolvePath(modelsDir, route.filename)
+}
+
 /** The on-disk GGUF `route` points at, or `undefined` when it has none to read -- a remote route, or a local one with no `filename`/`models_dir`. */
 export function ggufPathFor(route: ResolvedRoute, config: Config): string | undefined {
-  if (route.upstream !== 'local' || route.filename === undefined) {
-    return undefined
-  }
   const engine = config.engines.find((e) => e.id === route.engine)
-  if (engine?.models_dir === undefined) {
-    return undefined
-  }
-  return resolvePath(engine.models_dir, route.filename)
+  return ggufPath(route, engine?.models_dir)
 }
 
 /** `true` when `route`'s GGUF can be counted against without loading its weights -- cached after the first read, same as the route itself. */

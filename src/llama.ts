@@ -11,7 +11,7 @@
  * the INI, never through the load call's body.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { dirname } from 'node:path'
 import type { DockerLifecycle } from './docker.ts'
 import { CONTENT_TYPE, type HttpClient, SSE_CONTENT_TYPE } from './http.ts'
 import { RoleScheduler } from './llamaRoles.ts'
@@ -31,6 +31,7 @@ import {
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
 import type { RoleContention } from './responses.ts'
+import { ggufPath } from './tokenizeRoute.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
 import { parseRecord } from './types.ts'
 
@@ -329,18 +330,6 @@ export class LlamaRouter {
     return wantsStream(init) ? this.fetchStreamed(call) : this.fetchBuffered(call)
   }
 
-  /** The on-disk GGUF `route` points at, or `undefined` for a route with none to read -- mirrors `tokenizeRoute.ts`'s `ggufPathFor`, without needing that file's full `Config`. */
-  private ggufPathFor(route: ResolvedRoute): string | undefined {
-    if (
-      route.upstream !== 'local' ||
-      route.filename === undefined ||
-      this.engine.models_dir === undefined
-    ) {
-      return undefined
-    }
-    return resolvePath(this.engine.models_dir, route.filename)
-  }
-
   /** Rebuilt whenever a config reload changes this model's merged `parallel` -- rare, and a slot table starting cold on that edge is far cheaper than tracking a table shape nothing asks to persist. */
   private slotTableFor(modelId: string, parallel: number): LlamaSlotTable {
     const existing = this.slotTables.get(modelId)
@@ -379,7 +368,7 @@ export class LlamaRouter {
       return untouched
     }
     const { sizeClass, fingerprint } = await classifyPrompt(
-      this.ggufPathFor(route),
+      ggufPath(route, this.engine.models_dir),
       renderedPromptText(body),
       route.slot_long_threshold ?? DEFAULT_SLOT_LONG_THRESHOLD,
     )
