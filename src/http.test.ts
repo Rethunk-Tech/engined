@@ -7,6 +7,7 @@ import {
   readJsonBody,
   STATUS_PAYLOAD_TOO_LARGE,
   splitSseFrames,
+  sseDataPayloads,
   sseFrames,
 } from './http.ts'
 
@@ -62,14 +63,37 @@ test('a response carrying no body at all is a no-op', async () => {
 
 test('a carry with no frame boundary past the cap is dropped rather than held', () => {
   const kept = 'x'.repeat(65_536)
-  expect(splitSseFrames(kept)).toEqual({ frames: [], carry: kept })
-  expect(splitSseFrames(`${kept}y`)).toEqual({ frames: [], carry: '' })
+  expect(splitSseFrames(kept)).toEqual({ frames: [], carry: kept, discarding: false })
+  expect(splitSseFrames(`${kept}y`)).toEqual({ frames: [], carry: '', discarding: true })
 })
 
 test('SSE frames split on LF, CRLF, or CR boundaries', () => {
-  expect(splitSseFrames('a\n\nb')).toEqual({ frames: ['a'], carry: 'b' })
-  expect(splitSseFrames('a\r\n\r\nb')).toEqual({ frames: ['a'], carry: 'b' })
-  expect(splitSseFrames('a\r\rb')).toEqual({ frames: ['a'], carry: 'b' })
+  expect(splitSseFrames('a\n\nb')).toEqual({ frames: ['a'], carry: 'b', discarding: false })
+  expect(splitSseFrames('a\r\n\r\nb')).toEqual({ frames: ['a'], carry: 'b', discarding: false })
+  expect(splitSseFrames('a\r\rb')).toEqual({ frames: ['a'], carry: 'b', discarding: false })
+})
+
+test('an oversized frame in 7-byte chunks yields no partial; the next frame still arrives', async () => {
+  const encoder = new TextEncoder()
+  const body = `data: ${'x'.repeat(70_000)}\n\ndata: {"ok":true}\n\n`
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let i = 0; i < body.length; i += 7) {
+        controller.enqueue(encoder.encode(body.slice(i, i + 7)))
+      }
+      controller.close()
+    },
+  })
+  const frames: string[] = []
+  for await (const frame of sseFrames(stream)) {
+    frames.push(frame)
+  }
+  expect(frames.some((frame) => frame.includes('xxx'))).toBe(false)
+  expect(frames).toEqual(['data: {"ok":true}'])
+})
+
+test('a CR-only frame with two data lines yields two payloads', () => {
+  expect(sseDataPayloads('data: one\rdata: two')).toEqual(['one', 'two'])
 })
 
 test('sseFrames yields a trimmed tail with no trailing boundary', async () => {

@@ -104,14 +104,42 @@ const SSE_FRAME_BOUNDARY = /\r\n\r\n|\n\n|\r\r/
 /** Past this with no frame boundary the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
 const MAX_CARRY_BYTES = 65_536
 
-/** Split complete SSE frames off `carry`. A carry past `MAX_CARRY_BYTES` is dropped: that body is not framed, and holding it would grow with the reply. */
-export function splitSseFrames(carry: string): { frames: string[]; carry: string } {
-  const parts = carry.split(SSE_FRAME_BOUNDARY)
-  const next = parts.pop() ?? ''
-  return { frames: parts, carry: next.length > MAX_CARRY_BYTES ? '' : next }
+/** Bytes kept while discarding so a boundary that straddles two chunks is still seen. Longest boundary is `\r\n\r\n`. */
+const DISCARD_BOUNDARY_TAIL = 3
+
+function dropThroughBoundary(carry: string): { carry: string; discarding: boolean } {
+  const match = SSE_FRAME_BOUNDARY.exec(carry)
+  if (match === null || match.index === undefined) {
+    return {
+      carry: carry.slice(Math.max(0, carry.length - DISCARD_BOUNDARY_TAIL)),
+      discarding: true,
+    }
+  }
+  return { carry: carry.slice(match.index + match[0].length), discarding: false }
 }
 
-const SSE_LINE_BREAK = /\r?\n/
+/** Split complete SSE frames off `carry`. A carry past `MAX_CARRY_BYTES` is dropped: that body is not framed, and holding it would grow with the reply. After a drop, further input is discarded through the next frame boundary so the oversized frame's tail is never yielded. */
+export function splitSseFrames(
+  carry: string,
+  discarding = false,
+): { frames: string[]; carry: string; discarding: boolean } {
+  if (discarding) {
+    const dropped = dropThroughBoundary(carry)
+    carry = dropped.carry
+    discarding = dropped.discarding
+    if (discarding) {
+      return { frames: [], carry, discarding: true }
+    }
+  }
+  const parts = carry.split(SSE_FRAME_BOUNDARY)
+  const next = parts.pop() ?? ''
+  if (next.length > MAX_CARRY_BYTES) {
+    return { frames: parts, carry: '', discarding: true }
+  }
+  return { frames: parts, carry: next, discarding: false }
+}
+
+const SSE_LINE_BREAK = /\r\n|\r|\n/
 
 /** JSON payloads from `data:` lines in one frame. Comment, event, and empty/`[DONE]` lines are not payloads. */
 export function sseDataPayloads(frame: string): string[] {
@@ -138,6 +166,7 @@ export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerat
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let carry = ''
+  let discarding = false
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -147,15 +176,16 @@ export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerat
       if (done) {
         carry += decoder.decode()
       }
-      const split = splitSseFrames(carry)
+      const split = splitSseFrames(carry, discarding)
       carry = split.carry
+      discarding = split.discarding
       for (const frame of split.frames) {
         yield frame
       }
       if (!done) {
         continue
       }
-      if (carry.trim() !== '') {
+      if (!discarding && carry.trim() !== '') {
         yield carry
       }
       return
