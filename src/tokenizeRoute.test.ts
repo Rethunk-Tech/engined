@@ -11,6 +11,7 @@ import {
   writeEngineSpec,
   writeGgufFixture,
 } from './test-support.ts'
+import { MAX_TOKENIZE_CONTENT_CHARS } from './tokenizeRoute.ts'
 
 const TEST_ROOT = makeTestRoot('engined-tokenize-route-test-')
 
@@ -55,6 +56,21 @@ describe('POST /engined/v1/tokenize', () => {
       }),
     )
     expect(res.status).toBe(400)
+  })
+
+  test('content past the character cap is 413', async () => {
+    const door = tokenizableDoorConfig()
+    const res = await door.fetch(
+      new Request('http://engined/engined/v1/tokenize', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: '@/llama/tiny',
+          content: ' '.repeat(MAX_TOKENIZE_CONTENT_CHARS + 1),
+        }),
+      }),
+    )
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual({ error: 'content too large' })
   })
 
   test('a route with no local GGUF to read is a 400 naming that', async () => {

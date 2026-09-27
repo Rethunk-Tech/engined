@@ -12,12 +12,21 @@ import { bpeTokenIds } from './bpeTokenize.ts'
 import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
 import { resolveQualified } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, readJsonBody, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
+import {
+  jsonError,
+  readJsonBody,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { errMessage } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments } from './routeAddress.ts'
 import type { Config, ResolvedRoute } from './types.ts'
 
 export const TOKENIZE_PATH = '/engined/v1/tokenize'
+
+/** Characters of `content` this verb will tokenize; past this the BPE scan is not worth the RAM. */
+export const MAX_TOKENIZE_CONTENT_CHARS = 4 * 1024 * 1024
 
 /** The on-disk GGUF `route` points at, given that engine's `models_dir` -- `undefined` when the route is remote, has no `filename`, or `modelsDir` is unset. */
 export function ggufPath(route: ResolvedRoute, modelsDir: string | undefined): string | undefined {
@@ -66,6 +75,9 @@ export async function handleTokenizeRoute(ctx: DoorContext, req: Request): Promi
   const content = typeof body.content === 'string' ? body.content : undefined
   if (content === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'content is required')
+  }
+  if (content.length > MAX_TOKENIZE_CONTENT_CHARS) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'content too large')
   }
   const segments = qualifiedSegments(model)
   if (segments === undefined) {
