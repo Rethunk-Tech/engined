@@ -49,6 +49,25 @@ describe('address segment encoding', () => {
   })
 })
 
+function expiredOpenrouterCache(stateName: string) {
+  const stateRoot = join(TEST_ROOT, stateName)
+  const cacheDir = join(stateRoot, 'upstreams', 'openrouter')
+  mkdirSync(cacheDir, { recursive: true })
+  writeFileSync(
+    join(cacheDir, 'inventory.json'),
+    `${JSON.stringify({ fetched_at: 1, ids: ['org/model:free'] })}\n`,
+  )
+  return { stateRoot, cacheDir }
+}
+
+function openrouterWildcardConfig(catalog: Upstream) {
+  return config({
+    engines: [engine({ id: 'openrouter', kind: 'openai-http' })],
+    upstreams: [catalog],
+    routes: [route({ engine: 'openrouter', model: '*', upstream: 'openrouter' })],
+  })
+}
+
 function catalogUpstream(base: string, maxAge = 86_400): Upstream {
   return upstream({
     id: 'openrouter',
@@ -150,13 +169,7 @@ describe('provider /models inventory', () => {
   })
 
   test('an expired cache is dropped and expands empty', () => {
-    const stateRoot = join(TEST_ROOT, 'state-expired')
-    const cacheDir = join(stateRoot, 'upstreams', 'openrouter')
-    mkdirSync(cacheDir, { recursive: true })
-    writeFileSync(
-      join(cacheDir, 'inventory.json'),
-      `${JSON.stringify({ fetched_at: 1, ids: ['org/model:free'] })}\n`,
-    )
+    const { stateRoot, cacheDir } = expiredOpenrouterCache('state-expired')
     const now = 10 * MS_PER_SECOND
     const inv = new Inventory({
       secretExec: foundSecret,
@@ -169,13 +182,7 @@ describe('provider /models inventory', () => {
   })
 
   test('a failed fetch with an expired cache expands empty', async () => {
-    const stateRoot = join(TEST_ROOT, 'state-expired-fetch')
-    const cacheDir = join(stateRoot, 'upstreams', 'openrouter')
-    mkdirSync(cacheDir, { recursive: true })
-    writeFileSync(
-      join(cacheDir, 'inventory.json'),
-      `${JSON.stringify({ fetched_at: 1, ids: ['org/model:free'] })}\n`,
-    )
+    const { stateRoot, cacheDir } = expiredOpenrouterCache('state-expired-fetch')
     const fake = startFakeUpstream(() => new Response('nope', { status: 503 }))
     const inv = new Inventory({
       secretExec: foundSecret,
@@ -280,14 +287,11 @@ describe('menu and chat expand a cached catalog', () => {
 })
 
 function wildcardRegistry(inv: Inventory, catalog: Upstream): EngineRegistry {
-  return new EngineRegistry(
-    config({
-      engines: [engine({ id: 'openrouter', kind: 'openai-http' })],
-      upstreams: [catalog],
-      routes: [route({ engine: 'openrouter', model: '*', upstream: 'openrouter' })],
-    }),
-    { enginesRoot: '/nonexistent/engines', bunx: BUNX, inventory: inv },
-  )
+  return new EngineRegistry(openrouterWildcardConfig(catalog), {
+    enginesRoot: '/nonexistent/engines',
+    bunx: BUNX,
+    inventory: inv,
+  })
 }
 
 describe('inventory refresh timers', () => {
@@ -310,13 +314,7 @@ describe('inventory refresh timers', () => {
       expect(Date.now() - before).toBeLessThan(50)
       expect(reg.inventoryWatchCount()).toBe(1)
       const armed = reg.inventoryWatchCount()
-      reg.reload(
-        config({
-          engines: [engine({ id: 'openrouter', kind: 'openai-http' })],
-          upstreams: [catalog],
-          routes: [route({ engine: 'openrouter', model: '*', upstream: 'openrouter' })],
-        }),
-      )
+      reg.reload(openrouterWildcardConfig(catalog))
       expect(reg.inventoryWatchCount()).toBe(armed)
       await reg.shutdown()
       expect(reg.inventoryWatchCount()).toBe(0)
