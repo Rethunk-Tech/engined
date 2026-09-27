@@ -75,17 +75,8 @@ describe('the door: answering-route headers', () => {
   })
 
   test('a chain that falls over to its second hop names the second hop, not the first', async () => {
-    const { cfg: base, root } = twoEngineDoorConfig(TEST_ROOT)
-    const cfg = { ...base, upstreams: [upstream()] }
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      { llamaHttpClient: makeSplitHttpClient(500, [], []), write: () => undefined },
-      twoEngineExec(),
-    )
-    const res = await door.fetch(
-      chatRequest({ model: 'chain-failover', messages: [{ role: 'user', content: 'hi' }] }),
-    )
+    const door = twoEngineFailoverDoor(makeSplitHttpClient(500, [], []))
+    const res = await door.fetch(chainFailoverChat())
     await res.json()
     expect(res.headers.get('x-engined-route')).toBe('@/llama-live/live-model')
     expect(res.headers.get('x-engined-chain')).toBe('chain-failover')
@@ -93,8 +84,6 @@ describe('the door: answering-route headers', () => {
   })
 
   test('a chain nothing in it can answer carries no answering-route headers', async () => {
-    const { cfg: base, root } = twoEngineDoorConfig(TEST_ROOT)
-    const cfg = { ...base, upstreams: [upstream()] }
     const control = llamaControlPlane()
     const everyHopFails: HttpClient = (url, init) => {
       const controlled = control(url, init)
@@ -103,15 +92,8 @@ describe('the door: answering-route headers', () => {
       }
       return Promise.resolve(Response.json({ error: 'dead' }, { status: 500 }))
     }
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      { llamaHttpClient: everyHopFails, write: () => undefined },
-      twoEngineExec(),
-    )
-    const res = await door.fetch(
-      chatRequest({ model: 'chain-failover', messages: [{ role: 'user', content: 'hi' }] }),
-    )
+    const door = twoEngineFailoverDoor(everyHopFails)
+    const res = await door.fetch(chainFailoverChat())
     await res.json()
     expect(res.status).toBe(503)
     expect(res.headers.get('x-engined-route')).toBeNull()
@@ -160,6 +142,46 @@ describe('the door: answering-route headers', () => {
  * what the chat response echoed. `undefined` means the url is the chat call
  * itself, for the caller to answer.
  */
+
+function twoEngineFailoverDoor(llamaHttpClient: HttpClient) {
+  const { cfg: base, root } = twoEngineDoorConfig(TEST_ROOT)
+  const cfg = { ...base, upstreams: [upstream()] }
+  return createLlamaDoor(cfg, root, { llamaHttpClient, write: () => undefined }, twoEngineExec())
+}
+
+function chainFailoverChat() {
+  return chatRequest({ model: 'chain-failover', messages: [{ role: 'user', content: 'hi' }] })
+}
+
+function extrasRecordingClient(tokens: number[]) {
+  const extrasCalls: string[] = []
+  const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
+    extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
+    return Promise.resolve(Response.json({ tokens }))
+  }
+  return { extrasCalls, extrasClient }
+}
+
+function tokenizeHello(engineId: string) {
+  return new Request(`http://engined/engined/v1/engines/${engineId}/tokenize`, {
+    method: 'POST',
+    body: JSON.stringify({ content: 'hello' }),
+  })
+}
+
+function extrasLlamaDoor(
+  cfg: Parameters<typeof createLlamaDoor>[0],
+  root: string,
+  extrasClient: HttpClient,
+  recorded: { body: string }[],
+) {
+  return createLlamaDoor(cfg, root, {
+    llamaHttpClient: makeLlamaHttpClient(recorded),
+    extrasHttpClient: extrasClient,
+    write: () => undefined,
+  })
+}
+
 function llamaLifecycleResponse(url: string, chatAnswered: boolean): Response | undefined {
   if (url.endsWith('/models/load')) {
     return Response.json({ success: true })
@@ -420,57 +442,26 @@ describe('the door: extras address one named engine, and refuse any other', () =
   test('tokenize against the named llama engine reaches it, and against a comfy-shaped engine 400s', async () => {
     const { cfg, root } = llamaDoorConfigWithComfy()
     const recorded: { body: string }[] = []
-    const extrasCalls: string[] = []
-    const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
-      extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
-      return Promise.resolve(Response.json({ tokens: [1, 2, 3] }))
-    }
-    const door = createLlamaDoor(cfg, root, {
-      llamaHttpClient: makeLlamaHttpClient(recorded),
-      extrasHttpClient: extrasClient,
-      write: () => undefined,
-    })
+    const { extrasCalls, extrasClient } = extrasRecordingClient([1, 2, 3])
+    const door = extrasLlamaDoor(cfg, root, extrasClient, recorded)
 
-    const res = await door.fetch(
-      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
-        method: 'POST',
-        body: JSON.stringify({ content: 'hello' }),
-      }),
-    )
+    const res = await door.fetch(tokenizeHello('local-llama'))
     expect(res.status).toBe(200)
     expect(extrasCalls).toHaveLength(1)
     expect(JSON.parse(extrasCalls[0] ?? '{}')).toMatchObject({ model: 'ornith' })
 
     // Naming the comfy-shaped engine is refused before its container is touched.
-    const wrong = await door.fetch(
-      new Request('http://engined/engined/v1/engines/comfy/tokenize', {
-        method: 'POST',
-        body: JSON.stringify({ content: 'hello' }),
-      }),
-    )
+    const wrong = await door.fetch(tokenizeHello('comfy'))
     expect(wrong.status).toBe(400)
     expect(extrasCalls).toHaveLength(1)
   })
 
   test('tokenize with no chat yet warm-loads the local chat route before injecting it', async () => {
     const { cfg, root } = llamaDoorConfig(TEST_ROOT)
-    const extrasCalls: string[] = []
-    const extrasClient: HttpClient = (_url: string, init?: RequestInit) => {
-      extrasCalls.push(typeof init?.body === 'string' ? init.body : '')
-      return Promise.resolve(Response.json({ tokens: [1] }))
-    }
+    const { extrasCalls, extrasClient } = extrasRecordingClient([1])
     const recorded: { body: string }[] = []
-    const door = createLlamaDoor(cfg, root, {
-      llamaHttpClient: makeLlamaHttpClient(recorded),
-      extrasHttpClient: extrasClient,
-      write: () => undefined,
-    })
-    const res = await door.fetch(
-      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
-        method: 'POST',
-        body: JSON.stringify({ content: 'hello' }),
-      }),
-    )
+    const door = extrasLlamaDoor(cfg, root, extrasClient, recorded)
+    const res = await door.fetch(tokenizeHello('local-llama'))
     expect(res.status).toBe(200)
     expect(JSON.parse(extrasCalls[0] ?? '{}')).toMatchObject({ model: 'ornith', content: 'hello' })
   })
