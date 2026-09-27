@@ -186,10 +186,7 @@ describe('POST /engined/v1/start', () => {
   test("a chain name warms only its first hop's local engine, with no url in the response", async () => {
     const { cfg, root } = llamaThenWhisperChainConfig()
     const { door, urls, runLog } = recordingStartDoor(cfg, root)
-    const res = await door.fetch(startRequest('chain-x'))
-
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { object: string; data: Record<string, unknown>[] }
+    const body = await startOk(door, 'chain-x')
     expect(body.data).toHaveLength(1)
     const [row] = body.data
     expect(row?.engine).toBe('local-llama')
@@ -288,10 +285,7 @@ describe('POST /engined/v1/start: a roleless model on a container engine', () =>
   test('a roleless model on a container engine takes the stop-and-restart path, not the llama router', async () => {
     const { cfg, root } = whisperDoorConfig()
     const { door, urls, runLog } = recordingStartDoor(cfg, root)
-    const res = await door.fetch(startRequest('@/whisper-like/small'))
-
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { data: Record<string, unknown>[] }
+    const body = await startOk(door, '@/whisper-like/small')
     expect(body.data[0]?.state).toBe('running')
     expect(runLog).toHaveLength(1)
     const argv = runLog[0] as string[]
