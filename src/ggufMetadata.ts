@@ -182,18 +182,18 @@ function parse(buf: Buffer): GgufMetadata {
  * A vocab of this size fits comfortably in a few MiB even at 250k tokens and
  * a quarter-million merge rules -- this cap is only ever hit by a metadata
  * section that is not what this door expects, not by a real vocab growing.
- * ponytail: fixed doubling instead of a real streaming cursor; raise the cap
+ * ponytail: fixed *4 growth instead of a real streaming cursor; raise the cap
  * or switch to incremental reads if a model's metadata ever legitimately
  * exceeds it.
  */
-const INITIAL_BYTES = 8 * 1024 * 1024
+const INITIAL_BYTES = 16 * 1024 * 1024
 const MAX_BYTES = 256 * 1024 * 1024
 
 /** Reads `path`'s GGUF key/value metadata, growing the buffered prefix until the whole metadata section fits or `MAX_BYTES` is exhausted. Never reads the tensor data that follows. */
 export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
   const handle = await open(path, 'r')
   try {
-    for (let size = INITIAL_BYTES; size <= MAX_BYTES; size *= 4) {
+    for (let size = INITIAL_BYTES; size <= MAX_BYTES; ) {
       const buf = Buffer.alloc(size)
       const { bytesRead } = await handle.read(buf, 0, size, 0)
       try {
@@ -203,6 +203,10 @@ export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
           throw err
         }
       }
+      if (size === MAX_BYTES) {
+        break
+      }
+      size = Math.min(size * 4, MAX_BYTES)
     }
     throw new Error(`${path}: GGUF metadata exceeds ${MAX_BYTES} bytes`)
   } finally {
