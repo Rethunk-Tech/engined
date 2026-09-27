@@ -155,7 +155,7 @@ test('what an engine reported it cost reaches the provenance line', async () => 
 
   await runChain(['@/e/m'], baseOpts({ exec, write }))
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({
+  expect(hopAttempt(lines)?.usage).toEqual({
     prompt_tokens: 12,
     completion_tokens: 34,
     total_tokens: 46,
@@ -183,10 +183,20 @@ test('a body with no usage records none, rather than an empty object that reads 
 
   await runChain(['@/e/m'], baseOpts({ exec, write }))
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toBeUndefined()
+  expect(hopAttempt(lines)?.usage).toBeUndefined()
 })
 
 /** An SSE reply as an upstream sends one: token deltas, then a final frame stating the cost, then the terminator. */
+
+async function drainSingleHop(exec: HopExec, write: (line: string) => void) {
+  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
+  await new Response(result.stream).text()
+}
+
+function hopAttempt(lines: string[]) {
+  return soleProvenanceRecord(lines).attempts[0]
+}
+
 function sseStream(frames: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   return new ReadableStream<Uint8Array>({
@@ -228,13 +238,12 @@ test("a real llama-server usage frame is read as the attempt's cost", async () =
       }),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
   // prompt_tokens is 12 -- the whole prompt. `timings.prompt_n` in the same
   // frame is 4, the uncached remainder after an 8-token cache hit, which is
   // why that field is not what this reads.
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({
+  expect(hopAttempt(lines)?.usage).toEqual({
     prompt_tokens: 12,
     completion_tokens: 5,
     total_tokens: 17,
@@ -253,10 +262,9 @@ test("a streamed reply's cost is read out of its own frames", async () => {
       ]),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
-  const [attempt] = soleProvenanceRecord(lines).attempts
+  const attempt = hopAttempt(lines)
   expect(attempt?.streamed).toBe(true)
   expect(attempt?.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 })
 })
@@ -279,10 +287,9 @@ test('a usage frame split across chunk boundaries is still read', async () => {
       }),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 41 })
+  expect(hopAttempt(lines)?.usage).toEqual({ total_tokens: 41 })
 })
 
 // An upstream that restates a running total every frame ends on the total,
@@ -299,10 +306,9 @@ test('the last usage frame wins', async () => {
       ]),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 9 })
+  expect(hopAttempt(lines)?.usage).toEqual({ total_tokens: 9 })
 })
 
 // What was spent before the stream died was still spent.
@@ -328,8 +334,7 @@ test('a stream that dies after stating its cost still records it, as a failure',
       }),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text().catch(() => undefined)
+  await drainSingleHop(exec, write).catch(() => undefined)
 
   const [attempt] = soleProvenanceRecord(lines).attempts
   expect(attempt?.ok).toBe(false)
@@ -346,10 +351,9 @@ test('content that merely says usage is not mistaken for a cost', async () => {
       stream: sseStream(['{"choices":[{"delta":{"content":"the \\"usage\\" of it"}}]}']),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toBeUndefined()
+  expect(hopAttempt(lines)?.usage).toBeUndefined()
 })
 
 // The one thing that separates "cost nothing" from "cost unknown": an
@@ -366,12 +370,11 @@ test('a streamed attempt is marked streamed and carries no usage', async () => {
       }),
     })
 
-  const result = await runChain(['@/e/m'], baseOpts({ exec, write }))
   // The line for a streamed reply is written when the stream ends, so it does
   // not exist until something has read it to completion.
-  await new Response(result.stream).text()
+  await drainSingleHop(exec, write)
 
-  const [attempt] = soleProvenanceRecord(lines).attempts
+  const attempt = hopAttempt(lines)
   expect(attempt?.streamed).toBe(true)
   expect(attempt?.usage).toBeUndefined()
 })
@@ -385,7 +388,7 @@ test('a non-numeric usage field is dropped, not coerced', async () => {
 
   await runChain(['@/e/m'], baseOpts({ exec, write }))
 
-  expect(soleProvenanceRecord(lines).attempts[0]?.usage).toEqual({ total_tokens: 9 })
+  expect(hopAttempt(lines)?.usage).toEqual({ total_tokens: 9 })
 })
 
 test('a 4xx on hop 1 does not advance: hop 2 is never invoked', async () => {
