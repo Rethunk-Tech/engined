@@ -23,14 +23,20 @@ function llamaEngineStatus(overrides: Partial<EngineStatus> = {}): EngineStatus 
   }
 }
 
-test('a local llama route with no declared context_in derives it from ctx-size / parallel', () => {
-  const eng = engine({
+function llamaEngine() {
+  return engine({
     id: 'llama',
     models_dir: '/models',
     args: { 'ctx-size': 32_768, parallel: -1 },
   })
-  const r = route({ engine: 'llama', model: 'ornith', args: { 'ctx-size': 262_144, parallel: 4 } })
-  expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(65_536)
+}
+
+function ornithCtxRoute() {
+  return route({ engine: 'llama', model: 'ornith', args: { 'ctx-size': 262_144, parallel: 4 } })
+}
+
+test('a local llama route with no declared context_in derives it from ctx-size / parallel', () => {
+  expect(routeContextIn(ornithCtxRoute(), llamaEngine(), llamaEngineStatus())).toBe(65_536)
 })
 
 test('an explicit kv-unified keeps the whole ctx-size even with a positive parallel', () => {
@@ -47,27 +53,19 @@ test('an explicit kv-unified keeps the whole ctx-size even with a positive paral
 })
 
 test('parallel <= 0 (llama.cpp auto) reports the whole ctx-size, not a divided window', () => {
-  const eng = engine({
-    id: 'llama',
-    models_dir: '/models',
-    args: { 'ctx-size': 32_768, parallel: -1 },
-  })
+  const eng = llamaEngine()
   const r = route({ engine: 'llama', model: 'vision', args: {} })
   expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(32_768)
 })
 
 test('a declared context_in always wins over the derived one', () => {
-  const eng = engine({
-    id: 'llama',
-    models_dir: '/models',
-    args: { 'ctx-size': 32_768, parallel: -1 },
-  })
   const r = route({
     engine: 'llama',
     model: 'ornith',
     args: { 'ctx-size': 262_144, parallel: 4 },
     context_in: 1000,
   })
+  const eng = llamaEngine()
   expect(routeContextIn(r, eng, llamaEngineStatus())).toBe(1000)
 })
 
