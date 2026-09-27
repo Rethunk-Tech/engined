@@ -27,8 +27,10 @@ import {
 import { handleImageEdit } from './imageEdits.ts'
 import { handleImageGeneration } from './images.ts'
 import { hopForwardsTools } from './modelsMenu.ts'
+import { type Attempt, recordCall } from './provenance.ts'
 import { readJsonBody } from './requestBody.ts'
 import {
+  CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_IMAGE_EDITS,
   CONTENT_ENDPOINT_IMAGES,
@@ -43,6 +45,7 @@ import {
   MS_PER_SECOND,
   type ResolvedRoute,
 } from './types.ts'
+import { bodyHasBridgeableImages, bridgeImages } from './visionBridge.ts'
 
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */
 const SSE_KEEPALIVE_MS = 30_000
@@ -79,7 +82,8 @@ async function handleModelRouted(
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
 ): Promise<Response> {
-  const { pathname, rawModel, body, signal, launchScoped } = content
+  const { pathname, rawModel, signal, launchScoped } = content
+  let body = content.body
   const maxEgress = parseMaxEgress(body.max_egress)
   if (!maxEgress.ok) {
     return jsonError(
@@ -87,11 +91,43 @@ async function handleModelRouted(
       `max_egress must be one of: ${Object.keys(EGRESS_RANK).join(', ')}`,
     )
   }
+  const chainName = resolved.kind === 'chain' ? resolved.chain : null
+
+  // Only a single, directly-addressed chat route carries `vision_bridge` --
+  // a chain has no one route to check, and nothing else in it wants images.
+  let visionBridgeAttempts: Attempt[] | undefined
+  if (
+    pathname === CONTENT_ENDPOINT_CHAT &&
+    resolved.kind === 'model' &&
+    resolved.route.vision_bridge !== undefined &&
+    bodyHasBridgeableImages(body)
+  ) {
+    const bridged = await bridgeImages(ctx, {
+      bridgeAddress: resolved.route.vision_bridge,
+      body,
+      signal,
+      launchScoped,
+    })
+    if (!bridged.ok) {
+      const record = {
+        chain: chainName,
+        requested: rawModel,
+        attempts: [],
+        engine_used: null,
+        upstream_used: null,
+        vision_bridge: bridged.attempts,
+      }
+      recordCall(record, ctx.doorOpts.write)
+      return bridged.response
+    }
+    body = bridged.body
+    visionBridgeAttempts = bridged.attempts
+  }
+
   const hops =
     resolved.kind === 'chain'
       ? [...resolved.hops]
       : [routeAddress(resolved.route, ctx.getConfig().routes)]
-  const chainName = resolved.kind === 'chain' ? resolved.chain : null
 
   let contentType: string = JSON_CONTENT_TYPE
   const result = await runChain(hops, {
@@ -117,6 +153,7 @@ async function handleModelRouted(
       launchScoped,
     ),
     write: ctx.doorOpts.write,
+    visionBridgeAttempts,
   })
 
   if (result.stream) {

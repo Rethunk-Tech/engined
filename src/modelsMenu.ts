@@ -148,6 +148,20 @@ async function modelRow(
   if (await supportsVocabTokenize(route, config)) {
     serves.push(TOKENIZE_PATH)
   }
+  const capabilities = routeCapabilities(
+    route,
+    routeContextIn(
+      route,
+      config.engines.find((e) => e.id === route.engine),
+      status,
+    ),
+  )
+  // A bridged route has no image input of its own -- roleCapabilities gives
+  // a chat route `input: ["text"]` -- but a caller sending an image gets one
+  // handled anyway, so the menu must say so.
+  if (route.vision_bridge !== undefined && !capabilities.input?.includes('image')) {
+    capabilities.input = [...(capabilities.input ?? []), 'image']
+  }
   return {
     id: addressForRoute(route, siblingCount),
     engine: route.engine,
@@ -161,15 +175,9 @@ async function modelRow(
     role: route.role,
     vision: route.vision,
     translate: route.translate,
+    vision_bridge: route.vision_bridge,
     state,
-    capabilities: routeCapabilities(
-      route,
-      routeContextIn(
-        route,
-        config.engines.find((e) => e.id === route.engine),
-        status,
-      ),
-    ),
+    capabilities,
   }
 }
 

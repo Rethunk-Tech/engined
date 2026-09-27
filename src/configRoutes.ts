@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, sep as pathSep, resolve as resolvePath } from 'node:path'
 
+import { parseHop } from './chain.ts'
 import {
   asArgs,
   DEFAULT_INVENTORY_REFRESH_SECONDS,
@@ -38,6 +39,8 @@ import {
   assertNoForbiddenFlags,
   isRecord,
   KIND_TRAITS,
+  qualifiedSegments,
+  routeForHop,
   WILDCARD_MODEL,
 } from './types.ts'
 
@@ -56,6 +59,7 @@ export interface RawRoute {
   keep_resident?: boolean
   streaming?: boolean
   slot_long_threshold?: number
+  vision_bridge?: string
   args: Record<string, unknown>
   disabledOwn: boolean
   capabilities: ModelCapabilities
@@ -94,6 +98,7 @@ export function parseRouteRaw(
       'keep_resident',
       'wire_model',
       'slot_long_threshold',
+      'vision_bridge',
       'args',
     ] as const) {
       if (raw[key] !== undefined) {
@@ -131,6 +136,14 @@ export function parseRouteRaw(
       file,
     )
   }
+  const visionBridge = optional(raw.vision_bridge, 'string', `${site} "vision_bridge"`, file)
+  // Fatal rather than ignored, same reasoning as the `vision`-on-a-non-vision-
+  // route check above: a vision route already has its own image input, and a
+  // chat-route-only field silently doing nothing on any other role never
+  // corrects the config that set it.
+  if (visionBridge !== undefined && roleStr !== 'chat') {
+    throw new ParseError(`${site} has "vision_bridge" but is not role = "chat"`, file)
+  }
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
   const slotLongThreshold = optional(
@@ -156,6 +169,7 @@ export function parseRouteRaw(
     keep_resident: optional(raw.keep_resident, 'boolean', `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, 'boolean', `${site} "streaming"`, file),
     slot_long_threshold: slotLongThreshold,
+    vision_bridge: visionBridge,
     args,
     disabledOwn: parseDisable(raw, site, file) === true,
     capabilities: parseCapabilities(raw, site, file),
@@ -342,6 +356,7 @@ export function resolveRoute({
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
     slot_long_threshold: raw.slot_long_threshold,
+    vision_bridge: raw.vision_bridge,
     args: raw.args,
     disabled,
     ...mergeCapabilities(baseCaps, roleCapabilities(raw.role), raw.capabilities),
@@ -538,6 +553,43 @@ export function validateWildcardRoutes({
     if (refresh >= u.inventory_max_age_seconds) {
       throw new ParseError(
         `upstream "${id}" "inventory_refresh_seconds" must be less than "inventory_max_age_seconds"`,
+        file,
+      )
+    }
+  }
+}
+
+/**
+ * A route's own `role = "chat"` check (`parseRouteRaw`) cannot see across
+ * routes, so the address itself is validated here, once every route has
+ * resolved: it must be a fully-qualified hop, and it must resolve to an
+ * enabled `role = "vision"` route -- the one shape `src/visionBridge.ts` can
+ * actually dispatch to.
+ */
+export function validateVisionBridgeRoutes(routes: readonly ResolvedRoute[], file: string): void {
+  for (const r of routes) {
+    if (r.vision_bridge === undefined) {
+      continue
+    }
+    const label = `route on engine "${r.engine}" model "${r.model ?? ''}"`
+    const segs = qualifiedSegments(r.vision_bridge)
+    if (segs === undefined || segs.length === 1) {
+      throw new ParseError(
+        `${label}: "vision_bridge" "${r.vision_bridge}" is not a fully-qualified "@/<engine>/<model>" address`,
+        file,
+      )
+    }
+    const { engine, model, upstream } = parseHop(r.vision_bridge)
+    const target = routeForHop(routes, engine, model, upstream)
+    if (target === undefined || target.disabled === true) {
+      throw new ParseError(
+        `${label}: "vision_bridge" "${r.vision_bridge}" does not resolve to a served route`,
+        file,
+      )
+    }
+    if (target.role !== 'vision') {
+      throw new ParseError(
+        `${label}: "vision_bridge" "${r.vision_bridge}" does not resolve to a role = "vision" route`,
         file,
       )
     }

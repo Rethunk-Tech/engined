@@ -470,6 +470,90 @@ vision = "describe"
   expect(cfg.routes.find((r) => r.model === 'b')?.disabled).toBeUndefined()
 })
 
+test('a chat route\'s "vision_bridge" resolves to its role = "vision" sibling and parses clean', () => {
+  const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${tempModelsDir('ornith.gguf', 'vision.gguf')}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "ornith"
+filename = "ornith.gguf"
+role = "chat"
+vision_bridge = "@/local-llama/vision"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "vision"
+filename = "vision.gguf"
+role = "vision"
+vision = "describe"
+`
+  const cfg = loadConfig(writeConfig(toml))
+  expect(cfg.routes.find((r) => r.model === 'ornith')?.vision_bridge).toBe('@/local-llama/vision')
+})
+
+test('"vision_bridge" on anything but a role = "chat" route is fatal at parse', () => {
+  const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${tempModelsDir('vision.gguf')}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "vision"
+filename = "vision.gguf"
+role = "vision"
+vision = "describe"
+vision_bridge = "@/local-llama/vision"
+`
+  expect(() => loadConfig(writeConfig(toml))).toThrow(
+    /has "vision_bridge" but is not role = "chat"/,
+  )
+})
+
+test('"vision_bridge" naming an address with no such route is fatal at parse', () => {
+  const toml = llamaEngineAndRoute().replace(
+    'role = "chat"',
+    'role = "chat"\nvision_bridge = "@/local-llama/nope"',
+  )
+  expect(() => loadConfig(writeConfig(toml))).toThrow(/does not resolve to a served route/)
+})
+
+test('"vision_bridge" naming an address that is not role = "vision" is fatal at parse', () => {
+  const toml = `
+${LOCAL_UPSTREAM}
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${tempModelsDir('ornith.gguf', 'chat2.gguf')}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "ornith"
+filename = "ornith.gguf"
+role = "chat"
+vision_bridge = "@/local-llama/chat2"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "chat2"
+filename = "chat2.gguf"
+role = "chat"
+`
+  expect(() => loadConfig(writeConfig(toml))).toThrow(/does not resolve to a role = "vision" route/)
+})
+
 test('a disabled chain drops it while its engines and routes stay served', () => {
   const toml = workedConfig().replace(
     'id   = "chain-public"',

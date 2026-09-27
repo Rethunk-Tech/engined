@@ -169,6 +169,12 @@ fim = true # Opts this route into POST /openai/v1/completions
 # returns to. Pins the container up too, since
 # idle-stop stops the container rather than a model,
 # so the engine's share of the pool is never returned.
+# vision_bridge = "@/llama/vision"   # Opt-in: ornith is text-only, so a caller
+# that attaches an image (VS Code, say) gets it captioned by the named
+# role = "vision" route first, spliced into the request as "[Image N:
+# <caption>]" text, then dispatched here -- see docs/http-api.md. Fatal
+# at parse on anything but a role = "chat" route, and the address must
+# resolve to an enabled role = "vision" route.
 # slot_long_threshold = 4096   # Engined-only, never rendered into the preset
 # INI: the token count at or above which the door's
 # own slot placement (below `[route.args].parallel`)

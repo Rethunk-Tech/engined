@@ -72,6 +72,14 @@ export interface CallRecord {
   engine_used: string | null
   /** The upstream of the attempt that actually answered. `null` alongside `engine_used: null` — nothing answered. */
   upstream_used: string | null
+  /**
+   * One entry per image `src/visionBridge.ts` sent to a route's
+   * `vision_bridge` address, in image order. Never the caption text itself
+   * (INVARIANT: no door logs prompt content -- a caption is content too).
+   * Absent when the call carried no image, or dispatched to a route with no
+   * bridge configured.
+   */
+  vision_bridge?: Attempt[]
 }
 
 /** Exported so everything engined puts on the record shares one writer, rather than growing a second `process.stdout` site per caller. */
@@ -159,6 +167,9 @@ export function recordCall(
       attempts: record.attempts.map(serializeAttempt),
       engine_used: record.engine_used,
       upstream_used: record.upstream_used,
+      ...(record.vision_bridge === undefined
+        ? {}
+        : { vision_bridge: record.vision_bridge.map(serializeAttempt) }),
     }),
   )
 }

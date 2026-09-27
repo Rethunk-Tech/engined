@@ -217,6 +217,30 @@ recognises the characters printed in an image. They serve the same path and
 declare the same capabilities, so this is the only thing a consumer can pick
 on — see [configuration.md](configuration.md).
 
+### Vision bridge
+
+A `role = "chat"` route may declare `vision_bridge`, the address of a
+`role = "vision"` route on the same box. When a chat request to it carries an
+OpenAI image content part (`image_url` with a `data:` URI or an `http(s)://`
+one), engined sends each image to the bridge address first, as its own chat
+request — one image per request, a fixed system instruction to transcribe any
+visible text verbatim and then describe the image concisely, low temperature,
+`max_tokens` around 512 — and replaces the image part with a text part
+`[Image N: <caption>]`, in order, before dispatching the rewritten request to
+the route the caller actually addressed. A caller can now attach an image to
+a model that has no image input of its own.
+
+`GET /openai/v1/models` reports `capabilities.input` including `"image"` and a
+`vision_bridge` field naming the bridge address on such a route, so a
+consumer can show an image-attach affordance for it exactly as it would for a
+real vision route.
+
+A bridge call that fails, or a bridge route that is unavailable, refuses the
+whole request with the door's normal 4xx/5xx shape naming the bridge and the
+image index — the image is never silently dropped. The bridge attempts (route,
+ok, duration, token usage) ride alongside the call's own attempts on the
+provenance line as `vision_bridge`; the caption text itself is never logged.
+
 A chain row omits `engine`/`upstream`/`model`/`egress` because
 no single one answers for every hop, and reports `streaming` and
 `capabilities` off its first hop instead -- the hop a request starts on.

@@ -172,6 +172,14 @@ export interface ModelRow {
    */
   translate?: boolean
   /**
+   * The `role = "vision"` address this route bridges an image through before
+   * answering (`src/visionBridge.ts`). Present only on a route that declared
+   * `vision_bridge`; `capabilities.input` on such a row includes `"image"`
+   * alongside this field, so a consumer can show an image-attach affordance
+   * for a route that has no image input of its own.
+   */
+  vision_bridge?: string
+  /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable
    * hop anywhere makes the chain `installed` even when earlier ones are not.

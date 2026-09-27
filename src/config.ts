@@ -36,6 +36,7 @@ import {
   validateFilenameUnderModelsDir,
   validateKeepResident,
   validateModelsMax,
+  validateVisionBridgeRoutes,
   validateWildcardRoutes,
 } from './configRoutes.ts'
 import { ParseError } from './errors/parse.ts'
@@ -390,6 +391,7 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   validateFilenameUnderModelsDir(routes, engineMap, file)
   validateKeepResident(engines, routes, file)
   validateModelsMax(engines, routes, file)
+  validateVisionBridgeRoutes(routes, file)
 
   const chains = parseChains(raw.chain, engines, routes, file)
 

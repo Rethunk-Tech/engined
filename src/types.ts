@@ -375,6 +375,17 @@ export interface ResolvedRoute extends ModelCapabilities {
    */
   fim?: boolean
   /**
+   * Chat-route opt-in: the address of a `role = "vision"` route
+   * (`src/visionBridge.ts`) this door sends an image to first, captioning it
+   * and splicing `[Image N: <caption>]` text into the request before
+   * dispatching to this route. Fatal at parse on anything but a chat route --
+   * a vision route already has its own image input, and captioning it through
+   * a second vision route would be double work with nowhere to fall back when
+   * the bridge itself has none. Absent means this route has no image path at
+   * all; a caller sending one is refused the way any unsupported modality is.
+   */
+  vision_bridge?: string
+  /**
    * Load this GGUF when its engine starts, and reload it whenever its role
    * falls idle again — warmth guaranteed against idleness, never against
    * contention. Occupancy is still one model per role, so a request for a

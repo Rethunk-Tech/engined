@@ -97,6 +97,8 @@ export interface RunChainOptions {
   exec: HopExec
   /** Injected so a test can capture the provenance line instead of reading real stdout. */
   write?: (line: string) => void
+  /** Carried straight onto the emitted `CallRecord.vision_bridge` -- see `src/visionBridge.ts`. Absent on every call that bridged no image. */
+  visionBridgeAttempts?: Attempt[]
 }
 
 interface ChainResult {
@@ -313,6 +315,7 @@ function emit(
     attempts,
     engine_used: engineUsed,
     upstream_used: upstreamUsed,
+    vision_bridge: opts.visionBridgeAttempts,
   }
   recordCall(record, opts.write)
 }
