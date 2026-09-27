@@ -26,6 +26,8 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
+  splitSseFrames,
+  sseDataPayloads,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
@@ -63,8 +65,9 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
 /**
  * `rawBody.model` is whatever the caller's own request named -- a chain
  * name, an alias, anything -- never necessarily this hop's resolved model
- * id, so it is overwritten rather than forwarded verbatim. `workdir` is
- * stripped; every other caller-supplied field passes through.
+ * id, so it is overwritten rather than forwarded verbatim. `workdir` and
+ * `max_egress` are door-only and stripped; every other caller-supplied
+ * field passes through.
  *
  * Shared by the local llama proxy and the remote HTTP proxy: both speak the
  * same OpenAI body, and the only thing that differs is where it is posted
@@ -78,7 +81,10 @@ export function openAiRequestInit(
   return {
     method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify({ ...stripField(rawBody, 'workdir'), model: resolvedModelId }),
+    body: JSON.stringify({
+      ...stripField(stripField(rawBody, 'workdir'), 'max_egress'),
+      model: resolvedModelId,
+    }),
     signal,
   }
 }
@@ -191,18 +197,9 @@ async function readHopBody(
   return { stream: response.body ?? undefined, modelReported: undefined }
 }
 
-const SSE_FRAME_BOUNDARY = '\n\n'
-
 /** The first `data:` line in one SSE frame that parses to an object carrying `model`, if any. */
 function reportedModelFromFrame(frame: string): string | undefined {
-  for (const line of frame.split('\n')) {
-    if (!line.startsWith('data:')) {
-      continue
-    }
-    const data = line.slice('data:'.length).trim()
-    if (data === '' || data === '[DONE]') {
-      continue
-    }
+  for (const data of sseDataPayloads(frame)) {
     try {
       const model = reportedModelFrom(JSON.parse(data))
       if (model !== undefined) {
@@ -232,12 +229,15 @@ async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<st
       if (value) {
         buffered += decoder.decode(value, { stream: true })
       }
-      const frames = buffered.split(SSE_FRAME_BOUNDARY)
-      buffered = frames.pop() ?? ''
+      const { frames, carry } = splitSseFrames(buffered)
+      buffered = carry
       for (const frame of frames) {
         const model = reportedModelFromFrame(frame)
         if (model !== undefined) {
           return model
+        }
+        if (sseDataPayloads(frame).length > 0) {
+          return
         }
       }
       if (done) {
