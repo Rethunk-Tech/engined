@@ -5,6 +5,7 @@
  * that keep a status poll from spawning an agent every time it is asked.
  */
 
+import { realpathSync, statSync } from 'node:fs'
 import { mintLaunchNonce, type ObservedVersion } from './agentic.ts'
 import {
   type AgenticProbeOutcome,
@@ -17,6 +18,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from './agenticProbe.ts'
+import { resolveCursorBinary } from './agents.ts'
 import { baseStatus } from './engineEntries.ts'
 import type { EngineStatus } from './responses.ts'
 import type { AgenticSpec } from './specTypes.ts'
@@ -26,6 +28,18 @@ export type ObserveAgentVersion = (
   agent: string,
   configuredVersion: string,
 ) => Promise<ObservedVersion>
+
+function observationKey(agent: string, configuredVersion: string): string {
+  if (agent !== 'cursor') {
+    return configuredVersion
+  }
+  try {
+    const binary = realpathSync(resolveCursorBinary())
+    return `${binary}:${statSync(binary).mtimeMs}`
+  } catch {
+    return configuredVersion
+  }
+}
 
 export interface AgenticGateOptions {
   runner: AgenticProbeRunner | undefined
@@ -145,15 +159,15 @@ export class AgenticGate {
    * every agentic call, and a version read that is anything but current
    * would let a self-updated binary run on a proof of the one it replaced.
    * A listing does not -- it reports state rather than acting on it, and
-   * every consumer polls it -- so it answers from the last observation and
-   * refreshes behind itself, converging one poll later. One refresh per
-   * engine is in flight at a time, which is what keeps a stalled binary
-   * from accumulating a spawn per poll.
+   * every consumer polls it -- so it answers from the last observation for
+   * the current binary key. One observation per key is in flight at a time,
+   * which is what keeps a stalled binary from accumulating a spawn per poll.
    *
-   * Keyed by the configured pin, so a bump misses this on its own: for an
-   * agent whose pin already IS its observed version, config is the only
-   * thing an observation could report, and a reload must not be answered
-   * from what the previous pin said.
+   * Keyed by the binary's realpath and mtime when the agent resolves its own
+   * file (cursor lives under versions/<ver>/), else by the configured pin.
+   * A listing answers from the last observation for that key and does not
+   * spawn again until the key changes. A launch (`fresh`) waits for an
+   * in-flight observation when none has landed yet.
    */
   private observedVersion(
     engineId: string,
@@ -161,9 +175,9 @@ export class AgenticGate {
     configuredVersion: string,
     fresh: boolean,
   ): Promise<ObservedVersion> {
+    const key = observationKey(agent, configuredVersion)
     const cached = this.versionObservations.get(engineId)
-    const state =
-      cached?.configured === configuredVersion ? cached : { configured: configuredVersion }
+    const state = cached?.configured === key ? cached : { configured: key }
     this.versionObservations.set(engineId, state)
     if (state.inFlight === undefined) {
       state.inFlight = this.observeAgentVersion(agent, configuredVersion)
