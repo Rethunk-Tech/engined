@@ -10,11 +10,11 @@ import {
   declaredOverLimit,
   ENGINE_ERROR_CHARS,
   type HttpClient,
+  imageTooLarge,
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
 import {
   commonValues,
@@ -77,13 +77,10 @@ function numberField(form: RequestForm, key: string): number | undefined | Respo
 function editImage(form: RequestForm): Blob | Response {
   const image = form.get('image')
   if (!(image instanceof Blob) || image.size === 0) {
-    return jsonError(STATUS_BAD_REQUEST, 'an "image" part carrying the image to edit is required')
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }
   if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    )
+    return imageTooLarge(image.size)
   }
   return image
 }
@@ -177,14 +174,11 @@ export async function handleImageEdit(
 ): Promise<Response> {
   const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
   if (declared !== undefined) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `"image" is ${declared} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    )
+    return imageTooLarge(declared)
   }
   const form = await req.formData().catch(() => undefined)
   if (form === undefined) {
-    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an `image` part')
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }
   const rawModel = form.get('model')
   const target = imageRoute(

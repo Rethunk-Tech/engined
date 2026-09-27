@@ -11,6 +11,7 @@ import {
   CONTENT_TYPE,
   declaredOverLimit,
   type HttpClient,
+  imageTooLarge,
   JSON_CONTENT_TYPE,
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
@@ -18,7 +19,6 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_CLIENT_CLOSED,
   STATUS_NOT_FOUND,
-  STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
@@ -287,10 +287,7 @@ export async function proxyComfyUpload(
 ): Promise<Response> {
   const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
   if (declared !== undefined) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `"image" is ${declared} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    )
+    return imageTooLarge(declared)
   }
   const incoming = await req.formData().catch(() => undefined)
   if (incoming === undefined) {
@@ -301,10 +298,7 @@ export async function proxyComfyUpload(
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }
   if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
-    )
+    return imageTooLarge(image.size)
   }
   const originalName = image instanceof File ? image.name : 'upload.png'
   const namespaced = namespacedComfyName(originalName)

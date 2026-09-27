@@ -202,6 +202,14 @@ export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerat
  */
 export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
 
+/** One wording for the image ceiling, so the declared length and what actually arrived cannot drift apart. */
+export function imageTooLarge(bytes: number): Response {
+  return jsonError(
+    STATUS_PAYLOAD_TOO_LARGE,
+    `"image" is ${bytes} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
+  )
+}
+
 /** JSON routes share this ceiling; the Bun server's larger upload cap is for audio, not tables. */
 export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
 
