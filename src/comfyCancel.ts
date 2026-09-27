@@ -79,11 +79,6 @@ export async function proxyComfyCancel(
           `comfy refused to drop "${promptId}" from its queue (http ${dropped.status})`,
         )
       }
-      // comfy answers 200 whether or not the delete removed anything, so the
-      // reply it earns is decided by what the queue says afterwards, never by
-      // that status. A prompt that started rendering in the window between the
-      // read above and this delete is still holding the GPU and is stopped
-      // here rather than reported dropped.
       const after = await readComfyQueue(base, httpClient)
       if (after === undefined) {
         return jsonError(STATUS_BAD_GATEWAY, 'comfy queue could not be read')
