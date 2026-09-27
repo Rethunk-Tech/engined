@@ -18,7 +18,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from './agenticProbe.ts'
-import { resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
+import { pruneAgentInstallCaches, resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
 import { baseStatus } from './engineEntries.ts'
 import type { EngineStatus } from './responses.ts'
 import type { AgenticSpec } from './specTypes.ts'
@@ -124,6 +124,7 @@ export class AgenticGate {
       }
     }
     writeVerifiedVersion(engine.id, version)
+    pruneAgentInstallCaches(spec.agent, version)
     this.probeState.delete(engine.id)
     return { ...base, state: 'installed' }
   }

@@ -13,6 +13,7 @@ import {
   parseClaudeEnvelope,
   parseCursorEvents,
   parseOpencodeEvents,
+  pruneAgentInstallCaches,
   resolveCursorBinary,
   sweepOrphanOpencodeDirs,
 } from './agents.ts'
@@ -315,5 +316,52 @@ describe('orphan opencode config dirs', () => {
     expect(existsSync(join(root, 'agentic-opencode-leak'))).toBe(false)
     expect(existsSync(join(root, 'agentic-opencode.json'))).toBe(true)
     expect(existsSync(join(root, 'agentic-home'))).toBe(true)
+  })
+})
+
+function plantBunPackage(parent: string, base: string, version: string): void {
+  mkdirSync(join(parent, `${base}@${version}@@@1`), { recursive: true })
+  mkdirSync(join(parent, base), { recursive: true })
+  writeFileSync(join(parent, base, `${version}@@@1`), '')
+}
+
+describe('agent install cache prune', () => {
+  it('keeps the current pin of a package and removes only other versions of that package', () => {
+    const root = makeTestRoot('engined-agent-cache-')
+    const opencode = join(root, 'agentic-home', 'opencode', 'bun', 'install', 'cache')
+    const claude = join(root, 'bun-install', 'install', 'cache', '@anthropic-ai')
+    mkdirSync(join(opencode, '.tmp'), { recursive: true })
+    writeFileSync(join(opencode, 'deadbeef.npm'), '')
+    mkdirSync(join(opencode, 'unrelated@9.9.9@@@1'), { recursive: true })
+    for (const base of [
+      'opencode-ai',
+      'opencode-linux-x64',
+      'opencode-linux-x64-musl',
+      'opencode-linux-x64-baseline',
+      'opencode-linux-x64-baseline-musl',
+    ]) {
+      plantBunPackage(opencode, base, '1.18.25')
+      plantBunPackage(opencode, base, '1.18.26')
+    }
+    for (const base of ['claude-code', 'claude-code-linux-x64', 'claude-code-linux-x64-musl']) {
+      plantBunPackage(claude, base, '2.1.247')
+      plantBunPackage(claude, base, '2.1.283')
+    }
+    pruneAgentInstallCaches('opencode', '1.18.26', root)
+    expect(existsSync(join(opencode, 'opencode-ai@1.18.26@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai', '1.18.26@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-linux-x64-musl@1.18.26@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai@1.18.25@@@1'))).toBe(false)
+    expect(existsSync(join(opencode, 'opencode-ai', '1.18.25@@@1'))).toBe(false)
+    expect(existsSync(join(opencode, 'opencode-linux-x64@1.18.25@@@1'))).toBe(false)
+    expect(existsSync(join(opencode, 'unrelated@9.9.9@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'deadbeef.npm'))).toBe(true)
+    expect(existsSync(join(opencode, '.tmp'))).toBe(true)
+    expect(existsSync(join(claude, 'claude-code@2.1.247@@@1'))).toBe(true)
+    pruneAgentInstallCaches('claude', '2.1.283', root)
+    expect(existsSync(join(claude, 'claude-code@2.1.283@@@1'))).toBe(true)
+    expect(existsSync(join(claude, 'claude-code-linux-x64-musl@2.1.283@@@1'))).toBe(true)
+    expect(existsSync(join(claude, 'claude-code@2.1.247@@@1'))).toBe(false)
+    expect(existsSync(join(claude, 'claude-code-linux-x64@2.1.247@@@1'))).toBe(false)
   })
 })
