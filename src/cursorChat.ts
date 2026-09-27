@@ -4,10 +4,13 @@
  * usage the turn needs.
  */
 
+import { routeAddress } from './control.ts'
 import type { ChatMessage, ChatReply, StreamSink } from './cursorAgent.ts'
 import { chatModels } from './cursorDoor.ts'
 import { TOOL_SCHEMA } from './cursorExec.ts'
 import type { DoorContext } from './doorContext.ts'
+import { CONTENT_TYPE, JSON_CONTENT_TYPE } from './http.ts'
+import { CONTENT_ENDPOINT_CHAT, parseRecord } from './types.ts'
 
 interface ToolCallDelta {
   index?: number
@@ -41,26 +44,25 @@ export async function completeLocally(
   messages: ChatMessage[],
   on: StreamSink,
 ): Promise<ChatReply> {
-  const model = chatModels(ctx)[0]
-  if (model === undefined) {
+  const route = chatModels(ctx)[0]
+  if (route === undefined) {
     return { text: 'engined: no llama chat route is configured', toolCalls: [] }
   }
-  const res = await fetch(
-    `http://127.0.0.1:${ctx.getConfig().listen_port}/openai/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: `@/llama/${model}`,
-        messages,
-        tools: TOOL_SCHEMA,
-        stream: true,
-        stream_options: { include_usage: true },
-      }),
-    },
-  )
+  const cfg = ctx.getConfig()
+  const address = routeAddress(route, cfg.routes)
+  const res = await fetch(`http://127.0.0.1:${cfg.listen_port}${CONTENT_ENDPOINT_CHAT}`, {
+    method: 'POST',
+    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+    body: JSON.stringify({
+      model: address,
+      messages,
+      tools: TOOL_SCHEMA,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+  })
   if (!res.ok || res.body === null) {
-    return { text: `engined: chat route ${model} answered ${res.status}`, toolCalls: [] }
+    return { text: `engined: chat route ${address} answered ${res.status}`, toolCalls: [] }
   }
   return await readChatStream(res.body, on)
 }
@@ -74,13 +76,11 @@ function parseDataLine(line: string): ChatChunk | undefined {
   if (payload.length === 0 || payload === '[DONE]') {
     return
   }
-  let chunk: ChatChunk | undefined
-  try {
-    chunk = JSON.parse(payload) as ChatChunk
-  } catch {
-    chunk = undefined
+  const parsed = parseRecord(payload)
+  if (parsed === null) {
+    return
   }
-  return chunk
+  return parsed as ChatChunk
 }
 
 interface ToolCallSlot {

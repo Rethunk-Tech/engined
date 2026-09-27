@@ -15,6 +15,7 @@
 
 import { bytesField, intField, message, stringField } from './cursorProto.ts'
 import type { DoorContext } from './doorContext.ts'
+import type { ResolvedRoute } from './types.ts'
 
 const AISERVER_PREFIX = '/aiserver.v1.'
 const AGENT_PREFIX = '/agent.v1.'
@@ -31,12 +32,11 @@ function protoResponse(body: Uint8Array): Response {
   })
 }
 
-/** Every llama chat route on this box, by the name a caller addresses it as. */
-export function chatModels(ctx: DoorContext): string[] {
+/** Every enabled chat route on this box. Display name is `route.model`. */
+export function chatModels(ctx: DoorContext): ResolvedRoute[] {
   return ctx
     .getConfig()
     .routes.filter((r) => r.role === 'chat' && r.model !== undefined && r.disabled !== true)
-    .map((r) => r.model as string)
 }
 
 /**
@@ -75,7 +75,7 @@ export async function handleCursor(
   pathname: string,
 ): Promise<Response> {
   await req.arrayBuffer()
-  const models = chatModels(ctx)
+  const models = chatModels(ctx).flatMap((r) => (r.model === undefined ? [] : [r.model]))
   if (pathname.endsWith('/AvailableModels')) {
     return protoResponse(availableModels(models))
   }
