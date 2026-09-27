@@ -347,7 +347,7 @@ export function singleAudioRoute(
     model: route.model,
     // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
     upstream: route.upstream ?? undefined,
-    address: routeAddress(route),
+    address: routeAddress(route, config.routes),
     egress: routeEgress(route, config),
   }
 }

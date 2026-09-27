@@ -18,7 +18,14 @@ import {
 } from './http.ts'
 import { readJsonBody } from './requestBody.ts'
 import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
-import { errMessage, qualifiedSegments, type ResolvedRoute, routeForHop } from './types.ts'
+import {
+  addressForRoute,
+  errMessage,
+  qualifiedSegments,
+  type ResolvedRoute,
+  routeForHop,
+  siblingRouteCount,
+} from './types.ts'
 
 /**
  * How long a hold stands without being renewed. Long enough for the slowest
@@ -110,11 +117,15 @@ function resolveStartRoutes(
   return resolved.ok ? { ok: true, routes: [resolved.route] } : resolved
 }
 
-/** The canonical `@/...` a route answers for -- always the fully explicit form, never a URL. A start row reports it; a chat dispatch walks it as the one hop `runChain` takes. */
-export function routeAddress(route: ResolvedRoute): string {
-  const upstreamPart = route.upstream === null ? '' : `/${route.upstream}`
-  const modelPart = route.model === undefined ? '' : `/${route.model}`
-  return `@/${route.engine}${upstreamPart}${modelPart}`
+/**
+ * The canonical `@/...` a route answers for -- the same address
+ * `GET /openai/v1/models` lists it under, never a URL. A start row reports
+ * it; a chat dispatch walks it as the one hop `runChain` takes; an
+ * answering-route header names it. `routes` is the table to break ties
+ * against -- `addressForRoute`/`siblingRouteCount` in `types.ts`.
+ */
+export function routeAddress(route: ResolvedRoute, routes: readonly ResolvedRoute[]): string {
+  return addressForRoute(route, siblingRouteCount(route, routes))
 }
 
 /**
@@ -132,7 +143,7 @@ export function routeAddress(route: ResolvedRoute): string {
  * carries `filename` and no `role`, and `warm` throws on a roleless model.
  */
 async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<StartRow> {
-  const address = routeAddress(route)
+  const address = routeAddress(route, ctx.getConfig().routes)
   const { engine: engineId, upstream } = route
   if (upstream !== 'local') {
     const status = ctx.registry.get(engineId)

@@ -48,7 +48,7 @@ describe('the door: answering-route headers', () => {
       chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
     )
     await res.json()
-    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/ornith')
     expect(res.headers.get('x-engined-upstream')).toBe('local')
     expect(res.headers.get('x-engined-egress')).toBe('none')
     expect(res.headers.get('x-engined-chain')).toBeNull()
@@ -69,7 +69,7 @@ describe('the door: answering-route headers', () => {
     })
     // Headers are already on the `Response` before the stream is read at
     // all -- the whole point of committing to a hop before the body flows.
-    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/ornith')
     expect(res.headers.get('x-engined-egress')).toBe('none')
     await res.text()
   })

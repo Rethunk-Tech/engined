@@ -380,7 +380,7 @@ export async function renderWith(
       { created: Math.floor(startedAt / 1000), data },
       {
         headers: answeringHeaders({
-          route: routeAddress(route),
+          route: routeAddress(route, ctx.getConfig().routes),
           upstreamUsed: route.upstream ?? null,
           egress: routeEgress(route, ctx.getConfig()),
           chain: null,

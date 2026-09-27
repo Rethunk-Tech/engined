@@ -549,6 +549,45 @@ function pickDefaultUpstream<T extends { upstream: string | null }>(
   return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === 'local')
 }
 
+/**
+ * Sibling routes claiming this route's `(engine, model)` pair among `routes`
+ * -- the ambiguity the three-segment address form exists to break. A disabled
+ * route is never listed, so it is never a sibling either.
+ */
+export function siblingRouteCount<T extends { engine: string; model?: string; disabled?: boolean }>(
+  route: Pick<T, 'engine' | 'model'>,
+  routes: readonly T[],
+): number {
+  if (route.model === undefined) {
+    return 1
+  }
+  return routes.filter(
+    (r) => r.disabled !== true && r.engine === route.engine && r.model === route.model,
+  ).length
+}
+
+/**
+ * The addressable `@/...` string for this route: the two-segment form when
+ * it is the only route claiming this `(engine, model)` pair (`siblingCount`),
+ * else the fully explicit three-segment form -- two sibling routes on one
+ * engine sharing a model (different upstreams) would otherwise be the same
+ * address. The one function `GET /openai/v1/models` (`modelsMenu.ts`) and
+ * every answering-route header (`answeringHeaders`) both build their address
+ * from, so a caller can always put a header's value straight into `model` and
+ * get back the same route the menu named.
+ */
+export function addressForRoute<
+  T extends { engine: string; model?: string; upstream: string | null },
+>(route: T, siblingCount: number): string {
+  if (route.model === undefined) {
+    return `@/${route.engine}/${route.upstream}`
+  }
+  if (siblingCount > 1 && route.upstream !== null) {
+    return `@/${route.engine}/${route.upstream}/${route.model}`
+  }
+  return `@/${route.engine}/${route.model}`
+}
+
 /** Whether a probe response means the engine is ready to serve. */
 export function probeSaysReady(probe: ReadyProbe, status: number): boolean {
   if (status === STATUS_NOT_FOUND) {

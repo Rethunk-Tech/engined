@@ -87,7 +87,10 @@ async function handleModelRouted(
       `max_egress must be one of: ${Object.keys(EGRESS_RANK).join(', ')}`,
     )
   }
-  const hops = resolved.kind === 'chain' ? [...resolved.hops] : [routeAddress(resolved.route)]
+  const hops =
+    resolved.kind === 'chain'
+      ? [...resolved.hops]
+      : [routeAddress(resolved.route, ctx.getConfig().routes)]
   const chainName = resolved.kind === 'chain' ? resolved.chain : null
 
   let contentType: string = JSON_CONTENT_TYPE

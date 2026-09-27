@@ -272,7 +272,7 @@ export async function handleCompletions(
     })
   }
   const headers = answeringHeaders({
-    route: routeAddress(route),
+    route: routeAddress(route, ctx.getConfig().routes),
     upstreamUsed: 'local',
     egress: routeEgress(route, ctx.getConfig()),
     chain: null,

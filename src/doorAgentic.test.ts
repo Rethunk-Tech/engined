@@ -217,9 +217,16 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
     )
     expect(redirected.status).toBe(200)
     expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
+    // A sibling ambient route on the same (engine, model) is exactly the
+    // ambiguity the three-segment form breaks -- the header must name it too.
+    expect(redirected.headers.get('x-engined-route')).toBe('@/claude/moonshot/kimi-k3')
 
     const ambient = await door.fetch(chatRequest({ model: '@/claude/kimi-k3', messages, workdir }))
     expect(ambient.status).toBe(200)
+    // The ambient route itself is unambiguous on its own two segments, even
+    // with a sibling: `addressForRoute` only forces three segments for the
+    // route whose OWN upstream is not null.
+    expect(ambient.headers.get('x-engined-route')).toBe('@/claude/kimi-k3')
     const env = spawnCalls[1]?.env ?? {}
     expect('ANTHROPIC_BASE_URL' in env).toBe(false)
     expect('ANTHROPIC_API_KEY' in env).toBe(false)

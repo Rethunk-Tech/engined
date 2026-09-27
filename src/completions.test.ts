@@ -194,7 +194,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
       }),
     )
     await res.json()
-    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/local/ornith')
+    expect(res.headers.get('x-engined-route')).toBe('@/local-llama/ornith')
     expect(res.headers.get('x-engined-upstream')).toBe('local')
     expect(res.headers.get('x-engined-egress')).toBe('none')
     expect(res.headers.get('x-engined-chain')).toBeNull()

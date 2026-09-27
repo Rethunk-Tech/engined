@@ -18,6 +18,7 @@ import { mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import {
+  addressForRoute,
   CONTENT_ENDPOINT_CHAT,
   type Config,
   type EngineEntry,
@@ -92,22 +93,6 @@ export function routeContextIn(
 }
 
 /**
- * The addressable string for this route: the two-segment form when it is
- * the only route claiming this `(engine, model)` pair, else the fully
- * explicit three-segment form -- two sibling routes on one engine sharing a
- * model (different upstreams) would otherwise report the same `id` twice.
- */
-function modelRowId(route: ResolvedRoute, siblingCount: number): string {
-  if (route.model === undefined) {
-    return `@/${route.engine}/${route.upstream}`
-  }
-  if (siblingCount > 1 && route.upstream !== null) {
-    return `@/${route.engine}/${route.upstream}/${route.model}`
-  }
-  return `@/${route.engine}/${route.model}`
-}
-
-/**
  * An engine-wide proof (`EngineStatus.state`) only ever vouches for what the
  * engine itself carries -- an agentic pin's read-only floor, a container's
  * image -- and carries it regardless of which upstream a route points at, so
@@ -164,7 +149,7 @@ async function modelRow(
     serves.push(TOKENIZE_PATH)
   }
   return {
-    id: modelRowId(route, siblingCount),
+    id: addressForRoute(route, siblingCount),
     engine: route.engine,
     upstream: route.upstream ?? undefined,
     model: route.model,
