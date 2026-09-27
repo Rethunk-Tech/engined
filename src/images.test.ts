@@ -145,10 +145,11 @@ function rendersInstantly(submitted: string[] = [], uploads: FormData[] = []) {
   const client: HttpClient = (url, init) => {
     const target = String(url)
     if (target.includes('/upload/image')) {
-      uploads.push(init?.body as FormData)
-      return Promise.resolve(
-        Response.json({ name: 'engined_edit_input', subfolder: '', type: 'input' }),
-      )
+      const form = init?.body as FormData
+      uploads.push(form)
+      const uploaded = form.get('image')
+      const name = uploaded instanceof File ? uploaded.name : 'uploaded'
+      return Promise.resolve(Response.json({ name, subfolder: '', type: 'input' }))
     }
     if (target.includes('/queue') && init?.method !== 'POST') {
       return Promise.resolve(Response.json({ queue_running: [], queue_pending: [] }))
@@ -448,10 +449,14 @@ describe('POST /openai/v1/images/edits', () => {
     // The caller's bytes went to the container's own input directory: a path
     // from the caller would name nothing a LoadImage node can reach.
     expect(uploads).toHaveLength(1)
-    expect(uploads[0]?.get('overwrite')).toBe('true')
+    expect(uploads[0]?.get('overwrite')).toBeNull()
+    const uploaded = uploads[0]?.get('image')
+    const name = uploaded instanceof File ? uploaded.name : ''
+    expect(name).not.toBe('in.png')
+    expect(name.endsWith('in.png')).toBe(true)
     const graph = JSON.parse(submitted[0] as string).prompt
-    // The name comfy answered with, not the caller's filename.
-    expect(graph['6'].inputs.image).toBe('engined_edit_input')
+    // The name comfy answered with, which is the namespaced upload, not the caller's filename.
+    expect(graph['6'].inputs.image).toBe(name)
     expect(graph['8'].inputs.denoise).toBe(0.4)
     expect(graph['8'].inputs.seed).toBe(7)
     expect(graph['2'].inputs.text).toBe('make it blue')
@@ -468,6 +473,21 @@ describe('POST /openai/v1/images/edits', () => {
     const graph = JSON.parse(submitted[0] as string).prompt
     expect(graph['6'].class_type).toBe('LoadImage')
     expect(graph['3']).toBeUndefined()
+  })
+
+  test('two edits get distinct upload names', async () => {
+    const uploads: FormData[] = []
+    const door = await imagesDoor(rendersInstantly([], uploads))
+
+    await edit(door)
+    await edit(door)
+
+    const names = uploads.map((form) => {
+      const image = form.get('image')
+      return image instanceof File ? image.name : ''
+    })
+    expect(names).toHaveLength(2)
+    expect(names[0]).not.toBe(names[1])
   })
 
   test('a form with no image part is refused before anything is started', async () => {

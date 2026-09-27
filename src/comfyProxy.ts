@@ -29,6 +29,11 @@ export const HTTP_SCHEME_RE = /^http/
 /** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
 const COMFY_UPLOAD_PREFIX_LEN = 12
 
+/** `original` with a short UUID prefix, so two uploads of the same filename in one second do not collide in comfy's shared input directory. */
+export function namespacedComfyName(original: string): string {
+  return `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${original}`
+}
+
 /** The three path segments `COMFY_PROXY_RE` captures. */
 export interface ComfyMatch {
   engineSeg: string
@@ -301,13 +306,12 @@ export async function proxyComfyUpload(
     )
   }
   const originalName = image instanceof File ? image.name : 'upload.png'
-  const namespaced = `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${originalName}`
+  const namespaced = namespacedComfyName(originalName)
   const outgoing = new FormData()
-  // A fresh `Blob`, not the caller's own `File`: `FormData.append`'s third
-  // argument only renames a plain Blob -- handed an existing File, it keeps
-  // that File's own name, and the caller's literal filename would leak into
-  // comfy's shared input directory unrenamed.
-  outgoing.append('image', new Blob([await image.arrayBuffer()], { type: image.type }), namespaced)
+  // Bun honours `FormData.append`'s third argument for a File as well as a
+  // Blob; a File already named for storage keeps `File.name` and that
+  // filename the same string.
+  outgoing.append('image', new File([image], namespaced, { type: image.type }))
   for (const [key, value] of incoming.entries()) {
     if (key !== 'image' && typeof value === 'string') {
       outgoing.append(key, value)

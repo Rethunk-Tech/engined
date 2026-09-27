@@ -4,6 +4,7 @@
  * because the request arrives as a form rather than JSON and carries pixels.
  */
 
+import { namespacedComfyName } from './comfyProxy.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   declaredOverLimit,
@@ -142,11 +143,9 @@ async function uploadInputImage(
   image: Blob,
 ): Promise<string | Refusal> {
   const form = new FormData()
-  form.append('image', image, 'engined_edit_input')
-  // Without this a second edit of the same name is stored beside the first as
-  // "engined_edit_input (1)", and the graph would load whichever the first
-  // upload left behind.
-  form.append('overwrite', 'true')
+  const original = image instanceof File ? image.name : 'upload.png'
+  const namespaced = namespacedComfyName(original)
+  form.append('image', new File([image], namespaced, { type: image.type }))
   const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: form })
   const text = await res.text()
   const record = res.ok ? parseRecord(text) : undefined
