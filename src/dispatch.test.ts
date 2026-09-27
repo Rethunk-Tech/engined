@@ -80,27 +80,44 @@ describe('disabled engines', () => {
   })
 })
 
+function twoSharedEnginesConfig(): Config {
+  return config({
+    engines: [remoteOpenaiHttp('engineA'), remoteOpenaiHttp('engineB')],
+    routes: [
+      route({ engine: 'engineA', model: 'shared' }),
+      route({ engine: 'engineB', model: 'shared' }),
+    ],
+  })
+}
+
+function comfyLocalConfig(): Config {
+  return config({
+    engines: [engine({ id: 'comfy' })],
+    routes: [route({ engine: 'comfy', model: undefined, upstream: 'local' })],
+  })
+}
+
+function resolveOpenrouter(name: string, inv: Inventory, cfg: Config) {
+  const result = resolveModel(name, CHAT, {
+    config: cfg,
+    registry: registryWith(cfg, inv),
+  })
+  expect(result.ok).toBe(true)
+  if (!result.ok || result.kind !== 'model') {
+    return
+  }
+  return result
+}
+
 describe('bare (unqualified) addressing is gone', () => {
   test('two engines serving the same model, bare, is 400 -- there is no bare form left', () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp('engineA'), remoteOpenaiHttp('engineB')],
-      routes: [
-        route({ engine: 'engineA', model: 'shared' }),
-        route({ engine: 'engineB', model: 'shared' }),
-      ],
-    })
+    const cfg = twoSharedEnginesConfig()
     const reg = registry(cfg)
     expect(resolveModel('shared', CHAT, { config: cfg, registry: reg }).ok).toBe(false)
   })
 
   test('the same string qualified with @/ succeeds', () => {
-    const cfg = config({
-      engines: [remoteOpenaiHttp('engineA'), remoteOpenaiHttp('engineB')],
-      routes: [
-        route({ engine: 'engineA', model: 'shared' }),
-        route({ engine: 'engineB', model: 'shared' }),
-      ],
-    })
+    const cfg = twoSharedEnginesConfig()
     const reg = registry(cfg)
     expect(resolveModel('@/engineA/shared', CHAT, { config: cfg, registry: reg })).toEqual(
       modelResolution('engineA', 'shared', 'local'),
@@ -186,10 +203,7 @@ describe('modelless engine addressing', () => {
   })
 
   test("comfy's serves names no OpenAI endpoint: its route resolves but no content endpoint accepts it", () => {
-    const cfg = config({
-      engines: [engine({ id: 'comfy' })],
-      routes: [route({ engine: 'comfy', model: undefined, upstream: 'local' })],
-    })
+    const cfg = comfyLocalConfig()
     const reg = registry(cfg, ENGINES_ROOT)
     // The route itself is found (a different failure than "no such route"
     // below would report), and only the endpoint gate refuses it -- comfy's
@@ -201,10 +215,7 @@ describe('modelless engine addressing', () => {
   })
 
   test('@/comfy/local/x is refused: comfy has no model to name', () => {
-    const cfg = config({
-      engines: [engine({ id: 'comfy' })],
-      routes: [route({ engine: 'comfy', model: undefined, upstream: 'local' })],
-    })
+    const cfg = comfyLocalConfig()
     const reg = registry(cfg, ENGINES_ROOT)
     const result = resolveModel('@/comfy/local/x', CHAT, { config: cfg, registry: reg })
     expect(result.ok).toBe(false)
@@ -540,12 +551,8 @@ describe('wildcard catalog dispatch', () => {
 
   test('an inventoried slash-bearing id resolves to a synthesized route with wire_model', async () => {
     const { inv, cfg } = await catalogInventory(['org/model:free'])
-    const result = resolveModel('@/openrouter/org%2Fmodel:free', CHAT, {
-      config: cfg,
-      registry: registryWith(cfg, inv),
-    })
-    expect(result.ok).toBe(true)
-    if (!result.ok || result.kind !== 'model') {
+    const result = resolveOpenrouter('@/openrouter/org%2Fmodel:free', inv, cfg)
+    if (result === undefined) {
       return
     }
     expect(result.route.model).toBe('org%2Fmodel:free')
@@ -555,12 +562,8 @@ describe('wildcard catalog dispatch', () => {
 
   test('the declared alias still wins over the same wire id', async () => {
     const { inv, cfg } = await catalogInventory(['cohere/north-mini-code:free', 'org/model:free'])
-    const result = resolveModel('@/openrouter/north-mini-code:free', CHAT, {
-      config: cfg,
-      registry: registryWith(cfg, inv),
-    })
-    expect(result.ok).toBe(true)
-    if (!result.ok || result.kind !== 'model') {
+    const result = resolveOpenrouter('@/openrouter/north-mini-code:free', inv, cfg)
+    if (result === undefined) {
       return
     }
     expect(result.route.wire_model).toBe('cohere/north-mini-code:free')
@@ -570,12 +573,8 @@ describe('wildcard catalog dispatch', () => {
 
   test('a three-segment hop onto an inventoried id also resolves', async () => {
     const { inv, cfg } = await catalogInventory(['org/model:free'])
-    const result = resolveModel('@/openrouter/openrouter/org%2Fmodel:free', CHAT, {
-      config: cfg,
-      registry: registryWith(cfg, inv),
-    })
-    expect(result.ok).toBe(true)
-    if (!result.ok || result.kind !== 'model') {
+    const result = resolveOpenrouter('@/openrouter/openrouter/org%2Fmodel:free', inv, cfg)
+    if (result === undefined) {
       return
     }
     expect(result.route.wire_model).toBe('org/model:free')
