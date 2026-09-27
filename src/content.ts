@@ -42,6 +42,7 @@ import {
   type Egress,
   errMessage,
   isEgress,
+  LOCAL_UPSTREAM,
   MS_PER_SECOND,
   type ResolvedRoute,
 } from './types.ts'
@@ -180,7 +181,7 @@ function extrasChatRoute(config: Config, engineId: string): ResolvedRoute | unde
       r.disabled !== true &&
       r.engine === engineId &&
       r.role === EXTRAS_ROLE &&
-      r.upstream === 'local' &&
+      r.upstream === LOCAL_UPSTREAM &&
       r.model !== undefined,
   )
   return locals.find((r) => r.keep_resident === true) ?? locals[0]

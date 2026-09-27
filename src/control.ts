@@ -21,6 +21,7 @@ import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
 import {
   addressForRoute,
   errMessage,
+  LOCAL_UPSTREAM,
   qualifiedSegments,
   type ResolvedRoute,
   routeForHop,
@@ -145,7 +146,7 @@ export function routeAddress(route: ResolvedRoute, routes: readonly ResolvedRout
 async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<StartRow> {
   const address = routeAddress(route, ctx.getConfig().routes)
   const { engine: engineId, upstream } = route
-  if (upstream !== 'local') {
+  if (upstream !== LOCAL_UPSTREAM) {
     const status = ctx.registry.get(engineId)
     const row = {
       address,

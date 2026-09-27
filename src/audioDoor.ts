@@ -28,6 +28,7 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   type Config,
   type Egress,
+  LOCAL_UPSTREAM,
   MS_PER_SECOND,
   qualifiedSegments,
   type ResolvedRoute,
@@ -394,7 +395,7 @@ export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
     const engine = ctx.registry.entry(id)
     const route = audioRoute(ctx.getConfig(), id, model)
     const upstreamId = route?.upstream ?? null
-    if (engine && upstreamId !== null && upstreamId !== 'local') {
+    if (engine && upstreamId !== null && upstreamId !== LOCAL_UPSTREAM) {
       return remoteAudioStart(ctx, id, upstreamId)
     }
     try {

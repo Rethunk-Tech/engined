@@ -31,6 +31,7 @@ import {
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
+import { LOCAL_UPSTREAM } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
 
 /**
@@ -381,7 +382,12 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
     })
   }
   const engineEntry = ctx.registry.entry(engineId)
-  if (kind === 'openai-http' && engineEntry && route !== undefined && route.upstream !== 'local') {
+  if (
+    kind === 'openai-http' &&
+    engineEntry &&
+    route !== undefined &&
+    route.upstream !== LOCAL_UPSTREAM
+  ) {
     return await execRemoteHttp(ctx, { engineEntry, modelSeg, route, req: { ...req, signal } })
   }
   if (kind === 'openai-http' && engineEntry) {

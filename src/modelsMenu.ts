@@ -23,6 +23,7 @@ import {
   type Config,
   type EngineEntry,
   type EngineState,
+  LOCAL_UPSTREAM,
   type ModelCapabilities,
   type ResolvedRoute,
   type Role,
@@ -115,7 +116,7 @@ async function remoteRouteState(
   if (
     engineState !== 'installed' ||
     route.upstream === null ||
-    route.upstream === 'local' ||
+    route.upstream === LOCAL_UPSTREAM ||
     ctx.registry.get(route.engine)?.kind === 'comfy'
   ) {
     return engineState
