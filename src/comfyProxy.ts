@@ -393,7 +393,7 @@ function filenamesInOutput(output: unknown): string[] {
  * is comfy's node-id table, so anything that is not one -- an array
  * included -- names nothing, and `/view` refuses what it never bound.
  */
-function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
+export function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
   const outputs = entry?.outputs
   return Object.values(isRecord(outputs) ? outputs : {}).flatMap(filenamesInOutput)
 }

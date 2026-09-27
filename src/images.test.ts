@@ -237,6 +237,33 @@ describe('POST /openai/v1/images/generations', () => {
     expect(sent.prompt['3']?.inputs.width).toBe(512)
   })
 
+  test('a history entry that names only gifs is collected', async () => {
+    const client: HttpClient = (url, init) => {
+      const target = String(url)
+      if (target.includes('/queue') && init?.method !== 'POST') {
+        return Promise.resolve(Response.json({ queue_running: [], queue_pending: [] }))
+      }
+      if (target.includes('/prompt')) {
+        return Promise.resolve(Response.json({ prompt_id: 'job-gif' }))
+      }
+      if (target.includes('/history/')) {
+        return Promise.resolve(
+          Response.json({
+            'job-gif': { outputs: { '5': { gifs: [{ filename: 'job-gif.gif' }] } } },
+          }),
+        )
+      }
+      return Promise.resolve(new Response(PIXEL, { headers: { 'content-type': 'image/gif' } }))
+    }
+    const door = await imagesDoor(client)
+    const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
+    const body = (await res.json()) as { data: { b64_json: string }[] }
+
+    expect(res.status).toBe(200)
+    expect(body.data).toHaveLength(1)
+    expect(body.data[0]?.b64_json).toBe(Buffer.from(PIXEL).toString('base64'))
+  })
+
   test('n images are n renders, each with its own seed', async () => {
     const submitted: string[] = []
     const door = await imagesDoor(rendersInstantly(submitted))
