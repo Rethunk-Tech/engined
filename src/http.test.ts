@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { discardBody, splitSseFrames } from './http.ts'
+import { declaredOverLimit, discardBody, splitSseFrames } from './http.ts'
 
 /**
  * A response whose body records whether anything ever cancelled it, standing in
@@ -55,4 +55,27 @@ test('a carry with no frame boundary past the cap is dropped rather than held', 
   const kept = 'x'.repeat(65_536)
   expect(splitSseFrames(kept)).toEqual({ frames: [], carry: kept })
   expect(splitSseFrames(`${kept}y`)).toEqual({ frames: [], carry: '' })
+})
+
+test('a finite Content-Length past the cap is over the limit; an absent or unparseable one is not', () => {
+  const max = 100
+  expect(
+    declaredOverLimit(
+      new Request('http://engined/', { headers: { 'content-length': '101' } }),
+      max,
+    ),
+  ).toBe(101)
+  expect(
+    declaredOverLimit(
+      new Request('http://engined/', { headers: { 'content-length': '100' } }),
+      max,
+    ),
+  ).toBeUndefined()
+  expect(declaredOverLimit(new Request('http://engined/'), max)).toBeUndefined()
+  expect(
+    declaredOverLimit(
+      new Request('http://engined/', { headers: { 'content-length': 'nope' } }),
+      max,
+    ),
+  ).toBeUndefined()
 })

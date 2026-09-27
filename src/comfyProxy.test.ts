@@ -195,6 +195,34 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     expect(body.name.endsWith('reference.png')).toBe(true)
     expect(calls).toHaveLength(1)
   })
+
+  test('an oversized upload is 413 before it is forwarded', async () => {
+    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+    const door = await comfyDoor(client)
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, {
+        method: 'POST',
+        headers: { 'content-length': String(33_554_433) },
+        body: 'x',
+      }),
+    )
+    expect(res.status).toBe(413)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('a malformed upload body is 400 before it is forwarded', async () => {
+    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+    const door = await comfyDoor(client)
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, {
+        method: 'POST',
+        headers: { 'content-type': 'multipart/form-data; boundary=----x' },
+        body: 'this is not a multipart body',
+      }),
+    )
+    expect(res.status).toBe(400)
+    expect(calls).toHaveLength(0)
+  })
 })
 
 describe('comfy proxy: GET /view is mediated', () => {

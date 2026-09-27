@@ -503,6 +503,22 @@ describe('POST /openai/v1/images/edits', () => {
     expect(JSON.parse(submitted[0] as string).prompt['8'].inputs.denoise).toBe(0.9)
   })
 
+  test('an oversized image is 413 before the form is read', async () => {
+    const submitted: string[] = []
+    const door = await imagesDoor(rendersInstantly(submitted, []))
+
+    const res = await door.fetch(
+      new Request(`http://engined${EDITS_PATH}`, {
+        method: 'POST',
+        headers: { 'content-length': String(33_554_433) },
+        body: 'x',
+      }),
+    )
+
+    expect(res.status).toBe(413)
+    expect(submitted).toHaveLength(0)
+  })
+
   test('an upload comfy refuses is a 502 naming it, and no prompt is submitted', async () => {
     const submitted: string[] = []
     const client: HttpClient = (url, init) => {

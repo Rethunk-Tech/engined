@@ -5,7 +5,14 @@
  */
 
 import type { DoorContext } from './doorContext.ts'
-import { type HttpClient, jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
+import {
+  declaredOverLimit,
+  type HttpClient,
+  jsonError,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import {
   commonValues,
   imageRoute,
@@ -44,7 +51,7 @@ const DEFAULT_DENOISE = 0.9
  * oversized one is refused rather than read. Generous for anything a
  * diffusion model will accept as a starting point.
  */
-const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
+export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
 
 interface EditRequest {
   prompt: string
@@ -77,7 +84,7 @@ function editImage(form: RequestForm): Blob | Response {
   }
   if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
     return jsonError(
-      STATUS_BAD_REQUEST,
+      STATUS_PAYLOAD_TOO_LARGE,
       `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
     )
   }
@@ -173,6 +180,13 @@ export async function handleImageEdit(
   req: Request,
   signal?: AbortSignal,
 ): Promise<Response> {
+  const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
+  if (declared !== undefined) {
+    return jsonError(
+      STATUS_PAYLOAD_TOO_LARGE,
+      `"image" is ${declared} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
+    )
+  }
   const form = await req.formData().catch(() => undefined)
   if (form === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an `image` part')

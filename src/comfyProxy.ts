@@ -8,6 +8,7 @@ import {
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
+  declaredOverLimit,
   discardBody,
   type HttpClient,
   JSON_CONTENT_TYPE,
@@ -15,8 +16,10 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
+  STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
+import { MAX_IMAGE_UPLOAD_BYTES } from './imageEdits.ts'
 import { readJsonBody } from './requestBody.ts'
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 
@@ -266,10 +269,26 @@ export async function proxyComfyUpload(
   req: Request,
   httpClient: HttpClient,
 ): Promise<Response> {
-  const incoming = await req.formData()
+  const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
+  if (declared !== undefined) {
+    return jsonError(
+      STATUS_PAYLOAD_TOO_LARGE,
+      `"image" is ${declared} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
+    )
+  }
+  const incoming = await req.formData().catch(() => undefined)
+  if (incoming === undefined) {
+    return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
+  }
   const image = incoming.get('image')
   if (!(image instanceof Blob)) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
+  }
+  if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
+    return jsonError(
+      STATUS_PAYLOAD_TOO_LARGE,
+      `"image" is ${image.size} bytes; the limit is ${MAX_IMAGE_UPLOAD_BYTES}`,
+    )
   }
   const originalName = image instanceof File ? image.name : 'upload.png'
   const namespaced = `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${originalName}`

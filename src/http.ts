@@ -57,6 +57,17 @@ export function jsonError(status: number, message: string): Response {
   return Response.json(jsonErrorBody(message), { status })
 }
 
+/**
+ * The Content-Length the caller declared, when it is a finite number past
+ * `max`. An absent or unparseable header is not a refusal — the body is still
+ * read and measured. Every oversized upload is 413; the wording of that 413
+ * is the caller's, because the verbs do not share one noun for the bytes.
+ */
+export function declaredOverLimit(req: Request, max: number): number | undefined {
+  const declared = Number(req.headers.get('content-length') ?? Number.NaN)
+  return Number.isFinite(declared) && declared > max ? declared : undefined
+}
+
 /** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
 export const HTTP_CLIENT_ERROR_MIN = 400
 export const HTTP_SERVER_ERROR_MIN = 500

@@ -15,7 +15,13 @@ import {
 import { handleTranscription } from './audioTranscribe.ts'
 import { resolveModel } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { CONTENT_TYPE, jsonError, STATUS_BAD_REQUEST, STATUS_PAYLOAD_TOO_LARGE } from './http.ts'
+import {
+  CONTENT_TYPE,
+  declaredOverLimit,
+  jsonError,
+  STATUS_BAD_REQUEST,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './types.ts'
 
 interface TranscriptionForm {
@@ -157,8 +163,8 @@ async function readAudioUpload(
   req: Request,
   translating: boolean,
 ): Promise<TranscriptionForm | Response> {
-  const declared = Number(req.headers.get('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > MAX_AUDIO_UPLOAD_BYTES) {
+  const declared = declaredOverLimit(req, MAX_AUDIO_UPLOAD_BYTES)
+  if (declared !== undefined) {
     return tooLarge(declared)
   }
   const parsed = liveTranscription(req) ?? (await parseTranscriptionForm(req))

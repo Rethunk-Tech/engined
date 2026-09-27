@@ -114,6 +114,11 @@ The store keeps the 64 least-recently-spoken-with references, 16 MB each at
 most; a handle that has fallen off the end is refused, and re-uploading the
 file issues a new one.
 
+| Status | When |
+| --- | --- |
+| 413 | any upload past that verb's ceiling: a voice reference, a transcription or translation recording, an image-edit `image`, or a comfy `POST /upload/image`. Refused on `Content-Length` when declared, and again on the measured body, so a form that omits the header is still bounded |
+| 400 | a body that is not the multipart form that verb reads |
+
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
 serves nothing today: an unclaimed prefix 404s like any other unmatched path.
@@ -673,7 +678,7 @@ behaviour. The same applies to the translations verb above.
 
 | Field | Meaning |
 | --- | --- |
-| `image` | required: the image to start from, at most 32 MiB |
+| `image` | required: the image to start from, at most 32 MiB; past that is 413 |
 | `denoise` | how much of the input the sampler discards, greater than 0 and at most 1; default 0.9. At 1.0 nothing of the input survives, which is `/images/generations` |
 
 **No `size`.** The input's own dimensions are the output's — scaling here would

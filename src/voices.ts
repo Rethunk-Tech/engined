@@ -20,7 +20,12 @@ import { join } from 'node:path'
  * ever knows the path.
  */
 import process from 'node:process'
-import { jsonError, STATUS_BAD_REQUEST, STATUS_PAYLOAD_TOO_LARGE } from './http.ts'
+import {
+  declaredOverLimit,
+  jsonError,
+  STATUS_BAD_REQUEST,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { voicesDir } from './paths.ts'
 import { errMessage } from './types.ts'
 export const VOICE_UPLOAD_PATH = '/engined/v1/audio/voices'
@@ -90,8 +95,8 @@ function evictVoices(): void {
 }
 
 export async function handleVoiceUpload(req: Request): Promise<Response> {
-  const declared = Number(req.headers.get('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > MAX_VOICE_BYTES) {
+  const declared = declaredOverLimit(req, MAX_VOICE_BYTES)
+  if (declared !== undefined) {
     return jsonError(
       STATUS_PAYLOAD_TOO_LARGE,
       `reference voice is ${declared} bytes; the limit is ${MAX_VOICE_BYTES}`,
