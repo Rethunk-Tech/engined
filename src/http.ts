@@ -80,3 +80,31 @@ export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>
 export async function discardBody(res: Response): Promise<void> {
   await res.body?.cancel().catch(() => undefined)
 }
+
+export const SSE_FRAME_BOUNDARY = '\n\n'
+
+/** Past this with no frame boundary the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
+const MAX_CARRY_BYTES = 65_536
+
+/** Split complete SSE frames off `carry`. A carry past `MAX_CARRY_BYTES` is dropped: that body is not framed, and holding it would grow with the reply. */
+export function splitSseFrames(carry: string): { frames: string[]; carry: string } {
+  const parts = carry.split(SSE_FRAME_BOUNDARY)
+  const next = parts.pop() ?? ''
+  return { frames: parts, carry: next.length > MAX_CARRY_BYTES ? '' : next }
+}
+
+/** JSON payloads from `data:` lines in one frame. Comment, event, and empty/`[DONE]` lines are not payloads. */
+export function sseDataPayloads(frame: string): string[] {
+  const payloads: string[] = []
+  for (const line of frame.split('\n')) {
+    if (!line.startsWith('data:')) {
+      continue
+    }
+    const data = line.slice('data:'.length).trim()
+    if (data === '' || data === '[DONE]') {
+      continue
+    }
+    payloads.push(data)
+  }
+  return payloads
+}

@@ -9,7 +9,7 @@ import type { ChatMessage, ChatReply, StreamSink } from './cursorAgent.ts'
 import { chatModels } from './cursorDoor.ts'
 import { TOOL_SCHEMA } from './cursorExec.ts'
 import type { DoorContext } from './doorContext.ts'
-import { CONTENT_TYPE, JSON_CONTENT_TYPE } from './http.ts'
+import { CONTENT_TYPE, JSON_CONTENT_TYPE, splitSseFrames, sseDataPayloads } from './http.ts'
 import { CONTENT_ENDPOINT_CHAT, parseRecord } from './types.ts'
 
 interface ToolCallDelta {
@@ -67,15 +67,8 @@ export async function completeLocally(
   return await readChatStream(res.body, on)
 }
 
-/** One SSE line's JSON chunk, or `undefined` for anything that is not a data frame carrying JSON. */
-function parseDataLine(line: string): ChatChunk | undefined {
-  if (!line.startsWith('data:')) {
-    return
-  }
-  const payload = line.slice(5).trim()
-  if (payload.length === 0 || payload === '[DONE]') {
-    return
-  }
+/** One SSE data payload's JSON chunk, or `undefined` for anything that is not JSON. */
+function parseDataPayload(payload: string): ChatChunk | undefined {
   const parsed = parseRecord(payload)
   if (parsed === null) {
     return
@@ -87,6 +80,30 @@ interface ToolCallSlot {
   id: string
   name: string
   args: string
+}
+
+function applyChatChunk(
+  chunk: ChatChunk,
+  calls: ToolCallSlot[],
+  on: StreamSink,
+  acc: { text: string; usage: ChatReply['usage'] },
+): void {
+  const delta = chunk.choices?.[0]?.delta
+  if (delta?.reasoning_content) {
+    on.thinking(delta.reasoning_content)
+  }
+  if (delta?.content) {
+    acc.text += delta.content
+    on.text(delta.content)
+  }
+  stitchToolCalls(calls, delta?.tool_calls ?? [], on)
+  if (chunk.usage) {
+    acc.usage = {
+      input: chunk.usage.prompt_tokens ?? 0,
+      output: chunk.usage.completion_tokens ?? 0,
+      cacheRead: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    }
+  }
 }
 
 function stitchToolCalls(calls: ToolCallSlot[], parts: ToolCallDelta[], on: StreamSink): void {
@@ -116,8 +133,7 @@ async function readChatStream(
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const calls: ToolCallSlot[] = []
-  let text = ''
-  let usage: ChatReply['usage']
+  const acc: { text: string; usage: ChatReply['usage'] } = { text: '', usage: undefined }
   let buffer = ''
   for (;;) {
     const { done, value } = await reader.read()
@@ -125,33 +141,19 @@ async function readChatStream(
       break
     }
     buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const chunk = parseDataLine(line)
-      if (chunk === undefined) {
-        continue
-      }
-      const delta = chunk.choices?.[0]?.delta
-      if (delta?.reasoning_content) {
-        on.thinking(delta.reasoning_content)
-      }
-      if (delta?.content) {
-        text += delta.content
-        on.text(delta.content)
-      }
-      stitchToolCalls(calls, delta?.tool_calls ?? [], on)
-      if (chunk.usage) {
-        usage = {
-          input: chunk.usage.prompt_tokens ?? 0,
-          output: chunk.usage.completion_tokens ?? 0,
-          cacheRead: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    const { frames, carry } = splitSseFrames(buffer)
+    buffer = carry
+    for (const frame of frames) {
+      for (const payload of sseDataPayloads(frame)) {
+        const chunk = parseDataPayload(payload)
+        if (chunk !== undefined) {
+          applyChatChunk(chunk, calls, on, acc)
         }
       }
     }
   }
   return {
-    text,
+    text: acc.text,
     toolCalls: calls
       .filter((c) => c.name.length > 0)
       .map((c, i) => ({
@@ -159,6 +161,6 @@ async function readChatStream(
         type: 'function' as const,
         function: { name: c.name, arguments: c.args },
       })),
-    usage,
+    usage: acc.usage,
   }
 }

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { discardBody } from './http.ts'
+import { discardBody, splitSseFrames } from './http.ts'
 
 /**
  * A response whose body records whether anything ever cancelled it, standing in
@@ -49,4 +49,10 @@ test('a body already released is not an error the caller has to handle', async (
 
 test('a response carrying no body at all is a no-op', async () => {
   await discardBody(new Response(null, { status: 204 }))
+})
+
+test('a carry with no frame boundary past the cap is dropped rather than held', () => {
+  const kept = 'x'.repeat(65_536)
+  expect(splitSseFrames(kept)).toEqual({ frames: [], carry: kept })
+  expect(splitSseFrames(`${kept}y`)).toEqual({ frames: [], carry: '' })
 })

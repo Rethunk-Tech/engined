@@ -16,6 +16,8 @@ import {
   STATUS_TOO_MANY_REQUESTS,
   STATUS_UNAUTHORIZED,
   STATUS_UNAVAILABLE,
+  splitSseFrames,
+  sseDataPayloads,
 } from './http.ts'
 import {
   type Attempt,
@@ -392,40 +394,33 @@ class StreamUsage {
 
   push(chunk: Uint8Array): void {
     this.carry += this.decoder.decode(chunk, { stream: true })
-    const lines = this.carry.split('\n')
-    // The tail is whatever came after the last newline: a partial frame, kept
-    // until the rest of it arrives.
-    this.carry = lines.pop() ?? ''
-    if (this.carry.length > MAX_CARRY_BYTES) {
-      // A body with no newline in it is not SSE, and holding it whole is the
-      // one way this scan could cost memory proportional to the reply.
-      this.carry = ''
-    }
-    for (const line of lines) {
-      this.consider(line)
+    const { frames, carry } = splitSseFrames(this.carry)
+    this.carry = carry
+    for (const frame of frames) {
+      for (const payload of sseDataPayloads(frame)) {
+        this.consider(payload)
+      }
     }
   }
 
   /** The figure to record, after the last frame. The final line needs considering too: a stream may end without a trailing newline. */
   done(): Usage | undefined {
-    this.consider(this.carry)
+    for (const payload of sseDataPayloads(this.carry)) {
+      this.consider(payload)
+    }
     return this.found
   }
 
-  private consider(line: string): void {
-    if (!line.includes('"usage"')) {
+  private consider(payload: string): void {
+    if (!payload.includes('"usage"')) {
       return
     }
-    const payload = line.startsWith('data:') ? line.slice('data:'.length).trim() : line.trim()
     const usage = parseRecord(payload)?.usage
     if (isRecord(usage)) {
       this.found = pickUsage(usage) ?? this.found
     }
   }
 }
-
-/** Past this with no newline the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
-const MAX_CARRY_BYTES = 65_536
 
 /** One hop's whole attempt: clock started here, not at chain start, so queue wait before it never counts against it. */
 async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome> {
