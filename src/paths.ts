@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import process from 'node:process'
 
 /**
@@ -69,4 +69,11 @@ export function voicesDir(): string {
  */
 export function llamaPresetPath(): string {
   return `${stateDir()}/llama/preset.ini`
+}
+
+/** True when `candidate` is `root` or a path under it. Used so a prune never follows a cache entry out of the directory it was given. */
+export function isUnder(root: string, candidate: string): boolean {
+  const base = resolve(root)
+  const path = resolve(candidate)
+  return path === base || path.startsWith(base + sep)
 }

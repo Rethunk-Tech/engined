@@ -10,6 +10,7 @@ import {
   ENGINE_ERROR_CHARS,
   type HttpClient,
   jsonError,
+  MAX_IMAGE_UPLOAD_BYTES,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
@@ -46,13 +47,6 @@ import { CONTENT_ENDPOINT_IMAGE_EDITS, parseRecord } from './types.ts'
  * be too low.
  */
 const DEFAULT_DENOISE = 0.9
-
-/**
- * An uploaded image is held in memory whole before it is forwarded, so an
- * oversized one is refused rather than read. Generous for anything a
- * diffusion model will accept as a starting point.
- */
-export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
 
 interface EditRequest {
   prompt: string

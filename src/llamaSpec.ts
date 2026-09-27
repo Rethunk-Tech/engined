@@ -9,8 +9,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { localRoutesOf } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
+import { localRoutesOf } from './localRoutes.ts'
 import { loadSpec, type SpecLoadOptions } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import { isContainerSpec } from './specTypes.ts'

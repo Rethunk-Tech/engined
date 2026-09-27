@@ -13,6 +13,7 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
+  MAX_IMAGE_UPLOAD_BYTES,
   OCTET_STREAM_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -20,7 +21,6 @@ import {
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
-import { MAX_IMAGE_UPLOAD_BYTES } from './imageEdits.ts'
 import { readJsonBody } from './requestBody.ts'
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 

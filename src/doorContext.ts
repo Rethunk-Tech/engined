@@ -8,11 +8,11 @@
 
 import type { AgenticSpawn } from './agentic.ts'
 import type { DockerLifecycle } from './docker.ts'
-import { localRoutesOf } from './engineEntries.ts'
 import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
+import { localRoutesOf } from './localRoutes.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import type { Config, EngineEntry } from './types.ts'
 import type { UsageTracker } from './usage.ts'

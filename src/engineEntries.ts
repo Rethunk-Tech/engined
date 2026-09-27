@@ -10,6 +10,7 @@ import { buildComfySpec } from './comfy.ts'
 import { FatalError } from './errors/fatal.ts'
 import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
+import { localRoutesOf } from './localRoutes.ts'
 import type { EngineStatus } from './responses.ts'
 import type { RuntimeStatus } from './runtimeTable.ts'
 import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
@@ -96,11 +97,6 @@ export function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
 /** Whether any of this engine's own routes resolve to THIS box's own upstream -- the fact `reload`'s second pass keys a container teardown on. An engine with no routes at all (comfy, sometimes) has no binding either way. */
 export function hasLocalBinding(engineId: string, routes: readonly ResolvedRoute[]): boolean {
   return localRoutesOf(routes, engineId).length > 0
-}
-
-/** This engine's routes that resolve to THIS box's own upstream. */
-export function localRoutesOf(routes: readonly ResolvedRoute[], engineId: string): ResolvedRoute[] {
-  return routes.filter((r) => r.engine === engineId && r.upstream === LOCAL_UPSTREAM)
 }
 
 export interface Entry {

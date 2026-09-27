@@ -6,6 +6,7 @@
  */
 
 import { realpathSync, statSync } from 'node:fs'
+import { pruneAgentInstallCaches } from './agentCaches.ts'
 import { mintLaunchNonce, type ObservedVersion } from './agentic.ts'
 import {
   type AgenticProbeOutcome,
@@ -18,7 +19,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from './agenticProbe.ts'
-import { pruneAgentInstallCaches, resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
+import { resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
 import { baseStatus } from './engineEntries.ts'
 import type { EngineStatus } from './responses.ts'
 import type { AgenticSpec } from './specTypes.ts'

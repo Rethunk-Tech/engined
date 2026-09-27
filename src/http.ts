@@ -123,3 +123,10 @@ export function sseDataPayloads(frame: string): string[] {
   }
   return payloads
 }
+
+/**
+ * An uploaded image is held in memory whole before it is forwarded, so an
+ * oversized one is refused rather than read. Generous for anything a
+ * diffusion model will accept as a starting point.
+ */
+export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432

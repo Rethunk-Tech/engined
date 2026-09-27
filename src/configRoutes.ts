@@ -24,8 +24,8 @@ import {
   requireTable,
   VISION_KINDS,
 } from './configParse.ts'
-import { localRoutesOf } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
+import { localRoutesOf } from './localRoutes.ts'
 import type {
   EngineEntry,
   ModelCapabilities,

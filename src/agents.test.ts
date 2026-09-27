@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pruneAgentInstallCaches } from './agentCaches.ts'
 import {
   AGENT_IDS,
   agentCli,
@@ -13,7 +14,6 @@ import {
   parseClaudeEnvelope,
   parseCursorEvents,
   parseOpencodeEvents,
-  pruneAgentInstallCaches,
   resolveCursorBinary,
   sweepOrphanOpencodeDirs,
 } from './agents.ts'
