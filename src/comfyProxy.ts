@@ -197,6 +197,7 @@ export async function proxyComfyPrompt(
       }
       return jsonForward(res, text)
     },
+    signal: req.signal,
   })
 }
 
@@ -222,6 +223,7 @@ export interface ComfyPromptSubmission {
   httpClient: HttpClient
   body: string
   onAnswered: (res: Response, text: string) => Response
+  signal?: AbortSignal
 }
 
 export async function submitComfyPrompt({
@@ -231,6 +233,7 @@ export async function submitComfyPrompt({
   httpClient,
   body,
   onAnswered,
+  signal,
 }: ComfyPromptSubmission): Promise<Response> {
   const timeoutMs = comfyDrainTimeoutMs(ctx, engineId)
   let forwarded: Response | undefined
@@ -240,7 +243,7 @@ export async function submitComfyPrompt({
   await pollUntil(
     async () => {
       forwarded = await withComfySlot(ctx, engineId, async () => {
-        if (!(await comfyDrained(base, httpClient))) {
+        if (signal?.aborted === true || !(await comfyDrained(base, httpClient))) {
           return
         }
         const res = await httpClient(`${base}/prompt`, {
@@ -254,7 +257,11 @@ export async function submitComfyPrompt({
     },
     Date.now() + timeoutMs,
     COMFY_DRAIN_POLL_MS,
+    signal,
   )
+  if (signal?.aborted === true) {
+    return jsonError(499, 'the caller hung up before the prompt was submitted')
+  }
   if (forwarded !== undefined) {
     return forwarded
   }

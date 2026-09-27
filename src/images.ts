@@ -183,6 +183,7 @@ async function submitAll({
   workflow,
   n,
   values,
+  signal,
 }: {
   ctx: DoorContext
   route: ResolvedRoute
@@ -191,6 +192,7 @@ async function submitAll({
   workflow: unknown
   n: number
   values: (index: number) => Record<string, unknown>
+  signal?: AbortSignal
 }): Promise<string[] | Refusal> {
   const ids: string[] = []
   for (let index = 0; index < n; index++) {
@@ -205,6 +207,7 @@ async function submitAll({
       base,
       httpClient,
       body: JSON.stringify({ prompt: filled }),
+      signal,
       onAnswered: (res, text) => {
         const id = parseRecord(text)?.prompt_id
         if (res.ok && typeof id === 'string') {
@@ -363,7 +366,7 @@ export async function renderWith(
     if (typeof values !== 'function') {
       return refuse(values)
     }
-    const ids = await submitAll({ ctx, route, base, httpClient, workflow, n, values })
+    const ids = await submitAll({ ctx, route, base, httpClient, workflow, n, values, signal })
     if (!Array.isArray(ids)) {
       return refuse(ids)
     }

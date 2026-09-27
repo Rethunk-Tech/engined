@@ -777,6 +777,27 @@ describe('comfy proxy: a scoped cancel the door refuses', () => {
 // comfy's `/interrupt` stops whatever is running and carries no id to scope
 // it, so a cancel is only safe when nothing can inherit the GPU behind the
 // prompt being cancelled. Holding submissions is what makes that true.
+describe('comfy proxy: an aborted caller never reaches POST /prompt', () => {
+  test('an aborted caller results in no POST', async () => {
+    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+    const door = await comfyDoor(client)
+    const ac = new AbortController()
+    ac.abort()
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, {
+        method: 'POST',
+        body: '{}',
+        signal: ac.signal,
+      }),
+    )
+    expect(res.status).toBe(499)
+    expect(await res.json()).toEqual({
+      error: 'the caller hung up before the prompt was submitted',
+    })
+    expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(0)
+  })
+})
+
 describe('comfy proxy: one prompt in the container at a time', () => {
   /** A fake whose queue the test drives: `holding` is what the container reports until the test empties it. */
   function gatedComfyClient(holding: string[]) {
