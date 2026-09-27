@@ -95,6 +95,32 @@ function createClaudeDoor(cfg: Config, root: string, spawn: AgenticSpawn, secret
 }
 
 /** A real door over claude, routed to moonshot for one model, its resolved secret and every spawned argv/env recorded rather than actually launched. */
+
+function recordingSpawn(result: Awaited<ReturnType<AgenticSpawn>>): {
+  spawn: AgenticSpawn
+  spawnCalls: { argv: string[]; env: Record<string, string> }[]
+} {
+  const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
+  const spawn: AgenticSpawn = (spawnArgv, opts) => {
+    spawnCalls.push({ argv: spawnArgv, env: opts.env })
+    return Promise.resolve(result)
+  }
+  return { spawn, spawnCalls }
+}
+
+async function expectExpiredScopedChat(door: Door, doorUrl: string, model: string, agent: string) {
+  const stale = await door.fetch(
+    scopedChatRequest(doorUrl, {
+      model,
+      messages: [{ role: 'user', content: 'too late' }],
+      workdir: '/tmp/scratch',
+    }),
+  )
+  expect(stale.status).toBe(403)
+  expect(JSON.stringify(await stale.json())).toContain('expired')
+  clearVerifiedVersion(agent)
+}
+
 function createKimiDoor(ambientSibling = false): {
   door: Door
   spawnCalls: { argv: string[]; env: Record<string, string> }[]
@@ -108,11 +134,7 @@ function createKimiDoor(ambientSibling = false): {
       ...(ambientSibling ? [route({ engine: 'claude', upstream: null, model: 'kimi-k3' })] : []),
     ],
   })
-  const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
-  const spawn: AgenticSpawn = (spawnArgv, opts) => {
-    spawnCalls.push({ argv: spawnArgv, env: opts.env })
-    return Promise.resolve(KIMI_ANSWER)
-  }
+  const { spawn, spawnCalls } = recordingSpawn(KIMI_ANSWER)
   const door = createDoor(
     cfg,
     {
@@ -297,15 +319,11 @@ describe('the door: remote-agentic redirect (claude routed to a Bearer-gateway u
       upstreams: [bearerGatewayUpstream()],
       routes: [route({ engine: 'claude', upstream: 'openrouter', model: 'sonnet-5' })],
     })
-    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
-    const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      spawnCalls.push({ argv: spawnArgv, env: opts.env })
-      return Promise.resolve({
-        stdout: '{"is_error":false,"result":"answered via openrouter"}',
-        stderr: '',
-        exitCode: 0,
-      })
-    }
+    const { spawn, spawnCalls } = recordingSpawn({
+      stdout: '{"is_error":false,"result":"answered via openrouter"}',
+      stderr: '',
+      exitCode: 0,
+    })
     const door = createDoor(
       cfg,
       { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
@@ -345,15 +363,11 @@ describe('the door: remote-agentic redirect, unproved pin never reaches a spawn'
       upstreams: [moonshotUpstream()],
       routes: [route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' })],
     })
-    const spawnCalls: { argv: string[]; env: Record<string, string> }[] = []
-    const spawn: AgenticSpawn = (spawnArgv, opts) => {
-      spawnCalls.push({ argv: spawnArgv, env: opts.env })
-      return Promise.resolve({
-        stdout: '{"is_error":false,"result":"should never run"}',
-        stderr: '',
-        exitCode: 0,
-      })
-    }
+    const { spawn, spawnCalls } = recordingSpawn({
+      stdout: '{"is_error":false,"result":"should never run"}',
+      stderr: '',
+      exitCode: 0,
+    })
     // No `agenticProbeRunner` in registryOpts: the pin has never been proved
     // and nothing can prove it, so the gate must refuse rather than serve.
     const door = createDoor(
@@ -450,18 +464,7 @@ describe('the door: remote-agentic redirect, missing secret', () => {
 describe('the door: remote-agentic redirect, missing secret does not take down other engines', () => {
   test('the local engine still serves, and the kimi attempt is reported as a clean 503', async () => {
     const root = redirectDoorRoot()
-    writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
-    const cfg = config({
-      engines: [
-        claudeEngine(),
-        engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 }),
-      ],
-      upstreams: [moonshotUpstream()],
-      routes: [
-        route({ engine: 'claude', upstream: 'moonshot', model: 'kimi-k3' }),
-        route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' }),
-      ],
-    })
+    const cfg = kimiBesideLlamaConfig(root)
     const recorded: { body: string }[] = []
     const door = createLlamaDoor(cfg, root, {
       secretExec: fakeExec(undefined),
@@ -697,16 +700,7 @@ describe('the launch-scoped door: a nonce outlives nothing', () => {
     // The launch this nonce belonged to has already finished by the time
     // door.fetch() above resolved -- so it is retired here, before this
     // second, unrelated request ever names an engine at all.
-    const stale = await door.fetch(
-      scopedChatRequest(capturedDoorUrl, {
-        model: '@/claude/kimi-k3',
-        messages: [{ role: 'user', content: 'too late' }],
-        workdir: '/tmp/scratch',
-      }),
-    )
-    expect(stale.status).toBe(403)
-    expect(JSON.stringify(await stale.json())).toContain('expired')
-    clearVerifiedVersion('claude')
+    await expectExpiredScopedChat(door, capturedDoorUrl, '@/claude/kimi-k3', 'claude')
   })
 })
 
@@ -750,16 +744,7 @@ describe('the launch-scoped door: the round-trip probe is a launch too', () => {
 
     // Released when the probe returned: the same URL is unknown now, not a
     // standing key a leaked probe environment could keep using.
-    const stale = await door.fetch(
-      scopedChatRequest(doorUrl, {
-        model: '@/opencode/code',
-        messages: [{ role: 'user', content: 'too late' }],
-        workdir: '/tmp/scratch',
-      }),
-    )
-    expect(stale.status).toBe(403)
-    expect(JSON.stringify(await stale.json())).toContain('expired')
-    clearVerifiedVersion('opencode')
+    await expectExpiredScopedChat(door, doorUrl, '@/opencode/code', 'opencode')
   })
 })
 
