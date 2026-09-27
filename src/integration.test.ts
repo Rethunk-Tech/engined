@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { resetSpeechCache } from './audioSpeech.ts'
 import type { DoorOptions } from './doorContext.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
-import type { Exec, ExecResult } from './exec.ts'
+import type { Exec } from './exec.ts'
 import { HTTP_CLIENT_ERROR_MIN } from './http.ts'
 import { createDoor, type Door } from './main.ts'
 import {
@@ -335,42 +335,19 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
 })
 
 test('GET /engined/v1/engines carries top-level contract and commit', async () => {
-  const config = baseConfig({ engines: [containerEngine('local', OPENAI_SPEC)] })
-  const exec: Exec = async () => ({ stdout: '', stderr: '', exitCode: 1 })
-  const door = createDoor(config, {
-    ...REGISTRY_OPTS,
-    exec,
-  })
-
-  try {
-    const res = await door.fetch(req('GET', '/engined/v1/engines'))
-    const body = (await res.json()) as { contract: unknown; commit: unknown }
-
+  await withOfflineEnginesMenu(async (_res, body) => {
     expect(typeof body.contract).toBe('number')
     expect(typeof body.commit).toBe('string')
-  } finally {
-    await door.registry.shutdown()
-  }
+  })
 })
 
 test('GET /engined/v1/engines answers 200 even when every engine is unavailable', async () => {
-  const config = baseConfig({ engines: [containerEngine('local', OPENAI_SPEC)] })
   // Every "image inspect" fails: no image ever resolves on this box.
-  const exec: Exec = async (): Promise<ExecResult> => ({ stdout: '', stderr: '', exitCode: 1 })
-  const door = createDoor(config, {
-    ...REGISTRY_OPTS,
-    exec,
-  })
-
-  try {
-    const res = await door.fetch(req('GET', '/engined/v1/engines'))
-    const body = (await res.json()) as { engines: Array<{ id: string; state: string }> }
-
+  await withOfflineEnginesMenu(async (res, body) => {
+    const engines = body.engines as Array<{ id: string; state: string }>
     expect(res.status).toBe(200)
-    expect(body.engines.find((e) => e.id === 'local')?.state).toBe('unavailable')
-  } finally {
-    await door.registry.shutdown()
-  }
+    expect(engines.find((e) => e.id === 'local')?.state).toBe('unavailable')
+  })
 })
 
 test('the Origin guard applies to a GET: foreign Origin, Origin: null, and a non-loopback Host are refused; no Origin is served normally', async () => {
@@ -499,6 +476,122 @@ interface ChatDoorSetup {
 }
 
 /** Every chat-completions test here stands up a door over the same fake-exec/preset wiring, runs one request, then tears the door and every fake upstream down; only the config, exec, upstream(s), doorOpts and assertion differ. */
+
+const DEAD_GOOD_ROUTES = [
+  route({ engine: 'dead', role: 'chat', filename: 'm.gguf' }),
+  route({ engine: 'good', role: 'chat', filename: 'm.gguf' }),
+]
+const DEAD_GOOD_CHAIN: Record<string, string[]> = { 'chain-x': ['@/dead/m', '@/good/m'] }
+
+const ORNITH_ROUTE = route({
+  engine: 'good',
+  model: 'ornith',
+  role: 'chat',
+  filename: 'ornith.gguf',
+})
+
+async function withOrnithHop(
+  body: Record<string, unknown>,
+  cfgExtra: Partial<Config>,
+): Promise<void> {
+  const chatBodies: Record<string, unknown>[] = []
+  const good = startFakeUpstream(fakeLlamaUpstream('answered by good', 200, chatBodies))
+  const exec = buildExec({ portByContainer: { 'engined-good': good.port } })
+  await withChatDoor(
+    {
+      routes: [ORNITH_ROUTE],
+      engines: [containerEngine('good', openaiSpec())],
+      ...cfgExtra,
+    },
+    { exec, stoppables: [good] },
+    async (door) => {
+      const res = await door.fetch(req('POST', '/openai/v1/chat/completions', { body }))
+      expect(res.status).toBe(200)
+      expect(chatBodies).toHaveLength(1)
+      expect(chatBodies[0]?.model).toBe('ornith')
+    },
+  )
+}
+
+async function withOfflineEnginesMenu(
+  fn: (res: Response, body: Record<string, unknown>) => Promise<void>,
+): Promise<void> {
+  const door = offlineDoor(baseConfig({ engines: [containerEngine('local', OPENAI_SPEC)] }))
+  try {
+    const res = await door.fetch(req('GET', '/engined/v1/engines'))
+    await fn(res, (await res.json()) as Record<string, unknown>)
+  } finally {
+    await door.registry.shutdown()
+  }
+}
+
+async function withPublicChainChat(
+  body: Record<string, unknown>,
+  fn: (res: Response, remote: ReturnType<typeof startFakeUpstream>) => Promise<void>,
+): Promise<void> {
+  const { remote, cfg, setup } = publicChainFixture()
+  await withChatDoor(cfg, setup, async (door) => {
+    const res = await door.fetch(req('POST', '/openai/v1/chat/completions', { body }))
+    await fn(res, remote)
+  })
+}
+
+async function withChatterboxSpeech(
+  handler: (request: Request) => Response | Promise<Response>,
+  fn: (door: Door) => Promise<void>,
+  idleStopSeconds?: number,
+): Promise<void> {
+  const { door, fake } = chatterboxSpeechDoor(handler, idleStopSeconds)
+  try {
+    await fn(door)
+  } finally {
+    fake.stop()
+    await door.registry.shutdown()
+  }
+}
+
+function ttsByPath(
+  onTts: (request: Request) => Response | Promise<Response>,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const { pathname } = new URL(request.url)
+    if (pathname === '/health') {
+      return new Response('', { status: 200 })
+    }
+    if (pathname === '/v1/tts') {
+      return onTts(request)
+    }
+    return new Response('', { status: 404 })
+  }
+}
+
+function doneWavFrame(alignment: null | undefined = null): string {
+  const audio = Buffer.from('RIFF____WAVEfmt ', 'utf8').toString('base64')
+  return `${JSON.stringify(alignment === undefined ? { phase: 'done', audio } : { phase: 'done', audio, alignment })}\n`
+}
+
+function chatterboxSpeechDoor(
+  handler: (request: Request) => Response | Promise<Response>,
+  idleStopSeconds?: number,
+): { door: Door; fake: ReturnType<typeof startFakeUpstream> } {
+  const fake = startFakeUpstream(handler)
+  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': fake.port } })
+  const door = createDoor(
+    baseConfig({
+      routes: CHATTERBOX_ROUTES,
+      engines: [
+        containerEngine(
+          'chatterbox-multi',
+          ttsSpec(),
+          idleStopSeconds === undefined ? {} : { idle_stop_seconds: idleStopSeconds },
+        ),
+      ],
+    }),
+    { ...REGISTRY_OPTS, exec },
+  )
+  return { door, fake }
+}
+
 async function withChatDoor(
   cfgOverrides: Partial<Config>,
   setup: ChatDoorSetup,
@@ -531,17 +624,14 @@ test('a chain whose first hop is dead completes on the second, and provenance na
   const { lines, write } = collectLines()
   await withChatDoor(
     {
-      routes: [
-        route({ engine: 'dead', role: 'chat', filename: 'm.gguf' }),
-        route({ engine: 'good', role: 'chat', filename: 'm.gguf' }),
-      ],
+      routes: DEAD_GOOD_ROUTES,
       engines: [
         // Short readiness timeout: nothing listens on `dead`, so the poll
         // must give up fast rather than spend the 60s default finding out.
         containerEngine('dead', openaiSpec(), { ready_timeout_s: 0.1 }),
         containerEngine('good', openaiSpec()),
       ],
-      chains: { 'chain-x': ['@/dead/m', '@/good/m'] },
+      chains: { ...DEAD_GOOD_CHAIN },
     },
     { exec, stoppables: [good], doorOpts: { write } },
     async (door) => {
@@ -582,12 +672,9 @@ test('a streaming chain whose first hop 5xxs on the actual chat call advances to
   const { lines, write } = collectLines()
   await withChatDoor(
     {
-      routes: [
-        route({ engine: 'dead', role: 'chat', filename: 'm.gguf' }),
-        route({ engine: 'good', role: 'chat', filename: 'm.gguf' }),
-      ],
+      routes: DEAD_GOOD_ROUTES,
       engines: [containerEngine('dead', openaiSpec()), containerEngine('good', openaiSpec())],
-      chains: { 'chain-x': ['@/dead/m', '@/good/m'] },
+      chains: { ...DEAD_GOOD_CHAIN },
     },
     { exec, stoppables: [dead, good], doorOpts: { write } },
     async (door) => {
@@ -614,87 +701,25 @@ test('a streaming chain whose first hop 5xxs on the actual chat call advances to
 // chain name and a model id can never collide (checkNamespaceCollisions).
 
 test("a chain dispatch to a llama hop rewrites the forwarded body's model to the resolved model id, not the chain name", async () => {
-  const chatBodies: Record<string, unknown>[] = []
-  const good = startFakeUpstream(fakeLlamaUpstream('answered by good', 200, chatBodies))
-  const goodPort = String(good.port)
-
-  const exec = buildExec({ portByContainer: { 'engined-good': Number(goodPort) } })
-  await withChatDoor(
-    {
-      routes: [route({ engine: 'good', model: 'ornith', role: 'chat', filename: 'ornith.gguf' })],
-      engines: [containerEngine('good', openaiSpec())],
-      chains: { 'chain-private': ['@/good/ornith'] },
-    },
-    { exec, stoppables: [good] },
-    async (door) => {
-      const res = await door.fetch(
-        req('POST', '/openai/v1/chat/completions', {
-          body: { model: 'chain-private', messages: [{ role: 'user', content: 'hi' }] },
-        }),
-      )
-
-      expect(res.status).toBe(200)
-      expect(chatBodies).toHaveLength(1)
-      expect(chatBodies[0]?.model).toBe('ornith')
-    },
+  await withOrnithHop(
+    { model: 'chain-private', messages: [{ role: 'user', content: 'hi' }] },
+    { chains: { 'chain-private': ['@/good/ornith'] } },
   )
 })
 
 test("a streaming chain dispatch to a llama hop also rewrites the forwarded body's model to the resolved model id", async () => {
-  const chatBodies: Record<string, unknown>[] = []
-  const good = startFakeUpstream(fakeLlamaUpstream('answered by good', 200, chatBodies))
-  const goodPort = String(good.port)
-
-  const exec = buildExec({ portByContainer: { 'engined-good': Number(goodPort) } })
-  await withChatDoor(
+  await withOrnithHop(
     {
-      routes: [route({ engine: 'good', model: 'ornith', role: 'chat', filename: 'ornith.gguf' })],
-      engines: [containerEngine('good', openaiSpec())],
-      chains: { 'chain-private': ['@/good/ornith'] },
+      model: 'chain-private',
+      stream: true,
+      messages: [{ role: 'user', content: 'hi' }],
     },
-    { exec, stoppables: [good] },
-    async (door) => {
-      const res = await door.fetch(
-        req('POST', '/openai/v1/chat/completions', {
-          body: {
-            model: 'chain-private',
-            stream: true,
-            messages: [{ role: 'user', content: 'hi' }],
-          },
-        }),
-      )
-
-      expect(res.status).toBe(200)
-      expect(chatBodies).toHaveLength(1)
-      expect(chatBodies[0]?.model).toBe('ornith')
-    },
+    { chains: { 'chain-private': ['@/good/ornith'] } },
   )
 })
 
 test('a direct (non-chain) model request still forwards its own model id unchanged', async () => {
-  const chatBodies: Record<string, unknown>[] = []
-  const good = startFakeUpstream(fakeLlamaUpstream('answered by good', 200, chatBodies))
-  const goodPort = String(good.port)
-
-  const exec = buildExec({ portByContainer: { 'engined-good': Number(goodPort) } })
-  await withChatDoor(
-    {
-      routes: [route({ engine: 'good', model: 'ornith', role: 'chat', filename: 'ornith.gguf' })],
-      engines: [containerEngine('good', openaiSpec())],
-    },
-    { exec, stoppables: [good] },
-    async (door) => {
-      const res = await door.fetch(
-        req('POST', '/openai/v1/chat/completions', {
-          body: { model: '@/good/ornith', messages: [{ role: 'user', content: 'hi' }] },
-        }),
-      )
-
-      expect(res.status).toBe(200)
-      expect(chatBodies).toHaveLength(1)
-      expect(chatBodies[0]?.model).toBe('ornith')
-    },
-  )
+  await withOrnithHop({ model: '@/good/ornith', messages: [{ role: 'user', content: 'hi' }] }, {})
 })
 
 /**
@@ -750,42 +775,34 @@ function publicChainFixture(): {
 }
 
 test('max_egress: "none" against a public chain never reaches a remote hop, even when the local hop cannot serve', async () => {
-  const { remote, cfg, setup } = publicChainFixture()
-  await withChatDoor(cfg, setup, async (door) => {
-    const res = await door.fetch(
-      req('POST', '/openai/v1/chat/completions', {
-        body: {
-          model: 'chain-public',
-          max_egress: 'none',
-          messages: [{ role: 'user', content: 'hi' }],
-        },
-      }),
-    )
-
-    // Truncation removes the remote hop before it is ever attempted -- the
-    // empty request log is what proves that, not the response shape. The
-    // local hop was never started before this call either: the container
-    // adopt/start-on-demand path, not a stopped container, is what put it in
-    // this state, and the first request starts it (and fails) on its own.
-    // A single unavailable hop is the degenerate one-attempt case of "every
-    // engine in the chain failed" -- 503, never 200 and never left at 501.
-    expect(res.status).toBe(503)
-    expect(remote.requestLog).toEqual([])
-  })
+  await withPublicChainChat(
+    {
+      model: 'chain-public',
+      max_egress: 'none',
+      messages: [{ role: 'user', content: 'hi' }],
+    },
+    async (res, remote) => {
+      // Truncation removes the remote hop before it is ever attempted -- the
+      // empty request log is what proves that, not the response shape. The
+      // local hop was never started before this call either: the container
+      // adopt/start-on-demand path, not a stopped container, is what put it in
+      // this state, and the first request starts it (and fails) on its own.
+      // A single unavailable hop is the degenerate one-attempt case of "every
+      // engine in the chain failed" -- 503, never 200 and never left at 501.
+      expect(res.status).toBe(503)
+      expect(remote.requestLog).toEqual([])
+    },
+  )
 })
 
 test('an absent max_egress applies no ceiling: the same public chain DOES reach the remote hop, and answers 200', async () => {
-  const { remote, cfg, setup } = publicChainFixture()
-  await withChatDoor(cfg, setup, async (door) => {
-    const res = await door.fetch(
-      req('POST', '/openai/v1/chat/completions', {
-        body: { model: 'chain-public', messages: [{ role: 'user', content: 'hi' }] },
-      }),
-    )
-
-    expect(res.status).toBe(200)
-    expect(remote.requestLog).toEqual(['/chat/completions'])
-  })
+  await withPublicChainChat(
+    { model: 'chain-public', messages: [{ role: 'user', content: 'hi' }] },
+    async (res, remote) => {
+      expect(res.status).toBe(200)
+      expect(remote.requestLog).toEqual(['/chat/completions'])
+    },
+  )
 })
 
 test('every engine in a chain unavailable returns 503 listing each attempt', async () => {
@@ -841,62 +858,33 @@ test('an agentic attempt with no workdir returns 400', async () => {
 })
 
 test('a completed audio request arms idle-stop the same as a chat lease: the container stops on its own', async () => {
-  const fake = startFakeUpstream((request) => {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/health') {
-      return new Response('', { status: 200 })
-    }
-    if (pathname === '/v1/tts') {
-      const audio = Buffer.from('RIFF____WAVEfmt ', 'utf8').toString('base64')
-      return new Response(`${JSON.stringify({ phase: 'done', audio, alignment: null })}\n`)
-    }
-    return new Response('', { status: 404 })
-  })
-  const { port } = fake
-  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': port } })
-  const IdleStopSeconds = 0.03
-  const config = baseConfig({
-    routes: CHATTERBOX_ROUTES,
-    engines: [
-      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IdleStopSeconds }),
-    ],
-  })
-  const door = createDoor(config, {
-    ...REGISTRY_OPTS,
-    exec,
-  })
+  await withChatterboxSpeech(
+    ttsByPath(() => new Response(doneWavFrame())),
+    async (door) => {
+      const speech = await door.fetch(
+        req('POST', '/openai/v1/audio/speech', { body: { model: CHATTERBOX, input: 'hi' } }),
+      )
+      expect(speech.status).toBe(200)
 
-  try {
-    const speech = await door.fetch(
-      req('POST', '/openai/v1/audio/speech', { body: { model: CHATTERBOX, input: 'hi' } }),
-    )
-    expect(speech.status).toBe(200)
+      // Nothing calls endLease for the audio door the way LlamaRouter's
+      // withLease does for chat -- prove the request itself arms the timer,
+      // not just that the container started.
+      await Bun.sleep(60)
 
-    // Nothing calls endLease for the audio door the way LlamaRouter's
-    // withLease does for chat -- prove the request itself arms the timer,
-    // not just that the container started.
-    await Bun.sleep(60)
-
-    const engines = await door.fetch(req('GET', '/engined/v1/engines'))
-    const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> }
-    expect(body.engines.find((e) => e.id === 'chatterbox-multi')?.state).toBe('installed')
-  } finally {
-    fake.stop()
-    await door.registry.shutdown()
-  }
+      const engines = await door.fetch(req('GET', '/engined/v1/engines'))
+      const body = (await engines.json()) as { engines: Array<{ id: string; state: string }> }
+      expect(body.engines.find((e) => e.id === 'chatterbox-multi')?.state).toBe('installed')
+    },
+    0.03,
+  )
 })
 
 test('a streamed audio call holds its lease until the body ends, not until the handler returns', async () => {
   let release: (() => void) | undefined
-  const fake = startFakeUpstream((request) => {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/health') {
-      return new Response('', { status: 200 })
-    }
-    if (pathname === '/v1/tts') {
+  const { door, fake } = chatterboxSpeechDoor(
+    ttsByPath(() => {
       // Stays open until the test lets go, standing in for an engine still
       // producing into a body the caller has not finished reading.
-      const audio = Buffer.from('RIFF____WAVEfmt ', 'utf8').toString('base64')
       return new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -906,32 +894,15 @@ test('a streamed audio call holds its lease until the body ends, not until the h
               new TextEncoder().encode(`${JSON.stringify({ phase: 'progress', step: 1 })}\n`),
             )
             release = () => {
-              controller.enqueue(
-                new TextEncoder().encode(
-                  `${JSON.stringify({ phase: 'done', audio, alignment: null })}\n`,
-                ),
-              )
+              controller.enqueue(new TextEncoder().encode(doneWavFrame()))
               controller.close()
             }
           },
         }),
       )
-    }
-    return new Response('', { status: 404 })
-  })
-  const { port } = fake
-  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': port } })
-  const IdleStopSeconds = 0.03
-  const config = baseConfig({
-    routes: CHATTERBOX_ROUTES,
-    engines: [
-      containerEngine('chatterbox-multi', ttsSpec(), { idle_stop_seconds: IdleStopSeconds }),
-    ],
-  })
-  const door = createDoor(config, {
-    ...REGISTRY_OPTS,
-    exec,
-  })
+    }),
+    0.03,
+  )
 
   try {
     const speech = await door.fetch(
@@ -1109,44 +1080,36 @@ test('a speech request survives the door boundary with stream: "ndjson", not coe
   // handleAudioSpeech builds SpeechRequestBody by hand, so a widened type on
   // the far side proves nothing: the boundary is where "ndjson" was dropped,
   // and dropping it silently returns a WAV to a caller expecting frames.
-  const fake = startFakeUpstream((request) => {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/health') {
-      return new Response('', { status: 200 })
-    }
-    if (pathname === '/v1/tts') {
-      return new Response(
-        [
-          JSON.stringify({ phase: 'synthesizing', step: 3, step_limit: 9 }),
-          JSON.stringify({
-            phase: 'chunk',
-            pcm: Buffer.from([7, 7]).toString('base64'),
-            rate: 24_000,
-          }),
-        ].join('\n'),
+  await withChatterboxSpeech(
+    ttsByPath(
+      () =>
+        new Response(
+          [
+            JSON.stringify({ phase: 'synthesizing', step: 3, step_limit: 9 }),
+            JSON.stringify({
+              phase: 'chunk',
+              pcm: Buffer.from([7, 7]).toString('base64'),
+              rate: 24_000,
+            }),
+          ].join('\n'),
+        ),
+    ),
+    async (door) => {
+      const res = await door.fetch(
+        req('POST', '/openai/v1/audio/speech', {
+          body: { model: CHATTERBOX, input: 'hi', stream: 'ndjson' },
+        }),
       )
-    }
-    return new Response('', { status: 404 })
-  })
-  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': fake.port } })
-  const config = baseConfig({
-    routes: CHATTERBOX_ROUTES,
-    engines: [containerEngine('chatterbox-multi', ttsSpec())],
-  })
-  const door = createDoor(config, {
-    ...REGISTRY_OPTS,
-    exec,
-  })
 
-  const res = await door.fetch(
-    req('POST', '/openai/v1/audio/speech', {
-      body: { model: CHATTERBOX, input: 'hi', stream: 'ndjson' },
-    }),
+      expect(res.headers.get('content-type')).toContain('application/x-ndjson')
+      const lines = (await res.text()).split('\n').filter((l) => l.length > 0)
+      expect(JSON.parse(lines[0] ?? '{}')).toEqual({
+        phase: 'synthesizing',
+        step: 3,
+        step_limit: 9,
+      })
+    },
   )
-
-  expect(res.headers.get('content-type')).toContain('application/x-ndjson')
-  const lines = (await res.text()).split('\n').filter((l) => l.length > 0)
-  expect(JSON.parse(lines[0] ?? '{}')).toEqual({ phase: 'synthesizing', step: 3, step_limit: 9 })
 })
 
 test("speech forwards OpenAI's own fields under the engine's names, and carries unknown ones through", async () => {
@@ -1155,28 +1118,11 @@ test("speech forwards OpenAI's own fields under the engine's names, and carries 
   // a reference-voice path, a language -- and a closed set here would cost a
   // door edit per engine capability.
   let sent: Record<string, unknown> = {}
-  const fake = startFakeUpstream(async (request) => {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/health') {
-      return new Response('', { status: 200 })
-    }
-    if (pathname === '/v1/tts') {
+  const { door } = chatterboxSpeechDoor(
+    ttsByPath(async (request) => {
       sent = (await request.json()) as Record<string, unknown>
-      const audio = Buffer.from('RIFF____WAVEfmt ', 'utf8').toString('base64')
-      return new Response(`${JSON.stringify({ phase: 'done', audio })}\n`)
-    }
-    return new Response('', { status: 404 })
-  })
-  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': fake.port } })
-  const door = createDoor(
-    baseConfig({
-      routes: CHATTERBOX_ROUTES,
-      engines: [containerEngine('chatterbox-multi', ttsSpec())],
+      return new Response(doneWavFrame(undefined))
     }),
-    {
-      ...REGISTRY_OPTS,
-      exec,
-    },
   )
 
   const res = await door.fetch(
@@ -1493,22 +1439,11 @@ const VOICE_HANDLE = /^vc_[0-9a-f]{32}\.wav$/
  */
 test("an uploaded reference voice reaches the engine as the door's own path, and a handle the door never issued is refused", async () => {
   const seen: Record<string, unknown>[] = []
-  const fake = startFakeUpstream(async (request) => {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/health') {
-      return new Response('', { status: 200 })
-    }
-    seen.push((await request.json()) as Record<string, unknown>)
-    const audio = Buffer.from('RIFF____WAVEfmt ', 'utf8').toString('base64')
-    return new Response(`${JSON.stringify({ phase: 'done', audio, alignment: null })}\n`)
-  })
-  const exec = buildExec({ portByContainer: { 'engined-chatterbox-multi': fake.port } })
-  const door = createDoor(
-    baseConfig({
-      routes: CHATTERBOX_ROUTES,
-      engines: [containerEngine('chatterbox-multi', ttsSpec())],
+  const { door, fake } = chatterboxSpeechDoor(
+    ttsByPath(async (request) => {
+      seen.push((await request.json()) as Record<string, unknown>)
+      return new Response(doneWavFrame())
     }),
-    { ...REGISTRY_OPTS, exec },
   )
   const restoreStateHome = redirectStateHome(TEST_ROOT)
 
