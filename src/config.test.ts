@@ -601,6 +601,20 @@ test('defaults apply when listen_port/chat_timeout/agent_timeout are absent', ()
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS)
 })
 
+const RX_LISTEN_PORT_POSITIVE = /config "listen_port" must be greater than 0/
+
+test('listen_port of 0 is a parse error', () => {
+  expect(() => loadConfig(writeConfig(`listen_port = 0\n${llamaEngineAndRoute()}`))).toThrow(
+    RX_LISTEN_PORT_POSITIVE,
+  )
+})
+
+test('listen_port of a negative value is a parse error', () => {
+  expect(() => loadConfig(writeConfig(`listen_port = -1\n${llamaEngineAndRoute()}`))).toThrow(
+    RX_LISTEN_PORT_POSITIVE,
+  )
+})
+
 describe('namespace collisions: four separate maps', () => {
   test('two engines sharing an id is fatal, naming both sites', () => {
     const toml = `

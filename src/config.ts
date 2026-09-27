@@ -19,6 +19,7 @@ import {
   expandConfigPath,
   MODEL_KEYS,
   optional,
+  optionalPositive,
   parseCapabilities,
   parseDisable,
   requireString,
@@ -108,33 +109,24 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
   const rawSpecDir = optional(raw.spec_dir, 'string', `${site} "spec_dir"`, file)
-  const drainTimeoutS = optional(
-    raw.drain_timeout_seconds,
-    'number',
-    `${site} "drain_timeout_seconds"`,
-    file,
-  )
   // Zero reads as "no ceiling" and means the opposite: a single attempt, no
   // wait for a busy container, and a 503 telling the caller the engine has
   // not been free for 0s. Refused here rather than served as a wait nobody
   // asked for.
-  if (drainTimeoutS !== undefined && drainTimeoutS <= 0) {
-    throw new ParseError(`${site} "drain_timeout_seconds" must be greater than 0`, file)
-  }
+  const drainTimeoutS = optionalPositive(
+    raw.drain_timeout_seconds,
+    `${site} "drain_timeout_seconds"`,
+    file,
+  )
   return {
     id,
     disabled: parseDisable(raw, site, file),
     spec_dir: rawSpecDir === undefined ? undefined : expandConfigPath(rawSpecDir),
     models_dir: rawModelsDir === undefined ? undefined : expandConfigPath(rawModelsDir),
-    models_max: optional(raw.models_max, 'number', `${site} "models_max"`, file),
-    idle_stop_seconds: optional(
-      raw.idle_stop_seconds,
-      'number',
-      `${site} "idle_stop_seconds"`,
-      file,
-    ),
+    models_max: optionalPositive(raw.models_max, `${site} "models_max"`, file),
+    idle_stop_seconds: optionalPositive(raw.idle_stop_seconds, `${site} "idle_stop_seconds"`, file),
     drain_timeout_seconds: drainTimeoutS,
-    ready_timeout_s: optional(raw.ready_timeout_s, 'number', `${site} "ready_timeout_s"`, file),
+    ready_timeout_s: optionalPositive(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file),
     agent_version: agentVersion,
     kind: parseKind(raw, site, file),
     args,
@@ -168,24 +160,16 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   if (wireStr !== undefined && wireStr !== 'openai' && wireStr !== 'anthropic') {
     throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, file)
   }
-  const inventoryMaxAge = optional(
+  const inventoryMaxAge = optionalPositive(
     raw.inventory_max_age_seconds,
-    'number',
     `${site} "inventory_max_age_seconds"`,
     file,
   )
-  if (inventoryMaxAge !== undefined && inventoryMaxAge <= 0) {
-    throw new ParseError(`${site} "inventory_max_age_seconds" must be greater than 0`, file)
-  }
-  const inventoryRefresh = optional(
+  const inventoryRefresh = optionalPositive(
     raw.inventory_refresh_seconds,
-    'number',
     `${site} "inventory_refresh_seconds"`,
     file,
   )
-  if (inventoryRefresh !== undefined && inventoryRefresh <= 0) {
-    throw new ParseError(`${site} "inventory_refresh_seconds" must be greater than 0`, file)
-  }
   if (
     inventoryMaxAge !== undefined &&
     inventoryRefresh !== undefined &&
@@ -196,10 +180,11 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
       file,
     )
   }
+  const secret = raw.secret === undefined ? undefined : parseSecret(raw.secret, site, file)
   return {
     id,
     base_url: optional(raw.base_url, 'string', `${site} "base_url"`, file),
-    secret: raw.secret === undefined ? undefined : parseSecret(raw.secret, site, file),
+    secret,
     egress,
     wire: wireStr as Wire | undefined,
     disabled: parseDisable(raw, site, file),
@@ -444,14 +429,14 @@ function parseTopLevelSettings(
 ): Pick<Config, 'listen_port' | 'cursor_port' | 'chat_timeout_seconds' | 'agent_timeout_seconds'> {
   return {
     listen_port:
-      optional(raw.listen_port, 'number', 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
+      optionalPositive(raw.listen_port, 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
     cursor_port:
       optional(raw.cursor_port, 'number', 'config "cursor_port"', file) ?? DEFAULT_CURSOR_PORT,
     chat_timeout_seconds:
-      optional(raw.chat_timeout_seconds, 'number', 'config "chat_timeout_seconds"', file) ??
+      optionalPositive(raw.chat_timeout_seconds, 'config "chat_timeout_seconds"', file) ??
       DEFAULT_CHAT_TIMEOUT_SECONDS,
     agent_timeout_seconds:
-      optional(raw.agent_timeout_seconds, 'number', 'config "agent_timeout_seconds"', file) ??
+      optionalPositive(raw.agent_timeout_seconds, 'config "agent_timeout_seconds"', file) ??
       DEFAULT_AGENT_TIMEOUT_SECONDS,
   }
 }

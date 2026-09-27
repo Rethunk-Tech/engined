@@ -15,6 +15,7 @@ import {
   expandConfigPath,
   mergeCapabilities,
   optional,
+  optionalPositive,
   parseCapabilities,
   parseDisable,
   ROLES,
@@ -146,15 +147,11 @@ export function parseRouteRaw(
   }
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
-  const slotLongThreshold = optional(
+  const slotLongThreshold = optionalPositive(
     raw.slot_long_threshold,
-    'number',
     `${site} "slot_long_threshold"`,
     file,
   )
-  if (slotLongThreshold !== undefined && slotLongThreshold <= 0) {
-    throw new ParseError(`${site} "slot_long_threshold" must be greater than 0`, file)
-  }
   return {
     engine: engineId,
     model: modelStr,

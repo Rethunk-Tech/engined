@@ -124,6 +124,15 @@ export function optional<T extends 'string' | 'number' | 'boolean'>(
   return v as T extends 'string' ? string : T extends 'number' ? number : boolean
 }
 
+/** Absent stays absent; a present number must be greater than 0. Zero has no documented meaning for any field this helper admits. */
+export function optionalPositive(v: unknown, label: string, file: string): number | undefined {
+  const n = optional(v, 'number', label, file)
+  if (n !== undefined && n <= 0) {
+    throw new ParseError(`${label} must be greater than 0`, file)
+  }
+  return n
+}
+
 /** `disable = true` is the only value that ever sets the derived flag; absent or `false` both mean "not disabled", so the flag is never explicitly `false`. */
 export function parseDisable(
   raw: Record<string, unknown>,
