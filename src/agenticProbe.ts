@@ -6,7 +6,9 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { launchScopedBaseUrl } from './agentic.ts'
 import type { AgentTarget } from './agents.ts'
+import { localRoutesOf } from './engineEntries.ts'
 import { stateDir } from './paths.ts'
 import type { Config } from './types.ts'
 
@@ -79,8 +81,8 @@ export function roundTripTargetFor(
   config: Config,
   nonce: string,
 ): AgentTarget | undefined {
-  const route = config.routes.find(
-    (r) => !r.disabled && r.engine === engineId && r.upstream === 'local' && r.model !== undefined,
+  const route = localRoutesOf(config.routes, engineId).find(
+    (r) => !r.disabled && r.model !== undefined,
   )
   if (route?.model === undefined) {
     return undefined
@@ -93,7 +95,7 @@ export function roundTripTargetFor(
     // gets: a probe spawns a real agent, so the hop that reaches back here
     // has to be bounded by the same nonce or the recursion control has a
     // hole shaped like a status poll.
-    baseUrl: `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`,
+    baseUrl: launchScopedBaseUrl(config.listen_port, nonce),
     model: route.wire_model ?? route.model,
   }
 }

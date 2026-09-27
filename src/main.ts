@@ -8,6 +8,7 @@
 
 import { mkdirSync } from 'node:fs'
 import process from 'node:process'
+import { LAUNCH_NONCE_RE } from './agentic.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
 import {
@@ -43,7 +44,7 @@ import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
 import type { RegistryOptions } from './registryOptions.ts'
-import { handleTokenizeRoute, TOKENIZE_PATH } from './tokenizeRoute.ts'
+import { handleTokenizeRoute, OPENAI_MODELS_PATH, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -57,7 +58,7 @@ import {
   type Config,
   errMessage,
 } from './types.ts'
-import { handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
+import { ENGINED_ENGINES_PATH, handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
 import { handleVoiceUpload, VOICE_UPLOAD_PATH } from './voices.ts'
 
 const CONTENT_ENDPOINTS = new Set([
@@ -80,7 +81,6 @@ const CONTENT_ENDPOINTS = new Set([
  * door's own dispatch and the registry's round-trip probe -- and never
  * written anywhere durable.
  */
-const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/
 
 /** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = '/engined/v1/start'
@@ -168,10 +168,10 @@ function routeGet(
   signal: AbortSignal,
 ): Response | Promise<Response> | undefined {
   const { pathname } = url
-  if (pathname === '/openai/v1/models') {
+  if (pathname === OPENAI_MODELS_PATH) {
     return modelsMenu(ctx)
   }
-  if (pathname === '/engined/v1/engines') {
+  if (pathname === ENGINED_ENGINES_PATH) {
     return handleEngines(ctx, configErr)
   }
   if (pathname === '/engined/v1/engines/events') {

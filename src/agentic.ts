@@ -77,6 +77,14 @@ export function mintLaunchNonce(): string {
   return crypto.randomUUID().replace(/-/g, '')
 }
 
+/** Path of a launch-scoped OpenAI surface: `/openai/v1/<nonce>/...`. Capture 1 is the nonce; capture 2 is the rest of the path, including the leading slash. */
+export const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/
+
+/** The door URL handed to one agentic launch: this box, this listen port, this nonce. */
+export function launchScopedBaseUrl(port: number, nonce: string): string {
+  return `http://127.0.0.1:${port}/openai/v1/${nonce}`
+}
+
 interface AgenticSpawnOptions {
   cwd: string
   env: Record<string, string>
