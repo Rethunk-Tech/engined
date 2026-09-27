@@ -347,7 +347,7 @@ describe('agent install cache prune', () => {
       plantBunPackage(claude, base, '2.1.247')
       plantBunPackage(claude, base, '2.1.283')
     }
-    pruneAgentInstallCaches('opencode', '1.18.26', root)
+    pruneAgentInstallCaches('opencode', new Set(['1.18.26']), root)
     expect(existsSync(join(opencode, 'opencode-ai@1.18.26@@@1'))).toBe(true)
     expect(existsSync(join(opencode, 'opencode-ai', '1.18.26@@@1'))).toBe(true)
     expect(existsSync(join(opencode, 'opencode-linux-x64-musl@1.18.26@@@1'))).toBe(true)
@@ -358,10 +358,26 @@ describe('agent install cache prune', () => {
     expect(existsSync(join(opencode, 'deadbeef.npm'))).toBe(true)
     expect(existsSync(join(opencode, '.tmp'))).toBe(true)
     expect(existsSync(join(claude, 'claude-code@2.1.247@@@1'))).toBe(true)
-    pruneAgentInstallCaches('claude', '2.1.283', root)
+    pruneAgentInstallCaches('claude', new Set(['2.1.283']), root)
     expect(existsSync(join(claude, 'claude-code@2.1.283@@@1'))).toBe(true)
     expect(existsSync(join(claude, 'claude-code-linux-x64-musl@2.1.283@@@1'))).toBe(true)
     expect(existsSync(join(claude, 'claude-code@2.1.247@@@1'))).toBe(false)
     expect(existsSync(join(claude, 'claude-code-linux-x64@2.1.247@@@1'))).toBe(false)
+  })
+
+  it('keeps every pin of one agent and removes other versions', () => {
+    const root = makeTestRoot('engined-agent-cache-pins-')
+    const opencode = join(root, 'agentic-home', 'opencode', 'bun', 'install', 'cache')
+    mkdirSync(opencode, { recursive: true })
+    for (const version of ['1.18.25', '1.18.26', '1.18.27']) {
+      plantBunPackage(opencode, 'opencode-ai', version)
+    }
+    pruneAgentInstallCaches('opencode', new Set(['1.18.26', '1.18.27']), root)
+    expect(existsSync(join(opencode, 'opencode-ai@1.18.26@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai', '1.18.26@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai@1.18.27@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai', '1.18.27@@@1'))).toBe(true)
+    expect(existsSync(join(opencode, 'opencode-ai@1.18.25@@@1'))).toBe(false)
+    expect(existsSync(join(opencode, 'opencode-ai', '1.18.25@@@1'))).toBe(false)
   })
 })

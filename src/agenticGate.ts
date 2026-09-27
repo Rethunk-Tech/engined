@@ -49,6 +49,17 @@ export interface AgenticGateOptions {
   observeAgentVersion: ObserveAgentVersion
 }
 
+/** The just-proved version plus every `agent_version` the current config pins. */
+function keepInstallVersions(config: Config, proved: string): ReadonlySet<string> {
+  const keep = new Set<string>([proved])
+  for (const engine of config.engines) {
+    if (engine.agent_version !== undefined && engine.agent_version !== '') {
+      keep.add(engine.agent_version)
+    }
+  }
+  return keep
+}
+
 export class AgenticGate {
   private readonly runner: AgenticProbeRunner | undefined
   private readonly launchNonces: Set<string>
@@ -126,7 +137,7 @@ export class AgenticGate {
       }
     }
     writeVerifiedVersion(engine.id, version)
-    pruneAgentInstallCaches(spec.agent, version)
+    pruneAgentInstallCaches(spec.agent, keepInstallVersions(config, version))
     this.probeState.delete(engine.id)
     return { ...base, state: 'installed' }
   }
