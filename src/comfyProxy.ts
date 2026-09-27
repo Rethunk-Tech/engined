@@ -390,7 +390,7 @@ function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
 }
 
 /** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
-function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | undefined {
+export function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryEntry | undefined {
   const entry = parseRecord(text)?.[promptId]
   return isRecord(entry) ? entry : undefined
 }

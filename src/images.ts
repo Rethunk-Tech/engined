@@ -17,7 +17,7 @@ import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 
 import { readFileSync } from 'node:fs'
 import { classifyResult } from './chain.ts'
-import { submitComfyPrompt } from './comfyProxy.ts'
+import { comfyHistoryEntry, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -230,12 +230,12 @@ async function submitAll({
 
 /** Every output filename comfy recorded for `promptId`, once it has finished. `undefined` while it is still running. */
 function finishedFilenames(text: string, promptId: string): string[] | undefined {
-  const entry = parseRecord(text)?.[promptId]
-  if (!(isRecord(entry) && isRecord(entry.outputs))) {
+  const outputs = comfyHistoryEntry(text, promptId)?.outputs
+  if (!isRecord(outputs)) {
     return undefined
   }
   const names: string[] = []
-  for (const output of Object.values(entry.outputs)) {
+  for (const output of Object.values(outputs)) {
     for (const image of isRecord(output) && Array.isArray(output.images) ? output.images : []) {
       if (isRecord(image) && typeof image.filename === 'string') {
         names.push(image.filename)
