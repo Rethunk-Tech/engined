@@ -27,9 +27,8 @@ downloads weights.
 A consumer that keeps its own runner has not been cut over, only pointed
 twice.
 
-The door is loopback-only, so anything deployed elsewhere is outside it:
-deployments elsewhere bring their own providers, or run without the
-capability.
+The door is loopback-only, so a consumer deployed elsewhere is outside it and
+brings its own provider, or runs without the capability.
 
 Two deliberate exceptions:
 
