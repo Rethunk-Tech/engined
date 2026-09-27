@@ -12,6 +12,7 @@ import {
   BUNX,
   engine as baseEngine,
   route as baseRoute,
+  containerRunning,
   ENGINES_ROOT,
   inspectSinglePort,
   makeTestRoot,
@@ -972,9 +973,7 @@ test('a request that cannot connect while the container is genuinely up rethrows
 
   const base = fakeExec()
   const aliveExec: Exec = (args) =>
-    args[0] === 'inspect'
-      ? Promise.resolve({ exitCode: 0, stdout: 'true\n', stderr: '' })
-      : base(args)
+    args[0] === 'inspect' ? Promise.resolve(containerRunning()) : base(args)
 
   let chatCalls = 0
   const { client } = fakeLlama((call) => {

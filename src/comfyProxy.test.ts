@@ -15,15 +15,17 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { loadComfyBindings } from './comfyBindings.ts'
+import { comfyBindingsPath, loadComfyBindings } from './comfyBindings.ts'
 import { loadConfig } from './config.ts'
+import { redirectStateHome } from './enginesFixtures.ts'
 import type { HttpClient } from './http.ts'
 import { bindDualFamily, createDoor } from './main.ts'
 import {
   BUNX,
   buildExec,
+  collectLines,
   config,
   deadPort,
   engine,
@@ -82,7 +84,10 @@ async function comfyDoor(
   stateHome?: string,
   engineOverrides: Partial<EngineEntry> = {},
 ) {
-  process.env.XDG_STATE_HOME = stateHome ?? mkdtempSync(join(TEST_ROOT, 'state-'))
+  redirectStateHome(TEST_ROOT)
+  if (stateHome !== undefined) {
+    process.env.XDG_STATE_HOME = stateHome
+  }
   const root = mkdtempSync(join(TEST_ROOT, 'door-'))
   writeEngineSpec(root, 'comfy', COMFY_SPEC)
   const cfg = config({
@@ -974,9 +979,7 @@ describe('comfy proxy: the binding table is bounded', () => {
       )
     }
 
-    const onDisk = JSON.parse(
-      readFileSync(join(stateHome, 'engined', 'comfy-bindings.json'), 'utf8'),
-    ) as Record<string, unknown>
+    const onDisk = JSON.parse(readFileSync(comfyBindingsPath(), 'utf8')) as Record<string, unknown>
     expect(Object.keys(onDisk)).toHaveLength(1000)
 
     // In memory: the first prompt bound is the one the door no longer knows,
@@ -1025,7 +1028,7 @@ describe('comfy proxy: a binding the state dir would not take', () => {
 
     expect(bound.status).toBe(200)
     expect(served.status).toBe(200)
-    expect(existsSync(join(engined, 'comfy-bindings.json'))).toBe(false)
+    expect(existsSync(comfyBindingsPath())).toBe(false)
     chmodSync(engined, 0o700)
   })
 })
@@ -1048,7 +1051,7 @@ describe('comfy proxy: the table is written only when it changed', () => {
     )
     await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-p`))
 
-    const file = join(stateHome, 'engined', 'comfy-bindings.json')
+    const file = comfyBindingsPath()
     rmSync(file)
     const repoll = await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-p`))
 
@@ -1070,9 +1073,9 @@ describe('comfy proxy: a binding ages out', () => {
     stateHome: string,
     table: Record<string, { at: number; filenames: string[] }>,
   ) {
-    const dir = join(stateHome, 'engined')
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'comfy-bindings.json'), JSON.stringify(table))
+    process.env.XDG_STATE_HOME = stateHome
+    mkdirSync(dirname(comfyBindingsPath()), { recursive: true })
+    writeFileSync(comfyBindingsPath(), JSON.stringify(table))
   }
 
   test('a binding older than the ttl is refused, and a recent one beside it is still served', async () => {
@@ -1127,9 +1130,7 @@ describe('comfy proxy: a binding ages out', () => {
       new Request(`http://engined${PROXY_PATH}/prompt`, { method: 'POST', body: '{}' }),
     )
 
-    const onDisk = JSON.parse(
-      readFileSync(join(stateHome, 'engined', 'comfy-bindings.json'), 'utf8'),
-    ) as Record<string, unknown>
+    const onDisk = JSON.parse(readFileSync(comfyBindingsPath(), 'utf8')) as Record<string, unknown>
     expect(Object.keys(onDisk)).toEqual([`${KeyPrefix}job-fresh`])
   })
 })
@@ -1138,11 +1139,11 @@ describe('loading the binding table', () => {
   /** A scratch state home holding `body` as its binding table, or holding no table at all. */
   function stateWith(body?: string): void {
     const home = mkdtempSync(join(TEST_ROOT, 'load-'))
-    if (body !== undefined) {
-      mkdirSync(join(home, 'engined'), { recursive: true })
-      writeFileSync(join(home, 'engined', 'comfy-bindings.json'), body)
-    }
     process.env.XDG_STATE_HOME = home
+    if (body !== undefined) {
+      mkdirSync(dirname(comfyBindingsPath()), { recursive: true })
+      writeFileSync(comfyBindingsPath(), body)
+    }
   }
 
   test('entries this build cannot read are counted, not dropped in silence', () => {
@@ -1153,8 +1154,8 @@ describe('loading the binding table', () => {
         'comfy local current': { at: Date.now(), filenames: ['a.png'] },
       }),
     )
-    const lines: string[] = []
-    const table = loadComfyBindings((line) => lines.push(line))
+    const { lines, write } = collectLines()
+    const table = loadComfyBindings(write)
     expect(table.size).toBe(1)
     expect(lines).toHaveLength(1)
     expect(JSON.parse(lines[0] as string)).toEqual({
@@ -1166,16 +1167,16 @@ describe('loading the binding table', () => {
 
   test('the line carries counts only: a key is the prompt id that produced it', () => {
     stateWith(JSON.stringify({ 'comfy local job-2f9c': [] }))
-    const lines: string[] = []
-    loadComfyBindings((line) => lines.push(line))
+    const { lines, write } = collectLines()
+    loadComfyBindings(write)
     expect(lines[0]).not.toContain('job-2f9c')
   })
 
   test('a table voided whole is told apart from a first start', () => {
     stateWith('{ not json at all')
-    const broken: string[] = []
-    expect(loadComfyBindings((line) => broken.push(line)).size).toBe(0)
-    expect(JSON.parse(broken[0] as string)).toEqual({
+    const { lines, write } = collectLines()
+    expect(loadComfyBindings(write).size).toBe(0)
+    expect(JSON.parse(lines[0] as string)).toEqual({
       comfy_bindings: 'unreadable',
       dropped: 'all',
       kept: 0,

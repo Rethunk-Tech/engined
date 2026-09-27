@@ -11,7 +11,7 @@ import {
 } from './dockerArgs.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import { buildExec, containerRunning, makeTestRoot } from './test-support.ts'
+import { buildExec, containerRunning, makeTestRoot, portResult } from './test-support.ts'
 import type { Volume } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-docker-')
@@ -136,11 +136,6 @@ function inspectMissing(): ExecResult {
 /** `docker start` miss on a stopped/absent container: forces the caller to `run` instead. */
 function startMiss(): ExecResult {
   return { stdout: '', stderr: '', exitCode: 1 }
-}
-
-/** `docker port` success: the container answers on the given host port. */
-function portFound(hostPort: number): ExecResult {
-  return { stdout: `127.0.0.1:${hostPort}`, stderr: '', exitCode: 0 }
 }
 
 /**
@@ -317,7 +312,7 @@ test('start: a failed artifact check is not cached — a repaired condition re-r
       return Promise.resolve(ok())
     }
     if (argv[0] === 'port') {
-      return Promise.resolve(portFound(40_010))
+      return Promise.resolve(portResult(40_010))
     }
     return Promise.resolve(ok())
   }
@@ -371,7 +366,7 @@ test('start: a bind-mounted artifact is checked with a host stat, never a contai
     }
     const calls: string[][] = []
     const exec = recordingExec(calls, (argv) =>
-      argv[0] === 'port' ? portFound(40_030) : undefined,
+      argv[0] === 'port' ? portResult(40_030) : undefined,
     )
     const lifecycle = new DockerLifecycle(exec, readyProbe)
 
@@ -619,7 +614,7 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
       return Promise.resolve(ok())
     }
     if (argv[0] === 'port') {
-      return Promise.resolve(portFound(40_003))
+      return Promise.resolve(portResult(40_003))
     }
     if (argv[0] === 'stop') {
       stopCalls.push(argv)
@@ -696,7 +691,7 @@ test('start: a stale container by this name is removed and recreated from the cu
       return ok()
     }
     if (argv[0] === 'port') {
-      return portFound(hostPort)
+      return portResult(hostPort)
     }
     return
   })
@@ -748,7 +743,7 @@ test('start: a container already running under this name is force-removed and re
       return ok()
     }
     if (argv[0] === 'port') {
-      return portFound(hostPort)
+      return portResult(hostPort)
     }
     return
   })

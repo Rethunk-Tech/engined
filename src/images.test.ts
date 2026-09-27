@@ -4,17 +4,18 @@
  * `comfyHttpClient` exactly as the mediated proxy's own suite does — nothing
  * here reaches a real ComfyUI.
  */
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import process from 'node:process'
 import { buildComfySpec } from './comfy.ts'
+import { redirectStateHome } from './enginesFixtures.ts'
 import type { HttpClient } from './http.ts'
 import { fillWorkflow } from './images.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
   buildExec,
+  collectLines,
   config,
   ENGINES_ROOT,
   engine,
@@ -24,6 +25,8 @@ import {
 } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-images-')
+let restoreStateHome: (() => void) | undefined
+afterAll(() => restoreStateHome?.())
 const IMAGES_PATH = '/openai/v1/images/generations'
 const EDITS_PATH = '/openai/v1/images/edits'
 const COMFY_CONTAINER_PORT = 8188
@@ -109,7 +112,8 @@ async function imagesDoor(
   routeArgs: Record<string, unknown> = CHECKPOINTS,
   opts: { write?: (line: string) => void; chatTimeoutSeconds?: number } = {},
 ) {
-  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, 'state-'))
+  restoreStateHome?.()
+  restoreStateHome = redirectStateHome(TEST_ROOT)
   const root = mkdtempSync(join(TEST_ROOT, 'door-'))
   writeEngineSpec(root, 'comfy', COMFY_SPEC)
   mkdirSync(join(root, 'comfy'), { recursive: true })
@@ -344,9 +348,9 @@ function lastRecord(lines: string[]): ProvenanceLine {
 
 describe('the one line this call is entitled to', () => {
   test('a render answered is recorded as a success, naming the engine that answered', async () => {
-    const lines: string[] = []
+    const { lines, write } = collectLines()
     const door = await imagesDoor(rendersInstantly(), CHECKPOINTS, {
-      write: (line) => lines.push(line),
+      write,
     })
     const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
     const record = lastRecord(lines)
@@ -360,7 +364,7 @@ describe('the one line this call is entitled to', () => {
   // journald is the whole observability surface for this verb, and a failed
   // render indistinguishable from a rendered one is no surface at all.
   test('a container that refuses the prompt is recorded as a failure, in its own words', async () => {
-    const lines: string[] = []
+    const { lines, write } = collectLines()
     const refusesThePrompt: HttpClient = (url) =>
       Promise.resolve(
         String(url).includes('/prompt')
@@ -368,7 +372,7 @@ describe('the one line this call is entitled to', () => {
           : Response.json({ queue_running: [], queue_pending: [] }),
       )
     const door = await imagesDoor(refusesThePrompt, CHECKPOINTS, {
-      write: (line) => lines.push(line),
+      write,
     })
     const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
     const record = lastRecord(lines)
@@ -382,13 +386,13 @@ describe('the one line this call is entitled to', () => {
   })
 
   test('an image comfy will not serve is a failure, not an empty success', async () => {
-    const lines: string[] = []
+    const { lines, write } = collectLines()
     const rendersThenHides: HttpClient = (url, init) =>
       String(url).includes('/view')
         ? Promise.resolve(new Response('gone', { status: 404 }))
         : rendersInstantly()(url, init)
     const door = await imagesDoor(rendersThenHides, CHECKPOINTS, {
-      write: (line) => lines.push(line),
+      write,
     })
     const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
     const record = lastRecord(lines)

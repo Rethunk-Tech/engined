@@ -19,6 +19,7 @@ import {
   READY_200,
   TEST_DOOR_URL,
 } from './doorFixtures.ts'
+import { redirectStateHome } from './enginesFixtures.ts'
 import type { ExecResult } from './exec.ts'
 import { createDoor, type Door } from './main.ts'
 import {
@@ -531,21 +532,17 @@ function renderedOpencodeBaseUrl(path: string): string {
  * `XDG_STATE_HOME` so no launch reads a file another test left behind.
  */
 async function withOpencodeLaunchEnv(body: () => Promise<void>): Promise<void> {
-  const previous = {
-    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
-    ENGINED_BWRAP: process.env.ENGINED_BWRAP,
-  }
-  process.env.XDG_STATE_HOME = mkdtempSync(join(TEST_ROOT, 'engined-state-'))
+  const previousBwrap = process.env.ENGINED_BWRAP
+  const restoreStateHome = redirectStateHome(TEST_ROOT)
   process.env.ENGINED_BWRAP = '/bin/true'
   try {
     await body()
   } finally {
-    for (const [name, value] of Object.entries(previous)) {
-      if (value === undefined) {
-        delete process.env[name]
-      } else {
-        process.env[name] = value
-      }
+    restoreStateHome()
+    if (previousBwrap === undefined) {
+      delete process.env.ENGINED_BWRAP
+    } else {
+      process.env.ENGINED_BWRAP = previousBwrap
     }
   }
 }
