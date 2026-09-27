@@ -118,6 +118,61 @@ async function startedFlagsAcrossTwoCalls(): Promise<{
   }
 }
 
+function recordingStartDoor(cfg: Config, root: string) {
+  const { client, urls } = makeRecordingLlamaClient()
+  const runLog: string[][] = []
+  const door = createLlamaDoor(
+    cfg,
+    root,
+    { llamaHttpClient: client },
+    buildExec({ runLog, portSeed: 52_000 }),
+  )
+  return { door, urls, runLog }
+}
+
+function hostedGptConfig(
+  routes = [route({ engine: 'hosted', model: 'gpt-x', upstream: 'openrouter' })],
+  chains?: Config['chains'],
+) {
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  const cfg = config({
+    upstreams: [{ id: 'openrouter', egress: 'remote', base_url: 'https://openrouter.example/v1' }],
+    engines: [engine({ id: 'hosted', kind: 'openai-http' })],
+    routes,
+    ...(chains === undefined ? {} : { chains }),
+  })
+  return { cfg, root }
+}
+
+async function startOk(door: ReturnType<typeof createLlamaDoor>, model: string) {
+  const res = await door.fetch(startRequest(model))
+  expect(res.status).toBe(200)
+  return (await res.json()) as { data: Record<string, unknown>[] }
+}
+
+async function concurrentStartBodies(
+  door: ReturnType<typeof createLlamaDoor> | ReturnType<typeof createDoor>,
+  model: string,
+) {
+  const [first, second] = await Promise.all([
+    door.fetch(startRequest(model)),
+    door.fetch(startRequest(model)),
+  ])
+  const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
+  const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
+  return { firstBody, secondBody }
+}
+
+function expectExactlyOneStarted(
+  firstBody: { data: Record<string, unknown>[] },
+  secondBody: { data: Record<string, unknown>[] },
+) {
+  const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
+  expect(started.sort()).toEqual([false, true])
+  expect(firstBody.data[0]?.state).toBe('running')
+  expect(secondBody.data[0]?.state).toBe('running')
+}
+
 describe('POST /engined/v1/start', () => {
   test('an engine id is not a place: the old per-engine route is a 404', async () => {
     const { cfg, root } = llamaDoorConfig(TEST_ROOT)
@@ -130,14 +185,7 @@ describe('POST /engined/v1/start', () => {
 
   test("a chain name warms only its first hop's local engine, with no url in the response", async () => {
     const { cfg, root } = llamaThenWhisperChainConfig()
-    const { client, urls } = makeRecordingLlamaClient()
-    const runLog: string[][] = []
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      { llamaHttpClient: client },
-      buildExec({ runLog, portSeed: 52_000 }),
-    )
+    const { door, urls, runLog } = recordingStartDoor(cfg, root)
     const res = await door.fetch(startRequest('chain-x'))
 
     expect(res.status).toBe(200)
@@ -155,19 +203,8 @@ describe('POST /engined/v1/start', () => {
   })
 
   test('an address whose upstream is not local is a no-op that reports state, not an error', async () => {
-    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
-    const cfg = config({
-      upstreams: [
-        { id: 'openrouter', egress: 'remote', base_url: 'https://openrouter.example/v1' },
-      ],
-      engines: [engine({ id: 'hosted', kind: 'openai-http' })],
-      routes: [route({ engine: 'hosted', model: 'gpt-x', upstream: 'openrouter' })],
-    })
-    const door = createLlamaDoor(cfg, root)
-    const res = await door.fetch(startRequest('@/hosted/gpt-x'))
-
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { data: Record<string, unknown>[] }
+    const { cfg, root } = hostedGptConfig()
+    const body = await startOk(createLlamaDoor(cfg, root), '@/hosted/gpt-x')
     const [row] = body.data
     expect(row?.upstream).toBe('openrouter')
     expect(String(row?.fix)).toContain('not local')
@@ -177,25 +214,16 @@ describe('POST /engined/v1/start', () => {
 
 describe("POST /engined/v1/start: which of an engine's routes", () => {
   test('a chain hop warms the route it will dispatch to, not the first declared', async () => {
-    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
-    const cfg = config({
-      upstreams: [
-        { id: 'openrouter', egress: 'remote', base_url: 'https://openrouter.example/v1' },
-      ],
-      engines: [engine({ id: 'hosted', kind: 'openai-http' })],
-      // Declaration order puts the keyed upstream first; the ambient route is
-      // the one a dispatch of "@/hosted/gpt-x" runs.
-      routes: [
+    // Declaration order puts the keyed upstream first; the ambient route is
+    // the one a dispatch of "@/hosted/gpt-x" runs.
+    const { cfg, root } = hostedGptConfig(
+      [
         route({ engine: 'hosted', model: 'gpt-x', upstream: 'openrouter' }),
         route({ engine: 'hosted', model: 'gpt-x', upstream: null }),
       ],
-      chains: { 'chain-x': ['@/hosted/gpt-x'] },
-    })
-    const door = createLlamaDoor(cfg, root)
-    const res = await door.fetch(startRequest('chain-x'))
-
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { data: Record<string, unknown>[] }
+      { 'chain-x': ['@/hosted/gpt-x'] },
+    )
+    const body = await startOk(createLlamaDoor(cfg, root), 'chain-x')
     const [row] = body.data
     expect(row?.upstream).toBeNull()
   })
@@ -231,18 +259,9 @@ describe('POST /engined/v1/start: concurrent calls on a cold container engine', 
       ),
     })
 
-    const [first, second] = await Promise.all([
-      door.fetch(startRequest('@/whisper-like/small')),
-      door.fetch(startRequest('@/whisper-like/small')),
-    ])
-    const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
-    const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
-
+    const { firstBody, secondBody } = await concurrentStartBodies(door, '@/whisper-like/small')
     expect(runLog).toHaveLength(1)
-    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
-    expect(started.sort()).toEqual([false, true])
-    expect(firstBody.data[0]?.state).toBe('running')
-    expect(secondBody.data[0]?.state).toBe('running')
+    expectExactlyOneStarted(firstBody, secondBody)
   })
 })
 
@@ -259,32 +278,16 @@ describe('POST /engined/v1/start: concurrent calls on a cold llama model', () =>
     const { client, urls } = makeRecordingLlamaClient()
     const door = createLlamaDoor(cfg, root, { llamaHttpClient: client })
 
-    const [first, second] = await Promise.all([
-      door.fetch(startRequest('@/local-llama/ornith')),
-      door.fetch(startRequest('@/local-llama/ornith')),
-    ])
-    const firstBody = (await first.json()) as { data: Record<string, unknown>[] }
-    const secondBody = (await second.json()) as { data: Record<string, unknown>[] }
-
+    const { firstBody, secondBody } = await concurrentStartBodies(door, '@/local-llama/ornith')
     expect(urls.filter((u) => u.endsWith('/models/load'))).toHaveLength(1)
-    const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
-    expect(started.sort()).toEqual([false, true])
-    expect(firstBody.data[0]?.state).toBe('running')
-    expect(secondBody.data[0]?.state).toBe('running')
+    expectExactlyOneStarted(firstBody, secondBody)
   })
 })
 
 describe('POST /engined/v1/start: a roleless model on a container engine', () => {
   test('a roleless model on a container engine takes the stop-and-restart path, not the llama router', async () => {
     const { cfg, root } = whisperDoorConfig()
-    const { client, urls } = makeRecordingLlamaClient()
-    const runLog: string[][] = []
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      { llamaHttpClient: client },
-      buildExec({ runLog, portSeed: 52_000 }),
-    )
+    const { door, urls, runLog } = recordingStartDoor(cfg, root)
     const res = await door.fetch(startRequest('@/whisper-like/small'))
 
     expect(res.status).toBe(200)
