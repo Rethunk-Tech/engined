@@ -9,7 +9,7 @@ import type { ChatMessage, ChatReply, StreamSink } from './cursorAgent.ts'
 import { chatModels } from './cursorDoor.ts'
 import { TOOL_SCHEMA } from './cursorExec.ts'
 import type { DoorContext } from './doorContext.ts'
-import { CONTENT_TYPE, JSON_CONTENT_TYPE, splitSseFrames, sseDataPayloads } from './http.ts'
+import { CONTENT_TYPE, JSON_CONTENT_TYPE, sseDataPayloads, sseFrames } from './http.ts'
 import { parseRecord } from './records.ts'
 import { CONTENT_ENDPOINT_CHAT } from './routeServes.ts'
 
@@ -68,15 +68,6 @@ export async function completeLocally(
   return await readChatStream(res.body, on)
 }
 
-/** One SSE data payload's JSON chunk, or `undefined` for anything that is not JSON. */
-function parseDataPayload(payload: string): ChatChunk | undefined {
-  const parsed = parseRecord(payload)
-  if (parsed === null) {
-    return
-  }
-  return parsed as ChatChunk
-}
-
 interface ToolCallSlot {
   id: string
   name: string
@@ -131,25 +122,13 @@ async function readChatStream(
   body: ReadableStream<Uint8Array>,
   on: StreamSink,
 ): Promise<ChatReply> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
   const calls: ToolCallSlot[] = []
   const acc: { text: string; usage: ChatReply['usage'] } = { text: '', usage: undefined }
-  let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
-    buffer += decoder.decode(value, { stream: true })
-    const { frames, carry } = splitSseFrames(buffer)
-    buffer = carry
-    for (const frame of frames) {
-      for (const payload of sseDataPayloads(frame)) {
-        const chunk = parseDataPayload(payload)
-        if (chunk !== undefined) {
-          applyChatChunk(chunk, calls, on, acc)
-        }
+  for await (const frame of sseFrames(body)) {
+    for (const payload of sseDataPayloads(frame)) {
+      const chunk = parseRecord(payload) as ChatChunk | null
+      if (chunk !== null) {
+        applyChatChunk(chunk, calls, on, acc)
       }
     }
   }

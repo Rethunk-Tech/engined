@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { declaredOverLimit, discardBody, splitSseFrames } from './http.ts'
+import { declaredOverLimit, discardBody, splitSseFrames, sseFrames } from './http.ts'
 
 /**
  * A response whose body records whether anything ever cancelled it, standing in
@@ -55,6 +55,26 @@ test('a carry with no frame boundary past the cap is dropped rather than held', 
   const kept = 'x'.repeat(65_536)
   expect(splitSseFrames(kept)).toEqual({ frames: [], carry: kept })
   expect(splitSseFrames(`${kept}y`)).toEqual({ frames: [], carry: '' })
+})
+
+test('SSE frames split on LF, CRLF, or CR boundaries', () => {
+  expect(splitSseFrames('a\n\nb')).toEqual({ frames: ['a'], carry: 'b' })
+  expect(splitSseFrames('a\r\n\r\nb')).toEqual({ frames: ['a'], carry: 'b' })
+  expect(splitSseFrames('a\r\rb')).toEqual({ frames: ['a'], carry: 'b' })
+})
+
+test('sseFrames yields a trimmed tail with no trailing boundary', async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"x":1}'))
+      controller.close()
+    },
+  })
+  const frames: string[] = []
+  for await (const frame of sseFrames(body)) {
+    frames.push(frame)
+  }
+  expect(frames).toEqual(['data: {"x":1}'])
 })
 
 test('a finite Content-Length past the cap is over the limit; an absent or unparseable one is not', () => {

@@ -24,8 +24,8 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  splitSseFrames,
   sseDataPayloads,
+  sseFrames,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
 import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
@@ -165,32 +165,20 @@ function mapInfillStream(
   source: ReadableStream<Uint8Array>,
   modelId: string,
 ): ReadableStream<Uint8Array> {
-  const reader = source.getReader()
-  const decoder = new TextDecoder()
   const encoder = new TextEncoder()
-  let buffered = ''
+  const gen = sseFrames(source)
   return new ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read()
-      if (value) {
-        buffered += decoder.decode(value, { stream: true })
-      }
-      const { frames, carry } = splitSseFrames(buffered)
-      buffered = carry
-      for (const frame of frames) {
-        emitMappedFrame(controller, encoder, frame, modelId)
-      }
-      if (!done) {
+      const { done, value } = await gen.next()
+      if (done) {
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
         return
       }
-      if (buffered.trim() !== '') {
-        emitMappedFrame(controller, encoder, buffered, modelId)
-      }
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-      controller.close()
+      emitMappedFrame(controller, encoder, value, modelId)
     },
-    cancel(reason) {
-      reader.cancel(reason).catch(() => undefined)
+    cancel() {
+      void gen.return(undefined)
     },
   })
 }

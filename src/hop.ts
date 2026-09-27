@@ -26,8 +26,8 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
-  splitSseFrames,
   sseDataPayloads,
+  sseFrames,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
@@ -221,35 +221,19 @@ function reportedModelFromFrame(frame: string): string | undefined {
  * `undefined`: an absent field is honest, a guessed one is not.
  */
 async function firstReportedModel(sniff: ReadableStream<Uint8Array>): Promise<string | undefined> {
-  const reader = sniff.getReader()
-  const decoder = new TextDecoder()
-  let buffered = ''
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (value) {
-        buffered += decoder.decode(value, { stream: true })
+    for await (const frame of sseFrames(sniff)) {
+      const model = reportedModelFromFrame(frame)
+      if (model !== undefined) {
+        return model
       }
-      const { frames, carry } = splitSseFrames(buffered)
-      buffered = carry
-      for (const frame of frames) {
-        const model = reportedModelFromFrame(frame)
-        if (model !== undefined) {
-          return model
-        }
-        if (sseDataPayloads(frame).length > 0) {
-          return
-        }
-      }
-      if (done) {
+      if (sseDataPayloads(frame).length > 0) {
         return
       }
     }
   } catch {
     // A sniff-read failure is not the caller's failure: the tee's other
     // branch shares the same underlying source and reports it independently.
-  } finally {
-    reader.cancel().catch(() => undefined)
   }
   return undefined
 }

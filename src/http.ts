@@ -96,7 +96,8 @@ export async function discardBody(res: Response): Promise<void> {
   await res.body?.cancel().catch(() => undefined)
 }
 
-const SSE_FRAME_BOUNDARY = '\n\n'
+/** SSE allows LF, CRLF, or CR as the frame separator; matching only `\n\n` drops a CRLF-framed body. */
+const SSE_FRAME_BOUNDARY = /\r\n\r\n|\n\n|\r\r/
 
 /** Past this with no frame boundary the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
 const MAX_CARRY_BYTES = 65_536
@@ -111,7 +112,7 @@ export function splitSseFrames(carry: string): { frames: string[]; carry: string
 /** JSON payloads from `data:` lines in one frame. Comment, event, and empty/`[DONE]` lines are not payloads. */
 export function sseDataPayloads(frame: string): string[] {
   const payloads: string[] = []
-  for (const line of frame.split('\n')) {
+  for (const line of frame.split(/\r?\n/)) {
     if (!line.startsWith('data:')) {
       continue
     }
@@ -122,6 +123,42 @@ export function sseDataPayloads(frame: string): string[] {
     payloads.push(data)
   }
   return payloads
+}
+
+/**
+ * Yield each complete SSE frame from `body`, then a trimmed leftover with no
+ * trailing boundary. The reader is cancelled on the way out, including when
+ * the caller returns from a `for await` before the stream ends.
+ */
+export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let carry = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (value) {
+        carry += decoder.decode(value, { stream: true })
+      }
+      if (done) {
+        carry += decoder.decode()
+      }
+      const split = splitSseFrames(carry)
+      carry = split.carry
+      for (const frame of split.frames) {
+        yield frame
+      }
+      if (!done) {
+        continue
+      }
+      if (carry.trim() !== '') {
+        yield carry
+      }
+      return
+    }
+  } finally {
+    reader.cancel().catch(() => undefined)
+  }
 }
 
 /**

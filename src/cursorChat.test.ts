@@ -61,6 +61,48 @@ test('completeLocally addresses a chat route by engine id, not a hardcoded llama
   }
 })
 
+test('a chat stream with no trailing frame boundary still yields its last frame', async () => {
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: () =>
+      new Response('data: {"choices":[{"delta":{"content":"tail"}}]}', {
+        headers: { [CONTENT_TYPE]: 'text/event-stream' },
+      }),
+  })
+  try {
+    const cfg = config({
+      listen_port: server.port,
+      routes: [route({ engine: 'box', model: 'ornith', role: 'chat' })],
+    })
+    const reply = await completeLocally(ctxFor(cfg), [], silent)
+    expect(reply.text).toBe('tail')
+  } finally {
+    server.stop(true)
+  }
+})
+
+test('a CRLF-framed chat stream parses', async () => {
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: () =>
+      new Response('data: {"choices":[{"delta":{"content":"crlf"}}]}\r\n\r\n', {
+        headers: { [CONTENT_TYPE]: 'text/event-stream' },
+      }),
+  })
+  try {
+    const cfg = config({
+      listen_port: server.port,
+      routes: [route({ engine: 'box', model: 'ornith', role: 'chat' })],
+    })
+    const reply = await completeLocally(ctxFor(cfg), [], silent)
+    expect(reply.text).toBe('crlf')
+  } finally {
+    server.stop(true)
+  }
+})
+
 test('a null SSE data frame does not abort the turn', async () => {
   const server = Bun.serve({
     hostname: '127.0.0.1',
