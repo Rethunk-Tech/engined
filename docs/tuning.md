@@ -72,3 +72,33 @@ route (whose merged `parallel` is left at the engine's `-1` auto rather than
 overridden). A LLAMA_COMMIT bump re-measures the geometry table above AND
 re-runs that assertion — a moved auto would otherwise desynchronise the two
 silently, admitting more or fewer than the child agreed to.
+
+## Cache-aware slot placement
+
+Measured on ornith's own `parallel = 2` against real VS Code Copilot chats: a
+new chat's ~31k-token prompt, identical in its first ~30k tokens to the
+previous chat's, was fully re-prefilled (47-50s) because Copilot's small side
+requests (10-276 tokens) landed by llama's own cross-request LRU on the slot
+holding the long cached prompt and overwrote it — the long request then also
+landed by LRU and reprocessed all 30,951 tokens. llama-server's host-RAM
+prompt cache (`--cache-idle-slots`) does not restore on this hybrid model, so
+placement is the fix, not a bigger buffer.
+
+For any local llama route whose merged `parallel` is a positive integer
+`>= 2`, `src/llamaSlots.ts` (driven from `LlamaRouter.proxy`, `src/llama.ts`)
+reserves the first `ceil(parallel / 2)` slot ids LONG and the rest SHORT. A
+request's own prompt is sized with the vocab-only tokenizer
+(`src/bpeTokenize.ts`/`bpeVocab.ts`) against the same GGUF `src/tokenizeRoute.ts`
+already reads cold; `>= slot_long_threshold` (route config, default 4096)
+makes it LONG. A LONG request is placed on the idle long slot whose tracked
+prefix fingerprint (a hash of its first 2048 token ids) matches its own, else
+the least-recently-used idle long slot; a SHORT request only ever lands on a
+short slot, least-recently-used idle first. Either class left with nothing
+idle gets no `id_slot` at all — llama-server decides on its own, exactly as
+it did before this existed. A caller-supplied `id_slot` is never touched.
+
+`GET /slots` on this build reports only `id`/`is_processing`/`n_ctx`/
+`speculative` — nothing about what a slot has cached — so this table is
+engined's own bookkeeping of what it last placed, not a read of the child's
+real occupancy. It is memory-resident per `(engine, model)` and does not
+survive a config reload that recreates the container.

@@ -55,6 +55,7 @@ export interface RawRoute {
   fim?: boolean
   keep_resident?: boolean
   streaming?: boolean
+  slot_long_threshold?: number
   args: Record<string, unknown>
   disabledOwn: boolean
   capabilities: ModelCapabilities
@@ -92,6 +93,7 @@ export function parseRouteRaw(
       'fim',
       'keep_resident',
       'wire_model',
+      'slot_long_threshold',
       'args',
     ] as const) {
       if (raw[key] !== undefined) {
@@ -131,6 +133,15 @@ export function parseRouteRaw(
   }
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
+  const slotLongThreshold = optional(
+    raw.slot_long_threshold,
+    'number',
+    `${site} "slot_long_threshold"`,
+    file,
+  )
+  if (slotLongThreshold !== undefined && slotLongThreshold <= 0) {
+    throw new ParseError(`${site} "slot_long_threshold" must be greater than 0`, file)
+  }
   return {
     engine: engineId,
     model: modelStr,
@@ -144,6 +155,7 @@ export function parseRouteRaw(
     fim: optional(raw.fim, 'boolean', `${site} "fim"`, file),
     keep_resident: optional(raw.keep_resident, 'boolean', `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, 'boolean', `${site} "streaming"`, file),
+    slot_long_threshold: slotLongThreshold,
     args,
     disabledOwn: parseDisable(raw, site, file) === true,
     capabilities: parseCapabilities(raw, site, file),
@@ -329,6 +341,7 @@ export function resolveRoute({
     fim: raw.fim,
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
+    slot_long_threshold: raw.slot_long_threshold,
     args: raw.args,
     disabled,
     ...mergeCapabilities(baseCaps, roleCapabilities(raw.role), raw.capabilities),

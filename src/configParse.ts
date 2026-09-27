@@ -78,6 +78,7 @@ export const ROUTE_KEYS = new Set([
   'fim',
   'keep_resident',
   'streaming',
+  'slot_long_threshold',
   'args',
   'disable',
   'input',

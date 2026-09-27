@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Probe } from './docker.ts'
 import { DockerLifecycle } from './docker.ts'
 import { buildRunArgs } from './dockerArgs.ts'
@@ -16,6 +17,7 @@ import {
   makeTestRoot,
   portResult,
   tempPresetPath,
+  writeGgufFixture,
 } from './test-support.ts'
 import { type EngineEntry, pollUntil, type ResolvedRoute } from './types.ts'
 
@@ -93,7 +95,7 @@ function baseOpts(httpClient: HttpClient) {
 
 interface RecordedCall {
   path: string
-  body: { model?: string; stream?: boolean } | undefined
+  body: { model?: string; stream?: boolean; id_slot?: number } | undefined
 }
 
 /** Structured parse of `renderPresetIni`'s output: `id -> {key: value}`, section-name brackets stripped. */
@@ -1382,4 +1384,141 @@ test('warm loads a model without holding it: the lease is released again', async
   expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual(['a'])
   expect(router.hasOutstandingLeases()).toBe(false)
   expect(router.contention()).toEqual([])
+})
+
+describe('cache-aware slot placement', () => {
+  /**
+   * A real, tiny GGUF vocab ("a" and "b" each their own token, no merges) so
+   * `classifyPrompt` tokenizes for real instead of falling back to chars/3 --
+   * a repeated-character prompt's token count is then exactly its length,
+   * and two prompts sharing a prefix share a fingerprint. `ceil(parallel/2)`
+   * reserves slot ids `[0, longCount)` LONG and the rest SHORT.
+   */
+  function slotEngineAndRoute(
+    parallel: number,
+    thresholdTokens = 4,
+  ): { e: EngineEntry; r: ResolvedRoute } {
+    const modelsDir = join(TEST_ROOT, `slots-${Math.random().toString(36).slice(2)}`)
+    writeGgufFixture(join(modelsDir, 'tiny.gguf'), {
+      'general.architecture': 'qwen3',
+      'tokenizer.ggml.model': 'gpt2',
+      'tokenizer.ggml.pre': 'gpt2',
+      'tokenizer.ggml.tokens': ['a', 'b'],
+      'tokenizer.ggml.merges': [],
+    })
+    const e = engine({ models_dir: modelsDir })
+    const r = baseRoute({
+      engine: 'llama',
+      model: 'ornith',
+      filename: 'tiny.gguf',
+      role: 'chat',
+      slot_long_threshold: thresholdTokens,
+      args: { parallel },
+    })
+    return { e, r }
+  }
+
+  function chatBody(content: string, extra: Record<string, unknown> = {}): string {
+    return JSON.stringify({ model: 'ornith', messages: [{ role: 'user', content }], ...extra })
+  }
+
+  test('a prompt at or above the threshold is placed on the reserved long slot', async () => {
+    const { e, r } = slotEngineAndRoute(2)
+    const { calls, router } = routerFor(e, [r])
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa') }))
+    expect(calls.find((c) => c.path === CHAT_PATH)?.body?.id_slot).toBe(0)
+  })
+
+  test('a prompt under the threshold never lands on the long slot', async () => {
+    const { e, r } = slotEngineAndRoute(2)
+    const { calls, router } = routerFor(e, [r])
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('a') }))
+    expect(calls.find((c) => c.path === CHAT_PATH)?.body?.id_slot).toBe(1)
+  })
+
+  test('a repeated long prompt returns to the slot holding its matching prefix, not a virgin slot', async () => {
+    // parallel = 4 -> two long slots (0, 1), so a plain LRU pick would send
+    // the second identical prompt to slot 1 (never yet used) instead of back
+    // to slot 0 -- only the fingerprint match explains landing on 0 twice.
+    const { e, r } = slotEngineAndRoute(4)
+    const { calls, router } = routerFor(e, [r])
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa') }))
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa') }))
+    const chatCalls = calls.filter((c) => c.path === CHAT_PATH)
+    expect(chatCalls.map((c) => c.body?.id_slot)).toEqual([0, 0])
+  })
+
+  test('a caller-supplied id_slot is forwarded untouched', async () => {
+    const { e, r } = slotEngineAndRoute(2)
+    const { calls, router } = routerFor(e, [r])
+    await text(
+      router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa', { id_slot: 9 }) }),
+    )
+    expect(calls.find((c) => c.path === CHAT_PATH)?.body?.id_slot).toBe(9)
+  })
+
+  test('parallel = 1 never places a slot', async () => {
+    const { e, r } = slotEngineAndRoute(1)
+    const { calls, router } = routerFor(e, [r])
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa') }))
+    expect(calls.find((c) => c.path === CHAT_PATH)?.body?.id_slot).toBeUndefined()
+  })
+
+  test('a long slot already busy is left unset for a second concurrent long request rather than reused', async () => {
+    const { e, r } = slotEngineAndRoute(2)
+    const { client, calls, release, inGate } = gatedClient(CHAT_PATH)
+    const router = routerWithClient(e, [r], client)
+
+    const first = router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('aaaa') })
+    await waitFor(() => inGate() === 1)
+    const second = router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('bbbb') })
+    await waitFor(() => inGate() === 2)
+    release()
+    await Promise.all([text(first), text(second)])
+
+    const chatCalls = calls.filter((c) => c.path === CHAT_PATH)
+    expect(chatCalls[0]?.body?.id_slot).toBe(0)
+    expect(chatCalls[1]?.body?.id_slot).toBeUndefined()
+  })
+
+  test('an aborted long request releases its slot for the next one', async () => {
+    const { e, r } = slotEngineAndRoute(2)
+    const { client: base, calls } = fakeLlama()
+    let started: () => void = () => undefined
+    const startedPromise = new Promise<void>((res) => {
+      started = res
+    })
+    let firstChatSeen = false
+    // The first chat call hangs until the caller aborts it; every later call
+    // (including this same request's own load/poll plumbing) answers
+    // normally through the shared `fakeLlama()` double.
+    const client: HttpClient = (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === CHAT_PATH && !firstChatSeen) {
+        firstChatSeen = true
+        started()
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          })
+        })
+      }
+      return base(input, init)
+    }
+    const router = routerWithClient(e, [r], client)
+    const controller = new AbortController()
+    const aborted = router.proxy(r, CHAT_PATH, {
+      method: 'POST',
+      body: chatBody('aaaa'),
+      signal: controller.signal,
+    })
+    await startedPromise
+    controller.abort()
+    await expect(aborted).rejects.toThrow()
+
+    // Same router, same slot table: if the abort had not released slot 0,
+    // this would be left with no idle long slot to place at all.
+    await text(router.proxy(r, CHAT_PATH, { method: 'POST', body: chatBody('bbbb') }))
+    expect(calls.find((c) => c.path === CHAT_PATH)?.body?.id_slot).toBe(0)
+  })
 })

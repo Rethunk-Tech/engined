@@ -11,10 +11,16 @@
  * the INI, never through the load call's body.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, resolve as resolvePath } from 'node:path'
 import type { DockerLifecycle } from './docker.ts'
 import { CONTENT_TYPE, type HttpClient, SSE_CONTENT_TYPE } from './http.ts'
 import { RoleScheduler } from './llamaRoles.ts'
+import {
+  classifyPrompt,
+  DEFAULT_SLOT_LONG_THRESHOLD,
+  LlamaSlotTable,
+  renderedPromptText,
+} from './llamaSlots.ts'
 import {
   AUTO_PARALLEL,
   buildLlamaSpec,
@@ -53,6 +59,15 @@ export interface LlamaHop {
   modelResident: string | undefined
 }
 
+/** One `proxy()` call's fields, bundled so `fetchBuffered`/`fetchStreamed` take one object rather than five positional arguments. */
+interface HopCall {
+  role: Role
+  modelId: string
+  path: string
+  init: RequestInit
+  route: ResolvedRoute
+}
+
 export interface LlamaRouterOptions {
   enginesRoot: string
   bunx: string
@@ -88,6 +103,8 @@ export class LlamaRouter {
   private readonly routes: readonly ResolvedRoute[]
   private readonly lifecycle: DockerLifecycle
   private readonly opts: LlamaRouterOptions
+  /** One slot table per resident model id -- see `placeSlot`. Rebuilt (losing its history) if a config reload changes that model's merged `parallel`. */
+  private readonly slotTables = new Map<string, LlamaSlotTable>()
 
   constructor(
     engine: EngineEntry,
@@ -308,9 +325,72 @@ export class LlamaRouter {
     if (role === undefined || model === undefined) {
       throw new Error(`route on engine "${route.engine}" has no role or model to proxy`)
     }
-    return wantsStream(init)
-      ? this.fetchStreamed(role, model, path, init)
-      : this.fetchBuffered(role, model, path, init)
+    const call: HopCall = { role, modelId: model, path, init, route }
+    return wantsStream(init) ? this.fetchStreamed(call) : this.fetchBuffered(call)
+  }
+
+  /** The on-disk GGUF `route` points at, or `undefined` for a route with none to read -- mirrors `tokenizeRoute.ts`'s `ggufPathFor`, without needing that file's full `Config`. */
+  private ggufPathFor(route: ResolvedRoute): string | undefined {
+    if (
+      route.upstream !== 'local' ||
+      route.filename === undefined ||
+      this.engine.models_dir === undefined
+    ) {
+      return undefined
+    }
+    return resolvePath(this.engine.models_dir, route.filename)
+  }
+
+  /** Rebuilt whenever a config reload changes this model's merged `parallel` -- rare, and a slot table starting cold on that edge is far cheaper than tracking a table shape nothing asks to persist. */
+  private slotTableFor(modelId: string, parallel: number): LlamaSlotTable {
+    const existing = this.slotTables.get(modelId)
+    if (existing !== undefined && existing.parallel === parallel) {
+      return existing
+    }
+    const table = new LlamaSlotTable(parallel)
+    this.slotTables.set(modelId, table)
+    return table
+  }
+
+  /**
+   * Folds a chosen `id_slot` into `init`'s body, when there is one to choose --
+   * see `llamaSlots.ts`. Every one of these is the reason there is nothing to
+   * place, in which case `init` comes back untouched and `release` is a no-op:
+   * this route's merged `parallel` is not a positive integer `>= 2`; the body
+   * is not JSON or already names `id_slot` itself, which always wins untouched;
+   * or no slot in the prompt's own size class is idle right now, in which case
+   * llama-server decides exactly as it did before this existed.
+   */
+  private async placeSlot(
+    route: ResolvedRoute,
+    modelId: string,
+    init: RequestInit,
+  ): Promise<{ init: RequestInit; release: () => void }> {
+    const untouched = { init, release: () => undefined }
+    const { parallel } = mergedArgs(this.engine, route)
+    if (typeof parallel !== 'number' || !Number.isInteger(parallel) || parallel < 2) {
+      return untouched
+    }
+    if (typeof init.body !== 'string') {
+      return untouched
+    }
+    const body = parseRecord(init.body)
+    if (body === null || body.id_slot !== undefined) {
+      return untouched
+    }
+    const { sizeClass, fingerprint } = await classifyPrompt(
+      this.ggufPathFor(route),
+      renderedPromptText(body),
+      route.slot_long_threshold ?? DEFAULT_SLOT_LONG_THRESHOLD,
+    )
+    const slotId = this.slotTableFor(modelId, parallel).acquire(sizeClass, fingerprint)
+    if (slotId === undefined) {
+      return untouched
+    }
+    return {
+      init: { ...init, body: JSON.stringify({ ...body, id_slot: slotId }) },
+      release: () => this.slotTableFor(modelId, parallel).release(slotId, fingerprint, Date.now()),
+    }
   }
 
   /**
@@ -361,19 +441,19 @@ export class LlamaRouter {
     }
   }
 
-  /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. */
-  private fetchBuffered(
-    role: Role,
-    modelId: string,
-    path: string,
-    init: RequestInit,
-  ): Promise<LlamaHop> {
+  /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. Slot placement runs inside the same lease, so a route on a slot table that was never touched never pays for one. */
+  private fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
     return this.withLease(role, modelId, init.signal, async () => {
-      const upstream = await this.upstream.fetch(path, init, modelId)
-      const body = await upstream.arrayBuffer()
-      return {
-        response: new Response(body, { status: upstream.status, headers: upstream.headers }),
-        modelResident: await this.residentModelId(role),
+      const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
+      try {
+        const upstream = await this.upstream.fetch(path, placed, modelId)
+        const body = await upstream.arrayBuffer()
+        return {
+          response: new Response(body, { status: upstream.status, headers: upstream.headers }),
+          modelResident: await this.residentModelId(role),
+        }
+      } finally {
+        releaseSlot()
       }
     })
   }
@@ -391,24 +471,25 @@ export class LlamaRouter {
    * lease itself is released only once the pipe ends, fails, or is
    * cancelled -- never at `beginLease` -- matching `withLease`'s contract.
    */
-  private async fetchStreamed(
-    role: Role,
-    modelId: string,
-    path: string,
-    init: RequestInit,
-  ): Promise<LlamaHop> {
+  private async fetchStreamed({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
     const emitWarming = !this.scheduler.isResident(role, modelId)
     await this.beginLease(role, modelId, init.signal)
+    const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-    const release = this.streamRelease(role, init.signal, (reason) => {
-      reader?.cancel(reason).catch(() => undefined)
-    })
+    const release = this.streamRelease(
+      role,
+      init.signal,
+      (reason) => {
+        reader?.cancel(reason).catch(() => undefined)
+      },
+      releaseSlot,
+    )
     // Everything between the lease and the `Response` can throw -- the fetch
     // itself, and the provenance read, whose `res.json()` rejects on any
     // non-JSON body llama-server writes. Without this the lease is never
     // released and the engine's idle-stop is never armed again.
     try {
-      const upstream = await this.upstream.fetch(path, init, modelId)
+      const upstream = await this.upstream.fetch(path, placed, modelId)
       reader = upstream.body?.getReader() as ReadableStreamDefaultReader<Uint8Array> | undefined
       const modelResident = await this.residentModelId(role)
       return {
@@ -440,6 +521,7 @@ export class LlamaRouter {
     role: Role,
     signal: AbortSignal | null | undefined,
     cancelUpstream: (reason: unknown) => void,
+    releaseSlot: () => void,
   ): () => void {
     let released = false
     const release = () => {
@@ -449,6 +531,7 @@ export class LlamaRouter {
       released = true
       signal?.removeEventListener('abort', onAbort)
       this.finishLease(role)
+      releaseSlot()
     }
     const onAbort = () => {
       release()

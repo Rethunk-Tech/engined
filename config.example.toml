@@ -169,6 +169,15 @@ fim = true # Opts this route into POST /openai/v1/completions
 # returns to. Pins the container up too, since
 # idle-stop stops the container rather than a model,
 # so the engine's share of the pool is never returned.
+# slot_long_threshold = 4096   # Engined-only, never rendered into the preset
+# INI: the token count at or above which the door's
+# own slot placement (below `[route.args].parallel`)
+# calls a prompt "long" and reserves it one of this
+# route's ceil(parallel / 2) long slots, so a small
+# side request (a completion, a title) never lands by
+# llama's own cross-request LRU on the slot holding a
+# long chat's cached prefix and overwrites it.
+# Defaults to 4096 when left unset.
 
 # A route's [route.args] section is the rendered llama-server preset INI
 # for that route, passed through verbatim -- the channel proven to reach

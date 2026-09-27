@@ -1597,6 +1597,7 @@ model = "*"
     ['translate', 'translate = true'],
     ['keep_resident', 'keep_resident = true'],
     ['wire_model', 'wire_model = "org/model"'],
+    ['slot_long_threshold', 'slot_long_threshold = 4096'],
     ['args', '[route.args]\ntemperature = 0.2'],
   ]
 

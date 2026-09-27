@@ -389,6 +389,16 @@ export interface ResolvedRoute extends ModelCapabilities {
   keep_resident?: boolean
   /** Overrides the engine spec's `streaming` for this one route: a provider tier that cannot chunk what its siblings can. Absent means the engine's own answer. */
   streaming?: boolean
+  /**
+   * The token count at or above which `LlamaRouter`'s own slot placement
+   * (`llamaSlots.ts`) calls a prompt "long" and reserves it one of this
+   * route's `ceil(parallel / 2)` long slots, rather than the LRU-picked
+   * short one a small side request would otherwise overwrite. Engined-only:
+   * never rendered into the presets INI, unlike `args`. Meaningful only
+   * where `args.parallel` merges to a positive integer `>= 2`; absent
+   * elsewhere. `DEFAULT_SLOT_LONG_THRESHOLD` when the route leaves it unset.
+   */
+  slot_long_threshold?: number
   /** Rendered into this model's section of the presets INI, verbatim. */
   args: Record<string, unknown>
   /**
