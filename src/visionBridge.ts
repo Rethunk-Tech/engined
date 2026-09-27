@@ -11,7 +11,7 @@
  * call shares the same lease/abort plumbing: a caller abort cancels it too.
  */
 
-import { type HopResult, parseHop } from './chain.ts'
+import { classifyResult, type HopResult, parseHop } from './chain.ts'
 import type { DoorContext } from './doorContext.ts'
 import { buildHopExec } from './hop.ts'
 import { jsonError, STATUS_BAD_GATEWAY } from './http.ts'
@@ -79,13 +79,6 @@ function extractCaption(parsed: unknown): string | undefined {
   return typeof content === 'string' && content.trim() !== '' ? content.trim() : undefined
 }
 
-function bridgeFailureFrom(status: number, parsed: unknown): string {
-  if (isRecord(parsed) && typeof parsed.error === 'string') {
-    return `http ${status}: ${parsed.error}`
-  }
-  return `http ${status}`
-}
-
 /** The bridge hop's own reply, whatever its status -- both a caption and an error body are small JSON, so this always buffers rather than forwarding a stream nobody but this function reads. */
 async function readHopJson(result: HopResult): Promise<unknown> {
   if (result.stream) {
@@ -148,7 +141,7 @@ async function captionOneImage(
           engine,
           model,
           ok: false,
-          failure: bridgeFailureFrom(result.status, parsed),
+          failure: classifyResult({ ...result, body: parsed ?? result.body }).failure,
           duration_ms: durationMs,
           upstream_used: result.upstreamUsed,
         },
