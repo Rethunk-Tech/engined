@@ -33,13 +33,14 @@ import { InventoryWatch } from './inventoryWatch.ts'
 import { writeLocalPreset } from './llamaSpec.ts'
 import { ModelResidency, specForModel } from './modelResidency.ts'
 import { llamaPresetPath } from './paths.ts'
+import { errMessage, MS_PER_SECOND } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import type { EngineResources } from './resources.ts'
 import { CONTRACT, type EngineStatus, type EnginesResponse } from './responses.ts'
 import type { RuntimeStatus } from './runtimeTable.ts'
 import type { SpecLoadOptions } from './spec.ts'
 import { isContainerSpec, type Spec } from './specTypes.ts'
-import { type Config, type EngineEntry, errMessage, MS_PER_SECOND } from './types.ts'
+import type { Config, EngineEntry } from './types.ts'
 
 /** Set at build time by the install script; absent in a working-tree run. */
 declare const ENGINED_COMMIT: string | undefined

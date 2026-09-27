@@ -16,17 +16,17 @@ import {
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
 } from './http.ts'
+import { errMessage } from './records.ts'
 import { readJsonBody } from './requestBody.ts'
 import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
 import {
   addressForRoute,
-  errMessage,
   LOCAL_UPSTREAM,
   qualifiedSegments,
-  type ResolvedRoute,
   routeForHop,
   siblingRouteCount,
-} from './types.ts'
+} from './routeAddress.ts'
+import type { ResolvedRoute } from './types.ts'
 
 /**
  * How long a hold stands without being renewed. Long enough for the slowest

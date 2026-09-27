@@ -12,27 +12,28 @@ import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
 import { localRoutesOf } from './localRoutes.ts'
 import type { EngineStatus } from './responses.ts'
-import type { RuntimeStatus } from './runtimeTable.ts'
-import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
-import { isContainerSpec, type LoadedSpec, type Spec } from './specTypes.ts'
+import { LOCAL_UPSTREAM, WILDCARD_MODEL } from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  type EngineCapability,
+  routeServes,
+} from './routeServes.ts'
+import type { RuntimeStatus } from './runtimeTable.ts'
+import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
+import { isContainerSpec, type LoadedSpec, type Spec } from './specTypes.ts'
+import {
   type Config,
   type Disposition,
-  type EngineCapability,
   type EngineEntry,
   type EngineKind,
   KIND_TRAITS,
-  LOCAL_UPSTREAM,
   type ReadyProbe,
   type ResolvedRoute,
-  routeServes,
   type Upstream,
-  WILDCARD_MODEL,
 } from './types.ts'
 
 /** Applied at parse when `[[engine]]` omits the field. */

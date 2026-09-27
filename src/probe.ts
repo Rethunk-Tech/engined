@@ -22,16 +22,16 @@
 
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from './http.ts'
 import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
+import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
-import { OPENAI_MODELS_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
-  errMessage,
-} from './types.ts'
+} from './routeServes.ts'
+import { OPENAI_MODELS_PATH } from './tokenizeRoute.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
 
 /** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */

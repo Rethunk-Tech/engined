@@ -10,7 +10,8 @@ import { chatModels } from './cursorDoor.ts'
 import { TOOL_SCHEMA } from './cursorExec.ts'
 import type { DoorContext } from './doorContext.ts'
 import { CONTENT_TYPE, JSON_CONTENT_TYPE, splitSseFrames, sseDataPayloads } from './http.ts'
-import { CONTENT_ENDPOINT_CHAT, parseRecord } from './types.ts'
+import { parseRecord } from './records.ts'
+import { CONTENT_ENDPOINT_CHAT } from './routeServes.ts'
 
 interface ToolCallDelta {
   index?: number

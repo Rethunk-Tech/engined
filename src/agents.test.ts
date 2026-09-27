@@ -7,6 +7,7 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pruneAgentInstallCaches } from './agentCaches.ts'
+import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from './agenticArgs.ts'
 import {
   AGENT_IDS,
   agentCli,
@@ -18,7 +19,6 @@ import {
   sweepOrphanOpencodeDirs,
 } from './agents.ts'
 import { makeTestRoot } from './test-support.ts'
-import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-agents-test-')
 

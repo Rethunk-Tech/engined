@@ -26,15 +26,10 @@ import {
   recordCall,
   type Usage,
 } from './provenance.ts'
+import { errMessage, isRecord, parseRecord } from './records.ts'
+import { qualifiedSegments, routeForHop } from './routeAddress.ts'
 import type { Egress } from './types.ts'
-import {
-  errMessage,
-  isRecord,
-  parseRecord,
-  qualifiedSegments,
-  routeForHop,
-  withinCeiling,
-} from './types.ts'
+import { withinCeiling } from './types.ts'
 
 export interface HopResult {
   status: number

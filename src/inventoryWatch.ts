@@ -6,8 +6,10 @@
 
 import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
 import type { Inventory } from './inventory.ts'
+import { MS_PER_SECOND } from './records.ts'
 import type { EngineStatus } from './responses.ts'
-import { type Config, MS_PER_SECOND, type Upstream, WILDCARD_MODEL } from './types.ts'
+import { WILDCARD_MODEL } from './routeAddress.ts'
+import type { Config, Upstream } from './types.ts'
 
 export class InventoryWatch {
   readonly inventory: Inventory

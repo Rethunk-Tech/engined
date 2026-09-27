@@ -4,6 +4,12 @@ import { expandWildcardRoutes, resolveModel } from './dispatch.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { Inventory } from './inventory.ts'
+import { routeForHop } from './routeAddress.ts'
+import {
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
+  routeServes,
+} from './routeServes.ts'
 import {
   BUNX,
   upstream as catalogUpstreamRow,
@@ -14,12 +20,6 @@ import {
   route,
 } from './test-support.ts'
 import type { Config, EngineEntry, Role } from './types.ts'
-import {
-  CONTENT_ENDPOINT_TRANSCRIPTIONS,
-  CONTENT_ENDPOINT_TRANSLATIONS,
-  routeForHop,
-  routeServes,
-} from './types.ts'
 
 const CHAT = '/openai/v1/chat/completions'
 const SPEECH = '/openai/v1/audio/speech'

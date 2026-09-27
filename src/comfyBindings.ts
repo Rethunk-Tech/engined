@@ -11,7 +11,7 @@ import process from 'node:process'
 import type { ComfyBinding, ComfyBindings, DoorContext } from './doorContext.ts'
 import { stateDir } from './paths.ts'
 import { writeToStdout } from './provenance.ts'
-import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './types.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 export const COMFY_KEY_SEP = '\u0000'
 
 export function comfyKey(engineId: string, origin: string, promptId: string): string {

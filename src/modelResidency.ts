@@ -7,8 +7,9 @@
 import type { DockerLifecycle } from './docker.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
+import { routeForHop } from './routeAddress.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import { type ResolvedRoute, routeForHop } from './types.ts'
+import type { ResolvedRoute } from './types.ts'
 
 /** Where every container-kind engine's models_dir is bind-mounted; `filename` on a route is relative to it. */
 const MODEL_MOUNT_PATH = '/models'

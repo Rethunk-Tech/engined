@@ -14,8 +14,9 @@ import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from '../../src/agen
 import { loadConfig } from '../../src/config.ts'
 import { EngineRegistry } from '../../src/engines.ts'
 import { stateDir } from '../../src/paths.ts'
+import { errMessage } from '../../src/records.ts'
 import { clearVerifiedVersion, config, engine } from '../../src/test-support.ts'
-import { type Config, errMessage, type ResolvedRoute } from '../../src/types.ts'
+import type { Config, ResolvedRoute } from '../../src/types.ts'
 import { CONFIG_EXAMPLE, ENGINES_ROOT, LOCAL } from './exclusive.ts'
 
 /** Seeds `dir`, creating it if absent, and hands it back so a caller can name it inline. */

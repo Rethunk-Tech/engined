@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto'
 import { bpeTokenIds } from './bpeTokenize.ts'
 import { loadBpeVocab } from './bpeVocab.ts'
-import { isRecord } from './types.ts'
+import { isRecord } from './records.ts'
 
 export type SlotSizeClass = 'long' | 'short'
 

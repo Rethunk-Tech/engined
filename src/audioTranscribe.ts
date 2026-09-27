@@ -29,7 +29,7 @@ import {
   STATUS_UNAVAILABLE,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { parseRecord } from './types.ts'
+import { parseRecord } from './records.ts'
 import { type UpstreamEndpoint, upstreamUrl } from './upstream.ts'
 
 /**

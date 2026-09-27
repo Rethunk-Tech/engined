@@ -7,7 +7,7 @@ import {
   STATUS_CONFLICT,
   STATUS_OK,
 } from './http.ts'
-import { isRecord, parseRecord } from './types.ts'
+import { isRecord, parseRecord } from './records.ts'
 import type { UpstreamEndpoint } from './upstream.ts'
 
 /** OpenAI's non-JSON transcript formats; whisper.cpp's server speaks this same dialect. */

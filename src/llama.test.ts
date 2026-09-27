@@ -8,6 +8,7 @@ import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter, reportedModelFrom } from './llama.ts'
 import { buildLlamaSpec, renderPresetIni } from './llamaSpec.ts'
+import { pollUntil } from './records.ts'
 import {
   BUNX,
   engine as baseEngine,
@@ -20,7 +21,7 @@ import {
   tempPresetPath,
   writeGgufFixture,
 } from './test-support.ts'
-import { type EngineEntry, pollUntil, type ResolvedRoute } from './types.ts'
+import type { EngineEntry, ResolvedRoute } from './types.ts'
 
 const CONTAINER_PORT = 8080
 const HOST_PORT = 55_123

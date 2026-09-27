@@ -10,8 +10,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { posix } from 'node:path'
 import process from 'node:process'
+import { isRecord } from './records.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import { type Artifact, isRecord, type Volume } from './types.ts'
+import type { Artifact, Volume } from './types.ts'
 
 const HOST_PORT_LINE = /^(?<addr>\d{1,3}(?:\.\d{1,3}){3}):(?<port>\d+)$/
 

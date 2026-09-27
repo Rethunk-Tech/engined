@@ -31,16 +31,10 @@ import {
   STATUS_BAD_REQUEST,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
+import { CONTENT_ENDPOINT_IMAGES } from './routeServes.ts'
 import { isContainerSpec } from './specTypes.ts'
-import {
-  CONTENT_ENDPOINT_IMAGES,
-  errMessage,
-  isRecord,
-  MS_PER_SECOND,
-  parseRecord,
-  pollUntil,
-  type ResolvedRoute,
-} from './types.ts'
+import type { ResolvedRoute } from './types.ts'
 
 /** How often the door asks whether the render has finished. A diffusion step is hundreds of milliseconds, so a tighter poll only costs round trips. */
 const HISTORY_POLL_MS = 400

@@ -16,7 +16,8 @@ import type { DoorContext } from './doorContext.ts'
 import { buildHopExec } from './hop.ts'
 import { jsonError, STATUS_BAD_GATEWAY } from './http.ts'
 import type { Attempt } from './provenance.ts'
-import { CONTENT_ENDPOINT_CHAT, errMessage, isRecord, MS_PER_SECOND } from './types.ts'
+import { errMessage, isRecord, MS_PER_SECOND } from './records.ts'
+import { CONTENT_ENDPOINT_CHAT } from './routeServes.ts'
 
 /**
  * Fixed rather than configurable: the bridge exists to feed a text-only route

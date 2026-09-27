@@ -3,9 +3,9 @@
  * and the contract number that says when one of their meanings changed.
  */
 
+import type { EngineCapability } from './routeServes.ts'
 import type {
   Egress,
-  EngineCapability,
   EngineKind,
   EngineState,
   ModelCapabilities,

@@ -28,13 +28,9 @@ import {
   sseDataPayloads,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
-import {
-  CONTENT_ENDPOINT_COMPLETIONS,
-  isRecord,
-  LOCAL_UPSTREAM,
-  MS_PER_SECOND,
-  parseRecord,
-} from './types.ts'
+import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { LOCAL_UPSTREAM } from './routeAddress.ts'
+import { CONTENT_ENDPOINT_COMPLETIONS } from './routeServes.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
 const INFILL_PATH = '/infill'

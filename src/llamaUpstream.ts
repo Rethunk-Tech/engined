@@ -13,7 +13,7 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_INTERNAL_SERVER_ERROR,
 } from './http.ts'
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
+import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
 
 /**
  * The message bodies llama-server SENDS: the statuses they ride on are the

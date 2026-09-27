@@ -2,11 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
 import { loadConfig } from './config.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { makeTestRoot } from './test-support.ts'
-import { FORBIDDEN_AGENTIC_FLAGS } from './types.ts'
 
 const RESERVED_FOR_THIS_BOX = /reserved for this box/
 const EGRESS_MUST_BE_ONE_OF = /upstream "x" "egress" must be one of: none, lan, remote/

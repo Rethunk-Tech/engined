@@ -3,8 +3,8 @@ import type { StreamSink } from './cursorAgent.ts'
 import { completeLocally } from './cursorChat.ts'
 import type { DoorContext } from './doorContext.ts'
 import { CONTENT_TYPE, JSON_CONTENT_TYPE } from './http.ts'
+import { CONTENT_ENDPOINT_CHAT } from './routeServes.ts'
 import { config, engine, route, upstream } from './test-support.ts'
-import { CONTENT_ENDPOINT_CHAT } from './types.ts'
 
 const sinkChunks: string[] = []
 const silent: StreamSink = {

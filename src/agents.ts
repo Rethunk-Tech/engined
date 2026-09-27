@@ -14,8 +14,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { isUnder, stateDir } from './paths.ts'
-import type { Usage } from './provenance.ts'
 import {
   AGENTIC_FLOOR,
   CLAUDE_MCP_CONFIG_FLAG,
@@ -23,10 +21,11 @@ import {
   CLAUDE_STREAM_FORMAT,
   CURSOR_FLOOR,
   CURSOR_OUTPUT_FORMAT,
-  isRecord,
-  parseRecord,
-  type Wire,
-} from './types.ts'
+} from './agenticArgs.ts'
+import { isUnder, stateDir } from './paths.ts'
+import type { Usage } from './provenance.ts'
+import { isRecord, parseRecord } from './records.ts'
+import type { Wire } from './types.ts'
 
 export interface AgenticOutcome {
   ok: boolean

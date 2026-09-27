@@ -13,14 +13,10 @@ import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
 import { resolveQualified } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
+import { errMessage } from './records.ts'
 import { readJsonBody } from './requestBody.ts'
-import {
-  type Config,
-  errMessage,
-  LOCAL_UPSTREAM,
-  qualifiedSegments,
-  type ResolvedRoute,
-} from './types.ts'
+import { LOCAL_UPSTREAM, qualifiedSegments } from './routeAddress.ts'
+import type { Config, ResolvedRoute } from './types.ts'
 
 export const TOKENIZE_PATH = '/engined/v1/tokenize'
 export const OPENAI_MODELS_PATH = '/openai/v1/models'

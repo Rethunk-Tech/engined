@@ -22,6 +22,7 @@
 import { mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
+import { argvFromArgs } from './agenticArgs.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -34,8 +35,8 @@ import type { ExecResult } from './exec.ts'
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
+import { errMessage } from './records.ts'
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from './sandbox.ts'
-import { argvFromArgs, errMessage } from './types.ts'
 
 const STDERR_TAIL_CHARS = 300
 

@@ -10,6 +10,7 @@ import {
   renderEmptyMcpConfig,
   runAgentic,
 } from './agentic.ts'
+import { AGENTIC_FLOOR, assertNoForbiddenFlags, FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
@@ -20,7 +21,6 @@ import { agentCli, parseClaudeEnvelope as parseEnvelope } from './agents.ts'
 import { loadConfig } from './config.ts'
 import type { ExecResult } from './exec.ts'
 import { BUNX, makeTestRoot } from './test-support.ts'
-import { AGENTIC_FLOOR, assertNoForbiddenFlags, FORBIDDEN_AGENTIC_FLAGS } from './types.ts'
 
 const PIN = '1.2.3'
 const MCP_CONFIG_PATH = '/state/agentic-mcp-empty.json'

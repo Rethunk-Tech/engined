@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { AgenticProbeRunner } from './agenticProbe.ts'
 import { type HopExec, parseHop, type RunChainOptions, runChain } from './chain.ts'
 import { createDoor } from './main.ts'
+import { qualifiedSegments } from './routeAddress.ts'
 import {
   BUNX,
   clearVerifiedVersion,
@@ -17,7 +18,7 @@ import {
   startFakeUpstream,
   writeEngineSpec,
 } from './test-support.ts'
-import { type Egress, qualifiedSegments } from './types.ts'
+import type { Egress } from './types.ts'
 
 const DEFAULT_TIMEOUT_MS = 2000
 

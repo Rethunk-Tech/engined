@@ -7,17 +7,15 @@
 import { groupCursorModels, resolveCursorVariant } from './cursorModels.ts'
 import type { EngineRegistry } from './engines.ts'
 import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
-import type { Config, Egress, ResolvedRoute } from './types.ts'
+import { qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
-  EGRESS_RANK,
-  qualifiedSegments,
-  routeForHop,
   routeServes,
-  WILDCARD_MODEL,
-} from './types.ts'
+} from './routeServes.ts'
+import type { Config, Egress, ResolvedRoute } from './types.ts'
+import { EGRESS_RANK } from './types.ts'
 
 type ModelDispatch =
   | { ok: true; kind: 'model'; route: ResolvedRoute }

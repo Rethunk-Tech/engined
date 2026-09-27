@@ -10,6 +10,7 @@ import { buildRunArgs } from './dockerArgs.ts'
 import type { DoorContext } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
+import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './routeServes.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
 import {
@@ -27,7 +28,6 @@ import {
   upstream,
 } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
-import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './types.ts'
 import { UsageTracker } from './usage.ts'
 
 // The synthesis cache is process-wide, which is the point in a daemon and a

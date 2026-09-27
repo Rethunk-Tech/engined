@@ -6,10 +6,12 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { argvFromArgs, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { AGENT_IDS, agentCli } from './agents.ts'
 import { asArray, assertKnownKeys, optional, requireString } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 import { stateDir } from './paths.ts'
+import { isRecord } from './records.ts'
 import {
   type AgenticSpec,
   type ContainerSpec,
@@ -19,11 +21,8 @@ import {
 } from './specTypes.ts'
 import {
   type Artifact,
-  argvFromArgs,
-  assertNoForbiddenFlags,
   type EngineEntry,
   type EngineKind,
-  isRecord,
   KIND_TRAITS,
   type ReadyProbe,
   type UpstreamTrait,

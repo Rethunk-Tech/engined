@@ -6,7 +6,7 @@
  */
 
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
-import { parseRecord } from './types.ts'
+import { parseRecord } from './records.ts'
 
 /**
  * Every JSON body this door reads, or the 400 to return instead. A table is

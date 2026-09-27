@@ -23,9 +23,11 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from './http.ts'
+import { isRecord } from './records.ts'
+import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { loadSpec } from './spec.ts'
 import type { AgenticSpec } from './specTypes.ts'
-import { type EngineEntry, isRecord, LOCAL_UPSTREAM, type ResolvedRoute } from './types.ts'
+import type { EngineEntry, ResolvedRoute } from './types.ts'
 
 /** Splits chat messages across the CLI's prompt and system-prompt channels. */
 export function promptsFromMessages(body: Record<string, unknown>): {
@@ -140,10 +142,8 @@ function agenticEnvelope(text: string | undefined, research: boolean): Record<st
  * ambient route does. Only its resolved upstream differs.
  */
 function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
-  return loadSpec(engineEntry, {
-    enginesRoot: ctx.registryOpts.enginesRoot,
-    bunx: ctx.registryOpts.bunx,
-  })
+  const { enginesRoot, bunx } = ctx.registryOpts
+  return loadSpec(engineEntry, { enginesRoot, bunx })
 }
 
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */

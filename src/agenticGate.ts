@@ -21,9 +21,10 @@ import {
 } from './agenticProbe.ts'
 import { resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
 import { baseStatus } from './engineEntries.ts'
+import { errMessage } from './records.ts'
 import type { EngineStatus } from './responses.ts'
 import type { AgenticSpec } from './specTypes.ts'
-import { type Config, type EngineEntry, errMessage } from './types.ts'
+import type { Config, EngineEntry } from './types.ts'
 
 export type ObserveAgentVersion = (
   agent: string,

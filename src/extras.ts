@@ -16,7 +16,7 @@ import {
   jsonError,
   STATUS_BAD_REQUEST,
 } from './http.ts'
-import { errMessage, parseRecord } from './types.ts'
+import { errMessage, parseRecord } from './records.ts'
 
 /** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {

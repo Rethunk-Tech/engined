@@ -8,8 +8,8 @@
 import { join } from 'node:path'
 import { ParseError } from './errors/parse.ts'
 import { dataHome, expandTilde } from './paths.ts'
+import { isRecord } from './records.ts'
 import type { ModelCapabilities, Role, VisionKind } from './types.ts'
-import { isRecord } from './types.ts'
 
 export const ROLES: readonly Role[] = ['chat', 'vision', 'embedding', 'rerank']
 export const VISION_KINDS: readonly VisionKind[] = ['describe', 'read']

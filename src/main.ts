@@ -43,8 +43,8 @@ import { modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
+import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
-import { handleTokenizeRoute, OPENAI_MODELS_PATH, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -55,9 +55,9 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
-  type Config,
-  errMessage,
-} from './types.ts'
+} from './routeServes.ts'
+import { handleTokenizeRoute, OPENAI_MODELS_PATH, TOKENIZE_PATH } from './tokenizeRoute.ts'
+import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH, handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
 import { handleVoiceUpload, VOICE_UPLOAD_PATH } from './voices.ts'
 

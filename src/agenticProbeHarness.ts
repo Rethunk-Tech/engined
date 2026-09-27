@@ -25,8 +25,8 @@ import {
   usableBwrap,
 } from './agentic.ts'
 import { type AgentTarget, agentCli, type FloorKind } from './agents.ts'
+import { errMessage } from './records.ts'
 import { sandboxArgv, sandboxHome } from './sandbox.ts'
-import { errMessage } from './types.ts'
 
 /** Everything else is stripped from a probe's environment, so a probe proves the floor rather than the operator's shell. */
 export const PROBE_ENV_ALLOWLIST = ['HOME', 'BUN_INSTALL', 'BUN_TMPDIR'] as const

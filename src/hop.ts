@@ -30,8 +30,8 @@ import {
   sseDataPayloads,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
+import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
-import { LOCAL_UPSTREAM } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
 
 /**

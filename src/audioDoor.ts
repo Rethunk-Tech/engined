@@ -24,16 +24,10 @@ import {
   TEXT_CONTENT_TYPE,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
-import {
-  CONTENT_ENDPOINT_SPEECH,
-  type Config,
-  type Egress,
-  LOCAL_UPSTREAM,
-  MS_PER_SECOND,
-  qualifiedSegments,
-  type ResolvedRoute,
-  routeForHop,
-} from './types.ts'
+import { MS_PER_SECOND } from './records.ts'
+import { LOCAL_UPSTREAM, qualifiedSegments, routeForHop } from './routeAddress.ts'
+import { CONTENT_ENDPOINT_SPEECH } from './routeServes.ts'
+import type { Config, Egress, ResolvedRoute } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
 import { resolveVoice } from './voices.ts'
 

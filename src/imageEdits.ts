@@ -24,7 +24,8 @@ import {
   SEED_MAX,
   workflowPathFor,
 } from './images.ts'
-import { CONTENT_ENDPOINT_IMAGE_EDITS, parseRecord } from './types.ts'
+import { parseRecord } from './records.ts'
+import { CONTENT_ENDPOINT_IMAGE_EDITS } from './routeServes.ts'
 
 /**
  * The default an img2img caller gets when they say nothing.

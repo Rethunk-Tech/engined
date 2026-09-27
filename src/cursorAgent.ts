@@ -27,7 +27,7 @@ import {
   stringField,
 } from './cursorProto.ts'
 import { STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
-import { errMessage, parseRecord } from './types.ts'
+import { errMessage, parseRecord } from './records.ts'
 
 const RUN_PATH = '/agent.v1.AgentService/Run'
 const CONNECT_STREAM_TYPE = 'application/connect+proto'

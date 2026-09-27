@@ -16,20 +16,16 @@ import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
 import { mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
+import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
+import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
 import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
-import {
-  addressForRoute,
-  CONTENT_ENDPOINT_CHAT,
-  type Config,
-  type EngineEntry,
-  type EngineState,
-  LOCAL_UPSTREAM,
-  type ModelCapabilities,
-  type ResolvedRoute,
-  type Role,
-  routeForHop,
-  routeServes,
-  WILDCARD_MODEL,
+import type {
+  Config,
+  EngineEntry,
+  EngineState,
+  ModelCapabilities,
+  ResolvedRoute,
+  Role,
 } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
 

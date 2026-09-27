@@ -28,7 +28,9 @@ import { handleImageEdit } from './imageEdits.ts'
 import { handleImageGeneration } from './images.ts'
 import { hopForwardsTools } from './modelsMenu.ts'
 import { type Attempt, recordCall } from './provenance.ts'
+import { errMessage, MS_PER_SECOND } from './records.ts'
 import { readJsonBody } from './requestBody.ts'
+import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -37,15 +39,8 @@ import {
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
-  type Config,
-  EGRESS_RANK,
-  type Egress,
-  errMessage,
-  isEgress,
-  LOCAL_UPSTREAM,
-  MS_PER_SECOND,
-  type ResolvedRoute,
-} from './types.ts'
+} from './routeServes.ts'
+import { type Config, EGRESS_RANK, type Egress, isEgress, type ResolvedRoute } from './types.ts'
 import { bodyHasBridgeableImages, bridgeImages } from './visionBridge.ts'
 
 /** Idle loopback connections do get dropped; a comment frame is the cheapest thing that keeps one alive. */

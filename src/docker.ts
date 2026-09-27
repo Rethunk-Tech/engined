@@ -24,10 +24,11 @@ import {
 } from './dockerCommands.ts'
 import { binExec, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
+import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
 import type { EngineResources } from './resources.ts'
 import { type Runtime, type RuntimeStatus, RuntimeTable } from './runtimeTable.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import { errMessage, MS_PER_SECOND, pollUntil, probeSaysReady, type ReadyProbe } from './types.ts'
+import { probeSaysReady, type ReadyProbe } from './types.ts'
 
 /** The prefix on every container engined starts, so a stray one is identifiable by name alone. */
 export const NAME_PREFIX = 'engined-'

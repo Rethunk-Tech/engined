@@ -8,8 +8,8 @@ import type { HopResult } from './chain.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
 import { decodeAddressSegment } from './inventory.ts'
+import { routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import type { Config, Upstream } from './types.ts'
-import { routeForHop, WILDCARD_MODEL } from './types.ts'
 import { noBaseUrlFix, resolveUpstreamSecret } from './upstream.ts'
 
 /**

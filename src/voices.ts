@@ -27,7 +27,7 @@ import {
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
 import { voicesDir } from './paths.ts'
-import { errMessage } from './types.ts'
+import { errMessage } from './records.ts'
 export const VOICE_UPLOAD_PATH = '/engined/v1/audio/voices'
 
 /** Where each `engines/chatterbox-*` spec.toml mounts `{state_dir}/voices`. The two are one pair; changing either alone breaks every clone. */

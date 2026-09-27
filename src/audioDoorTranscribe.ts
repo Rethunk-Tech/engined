@@ -22,7 +22,7 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
-import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './types.ts'
+import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
 interface TranscriptionForm {
   rawModel: string | null

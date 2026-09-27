@@ -21,8 +21,8 @@ import {
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
+import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
 import { readJsonBody } from './requestBody.ts'
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './types.ts'
 
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/
 export const COMFY_WS_SUFFIX = 'ws'

@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { EngineRegistry } from '../../src/engines.ts'
 import { LlamaRouter } from '../../src/llama.ts'
-import { type Config, type EngineEntry, pollUntil } from '../../src/types.ts'
+import { pollUntil } from '../../src/records.ts'
+import type { Config, EngineEntry } from '../../src/types.ts'
 import {
   BUNX,
   ENGINES_ROOT,
