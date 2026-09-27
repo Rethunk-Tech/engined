@@ -143,7 +143,8 @@ export class UsageTracker {
   record(call: CallRecord): void {
     const date = this.today()
     const file = this.getOrLoad(date)
-    for (const attempt of call.attempts) {
+    // A vision bridge's caption calls load and run the vision model too, so they count as that route's usage.
+    for (const attempt of [...call.attempts, ...(call.vision_bridge ?? [])]) {
       const key = routeKeyFor(attempt)
       const counters = file.routes[key] ?? emptyCounters()
       counters.requests += 1

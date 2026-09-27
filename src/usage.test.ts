@@ -68,6 +68,28 @@ test('record aggregates requests, ok/failed, tokens, cost and duration per route
   tracker.shutdown()
 })
 
+test('a vision bridge call counts toward the vision route as well as the chat route', () => {
+  const tracker = new UsageTracker({ stateRoot: freshDir(), now: () => DAY_1 })
+  tracker.record({
+    ...callRecord([
+      { engine: 'llama', model: 'ornith', ok: true, duration_ms: 100, egress: 'none' },
+    ]),
+    vision_bridge: [
+      { engine: 'llama', model: 'vision', ok: true, duration_ms: 60, egress: 'none' },
+    ],
+  })
+  const rows = tracker.read(1)
+  expect(rows.find((r) => r.route === 'llama/ornith')).toMatchObject({
+    requests: 1,
+    duration_ms: 100,
+  })
+  expect(rows.find((r) => r.route === 'llama/vision')).toMatchObject({
+    requests: 1,
+    duration_ms: 60,
+  })
+  tracker.shutdown()
+})
+
 test('cost_usd sums only across attempts that reported one, never a fabricated zero', () => {
   const tracker = new UsageTracker({ stateRoot: freshDir(), now: () => DAY_1 })
   tracker.record(
