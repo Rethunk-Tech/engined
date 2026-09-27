@@ -12,6 +12,7 @@
  * engine's own native completion shape with nothing here to test it against.
  */
 
+import { classifyResult } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -23,6 +24,8 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  splitSseFrames,
+  sseDataPayloads,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS, isRecord, parseRecord } from './types.ts'
@@ -130,8 +133,6 @@ function completionEnvelope(modelId: string, frame: InfillFrame): Record<string,
   }
 }
 
-const SSE_FRAME_BOUNDARY = '\n\n'
-
 /** Every `data:` line in one SSE frame that parses as JSON, mapped through `completionEnvelope` and re-encoded on the door's own OpenAI-shaped wire. */
 function emitMappedFrame(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -139,14 +140,7 @@ function emitMappedFrame(
   frame: string,
   modelId: string,
 ): void {
-  for (const line of frame.split('\n')) {
-    if (!line.startsWith('data:')) {
-      continue
-    }
-    const data = line.slice('data:'.length).trim()
-    if (data === '') {
-      continue
-    }
+  for (const data of sseDataPayloads(frame)) {
     const parsed = parseRecord(data)
     if (parsed === null) {
       continue
@@ -178,8 +172,8 @@ export function mapInfillStream(
       if (value) {
         buffered += decoder.decode(value, { stream: true })
       }
-      const frames = buffered.split(SSE_FRAME_BOUNDARY)
-      buffered = frames.pop() ?? ''
+      const { frames, carry } = splitSseFrames(buffered)
+      buffered = carry
       for (const frame of frames) {
         emitMappedFrame(controller, encoder, frame, modelId)
       }
@@ -241,6 +235,37 @@ export async function handleCompletions(
     INFILL_PATH,
     infillRequestInit(body, modelId, signal),
   )
+  if (!response.ok) {
+    const text = await response.text()
+    const parsed = parseRecord(text)
+    const verdict = classifyResult({
+      status: response.status,
+      body: parsed ?? (text === '' ? undefined : { error: text }),
+    })
+    const record = {
+      chain: null,
+      requested: rawModel ?? '',
+      attempts: [
+        {
+          engine: route.engine,
+          model: modelId,
+          ok: false,
+          ...(verdict.failure === undefined ? {} : { failure: verdict.failure }),
+          duration_ms: Date.now() - startedAt,
+          upstream_used: 'local',
+          egress: routeEgress(route, ctx.getConfig()),
+        },
+      ],
+      engine_used: null,
+      upstream_used: null,
+    }
+    recordCall(record, ctx.doorOpts.write)
+    ctx.usage.record(record)
+    return new Response(text, {
+      status: response.status,
+      headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
+    })
+  }
   const record = {
     chain: null,
     requested: rawModel ?? '',
@@ -248,25 +273,17 @@ export async function handleCompletions(
       {
         engine: route.engine,
         model: modelId,
-        ok: response.ok,
-        ...(response.ok ? {} : { failure: `http ${response.status}` }),
+        ok: true,
         duration_ms: Date.now() - startedAt,
         upstream_used: 'local',
         egress: routeEgress(route, ctx.getConfig()),
       },
     ],
-    engine_used: response.ok ? route.engine : null,
-    upstream_used: response.ok ? 'local' : null,
+    engine_used: route.engine,
+    upstream_used: 'local',
   }
   recordCall(record, ctx.doorOpts.write)
   ctx.usage.record(record)
-  if (!response.ok) {
-    const text = await response.text()
-    return new Response(text, {
-      status: response.status,
-      headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
-    })
-  }
   const headers = answeringHeaders({
     route: routeAddress(route, ctx.getConfig().routes),
     upstreamUsed: 'local',

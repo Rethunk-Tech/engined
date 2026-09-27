@@ -262,6 +262,27 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(res.headers.get('x-engined-route')).toBeNull()
   })
 
+  test('a failed infill records the engine error text, not a bare status', async () => {
+    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+    const { lines, write } = collectLines()
+    const control = llamaControlPlane()
+    const httpClient: HttpClient = (url, init) => {
+      const controlled = control(url, init)
+      if (controlled) {
+        return Promise.resolve(controlled)
+      }
+      return Promise.resolve(
+        Response.json({ error: 'infill rejected the prefix' }, { status: 502 }),
+      )
+    }
+    const door = doorFor(cfg, root, httpClient, write)
+    const res = await door.fetch(completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }))
+    expect(res.status).toBe(502)
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe(
+      'http 502: infill rejected the prefix',
+    )
+  })
+
   test('an unknown model on the completions path is refused the same way any other unknown model is', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const door = doorFor(cfg, root, makeInfillHttpClient([], 'buffered'), () => undefined)
