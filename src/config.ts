@@ -469,7 +469,7 @@ function parseTopLevelSettings(
     listen_port:
       optionalPositive(raw.listen_port, 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
     cursor_port:
-      optional(raw.cursor_port, 'number', 'config "cursor_port"', file) ?? DEFAULT_CURSOR_PORT,
+      optionalPositive(raw.cursor_port, 'config "cursor_port"', file) ?? DEFAULT_CURSOR_PORT,
     chat_timeout_seconds:
       optionalPositive(raw.chat_timeout_seconds, 'config "chat_timeout_seconds"', file) ??
       DEFAULT_CHAT_TIMEOUT_SECONDS,
