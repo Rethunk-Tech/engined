@@ -8,9 +8,9 @@ import { afterAll } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { agenticVerifiedDir } from './agenticProbe.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import type { Exec, ExecResult } from './exec.ts'
-import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
 import type { Config, EngineEntry, ResolvedRoute, Upstream } from './types.ts'
 
@@ -104,7 +104,7 @@ export function collectLines(): { lines: string[]; write: (line: string) => void
  * that proves an engine must clean up after itself the same way.
  */
 export function clearVerifiedVersion(id: string): void {
-  rmSync(join(stateDir(), 'agentic', id), { recursive: true, force: true })
+  rmSync(agenticVerifiedDir(id), { recursive: true, force: true })
 }
 
 /** A `docker image inspect` success payload exposing exactly one container port. */
@@ -237,32 +237,6 @@ export function soleProvenanceRecord(lines: string[]): CallRecord {
     )
   }
   return JSON.parse(only)
-}
-
-/**
- * `model_reported` is what the engine echoed in the body; `model_resident` is
- * what its own `GET /v1/models` says answered. Asserting they DIFFER is the
- * point of every caller: equal values would pass a weaker check while proving
- * nothing about which of the two a field actually came from.
- */
-export function assertReportedAndResident(
-  lines: string[],
-  reported: string,
-  resident: string,
-): void {
-  if (reported === resident) {
-    throw new Error(`the two values must differ to prove anything; both are "${reported}"`)
-  }
-  const { attempts } = soleProvenanceRecord(lines)
-  const [only, ...rest] = attempts
-  if (only === undefined || rest.length > 0) {
-    throw new Error(`expected exactly one attempt, got ${attempts.length}`)
-  }
-  if (only.model_reported !== reported || only.model_resident !== resident) {
-    throw new Error(
-      `expected reported "${reported}" / resident "${resident}", got "${only.model_reported}" / "${only.model_resident}"`,
-    )
-  }
 }
 
 /**

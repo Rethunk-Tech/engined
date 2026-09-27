@@ -17,13 +17,13 @@ import type { Config } from './types.ts'
  * proof for that version. One file per engine, mirroring the llama
  * preset's own directory shape under the state directory.
  */
-const AGENTIC_VERIFIED_DIR = (engineId: string): string => `${stateDir()}/agentic/${engineId}`
-const AGENTIC_VERIFIED_PATH = (engineId: string): string =>
-  `${AGENTIC_VERIFIED_DIR(engineId)}/verified_version`
+export const agenticVerifiedDir = (engineId: string): string => `${stateDir()}/agentic/${engineId}`
+export const verifiedVersionPath = (engineId: string): string =>
+  `${agenticVerifiedDir(engineId)}/verified_version`
 
 export function readVerifiedVersion(engineId: string): string | undefined {
   try {
-    return readFileSync(AGENTIC_VERIFIED_PATH(engineId), 'utf8').trim()
+    return readFileSync(verifiedVersionPath(engineId), 'utf8').trim()
   } catch {
     // No file yet, or an unreadable one: this engine has no proved version.
   }
@@ -31,8 +31,8 @@ export function readVerifiedVersion(engineId: string): string | undefined {
 }
 
 export function writeVerifiedVersion(engineId: string, version: string): void {
-  mkdirSync(AGENTIC_VERIFIED_DIR(engineId), { recursive: true })
-  writeFileSync(AGENTIC_VERIFIED_PATH(engineId), version, 'utf8')
+  mkdirSync(agenticVerifiedDir(engineId), { recursive: true })
+  writeFileSync(verifiedVersionPath(engineId), version, 'utf8')
 }
 
 export interface AgenticProbeOutcome {

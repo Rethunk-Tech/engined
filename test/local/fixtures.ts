@@ -10,10 +10,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { RunAgenticResult } from '../../src/agentic.ts'
+import { verifiedVersionPath } from '../../src/agenticProbe.ts'
 import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from '../../src/agenticProbeHarness.ts'
 import { loadConfig } from '../../src/config.ts'
 import { EngineRegistry } from '../../src/engines.ts'
-import { stateDir } from '../../src/paths.ts'
 import { errMessage } from '../../src/records.ts'
 import { clearVerifiedVersion, config, engine } from '../../src/test-support.ts'
 import type { Config, ResolvedRoute } from '../../src/types.ts'
@@ -106,11 +106,6 @@ function probeGateConfig(id: string, agent: string, agentVersion: string): Confi
     listen_port: 0,
     engines: [engine({ id, agent_version: agentVersion, spec_dir: join(ENGINES_ROOT, agent) })],
   })
-}
-
-/** The one file the gate writes; `clearVerifiedVersion` (src/test-support.ts) removes the directory holding it. */
-function verifiedVersionPath(id: string): string {
-  return join(stateDir(), 'agentic', id, 'verified_version')
 }
 
 /**

@@ -19,7 +19,6 @@ import {
 import type { HttpClient } from './http.ts'
 import { createDoor } from './main.ts'
 import {
-  assertReportedAndResident,
   BUNX,
   clearVerifiedVersion,
   collectLines,
@@ -35,6 +34,28 @@ import {
 import type { Config } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-door-test-')
+
+/**
+ * `model_reported` is what the engine echoed in the body; `model_resident` is
+ * what its own `GET /v1/models` says answered. Asserting they DIFFER is the
+ * point of every caller: equal values would pass a weaker check while proving
+ * nothing about which of the two a field actually came from.
+ */
+function assertReportedAndResident(lines: string[], reported: string, resident: string): void {
+  if (reported === resident) {
+    throw new Error(`the two values must differ to prove anything; both are "${reported}"`)
+  }
+  const { attempts } = soleProvenanceRecord(lines)
+  const [only, ...rest] = attempts
+  if (only === undefined || rest.length > 0) {
+    throw new Error(`expected exactly one attempt, got ${attempts.length}`)
+  }
+  if (only.model_reported !== reported || only.model_resident !== resident) {
+    throw new Error(
+      `expected reported "${reported}" / resident "${resident}", got "${only.model_reported}" / "${only.model_resident}"`,
+    )
+  }
+}
 
 describe('the door: answering-route headers', () => {
   test('a buffered chat reply names the answering route, upstream, and egress', async () => {
