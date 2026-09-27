@@ -201,7 +201,7 @@ async function warmUpAndCountLoads(
   a: ResolvedRoute,
   calls: RecordedCall[],
 ): Promise<number> {
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
+  await chatText(router, a, 'a')
   return calls.filter((c) => c.path === LOAD_PATH).length
 }
 
@@ -264,7 +264,7 @@ async function startGatedChat(
 }> {
   const { client: gated, calls, release, started } = gatedClient(CHAT_PATH, { once: true })
   const router = routerWithClient(e, models, gated)
-  const res1 = router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+  const res1 = chatHop(router, a, 'a')
   await started
   return { router, calls, release, res1 }
 }
@@ -283,6 +283,160 @@ async function drainMicrotasks(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
   await Promise.resolve()
+}
+
+function chatInit(
+  modelId: string,
+  extra: { stream?: boolean; signal?: AbortSignal } = {},
+): RequestInit {
+  const { stream, signal } = extra
+  return {
+    method: 'POST',
+    body: JSON.stringify(stream === undefined ? { model: modelId } : { model: modelId, stream }),
+    ...(signal === undefined ? {} : { signal }),
+  }
+}
+
+function chatText(
+  router: LlamaRouter,
+  route: ResolvedRoute,
+  modelId: string,
+  extra: { stream?: boolean; signal?: AbortSignal } = {},
+): Promise<string> {
+  return text(router.proxy(route, CHAT_PATH, chatInit(modelId, extra)))
+}
+
+function chatHop(
+  router: LlamaRouter,
+  route: ResolvedRoute,
+  modelId: string,
+  extra: { stream?: boolean; signal?: AbortSignal } = {},
+): Promise<LlamaHop> {
+  return router.proxy(route, CHAT_PATH, chatInit(modelId, extra))
+}
+
+function pair(aExtra: Parameters<typeof model>[0] = {}, bExtra: Parameters<typeof model>[0] = {}) {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf', ...aExtra })
+  const b = model({ id: 'b', filename: 'b.gguf', ...bExtra })
+  return { e, a, b }
+}
+
+function pairRouter(
+  aExtra: Parameters<typeof model>[0] = {},
+  bExtra: Parameters<typeof model>[0] = {},
+  extras: ResolvedRoute[] = [],
+) {
+  const { e, a, b } = pair(aExtra, bExtra)
+  const { calls, router } = routerFor(e, [a, b, ...extras])
+  return { e, a, b, calls, router }
+}
+
+async function gatedPair(
+  aExtra: Parameters<typeof model>[0] = {},
+  bExtra: Parameters<typeof model>[0] = {},
+) {
+  const { e, a, b } = pair(aExtra, bExtra)
+  const gated = await startGatedChat(e, [a, b], a)
+  return { e, a, b, ...gated }
+}
+
+function goneExecFrom(base: Exec = fakeExec()): Exec {
+  return (args) =>
+    args[0] === 'inspect'
+      ? Promise.resolve({ exitCode: 0, stdout: 'false\n', stderr: '' })
+      : base(args)
+}
+
+function sseBody(chunk: string, onCancel?: () => void): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new TextEncoder().encode(chunk))
+    },
+    ...(onCancel === undefined ? {} : { cancel: onCancel }),
+  })
+}
+
+function loadListChatClient(chatReply: () => Response): HttpClient {
+  return (input) => {
+    const url = new URL(String(input))
+    if (url.pathname === LOAD_PATH) {
+      return Promise.resolve(Response.json({ success: true }))
+    }
+    if (url.pathname === MODELS_LIST_PATH) {
+      return Promise.resolve(modelsList([{ id: 'a', status: 'loaded' }]))
+    }
+    if (url.pathname === CHAT_PATH) {
+      return Promise.resolve(chatReply())
+    }
+    throw new Error(`unexpected path ${url.pathname}`)
+  }
+}
+
+function sseRouter(chatReply: () => Response): {
+  e: EngineEntry
+  a: ResolvedRoute
+  router: LlamaRouter
+} {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const router = new LlamaRouter(
+    e,
+    [a],
+    new DockerLifecycle(fakeExec(), fakeProbe),
+    baseOpts(loadListChatClient(chatReply)),
+  )
+  return { e, a, router }
+}
+
+function admissionOf(a: ResolvedRoute) {
+  const e = engine()
+  const { client, calls, release, inGate } = gatedClient(CHAT_PATH)
+  const router = routerWithClient(e, [a], client)
+  const send = () => chatHop(router, a, 'a')
+  return { e, a, router, calls, release, inGate, send }
+}
+
+function failFirstOn(path: string): { client: HttpClient; count: () => number } {
+  let n = 0
+  const { client } = fakeLlama((call) => {
+    if (call.path !== path) {
+      return
+    }
+    n += 1
+    if (n === 1) {
+      throw new Error('Unable to connect')
+    }
+  })
+  return { client, count: () => n }
+}
+
+async function proxyGone(client: HttpClient): Promise<Response> {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const router = new LlamaRouter(
+    e,
+    [a],
+    new DockerLifecycle(goneExecFrom(), fakeProbe),
+    baseOpts(client),
+  )
+  return (await chatHop(router, a, 'a')).response
+}
+
+function expectReloaded(res: Response, calls: RecordedCall[], loadsBefore: number): void {
+  expect(res.status).toBe(200)
+  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1)
+  expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0)
+}
+
+function gatedUnloadPair(
+  aExtra: Parameters<typeof model>[0] = {},
+  bExtra: Parameters<typeof model>[0] = {},
+) {
+  const { e, a, b } = pair(aExtra, bExtra)
+  const { client, calls, release, started } = gatedClient(UNLOAD_PATH, { once: true })
+  const router = routerWithClient(e, [a, b], client)
+  return { e, a, b, calls, release, started, router }
 }
 
 describe('renderPresetIni', () => {
@@ -375,13 +529,10 @@ describe('buildLlamaSpec / buildRunArgs', () => {
 })
 
 test('chat for model B while same-role model A is resident and idle: unload A, load B, then complete', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { calls, router } = routerFor(e, [a, b])
+  const { a, b, calls, router } = pairRouter()
 
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, a, 'a')
+  await chatText(router, b, 'b')
 
   // Default fakeLlama mirrors the real b10354 handshake: a POST /models/load
   // trigger, then a GET /v1/models poll for the "loaded" status -- the real
@@ -406,10 +557,7 @@ test('chat for model B while same-role model A is resident and idle: unload A, l
 })
 
 test('the resident model reported for a hop is the one that served it, not a later swap', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { router } = routerFor(e, [a, b])
+  const { a, b, router } = pairRouter()
 
   const first = await router.proxy(a, CHAT_PATH, {
     method: 'POST',
@@ -418,21 +566,18 @@ test('the resident model reported for a hop is the one that served it, not a lat
   await first.response.text()
   // Swaps the role onto B. The hop above already carries its own answer, so
   // this cannot retroactively change what it reported holding.
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, b, 'b')
 
   expect(first.modelResident).toBe('a')
 })
 
 test('a different-role model resident is untouched by a chat swap', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf', role: 'chat' })
-  const b = model({ id: 'b', filename: 'b.gguf', role: 'chat' })
   const v = model({ id: 'v', filename: 'v.gguf', role: 'vision' })
-  const { calls, router } = routerFor(e, [a, b, v])
+  const { a, b, calls, router } = pairRouter({ role: 'chat' }, { role: 'chat' }, [v])
 
-  await text(router.proxy(v, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'v' }) }))
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, v, 'v')
+  await chatText(router, a, 'a')
+  await chatText(router, b, 'b')
 
   const visionLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === 'v',
@@ -447,15 +592,11 @@ test('an embedding request co-resides with a resident chat model: neither evicts
   const embed = model({ id: 'embed', filename: 'embed.gguf', role: 'embedding' })
   const { calls, router } = routerFor(e, [chat, embed])
 
-  await text(
-    router.proxy(chat, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'chat-a' }) }),
-  )
+  await text(chatHop(router, chat, 'chat-a'))
   await text(
     router.proxy(embed, EMBED_PATH, { method: 'POST', body: JSON.stringify({ model: 'embed' }) }),
   )
-  await text(
-    router.proxy(chat, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'chat-a' }) }),
-  )
+  await text(chatHop(router, chat, 'chat-a'))
 
   const chatLoadOrUnload = calls.filter(
     (c) => (c.path === LOAD_PATH || c.path === UNLOAD_PATH) && c.body?.model === 'chat-a',
@@ -494,10 +635,7 @@ test('two overlapping chats for the same GGUF both complete without a second loa
 })
 
 test('a different-GGUF same-role chat arriving mid-lease waits, without eviction or a 409', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { router, calls, release, res1 } = await startGatedChat(e, [a, b], a)
+  const { b, router, calls, release, res1 } = await gatedPair()
 
   const res2 = router.proxy(b, CHAT_PATH, {
     method: 'POST',
@@ -522,10 +660,7 @@ test('a different-GGUF same-role chat arriving mid-lease waits, without eviction
 })
 
 test('a queued waiter whose caller aborts is dropped before the swap it would have triggered', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { router, calls, release, res1 } = await startGatedChat(e, [a, b], a)
+  const { b, router, calls, release, res1 } = await gatedPair()
 
   const controller = new AbortController()
   const res2 = router.proxy(b, CHAT_PATH, {
@@ -564,7 +699,7 @@ test('/models/load only triggers; readiness is polled via /v1/models until "load
   })
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
 
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
+  await chatText(router, a, 'a')
 
   // Three readiness polls, then the provenance read once the chat has answered.
   expect(pollAttempts).toBe(4)
@@ -583,9 +718,7 @@ test('a model that never reports "loaded" via /v1/models fails within the timeou
   )
   const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), readyTimeoutS: 0.05 })
 
-  await expect(
-    text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })),
-  ).rejects.toThrow(READY_TIMEOUT_ERROR)
+  await expect(chatText(router, a, 'a')).rejects.toThrow(READY_TIMEOUT_ERROR)
 })
 
 test("the role's lease is free after a failed load: a later request for the role proceeds", async () => {
@@ -610,14 +743,10 @@ test("the role's lease is free after a failed load: a later request for the role
     readyTimeoutS: 0.05,
   })
 
-  await expect(
-    text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })),
-  ).rejects.toThrow()
+  await expect(chatText(router, a, 'a')).rejects.toThrow()
 
   const result = await Promise.race([
-    text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) })).then(
-      (t) => ({ done: true as const, t }),
-    ),
+    chatText(router, b, 'b').then((t) => ({ done: true as const, t })),
     new Promise<{ done: false }>((resolve) => setTimeout(() => resolve({ done: false }), 500)),
   ])
   expect(result.done).toBe(true)
@@ -627,10 +756,7 @@ test("the role's lease is free after a failed load: a later request for the role
 test('a cold streaming request emits `: warming` before its first real byte', async () => {
   const { a, router } = singleModelRouter()
 
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a', stream: true }),
-  })
+  const { response: res } = await chatHop(router, a, 'a', { stream: true })
   const reader = res.body?.getReader()
   if (!reader) {
     throw new Error('expected a body reader')
@@ -640,39 +766,18 @@ test('a cold streaming request emits `: warming` before its first real byte', as
 })
 
 test('a client cancelling a streaming response cancels the upstream reader too, instead of leaking the connection', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
   let upstreamCancelled = false
-  const client: HttpClient = (input) => {
-    const url = new URL(String(input))
-    if (url.pathname === LOAD_PATH) {
-      return Promise.resolve(Response.json({ success: true }))
-    }
-    if (url.pathname === MODELS_LIST_PATH) {
-      return Promise.resolve(modelsList([{ id: 'a', status: 'loaded' }]))
-    }
-    if (url.pathname === CHAT_PATH) {
-      const body = new ReadableStream<Uint8Array>({
-        pull(controller) {
-          controller.enqueue(new TextEncoder().encode('data: chunk\n\n'))
-        },
-        cancel() {
+  const { a, router } = sseRouter(
+    () =>
+      new Response(
+        sseBody('data: chunk\n\n', () => {
           upstreamCancelled = true
-        },
-      })
-      return Promise.resolve(
-        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
-      )
-    }
-    throw new Error(`unexpected path ${url.pathname}`)
-  }
-  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+  )
 
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a', stream: true }),
-  })
+  const { response: res } = await chatHop(router, a, 'a', { stream: true })
   const reader = res.body?.getReader()
   await reader?.read()
   await reader?.cancel()
@@ -681,37 +786,16 @@ test('a client cancelling a streaming response cancels the upstream reader too, 
 })
 
 test('a streaming client that aborts without draining the stream still releases its lease', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
-  const client: HttpClient = (input) => {
-    const url = new URL(String(input))
-    if (url.pathname === LOAD_PATH) {
-      return Promise.resolve(Response.json({ success: true }))
-    }
-    if (url.pathname === MODELS_LIST_PATH) {
-      return Promise.resolve(modelsList([{ id: 'a', status: 'loaded' }]))
-    }
-    if (url.pathname === CHAT_PATH) {
-      const body = new ReadableStream<Uint8Array>({
-        pull(sink) {
-          sink.enqueue(new TextEncoder().encode('data: chunk\n\n'))
-        },
-      })
-      return Promise.resolve(
-        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
-      )
-    }
-    throw new Error(`unexpected path ${url.pathname}`)
-  }
-  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
+  const { a, router } = sseRouter(
+    () =>
+      new Response(sseBody('data: chunk\n\n'), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }),
+  )
 
   const controller = new AbortController()
-  await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a', stream: true }),
-    signal: controller.signal,
-  })
+  await chatHop(router, a, 'a', { stream: true, signal: controller.signal })
 
   // The returned stream is never read and never cancelled -- exactly what a
   // client that goes away mid-generation leaves behind. Only the abort signal
@@ -864,11 +948,7 @@ test('a model added by config reload becomes genuinely servable, not just listed
   // Router 1: only "a" configured -- the pre-reload state. Drives the
   // container to "running" the way a real first request would.
   const router1 = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), presetHostPath })
-  expect(
-    await text(
-      router1.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }),
-    ),
-  ).toContain('"model":"a"')
+  expect(await text(chatHop(router1, a, 'a'))).toContain('"model":"a"')
 
   // Router 2: what `main.ts`'s reload produces -- a NEW router over the SAME
   // still-running container, with "b" newly added. The stale-router swap
@@ -894,37 +974,14 @@ test('a model added by config reload becomes genuinely servable, not just listed
  * the router proxies to a dead port until the process restarts.
  */
 test('a request that cannot connect reconciles a dead container, restarts it and retries once', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-
-  const base = fakeExec()
-  const goneExec: Exec = (args) =>
-    args[0] === 'inspect'
-      ? Promise.resolve({ exitCode: 0, stdout: 'false\n', stderr: '' })
-      : base(args)
-
   // Only the proxied completion fails, and only the first time: the load and
   // /v1/models polling the lease itself does must still succeed, or the
   // failure under test is never reached.
-  let chatCalls = 0
-  const { client } = fakeLlama((call) => {
-    if (call.path !== CHAT_PATH) {
-      return
-    }
-    chatCalls += 1
-    if (chatCalls === 1) {
-      throw new Error('Unable to connect')
-    }
-  })
-
-  const router = new LlamaRouter(e, [a], new DockerLifecycle(goneExec, fakeProbe), baseOpts(client))
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { client, count } = failFirstOn(CHAT_PATH)
+  const res = await proxyGone(client)
 
   expect(res.status).toBe(200)
-  expect(chatCalls).toBe(2)
+  expect(count()).toBe(2)
 })
 
 /**
@@ -936,34 +993,11 @@ test('a request that cannot connect reconciles a dead container, restarts it and
  * the life of the process.
  */
 test('a load that cannot connect reconciles a dead container, restarts it and retries once', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-
-  const base = fakeExec()
-  const goneExec: Exec = (args) =>
-    args[0] === 'inspect'
-      ? Promise.resolve({ exitCode: 0, stdout: 'false\n', stderr: '' })
-      : base(args)
-
-  let loadCalls = 0
-  const { client } = fakeLlama((call) => {
-    if (call.path !== LOAD_PATH) {
-      return
-    }
-    loadCalls += 1
-    if (loadCalls === 1) {
-      throw new Error('Unable to connect')
-    }
-  })
-
-  const router = new LlamaRouter(e, [a], new DockerLifecycle(goneExec, fakeProbe), baseOpts(client))
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { client, count } = failFirstOn(LOAD_PATH)
+  const res = await proxyGone(client)
 
   expect(res.status).toBe(200)
-  expect(loadCalls).toBe(2)
+  expect(count()).toBe(2)
 })
 
 /** Docker decides: a real upstream failure against a live container must not provoke a restart-and-retry. */
@@ -991,9 +1025,7 @@ test('a request that cannot connect while the container is genuinely up rethrows
     baseOpts(client),
   )
 
-  await expect(
-    router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }),
-  ).rejects.toThrow('Unable to connect')
+  await expect(chatHop(router, a, 'a')).rejects.toThrow('Unable to connect')
   // Not retried: docker said the container is up, so this is a real upstream error.
   expect(chatCalls).toBe(1)
 })
@@ -1010,12 +1042,7 @@ test('a request that cannot connect while the container is genuinely up rethrows
 test('a container restarted under a live lease still counts that lease: the next request waits rather than riding the same slots', async () => {
   const e = engine()
   const a = model({ id: 'a', filename: 'a.gguf' })
-
-  const base = fakeExec()
-  const goneExec: Exec = (args) =>
-    args[0] === 'inspect'
-      ? Promise.resolve({ exitCode: 0, stdout: 'false\n', stderr: '' })
-      : base(args)
+  const goneExec = goneExecFrom()
 
   let retrying: () => void = () => undefined
   const retryStarted = new Promise<void>((r) => {
@@ -1043,10 +1070,10 @@ test('a container restarted under a live lease still counts that lease: the next
   const router = new LlamaRouter(e, [a], new DockerLifecycle(goneExec, fakeProbe), {
     ...baseOpts(failThenGate),
   })
-  const res1 = router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+  const res1 = chatHop(router, a, 'a')
   await retryStarted
 
-  const res2 = router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+  const res2 = chatHop(router, a, 'a')
   await drainMicrotasks()
 
   expect(router.contention()).toEqual([{ role: 'chat', active: 1, waiting: 1 }])
@@ -1086,17 +1113,12 @@ test("a model unloaded behind the router's back reloads once, instead of 400ing 
 
   // Nothing tells engined about this: its own activeModelId still says "a".
   unloadedBehindBack = true
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { response: res } = await chatHop(router, a, 'a')
 
   expect(served404s).toBe(1)
-  expect(res.status).toBe(200)
   // The reload is a real /models/load, not a silent retry against the same dead state.
-  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1)
   // And no eviction: the belief about WHICH model belongs here was never wrong.
-  expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0)
+  expectReloaded(res, calls, loadsBefore)
 })
 
 /**
@@ -1144,28 +1166,20 @@ test('a child stopped mid-flight is waited out and reloaded, not surfaced as a 5
   const loadsBefore = await warmUpAndCountLoads(router, a, calls)
 
   child.gone = true
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { response: res } = await chatHop(router, a, 'a')
 
   expect(served500s).toBe(1)
-  expect(res.status).toBe(200)
   // It waited for the router to stop advertising the dying instance...
   expect(staleAdvertisements).toBe(0)
   // ...and only then issued a real reload.
-  expect(calls.filter((c) => c.path === LOAD_PATH)).toHaveLength(loadsBefore + 1)
-  expect(calls.filter((c) => c.path === UNLOAD_PATH)).toHaveLength(0)
+  expectReloaded(res, calls, loadsBefore)
 })
 
 test("contention reports the request holding a role's lease and the one queued behind it", async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { router, release, res1 } = await startGatedChat(e, [a, b], a)
+  const { b, router, release, res1 } = await gatedPair()
 
   // A different model on the same role cannot overlap, so this one queues.
-  const res2 = router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) })
+  const res2 = chatHop(router, b, 'b')
   await drainMicrotasks()
 
   expect(router.contention()).toEqual([{ role: 'chat', active: 1, waiting: 1 }])
@@ -1179,13 +1193,8 @@ test("contention reports the request holding a role's lease and the one queued b
 })
 
 test('6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door', async () => {
-  const e = engine()
   const a = model({ id: 'a', filename: 'a.gguf', args: { parallel: 2 } })
-  const { client, calls, release, inGate } = gatedClient(CHAT_PATH)
-  const router = routerWithClient(e, [a], client)
-
-  const send = () =>
-    router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+  const { router, calls, release, inGate, send } = admissionOf(a)
   const r1 = send()
   await waitFor(() => inGate() === 1)
   const r2 = send()
@@ -1217,13 +1226,8 @@ for (const [label, args] of [
   ['a route that never states parallel', {}],
 ] as const) {
   test(`${label} caps admission at the auto slot count the child really has`, async () => {
-    const e = engine()
     const a = model({ id: 'a', filename: 'a.gguf', args })
-    const { client, release, inGate } = gatedClient(CHAT_PATH)
-    const router = routerWithClient(e, [a], client)
-
-    const send = () =>
-      router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+    const { router, release, inGate, send } = admissionOf(a)
     const sent = [send(), send(), send(), send(), send()]
     await waitFor(() => inGate() === 4)
 
@@ -1252,20 +1256,16 @@ test('a role nothing has touched is absent from contention rather than reported 
  * then arrives and finds the same-GGUF bypass exactly true.
  */
 test('a request for the resident model arriving while that GGUF is mid-unload queues instead of being admitted onto it', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { client, calls, release, started } = gatedClient(UNLOAD_PATH, { once: true })
-  const router = routerWithClient(e, [a, b], client)
+  const { a, b, calls, release, started, router } = gatedUnloadPair()
 
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
+  await chatText(router, a, 'a')
   expect(router.residentModel('chat')).toBe('a')
   expect(router.contention()).toEqual([])
 
-  const resB = router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) })
+  const resB = chatHop(router, b, 'b')
   await started
 
-  const resA = router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) })
+  const resA = chatHop(router, a, 'a')
   await drainMicrotasks()
 
   // Nothing may be in flight during a swap: "a" is gone from the child and
@@ -1291,19 +1291,15 @@ test('a request for the resident model arriving while that GGUF is mid-unload qu
  * A request for "b" then arrives onto a GGUF the re-warm has already taken.
  */
 test('a request for the resident model arriving while a keep_resident re-warm unloads it queues instead of being admitted onto it', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf', keep_resident: true })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { client, calls, release, started } = gatedClient(UNLOAD_PATH, { once: true })
-  const router = routerWithClient(e, [a, b], client)
+  const { b, calls, release, started, router } = gatedUnloadPair({ keep_resident: true })
 
   // Nothing is resident yet, so serving "b" loads it without an unload; the
   // release that follows is what starts the re-warm, and its unload is the
   // first this client ever sees.
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, b, 'b')
   await started
 
-  const resB = router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) })
+  const resB = chatHop(router, b, 'b')
   await drainMicrotasks()
 
   expect(router.contention()).toEqual([{ role: 'chat', active: 0, waiting: 1 }])
@@ -1331,11 +1327,9 @@ test('an unload the engine refuses fails that swap instead of loading the new GG
   )
   const router = routerWithClient(e, [a, b], client)
 
-  await text(router.proxy(a, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'a' }) }))
+  await chatText(router, a, 'a')
 
-  await expect(
-    router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }),
-  ).rejects.toThrow(UNLOAD_FAILED_ERROR)
+  await expect(chatHop(router, b, 'b')).rejects.toThrow(UNLOAD_FAILED_ERROR)
 
   // "b" was never loaded on top of a still-resident "a", and the role still
   // believes what the child actually holds.
@@ -1351,7 +1345,7 @@ test('a keep_resident model is reloaded once its role drains', async () => {
   const { calls, router } = routerFor(e, [a, b])
 
   // b wins the swap -- keep_resident never blocks another model's request.
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, b, 'b')
 
   // The re-warm is deliberately not awaited by the release that triggers it --
   // a request must not wait for the next one's head start -- so poll for it.
@@ -1362,12 +1356,9 @@ test('a keep_resident model is reloaded once its role drains', async () => {
 })
 
 test('without keep_resident a role stays on whatever last served it', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const b = model({ id: 'b', filename: 'b.gguf' })
-  const { router } = routerFor(e, [a, b])
+  const { b, router } = pairRouter()
 
-  await text(router.proxy(b, CHAT_PATH, { method: 'POST', body: JSON.stringify({ model: 'b' }) }))
+  await chatText(router, b, 'b')
 
   expect(router.residentModel('chat')).toBe('b')
 })
