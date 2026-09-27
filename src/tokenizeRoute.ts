@@ -38,7 +38,7 @@ export function ggufPath(route: ResolvedRoute, modelsDir: string | undefined): s
 }
 
 /** The on-disk GGUF `route` points at, or `undefined` when it has none to read -- a remote route, or a local one with no `filename`/`models_dir`. */
-export function ggufPathFor(route: ResolvedRoute, config: Config): string | undefined {
+function ggufPathFor(route: ResolvedRoute, config: Config): string | undefined {
   const engine = config.engines.find((e) => e.id === route.engine)
   return ggufPath(route, engine?.models_dir)
 }

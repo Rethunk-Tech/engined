@@ -1,0 +1,4 @@
+{
+  "entry": ["test/local/*.test.ts"],
+  "ignoreBinaries": ["secret-tool"]
+}

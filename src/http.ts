@@ -74,7 +74,7 @@ export function declaredOverLimit(req: Request, max: number): number | undefined
 /** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
 export const HTTP_CLIENT_ERROR_MIN = 400
 export const HTTP_SERVER_ERROR_MIN = 500
-export const STATUS_INTERNAL_SERVER_ERROR = HTTP_SERVER_ERROR_MIN
+export const STATUS_INTERNAL_SERVER_ERROR = 500
 export const HTTP_SERVER_ERROR_MAX = 600
 
 /** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */
@@ -96,7 +96,7 @@ export async function discardBody(res: Response): Promise<void> {
   await res.body?.cancel().catch(() => undefined)
 }
 
-export const SSE_FRAME_BOUNDARY = '\n\n'
+const SSE_FRAME_BOUNDARY = '\n\n'
 
 /** Past this with no frame boundary the body is not SSE, so the scan stops holding it. Generous for one frame; nothing near a whole reply. */
 const MAX_CARRY_BYTES = 65_536

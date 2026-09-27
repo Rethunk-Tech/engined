@@ -6,15 +6,17 @@
   "scripts": {
     "typecheck": "tsc -b --noEmit --pretty false",
     "lint": "biome check .",
+    "knip": "knip",
     "format": "biome check --write .",
     "test": "bun test src",
     "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outfile=dist/main.js",
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} ENGINED_TEST_CLAUDE_VERSION=${ENGINED_TEST_CLAUDE_VERSION:-$(awk '/^id *= *\"claude\"/{f=1} f && /^agent_version/{print; exit}' config.example.toml | tr -cd '0-9.')} ENGINED_TEST_OPENCODE_VERSION=${ENGINED_TEST_OPENCODE_VERSION:-$(awk '/^id *= *\"opencode\"/{f=1} f && /^agent_version/{print; exit}' config.example.toml | tr -cd '0-9.')} ENGINED_TEST_CURSOR_VERSION=${ENGINED_TEST_CURSOR_VERSION:-$(awk -F'\"' '/^id *= *\"cursor\"/{f=1} f && /^agent_version/{print $2; exit}' config.example.toml)} /usr/bin/flock -w 3600 /tmp/engined-local-tier.lock bun test test/local",
-    "ci": "turbo run typecheck lint test build"
+    "ci": "turbo run typecheck lint knip test build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@types/bun": "^1.4.2",
+    "knip": "^6.38.0",
     "turbo": "^2.11.4",
     "typescript": "^7.0.2"
   },

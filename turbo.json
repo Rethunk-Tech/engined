@@ -13,6 +13,10 @@
       "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
       "outputs": []
     },
+    "knip": {
+      "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
+      "outputs": []
+    },
     "test": {
       // The suite reads trees off disk that no source import reveals: shipped
       // specs under engines/, config.example.toml, the install script and unit
