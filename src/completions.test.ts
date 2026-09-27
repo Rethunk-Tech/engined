@@ -79,9 +79,9 @@ const INFILL_SSE = [
   `data: ${JSON.stringify({ content: ' a + b', stop: true, stopped_limit: true, tokens_predicted: 5, tokens_evaluated: 12 })}\n\n`,
 ].join('')
 
-function makeInfillHttpClient(
+function recordControlledClient(
   recorded: { url: string; body: string }[],
-  reply: 'buffered' | 'streamed',
+  respond: () => Response,
 ): HttpClient {
   const control = llamaControlPlane()
   return (url, init) => {
@@ -92,13 +92,19 @@ function makeInfillHttpClient(
     if (typeof init?.body === 'string') {
       recorded.push({ url, body: init.body })
     }
-    if (reply === 'streamed') {
-      return Promise.resolve(
-        new Response(INFILL_SSE, { headers: { 'content-type': 'text/event-stream' } }),
-      )
-    }
-    return Promise.resolve(Response.json(INFILL_REPLY))
+    return Promise.resolve(respond())
   }
+}
+
+function makeInfillHttpClient(
+  recorded: { url: string; body: string }[],
+  reply: 'buffered' | 'streamed',
+): HttpClient {
+  return recordControlledClient(recorded, () =>
+    reply === 'streamed'
+      ? new Response(INFILL_SSE, { headers: { 'content-type': 'text/event-stream' } })
+      : Response.json(INFILL_REPLY),
+  )
 }
 
 function doorFor(cfg: Config, root: string, httpClient: HttpClient, write: (line: string) => void) {
@@ -203,19 +209,9 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('a stopped_limit reply reports finish_reason "length"', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const recorded: { url: string; body: string }[] = []
-    const control = llamaControlPlane()
-    const httpClient: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
-      if (typeof init?.body === 'string') {
-        recorded.push({ url, body: init.body })
-      }
-      return Promise.resolve(
-        Response.json({ ...INFILL_REPLY, stopped_word: false, stopped_limit: true }),
-      )
-    }
+    const httpClient = recordControlledClient(recorded, () =>
+      Response.json({ ...INFILL_REPLY, stopped_word: false, stopped_limit: true }),
+    )
     const door = doorFor(cfg, root, httpClient, () => undefined)
     const res = await door.fetch(
       completionsRequest({ model: '@/local-llama/ornith', prompt: 'x', max_tokens: 1 }),
