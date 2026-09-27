@@ -50,10 +50,14 @@ export function loadBpeVocab(path: string): Promise<BpeVocab> {
   if (cached === undefined) {
     cached = buildBpeVocab(path)
     vocabCache.set(path, cached)
-    // A failed load is not worth remembering as a failure forever -- a retry
-    // (after e.g. a config fix pointing at a different file at the same
-    // path is unusual, but a transient read error is not) gets a fresh read.
-    cached.catch(() => vocabCache.delete(path))
+    // UnsupportedVocabError is a property of the file: retrying will not
+    // change the tokenizer. Transient read errors are evicted so a later
+    // call can try again.
+    cached.catch((err: unknown) => {
+      if (!(err instanceof UnsupportedVocabError)) {
+        vocabCache.delete(path)
+      }
+    })
   }
   return cached
 }
