@@ -172,6 +172,9 @@ export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerat
  */
 export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
 
+/** JSON routes share this ceiling; the Bun server's larger upload cap is for audio, not tables. */
+export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
+
 /**
  * Every JSON body this door reads, or the 400 to return instead. A table is
  * the only accepted shape: `null`, an array and a bare scalar all parse as
@@ -180,11 +183,18 @@ export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
  * `Response` back means exactly that; the caller returns it unchanged.
  */
 export async function readJsonBody(req: Request): Promise<Record<string, unknown> | Response> {
+  const declared = declaredOverLimit(req, MAX_JSON_BODY_BYTES)
+  if (declared !== undefined) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+  }
   let raw: string
   try {
     raw = await req.text()
   } catch {
     return jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
+  }
+  if (raw.length > MAX_JSON_BODY_BYTES) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
   }
   return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
 }

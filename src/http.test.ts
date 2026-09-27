@@ -1,5 +1,14 @@
 import { expect, test } from 'bun:test'
-import { declaredOverLimit, discardBody, splitSseFrames, sseFrames } from './http.ts'
+import {
+  declaredOverLimit,
+  discardBody,
+  jsonErrorBody,
+  MAX_JSON_BODY_BYTES,
+  readJsonBody,
+  STATUS_PAYLOAD_TOO_LARGE,
+  splitSseFrames,
+  sseFrames,
+} from './http.ts'
 
 /**
  * A response whose body records whether anything ever cancelled it, standing in
@@ -75,6 +84,42 @@ test('sseFrames yields a trimmed tail with no trailing boundary', async () => {
     frames.push(frame)
   }
   expect(frames).toEqual(['data: {"x":1}'])
+})
+
+test('a JSON body whose declared Content-Length is past the cap is 413 without reading it', async () => {
+  const req = new Request('http://door.local/', {
+    method: 'POST',
+    headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
+  })
+  const result = await readJsonBody(req)
+  expect(result).toBeInstanceOf(Response)
+  if (!(result instanceof Response)) {
+    return
+  }
+  expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
+  expect(await result.json()).toEqual(jsonErrorBody('JSON body too large'))
+})
+
+test('a JSON body past the cap with no Content-Length is 413 after the read', async () => {
+  const encoder = new TextEncoder()
+  const chunk = encoder.encode(`{"x":"${'a'.repeat(MAX_JSON_BODY_BYTES)}"}`)
+  const init: RequestInit & { duplex: 'half' } = {
+    method: 'POST',
+    duplex: 'half',
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(chunk)
+        controller.close()
+      },
+    }),
+  }
+  const result = await readJsonBody(new Request('http://door.local/', init))
+  expect(result).toBeInstanceOf(Response)
+  if (!(result instanceof Response)) {
+    return
+  }
+  expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
+  expect(await result.json()).toEqual(jsonErrorBody('JSON body too large'))
 })
 
 test('a finite Content-Length past the cap is over the limit; an absent or unparseable one is not', () => {
