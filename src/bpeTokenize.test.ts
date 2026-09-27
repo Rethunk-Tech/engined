@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { bpeTokenIds } from './bpeTokenize.ts'
 import type { BpeVocab } from './bpeVocab.ts'
-import { UnsupportedVocabError } from './bpeVocab.ts'
+import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
+import './testtmp.ts'
 
 /** A vocab small enough to hand-check every merge and lookup against, built directly rather than through a GGUF file -- `ggufMetadata.test.ts`/`tokenizeRoute.test.ts` cover the on-disk path. */
 function vocab(pre: string, tokens: string[], merges: string[]): BpeVocab {
@@ -49,4 +53,37 @@ describe('bpeTokenIds', () => {
     const v = vocab('qwen2', ['x'], [])
     expect(() => bpeTokenIds(v, 'a')).toThrow(UnsupportedVocabError)
   })
+
+  test('a 40_000-space word against a real GGUF vocab finishes in under 200 ms', async () => {
+    const realVocab = await loadOperatorBpeVocab()
+    const word = `hello${' '.repeat(40_000)}x`
+    const started = performance.now()
+    const ids = bpeTokenIds(realVocab, word)
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(ids.length).toBeGreaterThan(0)
+  })
 })
+
+function tomlQuoted(text: string, key: string): string {
+  const match = text.match(new RegExp(`^\\s*${key}\\s*=\\s*"([^"]+)"`, 'm'))
+  const value = match?.[1]
+  if (value === undefined) {
+    throw new Error(`~/.config/engined/config.toml has no ${key}`)
+  }
+  return value
+}
+
+function expandHome(p: string): string {
+  return p.startsWith('~/') ? join(homedir(), p.slice(2)) : p
+}
+
+async function loadOperatorBpeVocab(): Promise<BpeVocab> {
+  const text = await Bun.file(join(homedir(), '.config/engined/config.toml')).text()
+  const dir = expandHome(tomlQuoted(text, 'models_dir'))
+  const names = [...text.matchAll(/^\s*filename\s*=\s*"([^"]+\.gguf)"/gm)].flatMap((m) => {
+    const name = m[1]
+    return name === undefined ? [] : [name]
+  })
+  const paths = names.map((name) => expandHome(join(dir, name))).filter((p) => existsSync(p))
+  return await Promise.any(paths.map((p) => loadBpeVocab(p)))
+}

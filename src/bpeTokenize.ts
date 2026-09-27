@@ -77,32 +77,179 @@ function byteEncode(word: string): string {
   return out
 }
 
-/** One BPE-mergeable symbol chain, as an array of substrings of `word`; merging joins two adjacent entries into one. */
+/** Linked-list node: `next`/`prev` are indices into the same `BpeSymbol[]`, or -1. A merged-away right symbol has empty `text`. */
+interface BpeSymbol {
+  prev: number
+  next: number
+  text: string
+}
+
+/** Heap entry: `size` is `left.text.length + right.text.length` at push time, so a later merge of either side is detected as stale. */
+interface BpeBigram {
+  left: number
+  right: number
+  rank: number
+  size: number
+}
+
+/** Lowest rank first; equal rank prefers the leftmost pair (`left` index). */
+function bigramBetter(a: BpeBigram, b: BpeBigram): boolean {
+  return a.rank < b.rank || (a.rank === b.rank && a.left < b.left)
+}
+
+function heapSiftUp(heap: BpeBigram[], start: number): void {
+  let i = start
+  while (i > 0) {
+    const parent = Math.floor((i - 1) / 2)
+    const cur = heap[i]
+    const par = heap[parent]
+    if (cur === undefined || par === undefined || !bigramBetter(cur, par)) {
+      return
+    }
+    heap[i] = par
+    heap[parent] = cur
+    i = parent
+  }
+}
+
+function heapSiftDown(heap: BpeBigram[], start: number): void {
+  let i = start
+  for (;;) {
+    const left = i * 2 + 1
+    const right = left + 1
+    const cur = heap[i]
+    if (cur === undefined) {
+      return
+    }
+    let bestI = i
+    let best = cur
+    const l = heap[left]
+    if (l !== undefined && bigramBetter(l, best)) {
+      bestI = left
+      best = l
+    }
+    const r = heap[right]
+    if (r !== undefined && bigramBetter(r, best)) {
+      bestI = right
+      best = r
+    }
+    if (bestI === i) {
+      return
+    }
+    heap[bestI] = cur
+    heap[i] = best
+    i = bestI
+  }
+}
+
+function heapPush(heap: BpeBigram[], item: BpeBigram): void {
+  heap.push(item)
+  heapSiftUp(heap, heap.length - 1)
+}
+
+function heapPop(heap: BpeBigram[]): BpeBigram | undefined {
+  const first = heap[0]
+  if (first === undefined) {
+    return undefined
+  }
+  const last = heap.pop()
+  if (last === undefined) {
+    return undefined
+  }
+  if (heap.length > 0) {
+    heap[0] = last
+    heapSiftDown(heap, 0)
+  }
+  return first
+}
+
+interface BpeSession {
+  symbols: BpeSymbol[]
+  heap: BpeBigram[]
+  mergeRank: ReadonlyMap<string, number>
+}
+
+function tryAddBigram(session: BpeSession, left: number, right: number): void {
+  if (left < 0 || right < 0) {
+    return
+  }
+  const l = session.symbols[left]
+  const r = session.symbols[right]
+  if (l === undefined || r === undefined || l.text === '' || r.text === '') {
+    return
+  }
+  const rank = session.mergeRank.get(`${l.text} ${r.text}`)
+  if (rank === undefined) {
+    return
+  }
+  heapPush(session.heap, { left, right, rank, size: l.text.length + r.text.length })
+}
+
+/**
+ * One BPE-mergeable symbol chain. Lowest merge rank wins; ties go to the
+ * leftmost pair. Adjacent pairs live on a min-heap with stale-entry checks so
+ * each merge is O(log n), not a rescan of every pair.
+ */
 function bpeMerge(word: string, mergeRank: ReadonlyMap<string, number>): string[] {
-  let symbols = Array.from(word)
-  if (symbols.length <= 1) {
-    return symbols
+  const chars = Array.from(word)
+  if (chars.length <= 1) {
+    return chars
+  }
+  const session: BpeSession = {
+    symbols: chars.map((text, i) => ({
+      prev: i - 1,
+      next: i + 1 < chars.length ? i + 1 : -1,
+      text,
+    })),
+    heap: [],
+    mergeRank,
+  }
+  const { symbols, heap } = session
+  for (let i = 0; i < symbols.length - 1; i++) {
+    tryAddBigram(session, i, i + 1)
   }
   for (;;) {
-    let bestRank = Number.POSITIVE_INFINITY
-    let bestIndex = -1
-    for (let i = 0; i < symbols.length - 1; i++) {
-      const rank = mergeRank.get(`${symbols[i]} ${symbols[i + 1]}`)
-      if (rank !== undefined && rank < bestRank) {
-        bestRank = rank
-        bestIndex = i
+    const bigram = heapPop(heap)
+    if (bigram === undefined) {
+      break
+    }
+    const leftSym = symbols[bigram.left]
+    const rightSym = symbols[bigram.right]
+    if (
+      leftSym === undefined ||
+      rightSym === undefined ||
+      leftSym.text === '' ||
+      rightSym.text === '' ||
+      leftSym.next !== bigram.right ||
+      leftSym.text.length + rightSym.text.length !== bigram.size
+    ) {
+      continue
+    }
+    leftSym.text += rightSym.text
+    rightSym.text = ''
+    leftSym.next = rightSym.next
+    if (rightSym.next >= 0) {
+      const after = symbols[rightSym.next]
+      if (after === undefined) {
+        throw new Error('bpeMerge: right.next indexed a missing symbol')
       }
+      after.prev = bigram.left
     }
-    if (bestIndex === -1) {
-      return symbols
-    }
-    const left = symbols[bestIndex]
-    const right = symbols[bestIndex + 1]
-    if (left === undefined || right === undefined) {
-      throw new Error('bpeMerge: rank matched a pair outside the symbol array')
-    }
-    symbols = [...symbols.slice(0, bestIndex), left + right, ...symbols.slice(bestIndex + 2)]
+    tryAddBigram(session, leftSym.prev, bigram.left)
+    tryAddBigram(session, bigram.left, leftSym.next)
   }
+  const out: string[] = []
+  for (let i = 0; i >= 0; ) {
+    const s = symbols[i]
+    if (s === undefined) {
+      break
+    }
+    if (s.text !== '') {
+      out.push(s.text)
+    }
+    i = s.next
+  }
+  return out
 }
 
 /**
