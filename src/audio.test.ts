@@ -21,6 +21,7 @@ import {
   deadPort,
   ENGINES_ROOT,
   engine,
+  inspectSinglePort,
   makeTestRoot,
   route,
   soleProvenanceRecord,
@@ -41,11 +42,6 @@ const CHATTERBOX_CONTAINER_PORT = 8004
 const SAMPLE_WAV_BYTES = Buffer.from('RIFF____WAVEfmt ', 'utf8')
 const SAMPLE_WAV_BASE64 = SAMPLE_WAV_BYTES.toString('base64')
 
-/** `docker image inspect`, one exposed port — chatterbox-multi's shape, not a real capture. */
-const CHATTERBOX_INSPECT = JSON.stringify([
-  { Config: { ExposedPorts: { [`${CHATTERBOX_CONTAINER_PORT}/tcp`]: {} } } },
-])
-
 /** Loads `id`'s real spec.toml and asserts it parsed as a container spec — every engine under test here is one. */
 function loadSpecFor(id: string, modelsDir?: string) {
   const entry: EngineEntry = engine({ id, models_dir: modelsDir })
@@ -58,9 +54,6 @@ function loadSpecFor(id: string, modelsDir?: string) {
   }
   return loaded.spec
 }
-
-/** `docker image inspect`, one exposed port -- a synthetic shape for the fake exec, not a real capture. */
-const WHISPER_INSPECT = JSON.stringify([{ Config: { ExposedPorts: { '8080/tcp': {} } } }])
 
 /** A fake `Exec` with a fixed `docker image inspect` reply; every other verb falls through to `extra` (when it recognizes the argv) then a no-op success. */
 function makeExec(
@@ -173,7 +166,7 @@ test('a request against a stopped engine starts it on demand through the real do
   const [, fakePort] = fake.base.split(':')
   const runLog: string[][] = []
 
-  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
+  const exec = makeExec(inspectSinglePort(CHATTERBOX_CONTAINER_PORT), (argv) => {
     if (argv[0] === 'start') {
       return { stdout: '', stderr: '', exitCode: 1 }
     }
@@ -296,7 +289,7 @@ async function transcribeEcho(
 }
 
 function chatterboxMappedExec(hostPort: number | string): Exec {
-  return makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
+  return makeExec(inspectSinglePort(CHATTERBOX_CONTAINER_PORT), (argv) => {
     if (argv[0] === 'start') {
       return { stdout: '', stderr: '', exitCode: 1 }
     }
@@ -492,10 +485,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
   const spec = { ...base, volumes: [{ name: scratchDir, path: '/models' }] }
   const realContainerRuns: string[][] = []
 
-  const exec = makeExec(
-    { stdout: WHISPER_INSPECT, stderr: '', exitCode: 0 },
-    trackRunD(realContainerRuns),
-  )
+  const exec = makeExec(inspectSinglePort(8080), trackRunD(realContainerRuns))
   const lifecycle = makeLifecycle(exec)
 
   const result = await handleTranscription(
@@ -811,7 +801,7 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
  * bare name to.
  */
 function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; lines: string[] } {
-  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
+  const exec = makeExec(inspectSinglePort(CHATTERBOX_CONTAINER_PORT), (argv) => {
     if (argv[0] === 'port') {
       const id = Object.keys(ports).find((engineId) => argv[1]?.includes(engineId))
       return { stdout: `127.0.0.1:${ports[id ?? '']}`, stderr: '', exitCode: 0 }

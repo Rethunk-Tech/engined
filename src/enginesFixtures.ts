@@ -6,7 +6,14 @@ import process from 'node:process'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RegistryOptions } from './registryOptions.ts'
-import { BUNX, config, engine, makeTestRoot, writeEngineSpec } from './test-support.ts'
+import {
+  BUNX,
+  config,
+  engine,
+  inspectSinglePort,
+  makeTestRoot,
+  writeEngineSpec,
+} from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
 
 let testRoot: string | undefined
@@ -158,7 +165,7 @@ status = 200
 function okExec(args: readonly string[]): Promise<ExecResult> {
   const result: ExecResult =
     args[0] === 'image' && args[1] === 'inspect'
-      ? { stdout: '[{"Config":{"ExposedPorts":{"8000/tcp":{}}}}]', stderr: '', exitCode: 0 }
+      ? inspectSinglePort(8000)
       : { stdout: '', stderr: '', exitCode: 0 }
   return Promise.resolve(result)
 }
@@ -176,7 +183,7 @@ export function noImageExec(args: readonly string[]): Promise<ExecResult> {
 function missingArtifactExec(args: readonly string[]): Promise<ExecResult> {
   let result: ExecResult = { stdout: '', stderr: '', exitCode: 0 }
   if (args[0] === 'image' && args[1] === 'inspect') {
-    result = { stdout: '[{"Config":{"ExposedPorts":{"8000/tcp":{}}}}]', stderr: '', exitCode: 0 }
+    result = inspectSinglePort(8000)
   } else if (args[0] === 'run') {
     result = { stdout: '', stderr: '', exitCode: 1 }
   }
