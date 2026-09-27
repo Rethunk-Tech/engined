@@ -99,6 +99,8 @@ export interface RunChainOptions {
   write?: (line: string) => void
   /** Carried straight onto the emitted `CallRecord.vision_bridge` -- see `src/visionBridge.ts`. Absent on every call that bridged no image. */
   visionBridgeAttempts?: Attempt[]
+  /** Handed the same `CallRecord` `recordCall` just wrote, so `src/usage.ts` can fold it into its counters without a second read of stdout. */
+  onRecord?: (record: CallRecord) => void
 }
 
 interface ChainResult {
@@ -318,6 +320,7 @@ function emit(
     vision_bridge: opts.visionBridgeAttempts,
   }
   recordCall(record, opts.write)
+  opts.onRecord?.(record)
 }
 
 interface HopOutcome {
@@ -452,6 +455,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         // one where the OpenAI-shaped body this would otherwise read has none.
         usage: result.usage ?? usageFrom(result),
         streamed: result.stream === undefined ? undefined : true,
+        egress: opts.egressOf(hop),
       },
       result,
       advance: outcome.advance,
@@ -466,7 +470,14 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
       failure = 'timeout'
     }
     return {
-      attempt: { engine, model, ok: false, failure, duration_ms: Date.now() - start },
+      attempt: {
+        engine,
+        model,
+        ok: false,
+        failure,
+        duration_ms: Date.now() - start,
+        egress: opts.egressOf(hop),
+      },
       advance: true,
     }
   }

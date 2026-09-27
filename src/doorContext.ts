@@ -15,6 +15,7 @@ import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import type { Config, EngineEntry } from './types.ts'
+import type { UsageTracker } from './usage.ts'
 
 export interface DoorOptions {
   agenticSpawn?: AgenticSpawn
@@ -32,6 +33,10 @@ export interface DoorOptions {
   agenticAmbientEnv?: NodeJS.ProcessEnv
   /** Defaults to the real `fetch`; a test overrides it so catalog refresh never dials a provider. */
   inventoryHttpClient?: HttpClient
+  /** Overrides where `src/usage.ts` persists its per-day counters; a test redirects this so nothing writes under the operator's state. */
+  usageStateRoot?: string
+  /** Overrides `Date.now` for `src/usage.ts`'s own day-key math; a test pins this to cross a day boundary deterministically. */
+  usageNow?: () => number
 }
 
 /**
@@ -69,6 +74,8 @@ export interface DoorContext {
   comfyBindings: ComfyBindings
   /** One submission gate per comfy engine -- see `ComfySlots`. */
   comfySlots: ComfySlots
+  /** Per-day, per-route call counters -- see `src/usage.ts`. */
+  usage: UsageTracker
 }
 
 /**

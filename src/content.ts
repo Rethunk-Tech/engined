@@ -118,6 +118,7 @@ async function handleModelRouted(
         vision_bridge: bridged.attempts,
       }
       recordCall(record, ctx.doorOpts.write)
+      ctx.usage.record(record)
       return bridged.response
     }
     body = bridged.body
@@ -154,6 +155,7 @@ async function handleModelRouted(
     ),
     write: ctx.doorOpts.write,
     visionBridgeAttempts,
+    onRecord: (record) => ctx.usage.record(record),
   })
 
   if (result.stream) {

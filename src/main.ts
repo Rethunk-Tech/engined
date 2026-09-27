@@ -57,6 +57,7 @@ import {
   type Config,
   errMessage,
 } from './types.ts'
+import { handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
 import { handleVoiceUpload, VOICE_UPLOAD_PATH } from './voices.ts'
 
 const CONTENT_ENDPOINTS = new Set([
@@ -175,6 +176,9 @@ function routeGet(
   }
   if (pathname === '/engined/v1/engines/events') {
     return handleEngineEvents(ctx, signal)
+  }
+  if (pathname === USAGE_PATH) {
+    return handleUsage(ctx, url)
   }
   const logsMatch = pathname.match(LOGS_RE)?.[1]
   if (logsMatch !== undefined) {
@@ -319,6 +323,7 @@ function createDoorContext(
     launchNonces,
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
+    usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot, now: doorOpts.usageNow }),
   }
 }
 
@@ -526,6 +531,7 @@ if (import.meta.main) {
       .shutdown()
       .catch(() => undefined)
       .finally(() => {
+        door.ctx.usage.shutdown()
         cursorAgent.stop()
         bound.v4.stop()
         bound.v6.stop()

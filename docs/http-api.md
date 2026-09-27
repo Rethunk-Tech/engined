@@ -35,6 +35,7 @@ treated as a caller.
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
 | `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
 | `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens — snapshot and live frames carry the same `roles[]` as `GET /engined/v1/engines` |
+| `/engined/v1/usage?days=N` | GET | per-day, per-route call totals for the last `N` days (default 7, max 90) — see [Usage](#usage) |
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
 proxy through to the named llama engine. If no chat model is resident, the
@@ -782,5 +783,38 @@ with a prefix-cache hit `timings.prompt_n` is only the uncached remainder
 would be engined's arithmetic rather than the engine's answer, and llama is
 the local engine no budget is counting.
 
-engined enforces no ceiling and keeps no running total. The line is the
-record; `journalctl --user -u engined` is the query.
+engined enforces no ceiling. The provenance line is the per-call record;
+`journalctl --user -u engined` is its query. `GET /engined/v1/usage` (below)
+keeps a running per-day, per-route total folded from the same lines, but
+carries no request content or id -- for that, journald is still the query.
+
+## Usage
+
+`GET /engined/v1/usage?days=N` (default 7, max 90; a non-positive or
+non-integer `days` is a 400) returns per-day, per-route totals folded from the
+same call records provenance emits:
+
+```json
+{"object":"list","data":[
+  {"date":"2026-09-26","route":"llama/ornith","requests":42,"ok":40,"failed":2,
+   "prompt_tokens":8123,"completion_tokens":2044,"duration_ms":915300,"egress":"none"},
+  {"date":"2026-09-26","route":"claude","requests":3,"ok":3,"failed":0,
+   "cost_usd":0.41,"duration_ms":61200,"egress":"remote"}
+]}
+```
+
+`route` is `engine` alone for a modelless or agentic route, `engine/model`
+otherwise -- not the `@/...` address `GET /openai/v1/models` uses, since a
+sibling route sharing one `(engine, model)` pair across upstreams is folded
+into the same total rather than kept apart. `prompt_tokens`, `completion_tokens`
+and `cost_usd` are summed only across the attempts that reported them and are
+absent, never a fabricated zero, when none did -- the same absence rule
+provenance itself follows. `egress` is the most recently observed category for
+that route, not a sum. Counters, never raw records: no request content and no
+request id are ever kept.
+
+Persisted as one JSON file per day under engined's state directory, held in
+memory and flushed to disk on an interval (at most every 10s) and on shutdown
+-- a read always answers from memory, and the file is only a restart's
+durability backstop. A day's file that is missing or fails to parse starts
+that day fresh rather than failing the request.

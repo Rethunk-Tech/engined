@@ -48,6 +48,8 @@ export interface Attempt {
   version?: string
   /** This hop's resolved `[[upstream]]` id, or `"local"`. Absent for an ambient hop, which named no upstream at all. */
   upstream_used?: string
+  /** This hop's own egress category (`routeEgress`'s fail-closed `"remote"` when the hop cannot be resolved at all). `src/usage.ts` is the one reader. */
+  egress?: Egress
   /** Present only when this agentic call used the web-only research floor. */
   research?: true
   /** What the engine said this attempt cost. Absent whenever it reported nothing -- see `streamed`, and `Usage`. */
@@ -107,6 +109,7 @@ function serializeAttempt(attempt: Attempt): Attempt {
     research: attempt.research,
     usage: attempt.usage,
     streamed: attempt.streamed,
+    egress: attempt.egress,
   }
 }
 

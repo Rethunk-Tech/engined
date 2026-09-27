@@ -28,6 +28,7 @@ import {
 } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './types.ts'
+import { UsageTracker } from './usage.ts'
 
 // The synthesis cache is process-wide, which is the point in a daemon and a
 // hazard in a suite: without this, one test's rendition answers another's
@@ -830,6 +831,7 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
     launchNonces: new Set(),
     comfyBindings: new Map(),
     comfySlots: new Map(),
+    usage: new UsageTracker(),
   }
   return { ctx, lifecycle, lines }
 }
@@ -868,6 +870,7 @@ function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; li
     launchNonces: new Set(),
     comfyBindings: new Map(),
     comfySlots: new Map(),
+    usage: new UsageTracker(),
   }
   return { ctx, lines }
 }

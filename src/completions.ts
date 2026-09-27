@@ -245,25 +245,25 @@ export async function handleCompletions(
     INFILL_PATH,
     infillRequestInit(body, modelId, signal),
   )
-  recordCall(
-    {
-      chain: null,
-      requested: rawModel ?? '',
-      attempts: [
-        {
-          engine: route.engine,
-          model: modelId,
-          ok: response.ok,
-          ...(response.ok ? {} : { failure: `http ${response.status}` }),
-          duration_ms: Date.now() - startedAt,
-          upstream_used: 'local',
-        },
-      ],
-      engine_used: response.ok ? route.engine : null,
-      upstream_used: response.ok ? 'local' : null,
-    },
-    ctx.doorOpts.write,
-  )
+  const record = {
+    chain: null,
+    requested: rawModel ?? '',
+    attempts: [
+      {
+        engine: route.engine,
+        model: modelId,
+        ok: response.ok,
+        ...(response.ok ? {} : { failure: `http ${response.status}` }),
+        duration_ms: Date.now() - startedAt,
+        upstream_used: 'local',
+        egress: routeEgress(route, ctx.getConfig()),
+      },
+    ],
+    engine_used: response.ok ? route.engine : null,
+    upstream_used: response.ok ? 'local' : null,
+  }
+  recordCall(record, ctx.doorOpts.write)
+  ctx.usage.record(record)
   if (!response.ok) {
     const text = await response.text()
     return new Response(text, {
