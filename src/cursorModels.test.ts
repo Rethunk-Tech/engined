@@ -47,6 +47,14 @@ describe('groupCursorModels', () => {
     expect(sonnet5.reasoning).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max'])
   })
 
+  test('hasThinkingAxis is true only for a base with a plain/-thinking pair at the same word', () => {
+    const groups = groupCursorModels(FIXTURE_IDS)
+    // claude-sonnet-5-high and claude-sonnet-5-thinking-high share "high".
+    expect((groups.get('claude-sonnet-5') as CursorBaseGroup).hasThinkingAxis).toBe(true)
+    // gpt-5.4-mini has no -thinking sibling at all.
+    expect((groups.get('gpt-5.4-mini') as CursorBaseGroup).hasThinkingAxis).toBe(false)
+  })
+
   test('a base with no -thinking sibling at all keeps its own effort words as the ladder', () => {
     const groups = groupCursorModels(FIXTURE_IDS)
     const mini = groups.get('gpt-5.4-mini') as CursorBaseGroup
@@ -90,39 +98,62 @@ describe('parseCursorModelId', () => {
 describe('resolveCursorVariant: exact multi-suffix round trip', () => {
   const groups = groupCursorModels(FIXTURE_IDS)
 
-  // For a base where a "-thinking" sibling and a plain sibling carry the SAME
-  // effort word (`claude-sonnet-5-low` next to `claude-sonnet-5-thinking-low`),
-  // both collapse onto one ladder rung and only the lowest-effort plain
-  // sibling stays addressable there -- a real, deliberate loss of resolution
-  // the flat reasoning_effort/service_tier pair cannot avoid. Every id in the
-  // fixture is still checked: the ones that are not their base's canonical
-  // pick for their own (level, fast) still resolve to a real, existing
-  // sibling at that same level, never to nothing and never to a 4xx.
+  // The collapsed ladder alone (reasoning_effort + service_tier) cannot tell
+  // a plain sibling apart from a "-thinking" one that shares its effort word
+  // (`claude-sonnet-5-low` next to `claude-sonnet-5-thinking-low`) -- that is
+  // exactly what the `thinking` request field breaks the tie on. Sent
+  // alongside its own (base, level, fast), every one of the 241 real ids
+  // round-trips to itself exactly, with no lossy remainder.
   let exact = 0
-  let lossy = 0
 
   for (const id of FIXTURE_IDS) {
     const v = parseCursorModelId(id)
     const group = groups.get(v.base) as CursorBaseGroup
-    const level = group.levelOf.get(id)
-    test(`${id} resolves from its own (level=${level}, fast=${v.fast})`, () => {
+    // The variant's own effort word, never the collapsed ladder position --
+    // `thinking` disambiguates within it, so the request names the word the
+    // id itself carries, not the "none" a plain sibling collapses onto.
+    const naturalLevel = v.effort ?? 'medium'
+    test(`${id} resolves from its own (level=${naturalLevel}, thinking=${v.thinking}, fast=${v.fast})`, () => {
       const picked = resolveCursorVariant(group, {
-        reasoningEffort: level,
+        reasoningEffort: naturalLevel,
         serviceTier: v.fast ? 'priority' : 'auto',
+        thinking: v.thinking,
       })
       expect(picked).toBeDefined()
-      expect(group.levelOf.get((picked as { id: string }).id)).toBe(level)
-      if (picked?.id === id) {
-        exact += 1
-      } else {
-        lossy += 1
-      }
+      expect(picked?.id).toBe(id)
+      exact += 1
     })
   }
 
-  test('the great majority of the real catalog round-trips exactly', () => {
-    expect(exact).toBeGreaterThan(FIXTURE_IDS.length * 0.8)
-    expect(exact + lossy).toBe(FIXTURE_IDS.length)
+  test('every one of the 241 real ids round-trips exactly', () => {
+    expect(exact).toBe(FIXTURE_IDS.length)
+  })
+})
+
+describe('resolveCursorVariant: the thinking axis', () => {
+  const groups = groupCursorModels(FIXTURE_IDS)
+  const sonnet5 = groups.get('claude-sonnet-5') as CursorBaseGroup
+
+  test('thinking: true and thinking: false pick different siblings at the same effort word', () => {
+    const thinking = resolveCursorVariant(sonnet5, { reasoningEffort: 'high', thinking: true })
+    const plain = resolveCursorVariant(sonnet5, { reasoningEffort: 'high', thinking: false })
+    expect(thinking?.id).toBe('claude-sonnet-5-thinking-high')
+    expect(plain?.id).toBe('claude-sonnet-5-high')
+  })
+
+  test('thinking absent still collapses the plain sibling onto "none", unchanged from before this axis existed', () => {
+    expect(resolveCursorVariant(sonnet5, { reasoningEffort: 'high' })?.id).toBe(
+      'claude-sonnet-5-thinking-high',
+    )
+  })
+
+  test('a thinking request for an axis the base does not have falls through to the ordinary pick', () => {
+    // gpt-5.4-mini has no -thinking sibling at all -- thinking: true names an
+    // axis that does not exist here, so it must not refuse.
+    const mini = groups.get('gpt-5.4-mini') as CursorBaseGroup
+    const picked = resolveCursorVariant(mini, { reasoningEffort: 'high', thinking: true })
+    expect(picked).toBeDefined()
+    expect(picked?.id).toBe('gpt-5.4-mini-high')
   })
 })
 

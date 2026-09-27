@@ -197,6 +197,15 @@ export interface ModelRow {
    * answer, and its `state` says `unavailable` to match.
    */
   unavailable_hops?: string[]
+  /**
+   * `capabilities.thinking: true` is Cursor-specific: it marks a base where a
+   * plain and a `-thinking` sibling share one effort word, so `reasoning`'s
+   * collapsed ladder alone reaches only the lower-effort one at that word.
+   * A caller who needs the other sends `thinking: true`/`false` on the
+   * request (`cursorModels.ts`'s `resolveCursorVariant`) rather than relying
+   * on the effort word alone. Absent on every non-Cursor row and on a
+   * Cursor base with no such collision.
+   */
   capabilities: ModelCapabilities
 }
 

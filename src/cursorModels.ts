@@ -90,6 +90,11 @@ function cursorLevel(variant: CursorVariant, baseHasThinking: boolean): CursorEf
   return baseHasThinking ? 'none' : (variant.effort ?? 'medium')
 }
 
+/** A variant's own effort word, never collapsed onto `none` -- what `thinking`-axis selection matches against, as opposed to `cursorLevel`'s collapsed ladder position. */
+function naturalLevel(variant: CursorVariant): CursorEffort {
+  return variant.effort ?? 'medium'
+}
+
 export interface CursorBaseGroup {
   base: string
   variants: CursorVariant[]
@@ -97,6 +102,14 @@ export interface CursorBaseGroup {
   levelOf: ReadonlyMap<string, CursorEffort>
   /** Every distinct level this base offers, ladder order -- absent when the base has only one variant, i.e. nothing to select. */
   reasoning: CursorEffort[] | undefined
+  /**
+   * `true` when a plain and a `-thinking` sibling of this base share the same
+   * effort word -- the collision `cursorLevel`'s collapse cannot express on
+   * the ladder alone, and the caller's only way to reach both is the
+   * `thinking` request field. `modelsMenu.ts` reports this as
+   * `capabilities.thinking`.
+   */
+  hasThinkingAxis: boolean
 }
 
 /** Every Cursor model id, grouped by base and given its ladder position. */
@@ -118,11 +131,15 @@ export function groupCursorModels(ids: readonly string[]): Map<string, CursorBas
     const distinct = [...new Set(levelOf.values())].sort(
       (a, b) => CURSOR_EFFORT_ORDER.indexOf(a) - CURSOR_EFFORT_ORDER.indexOf(b),
     )
+    const thinkingLevels = new Set(variants.filter((v) => v.thinking).map(naturalLevel))
+    const plainLevels = new Set(variants.filter((v) => !v.thinking).map(naturalLevel))
+    const hasThinkingAxis = [...thinkingLevels].some((level) => plainLevels.has(level))
     groups.set(base, {
       base,
       variants,
       levelOf,
       reasoning: variants.length > 1 ? distinct : undefined,
+      hasThinkingAxis,
     })
   }
   return groups
@@ -188,16 +205,28 @@ export function cursorBaseDisplayName(
 export interface CursorRequestHint {
   reasoningEffort?: string
   serviceTier?: string
+  /**
+   * Selects the `-thinking` sibling (`true`) or the plain one (`false`) on a
+   * base where the two share an effort word -- absent (the default) keeps
+   * the collapsed-ladder behaviour below, where only the lowest-effort
+   * plain sibling stays reachable at its shared level. This is engined's
+   * own request extension; Cursor's real API has no such field.
+   */
+  thinking?: boolean
 }
 
-/** Every variant at one ladder level, nearest available level substituted when the exact one has none -- the fast/non-fast axis is resolved after the level is. */
-function candidatesForLevel(group: CursorBaseGroup, level: CursorEffort): CursorVariant[] {
-  const exact = group.variants.filter((v) => group.levelOf.get(v.id) === level)
+/** Every variant at one `levelOf` value, nearest available substituted when the exact one has none. */
+function nearestByLevel(
+  variants: readonly CursorVariant[],
+  levelOf: (v: CursorVariant) => CursorEffort,
+  want: CursorEffort,
+): CursorVariant[] {
+  const exact = variants.filter((v) => levelOf(v) === want)
   if (exact.length > 0) {
     return exact
   }
-  const wantIdx = CURSOR_EFFORT_ORDER.indexOf(level)
-  const available = new Set(group.levelOf.values())
+  const wantIdx = CURSOR_EFFORT_ORDER.indexOf(want)
+  const available = new Set(variants.map(levelOf))
   let nearest: CursorEffort | undefined
   let nearestDist = Number.POSITIVE_INFINITY
   for (const candidate of available) {
@@ -207,23 +236,64 @@ function candidatesForLevel(group: CursorBaseGroup, level: CursorEffort): Cursor
       nearest = candidate
     }
   }
-  return nearest === undefined
-    ? []
-    : group.variants.filter((v) => group.levelOf.get(v.id) === nearest)
+  return nearest === undefined ? [] : variants.filter((v) => levelOf(v) === nearest)
+}
+
+/** The `fast`-preferring, lowest-effort-first pick among `candidates` -- the tie-break every resolution path shares once its level is decided. */
+function pickVariant(
+  candidates: readonly CursorVariant[],
+  fast: boolean,
+): CursorVariant | undefined {
+  if (candidates.length === 0) {
+    return undefined
+  }
+  const fastMatches = candidates.filter((v) => v.fast === fast)
+  const pool = fastMatches.length > 0 ? fastMatches : candidates
+  return [...pool].sort((a, b) => effortRank(a.effort) - effortRank(b.effort))[0]
+}
+
+/** `hint.thinking`'s own resolution: matched against each variant's own effort word, never the collapsed ladder -- the one path that can tell a plain and a `-thinking` sibling apart at the same word. */
+function resolveWithinThinkingAxis(
+  bucket: readonly CursorVariant[],
+  reasoningEffort: string | undefined,
+  fast: boolean,
+): CursorVariant | undefined {
+  let level: CursorEffort
+  if (reasoningEffort !== undefined && isCursorEffort(reasoningEffort)) {
+    level = reasoningEffort
+  } else {
+    const bare = bucket.find((v) => v.effort === undefined)
+    level = bare === undefined ? 'medium' : naturalLevel(bare)
+  }
+  return pickVariant(nearestByLevel(bucket, naturalLevel, level), fast)
 }
 
 /**
- * The one variant a `reasoning_effort`/`service_tier` request resolves to.
- * Absent `reasoningEffort` uses the base's own unsuffixed variant when it has
- * one, else `medium`. When several variants share a level (the non-thinking
- * collapse above), the lowest-effort one is canonical -- deterministic, and
- * the same rule `cursorBaseDisplayName` uses to pick a representative.
+ * The one variant a `reasoning_effort`/`service_tier`/`thinking` request
+ * resolves to. Absent `reasoningEffort` uses the base's own unsuffixed
+ * variant when it has one, else `medium`. When several variants share a
+ * level (the non-thinking collapse above), the lowest-effort one is
+ * canonical -- deterministic, and the same rule `cursorBaseDisplayName` uses
+ * to pick a representative.
+ *
+ * `hint.thinking`, when given, resolves within that one axis by each
+ * variant's own effort word instead: this is what reaches a plain sibling
+ * whose word a `-thinking` sibling also carries, which the collapsed ladder
+ * alone can address only one of. A base with no sibling on the requested
+ * axis falls through to the ordinary collapsed-ladder pick, same as
+ * `thinking` being absent.
  */
 export function resolveCursorVariant(
   group: CursorBaseGroup,
   hint: CursorRequestHint,
 ): CursorVariant | undefined {
   const fast = hint.serviceTier === 'priority'
+  if (hint.thinking !== undefined) {
+    const bucket = group.variants.filter((v) => v.thinking === hint.thinking)
+    if (bucket.length > 0) {
+      return resolveWithinThinkingAxis(bucket, hint.reasoningEffort, fast)
+    }
+  }
   let level: CursorEffort
   if (hint.reasoningEffort !== undefined && isCursorEffort(hint.reasoningEffort)) {
     level = hint.reasoningEffort
@@ -231,11 +301,10 @@ export function resolveCursorVariant(
     const bare = group.variants.find((v) => !v.thinking && v.effort === undefined)
     level = bare === undefined ? 'medium' : (group.levelOf.get(bare.id) as CursorEffort)
   }
-  const candidates = candidatesForLevel(group, level)
-  if (candidates.length === 0) {
-    return undefined
-  }
-  const fastMatches = candidates.filter((v) => v.fast === fast)
-  const pool = fastMatches.length > 0 ? fastMatches : candidates
-  return [...pool].sort((a, b) => effortRank(a.effort) - effortRank(b.effort))[0]
+  const candidates = nearestByLevel(
+    group.variants,
+    (v) => group.levelOf.get(v.id) as CursorEffort,
+    level,
+  )
+  return pickVariant(candidates, fast)
 }

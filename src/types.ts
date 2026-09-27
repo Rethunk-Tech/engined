@@ -189,6 +189,14 @@ export interface ModelCapabilities {
   context_in?: number
   context_out?: number
   reasoning?: string[]
+  /**
+   * `true` only for a Cursor base where a plain and a `-thinking` sibling
+   * share the same effort word (`cursorModels.ts`'s own `hasThinkingAxis`):
+   * the caller's `thinking: boolean` request field is what reaches the one
+   * `reasoning` alone leaves unaddressed at that word. Absent everywhere
+   * else, including a Cursor base with no such collision.
+   */
+  thinking?: boolean
 }
 
 /**

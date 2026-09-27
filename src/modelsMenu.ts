@@ -42,6 +42,7 @@ function routeCapabilities(
     context_in: contextIn,
     context_out: route.context_out,
     reasoning: route.reasoning,
+    thinking: route.thinking,
   }
 }
 
@@ -402,6 +403,7 @@ export function collapseCursorRoutes(routes: readonly ResolvedRoute[]): Resolved
         base,
       ),
       reasoning: group.reasoning,
+      thinking: group.hasThinkingAxis ? true : undefined,
     })
   }
   return [...rest, ...collapsed]

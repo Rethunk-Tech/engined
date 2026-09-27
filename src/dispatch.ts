@@ -44,7 +44,10 @@ const CURSOR_ENGINE_ID = 'cursor'
  * real, still-literal routes actually answers -- so this runs ahead of the
  * plain exact-model-string lookup below, which would otherwise hand every
  * request for a base the same bare/default variant regardless of what the
- * caller asked for.
+ * caller asked for. `thinking` (this door's own request extension, absent
+ * by default) breaks the tie on a base where a plain and a `-thinking`
+ * sibling share the same effort word -- `cursorModels.ts`'s own
+ * `resolveCursorVariant` is where that selection actually happens.
  *
  * Gated on every one of this engine's routes being ambient (`upstream ===
  * null`, cursor's own shape): a config that instead points an engine literally
@@ -68,7 +71,8 @@ function resolveCursorBase(
   const reasoningEffort =
     typeof body?.reasoning_effort === 'string' ? body.reasoning_effort : undefined
   const serviceTier = typeof body?.service_tier === 'string' ? body.service_tier : undefined
-  const picked = resolveCursorVariant(group, { reasoningEffort, serviceTier })
+  const thinking = typeof body?.thinking === 'boolean' ? body.thinking : undefined
+  const picked = resolveCursorVariant(group, { reasoningEffort, serviceTier, thinking })
   return picked === undefined ? undefined : served.find((r) => r.model === picked.id)
 }
 

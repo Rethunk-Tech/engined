@@ -137,6 +137,26 @@ A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
 an unqualified string resolves only as a chain name, and anything else is a
 400 naming it unknown.
 
+### Cursor's reasoning ladder
+
+`@/cursor/<base>` collapses Cursor's own flat catalog (one id per reasoning
+depth and priority tier, e.g. `claude-sonnet-5-thinking-high`) onto one
+address per base. `reasoning_effort` and `service_tier` in the request body
+pick which of the base's real ids actually answers, walking to the nearest
+offered depth when the exact one is absent; `service_tier: "priority"`
+selects the `-fast` sibling at that depth.
+
+A base where a plain and a `-thinking` sibling carry the same effort word
+(`claude-sonnet-5-high` next to `claude-sonnet-5-thinking-high`) cannot be
+told apart by `reasoning_effort` alone: `GET /openai/v1/models` marks such a
+base with `capabilities.thinking: true`, and a caller on one sends `thinking:
+true`/`false` in the body to pick the `-thinking` sibling or the plain one.
+This is engined's own request extension — Cursor's real API has no such
+field. Absent, behaviour is unchanged from before this field existed: the
+plain sibling collapses onto reasoning level `none`, reachable only when
+nothing at a lower effort is asked for, and only its lowest-effort variant
+stays addressable there.
+
 The `@/` prefix exists because the obvious spelling collides with reality: a
 Hugging Face id is already `org/model`, and a GGUF filename is the same
 shape, so a bare `engine/model` cannot be told apart from a repo name — and a
