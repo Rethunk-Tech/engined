@@ -242,6 +242,119 @@ function unreachableFetch(message: string): typeof fetch {
   }) as unknown as typeof fetch
 }
 
+type SpeechReq = Parameters<typeof handleSpeech>[0]
+
+const STUB_START = () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined })
+
+async function speak(
+  frames: string | ReadableStream<Uint8Array>,
+  req: SpeechReq = { engine: 'piper', input: 'hi', stream: true },
+  captureBody = false,
+): Promise<{ res: Awaited<ReturnType<typeof handleSpeech>>; asked: unknown }> {
+  let asked: unknown
+  const res = await handleSpeech(req, STUB_START, (_url, init) => {
+    if (captureBody) {
+      asked = JSON.parse(String(init?.body))
+    }
+    return Promise.resolve(new Response(frames))
+  })
+  return { res, asked }
+}
+
+function ttsLines(frames: object[]): string {
+  return frames.map((f) => JSON.stringify(f)).join('\n')
+}
+
+async function streamPiper(frames: string): Promise<Awaited<ReturnType<typeof handleSpeech>>> {
+  return (await speak(frames, { engine: 'piper', input: 'hi', stream: true })).res
+}
+
+async function speakNdjson(frames: string): Promise<Record<string, unknown>[]> {
+  const { res } = await speak(frames, { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' })
+  return readNdjson(res.stream)
+}
+
+async function readNdjson(
+  stream: ReadableStream<Uint8Array> | undefined,
+): Promise<Record<string, unknown>[]> {
+  return (await new Response(stream).text())
+    .split('\n')
+    .filter((l) => l.length > 0)
+    .map((l) => JSON.parse(l) as Record<string, unknown>)
+}
+
+async function transcribeEcho(
+  extra: { language?: string; prompt?: string; translate?: boolean } = {},
+): Promise<WhisperRequest | undefined> {
+  const fake = startFakeWhisper()
+  await handleTranscription(
+    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES, ...extra },
+    async () => ({ private_url: fake.base }),
+  )
+  fake.stop()
+  return fake.requests[0]
+}
+
+function chatterboxMappedExec(hostPort: number | string): Exec {
+  return makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
+    if (argv[0] === 'start') {
+      return { stdout: '', stderr: '', exitCode: 1 }
+    }
+    if (argv[0] === 'port') {
+      return { stdout: `127.0.0.1:${hostPort}`, stderr: '', exitCode: 0 }
+    }
+    return
+  })
+}
+
+function hangingNdjson(line: string): {
+  body: ReadableStream<Uint8Array>
+  cancelled: { flag: boolean }
+} {
+  const cancelled = { flag: false }
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode(line.endsWith('\n') ? line : `${line}\n`))
+    },
+    cancel() {
+      cancelled.flag = true
+    },
+  })
+  return { body, cancelled }
+}
+
+function doorFrom(
+  cfg: ReturnType<typeof config>,
+  exec: Exec,
+): {
+  ctx: DoorContext
+  lifecycle: DockerLifecycle
+  lines: string[]
+} {
+  const lifecycle = makeLifecycle(exec)
+  const registry = new EngineRegistry(cfg, {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    lifecycle,
+  })
+  const { lines, write } = collectLines()
+  const ctx: DoorContext = {
+    getConfig: () => cfg,
+    registry,
+    lifecycle,
+    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
+    doorOpts: { write },
+    llamaRouters: new Map(),
+    staleLlamaRouters: new Set(),
+    launchNonces: new Set(),
+    comfyBindings: new Map(),
+    comfySlots: new Map(),
+    usage: new UsageTracker(),
+  }
+  return { ctx, lifecycle, lines }
+}
+
 /** A `makeExec` `extra` that records `docker run -d` invocations without executing them — the real container must never be reached from an unavailable state. */
 function trackRunD(runs: string[][]) {
   return (argv: string[]): ExecResult | undefined => {
@@ -268,65 +381,36 @@ test('response_format: text on transcriptions returns bare text, not a JSON enve
 })
 
 test("a per-request language reaches the engine, asserted against the fake upstream's recorded request", async () => {
-  const fake = startFakeWhisper()
+  const asked = await transcribeEcho({ language: 'fr' })
 
-  await handleTranscription(
-    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES, language: 'fr' },
-    async () => ({ private_url: fake.base }),
-  )
-  fake.stop()
-
-  expect(fake.requests).toHaveLength(1)
-  expect(fake.requests[0]?.language).toBe('fr')
+  expect(asked?.language).toBe('fr')
 })
 
 test('a per-request prompt reaches the engine, which is what biases a proper noun', async () => {
-  const fake = startFakeWhisper()
+  const asked = await transcribeEcho({ prompt: 'Priya, nginx, sekhmet' })
 
-  await handleTranscription(
-    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES, prompt: 'Priya, nginx, sekhmet' },
-    async () => ({ private_url: fake.base }),
-  )
-  fake.stop()
-
-  expect(fake.requests[0]?.prompt).toBe('Priya, nginx, sekhmet')
+  expect(asked?.prompt).toBe('Priya, nginx, sekhmet')
 })
 
 test('no prompt means the field is absent, not an empty initial prompt', async () => {
-  const fake = startFakeWhisper()
+  const asked = await transcribeEcho()
 
-  await handleTranscription({ engine: 'whisper', file: SAMPLE_AUDIO_BYTES }, async () => ({
-    private_url: fake.base,
-  }))
-  fake.stop()
-
-  expect(fake.requests[0]?.prompt).toBeUndefined()
+  expect(asked?.prompt).toBeUndefined()
 })
 
 test('translate reaches the engine as its own field, which is the whole of the translations verb', async () => {
-  const fake = startFakeWhisper()
+  const asked = await transcribeEcho({ translate: true })
 
-  await handleTranscription(
-    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES, translate: true },
-    async () => ({ private_url: fake.base }),
-  )
-  fake.stop()
-
-  expect(fake.requests[0]?.translate).toBe('true')
+  expect(asked?.translate).toBe('true')
 })
 
 // Absent, never "false": whisper-server parses this field with its own
 // string-to-bool, and a door that always sent one would be relying on that
 // parse agreeing with ours for a request that never asked to translate.
 test('a transcription sends no translate field at all', async () => {
-  const fake = startFakeWhisper()
+  const asked = await transcribeEcho()
 
-  await handleTranscription({ engine: 'whisper', file: SAMPLE_AUDIO_BYTES }, async () => ({
-    private_url: fake.base,
-  }))
-  fake.stop()
-
-  expect(fake.requests[0]?.translate).toBeUndefined()
+  expect(asked?.translate).toBeUndefined()
 })
 
 test("a route's model reaches EngineStart as its own argument, not folded into the engine id", async () => {
@@ -428,15 +512,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
 })
 
 test('a second audio caller is visible as a lease while the first is still in flight', async () => {
-  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
-    if (argv[0] === 'start') {
-      return { stdout: '', stderr: '', exitCode: 1 }
-    }
-    if (argv[0] === 'port') {
-      return { stdout: '127.0.0.1:41000', stderr: '', exitCode: 0 }
-    }
-    return
-  })
+  const exec = chatterboxMappedExec(41_000)
   const lifecycle = makeLifecycle(exec)
   await lifecycle.start('chatterbox-multi', loadSpecFor('chatterbox-multi'), {
     idleStopSeconds: 60,
@@ -466,15 +542,7 @@ test("a streamed speech request forwards each chunk's PCM and drops the terminal
     JSON.stringify({ phase: 'chunk', pcm: Buffer.from([5, 6]).toString('base64'), rate: 24_000 }),
     JSON.stringify({ phase: 'done', audio: Buffer.from('a whole wav').toString('base64') }),
   ].join('\n')
-  let asked: unknown
-  const res = await handleSpeech(
-    { engine: 'kokoro', input: 'hi', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    (_url, init) => {
-      asked = JSON.parse(String(init?.body))
-      return Promise.resolve(new Response(frames))
-    },
-  )
+  const { res, asked } = await speak(frames, { engine: 'kokoro', input: 'hi', stream: true }, true)
 
   expect((asked as { chunks?: boolean }).chunks).toBe(true)
   expect(res.contentType).toContain('audio/L16')
@@ -485,15 +553,12 @@ test("a streamed speech request forwards each chunk's PCM and drops the terminal
 })
 
 test('a streamed speech request advertises the rate the engine reported, not a constant', async () => {
-  const frames = [
-    JSON.stringify({ phase: 'synthesizing' }),
-    JSON.stringify({ phase: 'chunk', pcm: Buffer.from([9]).toString('base64'), rate: 22_050 }),
-    JSON.stringify({ phase: 'done', audio: Buffer.from('a whole wav').toString('base64') }),
-  ].join('\n')
-  const res = await handleSpeech(
-    { engine: 'piper', input: 'hi', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
+  const res = await streamPiper(
+    ttsLines([
+      { phase: 'synthesizing' },
+      { phase: 'chunk', pcm: Buffer.from([9]).toString('base64'), rate: 22_050 },
+      { phase: 'done', audio: Buffer.from('a whole wav').toString('base64') },
+    ]),
   )
 
   expect(res.contentType).toBe('audio/L16; rate=22050; channels=1')
@@ -505,14 +570,11 @@ test('an engine that streams no chunk frames is a 502, not a caller waiting fore
   // Status and headers are committed the moment a stream is returned, so an
   // engine that never chunks has to be caught before that -- otherwise the
   // caller holds a 200 whose body never produces a byte and never ends.
-  const frames = [
-    JSON.stringify({ phase: 'synthesizing' }),
-    JSON.stringify({ phase: 'done', audio: Buffer.from('a whole wav').toString('base64') }),
-  ].join('\n')
-  const res = await handleSpeech(
-    { engine: 'piper', input: 'hi', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
+  const res = await streamPiper(
+    ttsLines([
+      { phase: 'synthesizing' },
+      { phase: 'done', audio: Buffer.from('a whole wav').toString('base64') },
+    ]),
   )
 
   expect(res.status).toBe(502)
@@ -525,11 +587,7 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
     JSON.stringify({ phase: 'synthesizing' }),
     JSON.stringify({ phase: 'error', detail: 'text produced no audio' }),
   ].join('\n')
-  const res = await handleSpeech(
-    { engine: 'piper', input: '.', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
-  )
+  const { res } = await speak(frames, { engine: 'piper', input: '.', stream: true })
 
   expect(res.status).toBe(502)
   expect(res.body).toEqual({ error: 'piper: /v1/tts failed: text produced no audio' })
@@ -538,29 +596,16 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
 test("an error exit cancels the engine's own body, not only the caller's request", async () => {
   // A 502 hands back no stream, so nothing later reads the upstream body: one
   // left open holds a live response against a running engine forever.
-  let cancelled = false
-  const encoder = new TextEncoder()
   const line = `${JSON.stringify({ phase: 'error', detail: 'text produced no audio' })}\n`
   // Never closes: the engine keeps the connection open past its own error frame.
-  const body = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      controller.enqueue(encoder.encode(line))
-    },
-    cancel() {
-      cancelled = true
-    },
-  })
+  const { body, cancelled } = hangingNdjson(line)
 
-  const res = await handleSpeech(
-    { engine: 'piper', input: '.', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(body)),
-  )
+  const { res } = await speak(body, { engine: 'piper', input: '.', stream: true })
   await Bun.sleep(1)
 
   expect(res.status).toBe(502)
   expect(res.body).toEqual({ error: 'piper: /v1/tts failed: text produced no audio' })
-  expect(cancelled).toBe(true)
+  expect(cancelled.flag).toBe(true)
 })
 
 test("an error frame mid-stream cancels the engine's own body as the caller's stream ends", async () => {
@@ -586,11 +631,7 @@ test("an error frame mid-stream cancels the engine's own body as the caller's st
     },
   })
 
-  const res = await handleSpeech(
-    { engine: 'piper', input: 'hi', stream: true },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(body)),
-  )
+  const { res } = await speak(body, { engine: 'piper', input: 'hi', stream: true })
 
   const out = Buffer.from(await new Response(res.stream).arrayBuffer())
   await Bun.sleep(1)
@@ -629,23 +670,15 @@ test('stream: "ndjson" forwards synthesis progress, which raw PCM cannot carry',
     // already has those samples, and an unvetted field is not a contract.
     JSON.stringify({ phase: 'done', audio: Buffer.from('a whole wav').toString('base64') }),
   ].join('\n')
-  let asked: unknown
-  const res = await handleSpeech(
+  const { res, asked } = await speak(
+    frames,
     { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    (_url, init) => {
-      asked = JSON.parse(String(init?.body))
-      return Promise.resolve(new Response(frames))
-    },
+    true,
   )
 
   expect((asked as { chunks?: boolean }).chunks).toBe(true)
   expect(res.contentType).toBe('application/x-ndjson')
-  const text = await new Response(res.stream).text()
-  const out = text
-    .split('\n')
-    .filter((l) => l.length > 0)
-    .map((l) => JSON.parse(l) as Record<string, unknown>)
+  const out = await readNdjson(res.stream)
 
   expect(out).toEqual([
     { phase: 'synthesizing', step: 1, step_limit: 1000 },
@@ -666,15 +699,8 @@ test('stream: "ndjson" forwards a chunk\'s word timings, and only well-formed on
     }),
     JSON.stringify({ phase: 'done' }),
   ].join('\n')
-  const res = await handleSpeech(
-    { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
-  )
-  const out = (await new Response(res.stream).text())
-    .split('\n')
-    .filter((l) => l.length > 0)
-    .map((l) => JSON.parse(l) as Record<string, unknown>)
+  const { res } = await speak(frames, { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' })
+  const out = await readNdjson(res.stream)
   expect(out[0]).toEqual({
     phase: 'chunk',
     pcm: Buffer.from([1, 2]).toString('base64'),
@@ -688,21 +714,13 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
   // no chunk frames at all, so dropping `audio` on `done` -- correct for a
   // chunking engine that already sent the samples -- hands this caller
   // progress and silence.
-  const frames = [
-    JSON.stringify({ phase: 'synthesizing', step: 7, step_limit: 1000 }),
-    JSON.stringify({ phase: 'vocoding' }),
-    JSON.stringify({ phase: 'done', audio: SAMPLE_WAV_BASE64, alignment: null }),
-  ].join('\n')
-  const res = await handleSpeech(
-    { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
+  const out = await speakNdjson(
+    ttsLines([
+      { phase: 'synthesizing', step: 7, step_limit: 1000 },
+      { phase: 'vocoding' },
+      { phase: 'done', audio: SAMPLE_WAV_BASE64, alignment: null },
+    ]),
   )
-
-  const out = (await new Response(res.stream).text())
-    .split('\n')
-    .filter((l) => l.length > 0)
-    .map((l) => JSON.parse(l) as Record<string, unknown>)
 
   expect(out).toEqual([
     { phase: 'synthesizing', step: 7, step_limit: 1000 },
@@ -714,17 +732,9 @@ test('stream: "ndjson" keeps the terminal audio when the engine never chunked', 
 test('stream: "ndjson" skips a literal null line instead of throwing mid-body', async () => {
   // A `null` line parses fine, so reading a field off it throws where the
   // stream is already committed -- the caller gets truncated bytes, not a 502.
-  const frames = ['null', JSON.stringify({ phase: 'done', audio: SAMPLE_WAV_BASE64 })].join('\n')
-  const res = await handleSpeech(
-    { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(frames)),
+  const out = await speakNdjson(
+    `null\n${JSON.stringify({ phase: 'done', audio: SAMPLE_WAV_BASE64 })}`,
   )
-
-  const out = (await new Response(res.stream).text())
-    .split('\n')
-    .filter((l) => l.length > 0)
-    .map((l) => JSON.parse(l) as Record<string, unknown>)
 
   expect(out).toEqual([{ phase: 'done', audio: SAMPLE_WAV_BASE64 }])
 })
@@ -732,24 +742,11 @@ test('stream: "ndjson" skips a literal null line instead of throwing mid-body', 
 test("a caller who hangs up mid-stream cancels the engine's own body", async () => {
   // An upstream body left open holds a live response against a running engine,
   // and nothing later closes it -- the caller is already gone.
-  let cancelled = false
-  const encoder = new TextEncoder()
   const line = `${JSON.stringify({ phase: 'synthesizing', step: 1, step_limit: 1000 })}\n`
   // Never closes: synthesis is still in flight when the caller lets go.
-  const body = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      controller.enqueue(encoder.encode(line))
-    },
-    cancel() {
-      cancelled = true
-    },
-  })
+  const { body, cancelled } = hangingNdjson(line)
 
-  const res = await handleSpeech(
-    { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' },
-    () => Promise.resolve({ private_url: '127.0.0.1:1', remote: undefined }),
-    () => Promise.resolve(new Response(body)),
-  )
+  const { res } = await speak(body, { engine: 'chatterbox-multi', input: 'hi', stream: 'ndjson' })
   const forwarded = res.stream
   if (forwarded === undefined) {
     throw new Error('stream: "ndjson" returned no stream to hang up on')
@@ -760,7 +757,7 @@ test("a caller who hangs up mid-stream cancels the engine's own body", async () 
   await reader.cancel()
   await Bun.sleep(1)
 
-  expect(cancelled).toBe(true)
+  expect(cancelled.flag).toBe(true)
 })
 
 test("a buffered speech failure reports the engine's own reason, not just missing audio", async () => {
@@ -799,41 +796,12 @@ function speechDoorContext(opts: { hostPort?: number; upstreamId?: string } = {}
   lines: string[]
 } {
   const { hostPort = CHATTERBOX_HOST_PORT, upstreamId = 'local' } = opts
-  const exec = makeExec({ stdout: CHATTERBOX_INSPECT, stderr: '', exitCode: 0 }, (argv) => {
-    if (argv[0] === 'start') {
-      return { stdout: '', stderr: '', exitCode: 1 }
-    }
-    if (argv[0] === 'port') {
-      return { stdout: `127.0.0.1:${hostPort}`, stderr: '', exitCode: 0 }
-    }
-    return
-  })
-  const lifecycle = makeLifecycle(exec)
   const cfg = config({
     engines: [engine({ id: 'chatterbox-multi', idle_stop_seconds: 60 })],
     upstreams: [upstream({ id: upstreamId })],
     routes: [route({ engine: 'chatterbox-multi', model: undefined, upstream: upstreamId })],
   })
-  const registry = new EngineRegistry(cfg, {
-    enginesRoot: ENGINES_ROOT,
-    bunx: BUNX,
-    lifecycle,
-  })
-  const { lines, write } = collectLines()
-  const ctx: DoorContext = {
-    getConfig: () => cfg,
-    registry,
-    lifecycle,
-    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
-    doorOpts: { write },
-    llamaRouters: new Map(),
-    staleLlamaRouters: new Set(),
-    launchNonces: new Set(),
-    comfyBindings: new Map(),
-    comfySlots: new Map(),
-    usage: new UsageTracker(),
-  }
-  return { ctx, lifecycle, lines }
+  return doorFrom(cfg, chatterboxMappedExec(hostPort))
 }
 
 /**
@@ -850,28 +818,13 @@ function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; li
     }
     return
   })
-  const lifecycle = makeLifecycle(exec)
   const cfg = config({
     engines: Object.keys(ports).map((id) => engine({ id, idle_stop_seconds: 60 })),
     upstreams: [upstream()],
     routes: Object.keys(ports).map((id) => route({ engine: id, model: undefined })),
     chains: { 'chain-tts': Object.keys(ports).map((id) => `@/${id}/local`) },
   })
-  const registry = new EngineRegistry(cfg, { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle })
-  const { lines, write } = collectLines()
-  const ctx: DoorContext = {
-    getConfig: () => cfg,
-    registry,
-    lifecycle,
-    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
-    doorOpts: { write },
-    llamaRouters: new Map(),
-    staleLlamaRouters: new Set(),
-    launchNonces: new Set(),
-    comfyBindings: new Map(),
-    comfySlots: new Map(),
-    usage: new UsageTracker(),
-  }
+  const { ctx, lines } = doorFrom(cfg, exec)
   return { ctx, lines }
 }
 
