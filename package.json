@@ -1,6 +1,7 @@
 {
   "name": "engined",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -b --noEmit --pretty false",

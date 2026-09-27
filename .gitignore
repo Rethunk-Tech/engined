@@ -9,5 +9,9 @@ __pycache__/
 # Rendered by the local tier's router fixtures; regenerated every run.
 test/local/.scratch-preset*.ini
 FINDINGS.jsonl
-# Source for the published Four Doors artifact; docs/specs/ stays canonical.
+# Source for the published Four Doors artifact.
 docs/four-doors/
+# Planning records, kept local only.
+docs/specs/
+# Recovers Cursor RPC schemas from an installed cursor-agent bundle; kept local only.
+scripts/cursor-proto-extract.py

@@ -6,8 +6,8 @@
  * `ExecServerMessage` carries the request and `ExecClientMessage` the result,
  * one oneof field per tool on each side, paired by field number.
  *
- * Field numbers come from `scripts/cursor-proto-extract.py` against a pinned
- * cursor-agent bundle, not from guesswork.
+ * Field numbers are recovered from a pinned cursor-agent bundle, not from
+ * guesswork.
  */
 
 import {

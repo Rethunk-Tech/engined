@@ -5,7 +5,7 @@
 [![ci](https://github.com/Rethunk-Tech/engined/actions/workflows/ci.yml/badge.svg)](https://github.com/Rethunk-Tech/engined/actions/workflows/ci.yml)
 [![runtime: bun](https://img.shields.io/badge/runtime-bun%201.4-black)](https://bun.sh)
 [![typescript](https://img.shields.io/badge/typescript-7.0-3178c6)](https://www.typescriptlang.org)
-[![license: proprietary](https://img.shields.io/badge/license-proprietary-red)](LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
 
@@ -53,8 +53,9 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 | [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary |
 | [docs/design.md](docs/design.md) | Ownership line, why 29200 |
 | [CHANGELOG.md](CHANGELOG.md) | Unreleased changes |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Upstream projects, models, and their licences |
 
 ## License
 
-Copyright © Rethunk.Tech, LLC. All rights reserved. Proprietary and
-confidential — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Third-party projects engined builds on, fetches, or
+borrows from are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

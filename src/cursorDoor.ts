@@ -10,8 +10,7 @@
  * The turn itself is bidirectional and lives in `cursorAgent.ts`; it needs
  * HTTP/2, which this cleartext door does not speak.
  *
- * Schemas come from `scripts/cursor-proto-extract.py` against a pinned
- * cursor-agent bundle.
+ * Schemas are recovered from a pinned cursor-agent bundle.
  */
 
 import { bytesField, intField, message, stringField } from './cursorProto.ts'

@@ -1,6 +1,6 @@
 /**
  * `GET /openai/v1/models`'s `@/cursor/*` rows on this box, captured
- * 2026-09-26 from the live door's `/home/user/.config/engined/config.toml`
+ * 2026-09-26 from a live door's `~/.config/engined/config.toml`
  * (every `[[route]] engine = "cursor"` model/display_name pair). Real Cursor
  * catalog data, not invented -- the naming is genuinely inconsistent across
  * model families (`-thinking-high` vs `-high-thinking`, `-none` sometimes
