@@ -38,6 +38,52 @@ import {
 
 const TEST_ROOT = makeTestRoot('engined-door-test-')
 
+function spawnDoor(opts: {
+  cfg: Parameters<typeof createDoor>[0]
+  root: string
+  spawn: AgenticSpawn
+  write: (line: string) => void
+  probeRunner?: AgenticProbeRunner
+}) {
+  return createDoor(
+    opts.cfg,
+    {
+      enginesRoot: opts.root,
+      bunx: BUNX,
+      agenticProbeRunner: opts.probeRunner ?? PASSING_PROBE,
+    },
+    { agenticSpawn: opts.spawn, write: opts.write },
+  )
+}
+
+function chainHi(model = 'chain-x', workdir = '/tmp') {
+  return chatRequest({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    workdir,
+  })
+}
+
+function failoverDoor(status: number, deadCalls: string[], liveCalls: string[]) {
+  const { cfg, root } = twoEngineDoorConfig(TEST_ROOT)
+  return createLlamaDoor(
+    cfg,
+    root,
+    {
+      llamaHttpClient: makeSplitHttpClient(status, deadCalls, liveCalls),
+      write: () => undefined,
+    },
+    twoEngineExec(),
+  )
+}
+
+function failoverChat() {
+  return chatRequest({
+    model: 'chain-failover',
+    messages: [{ role: 'user', content: 'hi' }],
+  })
+}
+
 describe("timeoutSecondsForKind: the budget follows the hop's own engine kind", () => {
   test('an agentic-cli hop gets agent_timeout_seconds', () => {
     const cfg = config({ chat_timeout_seconds: 30, agent_timeout_seconds: 3600 })
@@ -266,18 +312,8 @@ describe('the door: chain skips an engine that fails its version proof', () => {
       })
     }
     const { lines, write } = collectLines()
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: probeRunner },
-      { agenticSpawn: spawn, write },
-    )
-    const res = await door.fetch(
-      chatRequest({
-        model: 'chain-x',
-        messages: [{ role: 'user', content: 'hi' }],
-        workdir: '/tmp',
-      }),
-    )
+    const door = spawnDoor({ cfg, root, spawn, write, probeRunner })
+    const res = await door.fetch(chainHi())
     expect(res.status).toBe(200)
     expect(hopBCalls).toHaveLength(1)
     expect(hopBCalls[0]).toContain('@anthropic-ai/claude-code@4.5.6')
@@ -317,19 +353,8 @@ describe("the door: an agentic hop's own timeout actually aborts it", () => {
         opts.signal?.addEventListener('abort', () => reject(new Error('aborted')))
       })
     const { lines, write } = collectLines()
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, write },
-    )
-
-    const res = await door.fetch(
-      chatRequest({
-        model: `@/${id}/assistant`,
-        messages: [{ role: 'user', content: 'hi' }],
-        workdir,
-      }),
-    )
+    const door = spawnDoor({ cfg, root, spawn, write })
+    const res = await door.fetch(chainHi(`@/${id}/assistant`, workdir))
     await res.text()
 
     expect(res.status).toBe(503)
@@ -365,18 +390,8 @@ describe('the door: chain routing', () => {
       return Promise.resolve({ stdout: 'not json', stderr: '', exitCode: 0 })
     }
     const { lines, write } = collectLines()
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      { agenticSpawn: spawn, write },
-    )
-    const res = await door.fetch(
-      chatRequest({
-        model: 'chain-x',
-        messages: [{ role: 'user', content: 'hi' }],
-        workdir: '/tmp',
-      }),
-    )
+    const door = spawnDoor({ cfg, root, spawn, write })
+    const res = await door.fetch(chainHi())
     expect(res.status).toBe(502)
     expect(hopACalls).toHaveLength(1)
     expect(hopBCalls).toHaveLength(0)
@@ -391,24 +406,9 @@ describe('the door: chain routing', () => {
 
 describe("the door: a llama hop's real status decides chain advance", () => {
   test("a 500 from the first hop advances: the second hop's upstream received a request", async () => {
-    const { cfg, root } = twoEngineDoorConfig(TEST_ROOT)
     const deadCalls: string[] = []
     const liveCalls: string[] = []
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      {
-        llamaHttpClient: makeSplitHttpClient(500, deadCalls, liveCalls),
-        write: () => undefined,
-      },
-      twoEngineExec(),
-    )
-    const res = await door.fetch(
-      chatRequest({
-        model: 'chain-failover',
-        messages: [{ role: 'user', content: 'hi' }],
-      }),
-    )
+    const res = await failoverDoor(500, deadCalls, liveCalls).fetch(failoverChat())
     const body = (await res.json()) as { choices: { message: { content: string } }[] }
     expect(res.status).toBe(200)
     expect(body.choices[0]?.message.content).toBe('live')
@@ -417,24 +417,9 @@ describe("the door: a llama hop's real status decides chain advance", () => {
   })
 
   test("a 400 from the first hop does not advance: the second hop's upstream is never touched", async () => {
-    const { cfg, root } = twoEngineDoorConfig(TEST_ROOT)
     const deadCalls: string[] = []
     const liveCalls: string[] = []
-    const door = createLlamaDoor(
-      cfg,
-      root,
-      {
-        llamaHttpClient: makeSplitHttpClient(400, deadCalls, liveCalls),
-        write: () => undefined,
-      },
-      twoEngineExec(),
-    )
-    const res = await door.fetch(
-      chatRequest({
-        model: 'chain-failover',
-        messages: [{ role: 'user', content: 'hi' }],
-      }),
-    )
+    const res = await failoverDoor(400, deadCalls, liveCalls).fetch(failoverChat())
     await res.text()
     expect(res.status).toBe(400)
     expect(deadCalls.length).toBeGreaterThan(0)
