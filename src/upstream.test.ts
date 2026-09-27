@@ -57,10 +57,18 @@ test("upstreamPath drops the door's own /v1, which every base_url already carrie
   expect(upstreamPath('/v1beta/models')).toBe('/v1beta/models')
 })
 
-test('resolveUpstream projects the secret into exactly the header config named', async () => {
-  const resolution = await resolveUpstream(elevenlabsUpstream(), foundSecret)
+async function resolvedElevenlabs(up = elevenlabsUpstream()) {
+  const resolution = await resolveUpstream(up, foundSecret)
   expect(resolution.ok).toBe(true)
   if (!resolution.ok) {
+    return
+  }
+  return resolution
+}
+
+test('resolveUpstream projects the secret into exactly the header config named', async () => {
+  const resolution = await resolvedElevenlabs()
+  if (resolution === undefined) {
     return
   }
   expect(resolution.endpoint.headers).toEqual({ 'xi-api-key': SECRET_VALUE })
@@ -97,9 +105,8 @@ test('a secret naming a scheme sends it as a prefix, with exactly one space', as
 })
 
 test('a secret naming no scheme sends the raw value, unprefixed', async () => {
-  const resolution = await resolveUpstream(elevenlabsUpstream(), foundSecret)
-  expect(resolution.ok).toBe(true)
-  if (!resolution.ok) {
+  const resolution = await resolvedElevenlabs()
+  if (resolution === undefined) {
     return
   }
   expect(resolution.endpoint.headers).toEqual({ 'xi-api-key': SECRET_VALUE })
