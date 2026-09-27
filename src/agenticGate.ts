@@ -18,7 +18,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from './agenticProbe.ts'
-import { resolveCursorBinary } from './agents.ts'
+import { resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
 import { baseStatus } from './engineEntries.ts'
 import type { EngineStatus } from './responses.ts'
 import type { AgenticSpec } from './specTypes.ts'
@@ -66,6 +66,7 @@ export class AgenticGate {
     this.runner = opts.runner
     this.launchNonces = opts.launchNonces
     this.observeAgentVersion = opts.observeAgentVersion
+    sweepOrphanOpencodeDirs()
   }
 
   /**

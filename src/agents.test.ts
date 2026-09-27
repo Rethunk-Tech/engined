@@ -4,7 +4,7 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AGENT_IDS,
@@ -14,6 +14,7 @@ import {
   parseCursorEvents,
   parseOpencodeEvents,
   resolveCursorBinary,
+  sweepOrphanOpencodeDirs,
 } from './agents.ts'
 import { makeTestRoot } from './test-support.ts'
 import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from './types.ts'
@@ -300,5 +301,19 @@ describe('streamed deltas, per agent', () => {
     expect(agentDelta('opencode', '{"type":"text","part":{"text":"pong"}}')).toBe('pong')
     expect(agentDelta('opencode', '{"type":"step_start"}')).toBe('')
     expect(agentDelta('claude', 'not json')).toBe('')
+  })
+})
+
+describe('orphan opencode config dirs', () => {
+  it('removes agentic-opencode-* under a temp state dir and leaves every other name', () => {
+    const root = makeTestRoot('engined-opencode-orphan-')
+    mkdirSync(join(root, 'agentic-opencode-leak'), { recursive: true })
+    writeFileSync(join(root, 'agentic-opencode-leak', 'config.json'), '{}')
+    writeFileSync(join(root, 'agentic-opencode.json'), '{}')
+    mkdirSync(join(root, 'agentic-home'), { recursive: true })
+    sweepOrphanOpencodeDirs(root)
+    expect(existsSync(join(root, 'agentic-opencode-leak'))).toBe(false)
+    expect(existsSync(join(root, 'agentic-opencode.json'))).toBe(true)
+    expect(existsSync(join(root, 'agentic-home'))).toBe(true)
   })
 })

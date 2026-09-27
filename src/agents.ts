@@ -13,7 +13,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
 import {
@@ -393,6 +393,40 @@ function renderOpencodeConfig(upstream: AgentTarget): {
   return {
     env: { OPENCODE_CONFIG: path },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  }
+}
+
+const OPENCODE_TEMP_PREFIX = 'agentic-opencode-'
+
+/** True when `candidate` is `root` or a path under it. Used so a prune never follows a cache entry out of the directory it was given. */
+function isUnder(root: string, candidate: string): boolean {
+  const base = resolve(root)
+  const path = resolve(candidate)
+  return path === base || path.startsWith(base + sep)
+}
+
+/**
+ * Per-call opencode config dirs live under `stateDir` as `agentic-opencode-*`.
+ * `cleanup` removes the one it created; a process death mid-call does not.
+ * Door startup sweeps leftover directories with this prefix, and only this
+ * prefix, as direct children of the given root.
+ */
+export function sweepOrphanOpencodeDirs(root: string = stateDir()): void {
+  let names: string[]
+  try {
+    names = readdirSync(root)
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!name.startsWith(OPENCODE_TEMP_PREFIX)) {
+      continue
+    }
+    const path = join(root, name)
+    if (!isUnder(root, path)) {
+      continue
+    }
+    rmSync(path, { recursive: true, force: true })
   }
 }
 
