@@ -23,7 +23,7 @@ export const VISION_KINDS: readonly VisionKind[] = ['describe', 'read']
  * consults it and drifts to `$HOME/.local/share` regardless. Any other tilde
  * path is a literal home-directory reference and expands as one.
  */
-export const XDG_DATA_TILDE_PREFIX = '~/.local/share/'
+const XDG_DATA_TILDE_PREFIX = '~/.local/share/'
 export function expandConfigPath(p: string): string {
   return p.startsWith(XDG_DATA_TILDE_PREFIX)
     ? join(dataHome(), p.slice(XDG_DATA_TILDE_PREFIX.length))
@@ -199,13 +199,7 @@ export function requireTable(
   return raw
 }
 
-export const CAPABILITY_FIELDS = [
-  'input',
-  'output',
-  'context_in',
-  'context_out',
-  'reasoning',
-] as const
+const CAPABILITY_FIELDS = ['input', 'output', 'context_in', 'context_out', 'reasoning'] as const
 
 export function parseCapabilities(
   raw: Record<string, unknown>,

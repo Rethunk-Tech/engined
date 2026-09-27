@@ -29,7 +29,7 @@ import { noBaseUrlFix, resolveUpstreamSecret } from './upstream.ts'
  * completion from spawning machinery nobody asked for against a billing
  * account this call was never going to use.
  */
-export function redirectEnv({
+function redirectEnv({
   baseUrl,
   secretHeader,
   apiKey,

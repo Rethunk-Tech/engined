@@ -110,7 +110,7 @@ export interface ChatMessage {
   tool_calls?: ToolCallOut[]
 }
 
-export interface ToolCallOut {
+interface ToolCallOut {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
@@ -127,7 +127,7 @@ export interface ChatReply {
  * `TurnEndedUpdate` and nowhere else -- an empty turn_ended is why a local
  * run shows no tokens at all.
  */
-export interface TurnUsage {
+interface TurnUsage {
   input: number
   output: number
   cacheRead: number
@@ -195,7 +195,7 @@ function turnEnded(usage: TurnUsage): Uint8Array {
  * conversation-action message. Walked rather than matched on bytes so a long
  * prompt, which changes every length prefix, reads the same as a short one.
  */
-export function userText(frame: Uint8Array): string | undefined {
+function userText(frame: Uint8Array): string | undefined {
   const action = fieldBytes(decode(frame), 1)
   if (action === undefined) {
     return undefined

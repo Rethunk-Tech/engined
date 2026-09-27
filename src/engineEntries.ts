@@ -44,7 +44,7 @@ export const DEFAULT_READY_TIMEOUT_S = 60
  * docs/http-api.md. Comfy is never reached this way, so it is absent from
  * this map's callers rather than mapped to `[]` here.
  */
-export const KIND_SERVES: Record<EngineKind, string[]> = {
+const KIND_SERVES: Record<EngineKind, string[]> = {
   'openai-http': [CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_EMBEDDINGS, CONTENT_ENDPOINT_RERANK],
   'agentic-cli': [CONTENT_ENDPOINT_CHAT],
   tts: [CONTENT_ENDPOINT_SPEECH],
@@ -127,7 +127,7 @@ const PEEK_PRESET_INI = '/unused'
  * An engine declaring `kind` in config is spec-less and takes the built-in
  * spec for that kind; everything else loads `engines/<id>/spec.toml`.
  */
-export function loadEngineSpec(
+function loadEngineSpec(
   engine: EngineEntry,
   specOptions: SpecLoadOptions,
   presetHostPath: string,
@@ -314,7 +314,7 @@ function routeHasCapability(r: ResolvedRoute): boolean {
  * Checked here rather than at parse (`config.ts`) because `serves` comes from
  * the spec, and specs load after `loadConfig()`.
  */
-export function checkCapabilityServed(
+function checkCapabilityServed(
   engine: EngineEntry,
   spec: Spec,
   routes: readonly ResolvedRoute[],
@@ -363,7 +363,7 @@ export function buildEntries(
  * `undefined` rather than `[]` when there is nothing to report, matching
  * every other optional `EngineStatus` field.
  */
-export function engineCapabilities(
+function engineCapabilities(
   engineId: string,
   routes: readonly ResolvedRoute[],
   engineServes: readonly string[],

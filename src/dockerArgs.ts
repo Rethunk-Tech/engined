@@ -102,7 +102,7 @@ export function hostBindings(ports: string): string {
 }
 
 /** Everything `docker run` takes that comes from the spec, in the order the image needs: flags, then the image, then its argv. */
-export function specRunArgs(spec: RunnableContainerSpec): string[] {
+function specRunArgs(spec: RunnableContainerSpec): string[] {
   const args: string[] = []
   for (const device of spec.devices) {
     args.push('--device', device)
@@ -151,7 +151,7 @@ export function specDigest(spec: RunnableContainerSpec): string {
  * spec dir; nothing here knows which engine is asking or what the names mean.
  * `value` maps the right-hand side where it is not taken literally.
  */
-export function declaredBuildFlags(
+function declaredBuildFlags(
   specSource: string,
   file: string,
   flag: string,

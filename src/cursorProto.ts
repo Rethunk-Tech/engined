@@ -18,7 +18,7 @@ export const ENVELOPE_HEADER = 5
 /** Connect marks the final frame of a stream with this flag. */
 const FLAG_END_STREAM = 2
 
-export function varint(value: number): Uint8Array {
+function varint(value: number): Uint8Array {
   const out: number[] = []
   let n = value
   do {

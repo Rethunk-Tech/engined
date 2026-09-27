@@ -24,7 +24,7 @@ export const CURSOR_EFFORT_ORDER = [
   'xhigh',
   'max',
 ] as const
-export type CursorEffort = (typeof CURSOR_EFFORT_ORDER)[number]
+type CursorEffort = (typeof CURSOR_EFFORT_ORDER)[number]
 
 const CURSOR_EFFORT_SET: ReadonlySet<string> = new Set(CURSOR_EFFORT_ORDER)
 

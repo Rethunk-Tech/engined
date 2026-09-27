@@ -47,7 +47,7 @@ export interface UsageRow extends RouteCounters {
   route: string
 }
 
-export interface UsageResponse {
+interface UsageResponse {
   object: 'list'
   data: UsageRow[]
 }

@@ -9,8 +9,8 @@
  * serve those same paths unprefixed. Strip ours before forwarding, or the
  * upstream is asked for a path only this door knows about.
  */
-export const OPENAI_PREFIX = '/openai'
-export function enginePath(doorPath: string): string {
+const OPENAI_PREFIX = '/openai'
+function enginePath(doorPath: string): string {
   return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath
 }
 
@@ -73,7 +73,7 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
  * same OpenAI body, and the only thing that differs is where it is posted
  * and what proves the caller may post it.
  */
-export function openAiRequestInit(
+function openAiRequestInit(
   rawBody: Record<string, unknown>,
   resolvedModelId: string,
   signal: AbortSignal,

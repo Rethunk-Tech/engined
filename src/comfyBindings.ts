@@ -88,7 +88,7 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
  * surprised, short enough that the table does not accumulate a binding per
  * prompt forever on a box that renders daily.
  */
-export const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * MS_PER_SECOND
+const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * MS_PER_SECOND
 
 /** Whether a binding bound at `at` has aged out. */
 export function expired(at: number, now: number): boolean {
@@ -121,7 +121,7 @@ export function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undef
  * raising it: the whole-table rewrite on every save just below, and
  * `comfyFilenameBound`'s linear scan.
  */
-export const COMFY_BINDINGS_MAX = 1000
+const COMFY_BINDINGS_MAX = 1000
 
 // ponytail: the whole table is rewritten on every bind and every filename this
 // door had not already recorded -- bounded work, since COMFY_BINDINGS_MAX
