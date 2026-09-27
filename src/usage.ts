@@ -17,7 +17,7 @@ import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
-import { type Egress, isEgress, isRecord } from './types.ts'
+import { type Egress, isEgress, isRecord, parseRecord } from './types.ts'
 
 export const USAGE_PATH = '/engined/v1/usage'
 
@@ -105,13 +105,8 @@ function isCounters(value: unknown): value is RouteCounters {
 
 /** `undefined` for anything that is not a well-shaped day file -- the caller starts that day fresh rather than trusting a partially-read shape. */
 function parseDayFile(text: string): DayFile | undefined {
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return undefined
-  }
-  if (!(isRecord(raw) && isRecord(raw.routes))) {
+  const raw = parseRecord(text)
+  if (raw === null || !isRecord(raw.routes)) {
     return undefined
   }
   const routes: Record<string, RouteCounters> = {}

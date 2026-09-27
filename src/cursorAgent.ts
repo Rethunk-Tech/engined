@@ -26,6 +26,7 @@ import {
   message,
   stringField,
 } from './cursorProto.ts'
+import { parseRecord } from './types.ts'
 
 const RUN_PATH = '/agent.v1.AgentService/Run'
 const CONNECT_STREAM_TYPE = 'application/connect+proto'
@@ -205,13 +206,8 @@ export function userText(frame: Uint8Array): string | undefined {
   return cursor === undefined ? undefined : fieldString(decode(cursor), 1)
 }
 
-function toolRequestFrom(call: ToolCallOut): ToolRequest {
-  let args: Record<string, unknown> = {}
-  try {
-    args = JSON.parse(call.function.arguments) as Record<string, unknown>
-  } catch {
-    args = {}
-  }
+export function toolRequestFrom(call: ToolCallOut): ToolRequest {
+  const args = parseRecord(call.function.arguments) ?? {}
   const str = (key: string): string | undefined =>
     typeof args[key] === 'string' ? (args[key] as string) : undefined
   const num = (key: string): number | undefined =>

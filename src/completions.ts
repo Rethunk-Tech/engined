@@ -25,7 +25,7 @@ import {
   STATUS_BAD_REQUEST,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
-import { CONTENT_ENDPOINT_COMPLETIONS, isRecord } from './types.ts'
+import { CONTENT_ENDPOINT_COMPLETIONS, isRecord, parseRecord } from './types.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
 const INFILL_PATH = '/infill'
@@ -147,17 +147,13 @@ function emitMappedFrame(
     if (data === '') {
       continue
     }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(data)
-    } catch {
+    const parsed = parseRecord(data)
+    if (parsed === null) {
       continue
     }
-    if (isRecord(parsed)) {
-      controller.enqueue(
-        encoder.encode(`data: ${JSON.stringify(completionEnvelope(modelId, parsed))}\n\n`),
-      )
-    }
+    controller.enqueue(
+      encoder.encode(`data: ${JSON.stringify(completionEnvelope(modelId, parsed))}\n\n`),
+    )
   }
 }
 
