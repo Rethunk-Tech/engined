@@ -16,6 +16,7 @@ GPL-3.0 component, and a model is usable only on its own terms.
 | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | GPL-3.0 | Image engine, cloned at a pinned tag by `engines/comfy/Dockerfile` |
 | [Chatterbox](https://github.com/resemble-ai/chatterbox) | MIT | TTS library, by Resemble AI |
 | [devnen/chatterbox-v2](https://github.com/devnen/chatterbox-v2) | MIT | Chatterbox fork installed by `engines/chatterbox-shared/Dockerfile` |
+| [Perth](https://github.com/resemble-ai/Perth) (`resemble-perth`) | MIT | Chatterbox's audio watermarker, installed from a pinned upstream commit |
 | [devnen/Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server) | MIT | Reference for the Chatterbox images' system and model setup |
 | [Kokoro](https://github.com/hexgrad/kokoro) | Apache-2.0 | TTS library installed by `engines/kokoro/Dockerfile`; pulls in [misaki](https://github.com/hexgrad/misaki) (Apache-2.0) |
 | [piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) (`piper-tts`) | GPL-3.0-or-later | TTS library installed by `engines/piper/Dockerfile` |
@@ -61,4 +62,5 @@ trademark of Anysphere.
 Not part of what engined ships: [Bun](https://github.com/oven-sh/bun) (MIT),
 [TypeScript](https://github.com/microsoft/TypeScript) (Apache-2.0),
 [Biome](https://github.com/biomejs/biome) (MIT or Apache-2.0),
+[knip](https://github.com/webpro-nl/knip) (ISC),
 [Turborepo](https://github.com/vercel/turborepo) (MIT).

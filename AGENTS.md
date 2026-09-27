@@ -166,10 +166,10 @@ privilege decision — spec is trusted code. See `scripts/engined.service.in`.
 
 **An engine improvement reaches every consumer; a consumer's does not.** engined
 is a shared door, so a latency or quality floor inside an engine is paid by
-earshot, sagaforge, majordomo and everything else at once -- whichever consumer
-happens to measure it first. Weigh engine-side work against that whole set, not
-against the one caller that reported it: a gain too small to matter for a single
-consumer is worth taking when all of them bank it. Fix the floor in the engine
+every consumer at once -- whichever one happens to measure it first. Weigh
+engine-side work against that whole set, not against the one caller that
+reported it: a gain too small to matter for a single consumer is worth taking
+when all of them bank it. Fix the floor in the engine
 rather than working around it in each caller.
 
 Before committing: `gate` (build, typecheck, lint, test, actionlint).
@@ -177,4 +177,3 @@ Before committing: `gate` (build, typecheck, lint, test, actionlint).
 on its own inputs -- a docs-only change replays them from cache.
 
 Do not cut consumers over until engined can replace what they run today.
-`Rethunk-Tech/project-register` is off limits.

@@ -15,6 +15,17 @@ One local engine broker for the whole workstation.
 
 engined is a `systemd --user` daemon that owns every inference engine on a box and serves them behind a single OpenAI-shaped door on loopback. Consumers send a `model` string; engined picks the engine, starts its container on demand, keeps one model resident per role, and stops it when idle.
 
+## Requirements
+
+- Linux with `systemd --user`, Docker, and [Bun](https://bun.sh) 1.4.
+- The shipped engine images are **optimised for AMD Strix Halo** (Ryzen AI
+  Max, gfx1151): ROCm 7.2 for the PyTorch engines, RADV Vulkan for llama.cpp
+  and whisper.cpp. Other hardware works by pointing an engine at your own image:
+  one `spec_dir = "..."` line on its `[[engine]]` in `config.toml`, naming a
+  spec whose `image` suits your GPU or CPU. See
+  [docs/configuration.md](docs/configuration.md) and
+  [docs/engines.md](docs/engines.md).
+
 ## Quick start
 
 ```sh
@@ -52,7 +63,8 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 | [docs/tuning.md](docs/tuning.md) | Speculative-decoding measurements |
 | [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary |
 | [docs/design.md](docs/design.md) | Ownership line, why 29200 |
-| [CHANGELOG.md](CHANGELOG.md) | Unreleased changes |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Upstream projects, models, and their licences |
 
 ## License
