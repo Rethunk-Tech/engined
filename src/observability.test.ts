@@ -259,7 +259,7 @@ test('the events snapshot is the same engine list GET /engined/v1/engines return
 // The whole point: engined idle-stops engines itself, so a consumer that is
 // never told only finds out when a call against one fails.
 test('a state change reaches a subscriber as a live frame', async () => {
-  const { exec } = recordingExec((args) => (args[0] === 'port' ? portResult(41234) : {}))
+  const { exec } = recordingExec((args) => (args[0] === 'port' ? portResult(41_234) : {}))
   const door = doorWith(exec)
   const res = await door.fetch(new Request('http://engined/engined/v1/engines/events'))
   const frames = readFrames(res, 2)

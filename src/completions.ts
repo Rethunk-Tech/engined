@@ -177,8 +177,8 @@ function mapInfillStream(
       }
       emitMappedFrame(controller, encoder, value, modelId)
     },
-    cancel() {
-      void gen.return(undefined)
+    async cancel() {
+      await gen.return(undefined)
     },
   })
 }

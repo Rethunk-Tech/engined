@@ -111,10 +111,12 @@ export function splitSseFrames(carry: string): { frames: string[]; carry: string
   return { frames: parts, carry: next.length > MAX_CARRY_BYTES ? '' : next }
 }
 
+const SSE_LINE_BREAK = /\r?\n/
+
 /** JSON payloads from `data:` lines in one frame. Comment, event, and empty/`[DONE]` lines are not payloads. */
 export function sseDataPayloads(frame: string): string[] {
   const payloads: string[] = []
-  for (const line of frame.split(/\r?\n/)) {
+  for (const line of frame.split(SSE_LINE_BREAK)) {
     if (!line.startsWith('data:')) {
       continue
     }

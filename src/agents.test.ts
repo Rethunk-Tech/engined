@@ -315,7 +315,7 @@ describe('orphan opencode config dirs', () => {
     mkdirSync(fresh, { recursive: true })
     writeFileSync(join(root, 'agentic-opencode.json'), '{}')
     mkdirSync(join(root, 'agentic-home'), { recursive: true })
-    const pastSec = (performance.timeOrigin - 5_000) / 1000
+    const pastSec = (performance.timeOrigin - 5000) / 1000
     utimesSync(leak, pastSec, pastSec)
     sweepOrphanOpencodeDirs(root)
     expect(existsSync(leak)).toBe(false)
