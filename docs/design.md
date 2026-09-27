@@ -20,17 +20,27 @@ require an engined change, the line has been drawn wrong.
 
 Nothing else on this box starts an inference container: under load, `docker
 ps` shows `engined-*` only. `majordomo`, `paper-trail`, `sagaforge-ts`,
-`bastion-client-discord`, `citadel` and `prepaudit` all reach this door for
-chat, embeddings, vision, speech and transcription, and none of them
-supervises a server, downloads weights, or holds a provider key.
+`bastion-client-discord`, `earshot`, `Rethunk-AI/maitre` and `engined-vscode`
+reach this door for chat, embeddings, vision, speech and transcription, as do
+`citadel` and `prepaudit` when they run on this box. None of them supervises a
+server or downloads weights.
 
 A consumer that keeps its own runner has not been cut over, only pointed
 twice.
 
-`Rethunk-AI/bakeoff` is the one deliberate exception. It is a benchmark
-harness whose whole purpose is measuring engine *configurations*, and routing
-it through a broker that owns the args would measure the broker instead. It
-never runs concurrently with production inference.
+The door is loopback-only, so anything deployed elsewhere is outside it:
+hosted `prepaudit` pools and production `citadel` bring their own providers,
+or run without the capability.
+
+Two deliberate exceptions:
+
+- `Rethunk-AI/bakeoff` is a benchmark harness whose whole purpose is
+  measuring engine *configurations*, and routing it through a broker that owns
+  the args would measure the broker instead. It never runs concurrently with
+  production inference.
+- `majordomo`'s Cursor backend runs its own Cursor SDK agent, with its own
+  key, because it executes tools and writes to its workspace. engined's
+  agentic engines are read-only by design and cannot stand in for it.
 
 ## Why 29200
 
@@ -87,7 +97,7 @@ no `private_url` ever reaches a consumer, which is what keeps call recording,
 egress ceilings and a later budget in one place instead of letting a held
 address route around them.
 
-**No `Bun.serve` declarative routes.** Measured against bun 1.3.14, not
+**No `Bun.serve` declarative routes.** Measured against bun 1.4.2, not
 assumed: all five engine-path regexes are expressible as `:id` routes, and SSE
 under a route handler was probed working -- `req.signal` fires and the stream's
 `cancel()` runs, which is what the engine-event feed's teardown needs. It is
