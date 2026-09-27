@@ -73,15 +73,6 @@ const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_TRANSLATIONS,
 ])
 
-/**
- * The launch-scoped door: `/openai/v1/<nonce>/...` dispatches exactly like
- * `/openai/v1/...`, with the request marked launch-scoped so a hop resolving
- * to an agentic engine can be refused. `<nonce>` is `mintLaunchNonce`'s 32
- * lowercase hex characters, minted at each of the two launch sites -- this
- * door's own dispatch and the registry's round-trip probe -- and never
- * written anywhere durable.
- */
-
 /** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = '/engined/v1/start'
 /**
@@ -236,6 +227,11 @@ function routePost(
 }
 
 /**
+ * The launch-scoped door: `/openai/v1/<nonce>/...` dispatches exactly like
+ * `/openai/v1/...`, with the request marked launch-scoped so a hop resolving
+ * to an agentic engine can be refused. The nonce is minted at each launch
+ * site and never written anywhere durable.
+ *
  * `null` means the path named a launch-scoped nonce that is not (or is no
  * longer) live -- expired with the child that minted it, or never minted at
  * all. Every OTHER path, launch-scoped or not, passes through with its
