@@ -88,18 +88,18 @@ the previous chat's — was fully re-prefilled (47-50s):
 llama-server's host-RAM prompt cache (`--cache-idle-slots`) does not restore
 on this hybrid model, so placement is the fix, not a bigger buffer.
 
-For any local llama route whose merged `parallel` is a positive integer
-`>= 2`, `src/llamaSlots.ts` (driven from `LlamaRouter.proxy`, `src/llama.ts`)
-reserves the first `ceil(parallel / 2)` slot ids LONG and the rest SHORT. A
-request's own prompt is sized with the vocab-only tokenizer
-(`src/bpeTokenize.ts`/`bpeVocab.ts`) against the same GGUF `src/tokenizeRoute.ts`
-already reads cold; `>= slot_long_threshold` (route config, default 4096)
-makes it LONG. A LONG request is placed on the idle long slot whose tracked
-prefix fingerprint (a hash of its first 2048 token ids) matches its own, else
-the least-recently-used idle long slot; a SHORT request only ever lands on a
-short slot, least-recently-used idle first. Either class left with nothing
-idle gets no `id_slot` at all — llama-server decides on its own, exactly as
-it did before this existed. A caller-supplied `id_slot` is never touched.
+Placement applies to any local llama route whose merged `parallel` is a
+positive integer `>= 2` (`src/llamaSlots.ts`, driven from `LlamaRouter.proxy`
+in `src/llama.ts`):
+
+| Rule | Behaviour |
+| --- | --- |
+| Slot classes | The first `ceil(parallel / 2)` slot ids are LONG, the rest SHORT. |
+| Sizing | The prompt is counted with the vocab-only tokenizer (`src/bpeTokenize.ts`/`bpeVocab.ts`) against the GGUF `src/tokenizeRoute.ts` reads; `>= slot_long_threshold` (route config, default 4096) is LONG. |
+| LONG request | The idle long slot whose prefix fingerprint (a hash of its first 2048 token ids) matches, else the least-recently-used idle long slot. |
+| SHORT request | Only a short slot, least-recently-used idle first. |
+| Nothing idle | No `id_slot` is sent; llama-server picks a slot itself. |
+| Caller `id_slot` | Forwarded untouched. |
 
 `GET /slots` on this build reports only `id`/`is_processing`/`n_ctx`/
 `speculative` — nothing about what a slot has cached — so this table is
@@ -122,9 +122,9 @@ message's start. Measured on ornith with a 31k-token prompt changed at 85%:
 
 VS Code Copilot sends its agent instructions as one ~15k-token user message
 that changes somewhere per chat, so new chats reused only the ~16k-token tool
-block and took ~30 s. `Rethunk-Tech/engined-vscode` now splits long user
-messages at structural boundaries (its own `src/promptSplit.ts`); new chats
-then reprocess about 520 tokens, 2-6 s end to end. A consumer that sends long,
+block and took ~30 s. [engined-vscode](https://github.com/Rethunk-Tech/engined-vscode)
+splits long user messages at structural boundaries (its prompt splitter); new
+chats then reprocess about 520 tokens, 2-6 s end to end. A consumer that sends long,
 partly-changing messages to a hybrid route gets the same benefit from
 splitting them.
 
