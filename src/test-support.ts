@@ -12,7 +12,7 @@ import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntr
 import type { Exec, ExecResult } from './exec.ts'
 import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
-import type { Config, EngineEntry, ModelEntry, ResolvedRoute, Upstream } from './types.ts'
+import type { Config, EngineEntry, ResolvedRoute, Upstream } from './types.ts'
 
 /** The bunx path every test spec is built against; never resolved from a real PATH. */
 export const BUNX = '/home/x/.bun/bin/bunx'
@@ -40,11 +40,6 @@ export function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
     ready_timeout_s: DEFAULT_READY_TIMEOUT_S,
     ...overrides,
   }
-}
-
-/** A `[[model]]` capability row -- unrelated to any engine or upstream. See `route()` for the engine/upstream/model pairing. */
-export function model(overrides: Partial<ModelEntry> = {}): ModelEntry {
-  return { id: 'm', ...overrides }
 }
 
 /**

@@ -9,7 +9,6 @@ import { EngineRegistry } from './engines.ts'
 import {
   initTestRoot,
   MISSING_ARTIFACT_EXEC,
-  NO_IMAGE_EXEC,
   newEnginesRoot,
   noImageExec,
   OK_EXEC,
@@ -238,7 +237,7 @@ describe('unavailable engines', () => {
   })
 
   test('missing image with a Dockerfile in its spec dir names a runnable docker build', async () => {
-    const { root, reg } = setupKokoro(NO_IMAGE_EXEC)
+    const { root, reg } = setupKokoro(noImageExec)
     writeFileSync(join(root, 'kokoro', 'Dockerfile'), 'FROM scratch\n')
     const listed = (await reg.list()).engines.find((e) => e.id === 'kokoro')
     expect(listed?.state).toBe('unavailable')
@@ -250,7 +249,7 @@ describe('unavailable engines', () => {
   test('missing image with NO Dockerfile in its spec dir does not invent a build command', async () => {
     // llama's real shape: obtain = "build", no Dockerfile shipped here
     // because the image is built from a different repository entirely.
-    const { reg } = setupKokoro(NO_IMAGE_EXEC)
+    const { reg } = setupKokoro(noImageExec)
     const listed = (await reg.list()).engines.find((e) => e.id === 'kokoro')
     expect(listed?.state).toBe('unavailable')
     expect(listed?.fix).not.toContain('docker build')
