@@ -148,14 +148,6 @@ function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
 }
 
 /**
- * `/openai/v1/audio/transcriptions` and `/openai/v1/audio/translations` are
- * one verb over one upload; the difference is a single field whisper-server
- * reads per request. So they share this handler, and `endpoint` is what
- * decides which routes may answer -- only a route declaring `translate` serves
- * the translations path (`routeServes`), so an English-only model is refused
- * by address rather than answering with an untranslated transcript.
- */
-/**
  * The upload and its per-request fields, or the 400 that ends the request
  * before anything is resolved or started. Split out of the handler because
  * every refusal here is about the body alone -- nothing it decides needs the
@@ -184,6 +176,14 @@ async function readAudioUpload(
   return uploadRefusal(parsed.file) ?? (translating ? { ...parsed, translate: true } : parsed)
 }
 
+/**
+ * `/openai/v1/audio/transcriptions` and `/openai/v1/audio/translations` are
+ * one verb over one upload; the difference is a single field whisper-server
+ * reads per request. So they share this handler, and `endpoint` is what
+ * decides which routes may answer -- only a route declaring `translate` serves
+ * the translations path (`routeServes`), so an English-only model is refused
+ * by address rather than answering with an untranslated transcript.
+ */
 export async function handleAudioTranscription(
   ctx: DoorContext,
   req: Request,

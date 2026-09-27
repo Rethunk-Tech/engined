@@ -73,29 +73,6 @@ const KIB_PER_GIB = 1_048_576
 const MEM_AVAILABLE = /^MemAvailable:\s+(\d+) kB$/m
 
 /**
- * Refuses unless the box has room for the engines this suite is about to load.
- *
- * **A running container is not a resident model.** llama-server idles with
- * nothing loaded until a request arrives, so `docker ps` routinely reports an
- * engine holding a few hundred MiB and no weights at all -- an installed unit
- * is an obstacle only while it actually holds memory this suite needs, which
- * is why this reads the pool rather than a container list or systemd.
- *
- * This APU shares one unified pool between CPU and GPU, so `MemAvailable` is
- * the constraint itself rather than a proxy for it: a model the GPU has
- * resident is already subtracted from it.
- *
- * Throws rather than skipping. A skip here would be indistinguishable from
- * the clean skips the rest of this tier uses for a missing image, and the
- * whole point is that this one must not pass unnoticed.
- *
- * Reading the pool is a check against one global number, so it says nothing
- * about a loader in another process: two runs that each pass here still load
- * together and OOM the box, which is why `test:local` holds a `flock` for the
- * whole tier rather than relying on this call alone. The kernel drops that
- * lock if the run dies, which a lockfile this code wrote and deleted would not.
- */
-/**
  * Short, and refreshed while the suite runs, so a run killed mid-hold costs the
  * operator's door at most this long rather than the whole TTL. The refresh timer
  * is unref'd: it must not be what keeps the test process alive.
@@ -144,6 +121,29 @@ async function holdAtDoor(ids: readonly string[]): Promise<void> {
   }, HOLD_REFRESH_MS).unref()
 }
 
+/**
+ * Refuses unless the box has room for the engines this suite is about to load.
+ *
+ * **A running container is not a resident model.** llama-server idles with
+ * nothing loaded until a request arrives, so `docker ps` routinely reports an
+ * engine holding a few hundred MiB and no weights at all -- an installed unit
+ * is an obstacle only while it actually holds memory this suite needs, which
+ * is why this reads the pool rather than a container list or systemd.
+ *
+ * This APU shares one unified pool between CPU and GPU, so `MemAvailable` is
+ * the constraint itself rather than a proxy for it: a model the GPU has
+ * resident is already subtracted from it.
+ *
+ * Throws rather than skipping. A skip here would be indistinguishable from
+ * the clean skips the rest of this tier uses for a missing image, and the
+ * whole point is that this one must not pass unnoticed.
+ *
+ * Reading the pool is a check against one global number, so it says nothing
+ * about a loader in another process: two runs that each pass here still load
+ * together and OOM the box, which is why `test:local` holds a `flock` for the
+ * whole tier rather than relying on this call alone. The kernel drops that
+ * lock if the run dies, which a lockfile this code wrote and deleted would not.
+ */
 export async function requireMemoryFor(
   ...engines: (keyof typeof ENGINE_RESIDENT_GIB)[]
 ): Promise<void> {

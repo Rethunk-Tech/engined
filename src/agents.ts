@@ -268,8 +268,7 @@ function answerTextOf(event: Record<string, unknown>): string {
  * is still not consulted -- an agent that reports failure in two places can
  * always report it in only one of them, and the stream is the one that also
  * carries the reason.
- */
-/**
+ *
  * opencode states its own accounting on the `step_finish` event's part,
  * captured from `opencode run --format json` (see `src/agents.test.ts`):
  * `tokens: {total, input, output, reasoning, cache: {...}}` and `cost`.
