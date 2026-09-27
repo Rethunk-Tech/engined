@@ -56,6 +56,23 @@ interface RecordedBody {
 }
 
 /** Distinguishes the bridge call from the main call by which model the door resolved it to -- both land on the same fake container. */
+
+function bridgedLoggedDoor(bridgeStatus?: number) {
+  const { cfg, root } = bridgedDoorConfig()
+  const bridgeCalls: RecordedBody[] = []
+  const mainCalls: RecordedBody[] = []
+  const { lines, write } = collectLines()
+  const door = createLlamaDoor(cfg, root, {
+    llamaHttpClient: makeBridgeHttpClient({
+      bridgeCalls,
+      mainCalls,
+      ...(bridgeStatus === undefined ? {} : { bridgeStatus }),
+    }),
+    write,
+  })
+  return { door, bridgeCalls, mainCalls, lines }
+}
+
 function makeBridgeHttpClient(opts: {
   bridgeCalls: RecordedBody[]
   mainCalls: RecordedBody[]
@@ -92,14 +109,7 @@ function makeBridgeHttpClient(opts: {
 }
 
 test('an image content part is captioned by the bridge route and spliced into the dispatched request, in order', async () => {
-  const { cfg, root } = bridgedDoorConfig()
-  const bridgeCalls: RecordedBody[] = []
-  const mainCalls: RecordedBody[] = []
-  const { lines, write } = collectLines()
-  const door = createLlamaDoor(cfg, root, {
-    llamaHttpClient: makeBridgeHttpClient({ bridgeCalls, mainCalls }),
-    write,
-  })
+  const { door, bridgeCalls, mainCalls, lines } = bridgedLoggedDoor()
   const res = await door.fetch(
     chatRequest({
       model: '@/local-llama/ornith',
@@ -164,14 +174,7 @@ test('a text-only chat request to a bridged route is dispatched unchanged', asyn
 })
 
 test('a failing bridge call refuses the whole request, naming the bridge, rather than dropping the image', async () => {
-  const { cfg, root } = bridgedDoorConfig()
-  const bridgeCalls: RecordedBody[] = []
-  const mainCalls: RecordedBody[] = []
-  const { lines, write } = collectLines()
-  const door = createLlamaDoor(cfg, root, {
-    llamaHttpClient: makeBridgeHttpClient({ bridgeCalls, mainCalls, bridgeStatus: 503 }),
-    write,
-  })
+  const { door, mainCalls, lines } = bridgedLoggedDoor(503)
   const res = await door.fetch(
     chatRequest({
       model: '@/local-llama/ornith',
