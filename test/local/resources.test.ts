@@ -81,14 +81,14 @@ function loadFixture(): Fixture {
   if (!config) {
     return { engine: EMPTY_ENGINE, error }
   }
-  const engine = config.engines.find((e) => e.id === 'llama')
-  if (!engine) {
+  const llamaEngine = config.engines.find((e) => e.id === 'llama')
+  if (!llamaEngine) {
     return { engine: EMPTY_ENGINE, error: 'config.example.toml has no llama engine' }
   }
   return {
-    engine,
+    engine: llamaEngine,
     chat: config.routes.find(isChatRoute),
-    image: specImage(engine),
+    image: specImage(llamaEngine),
   }
 }
 

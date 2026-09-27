@@ -64,8 +64,8 @@ function loadFixture(): Fixture {
   if (!config) {
     return { engine: EMPTY_ENGINE, routes: [], error }
   }
-  const engine = config.engines.find((e) => e.id === 'llama')
-  if (!engine) {
+  const llamaEngine = config.engines.find((e) => e.id === 'llama')
+  if (!llamaEngine) {
     return {
       engine: EMPTY_ENGINE,
       routes: [],
@@ -73,7 +73,7 @@ function loadFixture(): Fixture {
     }
   }
   const routes = config.routes.filter((r) => r.engine === 'llama' && r.upstream === 'local')
-  return { engine, routes, image: specImage(engine) }
+  return { engine: llamaEngine, routes, image: specImage(llamaEngine) }
 }
 
 /** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
@@ -130,7 +130,7 @@ function skipReason(): string {
 }
 
 function buildRouter(
-  engine: EngineEntry,
+  engineEntry: EngineEntry,
   routes: ResolvedRoute[],
   presetFile: string,
   lifecycle: DockerLifecycle,
@@ -143,7 +143,7 @@ function buildRouter(
     presetHostPath: join(import.meta.dir, presetFile),
     pollIntervalMs: POLL_INTERVAL_MS,
   }
-  return new LlamaRouter(engine, routes, lifecycle, opts)
+  return new LlamaRouter(engineEntry, routes, lifecycle, opts)
 }
 
 async function containerCmdlines(): Promise<string[]> {
