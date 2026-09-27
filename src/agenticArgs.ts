@@ -118,19 +118,6 @@ const AGENT_PREPENDED_FLAG_NAMES = new Set<string>(
   ),
 )
 
-/** The two ways a bare flag name can dissolve the floor: it's outright forbidden, or it duplicates one engined already prepends. */
-function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
-  if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
-    throw new ParseError(`${bare} dissolves the read-only floor`, file)
-  }
-  if (AGENT_PREPENDED_FLAG_NAMES.has(bare)) {
-    throw new ParseError(
-      `${bare} duplicates a flag engined prepends on every agentic launch; it cannot be overridden, only engined's own value would apply`,
-      file,
-    )
-  }
-}
-
 /**
  * Every forbidden flag is forbidden by its name alone, and so is any flag
  * that duplicates one the floor itself sets. No value is consulted: the
@@ -143,7 +130,16 @@ function assertNotForbiddenOrFloorDuplicate(bare: string, file: string): void {
  */
 export function assertNoForbiddenFlags(argv: readonly string[], file: string): void {
   for (const arg of argv) {
-    assertNotForbiddenOrFloorDuplicate(arg.split('=', 1)[0] ?? arg, file)
+    const bare = arg.split('=', 1)[0] ?? arg
+    if ((FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)) {
+      throw new ParseError(`${bare} dissolves the read-only floor`, file)
+    }
+    if (AGENT_PREPENDED_FLAG_NAMES.has(bare)) {
+      throw new ParseError(
+        `${bare} duplicates a flag engined prepends on every agentic launch; it cannot be overridden, only engined's own value would apply`,
+        file,
+      )
+    }
   }
 }
 

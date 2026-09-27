@@ -30,8 +30,8 @@ import {
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
+  OPENAI_MODELS_PATH,
 } from './routeServes.ts'
-import { OPENAI_MODELS_PATH } from './tokenizeRoute.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
 
 /** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */

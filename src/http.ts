@@ -5,6 +5,8 @@
  * is the bug this file exists to prevent.
  */
 
+import { parseRecord } from './records.ts'
+
 export const STATUS_OK = 200
 export const STATUS_BAD_REQUEST = 400
 export const STATUS_UNAUTHORIZED = 401
@@ -167,3 +169,20 @@ export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerat
  * diffusion model will accept as a starting point.
  */
 export const MAX_IMAGE_UPLOAD_BYTES = 33_554_432
+
+/**
+ * Every JSON body this door reads, or the 400 to return instead. A table is
+ * the only accepted shape: `null`, an array and a bare scalar all parse as
+ * valid JSON and none of them has the fields a handler goes on to read, so
+ * they are rejected here rather than at the first property access. A
+ * `Response` back means exactly that; the caller returns it unchanged.
+ */
+export async function readJsonBody(req: Request): Promise<Record<string, unknown> | Response> {
+  let raw: string
+  try {
+    raw = await req.text()
+  } catch {
+    return jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
+  }
+  return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
+}

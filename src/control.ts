@@ -11,13 +11,13 @@ import type { EngineRegistry } from './engines.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   jsonError,
+  readJsonBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
 } from './http.ts'
 import { errMessage } from './records.ts'
-import { readJsonBody } from './requestBody.ts'
 import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
 import {
   addressForRoute,
@@ -123,7 +123,7 @@ function resolveStartRoutes(
  * `GET /openai/v1/models` lists it under, never a URL. A start row reports
  * it; a chat dispatch walks it as the one hop `runChain` takes; an
  * answering-route header names it. `routes` is the table to break ties
- * against -- `addressForRoute`/`siblingRouteCount` in `types.ts`.
+ * against -- `addressForRoute`/`siblingRouteCount` in `routeAddress.ts`.
  */
 export function routeAddress(route: ResolvedRoute, routes: readonly ResolvedRoute[]): string {
   return addressForRoute(route, siblingRouteCount(route, routes))

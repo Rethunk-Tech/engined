@@ -14,6 +14,7 @@ export const CONTENT_ENDPOINT_IMAGE_EDITS = '/openai/v1/images/edits'
 export const CONTENT_ENDPOINT_RERANK = '/openai/v1/rerank'
 /** The legacy OpenAI completions shape, mapped onto llama-server's `/infill` — see `completions.ts`. Never claimed by a role: it answers alongside chat on the same route, opted into per route by `fim`, not exclusive to it. */
 export const CONTENT_ENDPOINT_COMPLETIONS = '/openai/v1/completions'
+export const OPENAI_MODELS_PATH = '/openai/v1/models'
 
 /**
  * The one door path a role answers to the exclusion of every other role.
@@ -35,7 +36,7 @@ const ROLE_ENDPOINT: Partial<Record<Role, string>> = {
 const CLAIMED_ENDPOINTS: ReadonlySet<string> = new Set(Object.values(ROLE_ENDPOINT))
 
 /** The subset of a route this answer depends on -- `EngineCapability` and `ResolvedRoute` both satisfy it, so neither has to be reshaped to ask the question. */
-export interface RouteServesFields {
+interface RouteServesFields {
   role?: Role
   translate?: boolean
   fim?: boolean

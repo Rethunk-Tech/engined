@@ -12,14 +12,12 @@ import { bpeTokenIds } from './bpeTokenize.ts'
 import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
 import { resolveQualified } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
+import { jsonError, readJsonBody, STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST } from './http.ts'
 import { errMessage } from './records.ts'
-import { readJsonBody } from './requestBody.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments } from './routeAddress.ts'
 import type { Config, ResolvedRoute } from './types.ts'
 
 export const TOKENIZE_PATH = '/engined/v1/tokenize'
-export const OPENAI_MODELS_PATH = '/openai/v1/models'
 
 /** The on-disk GGUF `route` points at, given that engine's `models_dir` -- `undefined` when the route is remote, has no `filename`, or `modelsDir` is unset. */
 export function ggufPath(route: ResolvedRoute, modelsDir: string | undefined): string | undefined {

@@ -30,6 +30,7 @@ import {
   sseFrames,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
+import { parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
@@ -201,13 +202,9 @@ async function readHopBody(
 /** The first `data:` line in one SSE frame that parses to an object carrying `model`, if any. */
 function reportedModelFromFrame(frame: string): string | undefined {
   for (const data of sseDataPayloads(frame)) {
-    try {
-      const model = reportedModelFrom(JSON.parse(data))
-      if (model !== undefined) {
-        return model
-      }
-    } catch {
-      // Not JSON -- the next frame might still carry it.
+    const model = reportedModelFrom(parseRecord(data))
+    if (model !== undefined) {
+      return model
     }
   }
   return undefined
