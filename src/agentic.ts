@@ -486,6 +486,12 @@ async function spawnAndParse(
     signal: input.signal,
     onStdout,
   })
+  if (onDelta !== undefined) {
+    const text = agentDelta(agent.id, pending)
+    if (text !== '') {
+      onDelta(text)
+    }
+  }
   const outcome: AgenticOutcome = agent.parse(spawned.stdout)
   return {
     status: outcome.ok ? STATUS_OK : STATUS_BAD_GATEWAY,

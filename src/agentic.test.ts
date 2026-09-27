@@ -350,6 +350,28 @@ function runAgenticFixture(
   })
 }
 
+test('runAgentic: a final stdout chunk without a newline still reaches onDelta', async () => {
+  const deltas: string[] = []
+  const line =
+    '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"tail"}}}'
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    opts.onStdout?.(line)
+    return Promise.resolve({
+      stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok' }),
+      stderr: '',
+      exitCode: 0,
+    })
+  }
+
+  await runAgenticFixture(spawn, {
+    onDelta: (text) => {
+      deltas.push(text)
+    },
+  })
+
+  expect(deltas).toEqual(['tail'])
+})
+
 test('system chat messages reach claude through its system-prompt flag, not stdin', async () => {
   const { prompt, systemPrompt } = promptsFromMessages({
     messages: [
