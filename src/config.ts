@@ -60,6 +60,7 @@ import {
   isEgress,
   isRecord,
   KIND_TRAITS,
+  LOCAL_UPSTREAM,
   qualifiedSegments,
   WILDCARD_MODEL,
 } from './types.ts'
@@ -155,7 +156,7 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   }
   // "local" always means this box, so a learned upstream name can never point it
   // off-machine. Refused here, before route defaulting reads the literal.
-  if (id === 'local' && (raw.base_url !== undefined || raw.secret !== undefined)) {
+  if (id === LOCAL_UPSTREAM && (raw.base_url !== undefined || raw.secret !== undefined)) {
     throw new ParseError(
       `${site} is reserved for this box and cannot carry "base_url" or "secret"`,
       file,

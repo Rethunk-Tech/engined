@@ -572,7 +572,9 @@ export function routeForHop<
 function pickDefaultUpstream<T extends { upstream: string | null }>(
   matches: readonly T[],
 ): T | undefined {
-  return matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === 'local')
+  return (
+    matches.find((r) => r.upstream === null) ?? matches.find((r) => r.upstream === LOCAL_UPSTREAM)
+  )
 }
 
 /**
@@ -823,6 +825,9 @@ export function errMessage(err: unknown): string {
 }
 
 export const MS_PER_SECOND = 1000
+
+/** Reserved id of THIS box's own upstream — the one `config` refuses to let an operator name a remote. */
+export const LOCAL_UPSTREAM = 'local'
 
 /**
  * Every "wait for the engine to become able to serve" loop: check, then give

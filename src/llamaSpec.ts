@@ -9,6 +9,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { localRoutesOf } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { loadSpec, type SpecLoadOptions } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
@@ -125,7 +126,7 @@ export function writeLocalPreset(
   engine: EngineEntry,
   allRoutes: readonly ResolvedRoute[],
 ): void {
-  const routes = allRoutes.filter((r) => r.engine === engine.id && r.upstream === 'local')
+  const routes = localRoutesOf(allRoutes, engine.id)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, renderPresetIni(engine, routes), 'utf8')
 }

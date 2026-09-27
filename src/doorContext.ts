@@ -8,6 +8,7 @@
 
 import type { AgenticSpawn } from './agentic.ts'
 import type { DockerLifecycle } from './docker.ts'
+import { localRoutesOf } from './engineEntries.ts'
 import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
@@ -126,9 +127,7 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
     return cached
   }
   ctx.staleLlamaRouters.delete(engine.id)
-  const routes = ctx
-    .getConfig()
-    .routes.filter((r) => r.engine === engine.id && r.upstream === 'local')
+  const routes = localRoutesOf(ctx.getConfig().routes, engine.id)
   const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,

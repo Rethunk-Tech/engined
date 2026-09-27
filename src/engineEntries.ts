@@ -26,6 +26,7 @@ import {
   type EngineEntry,
   type EngineKind,
   KIND_TRAITS,
+  LOCAL_UPSTREAM,
   type ReadyProbe,
   type ResolvedRoute,
   routeServes,
@@ -94,7 +95,12 @@ export function isLocalLlama(engine: EngineEntry, kind: EngineKind): boolean {
 
 /** Whether any of this engine's own routes resolve to THIS box's own upstream -- the fact `reload`'s second pass keys a container teardown on. An engine with no routes at all (comfy, sometimes) has no binding either way. */
 export function hasLocalBinding(engineId: string, routes: readonly ResolvedRoute[]): boolean {
-  return routes.some((r) => r.engine === engineId && r.upstream === 'local')
+  return localRoutesOf(routes, engineId).length > 0
+}
+
+/** This engine's routes that resolve to THIS box's own upstream. */
+export function localRoutesOf(routes: readonly ResolvedRoute[], engineId: string): ResolvedRoute[] {
+  return routes.filter((r) => r.engine === engineId && r.upstream === LOCAL_UPSTREAM)
 }
 
 export interface Entry {
@@ -179,7 +185,7 @@ function checkLocalFileDisposition(
     if (
       r.engine !== engine.id ||
       r.model === undefined ||
-      r.upstream !== 'local' ||
+      r.upstream !== LOCAL_UPSTREAM ||
       engine.models_dir === undefined
     ) {
       continue
@@ -276,7 +282,7 @@ function checkSelfUpstream(
     return
   }
   for (const r of routes) {
-    if (r.engine !== engine.id || r.upstream === null || r.upstream === 'local') {
+    if (r.engine !== engine.id || r.upstream === null || r.upstream === LOCAL_UPSTREAM) {
       continue
     }
     const found = upstreams.find((u) => u.id === r.upstream)

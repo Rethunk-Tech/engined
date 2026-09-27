@@ -7,6 +7,7 @@
 
 import {
   defaultAgenticSpawn,
+  launchScopedBaseUrl,
   mintLaunchNonce,
   type RunAgenticResult,
   runAgentic,
@@ -24,7 +25,7 @@ import {
 } from './http.ts'
 import { loadSpec } from './spec.ts'
 import type { AgenticSpec } from './specTypes.ts'
-import { type EngineEntry, isRecord, type ResolvedRoute } from './types.ts'
+import { type EngineEntry, isRecord, LOCAL_UPSTREAM, type ResolvedRoute } from './types.ts'
 
 /** Splits chat messages across the CLI's prompt and system-prompt channels. */
 export function promptsFromMessages(body: Record<string, unknown>): {
@@ -226,7 +227,7 @@ function resolveRouteRedirect(
   { engineId, modelSeg, route, doorUrl }: RouteRedirectOptions,
 ): RouteRedirect | Promise<RouteRedirect> {
   const upstreamId = route?.upstream ?? null
-  if (upstreamId === null || upstreamId === 'local') {
+  if (upstreamId === null || upstreamId === LOCAL_UPSTREAM) {
     return { ok: true, env: undefined }
   }
   const config = ctx.getConfig()
@@ -486,7 +487,7 @@ export async function execAgentic(
   // child exits rather than here.
   let handedOff = false
   try {
-    const doorUrl = `http://127.0.0.1:${config.listen_port}/openai/v1/${nonce}`
+    const doorUrl = launchScopedBaseUrl(config.listen_port, nonce)
     const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl })
     if (!redirect.ok) {
       return redirect.result

@@ -24,6 +24,7 @@ import {
   requireTable,
   VISION_KINDS,
 } from './configParse.ts'
+import { localRoutesOf } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import type {
   EngineEntry,
@@ -40,6 +41,7 @@ import {
   assertNoForbiddenFlags,
   isRecord,
   KIND_TRAITS,
+  LOCAL_UPSTREAM,
   qualifiedSegments,
   routeForHop,
   WILDCARD_MODEL,
@@ -247,7 +249,7 @@ function defaultUpstreamFor({
     return null
   }
   if (trait === 'self') {
-    return 'local'
+    return LOCAL_UPSTREAM
   }
   const distinct = distinctDeclaredUpstreams(engineId, allRaws)
   if (distinct.size !== 1) {
@@ -275,7 +277,7 @@ function localFileForbiddenReason(
   if (model === undefined) {
     return 'there is no model whose weights they could describe'
   }
-  if (upstreamId !== 'local') {
+  if (upstreamId !== LOCAL_UPSTREAM) {
     return 'a route proxied elsewhere has no local file to describe'
   }
   if (engine.models_dir === undefined) {
@@ -438,9 +440,7 @@ export function validateKeepResident(
   file: string,
 ): void {
   for (const e of engines) {
-    const pinned = routes.filter(
-      (r) => r.engine === e.id && r.upstream === 'local' && r.keep_resident === true,
-    )
+    const pinned = localRoutesOf(routes, e.id).filter((r) => r.keep_resident === true)
     const byRole = new Map<string, string[]>()
     for (const r of pinned) {
       if (r.role === undefined) {
@@ -472,8 +472,8 @@ export function validateModelsMax(
       continue
     }
     const roles = new Set(
-      routes
-        .filter((r) => r.engine === e.id && r.upstream === 'local' && r.role)
+      localRoutesOf(routes, e.id)
+        .filter((r) => r.role)
         .map((r) => r.role),
     )
     if (e.models_max < roles.size) {
