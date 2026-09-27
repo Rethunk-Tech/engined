@@ -10,6 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
 import {
   asArgs,
@@ -27,22 +28,21 @@ import {
   SECRET_KEYS,
   UPSTREAM_KEYS,
 } from './configParse.ts'
+import { parseRouteRaw, resolveRoute, type SpecFacts, specFactsFor } from './configRoutes.ts'
 import {
   checkModellessMixing,
   engineHasWildcard,
-  parseRouteRaw,
-  resolveRoute,
-  type SpecFacts,
-  specFactsFor,
   validateFilenameUnderModelsDir,
   validateKeepResident,
   validateModelsMax,
   validateVisionBridgeRoutes,
   validateWildcardRoutes,
-} from './configRoutes.ts'
+} from './configRouteValidate.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { configPath, installDir } from './paths.ts'
+import { isRecord } from './records.ts'
+import { LOCAL_UPSTREAM, qualifiedSegments, WILDCARD_MODEL } from './routeAddress.ts'
 import type {
   Config,
   EngineEntry,
@@ -53,17 +53,7 @@ import type {
   Upstream,
   Wire,
 } from './types.ts'
-import {
-  argKeysAsFlags,
-  assertNoForbiddenFlags,
-  EGRESS_RANK,
-  isEgress,
-  isRecord,
-  KIND_TRAITS,
-  LOCAL_UPSTREAM,
-  qualifiedSegments,
-  WILDCARD_MODEL,
-} from './types.ts'
+import { EGRESS_RANK, isEgress, KIND_TRAITS } from './types.ts'
 
 const DEFAULT_LISTEN_PORT = 29_200
 /**
