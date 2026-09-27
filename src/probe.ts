@@ -23,6 +23,7 @@
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from './http.ts'
 import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
 import { CONTRACT } from './responses.ts'
+import { OPENAI_MODELS_PATH } from './tokenizeRoute.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -31,6 +32,7 @@ import {
   CONTENT_ENDPOINT_TRANSLATIONS,
   errMessage,
 } from './types.ts'
+import { ENGINED_ENGINES_PATH } from './usage.ts'
 
 /** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */
 export function visionRequestBody(modelId: string): string {
@@ -210,7 +212,7 @@ async function staleDoorLine(
 ): Promise<ProbeLine | undefined> {
   let contract: unknown
   try {
-    const res = await fetchImpl(`${doorUrl}/engined/v1/engines`)
+    const res = await fetchImpl(`${doorUrl}${ENGINED_ENGINES_PATH}`)
     if (!res.ok) {
       await discardBody(res)
       return {
@@ -256,7 +258,7 @@ export async function runProbes(
 ): Promise<ProbeReport> {
   let rows: MenuRow[]
   try {
-    const menu = await fetchImpl(`${doorUrl}/openai/v1/models`)
+    const menu = await fetchImpl(`${doorUrl}${OPENAI_MODELS_PATH}`)
     if (!menu.ok) {
       await discardBody(menu)
       return {
