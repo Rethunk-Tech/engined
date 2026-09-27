@@ -5,6 +5,7 @@ import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { LlamaRouter, type LlamaRouterOptions } from '../../src/llama.ts'
 import { AUTO_PARALLEL } from '../../src/llamaSpec.ts'
 import { visionRequestBody, visionVerdict } from '../../src/probe.ts'
+import { engine } from '../../src/test-support.ts'
 import type { EngineEntry, ResolvedRoute, Role } from '../../src/types.ts'
 import {
   BUNX,
@@ -50,7 +51,7 @@ interface Fixture {
   error?: string
 }
 
-const EMPTY_ENGINE: EngineEntry = { id: 'llama', args: {} }
+const EMPTY_ENGINE: EngineEntry = engine({ id: 'llama' })
 
 /**
  * Loaded once at module scope, guarded by `LOCAL` so an ordinary `bun test`

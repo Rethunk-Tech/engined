@@ -20,7 +20,6 @@ import { submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import {
   discardBody,
   type HttpClient,
@@ -390,8 +389,8 @@ export async function renderWith(
   } catch (err) {
     return refuse({ status: STATUS_BAD_GATEWAY, error: errMessage(err) })
   } finally {
-    if (leased) {
-      ctx.lifecycle.endLease(route.engine, entry?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
+    if (leased && entry !== undefined) {
+      ctx.lifecycle.endLease(route.engine, entry.idle_stop_seconds)
     }
     const ok = refusal === undefined
     // One place words a failure, so an image refusal reads in journald exactly

@@ -10,7 +10,7 @@ import { handleSpeech } from './audioSpeech.ts'
 import { handleTranscription } from './audioTranscribe.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { createDoor, type Door } from './main.ts'
-import { config as baseConfigFixture, route, startFakeUpstream } from './test-support.ts'
+import { config as baseConfigFixture, engine, route, startFakeUpstream } from './test-support.ts'
 import type { Config, Upstream } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
 
@@ -261,7 +261,7 @@ function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop
 function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {
   return baseConfig({
     routes: [route({ engine: 'hosted', model: 'upstream-model-7', upstream: 'hosted' })],
-    engines: [{ id: 'hosted', kind: 'openai-http', args: engineArgs }],
+    engines: [engine({ id: 'hosted', kind: 'openai-http', args: engineArgs })],
     upstreams: [
       {
         id: 'hosted',

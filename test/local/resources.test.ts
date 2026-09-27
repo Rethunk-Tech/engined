@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { LlamaRouter } from '../../src/llama.ts'
+import { engine } from '../../src/test-support.ts'
 import type { EngineEntry } from '../../src/types.ts'
 import {
   BUNX,
@@ -66,7 +67,7 @@ const MIN_LOADED_GRAPHICS_BYTES = GIB
  */
 const RECONCILE_TOLERANCE = GIB
 
-const EMPTY_ENGINE: EngineEntry = { id: 'llama', args: {} }
+const EMPTY_ENGINE: EngineEntry = engine({ id: 'llama' })
 
 interface Fixture {
   engine: EngineEntry

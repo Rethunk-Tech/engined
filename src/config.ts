@@ -40,6 +40,7 @@ import {
   validateVisionBridgeRoutes,
   validateWildcardRoutes,
 } from './configRoutes.ts'
+import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { configPath, installDir } from './paths.ts'
 import type {
@@ -124,9 +125,13 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
     spec_dir: rawSpecDir === undefined ? undefined : expandConfigPath(rawSpecDir),
     models_dir: rawModelsDir === undefined ? undefined : expandConfigPath(rawModelsDir),
     models_max: optionalPositive(raw.models_max, `${site} "models_max"`, file),
-    idle_stop_seconds: optionalPositive(raw.idle_stop_seconds, `${site} "idle_stop_seconds"`, file),
+    idle_stop_seconds:
+      optionalPositive(raw.idle_stop_seconds, `${site} "idle_stop_seconds"`, file) ??
+      DEFAULT_IDLE_STOP_SECONDS,
     drain_timeout_seconds: drainTimeoutS,
-    ready_timeout_s: optionalPositive(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file),
+    ready_timeout_s:
+      optionalPositive(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file) ??
+      DEFAULT_READY_TIMEOUT_S,
     agent_version: agentVersion,
     kind: parseKind(raw, site, file),
     args,

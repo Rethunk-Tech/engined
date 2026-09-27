@@ -20,8 +20,6 @@ import { DockerLifecycle, dockerExec } from './docker.ts'
 import {
   baseStatus,
   buildEntries,
-  DEFAULT_IDLE_STOP_SECONDS,
-  DEFAULT_READY_TIMEOUT_S,
   disabledStatus,
   type Entry,
   engineShape,
@@ -235,12 +233,7 @@ export class EngineRegistry {
       statusFrom({
         engine,
         spec,
-        runtime: await this.lifecycle.probe(
-          engine.id,
-          spec,
-          source,
-          engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-        ),
+        runtime: await this.lifecycle.probe(engine.id, spec, source, engine.idle_stop_seconds),
         routes: this.config.routes,
       }),
     )
@@ -336,8 +329,8 @@ export class EngineRegistry {
       // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
       // engine resolve to exactly one `true`.
       const { launched } = await this.lifecycle.start(id, spec, {
-        idleStopSeconds: entry.engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-        readyTimeoutS: entry.engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+        idleStopSeconds: entry.engine.idle_stop_seconds,
+        readyTimeoutS: entry.engine.ready_timeout_s,
         specSource: entry.spec.source,
       })
       this.residency.started(id, model)

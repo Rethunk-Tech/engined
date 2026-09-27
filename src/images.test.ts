@@ -301,10 +301,10 @@ describe('POST /openai/v1/images/generations', () => {
 // all, with every test here still green.
 describe('the shipped comfy engine', () => {
   test('resolves an images_workflow that exists, and the graph names only placeholders the door fills', () => {
-    const spec = buildComfySpec(
-      { id: 'comfy', args: {}, models_dir: '/unused' },
-      { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
-    )
+    const spec = buildComfySpec(engine({ id: 'comfy', models_dir: '/unused' }), {
+      enginesRoot: join(import.meta.dir, '..', 'engines'),
+      bunx: BUNX,
+    })
     expect(spec.images_workflow).toBeDefined()
     expect(existsSync(spec.images_workflow as string)).toBe(true)
 

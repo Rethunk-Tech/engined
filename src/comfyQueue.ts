@@ -7,7 +7,7 @@
  */
 
 import type { DockerLifecycle } from './docker.ts'
-import { DEFAULT_IDLE_STOP_SECONDS, type Entry } from './engineEntries.ts'
+import type { Entry } from './engineEntries.ts'
 import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from './http.ts'
 import { isContainerSpec } from './specTypes.ts'
 
@@ -132,7 +132,7 @@ export class ComfyQueueWatch {
     const wasEmpty = this.lastEmpty.get(engine.id) ?? true
     this.lastEmpty.set(engine.id, empty)
     if (empty && !wasEmpty) {
-      this.lifecycle.endLease(engine.id, engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
+      this.lifecycle.endLease(engine.id, engine.idle_stop_seconds)
     } else if (!empty && wasEmpty) {
       // The lease alone cancels the pending stop, and taking it synchronously
       // is the point: a docker round trip here is a window in which the

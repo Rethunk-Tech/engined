@@ -8,6 +8,7 @@ import { afterAll } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
@@ -32,7 +33,13 @@ export function makeTestRoot(prefix: string): string {
 }
 
 export function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return { id: 'e', args: {}, ...overrides }
+  return {
+    id: 'e',
+    args: {},
+    idle_stop_seconds: DEFAULT_IDLE_STOP_SECONDS,
+    ready_timeout_s: DEFAULT_READY_TIMEOUT_S,
+    ...overrides,
+  }
 }
 
 /** A `[[model]]` capability row -- unrelated to any engine or upstream. See `route()` for the engine/upstream/model pairing. */

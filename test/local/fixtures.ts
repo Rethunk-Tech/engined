@@ -14,7 +14,7 @@ import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from '../../src/agen
 import { loadConfig } from '../../src/config.ts'
 import { EngineRegistry } from '../../src/engines.ts'
 import { stateDir } from '../../src/paths.ts'
-import { clearVerifiedVersion, config } from '../../src/test-support.ts'
+import { clearVerifiedVersion, config, engine } from '../../src/test-support.ts'
 import { type Config, errMessage, type ResolvedRoute } from '../../src/types.ts'
 import { CONFIG_EXAMPLE, ENGINES_ROOT, LOCAL } from './exclusive.ts'
 
@@ -103,7 +103,7 @@ function requireEnv(name: string, value: string | undefined): string {
 function probeGateConfig(id: string, agent: string, agentVersion: string): Config {
   return config({
     listen_port: 0,
-    engines: [{ id, agent_version: agentVersion, spec_dir: join(ENGINES_ROOT, agent), args: {} }],
+    engines: [engine({ id, agent_version: agentVersion, spec_dir: join(ENGINES_ROOT, agent) })],
   })
 }
 

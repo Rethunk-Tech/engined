@@ -66,7 +66,13 @@ const WHISPER_MODELS = whisperModelsDir()
 
 /** `models_dir: "/unused"` only satisfies whisper's `{models_dir}` placeholder enough to substitute cleanly; chatterbox-multi's spec has no such placeholder. */
 function ttsEngine(id: string): EngineEntry {
-  return { id, args: {}, models_dir: '/unused' }
+  return {
+    id,
+    args: {},
+    models_dir: '/unused',
+    idle_stop_seconds: IDLE_STOP_SECONDS,
+    ready_timeout_s: READY_TIMEOUT_S,
+  }
 }
 
 const KOKORO_IMAGE = LOCAL ? specImage(ttsEngine('kokoro')) : undefined
@@ -93,7 +99,12 @@ describe.skipIf(!HAVE_CHATTERBOX)(
   ),
   () => {
     const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX)
-    const engine: EngineEntry = { id: 'chatterbox-multi', args: {} }
+    const engine: EngineEntry = {
+      id: 'chatterbox-multi',
+      args: {},
+      idle_stop_seconds: IDLE_STOP_SECONDS,
+      ready_timeout_s: READY_TIMEOUT_S,
+    }
     const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
     if (!isContainerSpec(loaded.spec)) {
       throw new Error('chatterbox-multi spec.toml did not parse as a container spec')
@@ -167,6 +178,8 @@ describe.skipIf(!HAVE_WHISPER)(
           id: 'whisper',
           args: {},
           models_dir: scratchModelsDir,
+          idle_stop_seconds: IDLE_STOP_SECONDS,
+          ready_timeout_s: READY_TIMEOUT_S,
         }
         const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
         if (!isContainerSpec(loaded.spec)) {
@@ -227,6 +240,8 @@ for (const tts of TTS_ROUND_TRIPS) {
           id,
           args: {},
           models_dir: WHISPER_MODELS.dir,
+          idle_stop_seconds: IDLE_STOP_SECONDS,
+          ready_timeout_s: READY_TIMEOUT_S,
         }
         const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
         if (!isContainerSpec(loaded.spec)) {

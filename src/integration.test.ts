@@ -151,13 +151,12 @@ function containerEngine(
   // buildLlamaSpec throws without one. Harmless for the agentic/comfy specs
   // this helper also builds, since isLocalLlama gates engines.ts's own use
   // of it on kind === "openai-http" too.
-  return {
+  return engine({
     id,
-    args: {},
     spec_dir: specDirFor(toml),
     models_dir: '/models-host',
     ...overrides,
-  }
+  })
 }
 
 /** One route per engine kind, plus a chain, so the models list has every shape of row to prove. */

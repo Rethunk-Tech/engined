@@ -435,7 +435,7 @@ export interface EngineEntry {
   spec_dir?: string
   models_dir?: string
   models_max?: number
-  idle_stop_seconds?: number
+  idle_stop_seconds: number
   /**
    * How long a submission waits for this engine to be free before it is
    * refused. Only the comfy proxy holds submissions today: it keeps one prompt
@@ -446,7 +446,7 @@ export interface EngineEntry {
    * queued, and this is the key to raise when one does.
    */
   drain_timeout_seconds?: number
-  ready_timeout_s?: number
+  ready_timeout_s: number
   agent_version?: string
   /** An engine has no address of its own; every dialect it speaks comes from `kind` or a real shipped spec. */
   kind?: EngineKind

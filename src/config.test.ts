@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { loadConfig } from './config.ts'
+import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { makeTestRoot } from './test-support.ts'
 import { FORBIDDEN_AGENTIC_FLAGS } from './types.ts'
@@ -599,6 +600,13 @@ test('defaults apply when listen_port/chat_timeout/agent_timeout are absent', ()
   expect(cfg.listen_port).toBe(DEFAULT_LISTEN_PORT)
   expect(cfg.chat_timeout_seconds).toBe(DEFAULT_CHAT_TIMEOUT_SECONDS)
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS)
+})
+
+test('idle_stop_seconds and ready_timeout_s default when an engine omits them', () => {
+  const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
+  const engine = cfg.engines[0]
+  expect(engine?.idle_stop_seconds).toBe(DEFAULT_IDLE_STOP_SECONDS)
+  expect(engine?.ready_timeout_s).toBe(DEFAULT_READY_TIMEOUT_S)
 })
 
 const RX_LISTEN_PORT_POSITIVE = /config "listen_port" must be greater than 0/

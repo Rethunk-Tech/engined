@@ -12,7 +12,6 @@ import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
@@ -151,7 +150,10 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease
     return
   }
   const engine = ctx.registry.entry(engineId)
-  ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
+  if (engine === undefined) {
+    return
+  }
+  ctx.lifecycle.endLease(engineId, engine.idle_stop_seconds)
 }
 
 /**

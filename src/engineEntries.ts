@@ -33,7 +33,7 @@ import {
   WILDCARD_MODEL,
 } from './types.ts'
 
-/** Lifecycle defaults live here rather than in config.ts: an engine that omits them is not a parse error, it just takes these. */
+/** Applied at parse when `[[engine]]` omits the field. */
 export const DEFAULT_IDLE_STOP_SECONDS = 900
 export const DEFAULT_READY_TIMEOUT_S = 60
 

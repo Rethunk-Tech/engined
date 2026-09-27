@@ -8,7 +8,6 @@
 
 import type { AgenticSpawn } from './agentic.ts'
 import type { DockerLifecycle } from './docker.ts'
-import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
@@ -133,8 +132,8 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
   const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
     enginesRoot: ctx.registryOpts.enginesRoot,
     bunx: ctx.registryOpts.bunx,
-    idleStopSeconds: engine.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS,
-    readyTimeoutS: engine.ready_timeout_s ?? DEFAULT_READY_TIMEOUT_S,
+    idleStopSeconds: engine.idle_stop_seconds,
+    readyTimeoutS: engine.ready_timeout_s,
     httpClient: ctx.doorOpts.llamaHttpClient,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
   })
