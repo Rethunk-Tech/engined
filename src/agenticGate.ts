@@ -47,6 +47,8 @@ export interface AgenticGateOptions {
   runner: AgenticProbeRunner | undefined
   launchNonces: Set<string>
   observeAgentVersion: ObserveAgentVersion
+  /** Config as it stands now — a pin added while a probe runs must still be kept. */
+  currentConfig?: () => Config
 }
 
 /** The just-proved version plus every `agent_version` the current config pins. */
@@ -64,6 +66,7 @@ export class AgenticGate {
   private readonly runner: AgenticProbeRunner | undefined
   private readonly launchNonces: Set<string>
   private readonly observeAgentVersion: ObserveAgentVersion
+  private readonly currentConfig: (() => Config) | undefined
   /** Per-engine agentic-probe cache/dedupe; see `runProbe`. */
   private readonly probeState = new Map<
     string,
@@ -79,6 +82,7 @@ export class AgenticGate {
     this.runner = opts.runner
     this.launchNonces = opts.launchNonces
     this.observeAgentVersion = opts.observeAgentVersion
+    this.currentConfig = opts.currentConfig
     sweepOrphanOpencodeDirs()
   }
 
@@ -137,7 +141,10 @@ export class AgenticGate {
       }
     }
     writeVerifiedVersion(engine.id, version)
-    pruneAgentInstallCaches(spec.agent, keepInstallVersions(config, version))
+    pruneAgentInstallCaches(
+      spec.agent,
+      keepInstallVersions(this.currentConfig?.() ?? config, version),
+    )
     this.probeState.delete(engine.id)
     return { ...base, state: 'installed' }
   }

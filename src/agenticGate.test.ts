@@ -3,7 +3,9 @@ import { chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { type AgenticSpawn, observeAgentVersion } from './agentic.ts'
+import { AgenticGate } from './agenticGate.ts'
 import { initTestRoot, newEnginesRoot, redirectStateHome, registry } from './enginesFixtures.ts'
+import type { AgenticSpec } from './specTypes.ts'
 import {
   clearVerifiedVersion,
   config,
@@ -52,6 +54,46 @@ command = ["{bunx}", "cursor-agent@{agent_version}", "-p"]
     expect(spawns).toBe(1)
   } finally {
     process.env.PATH = prevPath
+    clearVerifiedVersion(id)
+    restoreState()
+  }
+})
+
+test('a pin added while the probe runs survives the prune', async () => {
+  const restoreState = redirectStateHome()
+  const id = 'probe-keep-pin'
+  clearVerifiedVersion(id)
+  const pinned = engine({ id, agent_version: '1.0.0' })
+  const added = engine({ id: 'other-agent', agent_version: '9.9.9' })
+  let live = config({ engines: [pinned] })
+  const pruneReads: string[] = []
+  const spec = {
+    kind: 'agentic-cli',
+    agent: 'opencode',
+    serves: ['/openai/v1/chat/completions'],
+    command: ['echo'],
+  } as AgenticSpec
+  const gate = new AgenticGate({
+    runner: () => {
+      live = config({ engines: [pinned, added] })
+      return Promise.resolve({ ok: true })
+    },
+    launchNonces: new Set(),
+    observeAgentVersion: () => Promise.resolve({ ok: true, version: '1.0.0' }),
+    currentConfig: () => {
+      for (const row of live.engines) {
+        if (row.agent_version !== undefined && row.agent_version !== '') {
+          pruneReads.push(row.agent_version)
+        }
+      }
+      return live
+    },
+  })
+  try {
+    const status = await gate.status(pinned, spec, true, config({ engines: [pinned] }))
+    expect(status.state).toBe('installed')
+    expect(pruneReads).toContain('9.9.9')
+  } finally {
     clearVerifiedVersion(id)
     restoreState()
   }
