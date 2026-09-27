@@ -343,10 +343,7 @@ async function gatedPair(
 }
 
 function goneExecFrom(base: Exec = fakeExec()): Exec {
-  return (args) =>
-    args[0] === 'inspect'
-      ? Promise.resolve({ exitCode: 0, stdout: 'false\n', stderr: '' })
-      : base(args)
+  return (args) => (args[0] === 'inspect' ? Promise.resolve(containerRunning(false)) : base(args))
 }
 
 function sseBody(chunk: string, onCancel?: () => void): ReadableStream<Uint8Array> {
@@ -560,10 +557,7 @@ test('chat for model B while same-role model A is resident and idle: unload A, l
 test('the resident model reported for a hop is the one that served it, not a later swap', async () => {
   const { a, b, router } = pairRouter()
 
-  const first = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const first = await router.proxy(a, CHAT_PATH, chatInit('a'))
   await first.response.text()
   // Swaps the role onto B. The hop above already carries its own answer, so
   // this cannot retroactively change what it reported holding.
@@ -616,10 +610,7 @@ test('two overlapping chats for the same GGUF both complete without a second loa
   const a = model({ id: 'a', filename: 'a.gguf' })
   const { router, calls, release, res1 } = await startGatedChat(e, [a], a)
 
-  const res2 = router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const res2 = router.proxy(a, CHAT_PATH, chatInit('a'))
 
   const secondText = await Promise.race([
     text(res2).then((t) => ({ done: true, t })),
@@ -638,10 +629,7 @@ test('two overlapping chats for the same GGUF both complete without a second loa
 test('a different-GGUF same-role chat arriving mid-lease waits, without eviction or a 409', async () => {
   const { b, router, calls, release, res1 } = await gatedPair()
 
-  const res2 = router.proxy(b, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'b' }),
-  })
+  const res2 = router.proxy(b, CHAT_PATH, chatInit('b'))
   // Let the pump run as far as it can while A's lease is still held.
   await drainMicrotasks()
   const bTouchedWhileWaiting = calls.some(
@@ -664,11 +652,7 @@ test('a queued waiter whose caller aborts is dropped before the swap it would ha
   const { b, router, calls, release, res1 } = await gatedPair()
 
   const controller = new AbortController()
-  const res2 = router.proxy(b, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'b' }),
-    signal: controller.signal,
-  })
+  const res2 = router.proxy(b, CHAT_PATH, chatInit('b', { signal: controller.signal }))
   // Let the pump run as far as it can while A's lease is still held, exactly
   // as the mid-lease test above does, so B is genuinely queued (not merely
   // still inside ensureStarted) before it aborts.
@@ -826,12 +810,7 @@ test('a streaming hop whose provenance read gets a non-JSON body releases its le
   })
   const router = routerWithClient(e, [a], client)
 
-  await expect(
-    router.proxy(a, CHAT_PATH, {
-      method: 'POST',
-      body: JSON.stringify({ model: 'a', stream: true }),
-    }),
-  ).rejects.toThrow()
+  await expect(router.proxy(a, CHAT_PATH, chatInit('a', { stream: true }))).rejects.toThrow()
 
   expect(router.hasOutstandingLeases()).toBe(false)
   expect(router.contention()).toEqual([])
@@ -842,10 +821,7 @@ test('a cold non-streaming request never gets an SSE `: warming` comment, which 
 
   // No prior proxy() call: this is the container's first request, the
   // coldest possible load.
-  const { response: res } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { response: res } = await router.proxy(a, CHAT_PATH, chatInit('a'))
   const raw = await res.text()
   expect(() => JSON.parse(raw)).not.toThrow()
   expect(raw.startsWith(': warming')).toBe(false)
@@ -862,10 +838,7 @@ test('model_reported (the echoed body) and model_resident (read from /v1/models)
   )
   const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
 
-  const { response, modelResident } = await router.proxy(a, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'a' }),
-  })
+  const { response, modelResident } = await router.proxy(a, CHAT_PATH, chatInit('a'))
   const body = (await response.json()) as { model?: string }
 
   const modelReported = reportedModelFrom(body)
@@ -957,10 +930,7 @@ test('a model added by config reload becomes genuinely servable, not just listed
   // is already true here (its one request finished above), so this mirrors
   // the real handoff, not a shortcut past it.
   const router2 = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(client), presetHostPath })
-  const { response: res } = await router2.proxy(b, CHAT_PATH, {
-    method: 'POST',
-    body: JSON.stringify({ model: 'b' }),
-  })
+  const { response: res } = await router2.proxy(b, CHAT_PATH, chatInit('b'))
   expect(res.status).toBe(200)
 })
 
