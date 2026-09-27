@@ -68,7 +68,7 @@ const INFILL_REPLY = {
   stop: true,
   stopped_eos: false,
   stopped_word: true,
-  stopped_limit: false,
+  stop_type: 'eos',
   tokens_predicted: 5,
   tokens_evaluated: 12,
 }
@@ -76,7 +76,7 @@ const INFILL_REPLY = {
 /** Two native llama.cpp SSE frames -- a mid-stream delta, then the terminal one carrying the stop reason and token counts. No `[DONE]`: llama-server never sends one. */
 const INFILL_SSE = [
   `data: ${JSON.stringify({ content: 'return', stop: false })}\n\n`,
-  `data: ${JSON.stringify({ content: ' a + b', stop: true, stopped_limit: true, tokens_predicted: 5, tokens_evaluated: 12 })}\n\n`,
+  `data: ${JSON.stringify({ content: ' a + b', stop: true, stop_type: 'limit', tokens_predicted: 5, tokens_evaluated: 12 })}\n\n`,
 ].join('')
 
 function recordControlledClient(
@@ -136,6 +136,7 @@ describe('infillRequestInit: request mapping', () => {
       input_prefix: 'def add(a, b):\n    ',
       input_suffix: '\n\nprint(add(1, 2))\n',
       stream: false,
+      response_fields: ['content', 'stop', 'stop_type', 'tokens_predicted', 'tokens_evaluated'],
       input_extra: [{ filename: 'utils.py', text: 'def helper(): ...' }],
       n_predict: 16,
       temperature: 0.2,
@@ -150,6 +151,7 @@ describe('infillRequestInit: request mapping', () => {
       input_prefix: '',
       input_suffix: '',
       stream: false,
+      response_fields: ['content', 'stop', 'stop_type', 'tokens_predicted', 'tokens_evaluated'],
     })
   })
 
@@ -206,11 +208,11 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(res.headers.get('x-engined-chain')).toBeNull()
   })
 
-  test('a stopped_limit reply reports finish_reason "length"', async () => {
+  test('a stop_type of "limit" reports finish_reason "length"', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const recorded: { url: string; body: string }[] = []
     const httpClient = recordControlledClient(recorded, () =>
-      Response.json({ ...INFILL_REPLY, stopped_word: false, stopped_limit: true }),
+      Response.json({ ...INFILL_REPLY, stopped_word: false, stop_type: 'limit' }),
     )
     const door = doorFor(cfg, root, httpClient, () => undefined)
     const res = await door.fetch(

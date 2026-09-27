@@ -63,6 +63,7 @@ export function infillRequestInit(
     input_prefix: typeof rawBody.prompt === 'string' ? rawBody.prompt : '',
     input_suffix: typeof rawBody.suffix === 'string' ? rawBody.suffix : '',
     stream: rawBody.stream === true,
+    response_fields: ['content', 'stop', 'stop_type', 'tokens_predicted', 'tokens_evaluated'],
   }
   if (extra !== undefined && extra.length > 0) {
     body.input_extra = extra
@@ -88,13 +89,13 @@ export function infillRequestInit(
 interface InfillFrame {
   content?: string
   stop?: boolean
-  stopped_limit?: boolean
+  stop_type?: string
   tokens_predicted?: number
   tokens_evaluated?: number
 }
 
 function finishReason(frame: InfillFrame): 'stop' | 'length' {
-  return frame.stopped_limit === true ? 'length' : 'stop'
+  return frame.stop_type === 'limit' ? 'length' : 'stop'
 }
 
 function usageFrom(frame: InfillFrame): Usage | undefined {
