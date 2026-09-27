@@ -17,7 +17,7 @@ import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 
 import { readFileSync } from 'node:fs'
 import { classifyResult } from './chain.ts'
-import { comfyHistoryEntry, submitComfyPrompt } from './comfyProxy.ts'
+import { comfyHistoryEntry, comfyPromptId, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -31,7 +31,7 @@ import {
   STATUS_BAD_REQUEST,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
-import { errMessage, isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
+import { errMessage, isRecord, MS_PER_SECOND, pollUntil } from './records.ts'
 import { CONTENT_ENDPOINT_IMAGES } from './routeServes.ts'
 import { isContainerSpec } from './specTypes.ts'
 import type { ResolvedRoute } from './types.ts'
@@ -209,8 +209,8 @@ async function submitAll({
       body: JSON.stringify({ prompt: filled }),
       signal,
       onAnswered: (res, text) => {
-        const id = parseRecord(text)?.prompt_id
-        if (res.ok && typeof id === 'string') {
+        const id = comfyPromptId(text)
+        if (res.ok && id !== undefined) {
           promptId = id
         }
         return new Response(text, { status: res.status })

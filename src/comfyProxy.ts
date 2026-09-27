@@ -15,6 +15,7 @@ import {
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
   OCTET_STREAM_CONTENT_TYPE,
+  readJsonBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
@@ -22,7 +23,6 @@ import {
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
-import { readJsonBody } from './requestBody.ts'
 
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/
 export const COMFY_WS_SUFFIX = 'ws'
@@ -125,7 +125,7 @@ export async function forwardComfyGet(
 }
 
 /** The `prompt_id` comfy answered `/prompt` with -- `undefined` for a body that is not JSON or carries none, which binds nothing. The caller still gets comfy's real body and status back either way. */
-function comfyPromptId(text: string): string | undefined {
+export function comfyPromptId(text: string): string | undefined {
   const id = parseRecord(text)?.prompt_id
   return typeof id === 'string' ? id : undefined
 }

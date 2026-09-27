@@ -11,7 +11,7 @@
  * call shares the same lease/abort plumbing: a caller abort cancels it too.
  */
 
-import { classifyResult, type HopResult, parseHop } from './chain.ts'
+import { classifyResult, type HopResult, parseHop, pickUsage } from './chain.ts'
 import type { DoorContext } from './doorContext.ts'
 import { buildHopExec } from './hop.ts'
 import { jsonError, STATUS_BAD_GATEWAY } from './http.ts'
@@ -56,16 +56,7 @@ export function bodyHasBridgeableImages(body: Record<string, unknown>): boolean 
 }
 
 function usageFromParsed(parsed: unknown): Attempt['usage'] {
-  if (!(isRecord(parsed) && isRecord(parsed.usage))) {
-    return undefined
-  }
-  const { prompt_tokens, completion_tokens, total_tokens } = parsed.usage
-  const usage: Attempt['usage'] = {
-    prompt_tokens: typeof prompt_tokens === 'number' ? prompt_tokens : undefined,
-    completion_tokens: typeof completion_tokens === 'number' ? completion_tokens : undefined,
-    total_tokens: typeof total_tokens === 'number' ? total_tokens : undefined,
-  }
-  return Object.values(usage).some((v) => v !== undefined) ? usage : undefined
+  return isRecord(parsed) && isRecord(parsed.usage) ? pickUsage(parsed.usage) : undefined
 }
 
 function extractCaption(parsed: unknown): string | undefined {
@@ -133,16 +124,16 @@ async function captionOneImage(
     const result = await exec(opts.bridgeAddress, signal)
     clearTimeout(timer)
     const durationMs = Date.now() - start
-    const ok = result.status >= 200 && result.status < 300
     const parsed = await readHopJson(result)
-    if (!ok) {
+    const verdict = classifyResult({ ...result, body: parsed ?? result.body })
+    if (!verdict.ok) {
       return {
         ok: false,
         attempt: {
           engine,
           model,
           ok: false,
-          failure: classifyResult({ ...result, body: parsed ?? result.body }).failure,
+          failure: verdict.failure,
           duration_ms: durationMs,
           upstream_used: result.upstreamUsed,
         },

@@ -333,7 +333,7 @@ function usageField(raw: Record<string, unknown>, key: string): number | undefin
 }
 
 /** One reported `usage` object as engined records it, or `undefined` for one it understood no field of -- which is not a cost record. */
-function pickUsage(raw: Record<string, unknown>): Usage | undefined {
+export function pickUsage(raw: Record<string, unknown>): Usage | undefined {
   const out: Usage = {
     prompt_tokens: usageField(raw, 'prompt_tokens'),
     completion_tokens: usageField(raw, 'completion_tokens'),
