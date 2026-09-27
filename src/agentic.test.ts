@@ -170,6 +170,12 @@ agent_version = "1.2.3"
   expect(() => loadConfig(configPath)).toThrow(RX_TOOLS_FLAG)
 })
 
+function expectPinnedBunx(argv: string[]) {
+  expect(argv[0]).toBe(BUNX)
+  expect(argv.some((token) => token.includes(PIN))).toBe(true)
+  expect(argv.some((token) => token.includes('latest'))).toBe(false)
+}
+
 test('buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest', () => {
   const argv = buildArgv({
     bunx: BUNX,
@@ -179,9 +185,7 @@ test('buildArgv: command[0] is the given bunx path, and the pin appears literall
     mcpConfigPath: MCP_CONFIG_PATH,
   })
 
-  expect(argv[0]).toBe(BUNX)
-  expect(argv.some((token) => token.includes(PIN))).toBe(true)
-  expect(argv.some((token) => token.includes('latest'))).toBe(false)
+  expectPinnedBunx(argv)
 })
 
 test('buildArgv: the rendered config path is the value of --mcp-config, never a positional prompt', () => {
@@ -446,9 +450,7 @@ test('runAgentic: command[0] resolves from the given bunx and the pin appears in
   await runAgenticFixture(spawn)
 
   const [argv] = calls[0] as [string[], unknown]
-  expect(argv[0]).toBe(BUNX)
-  expect(argv.some((token) => token.includes(PIN))).toBe(true)
-  expect(argv.some((token) => token.includes('latest'))).toBe(false)
+  expectPinnedBunx(argv)
 })
 
 test('runAgentic: --mcp-config in the spawned argv names a real file holding an empty MCP config', async () => {
