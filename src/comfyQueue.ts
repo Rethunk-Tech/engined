@@ -72,9 +72,13 @@ export async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
 }
 
 function isQueueEmpty(q: QueueSnapshot): boolean {
-  return (
-    queuedPromptIds(q.queue_running).length === 0 && queuedPromptIds(q.queue_pending).length === 0
-  )
+  const running = Array.isArray(q.queue_running)
+    ? q.queue_running
+    : queuedPromptIds(q.queue_running)
+  const pending = Array.isArray(q.queue_pending)
+    ? q.queue_pending
+    : queuedPromptIds(q.queue_pending)
+  return running.length === 0 && pending.length === 0
 }
 
 export class ComfyQueueWatch {
