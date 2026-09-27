@@ -1,3 +1,4 @@
+import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 /**
  * `POST /openai/v1/images/generations`: the fifth modality, on the same
  * OpenAI shape as chat, embeddings, speech and transcription.
@@ -389,8 +390,9 @@ export async function renderWith(
   } catch (err) {
     return refuse({ status: STATUS_BAD_GATEWAY, error: errMessage(err) })
   } finally {
-    if (leased && entry !== undefined) {
-      ctx.lifecycle.endLease(route.engine, entry.idle_stop_seconds)
+    if (leased) {
+      // An engine dropped by a config reload mid-request still holds this lease.
+      ctx.lifecycle.endLease(route.engine, entry?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
     }
     const ok = refusal === undefined
     // One place words a failure, so an image refusal reads in journald exactly

@@ -1,3 +1,4 @@
+import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 /**
  * The door's two audio verbs. `src/audio.ts` speaks to an engine; this is
  * the half in front of it -- resolving which engine answers, holding a
@@ -150,10 +151,8 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease
     return
   }
   const engine = ctx.registry.entry(engineId)
-  if (engine === undefined) {
-    return
-  }
-  ctx.lifecycle.endLease(engineId, engine.idle_stop_seconds)
+  // An engine dropped by a config reload mid-request still holds this lease.
+  ctx.lifecycle.endLease(engineId, engine?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)
 }
 
 /**
