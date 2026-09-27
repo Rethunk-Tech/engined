@@ -781,6 +781,31 @@ describe('comfy proxy: an aborted caller never reaches POST /prompt', () => {
     })
     expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(0)
   })
+
+  test('a prompt that was POSTed is not reported as unsubmitted when the caller then hangs up', async () => {
+    const ac = new AbortController()
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (isQueueRead(url, init)) {
+        return idleQueue()
+      }
+      if (url.includes('/prompt')) {
+        ac.abort()
+        return Response.json({ prompt_id: 'job-1', number: 1 })
+      }
+      return idleQueue()
+    })
+    const door = await comfyDoor(client)
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, {
+        method: 'POST',
+        body: '{}',
+        signal: ac.signal,
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { prompt_id: string }).prompt_id).toBe('job-1')
+    expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(1)
+  })
 })
 
 describe('comfy proxy: one prompt in the container at a time', () => {

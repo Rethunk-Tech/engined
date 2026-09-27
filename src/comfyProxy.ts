@@ -16,6 +16,7 @@ import {
   MAX_IMAGE_UPLOAD_BYTES,
   OCTET_STREAM_CONTENT_TYPE,
   STATUS_BAD_REQUEST,
+  STATUS_CLIENT_CLOSED,
   STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
@@ -266,11 +267,11 @@ export async function submitComfyPrompt({
     COMFY_DRAIN_POLL_MS,
     signal,
   )
-  if (signal?.aborted === true) {
-    return jsonError(499, 'the caller hung up before the prompt was submitted')
-  }
   if (forwarded !== undefined) {
     return forwarded
+  }
+  if (signal?.aborted === true) {
+    return jsonError(STATUS_CLIENT_CLOSED, 'the caller hung up before the prompt was submitted')
   }
   return jsonError(
     STATUS_UNAVAILABLE,

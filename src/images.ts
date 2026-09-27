@@ -29,6 +29,7 @@ import {
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_OK,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, pollUntil } from './records.ts'
@@ -218,7 +219,7 @@ async function submitAll({
     })
     if (promptId === undefined) {
       return {
-        status: answered.status === 200 ? STATUS_BAD_GATEWAY : answered.status,
+        status: answered.status === STATUS_OK ? STATUS_BAD_GATEWAY : answered.status,
         error: `@/${route.engine} refused the render: ${(await answered.text()).slice(0, ENGINE_ERROR_CHARS)}`,
       }
     }
