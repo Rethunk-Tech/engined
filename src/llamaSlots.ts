@@ -103,9 +103,21 @@ export interface PromptClassification {
   fingerprint: string | undefined
 }
 
-async function tokenIdsOf(ggufPath: string, text: string): Promise<number[] | undefined> {
+/** ~8 chars/token is a high estimate; a prefix this long is enough to decide long vs short without walking the rest of the prompt. */
+const PREFIX_CHARS_PER_TOKEN = 8
+
+async function tokenIdsOf(
+  ggufPath: string,
+  text: string,
+  longThresholdTokens: number,
+): Promise<number[] | undefined> {
   try {
     const vocab = await loadBpeVocab(ggufPath)
+    const prefixLen = Math.min(text.length, longThresholdTokens * PREFIX_CHARS_PER_TOKEN)
+    const prefixIds = bpeTokenIds(vocab, text.slice(0, prefixLen))
+    if (prefixIds.length >= longThresholdTokens || prefixLen === text.length) {
+      return prefixIds
+    }
     return bpeTokenIds(vocab, text)
   } catch {
     return undefined
@@ -126,7 +138,8 @@ export async function classifyPrompt(
   text: string,
   longThresholdTokens: number,
 ): Promise<PromptClassification> {
-  const ids = ggufPath === undefined ? undefined : await tokenIdsOf(ggufPath, text)
+  const ids =
+    ggufPath === undefined ? undefined : await tokenIdsOf(ggufPath, text, longThresholdTokens)
   const tokens = ids?.length ?? Math.ceil(text.length / FALLBACK_CHARS_PER_TOKEN)
   const sizeClass: SlotSizeClass = tokens >= longThresholdTokens ? 'long' : 'short'
   return {
