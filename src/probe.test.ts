@@ -11,31 +11,64 @@ const RX_EXEC_START_FLAG = /^ExecStart=.*?(--[a-z-]+)\s*$/m
 /** The probe's own text shape: exactly eight digits, nothing round them. */
 const RX_PROBE_DIGITS = /^\d{8}$/
 
-/** A door whose model menu is `rows` and whose chat verb always answers `reply`. */
-function fakeDoor(rows: unknown[], reply: string, menuStatus = 200): typeof fetch {
-  return ((input: string | URL | Request) => {
+type DoorHandler = (init?: RequestInit) => Response | Promise<Response>
+
+/** A door whose path handlers default to an empty engines list, `rows` as the model menu, and a chat `reply`. */
+function fakeDoor(
+  rows: unknown[],
+  reply = '',
+  overrides: {
+    menuStatus?: number
+    engines?: DoorHandler
+    models?: DoorHandler
+    other?: DoorHandler
+  } = {},
+): typeof fetch {
+  const { menuStatus = 200, engines, models, other } = overrides
+  return ((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString()
     if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
+      return Promise.resolve(
+        engines ? engines(init) : Response.json({ contract: CONTRACT, engines: [] }),
+      )
     }
     if (url.endsWith('/openai/v1/models')) {
       return Promise.resolve(
-        new Response(JSON.stringify({ object: 'list', data: rows }), { status: menuStatus }),
+        models
+          ? models(init)
+          : new Response(JSON.stringify({ object: 'list', data: rows }), { status: menuStatus }),
       )
     }
-    return Promise.resolve(Response.json({ choices: [{ message: { content: reply } }] }))
+    return Promise.resolve(
+      other ? other(init) : Response.json({ choices: [{ message: { content: reply } }] }),
+    )
   }) as typeof fetch
+}
+
+function pngHeader(png: Uint8Array): DataView {
+  expect([...png.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+  return new DataView(png.buffer, png.byteOffset, png.byteLength)
+}
+
+function capturingDoor(rows: unknown[], reply = ''): { client: typeof fetch; bodies: string[] } {
+  const bodies: string[] = []
+  const client = fakeDoor(rows, reply, {
+    other: (init) => {
+      bodies.push(String(init?.body ?? ''))
+      return Response.json({ choices: [{ message: { content: reply } }] })
+    },
+  })
+  return { client, bodies }
 }
 
 const VISION_ROW = { id: '@/llama/see', role: 'vision', vision: 'describe', state: 'installed' }
 
 test('the probe sends a real PNG: signature, and IHDR carrying the size it was asked for', () => {
   const png = splitColorPng(64, [220, 20, 20], [20, 20, 220])
-  expect([...png.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
   // IHDR's width and height sit at bytes 16 and 20: 8 signature + 4 length +
   // 4 type. A PNG whose header disagreed with its pixel data would decode to
   // nothing and the whole probe would be testing a decode failure.
-  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+  const view = pngHeader(png)
   expect(view.getUint32(16)).toBe(64)
   expect(view.getUint32(20)).toBe(64)
   expect(new TextDecoder().decode(png.slice(12, 16))).toBe('IHDR')
@@ -55,8 +88,7 @@ test('the verdict needs both halves and their order, not one colour', () => {
 
 test('the read probe draws the digits it will check for, as a real PNG', () => {
   const png = digitsPng('40718352')
-  expect([...png.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
-  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+  const view = pngHeader(png)
   // 8 glyphs of 5 cells plus a gap between each, and 2 cells of margin all
   // round, at 14 image pixels per cell.
   expect(view.getUint32(16)).toBe((8 * 6 - 1 + 4) * 14)
@@ -84,24 +116,13 @@ test('the read verdict wants the digits, not the wrapper a model puts round them
 })
 
 test('a read route is asked to read and a describe route to describe, from the same menu', async () => {
-  const bodies: string[] = []
   const rows = [
     VISION_ROW,
     { id: '@/llama/ocr', role: 'vision', vision: 'read', state: 'installed' },
   ]
-  const client = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    if (url.endsWith('/openai/v1/models')) {
-      return Promise.resolve(Response.json({ object: 'list', data: rows }))
-    }
-    bodies.push(String(init?.body ?? ''))
-    // Neither check's right answer, so the assertion below is about which
-    // question was asked and not about which reply happened to satisfy it.
-    return Promise.resolve(Response.json({ choices: [{ message: { content: '' } }] }))
-  }) as typeof fetch
+  // Neither check's right answer, so the assertion below is about which
+  // question was asked and not about which reply happened to satisfy it.
+  const { client, bodies } = capturingDoor(rows)
 
   await runProbes('http://door', client)
 
@@ -112,18 +133,7 @@ test('a read route is asked to read and a describe route to describe, from the s
 })
 
 test('a route with no vision kind gets the describe check, which is what a vision route usually is', async () => {
-  const bodies: string[] = []
-  const client = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    if (url.endsWith('/openai/v1/models')) {
-      return Promise.resolve(Response.json({ object: 'list', data: [VISION_ROW] }))
-    }
-    bodies.push(String(init?.body ?? ''))
-    return Promise.resolve(Response.json({ choices: [{ message: { content: 'red blue' } }] }))
-  }) as typeof fetch
+  const { client, bodies } = capturingDoor([VISION_ROW], 'red blue')
 
   const report = await runProbes('http://door', client)
   expect(report.ok).toBe(true)
@@ -198,7 +208,7 @@ test('every installed vision address is probed, not just the first', async () =>
 })
 
 test('a door that cannot answer for its own menu fails rather than reporting nothing to prove', async () => {
-  const report = await runProbes('http://door', fakeDoor([], '', 503))
+  const report = await runProbes('http://door', fakeDoor([], '', { menuStatus: 503 }))
   expect(report.ok).toBe(false)
   expect(report.lines[0]?.detail).toContain('503')
 })
@@ -233,18 +243,9 @@ const ENGLISH_ONLY_ROW = {
 
 /** A door answering the rerank verb with `results` in the order given, best first. */
 function fakeRerankDoor(rows: unknown[], order: number[]): typeof fetch {
-  return ((input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    if (url.endsWith('/openai/v1/models')) {
-      return Promise.resolve(Response.json({ object: 'list', data: rows }))
-    }
-    return Promise.resolve(
-      Response.json({ results: order.map((index) => ({ index, relevance_score: 1 })) }),
-    )
-  }) as typeof fetch
+  return fakeDoor(rows, '', {
+    other: () => Response.json({ results: order.map((index) => ({ index, relevance_score: 1 })) }),
+  })
 }
 
 test('the rerank probe passes when the answering document is ranked first', async () => {
@@ -266,17 +267,7 @@ test('the rerank probe fails when an irrelevant document is ranked first', async
 })
 
 test('a reply with no ranked results fails rather than passing on a 200', async () => {
-  const noResults = ((input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    return Promise.resolve(
-      url.endsWith('/openai/v1/models')
-        ? Response.json({ object: 'list', data: [RERANK_ROW] })
-        : Response.json({ results: [] }),
-    )
-  }) as typeof fetch
+  const noResults = fakeDoor([RERANK_ROW], '', { other: () => Response.json({ results: [] }) })
 
   const report = await runProbes('http://door', noResults)
 
@@ -285,17 +276,9 @@ test('a reply with no ranked results fails rather than passing on a 200', async 
 
 /** A door that answers the translations verb with `status`, and the menu with `rows`. */
 function fakeTranslateDoor(rows: unknown[], status: number): typeof fetch {
-  return ((input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    return Promise.resolve(
-      url.endsWith('/openai/v1/models')
-        ? Response.json({ object: 'list', data: rows })
-        : new Response('does not serve /openai/v1/audio/translations', { status }),
-    )
-  }) as typeof fetch
+  return fakeDoor(rows, '', {
+    other: () => new Response('does not serve /openai/v1/audio/translations', { status }),
+  })
 }
 
 test('a transcription route that never declared translate must refuse, and passing is the refusal', async () => {
@@ -329,14 +312,10 @@ test('a route declaring translate is not asked to refuse', async () => {
 // whisper, tts and comfy routes carry none, so a box serving only those used
 // to read as a stale daemon and fail weekly for a defect that was not there.
 test('a door on an older contract fails once, naming the fix', async () => {
-  const old = ((input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    return Promise.resolve(
-      url.endsWith('/engined/v1/engines')
-        ? Response.json({ contract: CONTRACT - 1, engines: [] })
-        : Response.json({ object: 'list', data: [] }),
-    )
-  }) as typeof fetch
+  const old = fakeDoor([], '', {
+    engines: () => Response.json({ contract: CONTRACT - 1, engines: [] }),
+    models: () => Response.json({ object: 'list', data: [] }),
+  })
 
   const report = await runProbes('http://door', old)
 
@@ -398,16 +377,9 @@ const FIM_ROW = {
 
 /** A door answering the completions verb with `text` in the OpenAI legacy shape, whatever it was asked. */
 function fakeCompletionsDoor(rows: unknown[], text: string): typeof fetch {
-  return ((input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
-    }
-    if (url.endsWith('/openai/v1/models')) {
-      return Promise.resolve(Response.json({ object: 'list', data: rows }))
-    }
-    return Promise.resolve(Response.json({ choices: [{ text, finish_reason: 'stop' }] }))
-  }) as typeof fetch
+  return fakeDoor(rows, '', {
+    other: () => Response.json({ choices: [{ text, finish_reason: 'stop' }] }),
+  })
 }
 
 test('the completions probe passes when the reply carries a non-empty completion', async () => {
