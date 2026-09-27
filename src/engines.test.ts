@@ -58,6 +58,43 @@ class RemovalSpy extends DockerLifecycle {
   }
 }
 
+function llamaLikeFailsAtConstruction(routeRow: ReturnType<typeof route>) {
+  const root = newEnginesRoot()
+  writeEngineSpec(root, 'llama-like', PULLED_CONTAINER)
+  return () =>
+    new EngineRegistry(
+      config({
+        engines: [engine({ id: 'llama-like', models_dir: '/data/gguf' })],
+        routes: [routeRow],
+      }),
+      { enginesRoot: root, bunx: BUNX },
+    )
+}
+
+async function startedComfyRunning(reg: EngineRegistry, lifecycle: DockerLifecycle) {
+  const started = await reg.start('comfy')
+  expect(started.state).toBe('running')
+  expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+  return started
+}
+
+async function comfyStillRunningAfter(reg: EngineRegistry, lifecycle: DockerLifecycle, ms: number) {
+  await Bun.sleep(ms)
+  const after = reg.get('comfy')
+  expect(after?.state).toBe('running')
+  expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+}
+
+async function expectWhisperSwitchBusy(
+  reg: EngineRegistry,
+  runLog: string[][],
+  stopLog: string[][],
+) {
+  await expect(reg.start('whisper-like', 'big')).rejects.toThrow(EngineBusyError)
+  expect(runLog).toHaveLength(1)
+  expect(stopLog).toHaveLength(0)
+}
+
 describe('disabled engines', () => {
   test('are reported as disabled and unavailable, are never probed, and refuse to start', async () => {
     const root = newEnginesRoot()
@@ -433,19 +470,10 @@ describe('the kind-dependent filename/role split runs at registry construction, 
   })
 
   test('a llama-shaped route without role still fails, at construction', () => {
-    const root = newEnginesRoot()
-    writeEngineSpec(root, 'llama-like', PULLED_CONTAINER)
     expect(
-      () =>
-        new EngineRegistry(
-          config({
-            engines: [engine({ id: 'llama-like', models_dir: '/data/gguf' })],
-            routes: [
-              route({ engine: 'llama-like', upstream: 'local', model: 'x', filename: 'x.gguf' }),
-            ],
-          }),
-          { enginesRoot: root, bunx: BUNX },
-        ),
+      llamaLikeFailsAtConstruction(
+        route({ engine: 'llama-like', upstream: 'local', model: 'x', filename: 'x.gguf' }),
+      ),
     ).toThrow(RX_MISSING_ROLE)
   })
 
@@ -453,41 +481,25 @@ describe('the kind-dependent filename/role split runs at registry construction, 
   // would read as a promise the door never consults, since translations is not
   // a path that engine serves at all.
   test('a llama-shaped route declaring translate fails at construction', () => {
-    const root = newEnginesRoot()
-    writeEngineSpec(root, 'llama-like', PULLED_CONTAINER)
     expect(
-      () =>
-        new EngineRegistry(
-          config({
-            engines: [engine({ id: 'llama-like', models_dir: '/data/gguf' })],
-            routes: [
-              route({
-                engine: 'llama-like',
-                upstream: 'local',
-                model: 'x',
-                filename: 'x.gguf',
-                role: 'chat',
-                translate: true,
-              }),
-            ],
-          }),
-          { enginesRoot: root, bunx: BUNX },
-        ),
+      llamaLikeFailsAtConstruction(
+        route({
+          engine: 'llama-like',
+          upstream: 'local',
+          model: 'x',
+          filename: 'x.gguf',
+          role: 'chat',
+          translate: true,
+        }),
+      ),
     ).toThrow(RX_FORBIDDEN_TRANSLATE)
   })
 
   test('@/llama/sonnet-5 stays invalid: a filename-less llama route fails at construction', () => {
-    const root = newEnginesRoot()
-    writeEngineSpec(root, 'llama-like', PULLED_CONTAINER)
     expect(
-      () =>
-        new EngineRegistry(
-          config({
-            engines: [engine({ id: 'llama-like', models_dir: '/data/gguf' })],
-            routes: [route({ engine: 'llama-like', upstream: 'local', model: 'sonnet-5' })],
-          }),
-          { enginesRoot: root, bunx: BUNX },
-        ),
+      llamaLikeFailsAtConstruction(
+        route({ engine: 'llama-like', upstream: 'local', model: 'sonnet-5' }),
+      ),
     ).toThrow(RX_MISSING_FILENAME)
   })
 })
@@ -567,9 +579,7 @@ describe('comfy: idle timer driven by /queue polling', () => {
         comfyPollIntervalMs: 15,
       },
       async (reg, lifecycle) => {
-        const started = await reg.start('comfy')
-        expect(started.state).toBe('running')
-        expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+        await startedComfyRunning(reg, lifecycle)
 
         await Bun.sleep(300)
 
@@ -592,11 +602,7 @@ describe('comfy: idle timer driven by /queue polling', () => {
         const started = await reg.start('comfy')
         expect(started.state).toBe('running')
 
-        await Bun.sleep(300)
-
-        const after = reg.get('comfy')
-        expect(after?.state).toBe('running')
-        expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+        await comfyStillRunningAfter(reg, lifecycle, 300)
       },
     )
   })
@@ -866,9 +872,7 @@ describe('comfy: a container that dies underneath engined', () => {
         comfyPollIntervalMs: 15,
       },
       async (reg, lifecycle) => {
-        const started = await reg.start('comfy')
-        expect(started.state).toBe('running')
-        expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+        await startedComfyRunning(reg, lifecycle)
 
         comfyLive.alive = false
         await Bun.sleep(300)
@@ -892,11 +896,7 @@ describe('comfy: a container that dies underneath engined', () => {
       async (reg, lifecycle) => {
         expect((await reg.start('comfy')).state).toBe('running')
 
-        await Bun.sleep(300)
-
-        const after = reg.get('comfy')
-        expect(after?.state).toBe('running')
-        expect(lifecycle.getStatus('comfy').private_url).not.toBeNull()
+        await comfyStillRunningAfter(reg, lifecycle, 300)
       },
     )
   })
@@ -1000,9 +1000,7 @@ describe('model-bearing stt: switching models is a stop-and-restart', () => {
       expect(lifecycle.getStatus('whisper-like').private_url).not.toBeNull()
       lifecycle.beginLease('whisper-like')
 
-      await expect(reg.start('whisper-like', 'big')).rejects.toThrow(EngineBusyError)
-      expect(runLog).toHaveLength(1)
-      expect(stopLog).toHaveLength(0)
+      await expectWhisperSwitchBusy(reg, runLog, stopLog)
     } finally {
       await reg.shutdown()
     }
@@ -1061,9 +1059,7 @@ test('a model switch one microtask after a leased start resolves finds the lease
     const started = await reg.start('whisper-like', 'small', { lease: true })
     expect(started.active_leases).toBe(1)
 
-    await expect(reg.start('whisper-like', 'big')).rejects.toThrow(EngineBusyError)
-    expect(runLog).toHaveLength(1)
-    expect(stopLog).toHaveLength(0)
+    await expectWhisperSwitchBusy(reg, runLog, stopLog)
   } finally {
     await reg.shutdown()
   }
