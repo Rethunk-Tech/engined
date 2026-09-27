@@ -4,10 +4,10 @@
  * and the pipe a streamed answer is handed to its caller through.
  */
 
-import type { DockerLifecycle } from './docker.ts'
 import {
   CONTENT_TYPE,
   discardBody,
+  ENGINE_ERROR_CHARS,
   type HttpClient,
   JSON_CONTENT_TYPE,
   STATUS_BAD_REQUEST,
@@ -84,7 +84,10 @@ export function pipeUpstream(
 
 export interface LlamaUpstreamOptions {
   engineId: string
-  lifecycle: DockerLifecycle
+  lifecycle: {
+    getStatus: (engineId: string) => { private_url: string | null }
+    reconcile: (engineId: string) => Promise<{ state: string }>
+  }
   httpClient: HttpClient
   readyTimeoutS: number
   pollIntervalMs: number
@@ -94,7 +97,7 @@ export interface LlamaUpstreamOptions {
 
 export class LlamaUpstream {
   private readonly engineId: string
-  private readonly lifecycle: DockerLifecycle
+  private readonly lifecycle: LlamaUpstreamOptions['lifecycle']
   private readonly httpClient: HttpClient
   private readonly readyTimeoutS: number
   private readonly pollIntervalMs: number
@@ -132,7 +135,9 @@ export class LlamaUpstream {
       body: JSON.stringify({ model: modelId }),
     })
     if (!res.ok) {
-      throw new Error(`${modelId}: unload failed: ${res.status} ${await res.text()}`)
+      throw new Error(
+        `${modelId}: unload failed: ${res.status} ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
+      )
     }
     await discardBody(res)
   }
@@ -163,16 +168,20 @@ export class LlamaUpstream {
       body: JSON.stringify({ model: modelId }),
     })
     if (triggerRes.status === STATUS_BAD_REQUEST) {
-      const body = (await triggerRes.json()) as { error?: { message?: string } }
-      if (body.error?.message !== 'model is already running') {
-        throw new Error(`${modelId}: load failed: ${body.error?.message ?? '400'}`)
+      const text = await triggerRes.text()
+      const error = parseRecord(text)?.error
+      const message = isRecord(error) && typeof error.message === 'string' ? error.message : text
+      if (message !== 'model is already running') {
+        throw new Error(`${modelId}: load failed: ${message.slice(0, ENGINE_ERROR_CHARS) || '400'}`)
       }
       // Already running by another caller's race -- fall through to confirm
       // real readiness via /v1/models rather than trusting this 400 alone.
     } else if (triggerRes.ok) {
       await discardBody(triggerRes)
     } else {
-      throw new Error(`${modelId}: load failed: ${triggerRes.status} ${await triggerRes.text()}`)
+      throw new Error(
+        `${modelId}: load failed: ${triggerRes.status} ${(await triggerRes.text()).slice(0, ENGINE_ERROR_CHARS)}`,
+      )
     }
     const resident = await pollUntil(
       async () => (await this.modelStatus(modelId)) === 'loaded',
