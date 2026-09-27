@@ -142,6 +142,68 @@ function recordingComfyClient(
   return { client, calls }
 }
 
+function recordingPromptClient(
+  promptId: string,
+  extra: (url: string, init?: RequestInit) => Response | undefined = () => undefined,
+): ReturnType<typeof recordingComfyClient> {
+  return recordingComfyClient((url, init) => {
+    if (isQueueRead(url, init)) {
+      return idleQueue()
+    }
+    if (url.includes('/prompt')) {
+      return Response.json({ prompt_id: promptId })
+    }
+    return extra(url, init) ?? Response.json({})
+  })
+}
+
+async function unreachedUpload(headers: Record<string, string>, body: string) {
+  const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+  const door = await comfyDoor(client)
+  const res = await door.fetch(
+    new Request(`http://engined${PROXY_PATH}/upload/image`, {
+      method: 'POST',
+      headers,
+      body,
+    }),
+  )
+  return { res, calls }
+}
+
+async function refusedCancel(res: Response) {
+  const body = (await res.json()) as { error?: string; cancelled?: string }
+  expect(res.status).toBe(502)
+  expect(body.cancelled).toBeUndefined()
+  expect(body.error).toContain('http 500')
+}
+
+async function expectJobCCancelled(
+  res: Response,
+  cancelled: 'running' | 'pending',
+  calls: { url: string; init?: RequestInit }[],
+  interruptCount: number,
+) {
+  expect(await res.json()).toEqual({ prompt_id: 'job-c', cancelled })
+  expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(interruptCount)
+}
+
+function jobCDuringDeleteClient(onQueueRead: (reads: number) => Response, withInterrupt: boolean) {
+  let reads = 0
+  return recordingComfyClient((url, init) => {
+    if (url.includes('/prompt')) {
+      return Response.json({ prompt_id: 'job-c' })
+    }
+    if (withInterrupt && url.includes('/interrupt')) {
+      return Response.json({})
+    }
+    if (isQueueRead(url, init)) {
+      reads += 1
+      return onQueueRead(reads)
+    }
+    return Response.json({})
+  })
+}
+
 describe('comfy proxy: forwarded as-is', () => {
   test('GET object_info/{nodeType} is forwarded verbatim', async () => {
     const { client, calls } = recordingComfyClient(() =>
@@ -202,28 +264,15 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
   })
 
   test('an oversized upload is 413 before it is forwarded', async () => {
-    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
-    const door = await comfyDoor(client)
-    const res = await door.fetch(
-      new Request(`http://engined${PROXY_PATH}/upload/image`, {
-        method: 'POST',
-        headers: { 'content-length': String(33_554_433) },
-        body: 'x',
-      }),
-    )
+    const { res, calls } = await unreachedUpload({ 'content-length': String(33_554_433) }, 'x')
     expect(res.status).toBe(413)
     expect(calls).toHaveLength(0)
   })
 
   test('a malformed upload body is 400 before it is forwarded', async () => {
-    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
-    const door = await comfyDoor(client)
-    const res = await door.fetch(
-      new Request(`http://engined${PROXY_PATH}/upload/image`, {
-        method: 'POST',
-        headers: { 'content-type': 'multipart/form-data; boundary=----x' },
-        body: 'this is not a multipart body',
-      }),
+    const { res, calls } = await unreachedUpload(
+      { 'content-type': 'multipart/form-data; boundary=----x' },
+      'this is not a multipart body',
     )
     expect(res.status).toBe(400)
     expect(calls).toHaveLength(0)
@@ -248,13 +297,7 @@ describe('comfy proxy: GET /view is mediated', () => {
   })
 
   test('a filename a completed history read actually surfaced is served', async () => {
-    const { client } = recordingComfyClient((url, init) => {
-      if (isQueueRead(url, init)) {
-        return idleQueue()
-      }
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-2' })
-      }
+    const { client } = recordingPromptClient('job-2', (url) => {
       if (url.includes('/history/')) {
         return Response.json({
           'job-2': {
@@ -289,13 +332,7 @@ describe('comfy proxy: GET /view is mediated', () => {
 // a caller read out of a malformed history entry.
 describe('comfy proxy: a history entry only binds what its node table names', () => {
   test('an outputs that is not a node table binds no filename', async () => {
-    const { client, calls } = recordingComfyClient((url, init) => {
-      if (isQueueRead(url, init)) {
-        return idleQueue()
-      }
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-o' })
-      }
+    const { client, calls } = recordingPromptClient('job-o', (url) => {
       if (url.includes('/history/')) {
         return Response.json({ 'job-o': { outputs: [{ images: [{ filename: 'out.png' }] }] } })
       }
@@ -333,13 +370,7 @@ describe('comfy proxy: a filename belongs to the prompt that produced it', () =>
    * prompt's output into a servable filename.
    */
   test('a filename surfaced under prompt A is not viewable by way of prompt B', async () => {
-    const { client } = recordingComfyClient((url, init) => {
-      if (isQueueRead(url, init)) {
-        return idleQueue()
-      }
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-a' })
-      }
+    const { client } = recordingPromptClient('job-a', (url) => {
       if (url.includes('/history/job-a')) {
         return Response.json({
           'job-a': { outputs: { '9': { images: [{ filename: 'a.png' }] } } },
@@ -429,15 +460,7 @@ describe('comfy proxy: control verbs never forwarded', () => {
   })
 
   test('POST /queue delete is refused for a prompt_id this door never bound, and forwarded for one it did', async () => {
-    const { client, calls } = recordingComfyClient((url, init) => {
-      if (isQueueRead(url, init)) {
-        return idleQueue()
-      }
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-3' })
-      }
-      return Response.json({})
-    })
+    const { client, calls } = recordingPromptClient('job-3')
     const door = await comfyDoor(client)
     await door.fetch(
       new Request(`http://engined${PROXY_PATH}/prompt`, { method: 'POST', body: '{}' }),
@@ -677,8 +700,7 @@ describe('comfy proxy: a scoped cancel the door can prove and perform', () => {
     const res = await cancel(await boundDoor(client), 'job-c')
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ prompt_id: 'job-c', cancelled: 'running' })
-    expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(1)
+    await expectJobCCancelled(res, 'running', calls, 1)
   })
 
   test('POST /cancel drops a not-yet-started prompt from the queue instead of interrupting', async () => {
@@ -709,12 +731,7 @@ describe('comfy proxy: a scoped cancel the door refuses', () => {
   // the caller stops waiting for a prompt that is still queued to render.
   test('POST /cancel reports a queue delete comfy refused, never a cancel it did not perform', async () => {
     const { client } = cancellingComfyClient(['someone-elses-job'], ['job-c'], 500)
-    const res = await cancel(await boundDoor(client), 'job-c')
-    const body = (await res.json()) as { error?: string; cancelled?: string }
-
-    expect(res.status).toBe(502)
-    expect(body.cancelled).toBeUndefined()
-    expect(body.error).toContain('http 500')
+    await refusedCancel(await cancel(await boundDoor(client), 'job-c'))
   })
 
   // The running branch is the one holding the GPU: a caller told the render was
@@ -723,11 +740,7 @@ describe('comfy proxy: a scoped cancel the door refuses', () => {
   test('POST /cancel reports an interrupt comfy refused, never a cancel it did not perform', async () => {
     const { client, calls } = cancellingComfyClient(['job-c'], [], 200, 500)
     const res = await cancel(await boundDoor(client), 'job-c')
-    const body = (await res.json()) as { error?: string; cancelled?: string }
-
-    expect(res.status).toBe(502)
-    expect(body.cancelled).toBeUndefined()
-    expect(body.error).toContain('http 500')
+    await refusedCancel(res)
     expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(1)
   })
 
@@ -896,60 +909,31 @@ describe('comfy proxy: one prompt in the container at a time', () => {
 // the delete cannot decide what the caller is told.
 describe('comfy proxy: a cancel reports what the container did, not what was asked', () => {
   test('a pending prompt that started rendering during the delete is interrupted, not reported dropped', async () => {
-    let reads = 0
-    const { client, calls } = recordingComfyClient((url, init) => {
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-c' })
+    const { client, calls } = jobCDuringDeleteClient((reads) => {
+      // 1: the submission's own drain check. 2: the cancel finds it pending.
+      // 3: after the delete, it has started rendering -- the window this
+      // second read exists to see.
+      if (reads === 1) {
+        return idleQueue()
       }
-      if (url.includes('/interrupt')) {
-        return Response.json({})
-      }
-      if (isQueueRead(url, init)) {
-        reads += 1
-        // 1: the submission's own drain check. 2: the cancel finds it pending.
-        // 3: after the delete, it has started rendering -- the window this
-        // second read exists to see.
-        if (reads === 1) {
-          return idleQueue()
-        }
-        return reads === 2
-          ? Response.json({ queue_running: [], queue_pending: [[0, 'job-c']] })
-          : Response.json({ queue_running: [[0, 'job-c']], queue_pending: [] })
-      }
-      return Response.json({})
-    })
-    const door = await comfyDoor(client)
-    await door.fetch(
-      new Request(`http://engined${PROXY_PATH}/prompt`, { method: 'POST', body: '{}' }),
-    )
-
-    const res = await cancel(door, 'job-c')
-    expect(await res.json()).toEqual({ prompt_id: 'job-c', cancelled: 'running' })
-    expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(1)
+      return reads === 2
+        ? Response.json({ queue_running: [], queue_pending: [[0, 'job-c']] })
+        : Response.json({ queue_running: [[0, 'job-c']], queue_pending: [] })
+    }, true)
+    const res = await cancel(await boundDoor(client), 'job-c')
+    await expectJobCCancelled(res, 'running', calls, 1)
   })
 
   test('a pending prompt the delete really removed is still reported pending', async () => {
-    let reads = 0
-    const { client, calls } = recordingComfyClient((url, init) => {
-      if (url.includes('/prompt')) {
-        return Response.json({ prompt_id: 'job-c' })
-      }
-      if (isQueueRead(url, init)) {
-        reads += 1
-        return reads === 2
+    const { client, calls } = jobCDuringDeleteClient(
+      (reads) =>
+        reads === 2
           ? Response.json({ queue_running: [], queue_pending: [[0, 'job-c']] })
-          : idleQueue()
-      }
-      return Response.json({})
-    })
-    const door = await comfyDoor(client)
-    await door.fetch(
-      new Request(`http://engined${PROXY_PATH}/prompt`, { method: 'POST', body: '{}' }),
+          : idleQueue(),
+      false,
     )
-
-    const res = await cancel(door, 'job-c')
-    expect(await res.json()).toEqual({ prompt_id: 'job-c', cancelled: 'pending' })
-    expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(0)
+    const res = await cancel(await boundDoor(client), 'job-c')
+    await expectJobCCancelled(res, 'pending', calls, 0)
   })
 })
 
