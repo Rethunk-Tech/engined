@@ -97,10 +97,10 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
  * recording a caller has reason to transcribe in one request; a longer one
  * belongs in segments, which is what every consumer already sends.
  *
- * A live body declares no length and is never held here, so the same ceiling
- * is the engine wrapper's to enforce as the audio arrives.
+ * A live body is held to this same ceiling via Bun's `maxRequestBodySize`, so
+ * an oversize upload is refused as JSON before parse rather than a non-JSON 413.
  */
-const MAX_AUDIO_UPLOAD_BYTES = 268_435_456
+export const MAX_AUDIO_UPLOAD_BYTES = 268_435_456
 
 /** One wording for the ceiling, so the declared length and what actually arrived cannot drift apart. */
 function tooLarge(bytes: number): Response {

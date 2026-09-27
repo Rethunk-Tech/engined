@@ -10,6 +10,7 @@ import { mkdirSync } from 'node:fs'
 import process from 'node:process'
 import { LAUNCH_NONCE_RE } from './agentic.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
+import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
 import {
   COMFY_WS_SUFFIX,
@@ -400,7 +401,12 @@ export function bindDualFamily(
   //
   // `websocket` mounts the one payload this door ever upgrades: a comfy
   // proxy connection, bridged to the real container in `comfyWebSocketHandlers`.
-  const serveOpts = { fetch, idleTimeout: 0, websocket: comfyWebSocketHandlers } as const
+  const serveOpts = {
+    fetch,
+    idleTimeout: 0,
+    maxRequestBodySize: MAX_AUDIO_UPLOAD_BYTES,
+    websocket: comfyWebSocketHandlers,
+  } as const
   const v4 = Bun.serve<ComfyWsData>({ hostname: '127.0.0.1', port, ...serveOpts })
   const v6 = Bun.serve<ComfyWsData>({ hostname: '::1', port: v4.port, ...serveOpts })
   return { v4, v6 }
