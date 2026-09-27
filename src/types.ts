@@ -831,14 +831,21 @@ export const MS_PER_SECOND = 1000
  * differs at each call site, so it is the caller's to decide.
  *
  * The check runs before the deadline is ever consulted, so a deadline of
- * `Date.now()` is one probe rather than none.
+ * `Date.now()` is one probe rather than none. An `AbortSignal` that is already
+ * aborted, or that aborts between probes, is `false` the same as a deadline —
+ * the caller distinguishes the two, because what to do about a hang-up is not
+ * what to do about time running out.
  */
 export async function pollUntil(
   check: () => Promise<boolean>,
   deadline: number,
   intervalMs: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   for (;;) {
+    if (signal?.aborted === true) {
+      return false
+    }
     if (await check()) {
       return true
     }

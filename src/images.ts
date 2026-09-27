@@ -37,6 +37,7 @@ import {
   isRecord,
   MS_PER_SECOND,
   parseRecord,
+  pollUntil,
   type ResolvedRoute,
 } from './types.ts'
 
@@ -283,26 +284,30 @@ async function collect({
   // Ask before the deadline is ever consulted, the order `pollUntil` documents:
   // the queue drain `submitAll` waits through can outlast this call's whole
   // budget, and a render comfy has already finished is still an answer.
-  for (;;) {
-    if (signal?.aborted === true) {
-      return {
-        status: STATUS_BAD_GATEWAY,
-        error: 'the caller hung up before the render finished',
-      }
+  let names: string[] | undefined
+  const finished = await pollUntil(
+    async () => {
+      const history = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`)
+      names = history.ok ? finishedFilenames(await history.text(), promptId) : undefined
+      return names !== undefined
+    },
+    deadline,
+    HISTORY_POLL_MS,
+    signal,
+  )
+  if (signal?.aborted === true) {
+    return {
+      status: STATUS_BAD_GATEWAY,
+      error: 'the caller hung up before the render finished',
     }
-    const history = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`)
-    const names = history.ok ? finishedFilenames(await history.text(), promptId) : undefined
-    if (names !== undefined) {
-      return fetchImages(base, httpClient, names)
-    }
-    if (Date.now() >= deadline) {
-      return {
-        status: STATUS_BAD_GATEWAY,
-        error: "the render did not finish before this call's deadline",
-      }
-    }
-    await Bun.sleep(HISTORY_POLL_MS)
   }
+  if (!finished || names === undefined) {
+    return {
+      status: STATUS_BAD_GATEWAY,
+      error: "the render did not finish before this call's deadline",
+    }
+  }
+  return fetchImages(base, httpClient, names)
 }
 
 /**
