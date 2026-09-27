@@ -11,7 +11,15 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -397,11 +405,15 @@ function renderOpencodeConfig(upstream: AgentTarget): {
 
 const OPENCODE_TEMP_PREFIX = 'agentic-opencode-'
 
+/** Process start, so a later `AgenticGate` in this process cannot reap in-flight dirs. */
+const PROCESS_STARTED_MS = performance.timeOrigin
+
 /**
  * Per-call opencode config dirs live under `stateDir` as `agentic-opencode-*`.
  * `cleanup` removes the one it created; a process death mid-call does not.
  * Door startup sweeps leftover directories with this prefix, and only this
- * prefix, as direct children of the given root.
+ * prefix, as direct children of the given root, and only when the directory's
+ * mtime is older than this process's start.
  */
 export function sweepOrphanOpencodeDirs(root: string = stateDir()): void {
   let names: string[]
@@ -415,6 +427,15 @@ export function sweepOrphanOpencodeDirs(root: string = stateDir()): void {
       continue
     }
     const path = join(root, name)
+    let mtimeMs: number
+    try {
+      mtimeMs = statSync(path).mtimeMs
+    } catch {
+      continue
+    }
+    if (mtimeMs >= PROCESS_STARTED_MS) {
+      continue
+    }
     if (!isUnder(root, path)) {
       continue
     }

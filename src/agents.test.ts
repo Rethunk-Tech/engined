@@ -4,7 +4,7 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pruneAgentInstallCaches } from './agentCaches.ts'
 import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from './agenticArgs.ts'
@@ -306,14 +306,20 @@ describe('streamed deltas, per agent', () => {
 })
 
 describe('orphan opencode config dirs', () => {
-  it('removes agentic-opencode-* under a temp state dir and leaves every other name', () => {
+  it('removes agentic-opencode-* older than process start and leaves fresh dirs and every other name', () => {
     const root = makeTestRoot('engined-opencode-orphan-')
-    mkdirSync(join(root, 'agentic-opencode-leak'), { recursive: true })
-    writeFileSync(join(root, 'agentic-opencode-leak', 'config.json'), '{}')
+    const leak = join(root, 'agentic-opencode-leak')
+    const fresh = join(root, 'agentic-opencode-fresh')
+    mkdirSync(leak, { recursive: true })
+    writeFileSync(join(leak, 'config.json'), '{}')
+    mkdirSync(fresh, { recursive: true })
     writeFileSync(join(root, 'agentic-opencode.json'), '{}')
     mkdirSync(join(root, 'agentic-home'), { recursive: true })
+    const pastSec = (performance.timeOrigin - 5_000) / 1000
+    utimesSync(leak, pastSec, pastSec)
     sweepOrphanOpencodeDirs(root)
-    expect(existsSync(join(root, 'agentic-opencode-leak'))).toBe(false)
+    expect(existsSync(leak)).toBe(false)
+    expect(existsSync(fresh)).toBe(true)
     expect(existsSync(join(root, 'agentic-opencode.json'))).toBe(true)
     expect(existsSync(join(root, 'agentic-home'))).toBe(true)
   })
