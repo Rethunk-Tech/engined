@@ -67,6 +67,21 @@ test('resolveUpstream projects the secret into exactly the header config named',
   expect(resolution.endpoint.base_url).toBe('https://api.elevenlabs.io/v1')
 })
 
+test('resolveUpstream sends configured extra headers on the remote hop', async () => {
+  const resolution = await resolveUpstream(
+    elevenlabsUpstream({ headers: { 'anthropic-version': '2023-06-01' } }),
+    foundSecret,
+  )
+  expect(resolution.ok).toBe(true)
+  if (!resolution.ok) {
+    return
+  }
+  expect(resolution.endpoint.headers).toEqual({
+    'anthropic-version': '2023-06-01',
+    'xi-api-key': SECRET_VALUE,
+  })
+})
+
 test('a secret naming a scheme sends it as a prefix, with exactly one space', async () => {
   const resolution = await resolveUpstream(
     elevenlabsUpstream({

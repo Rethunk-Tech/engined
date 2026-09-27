@@ -53,6 +53,7 @@ export const UPSTREAM_KEYS = new Set([
   'disable',
   'inventory_max_age_seconds',
   'inventory_refresh_seconds',
+  'headers',
 ])
 /** Re-fetch interval when an upstream omits `inventory_refresh_seconds`. */
 export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600

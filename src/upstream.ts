@@ -101,6 +101,7 @@ export async function resolveUpstream(
     endpoint: {
       base_url: upstream.base_url,
       headers: {
+        ...upstream.headers,
         [resolved.header]:
           resolved.scheme === undefined ? resolved.value : `${resolved.scheme} ${resolved.value}`,
       },

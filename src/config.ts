@@ -195,7 +195,40 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
     disabled: parseDisable(raw, site, file),
     inventory_max_age_seconds: inventoryMaxAge,
     inventory_refresh_seconds: inventoryRefresh,
+    headers: parseUpstreamHeaders(raw.headers, site, file, secret?.header),
   }
+}
+
+function parseUpstreamHeaders(
+  v: unknown,
+  site: string,
+  file: string,
+  secretHeader: string | undefined,
+): Record<string, string> | undefined {
+  if (v === undefined) {
+    return
+  }
+  if (!isRecord(v)) {
+    throw new ParseError(`${site} "headers" must be a table`, file)
+  }
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(v)) {
+    if (typeof value !== 'string') {
+      throw new ParseError(`${site} "headers" key "${key}" must be a string`, file)
+    }
+    const lower = key.toLowerCase()
+    if (lower === 'host') {
+      throw new ParseError(`${site} "headers" must not set "Host"`, file)
+    }
+    if (secretHeader !== undefined && lower === secretHeader.toLowerCase()) {
+      throw new ParseError(
+        `${site} "headers" must not set "${key}": that header is set from "secret"`,
+        file,
+      )
+    }
+    out[key] = value
+  }
+  return out
 }
 
 function parseModel(value: unknown, index: number, file: string): ModelEntry {

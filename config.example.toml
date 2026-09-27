@@ -64,6 +64,10 @@ base_url = "https://api.kimi.com/coding/"
 secret = { service = "moonshot-api", username = "kimi-k2.7-code", header = "x-api-key" }
 egress = "remote"
 wire = "anthropic"
+# Extra headers on every remote hop. `Host` and the header `secret` names
+# are refused at parse — they would override what engined sets.
+# [upstream.headers]
+# anthropic-version = "2023-06-01"
 
 #   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 [[upstream]]

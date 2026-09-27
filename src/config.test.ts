@@ -1696,6 +1696,35 @@ model = "*"
     ).toThrow(RX_UNRECOGNISED_INVENTORY_KEY)
   })
 
+  test('upstream headers Host is refused at parse, case-insensitively', () => {
+    expect(() =>
+      loadConfig(writeConfig(remoteCatalog({ extraUpstream: 'headers = { Host = "evil" }' }))),
+    ).toThrow(/"headers" must not set "Host"/)
+  })
+
+  test('upstream headers that name the secret header are refused at parse', () => {
+    const toml = `
+[[upstream]]
+id = "remote"
+base_url = "https://api.example.com/v1"
+secret = { service = "svc", username = "u", header = "authorization" }
+egress = "remote"
+headers = { Authorization = "nope" }
+
+[[engine]]
+id = "proxy"
+kind = "openai-http"
+
+[[route]]
+engine = "proxy"
+upstream = "remote"
+model = "m"
+`
+    expect(() => loadConfig(writeConfig(toml))).toThrow(
+      /"headers" must not set "Authorization": that header is set from "secret"/,
+    )
+  })
+
   const ForbiddenOnWildcard: [string, string][] = [
     ['filename', 'filename = "x.gguf"'],
     ['role', 'role = "chat"'],

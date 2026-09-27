@@ -325,6 +325,11 @@ export interface Upstream {
    * less than max age when both are set.
    */
   inventory_refresh_seconds?: number
+  /**
+   * Extra headers sent on every remote hop. Keys that would override the auth
+   * header `secret` names, and `Host`, are refused at parse (case-insensitive).
+   */
+  headers?: Record<string, string>
 }
 
 /**
