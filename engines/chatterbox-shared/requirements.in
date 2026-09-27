@@ -13,7 +13,9 @@ librosa
 s3tokenizer
 transformers
 diffusers
-resemble-perth
+# Perth's last release (1.0.1) imports pkg_resources, which setuptools 82 removed;
+# master reads its weights from the package directory instead.
+resemble-perth @ git+https://github.com/resemble-ai/Perth.git@ff1c8ac55a976971245cdd53c18d6131ca00d993
 conformer
 safetensors
 spacy-pkuseg
@@ -24,7 +26,3 @@ omegaconf
 fastapi
 uvicorn[standard]
 soundfile
-
-# resemble-perth's watermarker imports pkg_resources, which setuptools 82 removed;
-# without it perth.PerthImplicitWatermarker is None and every model load fails.
-setuptools<82

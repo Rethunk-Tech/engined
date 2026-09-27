@@ -98,7 +98,9 @@ joblib==1.6.0
 lazy-loader==0.6
     # via librosa
 librosa==1.0.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   resemble-perth
 llvmlite==0.49.0
     # via numba
 markdown-it-py==4.2.0
@@ -130,6 +132,7 @@ numpy==2.5.3
     #   numba
     #   onnx
     #   pyloudnorm
+    #   resemble-perth
     #   s3tokenizer
     #   scikit-learn
     #   scipy
@@ -168,6 +171,8 @@ pydantic==2.13.5
     # via fastapi
 pydantic-core==2.46.5
     # via pydantic
+pydub==0.25.1
+    # via resemble-perth
 pygments==2.21.0
     # via rich
 pykakasi==2.3.0
@@ -183,6 +188,7 @@ pyyaml==6.0.3
     #   huggingface-hub
     #   omegaconf
     #   pre-commit
+    #   resemble-perth
     #   transformers
     #   uvicorn
 regex==2026.9.10
@@ -193,7 +199,7 @@ requests==2.34.2
     # via
     #   diffusers
     #   pooch
-resemble-perth==1.0.1
+resemble-perth @ git+https://github.com/resemble-ai/Perth.git@ff1c8ac55a976971245cdd53c18d6131ca00d993
     # via -r requirements.in
 rich==15.0.0
     # via typer
@@ -211,17 +217,15 @@ scipy==1.18.1
     #   librosa
     #   pyloudnorm
     #   scikit-learn
-setuptools==81.0.0
-    # via
-    #   -c .repo-ops-holds.txt
-    #   -r requirements.in
-    #   torch
+setuptools==84.0.0
+    # via torch
 shellingham==1.5.4
     # via typer
 soundfile==0.14.0
     # via
     #   -r requirements.in
     #   librosa
+    #   resemble-perth
 soxr==1.1.0
     # via librosa
 spacy-pkuseg==1.0.1
@@ -240,11 +244,13 @@ torch==2.14.0+rocm7.2
     # via
     #   -r requirements.in
     #   conformer
+    #   resemble-perth
     #   s3tokenizer
     #   torchvision
 torchaudio==2.11.0+rocm7.2
     # via
     #   -r requirements.in
+    #   resemble-perth
     #   s3tokenizer
 torchvision==0.29.0+rocm7.2
     # via -r requirements.in
