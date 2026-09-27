@@ -4,6 +4,7 @@
  * prompt this door bound, and the websocket upgrade its progress stream needs.
  */
 
+import { proxyComfyCancel, proxyComfyQueueDelete } from './comfyCancel.ts'
 import {
   COMFY_LOCAL_ORIGIN,
   COMFY_WS_SUFFIX,
@@ -14,10 +15,8 @@ import {
   forwardComfyGet,
   HTTP_SCHEME_RE,
   noSuchComfyEngine,
-  proxyComfyCancel,
   proxyComfyHistory,
   proxyComfyPrompt,
-  proxyComfyQueueDelete,
   proxyComfyUpload,
   proxyComfyView,
   resolveComfyTarget,
