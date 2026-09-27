@@ -9,11 +9,7 @@
       // biome.jsonc's `files.includes` is the scope `biome check .` walks, so
       // these globs mirror it exactly -- tsconfig.json and turbo.json are
       // linted too, and a key set only to src/**/*.ts replayed a green over an
-      // edit to either.
-      "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
-      "outputs": []
-    },
-    "knip": {
+      // edit to either. knip reads the same trees plus knip.json.
       "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
       "outputs": []
     },

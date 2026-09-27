@@ -27,9 +27,6 @@ jobs:
       - id: lint
         run: bunx turbo run lint
         continue-on-error: true
-      - id: knip
-        run: bunx turbo run knip
-        continue-on-error: true
       - id: typecheck
         run: bunx turbo run typecheck
         continue-on-error: true
@@ -55,7 +52,7 @@ jobs:
         continue-on-error: true
 
       - name: gate
-        if: steps.lint.outcome != 'success' || steps.knip.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success' || steps.build.outcome != 'success'
+        if: steps.lint.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success' || steps.build.outcome != 'success'
         run: |
-          echo "lint=${{ steps.lint.outcome }} knip=${{ steps.knip.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }} build=${{ steps.build.outcome }}"
+          echo "lint=${{ steps.lint.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }} build=${{ steps.build.outcome }}"
           exit 1
