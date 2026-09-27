@@ -5,14 +5,14 @@
  */
 
 import { existsSync } from 'node:fs'
-import { sep as pathSep, resolve as resolvePath } from 'node:path'
+import { resolve as resolvePath } from 'node:path'
 
 import { parseHop } from './chain.ts'
 import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
 import type { SpecFacts } from './configRoutes.ts'
 import { ParseError } from './errors/parse.ts'
-import { localRoutesOf } from './localRoutes.ts'
-import { qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
+import { isUnder } from './paths.ts'
+import { localRoutesOf, qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import type { EngineEntry, ResolvedRoute, Upstream } from './types.ts'
 
 /** The one rule that keeps a two-segment address single-valued: an engine is modelless routes or model-bearing ones, never both. */
@@ -50,7 +50,7 @@ export function validateFilenameUnderModelsDir(
     const dir = resolvePath(engine.models_dir)
     const target = resolvePath(dir, r.filename)
     const label = `route on engine "${engine.id}" model "${r.model ?? ''}"`
-    if (target !== dir && !target.startsWith(dir + pathSep)) {
+    if (!isUnder(dir, target)) {
       throw new ParseError(`${label} "filename" is not under engine's "models_dir"`, file)
     }
     if (!existsSync(target)) {

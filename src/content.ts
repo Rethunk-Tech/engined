@@ -18,6 +18,7 @@ import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
   jsonError,
+  readJsonBody,
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -29,8 +30,7 @@ import { handleImageGeneration } from './images.ts'
 import { hopForwardsTools } from './modelsMenu.ts'
 import { type Attempt, recordCall } from './provenance.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
-import { readJsonBody } from './requestBody.ts'
-import { LOCAL_UPSTREAM } from './routeAddress.ts'
+import { localRoutesOf } from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
@@ -171,13 +171,8 @@ const EXTRAS_ROLE = 'chat'
  * among local chat routes on this engine.
  */
 function extrasChatRoute(config: Config, engineId: string): ResolvedRoute | undefined {
-  const locals = config.routes.filter(
-    (r) =>
-      r.disabled !== true &&
-      r.engine === engineId &&
-      r.role === EXTRAS_ROLE &&
-      r.upstream === LOCAL_UPSTREAM &&
-      r.model !== undefined,
+  const locals = localRoutesOf(config.routes, engineId).filter(
+    (r) => r.disabled !== true && r.role === EXTRAS_ROLE && r.model !== undefined,
   )
   return locals.find((r) => r.keep_resident === true) ?? locals[0]
 }

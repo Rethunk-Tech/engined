@@ -10,9 +10,8 @@ import { buildComfySpec } from './comfy.ts'
 import { FatalError } from './errors/fatal.ts'
 import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
-import { localRoutesOf } from './localRoutes.ts'
 import type { EngineStatus } from './responses.ts'
-import { LOCAL_UPSTREAM, WILDCARD_MODEL } from './routeAddress.ts'
+import { LOCAL_UPSTREAM, localRoutesOf, WILDCARD_MODEL } from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_EMBEDDINGS,
@@ -178,13 +177,8 @@ function checkLocalFileDisposition(
   routes: readonly ResolvedRoute[],
 ): void {
   const rules = KIND_TRAITS[kind].localFile
-  for (const r of routes) {
-    if (
-      r.engine !== engine.id ||
-      r.model === undefined ||
-      r.upstream !== LOCAL_UPSTREAM ||
-      engine.models_dir === undefined
-    ) {
+  for (const r of localRoutesOf(routes, engine.id)) {
+    if (r.model === undefined || engine.models_dir === undefined) {
       continue
     }
     const site = `route on engine "${engine.id}" model "${r.model}"`

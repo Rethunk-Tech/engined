@@ -2,10 +2,18 @@
  * `[[route]] model` sentinel that expands from a remote provider catalog.
  * It is never a served address: `@/engine/*` is a 400, not a dispatchable id.
  */
+
+import type { ResolvedRoute } from './types.ts'
+
 export const WILDCARD_MODEL = '*'
 
 /** Reserved id of THIS box's own upstream — the one `config` refuses to let an operator name a remote. */
 export const LOCAL_UPSTREAM = 'local'
+
+/** This engine's routes that resolve to THIS box's own upstream. */
+export function localRoutesOf(routes: readonly ResolvedRoute[], engineId: string): ResolvedRoute[] {
+  return routes.filter((r) => r.engine === engineId && r.upstream === LOCAL_UPSTREAM)
+}
 
 /**
  * The qualified address form an operator or caller writes: `@/model` (one

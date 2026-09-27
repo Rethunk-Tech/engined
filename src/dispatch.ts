@@ -4,6 +4,7 @@
  * without `Bun.serve` or docker.
  */
 
+import { chainHopRoutes } from './chain.ts'
 import { groupCursorModels, resolveCursorVariant } from './cursorModels.ts'
 import type { EngineRegistry } from './engines.ts'
 import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
@@ -142,15 +143,15 @@ function resolveTwoSegments(engineSeg: string, seg: string, ctx: ResolveCtx): Mo
       return withEndpointCheck(cursorRoute, ctx)
     }
   }
-  const modelless = engineRoutes.some((r) => r.model === undefined)
+  const { candidates, modelless } = chainHopRoutes(engineRoutes, `@/${engineSeg}/${seg}`)
   if (modelless) {
-    const route = engineRoutes.find((r) => !r.disabled && r.upstream === seg)
+    const route = candidates.find((r) => !r.disabled)
     if (!route) {
       return fail(`"@/${engineSeg}/${seg}": no route on "${engineSeg}" with upstream "${seg}"`)
     }
     return withEndpointCheck(route, ctx)
   }
-  const matches = engineRoutes.filter((r) => !r.disabled && r.model === seg)
+  const matches = candidates.filter((r) => !r.disabled)
   if (matches.length === 0) {
     const invented = resolveServedRoute({
       config: ctx.config,
