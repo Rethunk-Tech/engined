@@ -16,7 +16,10 @@ import { localRoutesOf, qualifiedSegments, routeForHop, WILDCARD_MODEL } from '.
 import type { EngineEntry, ResolvedRoute, Upstream } from './types.ts'
 
 /** The one rule that keeps a two-segment address single-valued: an engine is modelless routes or model-bearing ones, never both. */
-export function checkModellessMixing(routes: readonly ResolvedRoute[], file: string): void {
+export function checkModellessMixing(
+  routes: readonly ResolvedRoute[],
+  fileFor: (r: ResolvedRoute) => string,
+): void {
   const seen = new Map<string, boolean>()
   for (const r of routes) {
     const modelless = r.model === undefined
@@ -28,7 +31,7 @@ export function checkModellessMixing(routes: readonly ResolvedRoute[], file: str
     if (prior !== modelless) {
       throw new ParseError(
         `engine "${r.engine}" carries both a modelless route and a model-bearing route; an engine must be one or the other`,
-        file,
+        fileFor(r),
       )
     }
   }
@@ -37,7 +40,7 @@ export function checkModellessMixing(routes: readonly ResolvedRoute[], file: str
 export function validateFilenameUnderModelsDir(
   routes: readonly ResolvedRoute[],
   engines: Map<string, EngineEntry>,
-  file: string,
+  fileFor: (r: ResolvedRoute) => string,
 ): void {
   for (const r of routes) {
     if (r.filename === undefined) {
@@ -51,10 +54,10 @@ export function validateFilenameUnderModelsDir(
     const target = resolvePath(dir, r.filename)
     const label = `route on engine "${engine.id}" model "${r.model ?? ''}"`
     if (!isUnder(dir, target)) {
-      throw new ParseError(`${label} "filename" is not under engine's "models_dir"`, file)
+      throw new ParseError(`${label} "filename" is not under engine's "models_dir"`, fileFor(r))
     }
     if (!existsSync(target)) {
-      throw new ParseError(`${label} "filename" does not exist at "${target}"`, file)
+      throw new ParseError(`${label} "filename" does not exist at "${target}"`, fileFor(r))
     }
   }
 }
@@ -74,7 +77,7 @@ export function validateFilenameUnderModelsDir(
 export function validateKeepResident(
   engines: readonly EngineEntry[],
   routes: readonly ResolvedRoute[],
-  file: string,
+  fileFor: (id: string) => string,
 ): void {
   for (const e of engines) {
     const pinned = localRoutesOf(routes, e.id).filter((r) => r.keep_resident === true)
@@ -83,7 +86,7 @@ export function validateKeepResident(
       if (r.role === undefined) {
         throw new ParseError(
           `route on engine "${e.id}" model "${r.model ?? ''}" declares "keep_resident" but has no "role": nothing holds it resident`,
-          file,
+          fileFor(e.id),
         )
       }
       byRole.set(r.role, [...(byRole.get(r.role) ?? []), r.model ?? e.id])
@@ -92,7 +95,7 @@ export function validateKeepResident(
       if (ids.length > 1) {
         throw new ParseError(
           `engine "${e.id}" role "${role}" has ${ids.length} routes declaring "keep_resident" (${ids.join(', ')}): only one model per role can be resident`,
-          file,
+          fileFor(e.id),
         )
       }
     }
@@ -102,7 +105,7 @@ export function validateKeepResident(
 export function validateModelsMax(
   engines: readonly EngineEntry[],
   routes: readonly ResolvedRoute[],
-  file: string,
+  fileFor: (id: string) => string,
 ): void {
   for (const e of engines) {
     if (e.models_max === undefined) {
@@ -116,7 +119,7 @@ export function validateModelsMax(
     if (e.models_max < roles.size) {
       throw new ParseError(
         `engine "${e.id}" "models_max" ${e.models_max} is below its ${roles.size} distinct configured roles`,
-        file,
+        fileFor(e.id),
       )
     }
   }
@@ -148,13 +151,15 @@ export function validateWildcardRoutes({
   engines,
   upstreams,
   traitFor,
-  file,
+  fileForRoute,
+  fileForUpstream,
 }: {
   routes: readonly ResolvedRoute[]
   engines: Map<string, EngineEntry>
   upstreams: Map<string, Upstream>
   traitFor: (engine: EngineEntry) => SpecFacts
-  file: string
+  fileForRoute: (r: ResolvedRoute) => string
+  fileForUpstream: (id: string) => string
 }): void {
   const named = new Set<string>()
   for (const r of routes) {
@@ -167,11 +172,11 @@ export function validateWildcardRoutes({
     if (engine.models_dir !== undefined || kind !== 'openai-http') {
       throw new ParseError(
         `${site} is a wildcard and only a remote openai-http engine may carry one`,
-        file,
+        fileForRoute(r),
       )
     }
     if (r.upstream === null) {
-      throw new ParseError(`${site} is a wildcard and must name an upstream`, file)
+      throw new ParseError(`${site} is a wildcard and must name an upstream`, fileForRoute(r))
     }
     named.add(r.upstream)
   }
@@ -180,14 +185,14 @@ export function validateWildcardRoutes({
     if (u?.inventory_max_age_seconds === undefined) {
       throw new ParseError(
         `upstream "${id}" is named by a wildcard route and is missing required "inventory_max_age_seconds"`,
-        file,
+        fileForUpstream(id),
       )
     }
     const refresh = u.inventory_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS
     if (refresh >= u.inventory_max_age_seconds) {
       throw new ParseError(
         `upstream "${id}" "inventory_refresh_seconds" must be less than "inventory_max_age_seconds"`,
-        file,
+        fileForUpstream(id),
       )
     }
   }
@@ -200,7 +205,10 @@ export function validateWildcardRoutes({
  * enabled `role = "vision"` route -- the one shape `src/visionBridge.ts` can
  * actually dispatch to.
  */
-export function validateVisionBridgeRoutes(routes: readonly ResolvedRoute[], file: string): void {
+export function validateVisionBridgeRoutes(
+  routes: readonly ResolvedRoute[],
+  fileFor: (r: ResolvedRoute) => string,
+): void {
   for (const r of routes) {
     if (r.vision_bridge === undefined) {
       continue
@@ -210,7 +218,7 @@ export function validateVisionBridgeRoutes(routes: readonly ResolvedRoute[], fil
     if (segs === undefined || segs.length === 1) {
       throw new ParseError(
         `${label}: "vision_bridge" "${r.vision_bridge}" is not a fully-qualified "@/<engine>/<model>" address`,
-        file,
+        fileFor(r),
       )
     }
     const { engine, model, upstream } = parseHop(r.vision_bridge)
@@ -218,13 +226,13 @@ export function validateVisionBridgeRoutes(routes: readonly ResolvedRoute[], fil
     if (target === undefined || target.disabled === true) {
       throw new ParseError(
         `${label}: "vision_bridge" "${r.vision_bridge}" does not resolve to a served route`,
-        file,
+        fileFor(r),
       )
     }
     if (target.role !== 'vision') {
       throw new ParseError(
         `${label}: "vision_bridge" "${r.vision_bridge}" does not resolve to a role = "vision" route`,
-        file,
+        fileFor(r),
       )
     }
   }

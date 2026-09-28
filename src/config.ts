@@ -442,12 +442,8 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   checkCollisions(models, modelFiles, 'model')
   const modelMap = new Map(models.map((m) => [m.id, m]))
 
-  const routeFiles: string[] = []
-  const rawRoutes = sources.flatMap(({ file: srcFile, raw }) =>
-    asArray(raw.route, 'route', srcFile).map((r, i) => {
-      routeFiles.push(srcFile)
-      return parseRouteRaw(r, i, srcFile, engineMap)
-    }),
+  const { items: rawRoutes, files: routeFiles } = collectEntries(sources, 'route', (v, i, f) =>
+    parseRouteRaw(v, i, f, engineMap),
   )
 
   const traitFor = cachedTraitFor(root)
@@ -463,12 +459,35 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     }),
   )
 
-  checkModellessMixing(routes, file)
-  validateWildcardRoutes({ routes, engines: engineMap, upstreams: upstreamMap, traitFor, file })
-  validateFilenameUnderModelsDir(routes, engineMap, file)
-  validateKeepResident(engines, routes, file)
-  validateModelsMax(engines, routes, file)
-  validateVisionBridgeRoutes(routes, file)
+  // Each check names the file the offending entry actually came from, so a
+  // bad route or engine in a config.d fragment is reported against that
+  // fragment rather than the main file.
+  const routeFileOf = new Map<ResolvedRoute, string>(
+    routes.map((r, i) => [r, routeFiles[i] as string]),
+  )
+  const engineFileOf = new Map<string, string>(
+    engines.map((e, i) => [e.id, engineFiles[i] as string]),
+  )
+  const upstreamFileOf = new Map<string, string>(
+    upstreams.map((u, i) => [u.id, upstreamFiles[i] as string]),
+  )
+  const fileForRoute = (r: ResolvedRoute) => routeFileOf.get(r) ?? file
+  const fileForEngine = (id: string) => engineFileOf.get(id) ?? file
+  const fileForUpstream = (id: string) => upstreamFileOf.get(id) ?? file
+
+  checkModellessMixing(routes, fileForRoute)
+  validateWildcardRoutes({
+    routes,
+    engines: engineMap,
+    upstreams: upstreamMap,
+    traitFor,
+    fileForRoute,
+    fileForUpstream,
+  })
+  validateFilenameUnderModelsDir(routes, engineMap, fileForRoute)
+  validateKeepResident(engines, routes, fileForEngine)
+  validateModelsMax(engines, routes, fileForEngine)
+  validateVisionBridgeRoutes(routes, fileForRoute)
 
   const { items: rawChains, files: chainFiles } = collectEntries(sources, 'chain', parseChainRaw)
   checkCollisions(rawChains, chainFiles, 'chain')

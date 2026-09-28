@@ -1975,4 +1975,37 @@ kind = "agentic-cli"
     expect(message).toContain(join(dirname(path), 'config.d', 'dup.toml'))
     expect(message).toContain(path)
   })
+
+  test('a fragment route with a filename missing under models_dir names the fragment file', () => {
+    const dir = tempModelsDir()
+    const path = writeConfig(`
+[[upstream]]
+id = "local"
+egress = "none"
+
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${dir}"
+`)
+    writeConfigD(path, {
+      'route.toml': `
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "ornith"
+filename = "missing.gguf"
+role = "chat"
+`,
+    })
+    let message = ''
+    try {
+      loadConfig(path)
+      throw new Error('expected loadConfig to throw')
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toContain(join(dirname(path), 'config.d', 'route.toml'))
+    expect(message).toMatch(/filename" does not exist at/)
+  })
 })
