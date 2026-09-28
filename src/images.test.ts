@@ -635,3 +635,53 @@ describe('the shipped comfy graphs', () => {
     }
   })
 })
+
+describe('response_format url', () => {
+  test('generations answers with a Host-based URL whose GET is the rendered bytes', async () => {
+    const door = await imagesDoor(rendersInstantly())
+    const res = await door.fetch(
+      new Request('http://127.0.0.1:29200/openai/v1/images/generations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', host: '127.0.0.1:29200' },
+        body: JSON.stringify({
+          model: '@/comfy/local',
+          prompt: 'a red cube',
+          response_format: 'url',
+        }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: { url?: string; b64_json?: string }[] }
+    const url = body.data[0]?.url
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:29200\/engined\/v1\/images\/[0-9a-f]{32}\.png$/)
+    expect(body.data[0]?.b64_json).toBeUndefined()
+    const got = await door.fetch(
+      new Request(url as string, { headers: { host: '127.0.0.1:29200' } }),
+    )
+    expect(got.status).toBe(200)
+    expect(got.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await got.arrayBuffer())).toEqual(Buffer.from(PIXEL))
+  })
+
+  test('edits honour response_format url the same way', async () => {
+    const door = await imagesDoor(rendersInstantly())
+    const res = await edit(door, { response_format: 'url' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: { url?: string }[] }
+    expect(body.data[0]?.url).toMatch(/^http:\/\/engined\/engined\/v1\/images\/[0-9a-f]{32}\.png$/)
+    const got = await door.fetch(new Request(body.data[0]?.url as string))
+    expect(got.status).toBe(200)
+    expect(Buffer.from(await got.arrayBuffer())).toEqual(Buffer.from(PIXEL))
+  })
+
+  test('an unknown response_format is a 400 rather than silent b64', async () => {
+    const door = await imagesDoor(rendersInstantly())
+    const res = await generate(door, {
+      model: '@/comfy/local',
+      prompt: 'a red cube',
+      response_format: 'b64',
+    })
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('response_format')
+  })
+})

@@ -16,15 +16,8 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
 } from './http.ts'
-import {
-  commonValues,
-  imageRoute,
-  MAX_N,
-  type Refusal,
-  renderWith,
-  SEED_MAX,
-  workflowPathFor,
-} from './images.ts'
+import { parseImageResponseFormat, type Refusal } from './imageStore.ts'
+import { commonValues, imageRoute, MAX_N, renderWith, SEED_MAX, workflowPathFor } from './images.ts'
 import { parseRecord } from './records.ts'
 import { CONTENT_ENDPOINT_IMAGE_EDITS } from './routeServes.ts'
 
@@ -197,11 +190,17 @@ export async function handleImageEdit(
   if (path instanceof Response) {
     return path
   }
+  const format = parseImageResponseFormat(form.get('response_format'))
+  if (format instanceof Response) {
+    return format
+  }
   return await renderWith(ctx, {
     route: target.route,
     rawModel: typeof rawModel === 'string' ? rawModel : undefined,
     workflowPath: path,
     n: request.n,
+    format,
+    request: req,
     plan: async (base, httpClient) => {
       const image = await uploadInputImage(base, httpClient, request.image)
       if (typeof image !== 'string') {

@@ -261,7 +261,7 @@ export async function handleContent(
   if (pathname === CONTENT_ENDPOINT_IMAGES) {
     // The signal ends a render nobody is waiting for: a diffusion job holds the
     // GPU, and this door runs one at a time.
-    return handleImageGeneration(ctx, body, req.signal)
+    return handleImageGeneration(ctx, body, req)
   }
   if (pathname === CONTENT_ENDPOINT_COMPLETIONS) {
     return handleCompletions(ctx, body, req.signal)

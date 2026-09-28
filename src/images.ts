@@ -17,13 +17,12 @@ import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 
 import { readFileSync } from 'node:fs'
 import { classifyResult } from './chain.ts'
-import { comfyHistoryEntry, comfyPromptId, filenamesIn, submitComfyPrompt } from './comfyProxy.ts'
+import { comfyPromptId, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { HeldError } from './errors/held.ts'
 import {
-  discardBody,
   ENGINE_ERROR_CHARS,
   type HttpClient,
   jsonError,
@@ -33,14 +32,19 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from './http.ts'
+import {
+  collectRenderedImages,
+  type ImageResponseFormat,
+  parseImageResponseFormat,
+  type Refusal,
+  type RenderedImage,
+  replyImageData,
+} from './imageStore.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
-import { errMessage, isRecord, MS_PER_SECOND, pollUntil } from './records.ts'
+import { errMessage, isRecord, MS_PER_SECOND } from './records.ts'
 import { CONTENT_ENDPOINT_IMAGES } from './routeServes.ts'
 import { isContainerSpec } from './specTypes.ts'
 import type { ResolvedRoute } from './types.ts'
-
-/** How often the door asks whether the render has finished. A diffusion step is hundreds of milliseconds, so a tighter poll only costs round trips. */
-const HISTORY_POLL_MS = 400
 
 /** Defaults for everything the OpenAI request does not carry, and the graph still needs. */
 const DEFAULT_SIZE = '1024x1024'
@@ -92,17 +96,6 @@ export function fillWorkflow(node: unknown, values: Record<string, unknown>): un
     )
   }
   return node
-}
-
-/**
- * A refusal on its way out: the status and the words a `jsonError` will carry,
- * kept as data because provenance needs those words and a Response body reads
- * exactly once -- classifying by re-reading it would hand the caller a drained
- * body.
- */
-export interface Refusal {
-  status: number
-  error: string
 }
 
 interface ImageRequest {
@@ -231,76 +224,6 @@ async function submitAll({
   return ids
 }
 
-/** Every output filename comfy recorded for `promptId`, once it has finished. `undefined` while it is still running. */
-function finishedFilenames(text: string, promptId: string): string[] | undefined {
-  const names = filenamesIn(comfyHistoryEntry(text, promptId))
-  return names.length > 0 ? names : undefined
-}
-
-/** Every output comfy recorded, base64 -- or the refusal for the first one it will not hand back. */
-async function fetchImages(
-  base: string,
-  httpClient: HttpClient,
-  names: string[],
-): Promise<string[] | Refusal> {
-  const images: string[] = []
-  for (const filename of names) {
-    const view = await httpClient(`${base}/view?filename=${encodeURIComponent(filename)}`)
-    if (!view.ok) {
-      await discardBody(view)
-      return {
-        status: STATUS_BAD_GATEWAY,
-        error: `comfy produced "${filename}" but would not serve it`,
-      }
-    }
-    images.push(Buffer.from(await view.arrayBuffer()).toString('base64'))
-  }
-  return images
-}
-
-/** Waits for one render and returns its image bytes, base64. */
-async function collect({
-  base,
-  httpClient,
-  promptId,
-  deadline,
-  signal,
-}: {
-  base: string
-  httpClient: HttpClient
-  promptId: string
-  deadline: number
-  signal?: AbortSignal
-}): Promise<string[] | Refusal> {
-  // Ask before the deadline is ever consulted, the order `pollUntil` documents:
-  // the queue drain `submitAll` waits through can outlast this call's whole
-  // budget, and a render comfy has already finished is still an answer.
-  let names: string[] | undefined
-  const finished = await pollUntil(
-    async () => {
-      const history = await httpClient(`${base}/history/${encodeURIComponent(promptId)}`)
-      names = history.ok ? finishedFilenames(await history.text(), promptId) : undefined
-      return names !== undefined
-    },
-    deadline,
-    HISTORY_POLL_MS,
-    signal,
-  )
-  if (signal?.aborted === true) {
-    return {
-      status: STATUS_BAD_GATEWAY,
-      error: 'the caller hung up before the render finished',
-    }
-  }
-  if (!finished || names === undefined) {
-    return {
-      status: STATUS_BAD_GATEWAY,
-      error: "the render did not finish before this call's deadline",
-    }
-  }
-  return fetchImages(base, httpClient, names)
-}
-
 /**
  * One render, whichever verb asked for it: lease the engine, submit `n`
  * prompts, wait for each, and write the one provenance line. A comfy engine
@@ -325,9 +248,11 @@ export async function renderWith(
       httpClient: HttpClient,
     ) => Promise<((index: number) => Record<string, unknown>) | Refusal>
     signal?: AbortSignal
+    format: ImageResponseFormat
+    request: Request
   },
 ): Promise<Response> {
-  const { route, rawModel, workflowPath, n, plan, signal } = job
+  const { route, rawModel, workflowPath, n, plan, signal, format, request } = job
   const entry = ctx.registry.entry(route.engine)
   const startedAt = Date.now()
   let leased = false
@@ -364,14 +289,21 @@ export async function renderWith(
       return refuse(ids)
     }
     const deadline = Date.now() + ctx.getConfig().chat_timeout_seconds * MS_PER_SECOND
-    const data: { b64_json: string }[] = []
+    const rendered: RenderedImage[] = []
     for (const id of ids) {
-      const images = await collect({ base, httpClient, promptId: id, deadline, signal })
+      const images = await collectRenderedImages({
+        base,
+        httpClient,
+        promptId: id,
+        deadline,
+        signal,
+      })
       if (!Array.isArray(images)) {
         return refuse(images)
       }
-      data.push(...images.map((b64Json) => ({ b64_json: b64Json })))
+      rendered.push(...images)
     }
+    const data = replyImageData(rendered, format, request)
     return Response.json(
       { created: Math.floor(startedAt / MS_PER_SECOND), data },
       {
@@ -468,12 +400,16 @@ export function workflowPathFor(
 export async function handleImageGeneration(
   ctx: DoorContext,
   body: Record<string, unknown>,
-  signal?: AbortSignal,
+  req: Request,
 ): Promise<Response> {
   const rawModel = typeof body.model === 'string' ? body.model : undefined
   const target = imageRoute(ctx, rawModel, CONTENT_ENDPOINT_IMAGES)
   if (target instanceof Response) {
     return target
+  }
+  const format = parseImageResponseFormat(body.response_format)
+  if (format instanceof Response) {
+    return format
   }
   const request = parseImageRequest(body)
   if (request instanceof Response) {
@@ -488,6 +424,8 @@ export async function handleImageGeneration(
     rawModel,
     workflowPath: path,
     n: request.n,
+    format,
+    request: req,
     plan: () =>
       Promise.resolve((index: number) => ({
         ...commonValues(request, target.checkpoints, index),
@@ -495,6 +433,6 @@ export async function handleImageGeneration(
         height: request.height,
         batch: 1,
       })),
-    signal,
+    signal: req.signal,
   })
 }

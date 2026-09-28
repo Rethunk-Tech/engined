@@ -61,6 +61,11 @@ export function voicesDir(): string {
   return join(stateDir(), 'voices')
 }
 
+/** OpenAI image `response_format: "url"` renders. The door names every file. */
+export function imagesDir(): string {
+  return join(stateDir(), 'images')
+}
+
 /**
  * The llama preset INI: `EngineRegistry` writes it, `LlamaRouter` mounts it,
  * and llama-server reads it once at its own process start. This is only the

@@ -40,6 +40,7 @@ import {
   STATUS_INTERNAL_SERVER_ERROR,
   STATUS_NOT_FOUND,
 } from './http.ts'
+import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
@@ -164,7 +165,7 @@ function routeGet(
   if (resourcesMatch !== undefined) {
     return handleResources(ctx.registry, resourcesMatch)
   }
-  return undefined
+  return responseForImageGet(pathname)
 }
 
 function routePost(
@@ -218,6 +219,7 @@ function allowFor(pathname: string): string[] {
     pathname === ENGINED_ENGINES_PATH ||
     pathname === `${ENGINED_ENGINES_PATH}/events` ||
     pathname === USAGE_PATH ||
+    IMAGE_GET_RE.test(pathname) ||
     LOGS_RE.test(pathname) ||
     RESOURCES_RE.test(pathname)
   const post =

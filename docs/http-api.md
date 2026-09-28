@@ -22,10 +22,11 @@ treated as a caller.
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
 | `/openai/v1/audio/translations` | POST | `stt`, and only a route declaring `translate` — same upload, rendered as English. See [Translations](#translations) |
-| `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed}` in, `{created, data:[{b64_json}]}` out — see [Images](#images) |
+| `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed, response_format}` in, `{created, data:[{b64_json}]}` or `{created, data:[{url}]}` out — see [Images](#images) |
 | `/openai/v1/images/edits` | POST | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
+| `/engined/v1/images/:id` | GET | a render stored for `response_format: "url"` — see [Images](#images) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
 | `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
 | `/engined/v1/tokenize` | POST | `{model: "@/engine/model", content}` in, `{tokens: <count>}` out — a vocab-only token count for a local GGUF route, no engine started and no weights loaded. See [Vocab-only tokenize](#vocab-only-tokenize) |
@@ -647,10 +648,15 @@ curl -s localhost:29200/openai/v1/images/generations \
 | `n` | 1–10, default 1. One render each, with consecutive seeds — the door submits one prompt at a time, so `n` images take `n` renders' worth of wall clock |
 | `negative_prompt` | not an OpenAI field, forwarded because a caller driving a diffusion model has no other way to say it |
 | `seed` | honoured when given; random otherwise, so asking twice is not the same image |
+| `response_format` | `b64_json` (the default, and the historical behaviour) or `url`. `"url"` stores each render under the door's own state directory and answers `data[].url` built from this request's `Host`, so a TLS bridge's public name is what the caller fetches. `GET /engined/v1/images/<id>` returns the bytes (`Content-Type` from the suffix) until the store evicts them. The id is unguessable and a string that is not one this door issued — including a path — is 404. The store keeps 64 renders, 256 MiB, for seven days from write (not from last GET), then drops oldest-first. |
 
-The reply is always `b64_json`: there is no URL to hand out, because a URL
-would be an address into the container's shared output directory and this door
-does not hand those out.
+```sh
+curl -s localhost:29200/openai/v1/images/generations \
+  -H 'content-type: application/json' \
+  -d '{"model":"@/comfy/local","prompt":"a red cube on a white table","size":"512x512","response_format":"url"}'
+```
+
+The reply is `b64_json` unless the caller asked for `url`. There is no address into the container's shared output directory: a URL this door hands out is one it stored and will serve itself.
 
 **It does not replace the mediated proxy below, and is not meant to.** A node
 graph, a custom sampler, an upscale chain, a video job — none of those is
@@ -689,7 +695,7 @@ begins `@/`, and `-F` reads a leading `@` as "upload this file" -- so
 and it exits 26 without sending anything. Only `image=@cube.png` wants that
 behaviour. The same applies to the translations verb above.
 
-`prompt`, `n`, `negative_prompt` and `seed` mean what they do above.
+`prompt`, `n`, `negative_prompt`, `seed` and `response_format` mean what they do above.
 
 | Field | Meaning |
 | --- | --- |
