@@ -155,3 +155,28 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
   ctx.llamaRouters.set(engine.id, router)
   return router
 }
+
+/**
+ * After a reload, every cached router is stale-marked so its next
+ * `getLlamaRouter` rebuilds it against the new routes.
+ */
+export function retireLlamaRouters(ctx: DoorContext, next: Config): void {
+  const remainingIds = new Set(next.engines.map((e) => e.id))
+  for (const [id, router] of ctx.llamaRouters) {
+    if (remainingIds.has(id)) {
+      ctx.staleLlamaRouters.add(id)
+      continue
+    }
+    // Dropped from config entirely: nothing will ever call
+    // getLlamaRouter for this id again, so leaving it stale-marked
+    // would leak it forever. An outstanding lease still gets to finish
+    // -- the stale mark is the only trace left for it.
+    if (router.hasOutstandingLeases()) {
+      ctx.staleLlamaRouters.add(id)
+      continue
+    }
+    router.dispose()
+    ctx.llamaRouters.delete(id)
+    ctx.staleLlamaRouters.delete(id)
+  }
+}

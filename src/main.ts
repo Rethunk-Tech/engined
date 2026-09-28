@@ -28,7 +28,7 @@ import { serveCursorAgent } from './cursorAgent.ts'
 import { completeLocally } from './cursorChat.ts'
 import { handleCursor, isCursorPath } from './cursorDoor.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
-import type { DoorContext, DoorOptions } from './doorContext.ts'
+import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
 import {
@@ -338,24 +338,7 @@ export function createDoor(
       config = next
       configErr = undefined
       resetSpeechCache()
-      const remainingIds = new Set(next.engines.map((e) => e.id))
-      for (const [id, router] of ctx.llamaRouters) {
-        if (remainingIds.has(id)) {
-          ctx.staleLlamaRouters.add(id)
-          continue
-        }
-        // Dropped from config entirely: nothing will ever call
-        // getLlamaRouter for this id again, so leaving it stale-marked
-        // would leak it forever. An outstanding lease still gets to finish
-        // -- the stale mark is the only trace left for it.
-        if (router.hasOutstandingLeases()) {
-          ctx.staleLlamaRouters.add(id)
-          continue
-        }
-        router.dispose()
-        ctx.llamaRouters.delete(id)
-        ctx.staleLlamaRouters.delete(id)
-      }
+      retireLlamaRouters(ctx, next)
     } catch (err) {
       configErr = errMessage(err)
     }
