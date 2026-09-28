@@ -33,18 +33,16 @@ function rawRequest(
   port: number,
   path: string,
   headers: Record<string, string>,
+  hostname = '127.0.0.1',
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest(
-      { hostname: '127.0.0.1', port, path, method: 'GET', headers },
-      (res) => {
-        let body = ''
-        res.on('data', (chunk: Buffer) => {
-          body += chunk
-        })
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
-      },
-    )
+    const req = httpRequest({ hostname, port, path, method: 'GET', headers }, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => {
+        body += chunk
+      })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+    })
     req.on('error', reject)
     req.end()
   })
@@ -78,8 +76,8 @@ describe('the door: dual-family bind', () => {
   test('both 127.0.0.1 and [::1] answer on the same configured port', async () => {
     const port = deadPort()
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const v4 = await fetch(`http://127.0.0.1:${port}/openai/v1/models`)
-      const v6 = await fetch(`http://[::1]:${port}/openai/v1/models`)
+      const v4 = await rawRequest(port, '/openai/v1/models', {})
+      const v6 = await rawRequest(port, '/openai/v1/models', {}, '::1')
       expect(v4.status).toBe(200)
       expect(v6.status).toBe(200)
     })

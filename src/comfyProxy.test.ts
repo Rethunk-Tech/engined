@@ -310,6 +310,45 @@ describe('comfy proxy: GET /view is mediated', () => {
     expect(viewed.status).toBe(200)
     expect(viewed.headers.get('content-type')).toBe('image/png')
   })
+
+  test('GET /view forwards only the history-recorded filename, subfolder, and type', async () => {
+    const { client, calls } = recordingPromptClient('job-q', (url) => {
+      if (url.includes('/history/')) {
+        return Response.json({
+          'job-q': {
+            outputs: {
+              '9': { images: [{ filename: 'out.png', subfolder: 'renders', type: 'output' }] },
+            },
+          },
+        })
+      }
+      if (url.includes('/view')) {
+        return new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } })
+      }
+      return new Response('unexpected', { status: 500 })
+    })
+    const door = await comfyDoor(client)
+
+    await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, { method: 'POST', body: '{}' }),
+    )
+    await door.fetch(new Request(`http://engined${PROXY_PATH}/history/job-q`))
+    const viewed = await door.fetch(
+      new Request(
+        `http://engined${PROXY_PATH}/view?filename=out.png&subfolder=evil&type=input&preview=1`,
+      ),
+    )
+
+    expect(viewed.status).toBe(200)
+    const forwarded = calls.filter((c) => c.url.includes('/view'))
+    expect(forwarded).toHaveLength(1)
+    const q = new URLSearchParams(forwarded[0]?.url.split('?')[1] ?? '')
+    expect(q.get('filename')).toBe('out.png')
+    expect(q.get('subfolder')).toBe('renders')
+    expect(q.get('type')).toBe('output')
+    expect(q.get('preview')).toBeNull()
+    expect([...q.keys()].sort()).toEqual(['filename', 'subfolder', 'type'])
+  })
 })
 
 // `outputs` is comfy's node-id table. Anything else -- an array of node outputs

@@ -1,5 +1,4 @@
 /** The door: dual-family `Bun.serve`, Origin/Host check, OpenAI-shaped routes. */
-
 import { mkdirSync } from 'node:fs'
 import process from 'node:process'
 import { LAUNCH_NONCE_RE } from './agentic.ts'
@@ -76,7 +75,6 @@ const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
   CONTENT_ENDPOINT_TRANSLATIONS,
 ])
-
 const START_PATH = '/engined/v1/start'
 function engineVerbRe(verb: string): RegExp {
   return new RegExp(`^${ENGINED_ENGINES_PATH}/([^/]+)/${verb}$`)
@@ -87,7 +85,6 @@ const RESOURCES_RE = engineVerbRe('resources')
 const RELEASE_RE = engineVerbRe('release')
 const HOLD_RE = engineVerbRe('hold')
 const UNHOLD_RE = engineVerbRe('unhold')
-
 /** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
@@ -95,7 +92,6 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
 function refuse(message: string): Response {
   return jsonError(STATUS_FORBIDDEN, message)
 }
-
 function isLoopbackHost(hostHeader: string, port: number): boolean {
   try {
     const url = new URL(`http://${hostHeader}`)
@@ -106,9 +102,13 @@ function isLoopbackHost(hostHeader: string, port: number): boolean {
   }
 }
 
-/** Any `Origin` is refused, including `"null"`. No Origin (CLI/server) is unaffected. */
+/** Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none`/`same-origin` is refused the same way: a no-cors GET carries no Origin. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
 function checkOrigin(req: Request, port: number): Response | null {
-  if (req.headers.get('Origin') !== null) {
+  const site = req.headers.get('Sec-Fetch-Site')
+  if (
+    req.headers.get('Origin') !== null ||
+    (site !== null && site !== 'none' && site !== 'same-origin')
+  ) {
     return refuse('cross-origin requests are refused')
   }
   const host = req.headers.get('Host')

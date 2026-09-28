@@ -33,7 +33,7 @@ import {
   sseFrames,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
-import { parseRecord } from './records.ts'
+import { errMessage, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
@@ -302,13 +302,16 @@ async function execRemoteHttp(
   const callerBody = stripField(req.rawBody, 'max_egress')
   const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody)
   const init = openAiRequestInit(body, modelId, req.signal)
-  const response = await fetch(
-    upstreamUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)),
-    {
+  let response: Response
+  try {
+    response = await fetch(upstreamUrl(resolution.endpoint.base_url, upstreamPath(req.pathname)), {
       ...init,
       headers: { ...(init.headers as Record<string, string>), ...resolution.endpoint.headers },
-    },
-  )
+      redirect: 'error',
+    })
+  } catch (err) {
+    return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(STATUS_BAD_GATEWAY, errMessage(err)) }
+  }
   const { stream, modelReported } = await readHopBody(response, req.setContentType)
   return { status: response.status, stream, modelReported }
 }

@@ -19,8 +19,9 @@ export function comfyKey(engineId: string, origin: string, promptId: string): st
 }
 
 /**
- * The binding table on disk: ids and filenames only, never a request body --
- * a `prompt_id` is comfy's job handle, not the prompt that produced it.
+ * The binding table on disk: ids, filenames, and the `/view` triple `/history`
+ * recorded, never a request body -- a `prompt_id` is comfy's job handle, not
+ * the prompt that produced it.
  * It outlives the process because a restart that forgot a binding would
  * refuse a stored output to the very caller that created it.
  */
@@ -35,6 +36,27 @@ export function comfyBindingsPath(): string {
  * table looks the way an idle week looks. The line is a count, never a key --
  * a key carries the prompt id that produced it.
  */
+function viewsOf(
+  raw: unknown,
+  filenames: string[],
+): { filename: string; subfolder: string; type: string }[] {
+  if (!Array.isArray(raw)) {
+    return filenames.map((filename) => ({ filename, subfolder: '', type: '' }))
+  }
+  const views: { filename: string; subfolder: string; type: string }[] = []
+  for (const item of raw) {
+    if (!isRecord(item) || typeof item.filename !== 'string') {
+      continue
+    }
+    views.push({
+      filename: item.filename,
+      subfolder: typeof item.subfolder === 'string' ? item.subfolder : '',
+      type: typeof item.type === 'string' ? item.type : '',
+    })
+  }
+  return views
+}
+
 export function loadComfyBindings(write: (line: string) => void = writeToStdout): ComfyBindings {
   let text = ''
   try {
@@ -66,9 +88,8 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
         dropped += 1
         return []
       }
-      return [
-        [key, { at: value.at, filenames: value.filenames.filter((n) => typeof n === 'string') }],
-      ]
+      const filenames = value.filenames.filter((n) => typeof n === 'string')
+      return [[key, { at: value.at, filenames, views: viewsOf(value.views, filenames) }]]
     }),
   )
   if (dropped > 0) {
@@ -119,7 +140,7 @@ export function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undef
  *
  * Two shortcuts are held up by this cap and are what to revisit before
  * raising it: the whole-table rewrite on every save just below, and
- * `comfyFilenameBound`'s linear scan.
+ * `comfyViewBound`'s linear scan.
  */
 const COMFY_BINDINGS_MAX = 1000
 

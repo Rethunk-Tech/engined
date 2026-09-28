@@ -213,6 +213,7 @@ export class Inventory {
       res = await http(upstreamUrl(resolution.endpoint.base_url, MODELS_PATH), {
         method: 'GET',
         headers: resolution.endpoint.headers,
+        redirect: 'error',
       })
     } catch (err) {
       return { ok: false, error: errMessage(err) }

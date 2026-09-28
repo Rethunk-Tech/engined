@@ -200,6 +200,7 @@ export async function proxyComfyPrompt(
         ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
           at: Date.now(),
           filenames: [],
+          views: [],
         })
         saveComfyBindings(ctx.comfyBindings)
       }
@@ -323,20 +324,27 @@ export async function proxyComfyUpload(
  */
 // ponytail: linear over the table, which COMFY_BINDINGS_MAX holds at a
 // thousand entries; index by filename only if that cap is ever raised.
-function comfyFilenameBound(
+function comfyViewBound(
   ctx: DoorContext,
   engineId: string,
   origin: string,
   filename: string,
-): boolean {
+): { filename: string; subfolder: string; type: string } | undefined {
   const prefix = `${engineId}${COMFY_KEY_SEP}${origin}${COMFY_KEY_SEP}`
   const now = Date.now()
   for (const [key, bound] of ctx.comfyBindings) {
-    if (key.startsWith(prefix) && !expired(bound.at, now) && bound.filenames.includes(filename)) {
-      return true
+    if (!key.startsWith(prefix) || expired(bound.at, now)) {
+      continue
+    }
+    const view = bound.views.find((v) => v.filename === filename)
+    if (view !== undefined) {
+      return view
+    }
+    if (bound.filenames.includes(filename)) {
+      return { filename, subfolder: '', type: '' }
     }
   }
-  return false
+  return undefined
 }
 
 /** The one refusal `GET /view` ever answers with, for a filename this door never saw a completed job produce -- byte-identical whether that filename does not exist at all or simply was never surfaced to this caller, because this door checks its own known-filenames set and never comfy's disk either way. */
@@ -356,10 +364,15 @@ export async function proxyComfyView(
   params: URLSearchParams,
 ): Promise<Response> {
   const filename = params.get('filename')
-  if (filename === null || !comfyFilenameBound(ctx, engineId, origin, filename)) {
+  const view = filename === null ? undefined : comfyViewBound(ctx, engineId, origin, filename)
+  if (view === undefined) {
     return comfyViewRefused()
   }
-  const res = await httpClient(`${base}/view?${params.toString()}`)
+  const q = new URLSearchParams()
+  q.set('filename', view.filename)
+  q.set('subfolder', view.subfolder)
+  q.set('type', view.type)
+  const res = await httpClient(`${base}/view?${q.toString()}`)
   return new Response(res.body, {
     status: res.status,
     headers: { [CONTENT_TYPE]: res.headers.get(CONTENT_TYPE) ?? OCTET_STREAM_CONTENT_TYPE },
@@ -372,20 +385,24 @@ type ComfyHistoryEntry = Record<string, unknown>
 const COMFY_MEDIA_KEYS = ['images', 'gifs', 'video']
 
 /** Every output filename one node emitted, across every media kind comfy can name one under. */
-function filenamesInOutput(output: unknown): string[] {
+function viewsInOutput(output: unknown): { filename: string; subfolder: string; type: string }[] {
   if (!isRecord(output)) {
     return []
   }
-  const names: string[] = []
+  const views: { filename: string; subfolder: string; type: string }[] = []
   for (const key of COMFY_MEDIA_KEYS) {
     const media = output[key]
     for (const item of Array.isArray(media) ? media : []) {
       if (isRecord(item) && typeof item.filename === 'string') {
-        names.push(item.filename)
+        views.push({
+          filename: item.filename,
+          subfolder: typeof item.subfolder === 'string' ? item.subfolder : '',
+          type: typeof item.type === 'string' ? item.type : '',
+        })
       }
     }
   }
-  return names
+  return views
 }
 
 /**
@@ -394,8 +411,14 @@ function filenamesInOutput(output: unknown): string[] {
  * included -- names nothing, and `/view` refuses what it never bound.
  */
 export function filenamesIn(entry: ComfyHistoryEntry | undefined): string[] {
+  return viewsIn(entry).map((v) => v.filename)
+}
+
+function viewsIn(
+  entry: ComfyHistoryEntry | undefined,
+): { filename: string; subfolder: string; type: string }[] {
   const outputs = entry?.outputs
-  return Object.values(isRecord(outputs) ? outputs : {}).flatMap(filenamesInOutput)
+  return Object.values(isRecord(outputs) ? outputs : {}).flatMap(viewsInOutput)
 }
 
 /** This prompt's entry in comfy's `/history` answer -- `undefined` for a body that is not the shape expected, which teaches nothing new. */
@@ -425,11 +448,24 @@ export async function proxyComfyHistory(
   if (res.ok) {
     // A client polling a running prompt reads the same entry over and over,
     // so the whole table is only rewritten when this read taught it something.
-    const added = filenamesIn(comfyHistoryEntry(text, promptId)).filter(
-      (filename) => !bound.filenames.includes(filename),
-    )
-    if (added.length > 0) {
-      bound.filenames.push(...added)
+    const found = viewsIn(comfyHistoryEntry(text, promptId))
+    let changed = false
+    for (const view of found) {
+      if (!bound.filenames.includes(view.filename)) {
+        bound.filenames.push(view.filename)
+        changed = true
+      }
+      if (
+        !bound.views.some(
+          (v) =>
+            v.filename === view.filename && v.subfolder === view.subfolder && v.type === view.type,
+        )
+      ) {
+        bound.views.push(view)
+        changed = true
+      }
+    }
+    if (changed) {
       saveComfyBindings(ctx.comfyBindings)
     }
   }

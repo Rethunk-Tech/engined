@@ -208,6 +208,21 @@ describe('provider /models inventory', () => {
     const result = await inv.refresh(catalogUpstream('https://example.invalid'))
     expect(result.ids).toEqual(['org/model:free'])
   })
+
+  test('catalog fetch does not follow redirects', async () => {
+    let redirect: RequestInit['redirect']
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, 'state-noredirect'),
+      fetch: async (_url, init) => {
+        redirect = init?.redirect
+        return modelsList(['org/model:free'])
+      },
+    })
+    const result = await inv.refresh(catalogUpstream('https://example.invalid'))
+    expect(result.ids).toEqual(['org/model:free'])
+    expect(redirect).toBe('error')
+  })
 })
 
 const DOOR_PORT = 39_219
