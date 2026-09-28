@@ -9,7 +9,7 @@ import type { Inventory } from './inventory.ts'
 import { MS_PER_SECOND } from './records.ts'
 import type { EngineStatus } from './responses.ts'
 import { WILDCARD_MODEL } from './routeAddress.ts'
-import type { Config, Upstream } from './types.ts'
+import type { Config, ResolvedRoute, Upstream } from './types.ts'
 
 export class InventoryWatch {
   readonly inventory: Inventory
@@ -32,6 +32,14 @@ export class InventoryWatch {
    */
   start(config: Config): void {
     this.stop()
+    // Only a refresh clears an engine's error, and an engine whose wildcard
+    // route is gone is never refreshed again.
+    const wildcardEngines = new Set(wildcardRoutes(config).map((r) => r.engine))
+    for (const id of this.fetchErrors.keys()) {
+      if (!wildcardEngines.has(id)) {
+        this.fetchErrors.delete(id)
+      }
+    }
     const upstreams = wildcardUpstreams(config)
     this.timers = upstreams.map((u) =>
       setInterval(
@@ -74,8 +82,8 @@ export class InventoryWatch {
   private async refreshOne(config: Config, upstream: Upstream): Promise<void> {
     const result = await this.inventory.refresh(upstream)
     const engines = new Set(
-      config.routes
-        .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream === upstream.id)
+      wildcardRoutes(config)
+        .filter((r) => r.upstream === upstream.id)
         .map((r) => r.engine),
     )
     for (const id of engines) {
@@ -88,11 +96,13 @@ export class InventoryWatch {
   }
 }
 
-function wildcardUpstreams(config: Config): Upstream[] {
-  const ids = new Set(
-    config.routes
-      .filter((r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream !== null)
-      .map((r) => r.upstream as string),
+function wildcardRoutes(config: Config): ResolvedRoute[] {
+  return config.routes.filter(
+    (r) => !r.disabled && r.model === WILDCARD_MODEL && r.upstream !== null,
   )
+}
+
+function wildcardUpstreams(config: Config): Upstream[] {
+  const ids = new Set(wildcardRoutes(config).map((r) => r.upstream as string))
   return config.upstreams.filter((u) => ids.has(u.id))
 }

@@ -349,7 +349,7 @@ describe('inventory refresh timers', () => {
     }
   })
 
-  test('a failed refresh while serving cache sets EngineStatus.fix only when no other fix exists', async () => {
+  test('a failed refresh while serving cache sets EngineStatus.fix, until its wildcard route is removed', async () => {
     const live: { fail: boolean } = { fail: false }
     const catalog = catalogUpstream('https://example.invalid')
     const inv = new Inventory({
@@ -367,6 +367,11 @@ describe('inventory refresh timers', () => {
       await Bun.sleep(20)
       expect(reg.get('openrouter')?.fix).toMatch(/HTTP 502/)
       expect(reg.get('openrouter')?.state).toBe('installed')
+
+      // The wildcard route removed: nothing will refresh this engine again,
+      // so its last fetch error must not stay as its fix.
+      reg.reload({ ...openrouterWildcardConfig(catalog), routes: [] })
+      expect(reg.get('openrouter')?.fix).toBeUndefined()
     } finally {
       await reg.shutdown()
     }
