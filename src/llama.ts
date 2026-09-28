@@ -443,30 +443,29 @@ export class LlamaRouter {
 
   /**
    * Ensures the container, takes this role's lease, runs `fn` against the
-   * live upstream, then releases -- the one place a lease's whole lifetime
-   * (start, acquire, release, idle-arm) is written, so the streaming and
-   * buffered proxy paths cannot drift out of sync with each other.
+   * live upstream with the time it waited for that lease, then releases.
+   * The start runs before the queue timer, so `queueMs` is lease contention
+   * only, as `LlamaHop.queueMs` promises.
    */
   async withLease<T>(
     role: Role,
     modelId: string,
     signal: AbortSignal | null | undefined,
-    fn: () => Promise<T>,
+    fn: (queueMs: number) => Promise<T>,
   ): Promise<T> {
+    await this.ensureStarted()
+    const queueStart = this.clock()
     await this.beginLease(role, modelId, signal)
     try {
-      return await fn()
+      return await fn(this.clock() - queueStart)
     } finally {
       this.finishLease(role)
     }
   }
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. Slot placement runs inside the same lease, so a route on a slot table that was never touched never pays for one. */
-  private async fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
-    await this.ensureStarted()
-    const queueStart = this.clock()
-    return this.withLease(role, modelId, init.signal, async () => {
-      const queueMs = this.clock() - queueStart
+  private fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+    return this.withLease(role, modelId, init.signal, async (queueMs) => {
       const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
       try {
         const upstream = await this.upstream.fetch(path, placed, modelId)
