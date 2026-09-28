@@ -226,9 +226,16 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
     if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') {
       throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, file)
     }
-    // Each arg is one `key = value` line of the llama preset INI.
+    // Each arg is one `key = value` line of the llama preset INI, under a
+    // section whose own `model =` line the preset writes first.
     if (/[\r\n]/.test(`${key}${String(value)}`)) {
       throw new ParseError(`${site} "args" key ${JSON.stringify(key)} contains a line break`, file)
+    }
+    if (/[=[\]]|^[;#]/.test(key) || key === 'model') {
+      throw new ParseError(
+        `${site} "args" key ${JSON.stringify(key)} is "model" or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
+        file,
+      )
     }
   }
   return v

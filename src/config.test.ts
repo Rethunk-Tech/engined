@@ -1355,6 +1355,18 @@ describe('route values rendered into the llama preset INI', () => {
     expect(stt.routes[0]?.model).toBe('large[v3]')
   })
 
+  test("an arg key the INI would misread, or that shadows the preset's own model line, is fatal", () => {
+    for (const key of ['"a=b"', '"[x]"', '";x"', '"#x"', 'model']) {
+      expect(() =>
+        loadConfig(
+          writeConfig(
+            routeWith(`model = "x"\nfilename = "f.gguf"\n\n  [route.args]\n  ${key} = 1`),
+          ),
+        ),
+      ).toThrow(/cannot carry as a key/)
+    }
+  })
+
   test('a filename with a line break is fatal', () => {
     expect(() =>
       loadConfig(writeConfig(routeWith('model = "x"\nfilename = "f.gguf\\nmmproj = /etc/passwd"'))),
