@@ -26,6 +26,7 @@ import {
   message,
   stringField,
 } from './cursorProto.ts'
+import { FatalError } from './errors/fatal.ts'
 import { STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
 
@@ -95,6 +96,12 @@ export interface AgentDeps {
    * resolved reply carries the tool calls and the usage.
    */
   complete: (messages: ChatMessage[], on: StreamSink) => Promise<ChatReply>
+  /**
+   * Bind failures (EADDRINUSE) are fatal: the door already exits 78, and a
+   * Cursor listener that printed and kept running would leave the daemon up
+   * with no Run stream.
+   */
+  onBindError?: (detail: string) => void
 }
 
 export interface StreamSink {
@@ -251,26 +258,75 @@ export function toolRequestFrom(call: ToolCallOut): ToolRequest {
  */
 const FLAG_COMPRESSED = 1
 
+/** A Connect frame larger than this is a runaway, not a turn. */
+const MAX_CONNECT_FRAME = 16 * 1024 * 1024
+
+function concatChunks(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) {
+    out.set(part, at)
+    at += part.length
+  }
+  return out
+}
+
+function peekEnvelope(chunks: Uint8Array[]): { flags: number; length: number } | undefined {
+  let have = 0
+  for (const part of chunks) {
+    have += part.length
+  }
+  if (have < ENVELOPE_HEADER) {
+    return undefined
+  }
+  const header = new Uint8Array(ENVELOPE_HEADER)
+  let at = 0
+  for (const part of chunks) {
+    const n = Math.min(part.length, ENVELOPE_HEADER - at)
+    header.set(part.subarray(0, n), at)
+    at += n
+    if (at >= ENVELOPE_HEADER) {
+      break
+    }
+  }
+  return {
+    flags: header[0] ?? 0,
+    length: new DataView(header.buffer).getUint32(1, false),
+  }
+}
+
 /** Split a stream's bytes into Connect envelopes as they arrive. */
-function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => void {
-  let buffer = new Uint8Array()
+export function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Array) => void {
+  const chunks: Uint8Array[] = []
+  let buffered = 0
   return (chunk: Uint8Array) => {
-    const next = new Uint8Array(buffer.length + chunk.length)
-    next.set(buffer)
-    next.set(chunk, buffer.length)
-    buffer = next
+    chunks.push(chunk)
+    buffered += chunk.length
     for (;;) {
-      if (buffer.length < ENVELOPE_HEADER) {
+      const head = peekEnvelope(chunks)
+      if (head === undefined) {
         return
       }
-      const length = new DataView(buffer.buffer, buffer.byteOffset).getUint32(1, false)
-      if (buffer.length < ENVELOPE_HEADER + length) {
+      if (head.length > MAX_CONNECT_FRAME) {
+        throw new Error(`connect frame exceeds ${MAX_CONNECT_FRAME} bytes`)
+      }
+      if (buffered < ENVELOPE_HEADER + head.length) {
         return
       }
-      const flags = buffer[0] ?? 0
-      const payload = buffer.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + length)
-      buffer = buffer.subarray(ENVELOPE_HEADER + length)
-      onFrame(flags % 2 === FLAG_COMPRESSED ? new Uint8Array(gunzipSync(payload)) : payload)
+      const joined = concatChunks(chunks)
+      const payload = joined.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + head.length)
+      const rest = joined.subarray(ENVELOPE_HEADER + head.length)
+      chunks.length = 0
+      buffered = rest.length
+      if (rest.length > 0) {
+        chunks.push(rest)
+      }
+      onFrame(
+        head.flags % 2 === FLAG_COMPRESSED
+          ? new Uint8Array(gunzipSync(payload, { maxOutputLength: MAX_CONNECT_FRAME }))
+          : payload,
+      )
     }
   }
 }
@@ -507,6 +563,15 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
     stream.on('error', (err: Error) => {
       process.stderr.write(`cursor stream error: ${err.message}\n`)
     })
+  })
+  server.on('error', (err: Error) => {
+    const detail = errMessage(err)
+    if (deps.onBindError !== undefined) {
+      deps.onBindError(detail)
+      return
+    }
+    process.stderr.write(`port ${port} already in use: ${detail}\n`)
+    process.exit(FatalError.EXIT_CODE)
   })
   server.listen(port, '127.0.0.1')
   return { stop: () => server.close(), port }
