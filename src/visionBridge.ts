@@ -71,7 +71,14 @@ function extractCaption(parsed: unknown): string | undefined {
   return typeof content === 'string' && content.trim() !== '' ? content.trim() : undefined
 }
 
-/** The bridge hop's own reply, whatever its status -- both a caption and an error body are small JSON, so this always buffers rather than forwarding a stream nobody but this function reads. */
+/**
+ * The bridge hop's own reply, whatever its status -- both a caption and an
+ * error body are small JSON, so this always buffers rather than forwarding a
+ * stream nobody but this function reads. Returns `unknown`, not
+ * `records.ts`'s `parseRecord`: the result feeds `classifyResult`, which
+ * reads a non-record error body too (a bare string message, say), and
+ * narrowing here would silently turn that into a missing failure reason.
+ */
 async function readHopJson(result: HopResult): Promise<unknown> {
   if (result.stream) {
     const text = await new Response(result.stream).text()
