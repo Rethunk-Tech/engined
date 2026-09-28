@@ -339,7 +339,11 @@ export class EngineRegistry {
         specSource: entry.spec.source,
       })
       this.residency.started(id, model)
-      this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes))
+      // A start that found the container already up did not apply this
+      // shape; recording it would hide the restart the old one still needs.
+      if (launched === true) {
+        this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes))
+      }
       if (opts?.lease === true) {
         this.lifecycle.beginLease(id)
       }

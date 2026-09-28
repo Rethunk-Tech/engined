@@ -1211,6 +1211,10 @@ describe('a running engine whose config generation has been replaced', () => {
         // The remedy, not a boolean: stopping it is what makes the next call
         // start it on the config now in force.
         expect(after?.superseded).toContain('/engined/v1/engines/comfy/stop')
+
+        // Starting it again finds it already up, which applies nothing.
+        expect((await reg.start('comfy')).launched).toBe(false)
+        expect(reg.get('comfy')?.superseded).toContain('/engined/v1/engines/comfy/stop')
       },
     )
   })
