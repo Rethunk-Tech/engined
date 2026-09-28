@@ -11,6 +11,7 @@
  */
 import {
   CONTENT_TYPE,
+  ENGINE_ERROR_CHARS,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
@@ -18,6 +19,9 @@ import {
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
+
+/** Tokenize/apply-template answers are small; an uncapped read is how a runaway llama-server pins the door. */
+const EXTRAS_SUCCESS_CHARS = 1_048_576
 
 /** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
 function injectModel(bodyText: string | undefined, model: string): string {
@@ -35,13 +39,15 @@ function injectModel(bodyText: string | undefined, model: string): string {
 interface ExtrasTarget {
   baseUrl: string
   enginePath: string
+  /** Chat-path lease: idle-stop must not fire while this extras call is in flight. */
+  hold?: (work: () => Promise<Response>) => Promise<Response>
 }
 
 /**
  * Forwards one extras request to the resident llama-server, injecting the
- * resident model where router mode requires one. The response is returned
- * exactly as the upstream sent it -- no buffering, no reparsing -- so an SSE
- * body's `timings`/`timings_per_token` fields reach the caller unmodified.
+ * resident model where router mode requires one. The body is capped so a
+ * runaway llama-server cannot pin the door; an SSE body's `timings` fields
+ * still reach the caller unmodified when they fit.
  */
 export async function proxyExtras(
   req: Request,
@@ -49,25 +55,32 @@ export async function proxyExtras(
   residentModel: string | null,
   httpClient: HttpClient = fetch,
 ): Promise<Response> {
-  const url = new URL(req.url)
-  const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
-  let body = hasBody ? await req.text() : undefined
-  if (residentModel !== null && hasBody) {
-    try {
-      body = injectModel(body, residentModel)
-    } catch (err) {
-      return jsonError(STATUS_BAD_REQUEST, errMessage(err))
+  const hold = target.hold ?? ((work: () => Promise<Response>) => work())
+  return hold(async () => {
+    const url = new URL(req.url)
+    const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+    let body = hasBody ? await req.text() : undefined
+    if (residentModel !== null && hasBody) {
+      try {
+        body = injectModel(body, residentModel)
+      } catch (err) {
+        return jsonError(STATUS_BAD_REQUEST, errMessage(err))
+      }
     }
-  }
 
-  const upstream = new URL(target.enginePath + url.search, target.baseUrl)
-  try {
-    return await httpClient(upstream.toString(), {
-      method: req.method,
-      headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-      body,
-    })
-  } catch (err) {
-    return jsonError(STATUS_UNAVAILABLE, errMessage(err))
-  }
+    const upstream = new URL(target.enginePath + url.search, target.baseUrl)
+    try {
+      const answered = await httpClient(upstream.toString(), {
+        method: req.method,
+        headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+        body,
+        signal: req.signal,
+      })
+      const cap = answered.ok ? EXTRAS_SUCCESS_CHARS : ENGINE_ERROR_CHARS
+      const text = (await answered.text()).slice(0, cap)
+      return new Response(text, { status: answered.status, headers: answered.headers })
+    } catch (err) {
+      return jsonError(STATUS_UNAVAILABLE, errMessage(err))
+    }
+  })
 }

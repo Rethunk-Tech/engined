@@ -427,7 +427,7 @@ export class LlamaRouter {
    * (start, acquire, release, idle-arm) is written, so the streaming and
    * buffered proxy paths cannot drift out of sync with each other.
    */
-  private async withLease<T>(
+  async withLease<T>(
     role: Role,
     modelId: string,
     signal: AbortSignal | null | undefined,

@@ -219,9 +219,17 @@ export async function handleExtras(
         residentModel = router.residentModel(EXTRAS_ROLE)
       }
     }
+    const modelId = residentModel ?? extrasChatRoute(ctx.getConfig(), engineId)?.model
     return await proxyExtras(
       req,
-      { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },
+      {
+        baseUrl: `http://${privateUrl}`,
+        enginePath: `/${verb}`,
+        hold:
+          modelId === undefined
+            ? undefined
+            : (work) => router.withLease(EXTRAS_ROLE, modelId, req.signal, work),
+      },
       residentModel,
       ctx.doorOpts.extrasHttpClient,
     )

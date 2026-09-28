@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLlamaDoor, LOCAL_LLAMA_SPEC, makeLlamaHttpClient } from './doorFixtures.ts'
 import { proxyExtras } from './extras.ts'
-import { errorMessageOf, type HttpClient } from './http.ts'
+import { ENGINE_ERROR_CHARS, errorMessageOf, type HttpClient } from './http.ts'
 import { config, engine, makeTestRoot, route, writeEngineSpec } from './test-support.ts'
 
 const BASE = 'http://127.0.0.1:9999'
@@ -141,4 +141,72 @@ test('an extras proxy whose upstream fetch throws is JSON 503', async () => {
   expect(res.status).toBe(503)
   expect(res.headers.get('content-type')).toContain('application/json')
   expect(errorMessageOf(await res.json())).toContain('Unable to connect')
+})
+
+test('proxyExtras holds the injected lease across the upstream fetch', async () => {
+  let depth = 0
+  let saw = 0
+  const client: HttpClient = () => {
+    saw = depth
+    return Promise.resolve(Response.json({ tokens: [] }))
+  }
+  const hold = async (work: () => Promise<Response>) => {
+    depth += 1
+    try {
+      return await work()
+    } finally {
+      depth -= 1
+    }
+  }
+  await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: BASE, enginePath: '/tokenize', hold },
+    'ornith',
+    client,
+  )
+  expect(saw).toBe(1)
+  expect(depth).toBe(0)
+})
+
+test('proxyExtras forwards the request abort signal to the upstream client', async () => {
+  const ac = new AbortController()
+  ac.abort()
+  let signal: AbortSignal | undefined
+  const client: HttpClient = (_url, init) => {
+    signal = init?.signal ?? undefined
+    return Promise.resolve(Response.json({ tokens: [] }))
+  }
+  const req = new Request(`${BASE}/tokenize`, {
+    method: 'POST',
+    body: JSON.stringify({ content: 'hi' }),
+    signal: ac.signal,
+  })
+  await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, 'ornith', client)
+  expect(signal?.aborted).toBe(true)
+})
+
+test('proxyExtras caps an error body at ENGINE_ERROR_CHARS', async () => {
+  const body = `nope ${'x'.repeat(ENGINE_ERROR_CHARS + 40)}`
+  const { client } = recordingClient(() => new Response(body, { status: 500 }))
+  const res = await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: BASE, enginePath: '/tokenize' },
+    'ornith',
+    client,
+  )
+  expect(res.status).toBe(500)
+  expect((await res.text()).length).toBe(ENGINE_ERROR_CHARS)
+})
+
+test('proxyExtras caps a success body', async () => {
+  const over = `${'y'.repeat(1_048_576 + 8)}`
+  const { client } = recordingClient(() => new Response(over, { status: 200 }))
+  const res = await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: BASE, enginePath: '/tokenize' },
+    'ornith',
+    client,
+  )
+  expect(res.status).toBe(200)
+  expect((await res.text()).length).toBe(1_048_576)
 })
