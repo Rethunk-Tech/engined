@@ -343,7 +343,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
 
 /** `reader.read()` with a deadline: a pull that enqueues nothing and never gets called again hangs a plain reader forever, which a bare `await reader.read()` would mask as a slow test rather than a failure. */
 function readWithTimeout(
-  reader: { read(): Promise<{ done: boolean; value?: Uint8Array }> },
+  reader: { read: () => Promise<{ done: boolean; value?: Uint8Array }> },
   ms: number,
 ): Promise<{ done: boolean; value?: Uint8Array }> {
   return new Promise((resolve, reject) => {
@@ -416,7 +416,7 @@ test('cancelling the infill stream while the source is silent reaches the source
   // A source mid-prefill: one frame, then nothing until cancelled.
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(new TextEncoder().encode(INFILL_SSE.split('\n\n')[0] + '\n\n'))
+      controller.enqueue(new TextEncoder().encode(`${INFILL_SSE.split('\n\n')[0]}\n\n`))
     },
     cancel(reason) {
       cancelledWith = reason

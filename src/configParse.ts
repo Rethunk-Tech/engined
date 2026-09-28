@@ -208,12 +208,16 @@ export function parseDisable(
   return optional(raw.disable, 'boolean', `${label} "disable"`, file) === true ? true : undefined
 }
 
+const LINE_BREAK_RE = /[\r\n]/
+const INI_KEY_BREAKER_RE = /[=[\]]|^[;#]/
+
 /**
  * Values must be scalar because every consumer renders them with `String(v)` --
  * `argvFromArgs` onto a command line, `iniLines` into the llama preset. A
  * nested table parses as valid TOML and would reach the engine as the literal
  * "[object Object]", so it is refused here rather than shipped silently.
  */
+
 export function asArgs(v: unknown, site: string, file: string): Record<string, unknown> {
   if (v === undefined) {
     return {}
@@ -228,10 +232,10 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
     }
     // Each arg is one `key = value` line of the llama preset INI, under a
     // section whose own `model =` line the preset writes first.
-    if (/[\r\n]/.test(`${key}${String(value)}`)) {
+    if (LINE_BREAK_RE.test(`${key}${String(value)}`)) {
       throw new ParseError(`${site} "args" key ${JSON.stringify(key)} contains a line break`, file)
     }
-    if (/[=[\]]|^[;#]/.test(key) || key === 'model') {
+    if (INI_KEY_BREAKER_RE.test(key) || key === 'model') {
       throw new ParseError(
         `${site} "args" key ${JSON.stringify(key)} is "model" or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
         file,

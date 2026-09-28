@@ -59,6 +59,9 @@ export interface RawRoute {
   site: string
 }
 
+const LINE_BREAK_RE = /[\r\n]/
+const INI_SECTION_BREAKER_RE = /[[\]=\r\n]|^[;#]/
+
 export function parseRouteRaw(
   value: unknown,
   index: number,
@@ -107,7 +110,7 @@ export function parseRouteRaw(
   const rawFilename = optional(raw.filename, 'string', `${site} "filename"`, file)
   // Escape from models_dir is `validateFilenameUnderModelsDir`'s; a line break
   // is the one thing that check cannot see, and it would inject a preset line.
-  if (rawFilename !== undefined && /[\r\n]/.test(rawFilename)) {
+  if (rawFilename !== undefined && LINE_BREAK_RE.test(rawFilename)) {
     throw new ParseError(`${site} has a "filename" containing a line break`, file)
   }
   const roleStr = optional(raw.role, 'string', `${site} "role"`, file)
@@ -339,7 +342,7 @@ export function resolveRoute({
   // because a spec-full engine's kind costs a spec read.
   if (
     reason === undefined &&
-    /[[\]=\r\n]|^[;#]/.test(raw.model as string) &&
+    INI_SECTION_BREAKER_RE.test(raw.model as string) &&
     traitFor(engine).kind === 'openai-http'
   ) {
     throw new ParseError(
