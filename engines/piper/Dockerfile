@@ -15,7 +15,7 @@
 # pure wheels, and the espeak-ng phonemizer data ships inside the wheel
 # itself (piper/espeak-ng-data/), so unlike kokoro this image installs no
 # apt espeak-ng at all. What the split actually buys is dropping uv and curl.
-FROM python:3.14.7-slim AS builder
+FROM python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl \
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # unversioned `python3` is what makes both stages agree: they share one FROM
 # tag, so naming a minor version here turns the next base bump into a build
 # that fails on a path that no longer exists.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /uvx /usr/local/bin/
 RUN uv venv --seed --python /usr/local/bin/python3 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
@@ -51,17 +51,20 @@ RUN pip install --no-cache-dir \
 # after the move rather than a differently-tuned one that "sounds a bit off"
 # with nothing to point at.
 ARG PIPER_VOICE=en_US-lessac-medium
-ARG PIPER_VOICE_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium
+ARG PIPER_VOICE_REV=c10ece1aade47bb51c153c893d14e5bf8e5b7117
+ARG PIPER_VOICE_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/${PIPER_VOICE_REV}/en/en_US/lessac/medium
 RUN mkdir -p /app/voices \
     && curl -fsSL -o "/app/voices/${PIPER_VOICE}.onnx" "${PIPER_VOICE_BASE}/${PIPER_VOICE}.onnx" \
     && curl -fsSL -o "/app/voices/${PIPER_VOICE}.onnx.json" "${PIPER_VOICE_BASE}/${PIPER_VOICE}.onnx.json" \
+    && echo "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f  /app/voices/${PIPER_VOICE}.onnx" | sha256sum -c \
+    && echo "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0  /app/voices/${PIPER_VOICE}.onnx.json" | sha256sum -c \
     # Published voices export audio only. Marking the model's phoneme-duration
     # tensor as a second output is what lets synthesize() report per-phoneme
     # sample counts, which /v1/tts turns into word timings. onnx is here for this
     # one step; the runtime never imports it.
     && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
-FROM python:3.14.7-slim
+FROM python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

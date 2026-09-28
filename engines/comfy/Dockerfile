@@ -13,7 +13,7 @@
 # this base plus the wheel is 19GB, both correctly detect gfx1151. Native
 # gfx1151 detection -- no HSA_OVERRIDE_GFX_VERSION anywhere in the fleet's
 # ROCm images, here included.
-FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-venv python3-dev build-essential git ca-certificates \
@@ -21,13 +21,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-RUN pip install --no-cache-dir torch torchvision torchaudio \
+RUN pip install --no-cache-dir \
+      torch==2.14.0 torchvision==0.29.0 torchaudio==2.11.0 \
       --index-url https://download.pytorch.org/whl/rocm7.2
 
-ARG COMFYUI_REF=v0.9.2
+ARG COMFYUI_COMMIT=8f40b43e0204d5b9780f3e9618e140e929e80594
 WORKDIR /opt/comfyui
-RUN git clone --branch ${COMFYUI_REF} --depth 1 \
-      https://github.com/comfyanonymous/ComfyUI.git . \
+RUN git init \
+    && git remote add origin https://github.com/comfyanonymous/ComfyUI.git \
+    && git fetch --depth 1 origin ${COMFYUI_COMMIT} \
+    && git checkout --detach FETCH_HEAD \
     # torch/torchvision/torchaudio already installed above from the ROCm
     # index -- ComfyUI's own requirements.txt pins CUDA wheels for those, and
     # letting pip see both would fight the ROCm install just made. requests:
@@ -38,7 +41,7 @@ RUN git clone --branch ${COMFYUI_REF} --depth 1 \
       > requirements.rocm.txt \
     && pip install --no-cache-dir -r requirements.rocm.txt requests
 
-FROM rocm/dev-ubuntu-24.04:7.2.4
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/comfyui /opt/comfyui

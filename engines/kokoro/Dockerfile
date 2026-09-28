@@ -12,7 +12,7 @@
 # the runtime image. Same base as both -- rocm/dev-ubuntu-24.04:7.2.4, not
 # rocm/pytorch -- the official PyTorch ROCm wheel is self-contained. Native
 # gfx1151 detection, no HSA_OVERRIDE_GFX_VERSION.
-FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054 AS builder
 
 # espeak-ng here too (not just the runtime stage): misaki's G2P backend can
 # shell out to it during KPipeline init, and the weight-baking step below
@@ -34,12 +34,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # at build time: the image exports clean and every container dies instantly
 # on `exec /opt/venv/bin/uvicorn: no such file or directory`, an error that
 # names the script rather than the interpreter its shebang cannot reach.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /uvx /usr/local/bin/
 RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # torch only -- no torchvision/torchaudio, kokoro doesn't need them.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
+RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/rocm7.2
 
 # Pinned here rather than via an unversioned requirements.txt (the source
 # ships one with no version on any of these four, and no CI to catch
@@ -55,9 +55,15 @@ RUN pip install --no-cache-dir \
 # request burns the adapter's timeout on a cold download and looks like a
 # hung engine.
 ENV HF_HOME=/app/hf_cache
-RUN python3 -c "from kokoro import KPipeline; KPipeline(lang_code='a')"
+RUN python3 -c "\
+import huggingface_hub as hh; \
+REV='f3ff3571791e39611d31c381e3a41a3af07b4987'; \
+_dl, _sd = hh.hf_hub_download, hh.snapshot_download; \
+hh.hf_hub_download = lambda *a, **k: _dl(*a, **{**k, 'revision': REV}); \
+hh.snapshot_download = lambda *a, **k: _sd(*a, **{**k, 'revision': REV}); \
+from kokoro import KPipeline; KPipeline(lang_code='a')"
 
-FROM rocm/dev-ubuntu-24.04:7.2.4
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 
 # espeak-ng is a runtime dependency of misaki's G2P (out-of-dictionary
 # fallback), not just a build-time one -- a build that only installs it in

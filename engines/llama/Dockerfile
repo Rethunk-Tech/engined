@@ -19,9 +19,9 @@ ARG REPO=https://github.com/PrismML-Eng/llama.cpp.git
 # The head of the fork's `prism` branch as of this pin. A branch name here
 # would let two builds of the same tree produce different llama.cpp with
 # nothing recording which one a measurement was taken on.
-ARG LLAMA_COMMIT=9a9394a895b96003ca842a6041cb28ac49a108f7
+ARG LLAMA_COMMIT=84445367fbaf79c00ff64bc93a0689cdb3eee54d
 
-FROM registry.fedoraproject.org/fedora:46 AS builder
+FROM registry.fedoraproject.org/fedora:46@sha256:c6cb7a25197145c97af09db5abc1cb537eae025aecd0efbfcecbaece1e111fc3 AS builder
 
 RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
   git \
@@ -63,7 +63,7 @@ RUN cmake -S . -B build -G Ninja \
 
 RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; && ldconfig
 
-FROM registry.fedoraproject.org/fedora-minimal:46
+FROM registry.fedoraproject.org/fedora-minimal:46@sha256:959af01f51d32a861a83157876dd78b70ee30abdea36d66990a06c6db3b8675e
 ARG REPO
 ARG LLAMA_COMMIT
 LABEL org.opencontainers.image.source="${REPO}" \

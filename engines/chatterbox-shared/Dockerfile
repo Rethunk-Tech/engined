@@ -16,7 +16,7 @@
 # runtime image. The wrapper is a FastAPI app speaking the
 # NDJSON /v1/tts contract src/audio.ts translates -- the upstream devnen repo
 # has no compatible HTTP surface of its own.
-FROM rocm/dev-ubuntu-24.04:7.2.4 AS builder
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential git ca-certificates \
@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # nothing here: the known-working chatterbox image in the fleet already runs
 # on this exact base's system python3, confirming 3.12 resolves every wheel
 # this build needs.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /uvx /usr/local/bin/
 RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 COPY --from=shared requirements.txt /tmp/requirements.txt
@@ -48,7 +48,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 # requirements.txt installs the real runtime deps at versions confirmed to
 # work here instead of letting pip downgrade to those stale pins.
 RUN pip install --no-cache-dir --no-deps \
-      'chatterbox-tts @ git+https://github.com/devnen/chatterbox-v2.git@master'
+      'chatterbox-tts @ git+https://github.com/devnen/chatterbox-v2.git@cc0357396d9c73fc1e6c544ee40bb596020edd09'
 
 # gfx1151 dtype fixes for torch 2.9+ (numpy float64 leaking into float32-only
 # ops) -- same two patches devnen/Chatterbox-TTS-Server carries for this
@@ -88,7 +88,11 @@ ARG CHECKPOINT_MODULE
 ARG CHECKPOINT_CLASS
 ENV HF_HOME=/app/hf_cache
 RUN python3 -c "\
-import importlib, torch; \
+import huggingface_hub as hh, importlib, torch; \
+REV='5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18'; \
+_dl, _sd = hh.hf_hub_download, hh.snapshot_download; \
+hh.hf_hub_download = lambda *a, **k: _dl(*a, **{**k, 'revision': REV}); \
+hh.snapshot_download = lambda *a, **k: _sd(*a, **{**k, 'revision': REV}); \
 _load = torch.load; \
 torch.load = lambda *a, **k: _load(*a, **{**k, 'map_location': 'cpu'}); \
 getattr(importlib.import_module('${CHECKPOINT_MODULE}'), '${CHECKPOINT_CLASS}') \
@@ -98,7 +102,7 @@ getattr(importlib.import_module('${CHECKPOINT_MODULE}'), '${CHECKPOINT_CLASS}') 
 ENV TORCH_HOME=/app/hf_cache/torch
 RUN python3 -c "from torchaudio.pipelines import MMS_FA; MMS_FA.get_model()"
 
-FROM rocm/dev-ubuntu-24.04:7.2.4
+FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libsndfile1 ffmpeg \
