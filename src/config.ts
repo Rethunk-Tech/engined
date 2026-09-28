@@ -8,14 +8,12 @@
  * an upstream may share an id with no conflict, since nothing before
  * addressing (a later phase) ever compares the two.
  */
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
 import {
   asArgs,
   asArray,
-  assertKnownKeys,
   CHAIN_KEYS,
   ENGINE_KEYS,
   expandConfigPath,
@@ -30,7 +28,6 @@ import {
   requireString,
   requireTable,
   SECRET_KEYS,
-  TOP_KEYS,
   UPSTREAM_KEYS,
 } from './configParse.ts'
 import { parseRouteRaw, resolveRoute, type SpecFacts, specFactsFor } from './configRoutes.ts'
@@ -43,6 +40,7 @@ import {
   validateVisionBridgeRoutes,
   validateWildcardRoutes,
 } from './configRouteValidate.ts'
+import { collectEntries, fileLookup, readConfigSources } from './configSources.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { configPath, installDir } from './paths.ts'
@@ -395,35 +393,6 @@ function buildChains(
   return chains
 }
 
-/** One `[[table]]` array plus which file each of its parsed entries came from -- what a collision or a cross-entry check needs to name the right fragment. */
-interface Collected<T> {
-  items: T[]
-  files: string[]
-}
-
-/**
- * Parses one array key (`engine`, `upstream`, ...) out of every source in
- * order -- the main file first, then each `config.d` fragment in sorted
- * filename order -- so the merged result reads exactly as if all the arrays
- * had been declared in one file, while every parse error still names the
- * fragment it came from.
- */
-function collectEntries<T>(
-  sources: readonly ConfigSource[],
-  key: string,
-  parseOne: (value: unknown, index: number, file: string) => T,
-): Collected<T> {
-  const items: T[] = []
-  const files: string[] = []
-  for (const { file, raw } of sources) {
-    for (const [i, value] of asArray(raw[key], key, file).entries()) {
-      items.push(parseOne(value, i, file))
-      files.push(file)
-    }
-  }
-  return { items, files }
-}
-
 /**
  * `enginesRoot` defaults to the installed `engines/` tree so a production
  * `loadConfig()` call needs no argument; a test that ships its own fixture
@@ -471,18 +440,9 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   // Each check names the file the offending entry actually came from, so a
   // bad route or engine in a config.d fragment is reported against that
   // fragment rather than the main file.
-  const routeFileOf = new Map<ResolvedRoute, string>(
-    routes.map((r, i) => [r, routeFiles[i] as string]),
-  )
-  const engineFileOf = new Map<string, string>(
-    engines.map((e, i) => [e.id, engineFiles[i] as string]),
-  )
-  const upstreamFileOf = new Map<string, string>(
-    upstreams.map((u, i) => [u.id, upstreamFiles[i] as string]),
-  )
-  const fileForRoute = (r: ResolvedRoute) => routeFileOf.get(r) ?? file
-  const fileForEngine = (id: string) => engineFileOf.get(id) ?? file
-  const fileForUpstream = (id: string) => upstreamFileOf.get(id) ?? file
+  const fileForRoute = fileLookup(routes, routeFiles, (r) => r, file)
+  const fileForEngine = fileLookup(engines, engineFiles, (e) => e.id, file)
+  const fileForUpstream = fileLookup(upstreams, upstreamFiles, (u) => u.id, file)
 
   checkModellessMixing(routes, fileForRoute)
   validateWildcardRoutes({
@@ -509,80 +469,6 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     routes,
     chains,
   }
-}
-
-/** Scalar keys that only the main config file may carry -- everything else in `TOP_KEYS` is one of the five arrays a fragment may also extend. */
-const FRAGMENT_TABLE_KEYS = new Set(['engine', 'upstream', 'model', 'route', 'chain'])
-
-/** A parsed source file plus the raw table it produced, in the order its entries merge. */
-interface ConfigSource {
-  file: string
-  raw: Record<string, unknown>
-}
-
-/**
- * `config.d/*.toml` beside the main file, sorted by filename -- the same
- * order their `[[engine]]`/etc. arrays are appended in. A missing directory
- * is normal and silent, since most installs have no fragments at all.
- */
-function fragmentFiles(mainFile: string): string[] {
-  const dir = join(dirname(mainFile), 'config.d')
-  let names: string[]
-  try {
-    names = readdirSync(dir)
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return []
-    }
-    throw new ParseError('cannot read config.d', dir, { cause: err })
-  }
-  return (
-    names
-      // A dotfile is an editor's lock or swap file (Emacs `.#foo.toml` is a
-      // dangling symlink), never a fragment someone meant to load.
-      .filter((name) => name.endsWith('.toml') && !name.startsWith('.'))
-      .sort()
-      .map((name) => join(dir, name))
-  )
-}
-
-/**
- * The main config plus every `config.d` fragment, each read and key-checked
- * on its own: the main file against the full `TOP_KEYS`, a fragment against
- * only the five array keys, since a fragment scalar like `listen_port` would
- * silently shadow or fight the main file's depending on merge order.
- */
-function readConfigSources(mainFile: string): ConfigSource[] {
-  const mainRaw = readConfigTable(mainFile)
-  assertKnownKeys(mainRaw, 'config', TOP_KEYS, mainFile)
-  const sources: ConfigSource[] = [{ file: mainFile, raw: mainRaw }]
-  for (const fragFile of fragmentFiles(mainFile)) {
-    const fragRaw = readConfigTable(fragFile)
-    assertKnownKeys(fragRaw, 'config.d fragment', FRAGMENT_TABLE_KEYS, fragFile)
-    sources.push({ file: fragFile, raw: fragRaw })
-  }
-  return sources
-}
-
-/** The config file as a parsed TOML table; every read or parse failure is a ParseError naming the file. */
-function readConfigTable(file: string): Record<string, unknown> {
-  let text: string
-  try {
-    text = readFileSync(file, 'utf8')
-  } catch (err) {
-    throw new ParseError('cannot read config', file, { cause: err })
-  }
-
-  let raw: unknown
-  try {
-    raw = Bun.TOML.parse(text)
-  } catch (err) {
-    throw new ParseError('invalid TOML', file, { cause: err })
-  }
-  if (!isRecord(raw)) {
-    throw new ParseError('config must be a table', file)
-  }
-  return raw
 }
 
 /** A spec is read at most once per engine no matter how many routes name it. */
