@@ -20,12 +20,7 @@ import { join } from 'node:path'
  * ever knows the path.
  */
 import process from 'node:process'
-import {
-  declaredOverLimit,
-  jsonError,
-  STATUS_BAD_REQUEST,
-  STATUS_PAYLOAD_TOO_LARGE,
-} from './http.ts'
+import { jsonError, readCappedForm, STATUS_BAD_REQUEST, STATUS_PAYLOAD_TOO_LARGE } from './http.ts'
 import { voicesDir } from './paths.ts'
 import { errMessage } from './records.ts'
 export const VOICE_UPLOAD_PATH = '/engined/v1/audio/voices'
@@ -95,31 +90,23 @@ function evictVoices(): void {
 }
 
 export async function handleVoiceUpload(req: Request): Promise<Response> {
-  const declared = declaredOverLimit(req, MAX_VOICE_BYTES)
-  if (declared !== undefined) {
-    return jsonError(
+  const form = await readCappedForm(req, MAX_VOICE_BYTES, (received) =>
+    jsonError(
       STATUS_PAYLOAD_TOO_LARGE,
-      `reference voice is ${declared} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    )
+      `reference voice is ${received} bytes; the limit is ${MAX_VOICE_BYTES}`,
+    ),
+  )
+  if (form instanceof Response) {
+    return form
   }
-  let file: ReturnType<FormData['get']> = null
-  try {
-    file = (await req.formData()).get('file')
-  } catch {
-    // Not multipart at all, which the same message covers as a missing part.
-  }
+  // Not multipart at all is covered by the same message as a missing part.
+  const file = form?.get('file')
   if (!(file instanceof Blob)) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with a `file` part')
   }
   const bytes = new Uint8Array(await file.arrayBuffer())
   if (bytes.byteLength === 0) {
     return jsonError(STATUS_BAD_REQUEST, 'multipart form carried no `file` part')
-  }
-  if (bytes.byteLength > MAX_VOICE_BYTES) {
-    return jsonError(
-      STATUS_PAYLOAD_TOO_LARGE,
-      `reference voice is ${bytes.byteLength} bytes; the limit is ${MAX_VOICE_BYTES}`,
-    )
   }
   const name = file instanceof File ? file.name : ''
   const voice = `${VOICE_HANDLE_PREFIX}${randomBytes(VOICE_ID_BYTES).toString('hex')}.${voiceSuffix(name)}`

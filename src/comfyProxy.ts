@@ -9,13 +9,13 @@ import { queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
-  declaredOverLimit,
   type HttpClient,
   imageTooLarge,
   JSON_CONTENT_TYPE,
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
   OCTET_STREAM_CONTENT_TYPE,
+  readCappedForm,
   readCappedText,
   STATUS_BAD_REQUEST,
   STATUS_CLIENT_CLOSED,
@@ -289,20 +289,16 @@ export async function proxyComfyUpload(
   req: Request,
   httpClient: HttpClient,
 ): Promise<Response> {
-  const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
-  if (declared !== undefined) {
-    return imageTooLarge(declared)
+  const incoming = await readCappedForm(req, MAX_IMAGE_UPLOAD_BYTES, imageTooLarge)
+  if (incoming instanceof Response) {
+    return incoming
   }
-  const incoming = await req.formData().catch(() => undefined)
   if (incoming === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }
   const image = incoming.get('image')
   if (!(image instanceof Blob)) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
-  }
-  if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
-    return imageTooLarge(image.size)
   }
   const originalName = image instanceof File ? image.name : 'upload.png'
   const namespaced = namespacedComfyName(originalName)

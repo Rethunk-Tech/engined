@@ -7,12 +7,13 @@
 import { namespacedComfyName } from './comfyProxy.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
-  declaredOverLimit,
   ENGINE_ERROR_CHARS,
   type HttpClient,
   imageTooLarge,
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
+  type RequestForm,
+  readCappedForm,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
 } from './http.ts'
@@ -53,9 +54,6 @@ interface EditRequest {
   image: Blob
 }
 
-/** What `Request.formData()` resolves to; Bun types it apart from the global `FormData` an outgoing form is built with. */
-type RequestForm = Awaited<ReturnType<Request['formData']>>
-
 /** One numeric multipart field, or the 400 naming it. A form field is a string, so the whole point is refusing what does not parse rather than letting `Number()` produce a NaN nothing checks. */
 function numberField(form: RequestForm, key: string): number | undefined | Response {
   const raw = form.get(key)
@@ -66,14 +64,11 @@ function numberField(form: RequestForm, key: string): number | undefined | Respo
   return Number.isFinite(value) ? value : jsonError(STATUS_BAD_REQUEST, `"${key}" must be a number`)
 }
 
-/** The `image` part, or the 400 for a form that carries none, an empty one, or one too large to hold in memory. */
+/** The `image` part, or the 400 for a form that carries none or an empty one. */
 function editImage(form: RequestForm): Blob | Response {
   const image = form.get('image')
   if (!(image instanceof Blob) || image.size === 0) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
-  }
-  if (image.size > MAX_IMAGE_UPLOAD_BYTES) {
-    return imageTooLarge(image.size)
   }
   return image
 }
@@ -165,11 +160,10 @@ export async function handleImageEdit(
   req: Request,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const declared = declaredOverLimit(req, MAX_IMAGE_UPLOAD_BYTES)
-  if (declared !== undefined) {
-    return imageTooLarge(declared)
+  const form = await readCappedForm(req, MAX_IMAGE_UPLOAD_BYTES, imageTooLarge)
+  if (form instanceof Response) {
+    return form
   }
-  const form = await req.formData().catch(() => undefined)
   if (form === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with an "image" part')
   }

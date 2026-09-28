@@ -286,6 +286,35 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     expect(calls).toHaveLength(0)
   })
 
+  test('a chunked upload with no Content-Length is 413 at the cap, not after reading it whole', async () => {
+    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+    const door = await comfyDoor(client)
+    const chunk = new Uint8Array(1024 * 1024)
+    let pulled = 0
+    const sent = 33_554_432 + 16 * chunk.byteLength
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= sent) {
+          controller.close()
+          return
+        }
+        pulled += chunk.byteLength
+        controller.enqueue(chunk)
+      },
+    })
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      duplex: 'half',
+      headers: { 'content-type': 'multipart/form-data; boundary=----x' },
+      body,
+    }
+    const res = await door.fetch(new Request(`http://engined${PROXY_PATH}/upload/image`, init))
+    expect(res.status).toBe(413)
+    expect(calls).toHaveLength(0)
+    // The stream may run a chunk or two ahead of the reader, never far.
+    expect(pulled).toBeLessThanOrEqual(33_554_432 + 4 * chunk.byteLength)
+  })
+
   test('a malformed upload body is 400 before it is forwarded', async () => {
     const { res, calls } = await unreachedUpload(
       { 'content-type': 'multipart/form-data; boundary=----x' },

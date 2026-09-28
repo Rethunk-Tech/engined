@@ -324,18 +324,24 @@ export function imageTooLarge(bytes: number): Response {
 export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
 
 /**
- * A request body within the JSON routes' ceiling, or the 413/400 to return
- * instead. The cap counts bytes as they arrive, so a chunked body with no
- * Content-Length is cancelled at the cap rather than buffered whole first. A
- * client that hangs up mid-upload makes the read throw, and that is the
- * caller's malformed request, not this door's failure.
+ * A request body within `max` bytes, or the 413/400 to return instead;
+ * `tooLarge` words the 413 from the byte count that tripped it. The cap counts
+ * bytes as they arrive, so a chunked body with no Content-Length is cancelled
+ * at the cap rather than buffered whole first. A client that hangs up
+ * mid-upload makes the read throw, and that is the caller's malformed request,
+ * not this door's failure.
  */
-export async function readCappedText(req: Request): Promise<string | Response> {
-  if (declaredOverLimit(req, MAX_JSON_BODY_BYTES) !== undefined) {
-    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+export async function readCappedBytes(
+  req: Request,
+  max: number,
+  tooLarge: (bytes: number) => Response,
+): Promise<Uint8Array | Response> {
+  const declared = declaredOverLimit(req, max)
+  if (declared !== undefined) {
+    return tooLarge(declared)
   }
   if (req.body === null) {
-    return ''
+    return new Uint8Array()
   }
   const reader = req.body.getReader()
   const chunks: Uint8Array[] = []
@@ -347,16 +353,45 @@ export async function readCappedText(req: Request): Promise<string | Response> {
         break
       }
       total += value.byteLength
-      if (total > MAX_JSON_BODY_BYTES) {
+      if (total > max) {
         reader.cancel().catch(() => undefined)
-        return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+        return tooLarge(total)
       }
       chunks.push(value)
     }
   } catch {
     return jsonError(STATUS_BAD_REQUEST, 'request body could not be read')
   }
-  return new TextDecoder().decode(Buffer.concat(chunks))
+  return Buffer.concat(chunks)
+}
+
+/** What `Request.formData()` resolves to; Bun types it apart from the global `FormData` an outgoing form is built with. */
+export type RequestForm = Awaited<ReturnType<Request['formData']>>
+
+/**
+ * A multipart form within `max` bytes, or the 413/400 to return instead;
+ * `undefined` for a body that arrived whole but is not a form, whose 400 each
+ * verb words for the part it expects.
+ */
+export async function readCappedForm(
+  req: Request,
+  max: number,
+  tooLarge: (bytes: number) => Response,
+): Promise<RequestForm | Response | undefined> {
+  const bytes = await readCappedBytes(req, max, tooLarge)
+  if (bytes instanceof Response) {
+    return bytes
+  }
+  // The boundary lives in the caller's Content-Type, so the headers travel with the bytes.
+  return await new Response(bytes, { headers: req.headers }).formData().catch(() => undefined)
+}
+
+/** A request body within the JSON routes' ceiling, decoded, or the 413/400 to return instead. */
+export async function readCappedText(req: Request): Promise<string | Response> {
+  const bytes = await readCappedBytes(req, MAX_JSON_BODY_BYTES, () =>
+    jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large'),
+  )
+  return bytes instanceof Response ? bytes : new TextDecoder().decode(bytes)
 }
 
 /**
