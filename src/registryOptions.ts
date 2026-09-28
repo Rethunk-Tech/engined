@@ -38,7 +38,11 @@ export interface RegistryOptions {
    * since its `bunx` pin already IS the observed version.
    */
   observeAgentVersion?: (agent: string, configuredVersion: string) => Promise<ObservedVersion>
-  /** Defaults under the one writable state dir; tests always override this. Must be the same path the door hands `LlamaRouter`, since one writes the file the other mounts. */
+  /**
+   * Defaults per-engine under the one writable state dir; tests always
+   * override this. Must be the same path the door hands `LlamaRouter` for a
+   * given engine id, since one writes the file the other mounts.
+   */
   presetHostPath?: string
   /** Provider catalog cache. Tests pass a pre-filled instance; production builds one in `createDoor`. */
   inventory?: Inventory

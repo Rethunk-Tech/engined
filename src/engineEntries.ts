@@ -126,7 +126,7 @@ const PEEK_PRESET_INI = '/unused'
 function loadEngineSpec(
   engine: EngineEntry,
   specOptions: SpecLoadOptions,
-  presetHostPath: string,
+  presetHostPathFor: (engineId: string) => string,
 ): LoadedSpec {
   if (engine.kind !== undefined) {
     return { spec: builtInSpec(engine, engine.kind), source: BUILTIN_SPEC_SOURCE }
@@ -142,7 +142,7 @@ function loadEngineSpec(
     return { ...loaded, spec: buildComfySpec(engine, specOptions) }
   }
   if (isLocalLlama(engine, loaded.spec.kind)) {
-    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPath) }
+    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPathFor(engine.id)) }
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
@@ -326,10 +326,10 @@ function checkCapabilityServed(
 export function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
-  presetHostPath: string,
+  presetHostPathFor: (engineId: string) => string,
 ): Entry[] {
   return config.engines.map((engine) => {
-    const spec = loadEngineSpec(engine, specOptions, presetHostPath)
+    const spec = loadEngineSpec(engine, specOptions, presetHostPathFor)
     // `disable = true` is the operator's escape hatch, so it has to reach the
     // checks that would otherwise refuse the boot: an engine nothing may
     // start or route to cannot be the reason the daemon will not come up.

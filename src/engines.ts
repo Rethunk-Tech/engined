@@ -52,7 +52,7 @@ export class EngineRegistry {
   private readonly releaseFetch: ReleaseFetch
   private readonly comfy: ComfyQueueWatch
   private readonly agentic: AgenticGate
-  private readonly presetHostPath: string
+  private readonly presetHostPathFor: (engineId: string) => string
   private readonly inventoryWatch: InventoryWatch
   /**
    * The shape each running container was started under, set when this registry
@@ -85,10 +85,10 @@ export class EngineRegistry {
       launchNonces: opts.launchNonces ?? new Set(),
       observeAgentVersion: opts.observeAgentVersion ?? observeAgentVersion,
     })
-    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath()
+    this.presetHostPathFor = (id) => opts.presetHostPath ?? llamaPresetPath(id)
     this.inventoryWatch = new InventoryWatch(opts.inventory ?? new Inventory())
     this.config = config
-    this.entries = buildEntries(config, this.specOptions, this.presetHostPath)
+    this.entries = buildEntries(config, this.specOptions, this.presetHostPathFor)
     this.byId = new Map(this.entries.map((e) => [e.engine.id, e]))
     // Attached here, not passed to the constructor above: `createDoor` builds
     // its own lifecycle to share with the llama routers and hands it in, and
@@ -311,7 +311,7 @@ export class EngineRegistry {
     }
     this.comfy.forget(id)
     if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
-      writeLocalPreset(this.presetHostPath, entry.engine, this.config.routes)
+      writeLocalPreset(this.presetHostPathFor(entry.engine.id), entry.engine, this.config.routes)
     }
     const spec = specForModel(entry.spec.spec, this.config.routes, id, model)
     await this.residency.stopForSwitch(id, model)
@@ -463,7 +463,7 @@ export class EngineRegistry {
    * shape changed is left alone until its next start.
    */
   reload(config: Config): void {
-    const newEntries = buildEntries(config, this.specOptions, this.presetHostPath)
+    const newEntries = buildEntries(config, this.specOptions, this.presetHostPathFor)
     // A newly-disabled engine is torn down like a removed one: it keeps its
     // entry so the route can report it, but nothing of it may keep running.
     const newIds = new Set(newEntries.filter((e) => !e.engine.disabled).map((e) => e.engine.id))

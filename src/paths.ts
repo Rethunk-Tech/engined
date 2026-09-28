@@ -68,12 +68,14 @@ export function imagesDir(): string {
 
 /**
  * The llama preset INI: `EngineRegistry` writes it, `LlamaRouter` mounts it,
- * and llama-server reads it once at its own process start. This is only the
+ * and llama-server reads it once at its own process start. Keyed by engine
+ * id so two local llama engines (a second one reusing the llama spec through
+ * `spec_dir`) never render into or mount the same file. This is only the
  * default — both take the path as an option and the door hands them the same
  * one, so a test can redirect the pair together and neither writes here.
  */
-export function llamaPresetPath(): string {
-  return `${stateDir()}/llama/preset.ini`
+export function llamaPresetPath(engineId: string): string {
+  return `${stateDir()}/llama/${engineId}/preset.ini`
 }
 
 /** True when `candidate` is `root` or a path under it. Used so a prune never follows a cache entry out of the directory it was given. */

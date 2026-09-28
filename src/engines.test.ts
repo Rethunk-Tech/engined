@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { QueueSnapshot } from './comfyQueue.ts'
@@ -710,7 +710,7 @@ describe('spec construction is routed through the per-engine builder', () => {
 
   test('llama started through the registry carries --models-preset and its :ro mounts', async () => {
     // start() on an openai-http engine with a models_dir renders the preset
-    // to stateDir()/llama/preset.ini unconditionally (paths.ts's own
+    // to stateDir()/llama/<id>/preset.ini unconditionally (paths.ts's own
     // llamaPresetPath, not overridable via RegistryOptions) -- the
     // same path the real running engine has bind-mounted.
     const restoreStateHome = redirectStateHome()
@@ -730,6 +730,51 @@ describe('spec construction is routed through the per-engine builder', () => {
       expect(argv).toContain('--models-preset')
       expect(argv?.some((a) => a === '/data/gguf:/models:ro')).toBe(true)
       expect(argv?.some((a) => a.includes('llama/preset.ini:/preset.ini:ro'))).toBe(true)
+    } finally {
+      await reg.shutdown()
+      restoreStateHome()
+    }
+  })
+
+  test('two local llama engines sharing the llama spec_dir render distinct preset files', async () => {
+    const restoreStateHome = redirectStateHome()
+    const runArgvCalls: string[][] = []
+    const reg = new EngineRegistry(
+      config({
+        engines: [
+          engine({ id: 'llama', models_dir: '/data/gguf', models_max: 3, ready_timeout_s: 5 }),
+          engine({
+            id: 'llama-bench',
+            models_dir: '/data/gguf',
+            models_max: 3,
+            spec_dir: join(ENGINES_ROOT, 'llama'),
+            ready_timeout_s: 5,
+          }),
+        ],
+        routes: [
+          route({ engine: 'llama', model: 'a', filename: 'a.gguf', role: 'chat' }),
+          route({ engine: 'llama-bench', model: 'b', filename: 'b.gguf', role: 'chat' }),
+        ],
+      }),
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle: capturingLifecycle(runArgvCalls, 8080) },
+    )
+    try {
+      await reg.start('llama')
+      await reg.start('llama-bench')
+      const [firstArgv, secondArgv] = runArgvCalls
+      const mountOf = (argv: string[] | undefined) =>
+        argv?.find((a) => a.endsWith(':/preset.ini:ro'))
+      const firstMount = mountOf(firstArgv)
+      const secondMount = mountOf(secondArgv)
+      expect(firstMount).toBeDefined()
+      expect(secondMount).toBeDefined()
+      expect(firstMount).not.toBe(secondMount)
+      const firstPath = firstMount?.slice(0, -':/preset.ini:ro'.length) as string
+      const secondPath = secondMount?.slice(0, -':/preset.ini:ro'.length) as string
+      expect(readFileSync(firstPath, 'utf8')).toContain('[a]')
+      expect(readFileSync(firstPath, 'utf8')).not.toContain('[b]')
+      expect(readFileSync(secondPath, 'utf8')).toContain('[b]')
+      expect(readFileSync(secondPath, 'utf8')).not.toContain('[a]')
     } finally {
       await reg.shutdown()
       restoreStateHome()

@@ -135,7 +135,7 @@ export class LlamaRouter {
       capacityFor: (role, modelId) => this.capacityFor(role, modelId),
       pinnedModel: (role) => this.pinnedFor(role)?.model,
     })
-    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath()
+    this.presetHostPath = opts.presetHostPath ?? llamaPresetPath(engine.id)
   }
 
   /**
