@@ -5,6 +5,7 @@ import type { AgenticProbeRunner } from './agenticProbe.ts'
 import { type HopExec, parseHop, type RunChainOptions, runChain } from './chain.ts'
 import { chatRequest } from './doorFixtures.ts'
 import { createDoor } from './main.ts'
+import { recordCall } from './provenance.ts'
 import { qualifiedSegments } from './routeAddress.ts'
 import {
   BUNX,
@@ -103,8 +104,10 @@ function makeExec(bases: Record<string, string>): HopExec {
 }
 
 function baseOpts(
-  overrides: Partial<RunChainOptions> & Pick<RunChainOptions, 'exec'>,
+  overrides: Partial<RunChainOptions> &
+    Pick<RunChainOptions, 'exec'> & { write?: (line: string) => void },
 ): RunChainOptions {
+  const { write, ...rest } = overrides
   return {
     chain: 'test-chain',
     requested: 'chain-test-chain',
@@ -112,8 +115,8 @@ function baseOpts(
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
     // Without this every runChain here writes its provenance line to the real
     // stdout; a test that asserts on the line passes its own collector.
-    write: () => undefined,
-    ...overrides,
+    record: (record) => recordCall(record, write ?? (() => undefined)),
+    ...rest,
   }
 }
 

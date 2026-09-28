@@ -21,13 +21,7 @@ import {
   splitSseFrames,
   sseDataPayloads,
 } from './http.ts'
-import {
-  type Attempt,
-  answeringHeaders,
-  type CallRecord,
-  recordCall,
-  type Usage,
-} from './provenance.ts'
+import { type Attempt, answeringHeaders, type CallRecord, type Usage } from './provenance.ts'
 import { errMessage, finiteNumber, isRecord, parseRecord } from './records.ts'
 import { qualifiedSegments, routeForHop } from './routeAddress.ts'
 import type { Egress } from './types.ts'
@@ -96,12 +90,10 @@ export interface RunChainOptions {
   /** The client's own signal. Distinct from the per-hop timeout: when this fires there is no one left to answer, so the chain stops instead of advancing and billing the next provider. */
   signal?: AbortSignal
   exec: HopExec
-  /** Injected so a test can capture the provenance line instead of reading real stdout. */
-  write?: (line: string) => void
   /** Carried straight onto the emitted `CallRecord.vision_bridge` -- see `src/visionBridge.ts`. Absent on every call that bridged no image. */
   visionBridgeAttempts?: Attempt[]
-  /** Handed the same `CallRecord` `recordCall` just wrote, so `src/usage.ts` can fold it into its counters without a second read of stdout. */
-  onRecord?: (record: CallRecord) => void
+  /** The one place the finished record goes -- writes provenance and credits usage together, so a caller cannot do one without the other. */
+  record: (record: CallRecord) => void
 }
 
 interface ChainResult {
@@ -315,8 +307,7 @@ function emit(
     upstream_used: upstreamUsed,
     vision_bridge: opts.visionBridgeAttempts,
   }
-  recordCall(record, opts.write)
-  opts.onRecord?.(record)
+  opts.record(record)
 }
 
 interface HopOutcome {

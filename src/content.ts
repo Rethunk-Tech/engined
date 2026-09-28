@@ -146,9 +146,8 @@ async function handleModelRouted(
       },
       launchScoped,
     ),
-    write: ctx.doorOpts.write,
     visionBridgeAttempts,
-    onRecord: (record) => ctx.usage.record(record),
+    record: (record) => recordDoorCall(ctx, record),
   })
 
   if (result.stream) {

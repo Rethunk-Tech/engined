@@ -305,8 +305,7 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
     exec: audioHopExec(ctx, opts.endpoint, opts.attempt, (ct) => {
       contentType = ct
     }),
-    write: ctx.doorOpts.write,
-    onRecord: (record) => ctx.usage.record(record),
+    record: (record) => recordDoorCall(ctx, record),
   })
   return doorResponseToResponse(
     {
