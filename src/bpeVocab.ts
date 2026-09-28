@@ -6,6 +6,7 @@
  * loading the weights that follow it on disk.
  */
 
+import { stat } from 'node:fs/promises'
 import { readGgufMetadata } from './ggufMetadata.ts'
 
 /** A GGUF whose tokenizer this door cannot count against without guessing -- reported to the caller, never silently approximated. */
@@ -44,18 +45,27 @@ async function buildBpeVocab(path: string): Promise<BpeVocab> {
 
 const vocabCache = new Map<string, Promise<BpeVocab>>()
 
-/** Loads and caches the BPE vocab for `path` (an absolute GGUF path). Repeat calls for the same file reuse the same tables. */
-export function loadBpeVocab(path: string): Promise<BpeVocab> {
-  let cached = vocabCache.get(path)
+function vocabCacheKey(path: string, mtimeMs: number): string {
+  return `${path}:${mtimeMs}`
+}
+
+/** Loads and caches the BPE vocab for `path` (an absolute GGUF path). Repeat calls for the same path and mtime reuse the same tables; a newer mtime is a different file. */
+export async function loadBpeVocab(
+  path: string,
+  statFile: (p: string) => Promise<{ mtimeMs: number }> = stat,
+): Promise<BpeVocab> {
+  const { mtimeMs } = await statFile(path)
+  const key = vocabCacheKey(path, mtimeMs)
+  let cached = vocabCache.get(key)
   if (cached === undefined) {
     cached = buildBpeVocab(path)
-    vocabCache.set(path, cached)
+    vocabCache.set(key, cached)
     // UnsupportedVocabError is a property of the file: retrying will not
     // change the tokenizer. Transient read errors are evicted so a later
     // call can try again.
     cached.catch((err: unknown) => {
       if (!(err instanceof UnsupportedVocabError)) {
-        vocabCache.delete(path)
+        vocabCache.delete(key)
       }
     })
   }

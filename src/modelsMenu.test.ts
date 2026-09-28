@@ -8,9 +8,22 @@
  * runs.
  */
 import { expect, test } from 'bun:test'
+import { join } from 'node:path'
+import { LOCAL_LLAMA_SPEC, llamaExec, READY_200 } from './doorFixtures.ts'
+import { createDoor } from './main.ts'
 import { type ChainHop, chainContext, collapseCursorRoutes, routeContextIn } from './modelsMenu.ts'
 import type { EngineStatus } from './responses.ts'
-import { config, engine, route } from './test-support.ts'
+import {
+  BUNX,
+  config,
+  engine,
+  makeTestRoot,
+  route,
+  upstream,
+  writeEngineSpec,
+} from './test-support.ts'
+
+const TEST_ROOT = makeTestRoot('engined-models-menu-test-')
 
 function llamaEngineStatus(overrides: Partial<EngineStatus> = {}): EngineStatus {
   return {
@@ -131,4 +144,76 @@ test('collapseCursorRoutes leaves a "cursor"-named engine alone when its routes 
   // (upstream === null) "cursor" engine is Cursor's own addressing.
   const routes = [route({ engine: 'cursor', model: 'sonnet-5', upstream: 'openrouter' })]
   expect(collapseCursorRoutes(routes)).toEqual(routes)
+})
+
+test('one secret lookup per upstream per menu request, not per row', async () => {
+  const root = join(TEST_ROOT, `door-${Math.random().toString(36).slice(2)}`)
+  writeEngineSpec(root, 'proxy', LOCAL_LLAMA_SPEC)
+  let lookups = 0
+  const door = createDoor(
+    config({
+      engines: [engine({ id: 'proxy' })],
+      upstreams: [
+        upstream({
+          id: 'openrouter',
+          egress: 'remote',
+          base_url: 'https://example.invalid',
+          secret: { service: 'or', username: 'key', header: 'Authorization' },
+        }),
+      ],
+      routes: [
+        route({ engine: 'proxy', model: 'a', upstream: 'openrouter' }),
+        route({ engine: 'proxy', model: 'b', upstream: 'openrouter' }),
+        route({ engine: 'proxy', model: 'c', upstream: 'openrouter' }),
+      ],
+    }),
+    { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+    {
+      secretExec: async () => {
+        lookups += 1
+        return { stdout: 'secret', stderr: '', exitCode: 0 }
+      },
+    },
+  )
+  const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+  expect(res.status).toBe(200)
+  expect(lookups).toBe(1)
+})
+
+test('sibling routes sharing an engine and model get one precomputed count', async () => {
+  const root = join(TEST_ROOT, `door-${Math.random().toString(36).slice(2)}`)
+  writeEngineSpec(root, 'proxy', LOCAL_LLAMA_SPEC)
+  const door = createDoor(
+    config({
+      engines: [engine({ id: 'proxy' })],
+      upstreams: [
+        upstream({
+          id: 'openrouter',
+          egress: 'remote',
+          base_url: 'https://example.invalid',
+          secret: { service: 'or', username: 'key', header: 'Authorization' },
+        }),
+        upstream({
+          id: 'other',
+          egress: 'remote',
+          base_url: 'https://other.invalid',
+          secret: { service: 'ot', username: 'key', header: 'Authorization' },
+        }),
+      ],
+      routes: [
+        route({ engine: 'proxy', model: 'shared', upstream: 'openrouter' }),
+        route({ engine: 'proxy', model: 'shared', upstream: 'other' }),
+      ],
+    }),
+    { enginesRoot: root, bunx: BUNX, exec: llamaExec(), probe: READY_200 },
+    {
+      secretExec: async () => ({ stdout: 'secret', stderr: '', exitCode: 0 }),
+    },
+  )
+  const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+  const { data } = (await res.json()) as { data: { id: string }[] }
+  expect(data.map((r) => r.id).sort((a, b) => a.localeCompare(b))).toEqual([
+    '@/proxy/openrouter/shared',
+    '@/proxy/other/shared',
+  ])
 })

@@ -12,7 +12,7 @@ import {
   writeEngineSpec,
   writeGgufFixture,
 } from './test-support.ts'
-import { MAX_TOKENIZE_CONTENT_CHARS } from './tokenizeRoute.ts'
+import { MAX_TOKENIZE_CONTENT_CHARS, supportsVocabTokenize } from './tokenizeRoute.ts'
 
 const TEST_ROOT = makeTestRoot('engined-tokenize-route-test-')
 
@@ -105,5 +105,62 @@ describe('GET /openai/v1/models advertises vocab-only tokenize', () => {
     const { data } = (await res.json()) as { data: { id: string; serves: string[] }[] }
     const row = data.find((r) => r.id === '@/llama/tiny')
     expect(row?.serves).toContain('/engined/v1/tokenize')
+  })
+})
+
+describe('supportsVocabTokenize', () => {
+  const cfg = config({ engines: [engine({ id: 'llama', models_dir: '/models' })] })
+  const r = route({ engine: 'llama', model: 'tiny', filename: 'tiny.gguf', role: 'chat' })
+
+  test('gpt2 with pre is supported from metadata alone', async () => {
+    let reads = 0
+    const ok = await supportsVocabTokenize(r, cfg, {
+      statFile: async () => ({ mtimeMs: 11 }),
+      readMeta: async () => {
+        reads += 1
+        return { tokenizerModel: 'gpt2', tokenizerPre: 'qwen2' }
+      },
+    })
+    expect(ok).toBe(true)
+    expect(reads).toBe(1)
+  })
+
+  test('a non-gpt2 tokenizer is not advertised', async () => {
+    expect(
+      await supportsVocabTokenize(r, cfg, {
+        statFile: async () => ({ mtimeMs: 12 }),
+        readMeta: async () => ({ tokenizerModel: 'llama', tokenizerPre: 'default' }),
+      }),
+    ).toBe(false)
+  })
+
+  test('same path and mtime reuse the metadata answer', async () => {
+    let reads = 0
+    const deps = {
+      statFile: async (): Promise<{ mtimeMs: number }> => ({ mtimeMs: 13 }),
+      readMeta: async (): Promise<{ tokenizerModel?: string; tokenizerPre?: string }> => {
+        reads += 1
+        return { tokenizerModel: 'gpt2', tokenizerPre: 'qwen2' }
+      },
+    }
+    expect(await supportsVocabTokenize(r, cfg, deps)).toBe(true)
+    expect(await supportsVocabTokenize(r, cfg, deps)).toBe(true)
+    expect(reads).toBe(1)
+  })
+
+  test('a newer mtime re-reads metadata', async () => {
+    let reads = 0
+    let mtimeMs = 14
+    const deps = {
+      statFile: async (): Promise<{ mtimeMs: number }> => ({ mtimeMs }),
+      readMeta: async (): Promise<{ tokenizerModel?: string; tokenizerPre?: string }> => {
+        reads += 1
+        return { tokenizerModel: 'gpt2', tokenizerPre: 'qwen2' }
+      },
+    }
+    expect(await supportsVocabTokenize(r, cfg, deps)).toBe(true)
+    mtimeMs = 15
+    expect(await supportsVocabTokenize(r, cfg, deps)).toBe(true)
+    expect(reads).toBe(2)
   })
 })

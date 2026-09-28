@@ -7,12 +7,14 @@
  * runs to decide whether to advertise this path in `serves`.
  */
 
+import { stat } from 'node:fs/promises'
 import { resolve as resolvePath } from 'node:path'
 import { bpeTokenIds } from './bpeTokenize.ts'
 import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
 import { resolveQualified } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { HeldError } from './errors/held.ts'
+import { readGgufMetadata } from './ggufMetadata.ts'
 import {
   jsonError,
   readJsonBody,
@@ -48,18 +50,43 @@ function ggufPathFor(route: ResolvedRoute, config: Config): string | undefined {
   return ggufPath(route, engine?.models_dir)
 }
 
-/** `true` when `route`'s GGUF can be counted against without loading its weights -- cached after the first read, same as the route itself. */
+const SUPPORTED_TOKENIZER_MODEL = 'gpt2'
+
+const tokenizeSupportCache = new Map<string, Promise<boolean>>()
+
+/** `true` when `route`'s GGUF can be counted against without loading its weights -- `tokenizer.ggml.model`/`pre` only, memoised per path and mtime. */
 export async function supportsVocabTokenize(
   route: ResolvedRoute,
   config: Config,
+  {
+    statFile = stat,
+    readMeta = readGgufMetadata,
+  }: {
+    statFile?: (p: string) => Promise<{ mtimeMs: number }>
+    readMeta?: (
+      p: string,
+    ) => Promise<{ tokenizerModel?: string | undefined; tokenizerPre?: string | undefined }>
+  } = {},
 ): Promise<boolean> {
   const path = ggufPathFor(route, config)
   if (path === undefined) {
     return false
   }
   try {
-    await loadBpeVocab(path)
-    return true
+    const { mtimeMs } = await statFile(path)
+    const key = `${path}:${mtimeMs}`
+    let cached = tokenizeSupportCache.get(key)
+    if (cached === undefined) {
+      cached = readMeta(path).then(
+        (meta) =>
+          meta.tokenizerModel === SUPPORTED_TOKENIZER_MODEL && meta.tokenizerPre !== undefined,
+      )
+      tokenizeSupportCache.set(key, cached)
+      cached.catch(() => {
+        tokenizeSupportCache.delete(key)
+      })
+    }
+    return await cached
   } catch {
     return false
   }

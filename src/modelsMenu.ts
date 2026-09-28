@@ -17,13 +17,7 @@ import { isLocalLlama } from './engineEntries.ts'
 import { jsonError, STATUS_NOT_FOUND } from './http.ts'
 import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
-import {
-  addressForRoute,
-  LOCAL_UPSTREAM,
-  routeForHop,
-  siblingRouteCount,
-  WILDCARD_MODEL,
-} from './routeAddress.ts'
+import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
 import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import type {
@@ -110,10 +104,14 @@ export function routeContextIn(
  * private_url and never the upstream's address, so a comfy route naming a
  * peer serves without either half of this.
  */
+/** One request's `resolveUpstream` answers, keyed by upstream id. Must not outlive the request that built it. */
+type RemoteOk = Map<string, Promise<boolean>>
+
 async function remoteRouteState(
   ctx: DoorContext,
   route: ResolvedRoute,
   engineState: EngineState,
+  remoteOk: RemoteOk,
 ): Promise<EngineState> {
   if (
     engineState !== 'installed' ||
@@ -127,8 +125,12 @@ async function remoteRouteState(
   if (upstream === undefined) {
     return 'unavailable'
   }
-  const resolved = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
-  return resolved.ok ? engineState : 'unavailable'
+  let probe = remoteOk.get(route.upstream)
+  if (probe === undefined) {
+    probe = resolveUpstream(upstream, ctx.doorOpts.secretExec).then((resolved) => resolved.ok)
+    remoteOk.set(route.upstream, probe)
+  }
+  return (await probe) ? engineState : 'unavailable'
 }
 
 interface ModelRowOptions {
@@ -136,14 +138,15 @@ interface ModelRowOptions {
   siblingCount: number
   config: Config
   statuses: ReadonlyMap<string, EngineStatus>
+  remoteOk: RemoteOk
 }
 
 async function modelRow(
   ctx: DoorContext,
-  { route, siblingCount, config, statuses }: ModelRowOptions,
+  { route, siblingCount, config, statuses, remoteOk }: ModelRowOptions,
 ): Promise<ModelRow> {
   const status = statuses.get(route.engine)
-  const state = await remoteRouteState(ctx, route, status?.state ?? 'unavailable')
+  const state = await remoteRouteState(ctx, route, status?.state ?? 'unavailable', remoteOk)
   const serves = routeServes(route, status?.serves ?? [])
   // Vocab-only tokenize needs no engine `serves` entry of its own: a route
   // advertises it whenever its GGUF's vocab is one this door can read cold,
@@ -222,12 +225,19 @@ export interface ChainHop {
 }
 
 /** Every hop of one chain, each asked the same resolvable-address question a direct row is asked, so the menu cannot disagree with itself about the same address. */
-function chainHops(
-  ctx: DoorContext,
-  hops: readonly string[],
-  config: Config,
-  statuses: ReadonlyMap<string, EngineStatus>,
-): Promise<ChainHop[]> {
+function chainHops({
+  ctx,
+  hops,
+  config,
+  statuses,
+  remoteOk,
+}: {
+  ctx: DoorContext
+  hops: readonly string[]
+  config: Config
+  statuses: ReadonlyMap<string, EngineStatus>
+  remoteOk: RemoteOk
+}): Promise<ChainHop[]> {
   return Promise.all(
     hops.map(async (hop) => {
       const parsed = parseHop(hop)
@@ -251,7 +261,7 @@ function chainHops(
         state:
           route === undefined
             ? 'unavailable'
-            : await remoteRouteState(ctx, route, status?.state ?? 'unavailable'),
+            : await remoteRouteState(ctx, route, status?.state ?? 'unavailable', remoteOk),
       }
     }),
   )
@@ -345,14 +355,16 @@ async function chainRow({
   hops,
   config,
   statuses,
+  remoteOk,
 }: {
   ctx: DoorContext
   chainId: string
   hops: readonly string[]
   config: Config
   statuses: ReadonlyMap<string, EngineStatus>
+  remoteOk: RemoteOk
 }): Promise<ModelRow> {
-  const walked = await chainHops(ctx, hops, config, statuses)
+  const walked = await chainHops({ ctx, hops, config, statuses, remoteOk })
   const [lead] = walked
   const dead = walked.filter((h) => h.state === 'unavailable').map((h) => h.hop)
   return {
@@ -433,16 +445,26 @@ async function listRows(ctx: DoorContext): Promise<ModelRow[]> {
     ...config.routes.filter((r) => !r.disabled && r.model !== WILDCARD_MODEL),
     ...expandWildcardRoutes(config, ctx.registry.inventory),
   ])
+  const siblingCounts = new Map<string, number>()
+  for (const route of listed) {
+    if (route.model === undefined) {
+      continue
+    }
+    const key = `${route.engine}\0${route.model}`
+    siblingCounts.set(key, (siblingCounts.get(key) ?? 0) + 1)
+  }
+  const remoteOk: RemoteOk = new Map()
   const rows: ModelRow[] = []
   for (const route of listed) {
     if (!servedEngines.has(route.engine)) {
       continue
     }
-    const siblingCount = siblingRouteCount(route, listed)
-    rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }))
+    const siblingCount =
+      route.model === undefined ? 1 : (siblingCounts.get(`${route.engine}\0${route.model}`) ?? 1)
+    rows.push(await modelRow(ctx, { route, siblingCount, config, statuses, remoteOk }))
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
-    rows.push(await chainRow({ ctx, chainId, hops, config, statuses }))
+    rows.push(await chainRow({ ctx, chainId, hops, config, statuses, remoteOk }))
   }
   return rows
 }
