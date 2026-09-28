@@ -19,6 +19,8 @@ GPL-3.0 component, and a model is usable only on its own terms.
 | [Perth](https://github.com/resemble-ai/Perth) (`resemble-perth`) | MIT | Chatterbox's audio watermarker, installed from a pinned upstream commit |
 | [devnen/Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server) | MIT | Reference for the Chatterbox images' system and model setup |
 | [Kokoro](https://github.com/hexgrad/kokoro) | Apache-2.0 | TTS library installed by `engines/kokoro/Dockerfile`; pulls in [misaki](https://github.com/hexgrad/misaki) (Apache-2.0) |
+| [eSpeak NG](https://github.com/espeak-ng/espeak-ng) | GPL-3.0-or-later | Phonemizer apt-installed into the kokoro image for misaki's out-of-dictionary G2P |
+| [pykakasi](https://codeberg.org/miurahr/pykakasi) | GPL-3.0-or-later | Japanese romanisation, a Chatterbox dependency in `engines/chatterbox-shared/requirements.in` |
 | [piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) (`piper-tts`) | GPL-3.0-or-later | TTS library installed by `engines/piper/Dockerfile` |
 | [PyTorch](https://github.com/pytorch/pytorch) | BSD-3-Clause | ROCm wheels in the Chatterbox, Kokoro and ComfyUI images |
 | [FastAPI](https://github.com/fastapi/fastapi), [Uvicorn](https://github.com/encode/uvicorn) | MIT, BSD-3-Clause | HTTP wrappers in the Python engine images |
@@ -40,12 +42,17 @@ Each is fetched by an engine's image build or by the `obtain` command in its
 | [Whisper ggml conversions](https://huggingface.co/ggerganov/whisper.cpp) | MIT | whisper |
 | [Silero VAD, ggml](https://huggingface.co/ggml-org/whisper-vad) | MIT | whisper |
 | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 | kokoro |
-| [Chatterbox](https://huggingface.co/ResembleAI/chatterbox) | MIT | chatterbox-en, chatterbox-multi |
+| [Chatterbox](https://huggingface.co/ResembleAI/chatterbox) | MIT | chatterbox-multi |
+| [Chatterbox Turbo](https://huggingface.co/ResembleAI/chatterbox-turbo) | MIT | chatterbox-en |
+| [MMS forced aligner](https://docs.pytorch.org/audio/stable/generated/torchaudio.pipelines.MMS_FA.html) (`torchaudio.pipelines.MMS_FA`) | [CC-BY-NC 4.0](https://github.com/facebookresearch/fairseq/tree/main/examples/mms#license), **non-commercial** | chatterbox-en, chatterbox-multi |
 | [Piper `en_US-lessac-medium`](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/lessac/medium) | Trained on the [Blizzard 2013 Lessac data](https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/license.html), a **research licence** | piper |
 
 The Piper voice is baked into the piper image at build time. Check that its
 dataset licence covers your use, or set the `PIPER_VOICE` and
 `PIPER_VOICE_BASE` build args to a voice whose licence does.
+
+The MMS aligner is baked into both Chatterbox images to place word
+timestamps, so a Chatterbox image as built is not licensed for commercial use.
 
 GGUF chat models are chosen by the operator in `config.toml`; each carries its
 own licence.
