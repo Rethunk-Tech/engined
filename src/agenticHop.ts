@@ -517,7 +517,8 @@ export async function execAgentic(
       req,
       onHandoff: (run) => {
         handedOff = true
-        run.finally(() => ctx.launchNonces.delete(nonce))
+        const release = () => ctx.launchNonces.delete(nonce)
+        run.then(release, release)
       },
     })
   } finally {
