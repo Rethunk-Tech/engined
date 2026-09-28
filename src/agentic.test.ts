@@ -758,6 +758,27 @@ test('defaultAgenticSpawn: aborting kills the real worker process, not just the 
   expect(settled).toBe(justAfterKill)
 }, 10_000)
 
+/**
+ * Real child, real pipe: proves stderr is trimmed as it is read rather than
+ * buffered whole and truncated at the end, which a fake exec can't tell
+ * apart from a real bound. 50 marked lines well past the capture window,
+ * then a trailing marker only the tail would still carry.
+ */
+test('defaultAgenticSpawn: stderr is capped to its tail, earlier lines dropped', async () => {
+  const dir = mkdtempSync(join(TEST_ROOT, 'engined-agentic-stderr-'))
+  const argv = [
+    '/bin/sh',
+    '-c',
+    'i=0; while [ $i -lt 50 ]; do printf "line-%03d-XXXXXXXXXXXXXXXXXXXXXXXXXX\\n" "$i" >&2; i=$((i+1)); done; printf "END-OF-RUN\\n" >&2',
+  ]
+  const result = await defaultAgenticSpawn(argv, { cwd: dir, env: {}, input: '' })
+
+  expect(result.stderr.endsWith('END-OF-RUN\n')).toBe(true)
+  expect(result.stderr).not.toContain('line-000-')
+  // STDERR_TAIL_CHARS * 4, mirrored here since the constant is not exported.
+  expect(result.stderr.length).toBeLessThanOrEqual(1200)
+})
+
 function requireEnv(env: Record<string, string | undefined>, key: string): string {
   const value = env[key]
   if (value === undefined) {

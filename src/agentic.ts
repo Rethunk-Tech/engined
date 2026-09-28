@@ -36,11 +36,25 @@ import type { Usage } from './provenance.ts'
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome, sandboxLaunchHome } from './sandbox.ts'
 
 const STDERR_TAIL_CHARS = 300
+// stderrTail only ever reads the final STDERR_TAIL_CHARS of what is captured
+// here, so keeping the whole run in memory -- a runaway agent's endless
+// retry log, say -- buys nothing but risk. Some slack over STDERR_TAIL_CHARS
+// covers whitespace that collapses away in stderrTail itself.
+const STDERR_CAPTURE_CHARS = STDERR_TAIL_CHARS * 4
 
 /** Whitespace-collapsed last few hundred characters: enough to name the fault, bounded so a fix line stays a line. */
 function stderrTail(stderr: string): string | undefined {
   const flat = stderr.replace(/\s+/g, ' ').trim()
   return flat === '' ? undefined : flat.slice(-STDERR_TAIL_CHARS)
+}
+
+/** The stream as text, trimmed to its last `STDERR_CAPTURE_CHARS` as each chunk arrives -- never holds more than that in memory regardless of how much the child writes. */
+async function tailText(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<string> {
+  let tail = ''
+  for await (const chunk of stream.pipeThrough(new TextDecoderStream())) {
+    tail = (tail + chunk).slice(-STDERR_CAPTURE_CHARS)
+  }
+  return tail
 }
 
 /**
@@ -127,7 +141,7 @@ export async function defaultAgenticSpawn(
   try {
     const [stdout, stderr, exitCode] = await Promise.all([
       teeText(child.stdout, opts.onStdout),
-      new Response(child.stderr).text(),
+      tailText(child.stderr),
       child.exited,
     ])
     // Killed by our own abort: rejecting (rather than resolving with
