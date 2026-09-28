@@ -209,7 +209,7 @@ export function parseDisable(
 }
 
 const LINE_BREAK_RE = /[\r\n]/
-const INI_KEY_BREAKER_RE = /[=[\]]|^[;#]/
+const INI_KEY_BREAKER_RE = /^$|^\s|\s$|[=[\]]|^[;#]/
 
 /**
  * Values must be scalar because every consumer renders them with `String(v)` --
@@ -237,7 +237,7 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
     }
     if (INI_KEY_BREAKER_RE.test(key) || key === 'model') {
       throw new ParseError(
-        `${site} "args" key ${JSON.stringify(key)} is "model" or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
+        `${site} "args" key ${JSON.stringify(key)} is empty, "model", has leading or trailing whitespace, or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
         file,
       )
     }

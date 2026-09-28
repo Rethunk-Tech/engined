@@ -1356,7 +1356,8 @@ describe('route values rendered into the llama preset INI', () => {
   })
 
   test("an arg key the INI would misread, or that shadows the preset's own model line, is fatal", () => {
-    for (const key of ['"a=b"', '"[x]"', '";x"', '"#x"', 'model']) {
+    // An INI reader trims keys, so an empty or padded one names a different key or none.
+    for (const key of ['"a=b"', '"[x]"', '";x"', '"#x"', 'model', '""', '" k"', '"k\\t"']) {
       expect(() =>
         loadConfig(
           writeConfig(
