@@ -283,8 +283,10 @@ export async function handleCompletions(
     route.role === undefined ||
     route.model === undefined
   ) {
-    const address = route.model === undefined ? route.engine : `${route.engine}/${route.model}`
-    return jsonError(STATUS_BAD_GATEWAY, `"@/${address}" cannot serve completions`)
+    return jsonError(
+      STATUS_BAD_GATEWAY,
+      `"${routeAddress(route, ctx.getConfig().routes)}" cannot serve completions`,
+    )
   }
   const modelId = route.model
   const router = getLlamaRouter(ctx, engineEntry)
