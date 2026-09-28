@@ -11,14 +11,12 @@
  */
 import {
   CONTENT_TYPE,
-  declaredOverLimit,
   ENGINE_ERROR_CHARS,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
-  MAX_JSON_BODY_BYTES,
+  readCappedText,
   readJsonBody,
-  STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage } from './records.ts'
@@ -93,11 +91,5 @@ async function readExtrasBody(
     const parsed = await readJsonBody(req)
     return parsed instanceof Response ? parsed : injectModel(parsed, residentModel)
   }
-  if (declaredOverLimit(req, MAX_JSON_BODY_BYTES) !== undefined) {
-    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
-  }
-  const raw = await req.text()
-  return raw.length > MAX_JSON_BODY_BYTES
-    ? jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
-    : raw
+  return readCappedText(req)
 }

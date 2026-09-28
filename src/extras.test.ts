@@ -132,6 +132,28 @@ test('no resident model: injectable endpoints are forwarded without a model, let
   expect(parsed.model).toBeUndefined()
 })
 
+test('a client that hangs up mid-upload gets a 400, not a throw out of the proxy', async () => {
+  const { client, calls } = recordingClient(() => Response.json({}))
+  const req = new Request(`${BASE}/apply-template`, {
+    method: 'POST',
+    body: new ReadableStream<Uint8Array>({
+      start: (c) => {
+        c.enqueue(new TextEncoder().encode('{"messages":'))
+        c.error(new Error('connection reset'))
+      },
+    }),
+  })
+  const res = await proxyExtras(
+    req,
+    { baseUrl: () => BASE, enginePath: '/apply-template' },
+    null,
+    client,
+  )
+
+  expect(res.status).toBe(400)
+  expect(calls).toHaveLength(0)
+})
+
 const TEST_ROOT = makeTestRoot('engined-extras-')
 
 function extrasLlamaDoor(extrasHttpClient?: HttpClient) {

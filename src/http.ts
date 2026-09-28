@@ -324,6 +324,26 @@ export function imageTooLarge(bytes: number): Response {
 export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
 
 /**
+ * A request body within the JSON routes' ceiling, or the 413/400 to return
+ * instead. A client that hangs up mid-upload makes `text()` throw, and that
+ * is the caller's malformed request, not this door's failure.
+ */
+export async function readCappedText(req: Request): Promise<string | Response> {
+  if (declaredOverLimit(req, MAX_JSON_BODY_BYTES) !== undefined) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+  }
+  let raw: string
+  try {
+    raw = await req.text()
+  } catch {
+    return jsonError(STATUS_BAD_REQUEST, 'request body could not be read')
+  }
+  return raw.length > MAX_JSON_BODY_BYTES
+    ? jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+    : raw
+}
+
+/**
  * Every JSON body this door reads, or the 400 to return instead. A table is
  * the only accepted shape: `null`, an array and a bare scalar all parse as
  * valid JSON and none of them has the fields a handler goes on to read, so
@@ -331,18 +351,9 @@ export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
  * `Response` back means exactly that; the caller returns it unchanged.
  */
 export async function readJsonBody(req: Request): Promise<Record<string, unknown> | Response> {
-  const declared = declaredOverLimit(req, MAX_JSON_BODY_BYTES)
-  if (declared !== undefined) {
-    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
-  }
-  let raw: string
-  try {
-    raw = await req.text()
-  } catch {
-    return jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
-  }
-  if (raw.length > MAX_JSON_BODY_BYTES) {
-    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+  const raw = await readCappedText(req)
+  if (raw instanceof Response) {
+    return raw
   }
   return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
 }
