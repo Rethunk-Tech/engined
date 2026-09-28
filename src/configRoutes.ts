@@ -335,11 +335,12 @@ export function resolveRoute({
   // A local llama route's model is a `[section]` header in its preset INI,
   // so these would split or comment out the section rather than name it.
   // `reason === undefined` already means a local route on a models_dir
-  // engine; the kind is what separates llama from whisper.
+  // engine; the kind is what separates llama from whisper, and is read last
+  // because a spec-full engine's kind costs a spec read.
   if (
     reason === undefined &&
-    traitFor(engine).kind === 'openai-http' &&
-    /[[\]=\r\n]|^[;#]/.test(raw.model as string)
+    /[[\]=\r\n]|^[;#]/.test(raw.model as string) &&
+    traitFor(engine).kind === 'openai-http'
   ) {
     throw new ParseError(
       `${raw.site} has a "model" containing "[", "]", "=", a line break, or a leading ";" or "#", which the llama preset INI cannot carry as a section name`,
