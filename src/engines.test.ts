@@ -1219,6 +1219,36 @@ describe('a running engine whose config generation has been replaced', () => {
     )
   })
 
+  test('says so for a container this registry adopted rather than launched', async () => {
+    await withComfyRegistry(
+      {
+        exec: comfyExec(),
+        cfg: comfyConfigWith(5),
+        queueFetch: () => Promise.resolve(BUSY_QUEUE),
+        comfyPollIntervalMs: 10_000,
+      },
+      async (launcher, lifecycle) => {
+        await launcher.start('comfy')
+        // A second registry over the same lifecycle finds the container
+        // already up, as a restarted engined does: every start says launched false.
+        const adopter = new EngineRegistry(comfyConfigWith(5), {
+          enginesRoot: ENGINES_ROOT,
+          bunx: BUNX,
+          lifecycle,
+          queueFetch: () => Promise.resolve(BUSY_QUEUE),
+          comfyPollIntervalMs: 10_000,
+        })
+        try {
+          expect((await adopter.start('comfy')).launched).toBe(false)
+          adopter.reload(comfyConfigWith(6))
+          expect(adopter.get('comfy')?.superseded).toContain('/engined/v1/engines/comfy/stop')
+        } finally {
+          await adopter.shutdown()
+        }
+      },
+    )
+  })
+
   test('a reload that changes nothing about this engine leaves it alone', async () => {
     await withComfyRegistry(
       {

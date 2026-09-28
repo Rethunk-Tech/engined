@@ -341,7 +341,9 @@ export class EngineRegistry {
       this.residency.started(id, model)
       // A start that found the container already up did not apply this
       // shape; recording it would hide the restart the old one still needs.
-      if (launched === true) {
+      // A container adopted at boot is the exception: every start finds it up,
+      // and adoption already proved it runs the spec now in force.
+      if (launched === true || !this.launchedShape.has(id)) {
         this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes))
       }
       if (opts?.lease === true) {
