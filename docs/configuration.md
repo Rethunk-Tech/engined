@@ -19,6 +19,28 @@ where one applies, a model, and carries everything specific to that pairing:
 `display_name`, `streaming`, `slot_long_threshold`, `vision_bridge`, `args`.
 `[[chain]]` is an ordered fallback list of route addresses.
 
+## config.d fragments
+
+`$XDG_CONFIG_HOME/engined/config.d/*.toml` (`~/.config/engined/config.d/`
+when XDG is unset), read in sorted filename order and appended to the main
+file's `[[engine]]`, `[[upstream]]`, `[[model]]`, `[[route]]` and `[[chain]]`
+arrays. A missing `config.d` directory is normal and silent — most installs
+have no fragments.
+
+A fragment may declare only those five arrays; `listen_port` and every other
+file-root scalar key is a parse error naming the fragment, since a fragment
+scalar would otherwise silently shadow or fight the main file's depending on
+merge order. Every other rule — unknown keys, a duplicate `id`, a route that
+does not resolve, a `filename` outside `models_dir` — runs on the merged
+result exactly as if everything had been declared in one file, and still
+names the file the offending entry actually came from.
+
+The motivating consumer is a short-lived fragment: a tool drops
+`config.d/<name>.toml` declaring its own throwaway engine and routes, sends
+`SIGHUP` to reload, and deletes the file when it is done. A failed reload
+(a bad fragment, same as a bad main file) keeps the config already running
+and reports it via `config_error`, exactly as a bad `config.toml` does.
+
 ## Config versus spec, and why the split is not tidiness
 
 An engine's *shape* is not configuration. Every engine engined launches is a

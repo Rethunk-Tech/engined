@@ -8,8 +8,8 @@
  * an upstream may share an id with no conflict, since nothing before
  * addressing (a later phase) ever compares the two.
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
 import {
@@ -235,19 +235,29 @@ function parseModel(value: unknown, index: number, file: string): ModelEntry {
   return { id, ...parseCapabilities(raw, `model "${id}"`, file) }
 }
 
-function claimName(seen: Map<string, string>, name: string, site: string, file: string): void {
-  const prior = seen.get(name)
-  if (prior !== undefined) {
-    throw new ParseError(`"${name}" is declared twice: ${prior} and ${site}`, file)
-  }
-  seen.set(name, site)
-}
-
-/** Every `id` in one table declared once. Tables are checked only against themselves: an engine, an upstream and a model may share a name. */
-function checkCollisions(items: readonly { id: string }[], label: string, file: string): void {
+/**
+ * Every `id` in one table declared once, across the main file and every
+ * `config.d` fragment. Tables are checked only against themselves: an
+ * engine, an upstream and a model may share a name. `files` is parallel to
+ * `items`, so a collision names both the fragment that redeclared an id and
+ * the file that declared it first.
+ */
+function checkCollisions(
+  items: readonly { id: string }[],
+  files: readonly string[],
+  label: string,
+): void {
   const seen = new Map<string, string>()
-  for (const item of items) {
-    claimName(seen, item.id, `${label} "${item.id}"`, file)
+  for (const [i, item] of items.entries()) {
+    const file = files[i] as string
+    const prior = seen.get(item.id)
+    if (prior !== undefined) {
+      throw new ParseError(
+        `${label} "${item.id}" is declared twice: also declared in ${prior}`,
+        file,
+      )
+    }
+    seen.set(item.id, file)
   }
 }
 
@@ -340,24 +350,26 @@ function parseChainRaw(value: unknown, index: number, file: string): RawChain {
   return { id, hops, disabled: parseDisable(raw, site, file) === true }
 }
 
-function parseChains(
-  raw: unknown,
+function buildChains(
+  rawChains: readonly RawChain[],
   engines: readonly EngineEntry[],
   routes: readonly ResolvedRoute[],
-  file: string,
+  chainFiles: readonly string[],
 ): Record<string, string[]> {
-  const rawChains = asArray(raw, 'chain', file).map((c, i) => parseChainRaw(c, i, file))
-
-  checkCollisions(rawChains, 'chain', file)
-
   const chains: Record<string, string[]> = Object.create(null)
-  for (const c of rawChains) {
+  for (const [i, c] of rawChains.entries()) {
     // A disabled chain is not served at all -- its own top-level flag, not a
     // resolved-hop question the way an engine/upstream/route's is.
     if (c.disabled) {
       continue
     }
-    const hops = parseChainHops({ name: c.id, hops: c.hops, engines, routes, file })
+    const hops = parseChainHops({
+      name: c.id,
+      hops: c.hops,
+      engines,
+      routes,
+      file: chainFiles[i] as string,
+    })
     // Nothing left to route to: the chain goes with its hops rather than
     // resolving to an empty list a request would fall off the end of.
     if (hops.length > 0) {
@@ -365,6 +377,35 @@ function parseChains(
     }
   }
   return chains
+}
+
+/** One `[[table]]` array plus which file each of its parsed entries came from -- what a collision or a cross-entry check needs to name the right fragment. */
+interface Collected<T> {
+  items: T[]
+  files: string[]
+}
+
+/**
+ * Parses one array key (`engine`, `upstream`, ...) out of every source in
+ * order -- the main file first, then each `config.d` fragment in sorted
+ * filename order -- so the merged result reads exactly as if all the arrays
+ * had been declared in one file, while every parse error still names the
+ * fragment it came from.
+ */
+function collectEntries<T>(
+  sources: readonly ConfigSource[],
+  key: string,
+  parseOne: (value: unknown, index: number, file: string) => T,
+): Collected<T> {
+  const items: T[] = []
+  const files: string[] = []
+  for (const { file, raw } of sources) {
+    for (const [i, value] of asArray(raw[key], key, file).entries()) {
+      items.push(parseOne(value, i, file))
+      files.push(file)
+    }
+  }
+  return { items, files }
 }
 
 /**
@@ -375,27 +416,35 @@ function parseChains(
 export function loadConfig(path?: string, enginesRoot?: string): Config {
   const file = path ?? configPath()
   const root = enginesRoot ?? join(installDir(), 'engines')
-  const raw = readConfigTable(file)
-  assertKnownKeys(raw, 'config', TOP_KEYS, file)
+  const sources = readConfigSources(file)
+  const mainRaw = sources[0]?.raw as Record<string, unknown>
 
-  const engines = asArray(raw.engine, 'engine', file).map((e, i) => parseEngine(e, i, file))
-  checkCollisions(engines, 'engine', file)
+  const { items: engines, files: engineFiles } = collectEntries(sources, 'engine', parseEngine)
+  checkCollisions(engines, engineFiles, 'engine')
   const engineMap = new Map(engines.map((e) => [e.id, e]))
 
-  const upstreams = asArray(raw.upstream, 'upstream', file).map((u, i) => parseUpstream(u, i, file))
-  checkCollisions(upstreams, 'upstream', file)
+  const { items: upstreams, files: upstreamFiles } = collectEntries(
+    sources,
+    'upstream',
+    parseUpstream,
+  )
+  checkCollisions(upstreams, upstreamFiles, 'upstream')
   const upstreamMap = new Map(upstreams.map((u) => [u.id, u]))
 
-  const models = asArray(raw.model, 'model', file).map((m, i) => parseModel(m, i, file))
-  checkCollisions(models, 'model', file)
+  const { items: models, files: modelFiles } = collectEntries(sources, 'model', parseModel)
+  checkCollisions(models, modelFiles, 'model')
   const modelMap = new Map(models.map((m) => [m.id, m]))
 
-  const rawRoutes = asArray(raw.route, 'route', file).map((r, i) =>
-    parseRouteRaw(r, i, file, engineMap),
+  const routeFiles: string[] = []
+  const rawRoutes = sources.flatMap(({ file: srcFile, raw }) =>
+    asArray(raw.route, 'route', srcFile).map((r, i) => {
+      routeFiles.push(srcFile)
+      return parseRouteRaw(r, i, srcFile, engineMap)
+    }),
   )
 
   const traitFor = cachedTraitFor(root)
-  const routes = rawRoutes.map((r) =>
+  const routes = rawRoutes.map((r, i) =>
     resolveRoute({
       raw: r,
       allRaws: rawRoutes,
@@ -403,7 +452,7 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
       upstreams: upstreamMap,
       models: modelMap,
       traitFor,
-      file,
+      file: routeFiles[i] as string,
     }),
   )
 
@@ -414,15 +463,66 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   validateModelsMax(engines, routes, file)
   validateVisionBridgeRoutes(routes, file)
 
-  const chains = parseChains(raw.chain, engines, routes, file)
+  const { items: rawChains, files: chainFiles } = collectEntries(sources, 'chain', parseChainRaw)
+  checkCollisions(rawChains, chainFiles, 'chain')
+  const chains = buildChains(rawChains, engines, routes, chainFiles)
 
   return {
-    ...parseTopLevelSettings(raw, file),
+    ...parseTopLevelSettings(mainRaw, file),
     engines,
     upstreams,
     routes,
     chains,
   }
+}
+
+/** Scalar keys that only the main config file may carry -- everything else in `TOP_KEYS` is one of the five arrays a fragment may also extend. */
+const FRAGMENT_TABLE_KEYS = new Set(['engine', 'upstream', 'model', 'route', 'chain'])
+
+/** A parsed source file plus the raw table it produced, in the order its entries merge. */
+interface ConfigSource {
+  file: string
+  raw: Record<string, unknown>
+}
+
+/**
+ * `config.d/*.toml` beside the main file, sorted by filename -- the same
+ * order their `[[engine]]`/etc. arrays are appended in. A missing directory
+ * is normal and silent, since most installs have no fragments at all.
+ */
+function fragmentFiles(mainFile: string): string[] {
+  const dir = join(dirname(mainFile), 'config.d')
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
+    throw new ParseError('cannot read config.d', dir, { cause: err })
+  }
+  return names
+    .filter((name) => name.endsWith('.toml'))
+    .sort()
+    .map((name) => join(dir, name))
+}
+
+/**
+ * The main config plus every `config.d` fragment, each read and key-checked
+ * on its own: the main file against the full `TOP_KEYS`, a fragment against
+ * only the five array keys, since a fragment scalar like `listen_port` would
+ * silently shadow or fight the main file's depending on merge order.
+ */
+function readConfigSources(mainFile: string): ConfigSource[] {
+  const mainRaw = readConfigTable(mainFile)
+  assertKnownKeys(mainRaw, 'config', TOP_KEYS, mainFile)
+  const sources: ConfigSource[] = [{ file: mainFile, raw: mainRaw }]
+  for (const fragFile of fragmentFiles(mainFile)) {
+    const fragRaw = readConfigTable(fragFile)
+    assertKnownKeys(fragRaw, 'config.d fragment', FRAGMENT_TABLE_KEYS, fragFile)
+    sources.push({ file: fragFile, raw: fragRaw })
+  }
+  return sources
 }
 
 /** The config file as a parsed TOML table; every read or parse failure is a ParseError naming the file. */

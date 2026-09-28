@@ -1858,3 +1858,107 @@ test('chains are keyed without Object.prototype names', () => {
   expect(cfg.chains.constructor).toBeUndefined()
   expect(cfg.chains.toString).toBeUndefined()
 })
+
+describe('config.d fragments', () => {
+  /** `path` is a main config.toml written by `writeConfig`; drops one fragment per `files` entry into `config.d` beside it. */
+  function writeConfigD(path: string, files: Record<string, string>): void {
+    const dir = join(dirname(path), 'config.d')
+    mkdirSync(dir, { recursive: true })
+    for (const [name, toml] of Object.entries(files)) {
+      writeFileSync(join(dir, name), toml)
+    }
+  }
+
+  test('a missing config.d directory is normal and silent', () => {
+    const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
+    expect(cfg.engines.map((e) => e.id)).toEqual(['local-llama'])
+  })
+
+  test("a fragment's arrays are appended to the main file's, in sorted filename order, and can address each other", () => {
+    const path = writeConfig(`
+[[upstream]]
+id = "local"
+egress = "none"
+`)
+    // "b" is written first on disk but sorts after "a" -- if merge order
+    // followed write order instead of the filename, "a"'s route would fail
+    // to resolve "frag-engine" at all.
+    writeConfigD(path, {
+      'b-route.toml': `
+[[route]]
+engine = "frag-engine"
+`,
+      'a-engine.toml': `
+[[engine]]
+id   = "frag-engine"
+kind = "agentic-cli"
+`,
+    })
+    const cfg = loadConfig(path)
+    expect(cfg.engines.map((e) => e.id)).toEqual(['frag-engine'])
+    expect(cfg.routes.map((r) => r.engine)).toEqual(['frag-engine'])
+  })
+
+  test('a fragment engine may declare spec_dir', () => {
+    const path = writeConfig(`
+[[upstream]]
+id = "local"
+egress = "none"
+`)
+    writeConfigD(path, {
+      'bakeoff.toml': `
+[[engine]]
+id       = "llama-bench"
+kind     = "agentic-cli"
+spec_dir = "/tmp/nonexistent-spec-dir"
+`,
+    })
+    const cfg = loadConfig(path)
+    expect(cfg.engines.find((e) => e.id === 'llama-bench')?.spec_dir).toBe(
+      '/tmp/nonexistent-spec-dir',
+    )
+  })
+
+  test('a fragment refusing a top-level scalar key names the fragment file', () => {
+    const path = writeConfig(llamaEngineAndRoute())
+    writeConfigD(path, { 'bad.toml': 'listen_port = 1\n' })
+    let message = ''
+    try {
+      loadConfig(path)
+      throw new Error('expected loadConfig to throw')
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toContain(join(dirname(path), 'config.d', 'bad.toml'))
+    expect(message).toMatch(/unrecognised key "listen_port"/)
+  })
+
+  test('a duplicate id across the main file and a fragment is fatal and names both files', () => {
+    const path = writeConfig(`
+[[upstream]]
+id = "local"
+egress = "none"
+
+[[engine]]
+id   = "dup"
+kind = "agentic-cli"
+`)
+    writeConfigD(path, {
+      'dup.toml': `
+[[engine]]
+id   = "dup"
+kind = "agentic-cli"
+`,
+    })
+    let message = ''
+    try {
+      loadConfig(path)
+      throw new Error('expected loadConfig to throw')
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toMatch(RX_DUP_DECLARED_TWICE)
+    expect(message).toContain(join(dirname(path), 'config.d', 'dup.toml'))
+    expect(message).toContain(path)
+  })
+})
