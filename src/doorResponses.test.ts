@@ -281,11 +281,11 @@ function streamingDoorConfig(): { cfg: Config; root: string } {
   return { cfg, root }
 }
 
-const STREAM_REQUEST_BODY = JSON.stringify({
+const STREAM_REQUEST_BODY = {
   model: '@/local-llama/ornith',
   messages: [{ role: 'user', content: 'hi' }],
   stream: true,
-})
+}
 
 /** A fresh `LlamaRouter`'s first streaming call always emits this ahead of the real bytes -- see `emitWarming` in llama.ts. Asserted here, not worked around, so the byte-identity check covers it too. */
 const WARMING_COMMENT = ': warming\n\n'
@@ -297,12 +297,7 @@ function fetchStreamChat(
   doorOpts: Parameters<typeof createLlamaDoor>[2],
 ): Promise<Response> {
   return Promise.resolve(
-    createLlamaDoor(cfg, root, doorOpts).fetch(
-      new Request('http://engined/openai/v1/chat/completions', {
-        method: 'POST',
-        body: STREAM_REQUEST_BODY,
-      }),
-    ),
+    createLlamaDoor(cfg, root, doorOpts).fetch(chatRequest(STREAM_REQUEST_BODY)),
   )
 }
 

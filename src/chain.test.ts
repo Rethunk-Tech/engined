@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgenticProbeRunner } from './agenticProbe.ts'
 import { type HopExec, parseHop, type RunChainOptions, runChain } from './chain.ts'
+import { chatRequest } from './doorFixtures.ts'
 import { createDoor } from './main.ts'
 import { qualifiedSegments } from './routeAddress.ts'
 import {
@@ -817,13 +818,10 @@ test("a failed pin probe's detail never reaches the provenance line", async () =
   )
 
   const res = await door.fetch(
-    new Request('http://engined/openai/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify({
-        model: `@/${id}/assistant`,
-        messages: [{ role: 'user', content: 'hi' }],
-        workdir: '/tmp',
-      }),
+    chatRequest({
+      model: `@/${id}/assistant`,
+      messages: [{ role: 'user', content: 'hi' }],
+      workdir: '/tmp',
     }),
   )
 

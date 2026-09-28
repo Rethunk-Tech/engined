@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resetSpeechCache } from './audioSpeech.ts'
 import type { DoorOptions } from './doorContext.ts'
+import { chatRequest } from './doorFixtures.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
 import type { Exec } from './exec.ts'
 import { errorMessageOf, HTTP_CLIENT_ERROR_MIN } from './http.ts'
@@ -222,13 +223,7 @@ function offlineDoor(config: Config): Door {
 /** A chat call aimed at the embedding route, which a chat role must refuse. */
 function chatToEmbeddingRoute(door: Door): Response | Promise<Response> {
   return door.fetch(
-    new Request('http://engined/openai/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify({
-        model: '@/local/embed',
-        messages: [{ role: 'user', content: 'hi' }],
-      }),
-    }),
+    chatRequest({ model: '@/local/embed', messages: [{ role: 'user', content: 'hi' }] }),
   )
 }
 
