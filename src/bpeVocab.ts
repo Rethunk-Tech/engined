@@ -43,31 +43,28 @@ async function buildBpeVocab(path: string): Promise<BpeVocab> {
   return { pre: meta.tokenizerPre, tokenToId, mergeRank }
 }
 
-const vocabCache = new Map<string, Promise<BpeVocab>>()
+/** Keyed on path alone: a replaced GGUF at the same path is caught by the mtime check below rather than leaking its old vocab under a second key. */
+const vocabCache = new Map<string, { mtimeMs: number; vocab: Promise<BpeVocab> }>()
 
-function vocabCacheKey(path: string, mtimeMs: number): string {
-  return `${path}:${mtimeMs}`
-}
-
-/** Loads and caches the BPE vocab for `path` (an absolute GGUF path). Repeat calls for the same path and mtime reuse the same tables; a newer mtime is a different file. */
+/** Loads and caches the BPE vocab for `path` (an absolute GGUF path). Repeat calls for the same path and mtime reuse the same tables; a newer mtime replaces the cached entry rather than adding beside it. */
 export async function loadBpeVocab(
   path: string,
   statFile: (p: string) => Promise<{ mtimeMs: number }> = stat,
 ): Promise<BpeVocab> {
   const { mtimeMs } = await statFile(path)
-  const key = vocabCacheKey(path, mtimeMs)
-  let cached = vocabCache.get(key)
-  if (cached === undefined) {
-    cached = buildBpeVocab(path)
-    vocabCache.set(key, cached)
-    // UnsupportedVocabError is a property of the file: retrying will not
-    // change the tokenizer. Transient read errors are evicted so a later
-    // call can try again.
-    cached.catch((err: unknown) => {
-      if (!(err instanceof UnsupportedVocabError)) {
-        vocabCache.delete(key)
-      }
-    })
+  const cached = vocabCache.get(path)
+  if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+    return cached.vocab
   }
-  return cached
+  const vocab = buildBpeVocab(path)
+  vocabCache.set(path, { mtimeMs, vocab })
+  // UnsupportedVocabError is a property of the file: retrying will not
+  // change the tokenizer. Transient read errors are evicted so a later
+  // call can try again.
+  vocab.catch((err: unknown) => {
+    if (!(err instanceof UnsupportedVocabError) && vocabCache.get(path)?.vocab === vocab) {
+      vocabCache.delete(path)
+    }
+  })
+  return vocab
 }
