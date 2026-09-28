@@ -12,22 +12,10 @@ const FLAG_COMPRESSED = 1
 /** A Connect frame larger than this is a runaway, not a turn. */
 const MAX_CONNECT_FRAME = 16 * 1024 * 1024
 
-function concatChunks(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((n, p) => n + p.length, 0)
-  const out = new Uint8Array(total)
-  let at = 0
-  for (const part of parts) {
-    out.set(part, at)
-    at += part.length
-  }
-  return out
-}
-
-function peekEnvelope(chunks: Uint8Array[]): { flags: number; length: number } | undefined {
-  let have = 0
-  for (const part of chunks) {
-    have += part.length
-  }
+function peekEnvelope(
+  chunks: Uint8Array[],
+  have: number,
+): { flags: number; length: number } | undefined {
   if (have < ENVELOPE_HEADER) {
     return undefined
   }
@@ -55,7 +43,7 @@ export function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Arr
     chunks.push(chunk)
     buffered += chunk.length
     for (;;) {
-      const head = peekEnvelope(chunks)
+      const head = peekEnvelope(chunks, buffered)
       if (head === undefined) {
         return
       }
@@ -65,7 +53,7 @@ export function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Arr
       if (buffered < ENVELOPE_HEADER + head.length) {
         return
       }
-      const joined = concatChunks(chunks)
+      const joined = Buffer.concat(chunks)
       const payload = joined.subarray(ENVELOPE_HEADER, ENVELOPE_HEADER + head.length)
       const rest = joined.subarray(ENVELOPE_HEADER + head.length)
       chunks.length = 0

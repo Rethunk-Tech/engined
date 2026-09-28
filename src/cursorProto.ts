@@ -29,24 +29,13 @@ function varint(value: number): Uint8Array {
   return Uint8Array.from(out)
 }
 
-function concat(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((n, p) => n + p.length, 0)
-  const out = new Uint8Array(total)
-  let at = 0
-  for (const p of parts) {
-    out.set(p, at)
-    at += p.length
-  }
-  return out
-}
-
 function tag(fieldNo: number, wire: number): Uint8Array {
   return varint(fieldNo * 8 + wire)
 }
 
 /** A length-delimited field: a nested message or a `bytes` value. */
 export function bytesField(fieldNo: number, payload: Uint8Array): Uint8Array {
-  return concat([tag(fieldNo, WIRE_LENGTH), varint(payload.length), payload])
+  return Buffer.concat([tag(fieldNo, WIRE_LENGTH), varint(payload.length), payload])
 }
 
 export function stringField(fieldNo: number, value: string): Uint8Array {
@@ -54,11 +43,11 @@ export function stringField(fieldNo: number, value: string): Uint8Array {
 }
 
 export function intField(fieldNo: number, value: number): Uint8Array {
-  return concat([tag(fieldNo, WIRE_VARINT), varint(value)])
+  return Buffer.concat([tag(fieldNo, WIRE_VARINT), varint(value)])
 }
 
 export function message(...parts: Uint8Array[]): Uint8Array {
-  return concat(parts)
+  return Buffer.concat(parts)
 }
 
 /**
