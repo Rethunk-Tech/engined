@@ -42,7 +42,7 @@ import { CONTRACT, type EngineStatus, type EnginesResponse } from './responses.t
 import type { RuntimeStatus } from './runtimeTable.ts'
 import type { SpecLoadOptions } from './spec.ts'
 import { isContainerSpec, type Spec } from './specTypes.ts'
-import type { Config, EngineEntry } from './types.ts'
+import type { Config, EngineEntry, Upstream } from './types.ts'
 
 /** Set at build time by the install script; absent in a working-tree run. */
 declare const ENGINED_COMMIT: string | undefined
@@ -502,11 +502,12 @@ export class EngineRegistry {
         this.teardown(old.engine.id)
       }
     }
+    const changedUpstreamIds = changedOrRemovedUpstreamIds(this.config.upstreams, config.upstreams)
     this.config = config
     this.entries = newEntries
     this.byId = new Map(newEntries.map((e) => [e.engine.id, e]))
     this.comfy.watch(newEntries)
-    this.inventoryWatch.forget()
+    this.inventoryWatch.forget(changedUpstreamIds)
     this.startInventoryRefresh()
   }
 
@@ -515,4 +516,20 @@ export class EngineRegistry {
     this.inventoryWatch.stop()
     await this.lifecycle.shutdown()
   }
+}
+
+/** Ids of every upstream removed, or whose entry no longer matches the old one -- what `InventoryWatch.forget` uses to leave an untouched upstream's cached catalog alone. */
+function changedOrRemovedUpstreamIds(
+  before: readonly Upstream[],
+  after: readonly Upstream[],
+): Set<string> {
+  const afterById = new Map(after.map((u) => [u.id, u]))
+  const changed = new Set<string>()
+  for (const u of before) {
+    const next = afterById.get(u.id)
+    if (next === undefined || JSON.stringify(next) !== JSON.stringify(u)) {
+      changed.add(u.id)
+    }
+  }
+  return changed
 }

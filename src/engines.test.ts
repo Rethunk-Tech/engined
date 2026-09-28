@@ -25,7 +25,9 @@ import {
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
 import type { Exec } from './exec.ts'
+import { Inventory } from './inventory.ts'
 import { llamaPresetPath } from './paths.ts'
+import { WILDCARD_MODEL } from './routeAddress.ts'
 import type { RuntimeStatus } from './runtimeTable.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -221,6 +223,42 @@ test("a reload's teardown of a local llama engine removes its preset directory",
   } finally {
     restoreStateHome()
   }
+})
+
+test('a reload whose upstreams are unchanged keeps a cached wildcard catalog', async () => {
+  const catalogUpstream = upstream({
+    id: 'openrouter',
+    base_url: 'https://example.invalid/v1',
+    secret: { service: 's', username: 'u', header: 'authorization', scheme: 'Bearer' },
+    egress: 'remote',
+    inventory_max_age_seconds: 86_400,
+  })
+  const inv = new Inventory({
+    stateRoot: newEnginesRoot(),
+    secretExec: () => Promise.resolve({ stdout: 'sk-test\n', stderr: '', exitCode: 0 }),
+    fetch: async () =>
+      Response.json({ object: 'list', data: [{ id: 'model-a', object: 'model' }] }),
+  })
+  await inv.refresh(catalogUpstream)
+  expect(inv.peek(catalogUpstream)).toEqual(['model-a'])
+
+  const cfgFor = () =>
+    config({
+      engines: [engine({ id: 'openrouter', kind: 'openai-http' })],
+      upstreams: [catalogUpstream],
+      routes: [route({ engine: 'openrouter', model: WILDCARD_MODEL, upstream: 'openrouter' })],
+    })
+  const reg = new EngineRegistry(cfgFor(), {
+    enginesRoot: '/nonexistent',
+    bunx: BUNX,
+    inventory: inv,
+  })
+
+  // A reload for an unrelated reason (a bakeoff engine added elsewhere,
+  // say) that leaves every upstream's own entry as it was.
+  reg.reload(cfgFor())
+
+  expect(inv.peek(catalogUpstream)).toEqual(['model-a'])
 })
 
 /** Builds a registry over a pulled `llama` from `before`, reloads it with `after`, and reports what was torn down. */
