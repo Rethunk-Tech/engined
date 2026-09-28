@@ -16,6 +16,7 @@ import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
+  engineErrorStatus,
   JSON_CONTENT_TYPE,
   jsonError,
   jsonErrorBody,
@@ -377,11 +378,12 @@ async function remoteAudioStart(
  * The audio door's `EngineStart`. A remote engine is resolved to an address
  * and a header instead of started — there is no container to warm — and a
  * secret that will not resolve surfaces as a null `private_url` with no
- * `remote`, which the door reports as unavailable exactly like a container
- * that failed to come up. `EngineBusyError` (a model switch that would kill
- * a request in flight) surfaces as `conflict` rather than propagating, so
- * `handleSpeech`/`handleTranscription` can turn it into a 409 the same way
- * they already turn `unavailable` into a 503.
+ * `remote`, carrying no `status` -- `handleSpeech`/`handleTranscription`'s
+ * own fixed 503 is right for that case. `EngineBusyError` (a model switch
+ * that would kill a request in flight) surfaces as `conflict` rather than
+ * propagating, so those callers turn it into a 409 the same way they turn a
+ * caught start failure's own `status` (`engineErrorStatus`, `http.ts`) into
+ * a 503 for a hold or a 502 for anything else.
  */
 export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
@@ -402,7 +404,7 @@ export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
       if (err instanceof EngineBusyError) {
         return { private_url: null, conflict: err.message }
       }
-      return { private_url: null, unavailable: errMessage(err) }
+      return { private_url: null, unavailable: errMessage(err), status: engineErrorStatus(err) }
     }
     // `EngineStatus` (the wire type `registry.start` returns) carries no
     // container address at all -- the internal runtime read is `lifecycle`'s

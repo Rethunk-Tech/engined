@@ -17,16 +17,15 @@ import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { getLlamaRouter, recordDoorCall } from './doorContext.ts'
-import { HeldError } from './errors/held.ts'
 import {
   CONTENT_TYPE,
+  engineErrorStatus,
   JSON_CONTENT_TYPE,
   jsonError,
   jsonErrorBody,
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  STATUS_UNAVAILABLE,
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
@@ -272,7 +271,7 @@ export async function handleCompletions(
     const failure = signal?.aborted
       ? 'client disconnected'
       : `connection failed: ${errMessage(err)}`
-    const status = err instanceof HeldError ? STATUS_UNAVAILABLE : STATUS_BAD_GATEWAY
+    const status = engineErrorStatus(err)
     recordCompletion(ctx, route, modelId, rawModel, startedAt, false, failure)
     return jsonError(status, errMessage(err))
   }

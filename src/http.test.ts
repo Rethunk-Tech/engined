@@ -1,14 +1,19 @@
 import { expect, test } from 'bun:test'
+import { EngineBusyError } from './errors/engineBusy.ts'
+import { HeldError } from './errors/held.ts'
 import {
   declaredOverLimit,
   discardBody,
+  engineErrorStatus,
   headOf,
   jsonErrorBody,
   MAX_JSON_BODY_BYTES,
   methodNotAllowed,
   readJsonBody,
   readModelBody,
+  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_CONFLICT,
   STATUS_FORBIDDEN,
   STATUS_METHOD_NOT_ALLOWED,
   STATUS_NOT_FOUND,
@@ -148,6 +153,13 @@ test('a JSON error body is OpenAI-shaped and types the status', () => {
   expect(jsonErrorBody(STATUS_METHOD_NOT_ALLOWED, 'no').error.type).toBe('invalid_request_error')
   expect(jsonErrorBody(STATUS_TOO_MANY_REQUESTS, 'slow').error.type).toBe('rate_limit_error')
   expect(jsonErrorBody(STATUS_UNAVAILABLE, 'down').error.type).toBe('server_error')
+})
+
+test('engineErrorStatus: busy is 409, held is 503, anything else is 502', () => {
+  expect(engineErrorStatus(new EngineBusyError('busy'))).toBe(STATUS_CONFLICT)
+  expect(engineErrorStatus(new HeldError('local-llama', 60_000))).toBe(STATUS_UNAVAILABLE)
+  expect(engineErrorStatus(new TypeError('connection refused'))).toBe(STATUS_BAD_GATEWAY)
+  expect(engineErrorStatus('not even an Error')).toBe(STATUS_BAD_GATEWAY)
 })
 
 test('methodNotAllowed is 405 with Allow naming the methods that path serves', () => {

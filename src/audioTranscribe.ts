@@ -333,7 +333,10 @@ export async function handleTranscription(
     }
   }
   if (engine.private_url === null) {
-    return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.engine} is not available`)
+    return errorResponse(
+      engine.status ?? STATUS_UNAVAILABLE,
+      engine.unavailable ?? `${req.engine} is not available`,
+    )
   }
   try {
     if (liveUpload(req) || req.stream === true) {

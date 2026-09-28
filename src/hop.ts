@@ -19,16 +19,17 @@ import { resolveUpstreamModelId } from './agenticRedirect.ts'
 import { type HopExec, type HopResult, parseHop } from './chain.ts'
 import { resolveServedRoute, routeEgress } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import { EngineBusyError } from './errors/engineBusy.ts'
 import { HeldError } from './errors/held.ts'
 import {
   CONTENT_TYPE,
+  engineErrorStatus,
   JSON_CONTENT_TYPE,
   jsonErrorBody,
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
   STATUS_TOO_MANY_REQUESTS,
-  STATUS_UNAVAILABLE,
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
@@ -170,11 +171,14 @@ async function execLlama(
       modelResident,
     }
   } catch (err) {
-    if (err instanceof HeldError) {
-      return {
-        status: STATUS_UNAVAILABLE,
-        body: jsonErrorBody(STATUS_UNAVAILABLE, err.message),
-      }
+    // Busy and Held are the two registry failures this hop answers directly,
+    // matching every other door site's status; anything else stays a throw,
+    // so `runChain`'s own catch keeps telling a timeout from a client abort
+    // from a plain transport failure -- a distinction this function does not
+    // have enough context to draw on its own.
+    if (err instanceof EngineBusyError || err instanceof HeldError) {
+      const status = engineErrorStatus(err)
+      return { status, body: jsonErrorBody(status, err.message) }
     }
     throw err
   }

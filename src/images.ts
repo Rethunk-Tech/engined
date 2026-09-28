@@ -21,16 +21,15 @@ import { comfyPromptId, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import { type DoorContext, recordDoorCall } from './doorContext.ts'
-import { HeldError } from './errors/held.ts'
 import {
   ENGINE_ERROR_CHARS,
+  engineErrorStatus,
   type HttpClient,
   jsonError,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
-  STATUS_UNAVAILABLE,
 } from './http.ts'
 import {
   collectRenderedImages,
@@ -317,7 +316,7 @@ export async function renderWith(
     )
   } catch (err) {
     return refuse({
-      status: err instanceof HeldError ? STATUS_UNAVAILABLE : STATUS_BAD_GATEWAY,
+      status: engineErrorStatus(err),
       error: errMessage(err),
     })
   } finally {

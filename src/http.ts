@@ -5,6 +5,8 @@
  * is the bug this file exists to prevent.
  */
 
+import { EngineBusyError } from './errors/engineBusy.ts'
+import { HeldError } from './errors/held.ts'
 import { isRecord, parseRecord } from './records.ts'
 
 export const STATUS_OK = 200
@@ -119,6 +121,24 @@ export function jsonErrorBody(status: number, message: string): OpenAiErrorBody 
 /** The same shape, already wrapped as a `Response` — for a caller returning straight to the door's own `fetch`. */
 export function jsonError(status: number, message: string): Response {
   return Response.json(jsonErrorBody(status, message), { status })
+}
+
+/**
+ * The one status a registry-driven start/dispatch failure gets, everywhere a
+ * door catches one: a model switch that would kill a request in flight is a
+ * 409, a held engine is a 503 the caller is meant to retry, and anything
+ * else got no more specific reason out of the engine's own supply chain, so
+ * it answers as the door's own upstream failure -- 502. One function so a
+ * fourth call site cannot invent a fourth ordering of the same three checks.
+ */
+export function engineErrorStatus(err: unknown): number {
+  if (err instanceof EngineBusyError) {
+    return STATUS_CONFLICT
+  }
+  if (err instanceof HeldError) {
+    return STATUS_UNAVAILABLE
+  }
+  return STATUS_BAD_GATEWAY
 }
 
 /** A known path asked with a method it does not serve. `Allow` names every method that path does. */

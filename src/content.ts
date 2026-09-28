@@ -11,19 +11,16 @@ import { handleCompletions } from './completions.ts'
 import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.ts'
 import { type Dispatch, resolveModel } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter, recordDoorCall } from './doorContext.ts'
-import { EngineBusyError } from './errors/engineBusy.ts'
-import { HeldError } from './errors/held.ts'
 import { proxyExtras } from './extras.ts'
 import { buildHopExec, egressOf, timeoutSecondsForKind } from './hop.ts'
 import {
   CONTENT_TYPE,
+  engineErrorStatus,
   JSON_CONTENT_TYPE,
   jsonError,
   readJsonBody,
   SSE_CONTENT_TYPE,
-  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  STATUS_CONFLICT,
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { handleImageEdit } from './imageEdits.ts'
@@ -207,13 +204,7 @@ export async function handleExtras(
         try {
           await router.warm(chatRoute, req.signal)
         } catch (err) {
-          if (err instanceof EngineBusyError) {
-            return jsonError(STATUS_CONFLICT, err.message)
-          }
-          if (err instanceof HeldError) {
-            return jsonError(STATUS_UNAVAILABLE, err.message)
-          }
-          return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
+          return jsonError(engineErrorStatus(err), errMessage(err))
         }
         residentModel = router.residentModel(EXTRAS_ROLE)
       }
@@ -233,10 +224,7 @@ export async function handleExtras(
       ctx.doorOpts.extrasHttpClient,
     )
   } catch (err) {
-    if (err instanceof EngineBusyError) {
-      return jsonError(STATUS_CONFLICT, err.message)
-    }
-    return jsonError(STATUS_UNAVAILABLE, errMessage(err))
+    return jsonError(engineErrorStatus(err), errMessage(err))
   }
 }
 

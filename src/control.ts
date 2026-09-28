@@ -8,16 +8,12 @@ import { parseHop } from './chain.ts'
 import { hopsOfChain, resolveQualified } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
-import { EngineBusyError } from './errors/engineBusy.ts'
-import { HeldError } from './errors/held.ts'
 import {
+  engineErrorStatus,
   jsonError,
   readModelBody,
-  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
-  STATUS_CONFLICT,
   STATUS_NOT_FOUND,
-  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage } from './records.ts'
 import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
@@ -219,13 +215,7 @@ export async function handleStart(ctx: DoorContext, req: Request): Promise<Respo
     const data = await Promise.all(resolved.routes.map((route) => startRoute(ctx, route)))
     return Response.json({ object: 'list', data } satisfies StartResponse)
   } catch (err) {
-    if (err instanceof EngineBusyError) {
-      return jsonError(STATUS_CONFLICT, err.message)
-    }
-    if (err instanceof HeldError) {
-      return jsonError(STATUS_UNAVAILABLE, err.message)
-    }
-    return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
+    return jsonError(engineErrorStatus(err), errMessage(err))
   }
 }
 

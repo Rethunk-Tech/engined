@@ -219,6 +219,14 @@ export interface StartedEngine {
    */
   unavailable?: string
   /**
+   * The status `unavailable` should answer with, when it came from a caught
+   * start error rather than a resolvable-upstream problem -- 503 for a hold,
+   * 502 for anything else `engineErrorStatus` (`http.ts`) sees. Absent means
+   * the caller's own fixed 503 holds, which is right for every `unavailable`
+   * that never went through that classifier at all.
+   */
+  status?: number
+  /**
    * Set instead of starting: switching the container to the requested model
    * would stop a request already in flight. A warm is an optimization, and
    * killing one to satisfy it is strictly worse than warming late.
