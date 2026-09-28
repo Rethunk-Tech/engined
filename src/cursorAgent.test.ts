@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
 import { createServer } from 'node:net'
 import { gzipSync } from 'node:zlib'
-import { framer, serveCursorAgent, toolRequestFrom } from './cursorAgent.ts'
+import { framer } from './connectFramer.ts'
+import { serveCursorAgent, toolRequestFrom } from './cursorAgent.ts'
 import { execOutcome, execRequest } from './cursorExec.ts'
 import {
   bytesField,
@@ -128,13 +129,13 @@ test('a Cursor bind failure is reported like the door port-in-use path', async (
   }
   let cursor: ReturnType<typeof serveCursorAgent> | undefined
   try {
-    const detail = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('bind error was never raised')), 2000)
+    const detail = await new Promise<string>((settle, fail) => {
+      const timer = setTimeout(() => fail(new Error('bind error was never raised')), 2000)
       cursor = serveCursorAgent(addr.port, {
         complete: () => Promise.resolve({ text: '', toolCalls: [] }),
-        onBindError: (message) => {
+        onBindError: (bindError) => {
           clearTimeout(timer)
-          resolve(message)
+          settle(bindError)
         },
       })
     })

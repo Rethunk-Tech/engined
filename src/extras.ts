@@ -49,7 +49,7 @@ interface ExtrasTarget {
  * runaway llama-server cannot pin the door; an SSE body's `timings` fields
  * still reach the caller unmodified when they fit.
  */
-export async function proxyExtras(
+export function proxyExtras(
   req: Request,
   target: ExtrasTarget,
   residentModel: string | null,

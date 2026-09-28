@@ -10,8 +10,11 @@ function dockerfiles(dir: string): string[] {
   const out: string[] = []
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
-    if (statSync(p).isDirectory()) out.push(...dockerfiles(p))
-    else if (name === 'Dockerfile') out.push(p)
+    if (statSync(p).isDirectory()) {
+      out.push(...dockerfiles(p))
+    } else if (name === 'Dockerfile') {
+      out.push(p)
+    }
   }
   return out
 }
