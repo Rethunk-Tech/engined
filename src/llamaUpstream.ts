@@ -40,7 +40,7 @@ interface ListedModel {
  * drain, error, the client cancelling, or the client stalling. The lease is
  * entirely `release`'s business.
  *
- * A stall is a chunk left unread for `stallMs`: a client that holds the
+ * A stall is a chunk left unread for `stallSeconds`: a client that holds the
  * socket open but stops reading reaches no other terminus, and the door
  * listens with no idle timeout, so without this its lease is held forever.
  */
@@ -48,7 +48,7 @@ export function pipeUpstream(
   reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
   emitWarming: boolean,
   release: () => void,
-  stallMs: number,
+  stallSeconds: number,
 ): ReadableStream<Uint8Array> {
   let stall: ReturnType<typeof setTimeout> | undefined
   const settle = () => {
@@ -60,11 +60,11 @@ export function pipeUpstream(
     // A full queue is a chunk the client has not taken; a read clears this in `pull`.
     if ((controller.desiredSize ?? 0) <= 0) {
       stall = setTimeout(() => {
-        const err = new Error(`client stalled: read nothing for ${stallMs / MS_PER_SECOND}s`)
+        const err = new Error(`client stalled: read nothing for ${stallSeconds}s`)
         controller.error(err)
         settle()
         reader?.cancel(err).catch(() => undefined)
-      }, stallMs)
+      }, stallSeconds * MS_PER_SECOND)
     }
   }
   return new ReadableStream<Uint8Array>({

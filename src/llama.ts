@@ -30,7 +30,7 @@ import {
 } from './llamaSpec.ts'
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
-import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { isRecord, parseRecord } from './records.ts'
 import type { RoleContention } from './responses.ts'
 import { ggufPath } from './tokenizeRoute.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
@@ -525,12 +525,7 @@ export class LlamaRouter {
         : (upstream.headers.get(CONTENT_TYPE) ?? SSE_CONTENT_TYPE)
       return {
         response: new Response(
-          pipeUpstream(
-            reader,
-            emitWarming,
-            release,
-            this.opts.streamStallSeconds() * MS_PER_SECOND,
-          ),
+          pipeUpstream(reader, emitWarming, release, this.opts.streamStallSeconds()),
           {
             status: upstream.status,
             headers: { [CONTENT_TYPE]: contentType },
