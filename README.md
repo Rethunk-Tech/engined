@@ -37,7 +37,7 @@ cp config.example.toml ~/.config/engined/config.toml
 systemctl --user restart engined.service
 ```
 
-Engine images are built locally on first use; edit the config, then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
+Engine images are built locally: an engine whose image is missing reports the `docker build` line to run. Edit the config, then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
 
 ## Highlights
 
