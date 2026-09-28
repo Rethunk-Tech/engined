@@ -30,21 +30,21 @@ Environment=ENGINED_BUNX=@BUNX_PATH@
 Environment=BUN_INSTALL=@STATE_DIR@/bun-install
 Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 
-# The read-only guarantee lives here, not in engined's own launch flags.
-# Measured under exactly these directives (ProtectSystem=strict,
-# ReadWritePaths=@STATE_DIR@, ProtectHome=read-only, PrivateTmp=yes,
-# BindPaths=/tmp below): a write to a fleet repository under $HOME and to
-# one outside it both fail EROFS, the state directory stays writable, and
-# `docker` still reaches /var/run/docker.sock -- connecting to a socket is
-# not a filesystem write, so a read-only /var costs nothing. ProtectHome
-# alone would not do it: all but two of this fleet's working trees are
+# The per-agent read-only floor is in the launch itself (`src/agents.ts`):
+# argv flags for claude and cursor, a `bwrap` sandbox for opencode. These
+# directives sandbox the door process on the host; they are not that floor.
+# Measured under ProtectSystem=strict, ReadWritePaths=@STATE_DIR@,
+# ProtectHome=read-only, PrivateTmp=yes, BindPaths=/tmp below: a write to a
+# repository under $HOME and to one outside it both fail EROFS, the state
+# directory stays writable, and `docker` still reaches /var/run/docker.sock
+# -- connecting to a socket is not a filesystem write, so a read-only /var
+# costs nothing. ProtectHome alone would not do it: worktrees commonly live
 # outside $HOME, and only ProtectSystem=strict reaches them.
 #
 # This cannot become a test. A `bun test` process never runs inside this
-# unit's sandbox, and hand-rolling an equivalent means a second maintained
-# copy of these directives -- the exact two-definitions drift this repo
-# keeps getting bitten by. This comment, re-verified against a live systemd
-# run, is the only durable record of a check that has to stay manual.
+# unit's sandbox, and a second copy of these directives would drift from
+# the unit. This comment, re-verified against a live systemd run, is the
+# only durable record of a check that has to stay manual.
 ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
 # cursor's CLI keeps per-project state under ~/.cursor/projects/<workdir> and
@@ -55,6 +55,9 @@ ReadWritePaths=%h/.cursor
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+SystemCallArchitectures=native
 
 # An agentic `workdir` is caller-supplied and routinely lands under /tmp (the
 # `mktemp -d` default). PrivateTmp's private /tmp hides that real directory
@@ -65,7 +68,9 @@ PrivateTmp=yes
 BindPaths=/tmp
 
 # MemoryDenyWriteExecute is deliberately absent: Bun's JIT and the
-# subprocesses engined spawns both need W^X.
+# subprocesses engined spawns need pages that are both writable and
+# executable. MemoryDenyWriteExecute enforces W^X (no mapping may be
+# both W and X).
 
 [Install]
 WantedBy=default.target

@@ -6,11 +6,9 @@
       "outputs": ["*.tsbuildinfo"]
     },
     "lint": {
-      // biome.jsonc's `files.includes` is the scope `biome check .` walks, so
-      // these globs mirror it exactly -- tsconfig.json and turbo.json are
-      // linted too, and a key set only to src/**/*.ts replayed a green over an
-      // edit to either. knip reads the same trees plus knip.json.
-      "inputs": ["src/**", "test/**", "*.json", "*.jsonc"],
+      // biome check . also walks engines/comfy/*.json; a src/test allowlist
+      // replayed green over those. $TURBO_DEFAULT$ is every tracked file.
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
     "test": {

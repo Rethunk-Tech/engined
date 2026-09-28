@@ -13,20 +13,22 @@ length (measured: 0.066/0.078/0.15 absolute across the three lengths below,
 on this box) -- a fixed number calibrated at one length under- or
 over-tolerates at another.
 
-Run inside the built image, where the real weights and ROCm stack live:
-  docker run --rm --entrypoint sh engined-kokoro:local -c \
-    'cd /app && python3 verify_padding.py'
+This file is not baked into the image. Bind-mount it and set PYTHONPATH so
+`app` and `kokoro` import from /app:
+
+  docker run --rm \\
+    -e PYTHONPATH=/app \\
+    -v "$PWD/engines/kokoro/verify_padding.py:/app/verify_padding.py:ro" \\
+    --entrypoint python3 engined-kokoro:local \\
+    /app/verify_padding.py
 """
 
-import sys
 import types
 
 import numpy as np
 import torch
-
-sys.path.insert(0, "/app")
-from app import _padded_forward_with_tokens  # noqa: E402
-from kokoro import KPipeline  # noqa: E402
+from app import _padded_forward_with_tokens
+from kokoro import KPipeline
 
 TEXTS = [
     "Hi.",
