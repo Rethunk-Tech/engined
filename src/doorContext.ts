@@ -132,9 +132,9 @@ export interface ComfyBinding {
 
 /**
  * The one place a verb hands off a finished call record, so writing the
- * provenance line and crediting usage can never drift apart -- a handler
- * that called only one of the pair used to be a silent way to bill a call
- * nobody can see logged, or log one usage never counted.
+ * provenance line and crediting usage can never drift apart: a handler that
+ * did only one would bill a call nobody can see logged, or log one usage
+ * never counted.
  */
 export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
   recordCall(record, ctx.doorOpts.write)
