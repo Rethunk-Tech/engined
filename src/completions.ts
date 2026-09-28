@@ -223,12 +223,16 @@ export function mapInfillStream(
  * succeeded and the router/engine ids that go with it, exactly as
  * `images.ts`'s and `audioDoor.ts`'s own record builders do.
  */
+interface CompletionCall {
+  ctx: DoorContext
+  route: ResolvedRoute
+  modelId: string
+  rawModel: string | undefined
+  startedAt: number
+}
+
 function recordCompletion(
-  ctx: DoorContext,
-  route: ResolvedRoute,
-  modelId: string,
-  rawModel: string | undefined,
-  startedAt: number,
+  { ctx, route, modelId, rawModel, startedAt }: CompletionCall,
   ok: boolean,
   failure: string | undefined,
 ): void {
@@ -284,6 +288,7 @@ export async function handleCompletions(
   const modelId = route.model
   const router = getLlamaRouter(ctx, engineEntry)
   const startedAt = Date.now()
+  const call: CompletionCall = { ctx, route, modelId, rawModel, startedAt }
   let response: Response
   let queueMs = 0
   try {
@@ -300,7 +305,7 @@ export async function handleCompletions(
       ? 'client disconnected'
       : `connection failed: ${errMessage(err)}`
     const status = engineErrorStatus(err)
-    recordCompletion(ctx, route, modelId, rawModel, startedAt, false, failure)
+    recordCompletion(call, false, failure)
     return jsonError(status, errMessage(err))
   }
   if (!response.ok) {
@@ -310,7 +315,7 @@ export async function handleCompletions(
       status: response.status,
       body: parsed ?? (text === '' ? undefined : jsonErrorBody(response.status, text)),
     })
-    recordCompletion(ctx, route, modelId, rawModel, startedAt, false, verdict.failure)
+    recordCompletion(call, false, verdict.failure)
     return new Response(text, {
       status: response.status,
       headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
@@ -330,11 +335,11 @@ export async function handleCompletions(
     // a mid-body death or client abort must record as a failure, not the
     // success this branch would otherwise log before a single byte is sent.
     const stream = wrapStream(mapInfillStream(response.body, modelId), (ok, failure) => {
-      recordCompletion(ctx, route, modelId, rawModel, startedAt, ok, failure)
+      recordCompletion(call, ok, failure)
     })
     return new Response(stream, { status: response.status, headers })
   }
-  recordCompletion(ctx, route, modelId, rawModel, startedAt, true, undefined)
+  recordCompletion(call, true, undefined)
   const parsed: unknown = await response.json().catch(() => ({}))
   return Response.json(completionEnvelope(modelId, isRecord(parsed) ? parsed : {}), { headers })
 }
