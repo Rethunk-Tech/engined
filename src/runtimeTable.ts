@@ -52,6 +52,8 @@ export interface Runtime {
    * docker round trip on every poll would buy nothing.
    */
   adoptChecked: boolean
+  /** The adoption in flight, which every reconcile awaits: deciding mid-adoption would start over, and remove, the container being adopted. */
+  adoption: Promise<boolean> | null
   /**
    * Epoch ms until which something outside this process wants this engine
    * down. The local test tier takes one before it loads llama or comfy itself,
@@ -106,6 +108,7 @@ export class RuntimeTable {
         idleStopAttempts: 0,
         activeLeases: 0,
         adoptChecked: false,
+        adoption: null,
       }
       this.runtimes.set(id, rt)
     }

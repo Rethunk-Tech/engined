@@ -533,6 +533,30 @@ describe('a container an unclean exit left running: adopted', () => {
     await lifecycle.probe('orphan', SPEC)
     expect(calls.filter((argv) => argv[0] === 'ps').length).toBe(1)
   })
+
+  test('a start racing a probe mid-adoption joins it rather than replacing the orphan', async () => {
+    const calls: string[][] = []
+    const live = recordingExec(calls, () => undefined)
+    let releasePs: () => void = () => undefined
+    const psGate = new Promise<void>((resolve) => {
+      releasePs = resolve
+    })
+    const lifecycle = new DockerLifecycle(
+      (args) => (args[0] === 'ps' ? psGate.then(() => orphanPs(matchingOrphan())) : live(args)),
+      readyProbe,
+    )
+
+    const probing = lifecycle.probe('orphan', SPEC)
+    const starting = lifecycle.start('orphan', SPEC, START_OPTS)
+    releasePs()
+    const [probed, started] = await Promise.all([probing, starting])
+
+    const url = `127.0.0.1:${ADOPTED_HOST_PORT}`
+    expect(calls.filter((argv) => argv[0] === 'rm' || argv[0] === 'run')).toEqual([])
+    expect([probed.private_url, started.private_url]).toEqual([url, url])
+    expect(lifecycle.getStatus('orphan').private_url).toBe(url)
+    expect([probed.adopted, started.adopted].filter(Boolean).length).toBe(1)
+  })
 })
 
 describe('a container an unclean exit left running: replaced', () => {

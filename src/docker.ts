@@ -245,6 +245,10 @@ export class DockerLifecycle {
     if (!rt) {
       return this.table.status(id)
     }
+    if (rt.adoption !== null) {
+      await rt.adoption
+      return this.table.status(id)
+    }
     // `warming` is a state this process is actively driving, with an in-flight
     // start that will resolve it -- and the container it names may not exist
     // yet, so asking docker about it would report a live start as dead.
@@ -263,8 +267,13 @@ export class DockerLifecycle {
     }
     if (spec !== undefined && !rt.adoptChecked) {
       rt.adoptChecked = true
-      if (await this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS)) {
-        return { ...this.table.status(id), adopted: true }
+      rt.adoption = this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS)
+      try {
+        if (await rt.adoption) {
+          return { ...this.table.status(id), adopted: true }
+        }
+      } finally {
+        rt.adoption = null
       }
     }
     return this.table.status(id)
@@ -315,6 +324,9 @@ export class DockerLifecycle {
     // and this runs on the GET that every operator poll makes.
     if (!(await this.pollReady(hostPort, spec.ready, Date.now()))) {
       this.declineAdoption(rt, `${spec.ready.path} did not answer`)
+      return false
+    }
+    if (rt.state === 'warming' || rt.state === 'running') {
       return false
     }
     rt.hostPort = hostPort
