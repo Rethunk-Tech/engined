@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Probe } from './docker.ts'
-import { DockerLifecycle } from './docker.ts'
+import { DockerLifecycle, type Probe } from './docker.ts'
 import { buildRunArgs } from './dockerArgs.ts'
+import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import type { EngineRegistry } from './engines.ts'
+import { HeldError } from './errors/held.ts'
 import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter, reportedModelFrom } from './llama.ts'
@@ -19,9 +21,11 @@ import {
   makeTestRoot,
   portResult,
   tempPresetPath,
+  config as testConfig,
   writeGgufFixture,
 } from './test-support.ts'
 import type { EngineEntry, ResolvedRoute } from './types.ts'
+import { UsageTracker } from './usage.ts'
 
 const CONTAINER_PORT = 8080
 const HOST_PORT = 55_123
@@ -1343,6 +1347,55 @@ test('warm loads a model without holding it: the lease is released again', async
   expect(calls.filter((c) => c.path === LOAD_PATH).map((c) => c.body?.model)).toEqual(['a'])
   expect(router.hasOutstandingLeases()).toBe(false)
   expect(router.contention()).toEqual([])
+})
+
+test('a held llama engine refuses to start and docker is never run', async () => {
+  const runs: string[][] = []
+  const inner = fakeExec()
+  const exec: Exec = (args) => {
+    if (args[0] === 'run') {
+      runs.push([...args])
+    }
+    return inner(args)
+  }
+  const lifecycle = new DockerLifecycle(exec, fakeProbe)
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const { client } = fakeLlama()
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
+  await lifecycle.hold(e.id, 60_000)
+  await expect(chatText(router, a, 'a')).rejects.toBeInstanceOf(HeldError)
+  expect(runs).toEqual([])
+})
+
+test('retiring a stale llama router releases its keep_resident pin', async () => {
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
+  const e = engine()
+  const pinned = model({ id: 'a', filename: 'a.gguf', keep_resident: true })
+  const unpinned = model({ id: 'a', filename: 'a.gguf' })
+  const { client } = fakeLlama()
+  let routes: ResolvedRoute[] = [pinned]
+  const ctx: DoorContext = {
+    getConfig: () => testConfig({ routes }),
+    registry: {} as EngineRegistry,
+    lifecycle,
+    registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
+    doorOpts: { llamaHttpClient: client, llamaPresetHostPath: tmpIniPath() },
+    llamaRouters: new Map(),
+    staleLlamaRouters: new Set(),
+    launchNonces: new Set(),
+    comfyBindings: new Map(),
+    comfySlots: new Map(),
+    usage: new UsageTracker({ stateRoot: TEST_ROOT }),
+  }
+  const first = getLlamaRouter(ctx, e)
+  await chatText(first, pinned, 'a')
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(1)
+  ctx.staleLlamaRouters.add(e.id)
+  routes = [unpinned]
+  const second = getLlamaRouter(ctx, e)
+  expect(second).not.toBe(first)
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(0)
 })
 
 describe('cache-aware slot placement', () => {

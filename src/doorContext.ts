@@ -126,6 +126,7 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
   if (cached && (!ctx.staleLlamaRouters.has(engine.id) || cached.hasOutstandingLeases())) {
     return cached
   }
+  cached?.dispose()
   ctx.staleLlamaRouters.delete(engine.id)
   const routes = localRoutesOf(ctx.getConfig().routes, engine.id)
   const router = new LlamaRouter(engine, routes, ctx.lifecycle, {

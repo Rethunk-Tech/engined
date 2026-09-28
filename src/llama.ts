@@ -165,6 +165,19 @@ export class LlamaRouter {
     this.lifecycle.beginLease(this.engine.id)
   }
 
+  /**
+   * Ends the keep_resident pin. A config reload that retires this router must
+   * call this, or the pin outlives the routes that justified it and idle-stop
+   * never fires.
+   */
+  dispose(): void {
+    if (this.containerLease !== 'held') {
+      return
+    }
+    this.containerLease = 'none'
+    this.lifecycle.endLease(this.engine.id, this.opts.idleStopSeconds)
+  }
+
   /** The route this role returns to when nothing is waiting, if config pinned one. */
   private pinnedFor(role: Role): (ResolvedRoute & { model: string }) | undefined {
     return this.routes.find(
