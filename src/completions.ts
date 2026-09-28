@@ -167,7 +167,7 @@ function emitMappedFrame(
  * as `agenticSse` (`agenticHop.ts`) adds one for a CLI that never speaks SSE
  * at all.
  */
-function mapInfillStream(
+export function mapInfillStream(
   source: ReadableStream<Uint8Array>,
   modelId: string,
 ): ReadableStream<Uint8Array> {
