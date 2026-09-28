@@ -11,11 +11,14 @@
  */
 import {
   CONTENT_TYPE,
+  declaredOverLimit,
   ENGINE_ERROR_CHARS,
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
+  MAX_JSON_BODY_BYTES,
   readJsonBody,
+  STATUS_PAYLOAD_TOO_LARGE,
   STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage } from './records.ts'
@@ -42,27 +45,20 @@ interface ExtrasTarget {
  * runaway llama-server cannot pin the door; an SSE body's `timings` fields
  * still reach the caller unmodified when they fit.
  */
-export function proxyExtras(
+export async function proxyExtras(
   req: Request,
   target: ExtrasTarget,
   residentModel: string | null,
   httpClient: HttpClient = fetch,
 ): Promise<Response> {
+  // Read before the lease: a trickled upload must not hold the chat role.
+  const body = await readExtrasBody(req, residentModel)
+  if (body instanceof Response) {
+    return body
+  }
   const hold = target.hold ?? ((work: () => Promise<Response>) => work())
   return hold(async () => {
     const url = new URL(req.url)
-    const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
-    let body: string | undefined
-    if (residentModel !== null && hasBody) {
-      const parsed = await readJsonBody(req)
-      if (parsed instanceof Response) {
-        return parsed
-      }
-      body = injectModel(parsed, residentModel)
-    } else if (hasBody) {
-      body = await req.text()
-    }
-
     const upstream = new URL(target.enginePath + url.search, target.baseUrl)
     try {
       const answered = await httpClient(upstream.toString(), {
@@ -78,4 +74,25 @@ export function proxyExtras(
       return jsonError(STATUS_UNAVAILABLE, errMessage(err))
     }
   })
+}
+
+/** The body to forward, capped at the JSON routes' ceiling whether or not a model is injected into it. */
+async function readExtrasBody(
+  req: Request,
+  residentModel: string | null,
+): Promise<string | undefined | Response> {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return undefined
+  }
+  if (residentModel !== null) {
+    const parsed = await readJsonBody(req)
+    return parsed instanceof Response ? parsed : injectModel(parsed, residentModel)
+  }
+  if (declaredOverLimit(req, MAX_JSON_BODY_BYTES) !== undefined) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+  }
+  const raw = await req.text()
+  return raw.length > MAX_JSON_BODY_BYTES
+    ? jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+    : raw
 }

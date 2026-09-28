@@ -67,6 +67,32 @@ test('an oversized body is refused with the shared 413, never reaching the upstr
   expect(calls.length).toBe(0)
 })
 
+test('an oversized passthrough body is refused with the shared 413 before any lease is taken', async () => {
+  const { client, calls } = recordingClient(() => Response.json({ tokens: [] }))
+  let leases = 0
+  const req = new Request(`${BASE}/tokenize`, {
+    method: 'POST',
+    body: 'x'.repeat(MAX_JSON_BODY_BYTES + 1),
+  })
+  const res = await proxyExtras(
+    req,
+    {
+      baseUrl: BASE,
+      enginePath: '/tokenize',
+      hold: (work) => {
+        leases += 1
+        return work()
+      },
+    },
+    null,
+    client,
+  )
+
+  expect(res.status).toBe(413)
+  expect(leases).toBe(0)
+  expect(calls.length).toBe(0)
+})
+
 test('the upstream response body passes through unmodified, SSE included', async () => {
   const sseBody = 'data: {"content":"a","timings":{"predicted_ms":1},"timings_per_token":{}}\n\n'
   const { client } = recordingClient(
