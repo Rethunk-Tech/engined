@@ -243,10 +243,7 @@ function resolveThreeSegments(
   if (ctx.registry.entry(engineSeg)?.disabled) {
     return fail(`engine "${engineSeg}" is disabled in config`)
   }
-  const route = ctx.config.routes.find(
-    (r) =>
-      !r.disabled && r.engine === engineSeg && r.upstream === upstreamSeg && r.model === modelSeg,
-  )
+  const route = routeForHop(ctx.config.routes, engineSeg, modelSeg, upstreamSeg)
   if (!route) {
     const invented = resolveServedRoute({
       config: ctx.config,

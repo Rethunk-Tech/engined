@@ -16,7 +16,13 @@ import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
 import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
-import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
+import {
+  addressForRoute,
+  LOCAL_UPSTREAM,
+  routeForHop,
+  siblingRouteCount,
+  WILDCARD_MODEL,
+} from './routeAddress.ts'
 import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
 import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import type {
@@ -425,10 +431,7 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
     if (!servedEngines.has(route.engine)) {
       continue
     }
-    const siblingCount =
-      route.model === undefined
-        ? 1
-        : listed.filter((r) => r.engine === route.engine && r.model === route.model).length
+    const siblingCount = siblingRouteCount(route, listed)
     rows.push(await modelRow(ctx, { route, siblingCount, config, statuses }))
   }
   for (const [chainId, hops] of Object.entries(config.chains)) {
