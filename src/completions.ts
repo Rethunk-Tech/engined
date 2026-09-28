@@ -172,21 +172,38 @@ export function mapInfillStream(
   modelId: string,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
-  const gen = sseFrames(source)
+  const reader = source.getReader()
+  const gen = sseFrames(reader)
+  let pulling = false
   return new ReadableStream({
+    start(controller) {
+      // The source can fail while nothing pulls -- its stall timer fires
+      // precisely because nobody is reading -- and that failure must still
+      // reach whoever wraps this stream, the way `wrapStream` watches its own.
+      reader.closed.catch((err: unknown) => {
+        if (!pulling) {
+          controller.error(err)
+        }
+      })
+    },
     // A pull that enqueues nothing is never followed by another, so a
     // keepalive or comment frame must not end the pull on its own.
     async pull(controller) {
-      for (;;) {
-        const { done, value } = await gen.next()
-        if (done) {
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-          controller.close()
-          return
+      pulling = true
+      try {
+        for (;;) {
+          const { done, value } = await gen.next()
+          if (done) {
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
+          }
+          if (emitMappedFrame(controller, encoder, value, modelId)) {
+            return
+          }
         }
-        if (emitMappedFrame(controller, encoder, value, modelId)) {
-          return
-        }
+      } finally {
+        pulling = false
       }
     },
     async cancel() {

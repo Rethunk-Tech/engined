@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { wrapStream } from './chain.ts'
 import { infillRequestInit, mapInfillStream } from './completions.ts'
 import { createLlamaDoor, llamaExec } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
@@ -389,4 +390,23 @@ test('mapInfillStream keeps pulling past a keepalive frame that maps to nothing,
   expect(frames.at(-1)).toBe('data: [DONE]')
   const parsed = frames.slice(0, -1).map((f) => JSON.parse(f.slice('data:'.length).trim()))
   expect(parsed.map((p) => p.choices[0].text)).toEqual(['return', ' a + b'])
+})
+
+test('a source that fails while nobody reads the infill stream still reaches provenance as a failure', async () => {
+  let fail: (err: Error) => void = () => undefined
+  const source = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // Enough frames that every queue downstream fills and stops pulling,
+      // which is the state a stall deadline fires in.
+      controller.enqueue(new TextEncoder().encode(INFILL_SSE.repeat(3)))
+      fail = (err) => controller.error(err)
+    },
+  })
+  const settled = new Promise<{ ok: boolean; failure?: string }>((resolve) => {
+    wrapStream(mapInfillStream(source, 'ornith'), (ok, failure) => resolve({ ok, failure }))
+  })
+  await Bun.sleep(10)
+  fail(new Error('client stalled: read nothing for 60s'))
+  const outcome = await Promise.race([settled, Bun.sleep(500).then(() => 'never settled')])
+  expect(outcome).toEqual({ ok: false, failure: 'client stalled: read nothing for 60s' })
 })

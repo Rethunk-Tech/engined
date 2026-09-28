@@ -265,10 +265,15 @@ export function sseDataPayloads(frame: string): string[] {
 /**
  * Yield each complete SSE frame from `body`, then a trimmed leftover with no
  * trailing boundary. The reader is cancelled on the way out, including when
- * the caller returns from a `for await` before the stream ends.
+ * the caller returns from a `for await` before the stream ends. A caller that
+ * must also watch the source's `closed` hands in the reader it already holds.
  */
-export async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-  const reader = body.getReader()
+export async function* sseFrames(
+  body:
+    | ReadableStream<Uint8Array>
+    | { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> },
+): AsyncGenerator<string> {
+  const reader = body instanceof ReadableStream ? body.getReader() : body
   const decoder = new TextDecoder()
   let carry = ''
   let discarding = false
