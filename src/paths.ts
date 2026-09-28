@@ -1,15 +1,17 @@
 import { homedir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import process from 'node:process'
 
 /**
  * All three XDG variables are unset on this box, so the empty case is the
  * normal one rather than the edge — and a naive interpolation resolves to
- * `/engined/…`, which installs the daemon at the filesystem root.
+ * `/engined/…`, which installs the daemon at the filesystem root. A relative
+ * value is ignored as the XDG spec requires; honoured, every state path
+ * (and the recursive preset removal under it) would follow the cwd.
  */
 function xdg(name: string, fallback: string): string {
   const v = process.env[name]
-  return v !== undefined && v !== '' ? v : join(homedir(), fallback)
+  return v !== undefined && isAbsolute(v) ? v : join(homedir(), fallback)
 }
 
 /** Exported for `scripts/install.sh`, which renders the systemd user unit under it. */

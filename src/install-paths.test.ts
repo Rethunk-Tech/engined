@@ -65,6 +65,7 @@ function fromPathsModule(dataHome: string | undefined): string[] {
 test.each([
   ['unset', undefined],
   ['set', '/tmp/engined-xdg-data'],
+  ['relative, so ignored', 'relative/xdg-data'],
 ])('install.sh installs where src/paths.ts says, XDG_DATA_HOME %s', async (_label, dataHome) => {
   const { code, out, err } = await runInstallScript(dataHome)
   expect(err).toBe('')
