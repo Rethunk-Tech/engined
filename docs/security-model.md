@@ -56,6 +56,13 @@ whether it succeeded or not. It is never written anywhere durable, so a leaked
 or reused URL past that window is refused as unknown or expired, not treated
 as a standing key.
 
+The launch-scoped door stops a child from launching another agent. The
+plain `/openai/v1` surface does not: a process on this box, or any LAN
+client through the TLS bridge, can fan out launches. `agentic_concurrency`
+(default 4) counts live dispatch-path launches — not the version-proof
+probe — and answers an over-cap call 429 with `Retry-After` and the
+OpenAI error shape.
+
 **`cursor` is not covered by this, because nothing ever threads a door URL
 into its launch at all.** Where a channel exists it carries the nonce:
 

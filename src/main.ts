@@ -282,6 +282,7 @@ function createDoorContext(
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces,
+    agenticInFlight: 0,
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
     usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot, now: doorOpts.usageNow }),

@@ -70,6 +70,11 @@ export interface DoorContext {
    * reused URL is not a standing key.
    */
   launchNonces: Set<string>
+  /**
+   * Dispatch-path agentic launches currently running. The round-trip probe
+   * is not counted: it shares `launchNonces` but is not a caller fan-out.
+   */
+  agenticInFlight: number
   /** Comfy proxy mediation state, reload-durable. */
   comfyBindings: ComfyBindings
   /** One submission gate per comfy engine -- see `ComfySlots`. */

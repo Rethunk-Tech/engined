@@ -64,6 +64,8 @@ export interface HopResult {
   research?: true
   /** What this hop cost, where the hop kind knows it without a body to read -- an agentic CLI states it in its own envelope. Beats `usageFrom` when set. */
   usage?: Usage
+  /** Extra response headers this hop set, merged onto the answering-route set. */
+  headers?: Headers
   /**
    * A binary body, which an audio hop answers with instead of `body` -- synthesized
    * speech is bytes, not JSON. Counts as a body for advance-vs-terminal below: a 200
@@ -488,6 +490,11 @@ function finalizeTerminal(
     // already on the wire -- see `answeringHeaders`'s own comment.
     costUsd: attempt.usage?.cost_usd,
   })
+  if (result.headers !== undefined) {
+    result.headers.forEach((value, key) => {
+      headers.set(key, value)
+    })
+  }
   if (!result.stream) {
     emit(opts, attempts, engine, upstreamUsed)
     return {

@@ -901,3 +901,36 @@ describe("GET /openai/v1/models: an agentic engine's per-route state factors in 
     clearVerifiedVersion('claude')
   })
 })
+
+describe('agentic concurrency cap', () => {
+  test('a fifth concurrent dispatch-path launch is 429 with Retry-After', async () => {
+    clearVerifiedVersion('claude')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const spawn: AgenticSpawn = async () => {
+      await held
+      return { stdout: '{"is_error":false,"result":"ok"}', stderr: '', exitCode: 0 }
+    }
+    const door = createClaudeDoor(kimiRoutedConfig(), redirectDoorRoot(), spawn, 'k')
+    const inflight = [0, 1, 2, 3].map(() => door.fetch(kimiChatRequest()))
+    await Promise.resolve()
+    const over = await door.fetch(kimiChatRequest())
+    expect(over.status).toBe(429)
+    expect(over.headers.get('Retry-After')).toBe('1')
+    const body: unknown = await over.json()
+    expect(body).toEqual({
+      error: {
+        message: 'agentic concurrency cap (4) reached',
+        type: 'rate_limit_error',
+        param: null,
+        code: null,
+      },
+    })
+    release()
+    const settled = await Promise.all(inflight)
+    expect(settled.every((res) => res.status === 200)).toBe(true)
+    clearVerifiedVersion('claude')
+  })
+})

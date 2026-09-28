@@ -27,6 +27,7 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
+  STATUS_TOO_MANY_REQUESTS,
   STATUS_UNAVAILABLE,
   sseDataPayloads,
   sseFrames,
@@ -371,18 +372,32 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
     }
   }
   if (kind === 'agentic-cli') {
-    return await execAgentic(ctx, {
-      engineId,
-      modelSeg,
-      route,
-      req: {
-        rawBody: req.rawBody,
-        signal,
-        setContentType: req.setContentType,
-        toolsHonourableElsewhere: req.toolsHonourableElsewhere,
-        inChain: req.inChain,
-      },
-    })
+    const cap = ctx.getConfig().agentic_concurrency
+    if (ctx.agenticInFlight >= cap) {
+      return {
+        status: STATUS_TOO_MANY_REQUESTS,
+        envelopeFailure: true,
+        body: jsonErrorBody(STATUS_TOO_MANY_REQUESTS, `agentic concurrency cap (${cap}) reached`),
+        headers: new Headers({ 'Retry-After': '1' }),
+      }
+    }
+    ctx.agenticInFlight += 1
+    try {
+      return await execAgentic(ctx, {
+        engineId,
+        modelSeg,
+        route,
+        req: {
+          rawBody: req.rawBody,
+          signal,
+          setContentType: req.setContentType,
+          toolsHonourableElsewhere: req.toolsHonourableElsewhere,
+          inChain: req.inChain,
+        },
+      })
+    } finally {
+      ctx.agenticInFlight -= 1
+    }
   }
   const engineEntry = ctx.registry.entry(engineId)
   if (
