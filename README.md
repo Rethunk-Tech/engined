@@ -34,10 +34,11 @@ cd engined
 bash scripts/install.sh
 mkdir -p ~/.config/engined
 cp config.example.toml ~/.config/engined/config.toml
+$EDITOR ~/.config/engined/config.toml
 systemctl --user restart engined.service
 ```
 
-Engine images are built locally: an engine whose image is missing reports the `docker build` line to run. Edit the config, then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
+Edit the config before the first start: a route naming a model file that is not on disk refuses to parse, and the example names models you may not have. Engine images are built locally: an engine whose image is missing reports the `docker build` line to run. Then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
 
 ## Highlights
 

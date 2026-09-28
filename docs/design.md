@@ -34,15 +34,10 @@ twice.
 The door is loopback-only, so a consumer deployed elsewhere is outside it and
 brings its own provider, or runs without the capability.
 
-Two deliberate exceptions:
-
-- A benchmark harness whose whole purpose is measuring engine
-  *configurations* is not routed through this door: a broker that owns the
-  args would measure the broker instead. It never runs concurrently with
-  production inference.
-- A consumer that runs its own tool-executing agent, with its own key, keeps
-  that agent because it executes tools and writes to its workspace. engined's
-  agentic engines are read-only by design and cannot stand in for it.
+One deliberate exception: a consumer that runs its own tool-executing agent,
+with its own key, keeps that agent because it executes tools and writes to its
+workspace. engined's agentic engines are read-only by design and cannot stand
+in for it.
 
 ## Why 29200
 
@@ -59,8 +54,7 @@ workstation, and engined is not always running. With engined down and anything
 else on 8080, consumers deliver document text, conversation turns and
 `workdir` paths naming private repositories to whatever holds the port, and
 get back a 404 page they report as a parse error. An unassigned port turns
-that silent misdirect into `ECONNREFUSED`. The known holder of 8080 here is
-a benchmark harness, binding it for `llama-swap`.
+that silent misdirect into `ECONNREFUSED`.
 
 **The door is the only port engined writes down for anything it runs.** The
 container side comes from the image's `EXPOSE`, the host side from Docker.

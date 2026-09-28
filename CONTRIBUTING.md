@@ -14,8 +14,8 @@ run ci`.
 ## Workflow
 
 1. Make a change under `src/` (or an `engines/<id>/` spec or Dockerfile).
-2. Run `gate` before committing. It is build, typecheck, lint, test and
-   actionlint; `bun run ci` is the same minus actionlint, and is what the
+2. Run [`gate`](https://github.com/Rethunk-Tech/rethunk-gate-cli) before
+   committing. It is build, typecheck, lint, test and actionlint; `bun run ci` is the same minus actionlint, and is what the
    pre-push hook runs.
 3. Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, ...).
 4. Open a PR against `main` using the PR template.
