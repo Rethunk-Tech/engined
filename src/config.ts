@@ -97,10 +97,17 @@ function parseKind(
   return kindStr as EngineKind | undefined
 }
 
+const ENGINE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
 function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`
   const raw = requireTable(value, posSite, ENGINE_KEYS, file)
   const id = requireString(raw.id, `${posSite} "id"`, file)
+  // An id is an address segment and becomes a state path (llama/<id>/preset.ini),
+  // so `/`, `..` or a leading dot must never reach a join.
+  if (!ENGINE_ID_RE.test(id)) {
+    throw new ParseError(`${posSite} "id" "${id}" must match ${ENGINE_ID_RE}`, file)
+  }
   const site = `engine "${id}"`
   const rawModelsDir = optional(raw.models_dir, 'string', `${site} "models_dir"`, file)
   const agentVersion = optional(raw.agent_version, 'string', `${site} "agent_version"`, file)
@@ -501,10 +508,14 @@ function fragmentFiles(mainFile: string): string[] {
     }
     throw new ParseError('cannot read config.d', dir, { cause: err })
   }
-  return names
-    .filter((name) => name.endsWith('.toml'))
-    .sort()
-    .map((name) => join(dir, name))
+  return (
+    names
+      // A dotfile is an editor's lock or swap file (Emacs `.#foo.toml` is a
+      // dangling symlink), never a fragment someone meant to load.
+      .filter((name) => name.endsWith('.toml') && !name.startsWith('.'))
+      .sort()
+      .map((name) => join(dir, name))
+  )
 }
 
 /**

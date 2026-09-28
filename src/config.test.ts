@@ -1874,6 +1874,20 @@ describe('config.d fragments', () => {
     expect(cfg.engines.map((e) => e.id)).toEqual(['local-llama'])
   })
 
+  test("an editor's dotfile beside a fragment is not loaded", () => {
+    const path = writeConfig(llamaEngineAndRoute())
+    writeConfigD(path, { '.#bakeoff.toml': 'not toml at all' })
+    expect(loadConfig(path).engines.map((e) => e.id)).toEqual(['local-llama'])
+  })
+
+  test('an engine id that could leave its state directory is refused', () => {
+    for (const id of ['../x', 'a/b', '.hidden']) {
+      expect(() =>
+        loadConfig(writeConfig(`[[engine]]\nid = "${id}"\nkind = "agentic-cli"\n`)),
+      ).toThrow(/"id" .* must match/)
+    }
+  })
+
   test("a fragment's arrays are appended to the main file's, in sorted filename order, and can address each other", () => {
     const path = writeConfig(`
 [[upstream]]
