@@ -23,6 +23,7 @@ import {
   engine,
   inspectSinglePort,
   makeTestRoot,
+  portResult,
   route,
   soleProvenanceRecord,
   startFakeUpstream,
@@ -175,7 +176,7 @@ test('a request against a stopped engine starts it on demand through the real do
       return { stdout: '', stderr: '', exitCode: 0 }
     }
     if (argv[0] === 'port') {
-      return { stdout: `127.0.0.1:${fakePort}`, stderr: '', exitCode: 0 }
+      return portResult(fakePort ?? '')
     }
     return
   })
@@ -294,7 +295,7 @@ function chatterboxMappedExec(hostPort: number | string): Exec {
       return { stdout: '', stderr: '', exitCode: 1 }
     }
     if (argv[0] === 'port') {
-      return { stdout: `127.0.0.1:${hostPort}`, stderr: '', exitCode: 0 }
+      return portResult(hostPort)
     }
     return
   })
@@ -804,7 +805,7 @@ function chainDoorContext(ports: Record<string, number>): { ctx: DoorContext; li
   const exec = makeExec(inspectSinglePort(CHATTERBOX_CONTAINER_PORT), (argv) => {
     if (argv[0] === 'port') {
       const id = Object.keys(ports).find((engineId) => argv[1]?.includes(engineId))
-      return { stdout: `127.0.0.1:${ports[id ?? '']}`, stderr: '', exitCode: 0 }
+      return portResult(ports[id ?? ''] ?? '')
     }
     return
   })

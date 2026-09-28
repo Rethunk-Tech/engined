@@ -588,9 +588,7 @@ test('an embedding request co-resides with a resident chat model: neither evicts
   const { calls, router } = routerFor(e, [chat, embed])
 
   await text(chatHop(router, chat, 'chat-a'))
-  await text(
-    router.proxy(embed, EMBED_PATH, { method: 'POST', body: JSON.stringify({ model: 'embed' }) }),
-  )
+  await text(router.proxy(embed, EMBED_PATH, chatInit('embed')))
   await text(chatHop(router, chat, 'chat-a'))
 
   const chatLoadOrUnload = calls.filter(
