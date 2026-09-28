@@ -29,7 +29,7 @@ import {
   sseFrames,
 } from './http.ts'
 import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
-import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS } from './routeServes.ts'
 
@@ -219,14 +219,36 @@ export async function handleCompletions(
   const modelId = route.model
   const router = getLlamaRouter(ctx, engineEntry)
   const startedAt = Date.now()
-  // No try/catch: a thrown fetch failure propagates exactly as it does for a
-  // chat hop through `execLlama`, which never wraps `router.proxy` either --
-  // the door's own top-level handler is what turns that into a response.
-  const { response } = await router.proxy(
-    route,
-    INFILL_PATH,
-    infillRequestInit(body, modelId, signal),
-  )
+  let response: Response
+  try {
+    ;({ response } = await router.proxy(
+      route,
+      INFILL_PATH,
+      infillRequestInit(body, modelId, signal),
+    ))
+  } catch (err) {
+    const message = errMessage(err)
+    const record = {
+      chain: null,
+      requested: rawModel ?? '',
+      attempts: [
+        {
+          engine: route.engine,
+          model: modelId,
+          ok: false,
+          failure: `connection failed: ${message}`,
+          duration_ms: Date.now() - startedAt,
+          upstream_used: LOCAL_UPSTREAM,
+          egress: routeEgress(route, ctx.getConfig()),
+        },
+      ],
+      engine_used: null,
+      upstream_used: null,
+    }
+    recordCall(record, ctx.doorOpts.write)
+    ctx.usage.record(record)
+    return jsonError(STATUS_BAD_GATEWAY, message)
+  }
   if (!response.ok) {
     const text = await response.text()
     const parsed = parseRecord(text)

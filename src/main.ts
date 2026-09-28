@@ -1,10 +1,4 @@
-/**
- * The door: `Bun.serve` bound on both loopback families, the Origin/Host
- * check every request passes through first, and the OpenAI-shaped routes.
- * `createDoor` is the testable half — request handling and SIGHUP reload
- * with no socket involved; the `import.meta.main` block below is the actual
- * process: binds, signal handlers, and the fatal-at-startup exit.
- */
+/** The door: dual-family `Bun.serve`, Origin/Host check, OpenAI-shaped routes. */
 
 import { mkdirSync } from 'node:fs'
 import process from 'node:process'
@@ -38,7 +32,12 @@ import { DockerLifecycle, dockerExec } from './docker.ts'
 import type { DoorContext, DoorOptions } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
-import { jsonError, STATUS_FORBIDDEN, STATUS_NOT_FOUND } from './http.ts'
+import {
+  jsonError,
+  STATUS_FORBIDDEN,
+  STATUS_INTERNAL_SERVER_ERROR,
+  STATUS_NOT_FOUND,
+} from './http.ts'
 import { Inventory } from './inventory.ts'
 import { modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
@@ -77,12 +76,7 @@ const CONTENT_ENDPOINTS = new Set([
 
 /** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = '/engined/v1/start'
-/**
- * `/engined/v1/engines/<id>/<verb>`, the shape every per-engine verb shares:
- * written once so a path that drifts drifts for all of them at once. The id
- * is capture 1; a `verb` carrying its own group (the extras route) adds a
- * second.
- */
+/** `/engined/v1/engines/<id>/<verb>`. Capture 1 is the id; extras add a second. */
 function engineVerbRe(verb: string): RegExp {
   return new RegExp(`^${ENGINED_ENGINES_PATH}/([^/]+)/${verb}$`)
 }
@@ -111,13 +105,7 @@ function isLoopbackHost(hostHeader: string, port: number): boolean {
   }
 }
 
-/**
- * Every endpoint including reads, before routing. Any `Origin` header at all
- * is refused — including the literal string `"null"` — because engined never
- * allowlists a consumer's origin: the one browser consumer (a video-production
- * consumer's browser-based settings page) reaches engined through the daemon it already talks to, and
- * a request with no `Origin` (every CLI and server consumer) is unaffected.
- */
+/** Any `Origin` is refused, including `"null"`. No Origin (CLI/server) is unaffected. */
 function checkOrigin(req: Request, port: number): Response | null {
   if (req.headers.get('Origin') !== null) {
     return refuse('cross-origin requests are refused')
@@ -133,15 +121,7 @@ function checkOrigin(req: Request, port: number): Response | null {
 const EXTRAS_RE = engineVerbRe('(tokenize|apply-template)')
 
 export interface Door {
-  /**
-   * Two call shapes, not one loosely-typed signature: every existing caller
-   * -- every test in this repo included -- calls this with one argument and
-   * must keep getting a real `Response` back, never `undefined`. Only
-   * `bindDualFamily`'s real `Bun.serve` wiring ever supplies `server`, and
-   * only then can a websocket upgrade actually happen -- the one case this
-   * can answer with nothing at all, because the connection itself became
-   * the answer.
-   */
+  /** One-arg callers always get a `Response`; `server` is only for the comfy websocket upgrade. */
   fetch: {
     (req: Request): Response | Promise<Response>
     (req: Request, server: EnginedServer): Response | Promise<Response> | undefined
@@ -229,16 +209,8 @@ function routePost(
 }
 
 /**
- * The launch-scoped door: `/openai/v1/<nonce>/...` dispatches exactly like
- * `/openai/v1/...`, with the request marked launch-scoped so a hop resolving
- * to an agentic engine can be refused. The nonce is minted at each launch
- * site and never written anywhere durable.
- *
- * `null` means the path named a launch-scoped nonce that is not (or is no
- * longer) live -- expired with the child that minted it, or never minted at
- * all. Every OTHER path, launch-scoped or not, passes through with its
- * `/openai/v1/...` shape unchanged, which is what every downstream matcher
- * already expects.
+ * Launch-scoped `/openai/v1/<nonce>/...` matches the public door; `null` is an
+ * unknown or expired nonce. The nonce is minted at launch and never durable.
  */
 function stripLaunchNonce(
   ctx: DoorContext,
@@ -279,16 +251,7 @@ function routeRequest(
   return matched ?? jsonError(STATUS_NOT_FOUND, 'not found')
 }
 
-/**
- * One LlamaRouter per llama-kind engine, sharing `lifecycle` with the
- * registry so idle-stop, port read-back and start-locking are never
- * tracked twice for the same container.
- *
- * The registry shares this door's own `launchNonces` for the same reason it
- * shares `lifecycle`: its round-trip probe launches an agent that calls back
- * here, and a nonce minted into a second set is one this door would refuse as
- * unknown.
- */
+/** One LlamaRouter per llama engine, sharing this door's `lifecycle` and `launchNonces`. */
 function createDoorContext(
   getConfig: () => Config,
   registryOpts: RegistryOptions,
@@ -361,21 +324,37 @@ export function createDoor(
   function fetch(req: Request): Response | Promise<Response>
   function fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   function fetch(req: Request, server?: EnginedServer): Response | Promise<Response> | undefined {
-    const refusal = checkOrigin(req, config.listen_port)
-    if (refusal) {
-      return refusal
-    }
-    // A real websocket upgrade is intercepted here, ahead of ordinary
-    // routing: `server` exists only when bound through a real `Bun.serve`
-    // (see `bindDualFamily`), which is the one thing a plain request/response
-    // handler cannot do on its own.
-    if (server !== undefined) {
-      const wsMatch = matchComfyPath(new URL(req.url).pathname)
-      if (wsMatch?.rest === COMFY_WS_SUFFIX) {
-        return handleComfyWsUpgrade(ctx, req, server, wsMatch)
+    try {
+      const refusal = checkOrigin(req, config.listen_port)
+      if (refusal) {
+        return refusal
       }
+      // A real websocket upgrade is intercepted here, ahead of ordinary
+      // routing: `server` exists only when bound through a real `Bun.serve`
+      // (see `bindDualFamily`), which is the one thing a plain request/response
+      // handler cannot do on its own.
+      if (server !== undefined) {
+        const wsMatch = matchComfyPath(new URL(req.url).pathname)
+        if (wsMatch?.rest === COMFY_WS_SUFFIX) {
+          const upgraded = handleComfyWsUpgrade(ctx, req, server, wsMatch)
+          if (upgraded instanceof Promise) {
+            return upgraded.catch((err: unknown) =>
+              jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err)),
+            )
+          }
+          return upgraded
+        }
+      }
+      const routed = routeRequest(ctx, req, configErr)
+      if (routed instanceof Promise) {
+        return routed.catch((err: unknown) =>
+          jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err)),
+        )
+      }
+      return routed
+    } catch (err) {
+      return jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err))
     }
-    return routeRequest(ctx, req, configErr)
   }
 
   return { fetch, reload, registry, ctx, configError: () => configErr }
@@ -391,19 +370,14 @@ export function bindDualFamily(
   fetch: Door['fetch'],
   port: number,
 ): { v4: EnginedServer; v6: EnginedServer } {
-  // `idleTimeout: 0` disables Bun's own socket timer, which defaults to 10s
-  // and closes the connection with NO body -- indistinguishable from the
-  // daemon being down, and reached by any cold start (a container plus a
-  // 25 GB GGUF) or any answer slower than ten seconds. It cannot simply be
-  // raised to match: Bun rejects an `idleTimeout` above 255, which is below
-  // the default `chat_timeout_seconds` of 600. The request budget is
-  // engined's own, per hop and per engine kind (`timeoutSecondsForKind`), so
-  // a socket timer here could only ever cut that budget short.
-  //
-  // `websocket` mounts the one payload this door ever upgrades: a comfy
-  // proxy connection, bridged to the real container in `comfyWebSocketHandlers`.
+  // `idleTimeout: 0`: Bun's default 10s timer closes with no body, and Bun
+  // rejects a value above 255, below `chat_timeout_seconds`. The hop budget
+  // is engined's. `websocket` is the comfy proxy upgrade only.
   const serveOpts = {
     fetch,
+    error(err: Error) {
+      return jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err))
+    },
     idleTimeout: 0,
     maxRequestBodySize: MAX_AUDIO_UPLOAD_BYTES,
     websocket: comfyWebSocketHandlers,
@@ -413,20 +387,7 @@ export function bindDualFamily(
   return { v4, v6 }
 }
 
-/**
- * `ENGINED_BUNX` is what the `--user` unit always sets (`scripts/engined.service.in`)
- * so `{bunx}` in a spec.toml command, and every agentic launch, resolve to an
- * absolute path rather than a bare `bunx` a sandboxed unit's PATH may not
- * carry at all. Resolving here, at startup, is what makes a lost env var
- * fail loudly and immediately rather than late, at exec inside a spawned
- * child.
- *
- * The legitimate case this must not break is a plain working-tree dev run
- * with no unit and no `ENGINED_BUNX` at all: resolving off PATH (real,
- * right now, at startup) rather than assuming a bare `"bunx"` will resolve
- * later is what covers it, since a developer's shell always has one. Only a
- * box with genuinely neither the env var nor `bunx` on PATH is fatal.
- */
+/** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */
 export function resolveBunx(
   env: NodeJS.ProcessEnv = process.env,
   which: (cmd: string) => string | null = Bun.which,
@@ -444,19 +405,7 @@ export function resolveBunx(
   )
 }
 
-/**
- * `main.js --probe`: a one-shot run of every acceptance probe against the
- * door this install is already serving, which is why it never
- * builds a `Door` of its own -- it is an ordinary caller on loopback, and the
- * container it needs starts on demand the same way any other request starts
- * one. The port comes from the config the daemon itself read, so the probe
- * writes down no port the invariant does not already allow.
- *
- * Shipped as a mode of the daemon bundle rather than a second script because
- * `install.sh` already syncs that bundle: a separate artifact would be one
- * more thing to keep in step with the install, for a check that is one
- * request long.
- */
+/** `main.js --probe`: call the already-serving door; never bind a second one. */
 async function probeExit(): Promise<number> {
   let port: number
   try {
@@ -517,12 +466,7 @@ if (import.meta.main) {
     process.exit(FatalError.EXIT_CODE)
   }
 
-  // The Cursor turn stream needs HTTP/2, so it listens beside the door
-  // rather than on it. It dials the box's own chat route back through the
-  // door's OpenAI surface, which is the same path every other consumer takes.
-  // The Cursor turn stream needs HTTP/2, so it listens beside the door
-  // rather than on it, and dials the box's own chat route back through the
-  // door's OpenAI surface -- the same path every other consumer takes.
+  // Cursor's turn stream needs HTTP/2, so it listens beside the door.
   const cursorAgent = serveCursorAgent(startupConfig.cursor_port, {
     complete: (messages, on) => completeLocally(door.ctx, messages, on),
   })

@@ -29,6 +29,7 @@ import {
   STATUS_UNAVAILABLE,
   WAV_CONTENT_TYPE,
 } from './http.ts'
+import { errMessage } from './records.ts'
 
 /** `undefined` when the request body is well-formed; a 400 response otherwise. */
 function invalidSpeechRequest(req: SpeechRequestBody): DoorResponse | undefined {
@@ -160,7 +161,12 @@ export async function handleSpeech(
   const ndjson = req.stream === 'ndjson'
   const streaming = req.stream === true || ndjson
 
-  const engine = await start(req.engine)
+  let engine: StartedEngine
+  try {
+    engine = await start(req.engine)
+  } catch (err) {
+    return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
+  }
   const unusable = unusableSpeechEngine(req.engine, engine)
   if (unusable) {
     return unusable
@@ -189,21 +195,26 @@ export async function handleSpeech(
       return { status: STATUS_OK, contentType: WAV_CONTENT_TYPE, bytes: hit }
     }
   }
-  const res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
-    method: 'POST',
-    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify({
-      text,
-      chunks: streaming,
-      // The engine's spellings: `prompt` is what chatterbox calls what OpenAI
-      // calls `instructions`. Undefined values are dropped by JSON.stringify,
-      // so an unasked-for field is absent rather than null.
-      voice: req.voice,
-      speed: req.speed,
-      prompt: req.instructions,
-      ...req.extra,
-    }),
-  })
+  let res: Response
+  try {
+    res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
+      method: 'POST',
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+      body: JSON.stringify({
+        text,
+        chunks: streaming,
+        // The engine's spellings: `prompt` is what chatterbox calls what OpenAI
+        // calls `instructions`. Undefined values are dropped by JSON.stringify,
+        // so an unasked-for field is absent rather than null.
+        voice: req.voice,
+        speed: req.speed,
+        prompt: req.instructions,
+        ...req.extra,
+      }),
+    })
+  } catch (err) {
+    return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
+  }
   if (!res.ok) {
     await discardBody(res)
     return errorResponse(STATUS_BAD_GATEWAY, `${req.engine}: /v1/tts returned ${res.status}`)

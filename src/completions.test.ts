@@ -287,4 +287,27 @@ describe('POST /openai/v1/completions: response mapping', () => {
     const res = await door.fetch(completionsRequest({ model: '@/local-llama/nope', prompt: 'x' }))
     expect(res.status).toBe(400)
   })
+
+  test('an infill fetch that refuses the connection is JSON 502 with provenance, not an uncaught TypeError', async () => {
+    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+    const { lines, write } = collectLines()
+    const control = llamaControlPlane()
+    const httpClient: HttpClient = (url, init) => {
+      const controlled = control(url, init)
+      if (controlled) {
+        return Promise.resolve(controlled)
+      }
+      return Promise.reject(
+        new TypeError('Unable to connect. Is the computer able to access the url?'),
+      )
+    }
+    const door = doorFor(cfg, root, httpClient, write)
+    const res = await door.fetch(completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }))
+    expect(res.status).toBe(502)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(((await res.json()) as { error: { message: string } }).error.message).toContain(
+      'Unable to connect',
+    )
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toContain('connection failed')
+  })
 })

@@ -958,6 +958,72 @@ function decodingWhisperBody(): { body: ReadableStream<Uint8Array>; release: () 
   return { body, release }
 }
 
+test('a held TTS engine answers JSON 503 and records provenance', async () => {
+  const { ctx, lines } = speechDoorContext()
+  await ctx.registry.hold('chatterbox-multi', 60)
+
+  const res = await handleAudioSpeech(ctx, {
+    model: '@/chatterbox-multi/local',
+    input: 'hello there',
+  })
+
+  expect(res.status).toBe(503)
+  expect(res.headers.get('content-type')).toContain('application/json')
+  expect(errorMessageOf(await res.json())).toContain('held')
+  const record = soleProvenanceRecord(lines)
+  expect(record.engine_used).toBeNull()
+  expect(record.attempts[0]?.ok).toBe(false)
+})
+
+test('a speech start that throws is 503, not an uncaught error', async () => {
+  const result = await handleSpeech(
+    { engine: 'piper', input: 'hi' },
+    () =>
+      Promise.reject(
+        new Error(
+          'engine "piper" is held for another 12s; whatever took the hold wants this engine\'s memory',
+        ),
+      ),
+    unreachableFetch('must not fetch after a thrown start'),
+  )
+  expect(result.status).toBe(503)
+  expect(JSON.stringify(result.body)).toContain('held')
+})
+
+test('a TTS fetch that refuses the connection is 503', async () => {
+  const result = await handleSpeech({ engine: 'piper', input: 'hi' }, STUB_START, () =>
+    Promise.reject(new TypeError('Unable to connect. Is the computer able to access the url?')),
+  )
+  expect(result.status).toBe(503)
+  expect(JSON.stringify(result.body)).toContain('Unable to connect')
+})
+
+test('a transcription start that throws is 503, not an uncaught error', async () => {
+  const result = await handleTranscription(
+    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES },
+    () =>
+      Promise.reject(
+        new Error(
+          'engine "whisper" is held for another 12s; whatever took the hold wants this engine\'s memory',
+        ),
+      ),
+    unreachableFetch('must not fetch after a thrown start'),
+  )
+  expect(result.status).toBe(503)
+  expect(JSON.stringify(result.body)).toContain('held')
+})
+
+test('a transcription fetch that refuses the connection is 503', async () => {
+  const result = await handleTranscription(
+    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES },
+    async () => ({ private_url: '127.0.0.1:1' }),
+    () =>
+      Promise.reject(new TypeError('Unable to connect. Is the computer able to access the url?')),
+  )
+  expect(result.status).toBe(503)
+  expect(JSON.stringify(result.body)).toContain('Unable to connect')
+})
+
 test('a streamed transcription forwards each segment as it lands, ahead of the terminal transcript', async () => {
   const { body, release } = decodingWhisperBody()
   let asked: { url: string; body: unknown } | undefined

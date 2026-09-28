@@ -24,7 +24,7 @@ import {
   TEXT_CONTENT_TYPE,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
-import { MS_PER_SECOND } from './records.ts'
+import { errMessage, MS_PER_SECOND } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments, routeForHop } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_SPEECH } from './routeServes.ts'
 import type { Config, Egress, ResolvedRoute } from './types.ts'
@@ -403,7 +403,7 @@ export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
       if (err instanceof EngineBusyError) {
         return { private_url: null, conflict: err.message }
       }
-      throw err
+      return { private_url: null, unavailable: errMessage(err) }
     }
     // `EngineStatus` (the wire type `registry.start` returns) carries no
     // container address at all -- the internal runtime read is `lifecycle`'s

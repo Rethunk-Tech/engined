@@ -191,35 +191,42 @@ export async function handleExtras(
   if (!ctx.registry.isLocalLlama(engineId)) {
     return jsonError(STATUS_BAD_REQUEST, `engine "${engineId}" does not serve ${verb}`)
   }
-  const status = await ctx.registry.start(engineId)
-  // `EngineStatus` carries no container address; the internal runtime read
-  // is `lifecycle`'s own, the same source the comfy proxy resolves against.
-  const privateUrl = ctx.lifecycle.getStatus(engineId).private_url
-  if (privateUrl === null) {
-    return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`)
-  }
-  const router = getLlamaRouter(ctx, engineEntry)
-  let residentModel = router.residentModel(EXTRAS_ROLE)
-  if (residentModel === null) {
-    const chatRoute = extrasChatRoute(ctx.getConfig(), engineId)
-    if (chatRoute !== undefined) {
-      try {
-        await router.warm(chatRoute, req.signal)
-      } catch (err) {
-        if (err instanceof EngineBusyError) {
-          return jsonError(STATUS_CONFLICT, err.message)
-        }
-        return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
-      }
-      residentModel = router.residentModel(EXTRAS_ROLE)
+  try {
+    const status = await ctx.registry.start(engineId)
+    // `EngineStatus` carries no container address; the internal runtime read
+    // is `lifecycle`'s own, the same source the comfy proxy resolves against.
+    const privateUrl = ctx.lifecycle.getStatus(engineId).private_url
+    if (privateUrl === null) {
+      return jsonError(STATUS_UNAVAILABLE, status.fix ?? `${engineId} is not available`)
     }
+    const router = getLlamaRouter(ctx, engineEntry)
+    let residentModel = router.residentModel(EXTRAS_ROLE)
+    if (residentModel === null) {
+      const chatRoute = extrasChatRoute(ctx.getConfig(), engineId)
+      if (chatRoute !== undefined) {
+        try {
+          await router.warm(chatRoute, req.signal)
+        } catch (err) {
+          if (err instanceof EngineBusyError) {
+            return jsonError(STATUS_CONFLICT, err.message)
+          }
+          return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
+        }
+        residentModel = router.residentModel(EXTRAS_ROLE)
+      }
+    }
+    return await proxyExtras(
+      req,
+      { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },
+      residentModel,
+      ctx.doorOpts.extrasHttpClient,
+    )
+  } catch (err) {
+    if (err instanceof EngineBusyError) {
+      return jsonError(STATUS_CONFLICT, err.message)
+    }
+    return jsonError(STATUS_UNAVAILABLE, errMessage(err))
   }
-  return proxyExtras(
-    req,
-    { baseUrl: `http://${privateUrl}`, enginePath: `/${verb}` },
-    residentModel,
-    ctx.doorOpts.extrasHttpClient,
-  )
 }
 
 export async function handleContent(

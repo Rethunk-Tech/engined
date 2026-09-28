@@ -15,6 +15,7 @@ import {
   JSON_CONTENT_TYPE,
   jsonError,
   STATUS_BAD_REQUEST,
+  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
 
@@ -60,9 +61,13 @@ export async function proxyExtras(
   }
 
   const upstream = new URL(target.enginePath + url.search, target.baseUrl)
-  return httpClient(upstream.toString(), {
-    method: req.method,
-    headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body,
-  })
+  try {
+    return await httpClient(upstream.toString(), {
+      method: req.method,
+      headers: body === undefined ? undefined : { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+      body,
+    })
+  } catch (err) {
+    return jsonError(STATUS_UNAVAILABLE, errMessage(err))
+  }
 }

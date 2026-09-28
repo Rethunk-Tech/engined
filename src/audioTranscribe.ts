@@ -29,7 +29,7 @@ import {
   STATUS_UNAVAILABLE,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { parseRecord } from './records.ts'
+import { errMessage, parseRecord } from './records.ts'
 import { type UpstreamEndpoint, upstreamUrl } from './upstream.ts'
 
 /**
@@ -303,7 +303,12 @@ export async function handleTranscription(
     return invalid
   }
 
-  const engine = await start(req.engine, req.model)
+  let engine: Awaited<ReturnType<EngineStart>>
+  try {
+    engine = await start(req.engine, req.model)
+  } catch (err) {
+    return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
+  }
   const conflict = conflictResponse(engine)
   if (conflict) {
     return conflict
@@ -321,13 +326,21 @@ export async function handleTranscription(
     if (req.model === undefined) {
       return errorResponse(STATUS_BAD_GATEWAY, `${req.engine} requires a model, and none was named`)
     }
-    return await transcribeRemote(req, engine.remote, req.model, fetchImpl)
+    try {
+      return await transcribeRemote(req, engine.remote, req.model, fetchImpl)
+    } catch (err) {
+      return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
+    }
   }
   if (engine.private_url === null) {
     return errorResponse(STATUS_UNAVAILABLE, engine.unavailable ?? `${req.engine} is not available`)
   }
-  if (liveUpload(req) || req.stream === true) {
-    return await transcribeStreamed(req, engine.private_url, fetchImpl)
+  try {
+    if (liveUpload(req) || req.stream === true) {
+      return await transcribeStreamed(req, engine.private_url, fetchImpl)
+    }
+    return await transcribeLocal(req, engine.private_url, fetchImpl)
+  } catch (err) {
+    return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
   }
-  return await transcribeLocal(req, engine.private_url, fetchImpl)
 }
