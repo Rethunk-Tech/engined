@@ -206,7 +206,12 @@ export function mapInfillStream(
         pulling = false
       }
     },
-    async cancel() {
+    // `gen.return()` alone queues behind a pull parked in `gen.next()`, so the
+    // cancel would reach llama only with its next chunk -- after prefill.
+    // Cancelling the reader resolves that parked read as done instead; the
+    // pull's enqueue on the cancelled stream then rejects into nothing.
+    async cancel(reason) {
+      await reader.cancel(reason)
       await gen.return(undefined)
     },
   })

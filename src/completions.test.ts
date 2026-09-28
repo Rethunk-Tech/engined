@@ -410,3 +410,23 @@ test('a source that fails while nobody reads the infill stream still reaches pro
   const outcome = await Promise.race([settled, Bun.sleep(500).then(() => 'never settled')])
   expect(outcome).toEqual({ ok: false, failure: 'client stalled: read nothing for 60s' })
 })
+
+test('cancelling the infill stream while the source is silent reaches the source at once', async () => {
+  let cancelledWith: unknown = 'not cancelled'
+  // A source mid-prefill: one frame, then nothing until cancelled.
+  const source = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(INFILL_SSE.split('\n\n')[0] + '\n\n'))
+    },
+    cancel(reason) {
+      cancelledWith = reason
+    },
+  })
+  const reader = mapInfillStream(source, 'ornith').getReader()
+  expect((await reader.read()).done).toBe(false)
+  const parked = reader.read()
+  await Bun.sleep(10)
+  await Promise.race([reader.cancel('client gone'), Bun.sleep(200)])
+  expect(cancelledWith).toBe('client gone')
+  expect(await parked).toEqual({ done: true, value: undefined })
+})
