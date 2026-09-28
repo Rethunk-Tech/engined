@@ -97,17 +97,25 @@ function parseKind(
   return kindStr as EngineKind | undefined
 }
 
-const ENGINE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+/**
+ * An engine or upstream id becomes a state path (llama/<id>/preset.ini,
+ * upstreams/<id>/inventory.json), so `/`, `..` or a leading dot must never
+ * reach a join.
+ */
+function requireId(value: unknown, posSite: string, file: string): string {
+  const id = requireString(value, `${posSite} "id"`, file)
+  if (!ID_RE.test(id)) {
+    throw new ParseError(`${posSite} "id" "${id}" must match ${ID_RE}`, file)
+  }
+  return id
+}
 
 function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`
   const raw = requireTable(value, posSite, ENGINE_KEYS, file)
-  const id = requireString(raw.id, `${posSite} "id"`, file)
-  // An id is an address segment and becomes a state path (llama/<id>/preset.ini),
-  // so `/`, `..` or a leading dot must never reach a join.
-  if (!ENGINE_ID_RE.test(id)) {
-    throw new ParseError(`${posSite} "id" "${id}" must match ${ENGINE_ID_RE}`, file)
-  }
+  const id = requireId(raw.id, posSite, file)
   const site = `engine "${id}"`
   const rawModelsDir = optional(raw.models_dir, 'string', `${site} "models_dir"`, file)
   const agentVersion = optional(raw.agent_version, 'string', `${site} "agent_version"`, file)
@@ -145,7 +153,7 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
 function parseUpstream(value: unknown, index: number, file: string): Upstream {
   const posSite = `upstream[${index}]`
   const raw = requireTable(value, posSite, UPSTREAM_KEYS, file)
-  const id = requireString(raw.id, `${posSite} "id"`, file)
+  const id = requireId(raw.id, posSite, file)
   const site = `upstream "${id}"`
   const egress = optional(raw.egress, 'string', `${site} "egress"`, file)
   if (egress === undefined) {

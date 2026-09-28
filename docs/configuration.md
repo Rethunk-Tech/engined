@@ -70,7 +70,7 @@ parse error naming the key.
 | `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201. `deploy/Caddyfile.cursor` proxies those same two backends; a changed port is a changed Caddyfile, or the TLS bridge aims at a listener that is not there |
 | `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling) |
 | `agentic_concurrency` | file root — positive integer, default 4. Live dispatch-path agentic launches; a further call is 429 with `Retry-After` |
-| `id` | every `[[engine]]`, `[[upstream]]` and `[[chain]]` — a `[[route]]` has no id. An engine id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`: it is an address segment and becomes a state path (`llama/<id>/preset.ini`), so `/`, `..` or a leading dot is a parse error |
+| `id` | every `[[engine]]`, `[[upstream]]` and `[[chain]]` — a `[[route]]` has no id. An engine or upstream id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`: it becomes a state path (`llama/<id>/preset.ini`, `upstreams/<id>/inventory.json`), so `/`, `..` or a leading dot is a parse error |
 | `disable` | every `[[engine]]`, `[[upstream]]`, `[[route]]` and `[[chain]]` |
 | `spec_dir` | override the shipped spec directory (a privilege decision — see [security-model.md](security-model.md)) |
 | `models_dir` | engines with a host model tree |

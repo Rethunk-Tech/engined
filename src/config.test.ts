@@ -1880,12 +1880,18 @@ describe('config.d fragments', () => {
     expect(loadConfig(path).engines.map((e) => e.id)).toEqual(['local-llama'])
   })
 
-  test('an engine id that could leave its state directory is refused', () => {
+  test('an engine or upstream id that could leave its state directory is refused', () => {
     for (const id of ['../x', 'a/b', '.hidden']) {
       expect(() =>
         loadConfig(writeConfig(`[[engine]]\nid = "${id}"\nkind = "agentic-cli"\n`)),
       ).toThrow(/"id" .* must match/)
+      expect(() =>
+        loadConfig(writeConfig(`[[upstream]]\nid = "${id}"\negress = "remote"\n`)),
+      ).toThrow(/upstream\[0\] "id" .* must match/)
     }
+    // The shape potluck generates for a learned provider.
+    const cfg = loadConfig(writeConfig('[[upstream]]\nid = "provider-0af39c"\negress = "remote"\n'))
+    expect(cfg.upstreams.map((u) => u.id)).toContain('provider-0af39c')
   })
 
   test("a fragment's arrays are appended to the main file's, in sorted filename order, and can address each other", () => {
