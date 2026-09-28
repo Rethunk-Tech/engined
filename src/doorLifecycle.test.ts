@@ -17,6 +17,16 @@ import type { Config } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-door-test-')
 
+/** GET /engined/v1/engines, parsed -- `config_error` is only present mid-reload-failure. */
+async function listEngines(
+  door: Door,
+): Promise<{ engines: { id: string }[]; config_error?: string }> {
+  return (await (await door.fetch(new Request('http://engined/engined/v1/engines'))).json()) as {
+    engines: { id: string }[]
+    config_error?: string
+  }
+}
+
 /**
  * Binds the door on both loopback families on `port`, through `main.ts`'s
  * own `bindDualFamily` rather than a hand-rolled `Bun.serve` pair — a
@@ -118,23 +128,14 @@ upstream = "local"
       enginesRoot: '/nonexistent',
       bunx: BUNX,
     })
-    const before = (await (
-      await door.fetch(new Request('http://engined/engined/v1/engines'))
-    ).json()) as {
-      engines: { id: string }[]
-    }
+    const before = await listEngines(door)
     expect(before.engines.map((e) => e.id)).toEqual(['claude'])
 
     writeFileSync(path, 'not valid toml {{{')
     door.reload(path)
 
     expect(door.configError()).toBeDefined()
-    const after = (await (
-      await door.fetch(new Request('http://engined/engined/v1/engines'))
-    ).json()) as {
-      engines: { id: string }[]
-      config_error: string
-    }
+    const after = await listEngines(door)
     // Previous config still serving: the same engine, not an empty list.
     expect(after.engines.map((e) => e.id)).toEqual(['claude'])
     expect(after.config_error).toBeDefined()
@@ -168,12 +169,7 @@ engine = "agentic"
     door.reload(path)
 
     expect(door.configError()).toMatch(/has no built-in launch/)
-    const after = (await (
-      await door.fetch(new Request('http://engined/engined/v1/engines'))
-    ).json()) as {
-      engines: { id: string }[]
-      config_error: string
-    }
+    const after = await listEngines(door)
     expect(after.engines.map((e) => e.id)).toEqual(['claude'])
     expect(after.config_error).toMatch(/has no built-in launch/)
   })
