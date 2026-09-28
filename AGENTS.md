@@ -98,8 +98,8 @@ whisper-server has no handler for. Editing it needs a container restart, never
 an image rebuild.
 
 A build's context is the spec's own directory, so a file two images share is
-in neither context. Two files in a spec dir declare what its build needs, both
-read generically by `src/docker.ts` and appended to the `docker build` a
+in neither context. Three files in a spec dir declare what its build needs, all
+read generically by `src/dockerArgs.ts` and appended to the `docker build` a
 missing image names as its fix -- which stays one runnable command:
 
 - `build-contexts`: `name=path` lines, path relative to the spec dir, emitted
@@ -117,7 +117,7 @@ Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
 in spec, not operator config. Tunables go in `[engine.args]` / `[route.args]`;
 engined's closed key sets are `ENGINE_KEYS`/`UPSTREAM_KEYS`/`MODEL_KEYS`/
-`ROUTE_KEYS`/`CHAIN_KEYS` in `src/config.ts`. Precedence: **route beats
+`ROUTE_KEYS`/`CHAIN_KEYS` in `src/configParse.ts`. Precedence: **route beats
 engine, config beats spec, floor beats everything.** On remotes,
 `[engine.args]` are wire parameters — see `src/upstream.ts`.
 
@@ -151,7 +151,7 @@ silently reopens that race, and the reply a caller gets stops being provable.
 change a worktree; it can read anything this uid can open.
 
 **Where the floor comes from is per-agent** (`src/agents.ts`): argv flags for
-claude, a `bwrap` sandbox for opencode, which has no such flag and whose own
+claude and cursor, a `bwrap` sandbox for opencode, which has no such flag and whose own
 config is overridable from any ancestor of the workdir. An agent declared
 `sandbox` never launches without one. Adding an agent means adding its launch,
 its stdout parser and the probe that re-proves its floor on every new pin.

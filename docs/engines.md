@@ -366,17 +366,20 @@ and has a workaround engined already applies (`no-mmproj-offload`, see
 
 The other has none: **a vision request can return a confident, plausible,
 wrong description of the image, with nothing in the response to signal it.**
-It did not reproduce across three live checks, which is three data points and
-not a fix — nothing in this repo can detect a recurrence, because a wrong
-description is indistinguishable from a right one without ground truth.
+Three live checks did not reproduce that Vulkan fault, which is three data
+points and not a fix — nothing in this repo can detect a recurrence of it,
+because a wrong description is indistinguishable from a right one without
+ground truth.
 
 If you are wiring a consumer to the vision role, check output fidelity
 against an image whose content you already know, and re-check it when the
-image, the GGUF or the mmproj build changes. Treat vision as unproven until
-you have done that for your own consumer; the other roles carry no equivalent
-caveat.
+image, the GGUF or the mmproj build changes. Treat the Vulkan fault as
+unproven until you have done that for your own consumer; the other roles
+carry no equivalent caveat.
 
-`src/probe.ts` is that check, and two things run it. `test/local/llama.test.ts`
+`src/probe.ts` is a different check: that a `describe` or `read` route names
+the colours or digits of a synthetic image this repo builds in code. Two
+things run it. `test/local/llama.test.ts`
 drives it against the router directly, and the install ships it as a weekly
 `systemd --user` timer (`engined-probe.timer`) that runs
 `main.js --probe` against the live door -- every vision address the

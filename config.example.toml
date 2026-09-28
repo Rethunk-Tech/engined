@@ -22,14 +22,14 @@
 # is a name with capabilities. A [[route]] pairs an engine with an upstream
 # and, where one applies, a model, and carries everything specific to that
 # pairing: filename, role, keep_resident, args. A [[chain]] is an ordered
-# fallback list of route addresses. None of the four owns another.
+# fallback list of route addresses. None of the five owns another.
 
 listen_port = 29200         # IANA-unassigned.
-chat_timeout_seconds = 1200 # covers a cold load of a 25 GB-class GGUF plus prefill.
-# 600 was sized for a 32768 window; measured prefill at the
-# wider window is 153s for 100k tokens and degrades with
-# depth (1291 t/s at 3.5k, 654 at 100k), so a full-window
-# request plus generation can approach the old ceiling.
+# Omitted, this is 600 (`DEFAULT_CHAT_TIMEOUT_SECONDS` in src/config.ts).
+# 1200 here covers a cold load of a 25 GB-class GGUF plus a full-window
+# prefill: measured 153s for 100k tokens, degrading with depth (1291 t/s
+# at 3.5k, 654 at 100k), so generation on top of that exceeds 600.
+chat_timeout_seconds = 1200
 agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, not seconds.
 agentic_concurrency = 4      # live /openai/v1 agentic launches; over-cap is 429.
 

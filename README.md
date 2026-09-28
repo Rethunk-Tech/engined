@@ -44,9 +44,9 @@ Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: 
 - **Start on demand, stop when idle** — leases counted; idle 35B returns ~27 GiB.
 - **One resident model per role** — occupancy is engined's job.
 - **Chains with provenance** — fallback lists record which engine answered.
-- **Agentic CLIs as an engine kind** — `claude` and `opencode`, both with
-  writing disabled: claude by its own flags, opencode by a `bwrap` sandbox,
-  because it has no flag that would do it.
+- **Agentic CLIs as an engine kind** — `claude`, `opencode`, and `cursor`,
+  writing disabled: claude and cursor by their own flags, opencode by a
+  `bwrap` sandbox, because it has no flag that would do it.
 - **Fill-in-the-middle** — `POST /openai/v1/completions` over llama's own `/infill`, for a route that opts in.
 - **Vision bridge** — a text-only chat route can take an image attachment by
   captioning it through a vision route first.

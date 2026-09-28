@@ -5,10 +5,12 @@
 # therefore serves two cleartext backends and this proxy routes by path:
 # the turn stream to the h2c listener, everything else to the door.
 #
-# `cursor-agent` trusts Caddy's internal CA via
+# `cursor-agent` trusts Caddy's internal CA. On a host `caddy` binary:
 #   NODE_EXTRA_CA_CERTS=$(caddy environ | grep -i pki)/authorities/local/root.crt
-# or any cert the operator points it at; it is a Node bundle, so no system
-# trust store change is needed.
+# `caddy environ` is that binary's own environment, not a containerised
+# Caddy's; if Caddy runs in a container, point NODE_EXTRA_CA_CERTS at the
+# volume that holds the same root.crt, or any cert the operator chooses.
+# It is a Node bundle, so no system trust store change is needed.
 
 {
 	auto_https disable_redirects
