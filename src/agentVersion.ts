@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { type AgenticSpawn, defaultAgenticSpawn } from './agentic.ts'
-import { agentCli, resolveCursorBinary } from './agents.ts'
+import { agentCli } from './agents.ts'
 import type { ExecResult } from './exec.ts'
 import { errMessage } from './records.ts'
 
@@ -46,7 +46,7 @@ export async function observeAgentVersion(
   }
   let binary: string
   try {
-    binary = resolveBinary?.() ?? (agent === 'cursor' ? resolveCursorBinary() : cli.resolveBinary())
+    binary = resolveBinary?.() ?? cli.resolveBinary()
   } catch (err) {
     return { ok: false, error: errMessage(err) }
   }
