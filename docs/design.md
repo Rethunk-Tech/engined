@@ -21,8 +21,12 @@ require an engined change, the line has been drawn wrong.
 Nothing else on this box starts an inference container: under load, `docker
 ps` shows `engined-*` only. Local apps for chat, speech, vision, embeddings,
 and an editor extension (`engined-vscode`) reach this door, as do other
-on-box consumers of the same verbs. None of them supervises a server or
-downloads weights.
+on-box consumers of the same verbs. None of them supervises a server.
+
+engined never downloads weights: a missing `filename` is reported with its
+fix, not fetched. A consumer that needs new weights (bakeoff's candidate
+models) fetches them itself into the engine's `models_dir`, so the box keeps
+one model tree.
 
 A consumer that keeps its own runner has not been cut over, only pointed
 twice.
