@@ -1125,7 +1125,10 @@ describe('comfy proxy: a binding ages out', () => {
   /** Writes the binding table directly, so a test can plant an age without waiting for one. */
   function plantBindings(
     stateHome: string,
-    table: Record<string, { at: number; filenames: string[] }>,
+    table: Record<
+      string,
+      { at: number; views: { filename: string; subfolder: string; type: string }[] }
+    >,
   ) {
     process.env.XDG_STATE_HOME = stateHome
     mkdirSync(dirname(comfyBindingsPath()), { recursive: true })
@@ -1135,8 +1138,14 @@ describe('comfy proxy: a binding ages out', () => {
   test('a binding older than the ttl is refused, and a recent one beside it is still served', async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, 'state-ttl-'))
     plantBindings(stateHome, {
-      [`${KeyPrefix}job-old`]: { at: Date.now() - 8 * DayMs, filenames: ['old.png'] },
-      [`${KeyPrefix}job-new`]: { at: Date.now() - DayMs, filenames: ['new.png'] },
+      [`${KeyPrefix}job-old`]: {
+        at: Date.now() - 8 * DayMs,
+        views: [{ filename: 'old.png', subfolder: '', type: 'output' }],
+      },
+      [`${KeyPrefix}job-new`]: {
+        at: Date.now() - DayMs,
+        views: [{ filename: 'new.png', subfolder: '', type: 'output' }],
+      },
     })
     const { client } = recordingComfyClient((url, init) => {
       if (isQueueRead(url, init)) {
@@ -1169,7 +1178,10 @@ describe('comfy proxy: a binding ages out', () => {
   test('the next save drops what aged out, so the file does not keep it forever', async () => {
     const stateHome = mkdtempSync(join(TEST_ROOT, 'state-ttl-save-'))
     plantBindings(stateHome, {
-      [`${KeyPrefix}job-old`]: { at: Date.now() - 8 * DayMs, filenames: ['old.png'] },
+      [`${KeyPrefix}job-old`]: {
+        at: Date.now() - 8 * DayMs,
+        views: [{ filename: 'old.png', subfolder: '', type: 'output' }],
+      },
     })
     const { client } = recordingComfyClient((url, init) => {
       if (isQueueRead(url, init)) {
@@ -1205,7 +1217,10 @@ describe('loading the binding table', () => {
       JSON.stringify({
         'comfy local old-a': [],
         'comfy local old-b': [],
-        'comfy local current': { at: Date.now(), filenames: ['a.png'] },
+        'comfy local current': {
+          at: Date.now(),
+          views: [{ filename: 'a.png', subfolder: '', type: 'output' }],
+        },
       }),
     )
     const { lines, write } = collectLines()
@@ -1243,7 +1258,7 @@ describe('loading the binding table', () => {
   })
 
   test('a table this build can read in full writes nothing', () => {
-    stateWith(JSON.stringify({ 'comfy local j': { at: Date.now(), filenames: [] } }))
+    stateWith(JSON.stringify({ 'comfy local j': { at: Date.now(), views: [] } }))
     const { lines, write } = collectLines()
     expect(loadComfyBindings(write).size).toBe(1)
     expect(lines).toEqual([])

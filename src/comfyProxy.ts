@@ -199,7 +199,6 @@ export async function proxyComfyPrompt(
       if (promptId !== undefined) {
         ctx.comfyBindings.set(comfyKey(engineId, origin, promptId), {
           at: Date.now(),
-          filenames: [],
           views: [],
         })
         saveComfyBindings(ctx.comfyBindings)
@@ -340,9 +339,6 @@ function comfyViewBound(
     if (view !== undefined) {
       return view
     }
-    if (bound.filenames.includes(filename)) {
-      return { filename, subfolder: '', type: '' }
-    }
   }
   return undefined
 }
@@ -432,7 +428,7 @@ export function comfyHistoryEntry(text: string, promptId: string): ComfyHistoryE
  * this door never bound via `/prompt` -- the bare form is the container's
  * entire global ledger, and even the scoped form would otherwise answer
  * with any other caller's completed job for a real id it did not itself
- * submit. A successful read seeds `filenames` with whatever this job
+ * submit. A successful read seeds `views` with whatever this job
  * actually produced, which is what makes `/view` servable at all.
  */
 export async function proxyComfyHistory(
@@ -451,10 +447,6 @@ export async function proxyComfyHistory(
     const found = viewsIn(comfyHistoryEntry(text, promptId))
     let changed = false
     for (const view of found) {
-      if (!bound.filenames.includes(view.filename)) {
-        bound.filenames.push(view.filename)
-        changed = true
-      }
       if (
         !bound.views.some(
           (v) =>

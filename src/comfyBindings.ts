@@ -36,13 +36,7 @@ export function comfyBindingsPath(): string {
  * table looks the way an idle week looks. The line is a count, never a key --
  * a key carries the prompt id that produced it.
  */
-function viewsOf(
-  raw: unknown,
-  filenames: string[],
-): { filename: string; subfolder: string; type: string }[] {
-  if (!Array.isArray(raw)) {
-    return filenames.map((filename) => ({ filename, subfolder: '', type: '' }))
-  }
+function viewsOf(raw: unknown[]): { filename: string; subfolder: string; type: string }[] {
   const views: { filename: string; subfolder: string; type: string }[] = []
   for (const item of raw) {
     if (!isRecord(item) || typeof item.filename !== 'string') {
@@ -84,12 +78,11 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
       // Anything not of this shape is dropped rather than repaired: an entry
       // this build cannot read is an entry it cannot vouch for, and an empty
       // table refuses stored outputs, which is the safe direction to fail.
-      if (!isRecord(value) || typeof value.at !== 'number' || !Array.isArray(value.filenames)) {
+      if (!isRecord(value) || typeof value.at !== 'number' || !Array.isArray(value.views)) {
         dropped += 1
         return []
       }
-      const filenames = value.filenames.filter((n) => typeof n === 'string')
-      return [[key, { at: value.at, filenames, views: viewsOf(value.views, filenames) }]]
+      return [[key, { at: value.at, views: viewsOf(value.views) }]]
     }),
   )
   if (dropped > 0) {

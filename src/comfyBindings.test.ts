@@ -59,7 +59,6 @@ describe('loadComfyBindings: the views a stored binding carries', () => {
       JSON.stringify({
         'comfy local job-views': {
           at: Date.now(),
-          filenames: ['out.png'],
           views: [{ filename: 'out.png', subfolder: 'sub', type: 'output' }],
         },
       }),
@@ -68,19 +67,6 @@ describe('loadComfyBindings: the views a stored binding carries', () => {
     const table = loadComfyBindings(write)
     expect(table.get('comfy local job-views')?.views).toEqual([
       { filename: 'out.png', subfolder: 'sub', type: 'output' },
-    ])
-  })
-
-  test('an older table with filenames but no views falls back to empty subfolder and type', () => {
-    stateWith(
-      JSON.stringify({
-        'comfy local job-legacy': { at: Date.now(), filenames: ['old.png'] },
-      }),
-    )
-    const { write } = collectLines()
-    const table = loadComfyBindings(write)
-    expect(table.get('comfy local job-legacy')?.views).toEqual([
-      { filename: 'old.png', subfolder: '', type: '' },
     ])
   })
 })

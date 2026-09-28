@@ -123,7 +123,6 @@ export type ComfyBindings = Map<string, ComfyBinding>
  */
 export interface ComfyBinding {
   at: number
-  filenames: string[]
   /** `(filename, subfolder, type)` as `/history` named them; `/view` rebuilds its query from this, never the caller's params. */
   views: { filename: string; subfolder: string; type: string }[]
 }
