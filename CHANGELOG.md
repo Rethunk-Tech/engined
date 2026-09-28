@@ -19,6 +19,9 @@ First public release.
   them after.
 - `x-engined-queue-ms` on chat and completions: how long the call waited for
   a llama slot, separate from how long it took.
+- A streamed llama answer whose caller stops reading is cut after
+  `stream_stall_seconds` (default 60) so it cannot hold a slot forever; a
+  slow model never trips it.
 - Remote upstreams with keyring-held secrets, egress ceilings and extra
   request headers.
 

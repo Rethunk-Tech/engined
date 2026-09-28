@@ -378,6 +378,16 @@ provenance already records. They are absent on any reply where no route
 answered — an exhausted chain, a refusal before dispatch, or an egress
 ceiling that leaves no hop to try.
 
+A streamed reply from a local llama route (chat or completions) that the
+caller stops reading is cut after `stream_stall_seconds` (default 60,
+[configuration.md](configuration.md)): the stream ends in an error, the slot
+is released, and provenance records `client stalled`. The clock runs only
+while output the door already holds sits unread, so a model that takes
+minutes to load, to process a long prompt, or between tokens never trips it;
+only a caller that stops pulling does, and only once the socket's own buffer
+(a few MB) has filled. Nothing else streams under this rule: comfy renders,
+images, speech, transcription and agentic runs are untouched.
+
 An agentic hop's own cost is known only once its process exits, which for a
 streamed reply is after `x-engined-cost-usd` has already gone out headerless.
 That reply's final SSE chunk carries it instead, as an `engined` object beside
