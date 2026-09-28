@@ -721,6 +721,32 @@ test("a client disconnecting mid-stream still emits the call's provenance line",
   expect(record.attempts[0]?.failure).toBe('client disconnected')
 })
 
+test('a stream whose source fails while the client is reading nothing still emits its provenance line', async () => {
+  const { lines, write } = collectLines()
+  let fail: (err: Error) => void = () => undefined
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      body: null,
+      stream: new ReadableStream<Uint8Array>({
+        start(controller) {
+          // One chunk fills the wrapper's own queue, so no pull of its own is
+          // pending when the source fails -- what a client reading nothing leaves.
+          controller.enqueue(new TextEncoder().encode('data: chunk\n\n'))
+          fail = (err) => controller.error(err)
+        },
+      }),
+    })
+
+  await runChain(['@/e1/m'], baseOpts({ exec, write }))
+  await Bun.sleep(0)
+  fail(new Error('client stalled: read nothing for 60s'))
+  await Bun.sleep(0)
+
+  const record = soleProvenanceRecord(lines)
+  expect(record.attempts[0]?.failure).toBe('client stalled: read nothing for 60s')
+})
+
 test('a client abort stops the chain instead of advancing and billing the next provider', async () => {
   const up = startBehaviorUpstream({
     slow: { status: 502, delayMs: 500 },

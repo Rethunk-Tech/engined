@@ -69,6 +69,7 @@ const DEFAULT_LISTEN_PORT = 29_200
 const DEFAULT_CURSOR_PORT = 29_201
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
+const DEFAULT_STREAM_STALL_SECONDS = 60
 const DEFAULT_AGENTIC_CONCURRENCY = 4
 
 function parseSecret(value: unknown, site: string, file: string): SecretRef {
@@ -606,6 +607,7 @@ function parseTopLevelSettings(
   | 'cursor_port'
   | 'chat_timeout_seconds'
   | 'agent_timeout_seconds'
+  | 'stream_stall_seconds'
   | 'agentic_concurrency'
 > {
   const listenPort = parsePort(raw.listen_port, 'config "listen_port"', file, DEFAULT_LISTEN_PORT)
@@ -622,6 +624,9 @@ function parseTopLevelSettings(
     agent_timeout_seconds:
       optionalTimeoutSeconds(raw.agent_timeout_seconds, 'config "agent_timeout_seconds"', file) ??
       DEFAULT_AGENT_TIMEOUT_SECONDS,
+    stream_stall_seconds:
+      optionalTimeoutSeconds(raw.stream_stall_seconds, 'config "stream_stall_seconds"', file) ??
+      DEFAULT_STREAM_STALL_SECONDS,
     agentic_concurrency: parsePositiveInteger(
       raw.agentic_concurrency,
       'config "agentic_concurrency"',

@@ -243,6 +243,7 @@ export function wrapStream<T>(
   // Whichever terminus arrives first owns the line; `cancel` can still fire
   // after a `pull` has closed the stream.
   let settled = false
+  let pulling = false
   const settle = (ok: boolean, failure?: string) => {
     if (settled) {
       return
@@ -251,7 +252,21 @@ export function wrapStream<T>(
     onDone(ok, failure, forwarded)
   }
   return new ReadableStream<T>({
+    start(controller) {
+      // A source can fail while nothing is pulling -- a stall deadline fires
+      // precisely because the caller stopped reading -- and that is still
+      // this call's terminus, owed to provenance now rather than whenever
+      // the caller next reads. A pull in flight is left to report it itself,
+      // after forwarding the chunk it already holds.
+      reader.closed.catch((err: unknown) => {
+        if (!pulling) {
+          controller.error(err)
+          settle(false, errMessage(err))
+        }
+      })
+    },
     async pull(controller) {
+      pulling = true
       try {
         const { done, value } = await reader.read()
         if (done) {
@@ -267,6 +282,8 @@ export function wrapStream<T>(
       } catch (err) {
         controller.error(err)
         settle(false, errMessage(err))
+      } finally {
+        pulling = false
       }
     },
     cancel(reason) {

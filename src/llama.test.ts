@@ -10,7 +10,7 @@ import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter, reportedModelFrom } from './llama.ts'
 import { buildLlamaSpec, renderPresetIni } from './llamaSpec.ts'
-import { pollUntil } from './records.ts'
+import { MS_PER_SECOND, pollUntil } from './records.ts'
 import {
   BUNX,
   engine as baseEngine,
@@ -37,6 +37,8 @@ const MODELS_LIST_PATH = '/v1/models'
 const READY_TIMEOUT_ERROR = /readyTimeoutS/
 /** Tight, because every `waitFor` below is waiting on in-process work, not on a container. */
 const WAIT_INTERVAL_MS = 5
+/** Short enough to wait out in a test, and far longer than an eager reader ever leaves a chunk queued. */
+const STALL_SECONDS = 0.05
 const UNLOAD_FAILED_ERROR = /unload failed/
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
@@ -96,6 +98,7 @@ function baseOpts(httpClient: HttpClient) {
     presetHostPath: tmpIniPath(),
     httpClient,
     pollIntervalMs: 1,
+    streamStallSeconds: () => 60,
   }
 }
 
@@ -809,6 +812,59 @@ test('a streaming client that aborts without draining the stream still releases 
   // can release the lease here.
   expect(router.hasOutstandingLeases()).toBe(true)
   controller.abort()
+  expect(router.hasOutstandingLeases()).toBe(false)
+})
+
+function stallRouter(chunks: () => ReadableStream<Uint8Array>): {
+  a: ResolvedRoute
+  router: LlamaRouter
+} {
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const client = loadListChatClient(
+    () => new Response(chunks(), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+  )
+  const router = new LlamaRouter(engine(), [a], new DockerLifecycle(fakeExec(), fakeProbe), {
+    ...baseOpts(client),
+    streamStallSeconds: () => STALL_SECONDS,
+  })
+  return { a, router }
+}
+
+test('a streaming client that holds the socket but stops reading is aborted as a stall and its lease released', async () => {
+  let upstreamCancelled = false
+  const { a, router } = stallRouter(() =>
+    sseBody('data: chunk\n\n', () => {
+      upstreamCancelled = true
+    }),
+  )
+
+  const { response } = await chatHop(router, a, 'a', { stream: true })
+  expect(router.hasOutstandingLeases()).toBe(true)
+
+  await waitFor(() => !router.hasOutstandingLeases())
+  expect(upstreamCancelled).toBe(true)
+  // What reaches provenance: the stream ends in an error naming the stall.
+  await expect(response.text()).rejects.toThrow(/client stalled/)
+})
+
+test('a client that keeps reading is never stalled, however long the upstream takes between chunks', async () => {
+  const gapMs = STALL_SECONDS * MS_PER_SECOND * 3
+  const { a, router } = stallRouter(() => {
+    let sent = 0
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await Bun.sleep(gapMs)
+        sent += 1
+        controller.enqueue(new TextEncoder().encode(`data: ${sent}\n\n`))
+        if (sent === 3) {
+          controller.close()
+        }
+      },
+    })
+  })
+
+  const { response } = await chatHop(router, a, 'a', { stream: true })
+  expect(await response.text()).toEndWith('data: 1\n\ndata: 2\n\ndata: 3\n\n')
   expect(router.hasOutstandingLeases()).toBe(false)
 })
 

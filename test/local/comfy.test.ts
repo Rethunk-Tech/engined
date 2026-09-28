@@ -328,6 +328,7 @@ function buildRig(fixture: Fixture): Rig {
   const router = new LlamaRouter(fixture.llamaEngine, [fixture.chatRoute], lifecycle, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
+    streamStallSeconds: () => 60,
     idleStopSeconds: LLAMA_IDLE_STOP_SECONDS,
     readyTimeoutS: READY_TIMEOUT_S,
     presetHostPath: join(import.meta.dir, '.scratch-preset-comfy.ini'),

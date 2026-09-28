@@ -96,6 +96,7 @@ export const TOP_KEYS = new Set([
   'cursor_port',
   'chat_timeout_seconds',
   'agent_timeout_seconds',
+  'stream_stall_seconds',
   'agentic_concurrency',
   'engine',
   'upstream',

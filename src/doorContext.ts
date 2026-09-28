@@ -150,6 +150,7 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
     readyTimeoutS: engine.ready_timeout_s,
     httpClient: ctx.doorOpts.llamaHttpClient,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
+    streamStallSeconds: () => ctx.getConfig().stream_stall_seconds,
   })
   ctx.llamaRouters.set(engine.id, router)
   return router

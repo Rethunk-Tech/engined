@@ -31,6 +31,7 @@ listen_port = 29200         # IANA-unassigned.
 # at 3.5k, 654 at 100k), so generation on top of that exceeds 600.
 chat_timeout_seconds = 1200
 agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, not seconds.
+stream_stall_seconds = 60    # a streamed answer its client stops reading is aborted after this.
 agentic_concurrency = 4      # live /openai/v1 agentic launches; over-cap is 429.
 
 # `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]

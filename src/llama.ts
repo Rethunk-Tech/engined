@@ -30,7 +30,7 @@ import {
 } from './llamaSpec.ts'
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
-import { isRecord, parseRecord } from './records.ts'
+import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import type { RoleContention } from './responses.ts'
 import { ggufPath } from './tokenizeRoute.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
@@ -88,6 +88,8 @@ export interface LlamaRouterOptions {
   pollIntervalMs?: number
   /** Defaults to the real clock; a test injects one to make `queueMs` deterministic against real-timer jitter. */
   now?: () => number
+  /** Read per stream, so a reload's new `stream_stall_seconds` reaches a router it did not replace. */
+  streamStallSeconds: () => number
 }
 
 /**
@@ -522,10 +524,18 @@ export class LlamaRouter {
         ? SSE_CONTENT_TYPE
         : (upstream.headers.get(CONTENT_TYPE) ?? SSE_CONTENT_TYPE)
       return {
-        response: new Response(pipeUpstream(reader, emitWarming, release), {
-          status: upstream.status,
-          headers: { [CONTENT_TYPE]: contentType },
-        }),
+        response: new Response(
+          pipeUpstream(
+            reader,
+            emitWarming,
+            release,
+            this.opts.streamStallSeconds() * MS_PER_SECOND,
+          ),
+          {
+            status: upstream.status,
+            headers: { [CONTENT_TYPE]: contentType },
+          },
+        ),
         modelResident,
         queueMs,
       }

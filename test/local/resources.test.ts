@@ -140,6 +140,7 @@ async function loadChatModel(lifecycle: DockerLifecycle, chat: ChatRoute): Promi
   const router = new LlamaRouter(FIXTURE.engine, [chat], lifecycle, {
     enginesRoot: ENGINES_ROOT,
     bunx: BUNX,
+    streamStallSeconds: () => 60,
     idleStopSeconds: IDLE_STOP_SECONDS,
     readyTimeoutS: READY_TIMEOUT_S,
     presetHostPath: join(import.meta.dir, '.scratch-preset-resources.ini'),

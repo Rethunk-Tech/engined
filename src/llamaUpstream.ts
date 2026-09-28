@@ -37,24 +37,48 @@ interface ListedModel {
 /**
  * The consumer-driven half of `fetchStreamed`: chunks piped from the already
  * open upstream reader, and `release` called on whichever terminus arrives --
- * drain, error, or the client cancelling. The lease is entirely `release`'s business.
+ * drain, error, the client cancelling, or the client stalling. The lease is
+ * entirely `release`'s business.
+ *
+ * A stall is a chunk left unread for `stallMs`: a client that holds the
+ * socket open but stops reading reaches no other terminus, and the door
+ * listens with no idle timeout, so without this its lease is held forever.
  */
 export function pipeUpstream(
   reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
   emitWarming: boolean,
   release: () => void,
+  stallMs: number,
 ): ReadableStream<Uint8Array> {
+  let stall: ReturnType<typeof setTimeout> | undefined
+  const settle = () => {
+    clearTimeout(stall)
+    release()
+  }
+  const push = (controller: ReadableStreamDefaultController<Uint8Array>, chunk: Uint8Array) => {
+    controller.enqueue(chunk)
+    // A full queue is a chunk the client has not taken; a read clears this in `pull`.
+    if ((controller.desiredSize ?? 0) <= 0) {
+      stall = setTimeout(() => {
+        const err = new Error(`client stalled: read nothing for ${stallMs / MS_PER_SECOND}s`)
+        controller.error(err)
+        settle()
+        reader?.cancel(err).catch(() => undefined)
+      }, stallMs)
+    }
+  }
   return new ReadableStream<Uint8Array>({
     start: (controller) => {
       if (emitWarming) {
-        controller.enqueue(WARMING_COMMENT)
+        push(controller, WARMING_COMMENT)
       }
       if (!reader) {
         controller.close()
-        release()
+        settle()
       }
     },
     pull: async (controller) => {
+      clearTimeout(stall)
       if (!reader) {
         return
       }
@@ -62,17 +86,17 @@ export function pipeUpstream(
         const { done, value } = await reader.read()
         if (done) {
           controller.close()
-          release()
+          settle()
           return
         }
-        controller.enqueue(value)
+        push(controller, value)
       } catch (err) {
         controller.error(err instanceof Error ? err : new Error(String(err)))
-        release()
+        settle()
       }
     },
     cancel: (reason) => {
-      release()
+      settle()
       // A client disconnecting mid-stream cancels this ReadableStream, but
       // that alone leaves the upstream llama-server connection open (and its
       // reader pending) until GC -- cancel it too so the socket closes now,

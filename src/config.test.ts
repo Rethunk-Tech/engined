@@ -595,12 +595,13 @@ models_dir = "~/.local/share/engined-models/llm"
   }
 })
 
-test('defaults apply when listen_port/chat_timeout/agent_timeout are absent', () => {
+test('defaults apply when listen_port/chat_timeout/agent_timeout/stream_stall are absent', () => {
   const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
   expect(cfg.listen_port).toBe(DEFAULT_LISTEN_PORT)
   expect(cfg.cursor_port).toBe(29_201)
   expect(cfg.chat_timeout_seconds).toBe(DEFAULT_CHAT_TIMEOUT_SECONDS)
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS)
+  expect(cfg.stream_stall_seconds).toBe(60)
   expect(cfg.agentic_concurrency).toBe(4)
 })
 
@@ -1830,6 +1831,9 @@ test('a second-valued key above the setTimeout ceiling is a parse error naming t
   expect(() =>
     loadConfig(writeConfig(`chat_timeout_seconds = 3000000\n${llamaEngineAndRoute()}`)),
   ).toThrow(/config "chat_timeout_seconds" exceeds the setTimeout ceiling/)
+  expect(() =>
+    loadConfig(writeConfig(`stream_stall_seconds = 3000000\n${llamaEngineAndRoute()}`)),
+  ).toThrow(/config "stream_stall_seconds" exceeds the setTimeout ceiling/)
   expect(() =>
     loadConfig(
       writeConfig(

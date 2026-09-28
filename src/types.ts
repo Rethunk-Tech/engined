@@ -360,6 +360,8 @@ export interface Config {
   cursor_port: number
   chat_timeout_seconds: number
   agent_timeout_seconds: number
+  /** How long a streamed answer may sit unread by its client before the stream is aborted and its lease released. */
+  stream_stall_seconds: number
   /** Live dispatch-path agentic launches allowed at once. Probe launches are not counted. */
   agentic_concurrency: number
   engines: EngineEntry[]
