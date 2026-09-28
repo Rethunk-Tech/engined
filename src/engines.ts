@@ -5,6 +5,8 @@
  * directly — that is `docker.ts` and `spec.ts`'s job.
  */
 
+import { rmSync } from 'node:fs'
+import { dirname } from 'node:path'
 import process from 'node:process'
 import { AgenticGate } from './agenticGate.ts'
 import { observeAgentVersion } from './agentVersion.ts'
@@ -53,6 +55,8 @@ export class EngineRegistry {
   private readonly comfy: ComfyQueueWatch
   private readonly agentic: AgenticGate
   private readonly presetHostPathFor: (engineId: string) => string
+  /** False when `opts.presetHostPath` overrode the per-engine default -- a test-only path shared across engines that teardown must never delete out from under a sibling. */
+  private readonly usesDefaultPresetPath: boolean
   private readonly inventoryWatch: InventoryWatch
   /**
    * The shape each running container was started under, set when this registry
@@ -86,6 +90,7 @@ export class EngineRegistry {
       observeAgentVersion: opts.observeAgentVersion ?? observeAgentVersion,
     })
     this.presetHostPathFor = (id) => opts.presetHostPath ?? llamaPresetPath(id)
+    this.usesDefaultPresetPath = opts.presetHostPath === undefined
     this.inventoryWatch = new InventoryWatch(opts.inventory ?? new Inventory())
     this.config = config
     this.entries = buildEntries(config, this.specOptions, this.presetHostPathFor)
@@ -454,6 +459,12 @@ export class EngineRegistry {
     this.lifecycle.removeEngine(id).catch((err: unknown) => {
       process.stderr.write(`${id}: teardown after reload failed: ${errMessage(err)}\n`)
     })
+    // Only under the per-engine default path: a test override shares one
+    // path across engines, and deleting its directory would take a sibling
+    // engine's preset with it.
+    if (this.usesDefaultPresetPath && this.isLocalLlama(id)) {
+      rmSync(dirname(this.presetHostPathFor(id)), { recursive: true, force: true })
+    }
   }
 
   /**

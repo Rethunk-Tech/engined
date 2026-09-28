@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
 import type { QueueSnapshot } from './comfyQueue.ts'
 import { DockerLifecycle, type Probe } from './docker.ts'
@@ -25,6 +25,7 @@ import {
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
 import type { Exec } from './exec.ts'
+import { llamaPresetPath } from './paths.ts'
 import type { RuntimeStatus } from './runtimeTable.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -197,6 +198,29 @@ test('a reload teardown that fails is reported, not swallowed', async () => {
 
   expect(written.join('')).toContain('llama')
   expect(written.join('')).toContain('docker daemon unreachable')
+})
+
+test("a reload's teardown of a local llama engine removes its preset directory", async () => {
+  const restoreStateHome = redirectStateHome()
+  try {
+    const root = newEnginesRoot()
+    writeEngineSpec(root, 'llama', PULLED_CONTAINER)
+    const reg = registry(
+      config({ engines: [engine({ id: 'llama', models_dir: '/data/gguf' })] }),
+      root,
+    )
+    await reg.start('llama')
+    const presetDir = dirname(llamaPresetPath('llama'))
+    expect(existsSync(presetDir)).toBe(true)
+
+    reg.reload(config({ engines: [] }))
+    // The teardown runs in the background: `reload` is synchronous.
+    await Promise.resolve()
+
+    expect(existsSync(presetDir)).toBe(false)
+  } finally {
+    restoreStateHome()
+  }
 })
 
 /** Builds a registry over a pulled `llama` from `before`, reloads it with `after`, and reports what was torn down. */
