@@ -15,23 +15,16 @@ import {
   type HttpClient,
   JSON_CONTENT_TYPE,
   jsonError,
-  STATUS_BAD_REQUEST,
+  readJsonBody,
   STATUS_UNAVAILABLE,
 } from './http.ts'
-import { errMessage, parseRecord } from './records.ts'
+import { errMessage } from './records.ts'
 
 /** Tokenize/apply-template answers are small; an uncapped read is how a runaway llama-server pins the door. */
 const EXTRAS_SUCCESS_CHARS = 1_048_576
 
-/** Throws on a malformed body so the caller answers 400 rather than letting it surface as a 500. */
-function injectModel(bodyText: string | undefined, model: string): string {
-  if (bodyText === undefined) {
-    return JSON.stringify({ model })
-  }
-  const parsed = parseRecord(bodyText)
-  if (parsed === null) {
-    throw new SyntaxError('request body must be a JSON object')
-  }
+/** A body that already names its own model is forwarded untouched. */
+function injectModel(parsed: Record<string, unknown>, model: string): string {
   return JSON.stringify(parsed.model === undefined ? { ...parsed, model } : parsed)
 }
 
@@ -59,13 +52,15 @@ export function proxyExtras(
   return hold(async () => {
     const url = new URL(req.url)
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
-    let body = hasBody ? await req.text() : undefined
+    let body: string | undefined
     if (residentModel !== null && hasBody) {
-      try {
-        body = injectModel(body, residentModel)
-      } catch (err) {
-        return jsonError(STATUS_BAD_REQUEST, errMessage(err))
+      const parsed = await readJsonBody(req)
+      if (parsed instanceof Response) {
+        return parsed
       }
+      body = injectModel(parsed, residentModel)
+    } else if (hasBody) {
+      body = await req.text()
     }
 
     const upstream = new URL(target.enginePath + url.search, target.baseUrl)

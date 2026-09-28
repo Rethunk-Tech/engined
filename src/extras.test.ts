@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { createLlamaDoor, llamaDoorConfig, makeLlamaHttpClient } from './doorFixtures.ts'
 import { proxyExtras } from './extras.ts'
-import { ENGINE_ERROR_CHARS, errorMessageOf, type HttpClient } from './http.ts'
+import { ENGINE_ERROR_CHARS, errorMessageOf, type HttpClient, MAX_JSON_BODY_BYTES } from './http.ts'
 import { makeTestRoot } from './test-support.ts'
 
 const BASE = 'http://127.0.0.1:9999'
@@ -52,6 +52,19 @@ test('a model already present in the body is never overridden', async () => {
 
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string }
   expect(parsed.model).toBe('explicit')
+})
+
+test('an oversized body is refused with the shared 413, never reaching the upstream', async () => {
+  const { client, calls } = recordingClient(() => Response.json({ tokens: [] }))
+  const req = new Request(`${BASE}/tokenize`, {
+    method: 'POST',
+    body: JSON.stringify({ content: 'hi' }),
+    headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
+  })
+  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, 'ornith', client)
+
+  expect(res.status).toBe(413)
+  expect(calls.length).toBe(0)
 })
 
 test('the upstream response body passes through unmodified, SSE included', async () => {
