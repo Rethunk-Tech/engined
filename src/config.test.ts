@@ -20,17 +20,19 @@ function writeConfig(toml: string): string {
   return path
 }
 
-/** Every malformed/unresolvable-hop rule is a ParseError; this captures the message for a substring check the regex-only `.toThrow()` calls elsewhere can't do. */
-function parseMessage(toml: string): string {
+/** Captures loadConfig's thrown message against an already-written config path. */
+function messageOf(path: string): string {
   try {
-    loadConfig(writeConfig(toml))
+    loadConfig(path)
     throw new Error('expected loadConfig to throw')
   } catch (err) {
-    if (!(err instanceof Error)) {
-      throw err
-    }
-    return err.message
+    return err instanceof Error ? err.message : String(err)
   }
+}
+
+/** Every malformed/unresolvable-hop rule is a ParseError; this captures the message for a substring check the regex-only `.toThrow()` calls elsewhere can't do. */
+function parseMessage(toml: string): string {
+  return messageOf(writeConfig(toml))
 }
 
 /** A real models_dir with the given files pre-created, for tests that must parse clean. */
@@ -1946,13 +1948,7 @@ spec_dir = "/tmp/nonexistent-spec-dir"
   test('a fragment refusing a top-level scalar key names the fragment file', () => {
     const path = writeConfig(llamaEngineAndRoute())
     writeConfigD(path, { 'bad.toml': 'listen_port = 1\n' })
-    let message = ''
-    try {
-      loadConfig(path)
-      throw new Error('expected loadConfig to throw')
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
-    }
+    const message = messageOf(path)
     expect(message).toContain(join(dirname(path), 'config.d', 'bad.toml'))
     expect(message).toMatch(/unrecognised key "listen_port"/)
   })
@@ -1974,13 +1970,7 @@ id   = "dup"
 kind = "agentic-cli"
 `,
     })
-    let message = ''
-    try {
-      loadConfig(path)
-      throw new Error('expected loadConfig to throw')
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
-    }
+    const message = messageOf(path)
     expect(message).toMatch(RX_DUP_DECLARED_TWICE)
     expect(message).toContain(join(dirname(path), 'config.d', 'dup.toml'))
     expect(message).toContain(path)
@@ -2008,13 +1998,7 @@ filename = "missing.gguf"
 role = "chat"
 `,
     })
-    let message = ''
-    try {
-      loadConfig(path)
-      throw new Error('expected loadConfig to throw')
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
-    }
+    const message = messageOf(path)
     expect(message).toContain(join(dirname(path), 'config.d', 'route.toml'))
     expect(message).toMatch(/filename" does not exist at/)
   })
