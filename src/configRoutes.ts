@@ -79,6 +79,14 @@ export function parseRouteRaw(
       file,
     )
   }
+  // A route's model is a `[section]` header in llama's preset INI, so these
+  // would split or comment out the section rather than name it.
+  if (modelStr !== undefined && /[[\]=\r\n]|^[;#]/.test(modelStr)) {
+    throw new ParseError(
+      `${site} has a "model" containing "[", "]", "=", a line break, or a leading ";" or "#", which the llama preset INI cannot carry as a section name`,
+      file,
+    )
+  }
   if (modelStr === WILDCARD_MODEL) {
     // A catalog expansion is not one model: local-file keys, a wire alias,
     // and per-route args would describe a SKU the operator has not named.
@@ -105,6 +113,11 @@ export function parseRouteRaw(
       ? undefined
       : requireString(raw.display_name, `${site} "display_name"`, file)
   const rawFilename = optional(raw.filename, 'string', `${site} "filename"`, file)
+  // Escape from models_dir is `validateFilenameUnderModelsDir`'s; a line break
+  // is the one thing that check cannot see, and it would inject a preset line.
+  if (rawFilename !== undefined && /[\r\n]/.test(rawFilename)) {
+    throw new ParseError(`${site} has a "filename" containing a line break`, file)
+  }
   const roleStr = optional(raw.role, 'string', `${site} "role"`, file)
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {
     throw new ParseError(`${site} has invalid "role" "${roleStr}"`, file)

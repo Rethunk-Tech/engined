@@ -1326,6 +1326,35 @@ test("a filename escaping the engine's models_dir is fatal", () => {
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_ESCAPE)
 })
 
+describe('route values rendered into the llama preset INI', () => {
+  const routeWith = (line: string) =>
+    `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nrole = "chat"\n${line}\n`
+
+  test('a model that would break its INI section header is fatal', () => {
+    for (const model of ['x]\\n[y', 'a=b', ';x', '#x']) {
+      expect(() =>
+        loadConfig(writeConfig(routeWith(`model = "${model}"\nfilename = "f.gguf"`))),
+      ).toThrow(/preset INI cannot carry/)
+    }
+  })
+
+  test('a filename with a line break is fatal', () => {
+    expect(() =>
+      loadConfig(writeConfig(routeWith('model = "x"\nfilename = "f.gguf\\nmmproj = /etc/passwd"'))),
+    ).toThrow(/"filename" containing a line break/)
+  })
+
+  test('an arg key or value with a line break is fatal', () => {
+    for (const arg of ['k = "v\\n[evil]"', '"k\\nx" = 1']) {
+      expect(() =>
+        loadConfig(
+          writeConfig(routeWith(`model = "x"\nfilename = "f.gguf"\n\n  [route.args]\n  ${arg}`)),
+        ),
+      ).toThrow(/contains a line break/)
+    }
+  })
+})
+
 test('a filename not present on disk under models_dir is fatal', () => {
   const dir = tempModelsDir()
   const toml = `${LOCAL_UPSTREAM}\n[[engine]]\nid = "local-llama"\nkind = "openai-http"\nmodels_dir = "${dir}"\n\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "missing.gguf"\nrole = "chat"\n`
