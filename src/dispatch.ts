@@ -6,7 +6,9 @@
 
 import { chainHopRoutes } from './chain.ts'
 import { groupCursorModels, resolveCursorVariant } from './cursorModels.ts'
+import type { DoorContext } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
+import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
 import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
 import { qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import {
@@ -339,6 +341,21 @@ export function resolveModel(
   }
 
   return resolveChain(model, endpoint, ctx.config) ?? fail(`unknown model "${model}"`)
+}
+
+/** `resolveModel` against the door's live config, or the 400 its refusal becomes. */
+export function resolveOrRefuse(
+  ctx: DoorContext,
+  model: string | undefined,
+  endpoint: string,
+  body?: Record<string, unknown>,
+): Extract<Dispatch, { ok: true }> | Response {
+  const resolved = resolveModel(model, endpoint, {
+    config: ctx.getConfig(),
+    registry: ctx.registry,
+    body,
+  })
+  return resolved.ok ? resolved : jsonError(STATUS_BAD_REQUEST, resolved.error)
 }
 
 /** Every model and wire id a concrete route already claims on the wildcard template's engine and upstream. */

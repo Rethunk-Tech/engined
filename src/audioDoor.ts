@@ -11,17 +11,15 @@ import { SPEECH_DOOR_KEYS } from './audio.ts'
 import { handleSpeech } from './audioSpeech.ts'
 import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
 import { routeAddress } from './control.ts'
-import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
+import { resolveOrRefuse, resolveQualified, routeEgress } from './dispatch.ts'
 import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
   engineErrorStatus,
   JSON_CONTENT_TYPE,
-  jsonError,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
-  STATUS_BAD_REQUEST,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
 import { answeringHeaders, type CallRecord } from './provenance.ts'
@@ -423,12 +421,9 @@ export async function handleAudioSpeech(
   signal?: AbortSignal,
 ): Promise<Response> {
   const rawModel = typeof body.model === 'string' ? body.model : undefined
-  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_SPEECH, {
-    config: ctx.getConfig(),
-    registry: ctx.registry,
-  })
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error)
+  const resolved = resolveOrRefuse(ctx, rawModel, CONTENT_ENDPOINT_SPEECH)
+  if (resolved instanceof Response) {
+    return resolved
   }
   const voice = resolveVoice(typeof body.voice === 'string' ? body.voice : undefined)
   if (voice instanceof Response) {

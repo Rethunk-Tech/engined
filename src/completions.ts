@@ -14,7 +14,7 @@
 
 import { classifyResult, wrapStream } from './chain.ts'
 import { routeAddress } from './control.ts'
-import { resolveModel, routeEgress } from './dispatch.ts'
+import { resolveOrRefuse, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { getLlamaRouter, recordDoorCall } from './doorContext.ts'
 import {
@@ -236,12 +236,9 @@ export async function handleCompletions(
   signal?: AbortSignal,
 ): Promise<Response> {
   const rawModel = typeof body.model === 'string' ? body.model : undefined
-  const resolved = resolveModel(rawModel, CONTENT_ENDPOINT_COMPLETIONS, {
-    config: ctx.getConfig(),
-    registry: ctx.registry,
-  })
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error)
+  const resolved = resolveOrRefuse(ctx, rawModel, CONTENT_ENDPOINT_COMPLETIONS)
+  if (resolved instanceof Response) {
+    return resolved
   }
   if (resolved.kind === 'chain') {
     return jsonError(STATUS_BAD_REQUEST, `chain "${resolved.chain}" does not serve completions`)

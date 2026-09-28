@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import { classifyResult } from './chain.ts'
 import { comfyPromptId, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
-import { resolveModel, routeEgress } from './dispatch.ts'
+import { resolveOrRefuse, routeEgress } from './dispatch.ts'
 import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import {
   ENGINE_ERROR_CHARS,
@@ -364,12 +364,9 @@ export function imageRoute(
   rawModel: string | undefined,
   endpoint: string,
 ): { route: ResolvedRoute; checkpoints: Record<string, unknown> } | Response {
-  const resolved = resolveModel(rawModel, endpoint, {
-    config: ctx.getConfig(),
-    registry: ctx.registry,
-  })
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error)
+  const resolved = resolveOrRefuse(ctx, rawModel, endpoint)
+  if (resolved instanceof Response) {
+    return resolved
   }
   if (resolved.kind === 'chain') {
     return jsonError(

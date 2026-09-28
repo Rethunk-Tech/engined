@@ -13,7 +13,7 @@ import {
   singleAudioRoute,
 } from './audioDoor.ts'
 import { handleTranscription } from './audioTranscribe.ts'
-import { resolveModel } from './dispatch.ts'
+import { resolveOrRefuse } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
@@ -199,12 +199,9 @@ export async function handleAudioTranscription(
   if (form instanceof Response) {
     return form
   }
-  const resolved = resolveModel(form.rawModel ?? undefined, endpoint, {
-    config: ctx.getConfig(),
-    registry: ctx.registry,
-  })
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error)
+  const resolved = resolveOrRefuse(ctx, form.rawModel ?? undefined, endpoint)
+  if (resolved instanceof Response) {
+    return resolved
   }
   const live = form.file instanceof ReadableStream
   if (resolved.kind === 'chain' && live) {

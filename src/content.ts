@@ -9,7 +9,7 @@ import { handleAudioTranscription } from './audioDoorTranscribe.ts'
 import { parseHop, runChain } from './chain.ts'
 import { handleCompletions } from './completions.ts'
 import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.ts'
-import { type Dispatch, resolveModel } from './dispatch.ts'
+import { type Dispatch, resolveOrRefuse } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter, recordDoorCall } from './doorContext.ts'
 import { proxyExtras } from './extras.ts'
 import { buildHopExec, egressOf, timeoutSecondsForKind } from './hop.ts'
@@ -261,13 +261,9 @@ export async function handleContent(
     return handleCompletions(ctx, body, req.signal)
   }
   const rawModel = typeof body.model === 'string' ? body.model : undefined
-  const resolved = resolveModel(rawModel, pathname, {
-    config: ctx.getConfig(),
-    registry: ctx.registry,
-    body,
-  })
-  if (!resolved.ok) {
-    return jsonError(STATUS_BAD_REQUEST, resolved.error)
+  const resolved = resolveOrRefuse(ctx, rawModel, pathname, body)
+  if (resolved instanceof Response) {
+    return resolved
   }
   return handleModelRouted(ctx, resolved, {
     pathname,
