@@ -58,7 +58,13 @@ const DEFAULT_POLL_INTERVAL_MS = 250
 export interface LlamaHop {
   response: Response
   modelResident: string | undefined
-  /** Time from `proxy()`'s own call to the lease grant -- `x-engined-queue-ms`'s source. 0 when nothing was waited on: an idle role's role/container are granted synchronously. */
+  /**
+   * Time spent waiting for this role's lease once the container was already
+   * up -- `x-engined-queue-ms`'s source. 0 when nothing was waited on: an
+   * idle role is granted synchronously. A cold container start (first
+   * request, or a preset change that forces a recreate) is not counted here;
+   * it still shows up in the request's total latency.
+   */
   queueMs: number
 }
 
@@ -210,6 +216,7 @@ export class LlamaRouter {
     if (role === undefined || model === undefined) {
       throw new Error(`route on engine "${route.engine}" has no role or model to warm`)
     }
+    await this.ensureStarted()
     const swapped = await this.beginLease(role, model, signal)
     this.finishLease(role)
     return swapped
@@ -397,7 +404,8 @@ export class LlamaRouter {
     }
     return {
       init: { ...init, body: JSON.stringify({ ...body, id_slot: slotId }) },
-      release: () => this.slotTableFor(modelId, parallel).release(slotId, fingerprint, Date.now()),
+      release: () =>
+        this.slotTableFor(modelId, parallel).release(slotId, fingerprint, this.clock()),
     }
   }
 
@@ -405,13 +413,17 @@ export class LlamaRouter {
    * The acquire half of a lease. Paired with `finishLease`, which every path
    * must call exactly once however it ends. Resolves to `acquireLease`'s own
    * answer: whether this call is the one that swapped the resident.
+   *
+   * Callers must `ensureStarted()` themselves first, outside whatever window
+   * they time as queue wait -- a cold container start (or a preset-change
+   * recreate) is real latency but not lease contention, and folding it in
+   * here would put it back under `x-engined-queue-ms`.
    */
   private async beginLease(
     role: Role,
     modelId: string,
     signal?: AbortSignal | null,
   ): Promise<boolean> {
-    await this.ensureStarted()
     const swapped = await this.scheduler.acquire(role, modelId, signal)
     this.totalActive += 1
     if (this.totalActive === 1) {
@@ -450,7 +462,8 @@ export class LlamaRouter {
   }
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. Slot placement runs inside the same lease, so a route on a slot table that was never touched never pays for one. */
-  private fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+  private async fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+    await this.ensureStarted()
     const queueStart = this.clock()
     return this.withLease(role, modelId, init.signal, async () => {
       const queueMs = this.clock() - queueStart
@@ -483,6 +496,7 @@ export class LlamaRouter {
    * cancelled -- never at `beginLease` -- matching `withLease`'s contract.
    */
   private async fetchStreamed({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+    await this.ensureStarted()
     const queueStart = this.clock()
     const emitWarming = !this.scheduler.isResident(role, modelId)
     await this.beginLease(role, modelId, init.signal)

@@ -1213,6 +1213,38 @@ test('queueMs is 0 for a lease granted immediately and positive for one queued b
   expect(queueMs2).toBe(4)
 })
 
+test('queueMs excludes a cold container start: only lease contention counts', async () => {
+  let clock = 0
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const { client } = fakeLlama()
+  let releaseProbe: () => void = () => undefined
+  const gate = new Promise<void>((r) => {
+    releaseProbe = r
+  })
+  let probeStarted: () => void = () => undefined
+  const probeStartedPromise = new Promise<void>((r) => {
+    probeStarted = r
+  })
+  const gatedProbe: Probe = async (url, method) => {
+    probeStarted()
+    await gate
+    return fakeProbe(url, method)
+  }
+  const lifecycle = new DockerLifecycle(fakeExec(), gatedProbe)
+  const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), now: () => clock })
+
+  const res = chatHop(router, a, 'a')
+  await probeStartedPromise
+  // Time the fake clock never sees moving except where the test moves it --
+  // this stands in for the real wall-clock cost of the container coming up.
+  clock = 50
+  releaseProbe()
+
+  const { queueMs } = await res
+  expect(queueMs).toBe(0)
+})
+
 test('6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door', async () => {
   const a = model({ id: 'a', filename: 'a.gguf', args: { parallel: 2 } })
   const { router, calls, release, inGate, send } = admissionOf(a)
