@@ -271,7 +271,7 @@ export function sseDataPayloads(frame: string): string[] {
 export async function* sseFrames(
   body:
     | ReadableStream<Uint8Array>
-    | { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> },
+    | { read: () => Promise<{ done: boolean; value?: Uint8Array }>; cancel: () => Promise<void> },
 ): AsyncGenerator<string> {
   const reader = body instanceof ReadableStream ? body.getReader() : body
   const decoder = new TextDecoder()
