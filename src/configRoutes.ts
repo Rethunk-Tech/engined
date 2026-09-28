@@ -79,14 +79,6 @@ export function parseRouteRaw(
       file,
     )
   }
-  // A route's model is a `[section]` header in llama's preset INI, so these
-  // would split or comment out the section rather than name it.
-  if (modelStr !== undefined && /[[\]=\r\n]|^[;#]/.test(modelStr)) {
-    throw new ParseError(
-      `${site} has a "model" containing "[", "]", "=", a line break, or a leading ";" or "#", which the llama preset INI cannot carry as a section name`,
-      file,
-    )
-  }
   if (modelStr === WILDCARD_MODEL) {
     // A catalog expansion is not one model: local-file keys, a wire alias,
     // and per-route args would describe a SKU the operator has not named.
@@ -338,6 +330,21 @@ export function resolveRoute({
     if (Object.keys(raw.args).length > 0 && traitFor(engine).kind !== 'comfy') {
       throw new ParseError(`${raw.site} declares "args" that nothing reads: ${reason}`, file)
     }
+  }
+
+  // A local llama route's model is a `[section]` header in its preset INI,
+  // so these would split or comment out the section rather than name it.
+  // `reason === undefined` already means a local route on a models_dir
+  // engine; the kind is what separates llama from whisper.
+  if (
+    reason === undefined &&
+    traitFor(engine).kind === 'openai-http' &&
+    /[[\]=\r\n]|^[;#]/.test(raw.model as string)
+  ) {
+    throw new ParseError(
+      `${raw.site} has a "model" containing "[", "]", "=", a line break, or a leading ";" or "#", which the llama preset INI cannot carry as a section name`,
+      file,
+    )
   }
 
   const baseCaps = raw.model === undefined ? {} : (models.get(raw.model) ?? {})

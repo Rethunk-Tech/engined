@@ -1331,11 +1331,28 @@ describe('route values rendered into the llama preset INI', () => {
     `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nrole = "chat"\n${line}\n`
 
   test('a model that would break its INI section header is fatal', () => {
-    for (const model of ['x]\\n[y', 'a=b', ';x', '#x']) {
+    for (const model of ['x]\\n[y', 'a=b', ';x', '#x', 'opus[1m]']) {
       expect(() =>
         loadConfig(writeConfig(routeWith(`model = "${model}"\nfilename = "f.gguf"`))),
       ).toThrow(/preset INI cannot carry/)
     }
+  })
+
+  test('a model an INI would misread is fine on a route that writes no preset', () => {
+    const cfg = loadConfig(
+      writeConfig(
+        `[[upstream]]\nid = "anthropic"\negress = "remote"\nbase_url = "https://api.anthropic.com"\n\n[[engine]]\nid = "claude"\nkind = "agentic-cli"\n\n[[route]]\nengine = "claude"\nmodel = "opus[1m]"\n\n[[engine]]\nid = "hosted"\nkind = "openai-http"\n\n[[route]]\nengine = "hosted"\nupstream = "anthropic"\nmodel = "opus[1m]"\n`,
+      ),
+    )
+    expect(cfg.routes.map((r) => r.model)).toEqual(['opus[1m]', 'opus[1m]'])
+    // A local whisper route has a models_dir and a filename too, but no preset.
+    const dir = tempModelsDir('f.bin')
+    const stt = loadConfig(
+      writeConfig(
+        `${LOCAL_UPSTREAM}\n[[engine]]\nid = "stt"\nkind = "stt"\nmodels_dir = "${dir}"\n\n[[route]]\nengine = "stt"\nupstream = "local"\nmodel = "large[v3]"\nfilename = "f.bin"\n`,
+      ),
+    )
+    expect(stt.routes[0]?.model).toBe('large[v3]')
   })
 
   test('a filename with a line break is fatal', () => {
