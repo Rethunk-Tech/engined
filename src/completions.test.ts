@@ -250,6 +250,34 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(JSON.parse(recorded[0]?.body ?? '{}').stream).toBe(true)
   })
 
+  test('a stream that errors mid-body records a failure, not the success recorded before it started', async () => {
+    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+    const { lines, write } = collectLines()
+    const control = llamaControlPlane()
+    const brokenStream: HttpClient = (url, init) => {
+      const controlled = control(url, init)
+      if (controlled) {
+        return Promise.resolve(controlled)
+      }
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(INFILL_SSE.slice(0, 30)))
+          controller.error(new Error('upstream died mid-body'))
+        },
+      })
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      )
+    }
+    const door = doorFor(cfg, root, brokenStream, write)
+    const res = await door.fetch(
+      completionsRequest({ model: '@/local-llama/ornith', prompt: 'x', stream: true }),
+    )
+    await res.text().catch(() => undefined)
+    const record = soleProvenanceRecord(lines)
+    expect(record.attempts[0]?.ok).toBe(false)
+  })
+
   test('a route that did not opt in with fim refuses the request, not silently 200s', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, false)
     const recorded: { url: string; body: string }[] = []

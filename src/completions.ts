@@ -12,7 +12,7 @@
  * engine's own native completion shape with nothing here to test it against.
  */
 
-import { classifyResult } from './chain.ts'
+import { classifyResult, wrapStream } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -288,7 +288,6 @@ export async function handleCompletions(
       headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
     })
   }
-  recordCompletion(ctx, route, modelId, rawModel, startedAt, true, undefined)
   const headers = answeringHeaders({
     route: routeAddress(route, ctx.getConfig().routes),
     upstreamUsed: LOCAL_UPSTREAM,
@@ -299,11 +298,15 @@ export async function handleCompletions(
   const contentType = response.headers.get(CONTENT_TYPE) ?? ''
   if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
     headers.set(CONTENT_TYPE, SSE_CONTENT_TYPE)
-    return new Response(mapInfillStream(response.body, modelId), {
-      status: response.status,
-      headers,
+    // Deferred the same way `chain.ts` defers a streaming hop's provenance:
+    // a mid-body death or client abort must record as a failure, not the
+    // success this branch would otherwise log before a single byte is sent.
+    const stream = wrapStream(mapInfillStream(response.body, modelId), (ok, failure) => {
+      recordCompletion(ctx, route, modelId, rawModel, startedAt, ok, failure)
     })
+    return new Response(stream, { status: response.status, headers })
   }
+  recordCompletion(ctx, route, modelId, rawModel, startedAt, true, undefined)
   const parsed: unknown = await response.json().catch(() => ({}))
   return Response.json(completionEnvelope(modelId, isRecord(parsed) ? parsed : {}), { headers })
 }
