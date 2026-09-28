@@ -325,22 +325,38 @@ export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
 
 /**
  * A request body within the JSON routes' ceiling, or the 413/400 to return
- * instead. A client that hangs up mid-upload makes `text()` throw, and that
- * is the caller's malformed request, not this door's failure.
+ * instead. The cap counts bytes as they arrive, so a chunked body with no
+ * Content-Length is cancelled at the cap rather than buffered whole first. A
+ * client that hangs up mid-upload makes the read throw, and that is the
+ * caller's malformed request, not this door's failure.
  */
 export async function readCappedText(req: Request): Promise<string | Response> {
   if (declaredOverLimit(req, MAX_JSON_BODY_BYTES) !== undefined) {
     return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
   }
-  let raw: string
+  if (req.body === null) {
+    return ''
+  }
+  const reader = req.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
   try {
-    raw = await req.text()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+      total += value.byteLength
+      if (total > MAX_JSON_BODY_BYTES) {
+        reader.cancel().catch(() => undefined)
+        return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
+      }
+      chunks.push(value)
+    }
   } catch {
     return jsonError(STATUS_BAD_REQUEST, 'request body could not be read')
   }
-  return raw.length > MAX_JSON_BODY_BYTES
-    ? jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large')
-    : raw
+  return new TextDecoder().decode(Buffer.concat(chunks))
 }
 
 /**

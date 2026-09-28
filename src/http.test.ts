@@ -9,6 +9,7 @@ import {
   jsonErrorBody,
   MAX_JSON_BODY_BYTES,
   methodNotAllowed,
+  readCappedText,
   readJsonBody,
   readModelBody,
   STATUS_BAD_GATEWAY,
@@ -198,6 +199,31 @@ test('a JSON body past the cap with no Content-Length is 413 after the read', as
   }
   const result = await readJsonBody(new Request('http://door.local/', init))
   await expectJsonTooLarge(result)
+})
+
+/** A body with no Content-Length, as a chunked upload arrives. */
+function chunkedRequest(text: string): Request {
+  const bytes = new TextEncoder().encode(text)
+  const init: RequestInit & { duplex: 'half' } = {
+    method: 'POST',
+    duplex: 'half',
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes)
+        controller.close()
+      },
+    }),
+  }
+  return new Request('http://door.local/', init)
+}
+
+test('the JSON cap counts bytes, not characters', async () => {
+  // Each three-byte character is one UTF-16 unit, so a character count would
+  // see a third of this body.
+  const atCap =
+    '\u20ac'.repeat(Math.floor(MAX_JSON_BODY_BYTES / 3)) + 'a'.repeat(MAX_JSON_BODY_BYTES % 3)
+  expect(await readCappedText(chunkedRequest(atCap))).toBe(atCap)
+  await expectJsonTooLarge(await readCappedText(chunkedRequest(`${atCap}a`)))
 })
 
 test('readModelBody is 400 when the body has no model, and returns the parsed body otherwise', async () => {
