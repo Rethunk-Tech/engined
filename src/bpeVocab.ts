@@ -44,6 +44,7 @@ async function buildBpeVocab(path: string): Promise<BpeVocab> {
 }
 
 /** Keyed on path alone: a replaced GGUF at the same path is caught by the mtime check below rather than leaking its old vocab under a second key. */
+// ponytail: never evicted, ~20-40 MiB per tokenized GGUF; LRU over a few paths if the model set grows large.
 const vocabCache = new Map<string, { mtimeMs: number; vocab: Promise<BpeVocab> }>()
 
 /** Loads and caches the BPE vocab for `path` (an absolute GGUF path). Repeat calls for the same path and mtime reuse the same tables; a newer mtime replaces the cached entry rather than adding beside it. */
