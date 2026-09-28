@@ -32,7 +32,7 @@ import {
 } from './agenticArgs.ts'
 import { isUnder, stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
-import { isRecord, parseRecord } from './records.ts'
+import { finiteNumber, isRecord, parseRecord } from './records.ts'
 import type { Wire } from './types.ts'
 
 export interface AgenticOutcome {
@@ -41,12 +41,6 @@ export interface AgenticOutcome {
   failure?: string
   /** What this run cost, as the CLI itself reported it. Absent when its envelope stated nothing engined recognised. */
   usage?: Usage
-}
-
-/** One finite number off a record, or `undefined`. Never coerced: a CLI that changes a field's type is a shape engined does not understand, not a figure to guess at. */
-function numberAt(raw: Record<string, unknown> | undefined, key: string): number | undefined {
-  const value = raw?.[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 /** The nested record at `key`, or `undefined` -- so a missing `usage`/`tokens` object reads as "reported nothing" rather than throwing. */
@@ -59,7 +53,7 @@ function recordAt(
 }
 
 /** `undefined` rather than an object of all-absent fields: an envelope engined understood no figure in did not report a cost. */
-function usageOrUndefined(usage: Usage): Usage | undefined {
+export function usageOrUndefined(usage: Usage): Usage | undefined {
   return Object.values(usage).some((v) => v !== undefined) ? usage : undefined
 }
 
@@ -85,9 +79,9 @@ function usageOrUndefined(usage: Usage): Usage | undefined {
 function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
   const usage = recordAt(envelope, 'usage')
   return usageOrUndefined({
-    prompt_tokens: numberAt(usage, 'inputTokens'),
-    completion_tokens: numberAt(usage, 'output_tokens') ?? numberAt(usage, 'outputTokens'),
-    cost_usd: numberAt(envelope, 'total_cost_usd'),
+    prompt_tokens: finiteNumber(usage?.inputTokens),
+    completion_tokens: finiteNumber(usage?.output_tokens) ?? finiteNumber(usage?.outputTokens),
+    cost_usd: finiteNumber(envelope.total_cost_usd),
   })
 }
 
@@ -288,10 +282,10 @@ function opencodeUsage(event: Record<string, unknown>): Usage | undefined {
   const part = recordAt(event, 'part')
   const tokens = recordAt(part, 'tokens')
   return usageOrUndefined({
-    prompt_tokens: numberAt(tokens, 'input'),
-    completion_tokens: numberAt(tokens, 'output'),
-    total_tokens: numberAt(tokens, 'total'),
-    cost_usd: numberAt(part, 'cost'),
+    prompt_tokens: finiteNumber(tokens?.input),
+    completion_tokens: finiteNumber(tokens?.output),
+    total_tokens: finiteNumber(tokens?.total),
+    cost_usd: finiteNumber(part?.cost),
   })
 }
 

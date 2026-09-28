@@ -1,3 +1,8 @@
+/** A finite number, or `undefined`. Never coerced: a string `"1234"` is a shape we do not understand, not a figure to guess at. */
+export function finiteNumber(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
 /** A TOML table, as distinct from an array or a scalar. Arrays are objects too, which is the trap. */
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)

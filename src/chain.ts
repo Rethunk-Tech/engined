@@ -4,6 +4,7 @@
  * to the next hop and reports every attempt through `src/provenance.ts`.
  */
 
+import { usageOrUndefined } from './agents.ts'
 import {
   HTTP_CLIENT_ERROR_MIN,
   HTTP_SERVER_ERROR_MAX,
@@ -26,7 +27,7 @@ import {
   recordCall,
   type Usage,
 } from './provenance.ts'
-import { errMessage, isRecord, parseRecord } from './records.ts'
+import { errMessage, finiteNumber, isRecord, parseRecord } from './records.ts'
 import { qualifiedSegments, routeForHop } from './routeAddress.ts'
 import type { Egress } from './types.ts'
 import { withinCeiling } from './types.ts'
@@ -201,12 +202,7 @@ const ADVANCING_CLIENT_ERRORS = new Set([
 function failureOf(result: HopResult): string {
   const status = `http ${result.status}`
   const { body } = result
-  if (
-    result.bodyCarriesAgentOutput === true ||
-    typeof body !== 'object' ||
-    body === null ||
-    !('error' in body)
-  ) {
+  if (result.bodyCarriesAgentOutput === true || !isRecord(body) || !('error' in body)) {
     return status
   }
   return typeof body.error === 'string' ? `${status}: ${body.error}` : status
@@ -326,20 +322,13 @@ interface HopOutcome {
   advance: boolean
 }
 
-/** One numeric field of a reported `usage`, or absent. Absent for a non-number, never coerced: a provider sending `"1234"` is a shape engined does not understand, and `Number()` would turn that into a figure someone sums. */
-function usageField(raw: Record<string, unknown>, key: string): number | undefined {
-  const value = raw[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 /** One reported `usage` object as engined records it, or `undefined` for one it understood no field of -- which is not a cost record. */
 export function pickUsage(raw: Record<string, unknown>): Usage | undefined {
-  const out: Usage = {
-    prompt_tokens: usageField(raw, 'prompt_tokens'),
-    completion_tokens: usageField(raw, 'completion_tokens'),
-    total_tokens: usageField(raw, 'total_tokens'),
-  }
-  return Object.values(out).some((v) => v !== undefined) ? out : undefined
+  return usageOrUndefined({
+    prompt_tokens: finiteNumber(raw.prompt_tokens),
+    completion_tokens: finiteNumber(raw.completion_tokens),
+    total_tokens: finiteNumber(raw.total_tokens),
+  })
 }
 
 /**
@@ -352,10 +341,10 @@ export function pickUsage(raw: Record<string, unknown>): Usage | undefined {
  */
 function usageFrom(result: HopResult): Usage | undefined {
   const { body } = result
-  if (typeof body !== 'object' || body === null) {
+  if (!isRecord(body)) {
     return undefined
   }
-  const { usage } = body as { usage?: unknown }
+  const { usage } = body
   return isRecord(usage) ? pickUsage(usage) : undefined
 }
 
