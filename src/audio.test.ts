@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { handleAudioSpeech } from './audioDoor.ts'
-import { handleAudioTranscription } from './audioDoorTranscribe.ts'
+import { handleAudioTranscription, MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { handleSpeech, resetSpeechCache } from './audioSpeech.ts'
 import { handleTranscription } from './audioTranscribe.ts'
 import { DockerLifecycle } from './docker.ts'
@@ -884,6 +884,51 @@ test('a recording streamed as the request body is refused a chain rather than re
 
   expect(res.status).toBe(400)
   expect(errorMessageOf(await res.json())).toContain('cannot be replayed')
+})
+
+function multipartUpload(
+  pull: (controller: ReadableStreamDefaultController<Uint8Array>) => void,
+): Request {
+  const init: RequestInit & { duplex: 'half' } = {
+    method: 'POST',
+    duplex: 'half',
+    headers: { 'content-type': 'multipart/form-data; boundary=----x' },
+    body: new ReadableStream<Uint8Array>({ pull }),
+  }
+  return new Request(`http://engined${CONTENT_ENDPOINT_TRANSCRIPTIONS}`, init)
+}
+
+test('a chunked upload past the ceiling is 413 at the cap, not after reading it whole', async () => {
+  const { ctx } = chainDoorContext({})
+  const chunk = new Uint8Array(1024 * 1024)
+  let pulled = 0
+  const res = await handleAudioTranscription(
+    ctx,
+    multipartUpload((controller) => {
+      pulled += chunk.byteLength
+      controller.enqueue(chunk)
+    }),
+  )
+  expect(res.status).toBe(413)
+  expect(pulled).toBeLessThanOrEqual(MAX_AUDIO_UPLOAD_BYTES + 4 * chunk.byteLength)
+})
+
+test('an upload whose caller hangs up mid-body is refused as unreadable, not as a missing file part', async () => {
+  const { ctx } = chainDoorContext({})
+  let sent = false
+  const res = await handleAudioTranscription(
+    ctx,
+    multipartUpload((controller) => {
+      if (sent) {
+        controller.error(new Error('client went away'))
+        return
+      }
+      sent = true
+      controller.enqueue(new TextEncoder().encode('------x\r\n'))
+    }),
+  )
+  expect(res.status).toBe(400)
+  expect(errorMessageOf(await res.json())).toContain('could not be read')
 })
 
 test('a speech call records the upstream its route resolved to, not a bare null', async () => {

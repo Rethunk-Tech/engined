@@ -17,8 +17,8 @@ import { resolveOrRefuse } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
-  declaredOverLimit,
   jsonError,
+  readCappedForm,
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
@@ -67,10 +67,12 @@ function liveTranscription(req: Request): TranscriptionForm | undefined {
 }
 
 /** `undefined` when the body is not multipart at all -- an empty POST, or a wrong content type. */
-async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm | undefined> {
-  const form = await req.formData().catch(() => undefined)
-  if (form === undefined) {
-    return undefined
+async function parseTranscriptionForm(
+  req: Request,
+): Promise<TranscriptionForm | Response | undefined> {
+  const form = await readCappedForm(req, MAX_AUDIO_UPLOAD_BYTES, tooLarge)
+  if (form === undefined || form instanceof Response) {
+    return form
   }
   const rawModel = form.get('model')
   const file = form.get('file')
@@ -93,12 +95,13 @@ async function parseTranscriptionForm(req: Request): Promise<TranscriptionForm |
 
 /**
  * A multipart upload is read into memory whole, so a request larger than this
- * is refused before it is read rather than after. Generous enough for any
- * recording a caller has reason to transcribe in one request; a longer one
- * belongs in segments, which is what every consumer already sends.
+ * is refused rather than buffered. Generous enough for any recording a caller
+ * has reason to transcribe in one request; a longer one belongs in segments,
+ * which is what every consumer already sends.
  *
- * A live body is held to this same ceiling via Bun's `maxRequestBodySize`, so
- * an oversize upload is refused as JSON before parse rather than a non-JSON 413.
+ * It is also Bun's `maxRequestBodySize` for the whole door, and Bun answers a
+ * body past that itself, with a bodiless 413 no handler sees; the JSON refusal
+ * below is what a direct `fetch` into the door gets.
  */
 export const MAX_AUDIO_UPLOAD_BYTES = 268_435_456
 
@@ -111,23 +114,18 @@ function tooLarge(bytes: number): Response {
 }
 
 /**
- * Whether this upload is refused before anything is dispatched. The ceiling is
- * checked twice against the same limit: once on the declared length, so an
- * oversized body is turned away before it is read, and again on what actually
- * arrived, because a multipart form need not declare one. A live body is
- * neither -- it declares no length and is never held here, so the engine
- * wrapper enforces the ceiling as the audio arrives.
+ * Whether this upload is refused before anything is dispatched. The ceiling
+ * itself was enforced as the form was read; a live body is never held here,
+ * so the engine wrapper enforces it as the audio arrives.
+ *
+ * Zero bytes reaches whisper as a valid-looking empty upload and comes back
+ * as an empty transcript, which reads like silence rather than a bad request.
  */
 function uploadRefusal(file: TranscriptionForm['file']): Response | undefined {
-  if (file instanceof ReadableStream) {
+  if (file instanceof ReadableStream || file.byteLength > 0) {
     return undefined
   }
-  // Zero bytes reaches whisper as a valid-looking empty upload and comes back
-  // as an empty transcript, which reads like silence rather than a bad request.
-  if (file.byteLength === 0) {
-    return jsonError(STATUS_BAD_REQUEST, 'multipart form carried no `file` part')
-  }
-  return file.byteLength > MAX_AUDIO_UPLOAD_BYTES ? tooLarge(file.byteLength) : undefined
+  return jsonError(STATUS_BAD_REQUEST, 'multipart form carried no `file` part')
 }
 
 /**
@@ -163,13 +161,12 @@ async function readAudioUpload(
   req: Request,
   translating: boolean,
 ): Promise<TranscriptionForm | Response> {
-  const declared = declaredOverLimit(req, MAX_AUDIO_UPLOAD_BYTES)
-  if (declared !== undefined) {
-    return tooLarge(declared)
-  }
   const parsed = liveTranscription(req) ?? (await parseTranscriptionForm(req))
   if (parsed === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'expected a multipart form with a `file` part')
+  }
+  if (parsed instanceof Response) {
+    return parsed
   }
   // The wrapper's streaming route carries language and prompt and nothing
   // else, so a streamed translation would arrive as a plain transcription.
