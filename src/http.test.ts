@@ -5,7 +5,14 @@ import {
   jsonErrorBody,
   MAX_JSON_BODY_BYTES,
   readJsonBody,
+  STATUS_BAD_REQUEST,
+  STATUS_FORBIDDEN,
+  STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
+  STATUS_PAYMENT_REQUIRED,
+  STATUS_TOO_MANY_REQUESTS,
+  STATUS_UNAUTHORIZED,
+  STATUS_UNAVAILABLE,
   splitSseFrames,
   sseDataPayloads,
   sseFrames,
@@ -116,8 +123,27 @@ async function expectJsonTooLarge(result: unknown): Promise<void> {
     return
   }
   expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
-  expect(await result.json()).toEqual(jsonErrorBody('JSON body too large'))
+  expect(await result.json()).toEqual(
+    jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large'),
+  )
 }
+
+test('a JSON error body is OpenAI-shaped and types the status', () => {
+  expect(jsonErrorBody(STATUS_BAD_REQUEST, 'nope')).toEqual({
+    error: {
+      message: 'nope',
+      type: 'invalid_request_error',
+      param: null,
+      code: null,
+    },
+  })
+  expect(jsonErrorBody(STATUS_UNAUTHORIZED, 'no').error.type).toBe('authentication_error')
+  expect(jsonErrorBody(STATUS_PAYMENT_REQUIRED, 'pay').error.type).toBe('insufficient_quota')
+  expect(jsonErrorBody(STATUS_FORBIDDEN, 'no').error.type).toBe('permission_error')
+  expect(jsonErrorBody(STATUS_NOT_FOUND, 'gone').error.type).toBe('not_found_error')
+  expect(jsonErrorBody(STATUS_TOO_MANY_REQUESTS, 'slow').error.type).toBe('rate_limit_error')
+  expect(jsonErrorBody(STATUS_UNAVAILABLE, 'down').error.type).toBe('server_error')
+})
 
 test('a JSON body whose declared Content-Length is past the cap is 413 without reading it', async () => {
   const req = new Request('http://door.local/', {

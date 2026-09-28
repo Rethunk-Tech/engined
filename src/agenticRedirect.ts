@@ -136,12 +136,18 @@ export async function resolveRedirect({
     // the child an undefined upstream.
     return {
       ok: false,
-      result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(noBaseUrlFix(upstream.id)) },
+      result: {
+        status: STATUS_BAD_GATEWAY,
+        body: jsonErrorBody(STATUS_BAD_GATEWAY, noBaseUrlFix(upstream.id)),
+      },
     }
   }
   const resolved = await resolveUpstreamSecret(upstream, secretExec)
   if (!resolved.ok) {
-    return { ok: false, result: { status: resolved.status, body: jsonErrorBody(resolved.error) } }
+    return {
+      ok: false,
+      result: { status: resolved.status, body: jsonErrorBody(resolved.status, resolved.error) },
+    }
   }
   const model = resolveUpstreamModelId(config, engineId, modelSeg, upstream.id)
   return {

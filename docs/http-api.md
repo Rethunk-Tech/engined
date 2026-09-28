@@ -123,6 +123,21 @@ file issues a new one.
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
 serves nothing today: an unclaimed prefix 404s like any other unmatched path.
 
+## Error bodies
+
+Every JSON error on `/openai/v1/*` and `/engined/v1/*` uses OpenAI's object,
+not a bare string:
+
+```json
+{"error":{"message":"...","type":"invalid_request_error","param":null,"code":null}}
+```
+
+`type` follows the status: `invalid_request_error` for other 4xx,
+`authentication_error` for 401, `insufficient_quota` for 402,
+`permission_error` for 403, `not_found_error` for 404, `rate_limit_error`
+for 429, `server_error` for 5xx. `param` and `code` are always null. A chain
+that stops without an answer keeps `attempts` beside `error`.
+
 ## Choosing a model
 
 An engine has no address of its own — `[[upstream]]` carries `base_url`,

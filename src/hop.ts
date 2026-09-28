@@ -143,7 +143,10 @@ async function execLlama(
   if (!route) {
     return {
       status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`model "${modelSeg}" not found on "${engineEntry.id}"`),
+      body: jsonErrorBody(
+        STATUS_BAD_GATEWAY,
+        `model "${modelSeg}" not found on "${engineEntry.id}"`,
+      ),
     }
   }
   const router = getLlamaRouter(ctx, engineEntry)
@@ -260,18 +263,24 @@ async function execRemoteHttp(
   if (upstream === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineEntry.id}" has no resolvable upstream`),
+      body: jsonErrorBody(
+        STATUS_BAD_GATEWAY,
+        `engine "${engineEntry.id}" has no resolvable upstream`,
+      ),
     }
   }
   const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
   if (!resolution.ok) {
-    return { status: resolution.status, body: jsonErrorBody(resolution.error) }
+    return { status: resolution.status, body: jsonErrorBody(resolution.status, resolution.error) }
   }
   const modelId = resolveUpstreamModelId(config, engineEntry.id, modelSeg, upstream.id)
   if (modelId === undefined) {
     return {
       status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineEntry.id}" requires a model, and none was named`),
+      body: jsonErrorBody(
+        STATUS_BAD_GATEWAY,
+        `engine "${engineEntry.id}" requires a model, and none was named`,
+      ),
     }
   }
   // [engine.args] are engine-level wire defaults (reasoning_effort, and
@@ -344,6 +353,7 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
       status: STATUS_FORBIDDEN,
       envelopeFailure: true,
       body: jsonErrorBody(
+        STATUS_FORBIDDEN,
         `engine "${engineId}" is agentic and cannot be reached from a launch-scoped door`,
       ),
     }
@@ -376,7 +386,10 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
   }
   return {
     status: STATUS_BAD_GATEWAY,
-    body: jsonErrorBody(`engine "${engineId}" of kind "${kind}" cannot serve this request`),
+    body: jsonErrorBody(
+      STATUS_BAD_GATEWAY,
+      `engine "${engineId}" of kind "${kind}" cannot serve this request`,
+    ),
   }
 }
 

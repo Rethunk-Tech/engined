@@ -20,7 +20,7 @@ import process from 'node:process'
 import { comfyBindingsPath, loadComfyBindings } from './comfyBindings.ts'
 import { loadConfig } from './config.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
-import type { HttpClient } from './http.ts'
+import { errorMessageOf, type HttpClient, jsonErrorBody, STATUS_CLIENT_CLOSED } from './http.ts'
 import { bindDualFamily, createDoor } from './main.ts'
 import {
   BUNX,
@@ -159,7 +159,7 @@ async function refusedCancel(res: Response) {
   const body = (await res.json()) as { error?: string; cancelled?: string }
   expect(res.status).toBe(502)
   expect(body.cancelled).toBeUndefined()
-  expect(body.error).toContain('http 500')
+  expect(errorMessageOf(body)).toContain('http 500')
 }
 
 async function expectJobCCancelled(
@@ -776,9 +776,9 @@ describe('comfy proxy: an aborted caller never reaches POST /prompt', () => {
       }),
     )
     expect(res.status).toBe(499)
-    expect(await res.json()).toEqual({
-      error: 'the caller hung up before the prompt was submitted',
-    })
+    expect(await res.json()).toEqual(
+      jsonErrorBody(STATUS_CLIENT_CLOSED, 'the caller hung up before the prompt was submitted'),
+    )
     expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(0)
   })
 
@@ -866,8 +866,8 @@ describe('comfy proxy: one prompt in the container at a time', () => {
     const body = (await res.json()) as { error?: string }
 
     expect(res.status).toBe(503)
-    expect(body.error).toContain('drain_timeout_seconds')
-    expect(body.error).toContain('1s')
+    expect(errorMessageOf(body)).toContain('drain_timeout_seconds')
+    expect(errorMessageOf(body)).toContain('1s')
     // It waited rather than refusing on the first look, and it did not wait
     // the fifteen-minute default.
     expect(Date.now() - started).toBeGreaterThanOrEqual(1000)

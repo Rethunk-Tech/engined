@@ -503,7 +503,7 @@ function pcmStream(first: Uint8Array, frames: AsyncGenerator<Frame>): ReadableSt
 }
 
 export function errorResponse(status: number, message: string): DoorResponse {
-  return { status, contentType: JSON_CONTENT_TYPE, body: jsonErrorBody(message) }
+  return { status, contentType: JSON_CONTENT_TYPE, body: jsonErrorBody(status, message) }
 }
 
 /** `undefined` when `start()` handed back a usable engine; a 409 response otherwise. */

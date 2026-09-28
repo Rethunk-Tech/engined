@@ -19,7 +19,7 @@ import {
   twoEngineExec,
 } from './doorFixtures.ts'
 import { timeoutSecondsForKind } from './hop.ts'
-import type { HttpClient } from './http.ts'
+import { errorMessageOf, type HttpClient, jsonErrorBody, STATUS_BAD_REQUEST } from './http.ts'
 import { createDoor, type Door } from './main.ts'
 import {
   BUNX,
@@ -176,7 +176,7 @@ describe('the door: a JSON body that is not a table is a 400', () => {
           new Request(`http://engined${pathname}`, { method: 'POST', body: raw }),
         )
         expect(res.status).toBe(400)
-        expect(await res.json()).toEqual({ error: 'invalid JSON body' })
+        expect(await res.json()).toEqual(jsonErrorBody(STATUS_BAD_REQUEST, 'invalid JSON body'))
       })
     }
   }
@@ -549,7 +549,7 @@ describe('the door: a tool call never falls back into prose', () => {
     // advances and the chain exhausts -- it does not terminate on the caller.
     expect(spawnCalls).toHaveLength(0)
     expect(status).toBe(503)
-    expect(body.error).toBe('every engine in this chain failed')
+    expect(errorMessageOf(body)).toBe('every engine in this chain failed')
     expect(body.attempts).toHaveLength(2)
     expect(body.choices).toBeUndefined()
     clearVerifiedVersion('claude')
@@ -601,7 +601,7 @@ describe("the door: a missing workdir is the chain's business, not the caller's"
       messages: [{ role: 'user', content: 'what time is it' }],
     })
     expect(status).toBe(400)
-    expect(body.error).toContain('workdir is required')
+    expect(errorMessageOf(body)).toContain('workdir is required')
     expect(spawnCalls).toHaveLength(0)
     clearVerifiedVersion('claude')
   })
@@ -618,7 +618,7 @@ describe('the door: a chain nothing in it can honour answers the caller, not a d
       tools: [TOOL_NOW],
     })
     expect(status).toBe(400)
-    expect(body.error).toContain('cannot honour tools')
+    expect(errorMessageOf(body)).toContain('cannot honour tools')
     expect(spawnCalls).toHaveLength(0)
     clearVerifiedVersion('claude')
   })
@@ -644,7 +644,7 @@ describe('the door: a chain nothing in it can honour answers the caller, not a d
       max_egress: 'internet',
     })
     expect(status).toBe(400)
-    expect(body.error).toBe('max_egress must be one of: none, lan, remote')
+    expect(errorMessageOf(body)).toBe('max_egress must be one of: none, lan, remote')
   })
 })
 
@@ -657,7 +657,7 @@ describe('the door: an agentic engine named directly refuses the tool field by n
       tools: [TOOL_NOW],
     })
     expect(status).toBe(400)
-    expect(body.error).toContain('cannot honour tools')
+    expect(errorMessageOf(body)).toContain('cannot honour tools')
     expect(spawnCalls).toHaveLength(0)
     expect(body.choices).toBeUndefined()
     clearVerifiedVersion('claude')
@@ -672,7 +672,7 @@ describe('the door: an agentic engine named directly refuses the tool field by n
       function_call: 'auto',
     })
     expect(status).toBe(400)
-    expect(body.error).toContain('cannot honour functions')
+    expect(errorMessageOf(body)).toContain('cannot honour functions')
     expect(spawnCalls).toHaveLength(0)
     clearVerifiedVersion('claude')
   })
@@ -701,7 +701,7 @@ describe('the door: a body that demands no tool call is answered', () => {
       tools: [TOOL_NOW],
     })
     expect(status).toBe(400)
-    expect(body.error).toContain('workdir is required')
+    expect(errorMessageOf(body)).toContain('workdir is required')
     expect(spawnCalls).toHaveLength(0)
     clearVerifiedVersion('claude')
   })

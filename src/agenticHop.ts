@@ -146,6 +146,10 @@ function loadAgenticSpec(ctx: DoorContext, engineEntry: EngineEntry) {
   return loadSpec(engineEntry, { enginesRoot, bunx })
 }
 
+function hopError(status: number, message: string): HopResult {
+  return { status, body: jsonErrorBody(status, message) }
+}
+
 /** `runAgentic`'s outcome, mapped to a hop's result. `version` is carried through either way -- a failed launch still ran a real, pinned process. */
 function hopResultFromAgenticOutcome(
   outcome: Awaited<ReturnType<typeof runAgentic>>,
@@ -153,8 +157,7 @@ function hopResultFromAgenticOutcome(
 ): HopResult {
   if (!outcome.ok) {
     return {
-      status: outcome.status,
-      body: jsonErrorBody(outcome.failure ?? 'agentic call failed'),
+      ...hopError(outcome.status, outcome.failure ?? 'agentic call failed'),
       envelopeFailure: outcome.envelopeFailure,
       // An envelope failure's text is the child's own parsed stdout; every
       // other agentic failure here is engined's sentence about the launch.
@@ -184,8 +187,7 @@ async function proveAgenticPin(ctx: DoorContext, engineId: string): Promise<HopR
   // failure, so a chain skips it (the same rule) rather than treating it as
   // terminal.
   return {
-    status: STATUS_UNAVAILABLE,
-    body: jsonErrorBody(proof.fix ?? `engine "${engineId}" is not installed`),
+    ...hopError(STATUS_UNAVAILABLE, proof.fix ?? `engine "${engineId}" is not installed`),
     // A probe's fix quotes what the child printed -- its parsed stdout and a
     // tail of its stderr -- so this body answers the caller but stays out of
     // the recorded failure.
@@ -235,10 +237,10 @@ function resolveRouteRedirect(
   if (upstream === undefined) {
     return {
       ok: false,
-      result: {
-        status: STATUS_BAD_GATEWAY,
-        body: jsonErrorBody(`engine "${engineId}" names unknown upstream "${upstreamId}"`),
-      },
+      result: hopError(
+        STATUS_BAD_GATEWAY,
+        `engine "${engineId}" names unknown upstream "${upstreamId}"`,
+      ),
     }
   }
   return resolveRedirect({
@@ -354,7 +356,7 @@ type AgenticEntry =
   | { ok: false; result: HopResult }
 
 function agenticRefusal(message: string): AgenticEntry {
-  return { ok: false, result: { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(message) } }
+  return { ok: false, result: hopError(STATUS_BAD_GATEWAY, message) }
 }
 
 /** The engine and the pin it launches at -- or the refusal for one missing either. */
@@ -378,10 +380,7 @@ function agenticEntry(ctx: DoorContext, engineId: string): AgenticEntry {
 function agenticSpecOf(ctx: DoorContext, engineEntry: EngineEntry): AgenticSpec | HopResult {
   const { spec } = loadAgenticSpec(ctx, engineEntry)
   if (spec.kind !== 'agentic-cli') {
-    return {
-      status: STATUS_BAD_GATEWAY,
-      body: jsonErrorBody(`engine "${engineEntry.id}" is not an agentic-cli spec`),
-    }
+    return hopError(STATUS_BAD_GATEWAY, `engine "${engineEntry.id}" is not an agentic-cli spec`)
   }
   return spec
 }
@@ -399,12 +398,11 @@ function unhonourableRefusal(engineId: string, req: AgenticHop['req']): HopResul
   if (unhonourable.length === 0) {
     return null
   }
-  return {
-    status: req.toolsHonourableElsewhere ? STATUS_BAD_GATEWAY : STATUS_BAD_REQUEST,
-    body: jsonErrorBody(
-      `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(', ')} -- an agent CLI answers in prose, never in tool calls`,
-    ),
-  }
+  const status = req.toolsHonourableElsewhere ? STATUS_BAD_GATEWAY : STATUS_BAD_REQUEST
+  return hopError(
+    status,
+    `engine "${engineId}" is agentic and cannot honour ${unhonourable.join(', ')} -- an agent CLI answers in prose, never in tool calls`,
+  )
 }
 
 /**
@@ -434,10 +432,10 @@ async function preLaunchRefusal(
   }
   if (workdir === undefined || workdir === '') {
     return req.inChain
-      ? {
-          status: STATUS_BAD_GATEWAY,
-          body: jsonErrorBody(`engine "${engineId}" is agentic and this call carried no workdir`),
-        }
+      ? hopError(
+          STATUS_BAD_GATEWAY,
+          `engine "${engineId}" is agentic and this call carried no workdir`,
+        )
       : null
   }
   if (refusal !== null) {
@@ -470,7 +468,7 @@ export async function execAgentic(
   const { engineEntry, agentVersion } = entry
   const requestedResearch = researchMode(req.rawBody)
   if (!requestedResearch.ok) {
-    return { status: STATUS_BAD_REQUEST, body: jsonErrorBody(requestedResearch.error) }
+    return hopError(STATUS_BAD_REQUEST, requestedResearch.error)
   }
 
   // Minted once per launch and revoked the instant this call returns --

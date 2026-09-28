@@ -13,7 +13,7 @@ import { resetSpeechCache } from './audioSpeech.ts'
 import type { DoorOptions } from './doorContext.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
 import type { Exec } from './exec.ts'
-import { HTTP_CLIENT_ERROR_MIN } from './http.ts'
+import { errorMessageOf, HTTP_CLIENT_ERROR_MIN } from './http.ts'
 import { createDoor, type Door } from './main.ts'
 import {
   buildExec,
@@ -1262,7 +1262,7 @@ test("a transcription request with no multipart body is a JSON 400, not Bun's HT
   )
   expect(empty.status).toBe(400)
   expect(empty.headers.get('content-type')).toContain('application/json')
-  expect(((await empty.json()) as { error: string }).error).toContain('multipart')
+  expect(errorMessageOf(await empty.json())).toContain('multipart')
 
   // A well-formed form with no file is the same class: refuse it rather than
   // hand whisper zero bytes and return an empty transcript that reads as silence.
@@ -1275,7 +1275,7 @@ test("a transcription request with no multipart body is a JSON 400, not Bun's HT
     }),
   )
   expect(missing.status).toBe(400)
-  expect(((await missing.json()) as { error: string }).error).toContain('`file`')
+  expect(errorMessageOf(await missing.json())).toContain('`file`')
 })
 
 /**

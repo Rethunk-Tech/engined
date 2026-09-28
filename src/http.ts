@@ -5,7 +5,7 @@
  * is the bug this file exists to prevent.
  */
 
-import { parseRecord } from './records.ts'
+import { isRecord, parseRecord } from './records.ts'
 
 export const STATUS_OK = 200
 export const STATUS_BAD_REQUEST = 400
@@ -20,6 +20,11 @@ export const STATUS_TOO_MANY_REQUESTS = 429
 export const STATUS_CLIENT_CLOSED = 499
 export const STATUS_BAD_GATEWAY = 502
 export const STATUS_UNAVAILABLE = 503
+/** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
+export const HTTP_CLIENT_ERROR_MIN = 400
+export const HTTP_SERVER_ERROR_MIN = 500
+export const STATUS_INTERNAL_SERVER_ERROR = 500
+export const HTTP_SERVER_ERROR_MAX = 600
 
 /** How much of an engine's error body is worth repeating: enough to name the failure, not the whole reply. */
 export const ENGINE_ERROR_CHARS = 300
@@ -52,14 +57,82 @@ export function pcmContentType(rate: number): string {
   return `audio/L16; rate=${rate}; channels=1`
 }
 
+/**
+ * OpenAI's error object, used on every JSON error this door returns — both
+ * `/openai/v1/*` and `/engined/v1/*`. `type` is derived from the status so a
+ * caller never has to pick it; `param` and `code` stay null because this door
+ * does not name a request field or a machine-readable code.
+ */
+type OpenAiErrorType =
+  | 'invalid_request_error'
+  | 'authentication_error'
+  | 'permission_error'
+  | 'not_found_error'
+  | 'rate_limit_error'
+  | 'insufficient_quota'
+  | 'server_error'
+
+export interface OpenAiErrorBody {
+  error: {
+    message: string
+    type: OpenAiErrorType
+    param: null
+    code: null
+  }
+}
+
+function errorTypeFromStatus(status: number): OpenAiErrorType {
+  if (status === STATUS_TOO_MANY_REQUESTS) {
+    return 'rate_limit_error'
+  }
+  if (status === STATUS_UNAUTHORIZED) {
+    return 'authentication_error'
+  }
+  if (status === STATUS_FORBIDDEN) {
+    return 'permission_error'
+  }
+  if (status === STATUS_NOT_FOUND) {
+    return 'not_found_error'
+  }
+  if (status === STATUS_PAYMENT_REQUIRED) {
+    return 'insufficient_quota'
+  }
+  if (status >= HTTP_SERVER_ERROR_MIN) {
+    return 'server_error'
+  }
+  return 'invalid_request_error'
+}
+
 /** The one JSON error shape, for a caller that builds its own response envelope (`DoorResponse`, `HopResult`) around it. */
-export function jsonErrorBody(message: string): { error: string } {
-  return { error: message }
+export function jsonErrorBody(status: number, message: string): OpenAiErrorBody {
+  return {
+    error: {
+      message,
+      type: errorTypeFromStatus(status),
+      param: null,
+      code: null,
+    },
+  }
 }
 
 /** The same shape, already wrapped as a `Response` — for a caller returning straight to the door's own `fetch`. */
 export function jsonError(status: number, message: string): Response {
-  return Response.json(jsonErrorBody(message), { status })
+  return Response.json(jsonErrorBody(status, message), { status })
+}
+
+/** The human sentence inside a door error body, whether the body is the current object or a leftover string `error`. */
+export function errorMessageOf(body: unknown): string | undefined {
+  if (!isRecord(body)) {
+    return undefined
+  }
+  const { error } = body
+  if (typeof error === 'string') {
+    return error
+  }
+  if (isRecord(error) && typeof error.message === 'string') {
+    return error.message
+  }
+  return undefined
 }
 
 /**
@@ -72,12 +145,6 @@ export function declaredOverLimit(req: Request, max: number): number | undefined
   const declared = Number(req.headers.get('content-length') ?? Number.NaN)
   return Number.isFinite(declared) && declared > max ? declared : undefined
 }
-
-/** A 4xx is the caller's fault rather than the engine's, but the attempt still produced no output, so it is not a success. */
-export const HTTP_CLIENT_ERROR_MIN = 400
-export const HTTP_SERVER_ERROR_MIN = 500
-export const STATUS_INTERNAL_SERVER_ERROR = 500
-export const HTTP_SERVER_ERROR_MAX = 600
 
 /** Narrower than `typeof fetch`: Bun's `fetch` type also carries a static `preconnect`, which a plain test double has no reason to fake. */
 export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>

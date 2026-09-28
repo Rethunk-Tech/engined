@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { LOCAL_LLAMA_SPEC, llamaExec, READY_200 } from './doorFixtures.ts'
+import { errorMessageOf, jsonErrorBody, STATUS_PAYLOAD_TOO_LARGE } from './http.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
@@ -70,7 +71,7 @@ describe('POST /engined/v1/tokenize', () => {
       }),
     )
     expect(res.status).toBe(413)
-    expect(await res.json()).toEqual({ error: 'content too large' })
+    expect(await res.json()).toEqual(jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'content too large'))
   })
 
   test('a route with no local GGUF to read is a 400 naming that', async () => {
@@ -93,9 +94,7 @@ describe('POST /engined/v1/tokenize', () => {
       }),
     )
     expect(res.status).toBe(400)
-    expect((await res.json()) as { error: string }).toMatchObject({
-      error: expect.stringContaining('no local GGUF'),
-    })
+    expect(errorMessageOf(await res.json())).toContain('no local GGUF')
   })
 })
 

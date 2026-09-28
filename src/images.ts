@@ -393,8 +393,10 @@ export async function renderWith(
     const failure =
       refusal === undefined
         ? undefined
-        : (classifyResult({ status: refusal.status, body: jsonErrorBody(refusal.error) }).failure ??
-          `http ${refusal.status}`)
+        : (classifyResult({
+            status: refusal.status,
+            body: jsonErrorBody(refusal.status, refusal.error),
+          }).failure ?? `http ${refusal.status}`)
     recordCall(
       {
         chain: null,

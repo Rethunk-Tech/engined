@@ -6,6 +6,7 @@
 
 import { usageOrUndefined } from './agents.ts'
 import {
+  errorMessageOf,
   HTTP_CLIENT_ERROR_MIN,
   HTTP_SERVER_ERROR_MAX,
   HTTP_SERVER_ERROR_MIN,
@@ -201,11 +202,11 @@ const ADVANCING_CLIENT_ERRORS = new Set([
  */
 function failureOf(result: HopResult): string {
   const status = `http ${result.status}`
-  const { body } = result
-  if (result.bodyCarriesAgentOutput === true || !isRecord(body) || !('error' in body)) {
+  if (result.bodyCarriesAgentOutput === true) {
     return status
   }
-  return typeof body.error === 'string' ? `${status}: ${body.error}` : status
+  const message = errorMessageOf(result.body)
+  return message === undefined ? status : `${status}: ${message}`
 }
 
 /** The one place status and body decide advance-vs-terminal. 4xx never advances even with an empty body -- except the credential-shaped ones above -- and 5xx and empty body always do, except an envelope failure, which never advances regardless of status. */
@@ -525,6 +526,7 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     return {
       status: STATUS_BAD_REQUEST,
       body: jsonErrorBody(
+        STATUS_BAD_REQUEST,
         `max_egress: "${opts.maxEgress}" leaves no hop in this chain within the ceiling`,
       ),
       engineUsed: null,
@@ -555,7 +557,7 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
   emit(opts, attempts, null, null)
   return {
     status: STATUS_UNAVAILABLE,
-    body: { ...jsonErrorBody('every engine in this chain failed'), attempts },
+    body: { ...jsonErrorBody(STATUS_UNAVAILABLE, 'every engine in this chain failed'), attempts },
     engineUsed: null,
   }
 }
@@ -565,7 +567,7 @@ function abandoned(attempts: Attempt[], opts: RunChainOptions): ChainResult {
   emit(opts, attempts, null, null)
   return {
     status: STATUS_CLIENT_CLOSED,
-    body: { ...jsonErrorBody('client disconnected'), attempts },
+    body: { ...jsonErrorBody(STATUS_CLIENT_CLOSED, 'client disconnected'), attempts },
     engineUsed: null,
   }
 }

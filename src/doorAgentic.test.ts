@@ -21,6 +21,7 @@ import {
 } from './doorFixtures.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
 import type { ExecResult } from './exec.ts'
+import { errorMessageOf } from './http.ts'
 import { createDoor, type Door } from './main.ts'
 import {
   BUNX,
@@ -422,9 +423,9 @@ describe('the door: remote-agentic redirect, missing secret', () => {
       throw new Error('expected resolveRedirect to fail for a missing secret')
     }
     expect(redirect.result.status).toBe(503)
-    const failBody = redirect.result.body as { error: string }
-    expect(failBody.error).toContain('secret-tool store')
-    expect(failBody.error).toContain('moonshot-api')
+    const failBody = redirect.result.body
+    expect(errorMessageOf(failBody)).toContain('secret-tool store')
+    expect(errorMessageOf(failBody)).toContain('moonshot-api')
   })
 
   test('an upstream with a secret but no base_url refuses instead of redirecting nowhere', async () => {
@@ -438,7 +439,7 @@ describe('the door: remote-agentic redirect, missing secret', () => {
       throw new Error('expected resolveRedirect to fail without a base_url')
     }
     expect(redirect.result.status).toBe(502)
-    expect((redirect.result.body as { error: string }).error).toContain('no configured base_url')
+    expect(errorMessageOf(redirect.result.body)).toContain('no configured base_url')
   })
 
   test("a route's wire_model reaches ANTHROPIC_MODEL, not the address segment", async () => {

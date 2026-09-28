@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { chatRequest, createLlamaDoor, LOCAL_LLAMA_SPEC } from './doorFixtures.ts'
-import type { HttpClient } from './http.ts'
+import { errorMessageOf, type HttpClient } from './http.ts'
 import {
   collectLines,
   config,
@@ -184,9 +184,9 @@ test('a failing bridge call refuses the whole request, naming the bridge, rather
     }),
   )
   expect(res.status).toBe(502)
-  const body = (await res.json()) as { error: string }
-  expect(body.error).toContain('@/local-llama/vision')
-  expect(body.error).toContain('image 1')
+  const body = await res.json()
+  expect(errorMessageOf(body)).toContain('@/local-llama/vision')
+  expect(errorMessageOf(body)).toContain('image 1')
   expect(mainCalls).toHaveLength(0)
   const record = soleProvenanceRecord(lines)
   expect(record.attempts).toHaveLength(0)
@@ -227,8 +227,8 @@ test('a caller abort reaches the bridge dispatch and refuses rather than hanging
   setTimeout(() => controller.abort(), 5)
   const res = await door.fetch(req)
   expect(res.status).toBe(502)
-  const body = (await res.json()) as { error: string }
-  expect(body.error).toContain('client disconnected')
+  const body = await res.json()
+  expect(errorMessageOf(body)).toContain('client disconnected')
 })
 
 test('GET /openai/v1/models advertises image input and the bridge address on the bridged route', async () => {

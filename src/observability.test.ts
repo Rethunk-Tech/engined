@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ReleaseFetch } from './comfyQueue.ts'
 import type { Exec, ExecResult } from './exec.ts'
+import { errorMessageOf } from './http.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
@@ -135,7 +136,7 @@ test('logs and resources refuse an engine that runs no container', async () => {
   for (const path of ['logs', 'resources']) {
     const res = await door.fetch(new Request(`http://engined/engined/v1/engines/hosted/${path}`))
     expect(res.status).toBe(404)
-    expect(((await res.json()) as { error: string }).error).toContain('runs no container')
+    expect(errorMessageOf(await res.json())).toContain('runs no container')
   }
 })
 
@@ -148,7 +149,7 @@ test('resources on a stopped container says it is not running', async () => {
   )
 
   expect(res.status).toBe(404)
-  expect(((await res.json()) as { error: string }).error).toContain('not running')
+  expect(errorMessageOf(await res.json())).toContain('not running')
 })
 
 // Stopping something already stopped reports the state rather than erroring, so
@@ -186,7 +187,7 @@ test('release refuses a kind that has no such endpoint', async () => {
   )
 
   expect(res.status).toBe(400)
-  expect(((await res.json()) as { error: string }).error).toContain('no release endpoint')
+  expect(errorMessageOf(await res.json())).toContain('no release endpoint')
 })
 
 // Nothing loaded means nothing held, so the caller's intent already holds and

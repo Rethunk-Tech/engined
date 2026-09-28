@@ -247,7 +247,7 @@ function audioHopExec(
   return async (hop) => {
     const dispatch = audioHopRoute(ctx, hop, endpoint)
     if (!dispatch.ok) {
-      return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(dispatch.error) }
+      return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(STATUS_BAD_GATEWAY, dispatch.error) }
     }
     const { route } = dispatch
     const leased: AudioLease = { held: false }

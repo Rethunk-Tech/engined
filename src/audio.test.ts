@@ -10,6 +10,7 @@ import { buildRunArgs } from './dockerArgs.ts'
 import type { DoorContext } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
+import { errorMessageOf, jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './routeServes.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -570,7 +571,7 @@ test('an engine that streams no chunk frames is a 502, not a caller waiting fore
 
   expect(res.status).toBe(502)
   expect(res.stream).toBeUndefined()
-  expect(res.body).toEqual({ error: 'piper: /v1/tts streamed no audio' })
+  expect(res.body).toEqual(jsonErrorBody(STATUS_BAD_GATEWAY, 'piper: /v1/tts streamed no audio'))
 })
 
 test("an error frame before any audio is a 502 carrying the engine's own detail", async () => {
@@ -581,7 +582,9 @@ test("an error frame before any audio is a 502 carrying the engine's own detail"
   const { res } = await speak(frames, { engine: 'piper', input: '.', stream: true })
 
   expect(res.status).toBe(502)
-  expect(res.body).toEqual({ error: 'piper: /v1/tts failed: text produced no audio' })
+  expect(res.body).toEqual(
+    jsonErrorBody(STATUS_BAD_GATEWAY, 'piper: /v1/tts failed: text produced no audio'),
+  )
 })
 
 test("an error exit cancels the engine's own body, not only the caller's request", async () => {
@@ -595,7 +598,9 @@ test("an error exit cancels the engine's own body, not only the caller's request
   await Bun.sleep(1)
 
   expect(res.status).toBe(502)
-  expect(res.body).toEqual({ error: 'piper: /v1/tts failed: text produced no audio' })
+  expect(res.body).toEqual(
+    jsonErrorBody(STATUS_BAD_GATEWAY, 'piper: /v1/tts failed: text produced no audio'),
+  )
   expect(cancelled.flag).toBe(true)
 })
 
@@ -766,7 +771,7 @@ test("a buffered speech failure reports the engine's own reason, not just missin
   )
 
   expect(res.status).toBe(502)
-  expect((res.body as { error: string }).error).toContain('unknown Kokoro voice "not_a_real_voice"')
+  expect(errorMessageOf(res.body)).toContain('unknown Kokoro voice "not_a_real_voice"')
 })
 
 const CHATTERBOX_HOST_PORT = 41_100
@@ -877,7 +882,7 @@ test('a recording streamed as the request body is refused a chain rather than re
   const res = await handleAudioTranscription(ctx, req)
 
   expect(res.status).toBe(400)
-  expect(((await res.json()) as { error: string }).error).toContain('cannot be replayed')
+  expect(errorMessageOf(await res.json())).toContain('cannot be replayed')
 })
 
 test('a speech call records the upstream its route resolved to, not a bare null', async () => {
@@ -1049,7 +1054,7 @@ test('a streamed transcription refuses a whole-body response_format instead of i
   )
 
   expect(res.status).toBe(400)
-  expect((res.body as { error: string }).error).toContain('NDJSON frames')
+  expect(errorMessageOf(res.body)).toContain('NDJSON frames')
   expect(asked).toBe(false)
 })
 
@@ -1066,5 +1071,5 @@ test('a remote STT engine refuses to stream rather than answering one buffered b
   )
 
   expect(res.status).toBe(400)
-  expect((res.body as { error: string }).error).toContain('no remote transcription dialect streams')
+  expect(errorMessageOf(res.body)).toContain('no remote transcription dialect streams')
 })

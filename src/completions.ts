@@ -21,6 +21,7 @@ import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
   jsonError,
+  jsonErrorBody,
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -231,7 +232,7 @@ export async function handleCompletions(
     const parsed = parseRecord(text)
     const verdict = classifyResult({
       status: response.status,
-      body: parsed ?? (text === '' ? undefined : { error: text }),
+      body: parsed ?? (text === '' ? undefined : jsonErrorBody(response.status, text)),
     })
     const record = {
       chain: null,
