@@ -139,13 +139,14 @@ function completionEnvelope(modelId: string, frame: InfillFrame): Record<string,
   }
 }
 
-/** Every `data:` line in one SSE frame that parses as JSON, mapped through `completionEnvelope` and re-encoded on the door's own OpenAI-shaped wire. */
+/** Every `data:` line in one SSE frame that parses as JSON, mapped through `completionEnvelope` and re-encoded on the door's own OpenAI-shaped wire. Reports whether anything was enqueued. */
 function emitMappedFrame(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   frame: string,
   modelId: string,
-): void {
+): boolean {
+  let enqueued = false
   for (const data of sseDataPayloads(frame)) {
     const parsed = parseRecord(data)
     if (parsed === null) {
@@ -154,7 +155,9 @@ function emitMappedFrame(
     controller.enqueue(
       encoder.encode(`data: ${JSON.stringify(completionEnvelope(modelId, parsed))}\n\n`),
     )
+    enqueued = true
   }
+  return enqueued
 }
 
 /**
@@ -171,14 +174,20 @@ function mapInfillStream(
   const encoder = new TextEncoder()
   const gen = sseFrames(source)
   return new ReadableStream({
+    // A pull that enqueues nothing is never followed by another, so a
+    // keepalive or comment frame must not end the pull on its own.
     async pull(controller) {
-      const { done, value } = await gen.next()
-      if (done) {
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
-        return
+      for (;;) {
+        const { done, value } = await gen.next()
+        if (done) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+          return
+        }
+        if (emitMappedFrame(controller, encoder, value, modelId)) {
+          return
+        }
       }
-      emitMappedFrame(controller, encoder, value, modelId)
     },
     async cancel() {
       await gen.return(undefined)

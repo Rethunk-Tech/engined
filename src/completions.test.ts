@@ -74,9 +74,10 @@ const INFILL_REPLY = {
   tokens_evaluated: 12,
 }
 
-/** Two native llama.cpp SSE frames -- a mid-stream delta, then the terminal one carrying the stop reason and token counts. No `[DONE]`: llama-server never sends one. */
+/** Two native llama.cpp SSE frames -- a mid-stream delta, then the terminal one carrying the stop reason and token counts -- with a keepalive comment between them that maps to nothing. No `[DONE]`: llama-server never sends one. */
 const INFILL_SSE = [
   `data: ${JSON.stringify({ content: 'return', stop: false })}\n\n`,
+  ': keepalive\n\n',
   `data: ${JSON.stringify({ content: ' a + b', stop: true, stop_type: 'limit', tokens_predicted: 5, tokens_evaluated: 12 })}\n\n`,
 ].join('')
 
@@ -226,7 +227,8 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('a streamed infill reply maps each frame to an OpenAI completions chunk, terminated by [DONE]', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const recorded: { url: string; body: string }[] = []
-    const door = doorFor(cfg, root, makeInfillHttpClient(recorded, 'streamed'), () => undefined)
+    const { lines, write } = collectLines()
+    const door = doorFor(cfg, root, makeInfillHttpClient(recorded, 'streamed'), write)
     const res = await door.fetch(
       completionsRequest({
         model: '@/local-llama/ornith',
@@ -248,6 +250,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(parsed[1].usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 })
     // The request that reached llama-server carried the caller's own stream flag through to infill.
     expect(JSON.parse(recorded[0]?.body ?? '{}').stream).toBe(true)
+    expect(soleProvenanceRecord(lines).attempts[0]?.ok).toBe(true)
   })
 
   test('a stream that errors mid-body records a failure, not the success recorded before it started', async () => {
