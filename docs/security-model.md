@@ -139,6 +139,20 @@ directory is trusted code, on the same footing as `main.js`.
 See `scripts/engined.service.in`'s own comment for the measurement this rests
 on.
 
+## The Cursor TLS bridge is a network listener
+
+`engined-tls` (Caddy, `deploy/Caddyfile.cursor`) listens on every interface at
+port 29443 by design, so the Cursor door can be reached from other machines on
+the LAN or through a tunnel. It rewrites `Host` to the loopback door's own, so
+the door's Host and Origin checks pass for anything that reaches it: a client
+of the bridge has the whole door, including agentic calls that can read any
+file this uid can open and remote routes that spend provider credit.
+
+Authenticating the bridge is the operator's responsibility. Put it behind a
+firewall rule, a tunnel that authenticates, or a reverse proxy with its own
+auth before exposing it beyond machines you trust. The loopback door itself is
+unchanged: without `engined-tls` running, nothing listens off-box.
+
 ## Secrets
 
 Secrets never live in `config.toml`. A remote engine names a keyring entry and
