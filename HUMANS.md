@@ -118,10 +118,14 @@ says which absence is which.
 
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
-`systemctl --user reload` re-reads `config.toml`; in-flight requests finish on
-the old engine list. A running container keeps its old shape until next start
-(idle-stop or `POST /engined/v1/start`) — llama-server reads presets INI
-once at startup. See [docs/configuration.md](docs/configuration.md).
+`systemctl --user reload` re-reads `config.toml` and `config.d/`; in-flight
+requests finish on the old engine list. A config the parser or the engine
+registry rejects is not applied at all: the old one keeps serving and
+`config_error` on `GET /engined/v1/engines` says why. An accepted reload tears
+down engines it no longer names (container, llama router, preset file) and
+clears the synthesized-speech cache. A running container keeps its old shape
+until next start (idle-stop or `POST /engined/v1/start`) — llama-server reads
+presets INI once at startup. See [docs/configuration.md](docs/configuration.md).
 
 That is no longer silent: an engine still running under a replaced config
 generation reports a `superseded` field carrying the literal call that brings

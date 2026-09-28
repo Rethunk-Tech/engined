@@ -25,7 +25,8 @@ where one applies, a model, and carries everything specific to that pairing:
 when XDG is unset), read in sorted filename order and appended to the main
 file's `[[engine]]`, `[[upstream]]`, `[[model]]`, `[[route]]` and `[[chain]]`
 arrays. A missing `config.d` directory is normal and silent — most installs
-have no fragments.
+have no fragments. A name starting with `.` is never read, so an editor's lock
+or swap file (`.#foo.toml`) cannot break a reload.
 
 A fragment may declare only those five arrays; `listen_port` and every other
 file-root scalar key is a parse error naming the fragment, since a fragment
@@ -69,7 +70,7 @@ parse error naming the key.
 | `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201. `deploy/Caddyfile.cursor` proxies those same two backends; a changed port is a changed Caddyfile, or the TLS bridge aims at a listener that is not there |
 | `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling) |
 | `agentic_concurrency` | file root — positive integer, default 4. Live dispatch-path agentic launches; a further call is 429 with `Retry-After` |
-| `id` | every `[[engine]]`, `[[upstream]]` and `[[chain]]` — a `[[route]]` has no id |
+| `id` | every `[[engine]]`, `[[upstream]]` and `[[chain]]` — a `[[route]]` has no id. An engine id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`: it is an address segment and becomes a state path (`llama/<id>/preset.ini`), so `/`, `..` or a leading dot is a parse error |
 | `disable` | every `[[engine]]`, `[[upstream]]`, `[[route]]` and `[[chain]]` |
 | `spec_dir` | override the shipped spec directory (a privilege decision — see [security-model.md](security-model.md)) |
 | `models_dir` | engines with a host model tree |
