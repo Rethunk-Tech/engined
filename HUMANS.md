@@ -7,6 +7,7 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 
 - Linux with `systemd --user`
 - Docker, with your user in the `docker` group
+- git and rsync (install syncs `engines/` with `rsync --delete`)
 - [Bun](https://bun.sh) on `PATH` (or `ENGINED_BUNX` set)
 - `secret-tool` (libsecret) for any engine that needs a key
 - For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+
@@ -14,8 +15,16 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 ## Install
 
 ```sh
+git clone https://github.com/Rethunk-Tech/engined.git
+cd engined
 bash scripts/install.sh
 ```
+
+Install runs from a git checkout: the build stamps the commit it came from.
+Every `engines/*/spec.toml` names a `*:local` image, so there is nothing to
+pull from a registry and install never builds one for you. The first request
+to an engine whose image is missing fails with the `docker build` line to
+run; [docs/engines.md](docs/engines.md) says what each image needs.
 
 Builds a bundle, syncs `engines/` into `~/.local/share/engined/`
 (`$XDG_DATA_HOME/engined/` when set), creates `~/.config/engined/` so a

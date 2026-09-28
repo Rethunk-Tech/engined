@@ -28,12 +28,6 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 
 ## Quick start
 
-Every `engines/*/spec.toml` names a `*:local` image: there is nothing to pull
-from a registry, and `scripts/install.sh` never builds one for you. The first
-request to an engine whose image is missing fails with the `docker build`
-line to run; see [docs/engines.md](docs/engines.md) for what each image
-needs and how long it takes.
-
 ```sh
 git clone https://github.com/Rethunk-Tech/engined.git
 cd engined
@@ -43,7 +37,7 @@ cp config.example.toml ~/.config/engined/config.toml
 systemctl --user restart engined.service
 ```
 
-Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: **[HUMANS.md](HUMANS.md)**.
+Engine images are built locally on first use; edit the config, then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
 
 ## Highlights
 
