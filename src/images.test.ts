@@ -293,12 +293,22 @@ describe('POST /openai/v1/images/generations', () => {
     const door = await imagesDoor(rendersInstantly())
     const noPrompt = await generate(door, { model: '@/comfy/local' })
     const badSize = await generate(door, { model: '@/comfy/local', prompt: 'x', size: 'big' })
+    const zeroSize = await generate(door, { model: '@/comfy/local', prompt: 'x', size: '00x00' })
+    const hugeSize = await generate(door, {
+      model: '@/comfy/local',
+      prompt: 'x',
+      size: '99999x99999',
+    })
+    const oddSize = await generate(door, { model: '@/comfy/local', prompt: 'x', size: '65x64' })
     const badN = await generate(door, { model: '@/comfy/local', prompt: 'x', n: 0 })
 
     expect(noPrompt.status).toBe(400)
     expect(await noPrompt.text()).toContain('prompt')
     expect(badSize.status).toBe(400)
     expect(await badSize.text()).toContain('size')
+    expect(zeroSize.status).toBe(400)
+    expect(hugeSize.status).toBe(400)
+    expect(oddSize.status).toBe(400)
     expect(badN.status).toBe(400)
     expect(await badN.text()).toContain('n')
   })

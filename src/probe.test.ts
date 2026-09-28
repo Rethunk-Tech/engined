@@ -233,6 +233,24 @@ test("the probe unit's ExecStart names the flag main.ts branches on", () => {
   expect(main).toContain(`process.argv.includes('${flag}')`)
 })
 
+test('--help and -h print usage and exit 0 without starting the door', async () => {
+  const main = readFileSync(join(import.meta.dir, 'main.ts'), 'utf8')
+  expect(main).toContain("process.argv.includes('--help')")
+  expect(main).toContain("process.argv.includes('-h')")
+  const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts'), '--help'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  expect(code).toBe(0)
+  expect(stdout).toContain('Usage:')
+  expect(stderr).toBe('')
+})
+
 const RERANK_ROW = { id: '@/llama/rerank', role: 'rerank', state: 'installed' }
 /** A transcription route that has NOT declared `translate`: the one that must refuse. */
 const ENGLISH_ONLY_ROW = {

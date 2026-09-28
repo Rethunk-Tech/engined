@@ -122,6 +122,10 @@ export interface EnginesResponse {
  */
 export interface ModelRow {
   id: string
+  /** OpenAI Model object fields; a strict decoder rejects a row that omits them. */
+  object: 'model'
+  created: number
+  owned_by: string
   engine?: string
   upstream?: string
   model?: string

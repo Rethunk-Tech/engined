@@ -269,6 +269,9 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
       object: string
       data?: Array<{
         id: string
+        object?: string
+        created?: number
+        owned_by?: string
         streaming: boolean
         serves: string[]
         role?: string
@@ -322,6 +325,9 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     expect(rows.find((r) => r.id === 'chain-x')?.role).toBeUndefined()
     expect(rows.find((r) => r.id === '@/local/ornith')?.display_name).toBe('Ornith')
     for (const r of rows) {
+      expect(r.object).toBe('model')
+      expect(r.created).toBe(0)
+      expect(r.owned_by).toBe('engined')
       if (r.id !== '@/local/ornith') {
         expect(r.display_name).toBeUndefined()
       }
@@ -329,6 +335,58 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
     const chatToEmbed = await chatToEmbeddingRoute(door)
     expect(chatToEmbed.status).toBe(400)
     expect(await chatToEmbed.text()).toContain('does not serve')
+  } finally {
+    await door.registry.shutdown()
+  }
+})
+
+test('GET /openai/v1/models/{id} returns that list row, and an unknown id is 404', async () => {
+  const door = offlineDoor(modelsListConfig())
+  try {
+    const res = await door.fetch(req('GET', '/openai/v1/models/@/local/ornith'))
+    const row = (await res.json()) as {
+      id: string
+      object: string
+      created: number
+      owned_by: string
+    }
+    expect(res.status).toBe(200)
+    expect(row.id).toBe('@/local/ornith')
+    expect(row.object).toBe('model')
+    expect(row.created).toBe(0)
+    expect(row.owned_by).toBe('engined')
+
+    const missing = await door.fetch(req('GET', '/openai/v1/models/no-such-model'))
+    expect(missing.status).toBe(404)
+  } finally {
+    await door.registry.shutdown()
+  }
+})
+
+test('HEAD on a GET route answers like GET with an empty body', async () => {
+  const door = offlineDoor(modelsListConfig())
+  try {
+    const get = await door.fetch(req('GET', '/openai/v1/models'))
+    const head = await door.fetch(req('HEAD', '/openai/v1/models'))
+    expect(head.status).toBe(get.status)
+    expect(await head.text()).toBe('')
+    expect(await get.text()).not.toBe('')
+  } finally {
+    await door.registry.shutdown()
+  }
+})
+
+test('a wrong method on a known route is 405 with Allow, not 404', async () => {
+  const door = offlineDoor(modelsListConfig())
+  try {
+    const postModels = await door.fetch(req('POST', '/openai/v1/models'))
+    expect(postModels.status).toBe(405)
+    expect(postModels.headers.get('Allow')).toBe('GET, HEAD')
+    const getChat = await door.fetch(req('GET', '/openai/v1/chat/completions'))
+    expect(getChat.status).toBe(405)
+    expect(getChat.headers.get('Allow')).toBe('POST')
+    const unknown = await door.fetch(req('PUT', '/nope'))
+    expect(unknown.status).toBe(404)
   } finally {
     await door.registry.shutdown()
   }

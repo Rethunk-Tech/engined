@@ -2,11 +2,14 @@ import { expect, test } from 'bun:test'
 import {
   declaredOverLimit,
   discardBody,
+  headOf,
   jsonErrorBody,
   MAX_JSON_BODY_BYTES,
+  methodNotAllowed,
   readJsonBody,
   STATUS_BAD_REQUEST,
   STATUS_FORBIDDEN,
+  STATUS_METHOD_NOT_ALLOWED,
   STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_PAYMENT_REQUIRED,
@@ -141,8 +144,21 @@ test('a JSON error body is OpenAI-shaped and types the status', () => {
   expect(jsonErrorBody(STATUS_PAYMENT_REQUIRED, 'pay').error.type).toBe('insufficient_quota')
   expect(jsonErrorBody(STATUS_FORBIDDEN, 'no').error.type).toBe('permission_error')
   expect(jsonErrorBody(STATUS_NOT_FOUND, 'gone').error.type).toBe('not_found_error')
+  expect(jsonErrorBody(STATUS_METHOD_NOT_ALLOWED, 'no').error.type).toBe('invalid_request_error')
   expect(jsonErrorBody(STATUS_TOO_MANY_REQUESTS, 'slow').error.type).toBe('rate_limit_error')
   expect(jsonErrorBody(STATUS_UNAVAILABLE, 'down').error.type).toBe('server_error')
+})
+
+test('methodNotAllowed is 405 with Allow naming the methods that path serves', () => {
+  const res = methodNotAllowed(['GET', 'HEAD'])
+  expect(res.status).toBe(STATUS_METHOD_NOT_ALLOWED)
+  expect(res.headers.get('Allow')).toBe('GET, HEAD')
+})
+
+test('headOf keeps the GET status and drops the body', async () => {
+  const head = await headOf(Response.json({ object: 'list' }))
+  expect(head.status).toBe(200)
+  expect(await head.text()).toBe('')
 })
 
 test('a JSON body whose declared Content-Length is past the cap is 413 without reading it', async () => {

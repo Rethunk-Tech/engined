@@ -33,13 +33,15 @@ import type { DoorContext, DoorOptions } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
 import {
+  headOf,
   jsonError,
+  methodNotAllowed,
   STATUS_FORBIDDEN,
   STATUS_INTERNAL_SERVER_ERROR,
   STATUS_NOT_FOUND,
 } from './http.ts'
 import { Inventory } from './inventory.ts'
-import { modelsMenu } from './modelsMenu.ts'
+import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
@@ -74,9 +76,7 @@ const CONTENT_ENDPOINTS = new Set([
   CONTENT_ENDPOINT_TRANSLATIONS,
 ])
 
-/** The address-keyed start route. An engine id is not a place, so there is no per-engine sibling. */
 const START_PATH = '/engined/v1/start'
-/** `/engined/v1/engines/<id>/<verb>`. Capture 1 is the id; extras add a second. */
 function engineVerbRe(verb: string): RegExp {
   return new RegExp(`^${ENGINED_ENGINES_PATH}/([^/]+)/${verb}$`)
 }
@@ -144,6 +144,9 @@ function routeGet(
   if (pathname === OPENAI_MODELS_PATH) {
     return modelsMenu(ctx)
   }
+  if (pathname.startsWith(`${OPENAI_MODELS_PATH}/`)) {
+    return modelById(ctx, decodeURIComponent(pathname.slice(OPENAI_MODELS_PATH.length + 1)))
+  }
   if (pathname === ENGINED_ENGINES_PATH) {
     return handleEngines(ctx, configErr)
   }
@@ -208,6 +211,29 @@ function routePost(
   return undefined
 }
 
+function allowFor(pathname: string): string[] {
+  const get =
+    pathname === OPENAI_MODELS_PATH ||
+    pathname.startsWith(`${OPENAI_MODELS_PATH}/`) ||
+    pathname === ENGINED_ENGINES_PATH ||
+    pathname === `${ENGINED_ENGINES_PATH}/events` ||
+    pathname === USAGE_PATH ||
+    LOGS_RE.test(pathname) ||
+    RESOURCES_RE.test(pathname)
+  const post =
+    isCursorPath(pathname) ||
+    pathname === START_PATH ||
+    pathname === TOKENIZE_PATH ||
+    pathname === VOICE_UPLOAD_PATH ||
+    CONTENT_ENDPOINTS.has(pathname) ||
+    STOP_RE.test(pathname) ||
+    RELEASE_RE.test(pathname) ||
+    HOLD_RE.test(pathname) ||
+    UNHOLD_RE.test(pathname) ||
+    EXTRAS_RE.test(pathname)
+  return [...(get ? ['GET', 'HEAD'] : []), ...(post ? ['POST'] : [])]
+}
+
 /**
  * Launch-scoped `/openai/v1/<nonce>/...` matches the public door; `null` is an
  * unknown or expired nonce. The nonce is minted at launch and never durable.
@@ -243,12 +269,16 @@ function routeRequest(
     return handleComfyProxy(ctx, req, comfyMatch)
   }
   let matched: Response | Promise<Response> | undefined
-  if (req.method === 'GET') {
+  if (req.method === 'GET' || req.method === 'HEAD') {
     matched = routeGet(ctx, new URL(pathname + url.search, url), configErr, req.signal)
   } else if (req.method === 'POST') {
     matched = routePost(ctx, req, pathname, launchScoped)
   }
-  return matched ?? jsonError(STATUS_NOT_FOUND, 'not found')
+  if (matched !== undefined) {
+    return req.method === 'HEAD' ? headOf(matched) : matched
+  }
+  const allow = allowFor(pathname)
+  return allow.length === 0 ? jsonError(STATUS_NOT_FOUND, 'not found') : methodNotAllowed(allow)
 }
 
 /** One LlamaRouter per llama engine, sharing this door's `lifecycle` and `launchNonces`. */
@@ -305,11 +335,6 @@ export function createDoor(
       config = next
       configErr = undefined
       registry.reload(next)
-      // Mark every cached router stale rather than dropping it: an
-      // in-flight request already holds a direct reference to its old
-      // instance regardless, but a NEW request must not get a second,
-      // ignorant occupancy tracker over the same still-running container
-      // while the old one still has a lease outstanding.
       for (const id of ctx.llamaRouters.keys()) {
         ctx.staleLlamaRouters.add(id)
       }
@@ -318,10 +343,6 @@ export function createDoor(
     }
   }
 
-  // Two declared overloads plus a wider implementation signature: the
-  // standard TS pattern for one function body that must expose a NARROWER
-  // type to its one-argument callers (every test in this repo) than what it
-  // is actually capable of returning when a real `server` is supplied.
   function fetch(req: Request): Response | Promise<Response>
   function fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   function fetch(req: Request, server?: EnginedServer): Response | Promise<Response> | undefined {
@@ -330,10 +351,6 @@ export function createDoor(
       if (refusal) {
         return refusal
       }
-      // A real websocket upgrade is intercepted here, ahead of ordinary
-      // routing: `server` exists only when bound through a real `Bun.serve`
-      // (see `bindDualFamily`), which is the one thing a plain request/response
-      // handler cannot do on its own.
       if (server !== undefined) {
         const wsMatch = matchComfyPath(new URL(req.url).pathname)
         if (wsMatch?.rest === COMFY_WS_SUFFIX) {
@@ -422,6 +439,10 @@ async function probeExit(): Promise<number> {
   return report.ok ? 0 : 1
 }
 if (import.meta.main) {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    writeToStdout('Usage: engined [-h|--help] [--probe]')
+    process.exit(0)
+  }
   // Before anything that binds or starts: this mode talks to the door that is
   // already running, so creating one here would take the port from it.
   if (process.argv.includes('--probe')) {
@@ -429,11 +450,6 @@ if (import.meta.main) {
   }
   let startupConfig: Config
   let door: Door
-  // `createDoor` loads every engine spec eagerly, so a `ParseError` from an
-  // unresolved placeholder lands here and not at the first request. It shares
-  // the config path's exit code because a restart fixes neither, and escaping
-  // this block uncaught would exit 1 and put the unit in a restart loop.
-  // `resolveBunx` throwing lands here too, for the same reason.
   try {
     const bunx = resolveBunx()
     startupConfig = loadConfig()
@@ -444,12 +460,6 @@ if (import.meta.main) {
     door = createDoor(startupConfig, {
       enginesRoot: `${installDir()}/engines`,
       bunx,
-      // Only production wiring: a real probe run is a real billed call to
-      // Anthropic for claude, and a real spawn (free -- this box's own GPU)
-      // for opencode. `agenticStatus`'s version-proof gate is what keeps
-      // this from firing per request or per status poll -- it only ever
-      // invokes the runner when the configured pin differs from the one
-      // last proved.
       agenticProbeRunner: buildAgenticProbeRunner(bunx),
     })
   } catch (err) {
@@ -467,7 +477,6 @@ if (import.meta.main) {
     process.exit(FatalError.EXIT_CODE)
   }
 
-  // Cursor's turn stream needs HTTP/2, so it listens beside the door.
   const cursorAgent = serveCursorAgent(startupConfig.cursor_port, {
     complete: (messages, on) => completeLocally(door.ctx, messages, on),
   })

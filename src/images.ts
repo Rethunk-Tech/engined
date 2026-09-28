@@ -55,8 +55,9 @@ export const SEED_MAX = 2 ** 31
 /** `${name}` exactly, and nothing else in the string: a placeholder is a whole value, never spliced into one, so a substituted number stays a number. */
 const PLACEHOLDER = /^\$\{([a-z_]+)\}$/
 
-/** The size grammar OpenAI uses, which is also what the latent node takes. */
+/** OpenAI size grammar, plus this door's floor: 64–4096 and a multiple of 8. */
 const SIZE = /^(\d{2,5})x(\d{2,5})$/
+const sizeDim = (n: number): boolean => n >= 64 && n <= 4096 && n % 8 === 0
 
 /**
  * Replaces every `${name}` in the graph with `values[name]`, keeping the
@@ -121,7 +122,9 @@ function parseImageRequest(body: Record<string, unknown>): ImageRequest | Respon
   }
   const size = typeof body.size === 'string' ? body.size : DEFAULT_SIZE
   const dims: RegExpExecArray | null = SIZE.exec(size)
-  if (dims === null) {
+  const width = dims === null ? Number.NaN : Number(dims[1])
+  const height = dims === null ? Number.NaN : Number(dims[2])
+  if (dims === null || !sizeDim(width) || !sizeDim(height)) {
     return jsonError(STATUS_BAD_REQUEST, `"size" must be <width>x<height>, not "${size}"`)
   }
   const n = typeof body.n === 'number' ? body.n : 1
@@ -130,11 +133,9 @@ function parseImageRequest(body: Record<string, unknown>): ImageRequest | Respon
   }
   return {
     prompt,
-    // Not an OpenAI field, and forwarded because a caller who knows they are
-    // driving a diffusion model has no other way to say it.
     negative: typeof body.negative_prompt === 'string' ? body.negative_prompt : '',
-    width: Number(dims[1]),
-    height: Number(dims[2]),
+    width,
+    height,
     n,
     // A fixed seed makes every request for one prompt the same image, which is
     // not what a caller asking twice wants. Honoured when given.

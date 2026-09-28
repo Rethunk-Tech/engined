@@ -13,6 +13,7 @@ export const STATUS_UNAUTHORIZED = 401
 export const STATUS_PAYMENT_REQUIRED = 402
 export const STATUS_FORBIDDEN = 403
 export const STATUS_NOT_FOUND = 404
+export const STATUS_METHOD_NOT_ALLOWED = 405
 export const STATUS_CONFLICT = 409
 export const STATUS_PAYLOAD_TOO_LARGE = 413
 export const STATUS_TOO_MANY_REQUESTS = 429
@@ -118,6 +119,20 @@ export function jsonErrorBody(status: number, message: string): OpenAiErrorBody 
 /** The same shape, already wrapped as a `Response` — for a caller returning straight to the door's own `fetch`. */
 export function jsonError(status: number, message: string): Response {
   return Response.json(jsonErrorBody(status, message), { status })
+}
+
+/** A known path asked with a method it does not serve. `Allow` names every method that path does. */
+export function methodNotAllowed(allow: readonly string[]): Response {
+  const res = jsonError(STATUS_METHOD_NOT_ALLOWED, 'method not allowed')
+  res.headers.set('Allow', allow.join(', '))
+  return res
+}
+
+/** The GET answer with its body dropped: HEAD on a GET route. */
+export async function headOf(res: Response | Promise<Response>): Promise<Response> {
+  const answered = await res
+  await discardBody(answered)
+  return new Response(null, { status: answered.status, headers: answered.headers })
 }
 
 /** The human sentence inside a door error body, whether the body is the current object or a leftover string `error`. */

@@ -14,6 +14,7 @@ import {
 } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
+import { jsonError, STATUS_NOT_FOUND } from './http.ts'
 import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import {
@@ -166,6 +167,9 @@ async function modelRow(
   }
   return {
     id: addressForRoute(route, siblingCount),
+    object: 'model',
+    created: 0,
+    owned_by: 'engined',
     engine: route.engine,
     upstream: route.upstream ?? undefined,
     model: route.model,
@@ -353,6 +357,9 @@ async function chainRow({
   const dead = walked.filter((h) => h.state === 'unavailable').map((h) => h.hop)
   return {
     id: chainId,
+    object: 'model',
+    created: 0,
+    owned_by: 'engined',
     streaming: lead?.route?.streaming ?? lead?.status?.streaming ?? false,
     tools: walked.every((h) => forwardsTools(h.status, h.route?.role)),
     serves: chainServes(walked),
@@ -416,7 +423,7 @@ export function collapseCursorRoutes(routes: readonly ResolvedRoute[]): Resolved
  * `serves` still tells a caller it does not speak chat, exactly as a
  * modelless audio engine's own `serves` (`/openai/v1/audio/speech`) does.
  */
-export async function modelsMenu(ctx: DoorContext): Promise<Response> {
+async function listRows(ctx: DoorContext): Promise<ModelRow[]> {
   const config = ctx.getConfig()
   const { engines } = await ctx.registry.list()
   const statuses = new Map(engines.map((e) => [e.id, e]))
@@ -437,6 +444,17 @@ export async function modelsMenu(ctx: DoorContext): Promise<Response> {
   for (const [chainId, hops] of Object.entries(config.chains)) {
     rows.push(await chainRow({ ctx, chainId, hops, config, statuses }))
   }
+  return rows
+}
 
-  return Response.json({ object: 'list', data: rows } satisfies ModelsResponse)
+export async function modelsMenu(ctx: DoorContext): Promise<Response> {
+  return Response.json({ object: 'list', data: await listRows(ctx) } satisfies ModelsResponse)
+}
+
+/** `GET /openai/v1/models/{id}`: the same row the list would have carried, or 404. */
+export async function modelById(ctx: DoorContext, id: string): Promise<Response> {
+  const row = (await listRows(ctx)).find((r) => r.id === id)
+  return row === undefined
+    ? jsonError(STATUS_NOT_FOUND, `unknown model "${id}"`)
+    : Response.json(row)
 }
