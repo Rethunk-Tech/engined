@@ -60,6 +60,17 @@ describe('GET /engined/v1/images/:id', () => {
       }).status,
     ).toBe(404)
   })
+
+  test('a GET never trims the store -- only a write does', () => {
+    const bounds = store()
+    const first = storeRenderedImage(PIXEL, 'png', bounds)
+    const second = storeRenderedImage(PIXEL, 'png', bounds)
+    // A cap this tight would evict both on a write; a GET must ignore it,
+    // since the whole-store sweep is `storeRenderedImage`'s job alone now.
+    const tight = { ...bounds, keep: 1, maxBytes: 1 }
+    expect(handleStoredImageGet(second, tight).status).toBe(200)
+    expect(handleStoredImageGet(first, bounds).status).toBe(200)
+  })
 })
 
 describe('eviction', () => {

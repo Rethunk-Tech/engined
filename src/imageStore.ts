@@ -177,13 +177,23 @@ export function storeRenderedImage(
   return id
 }
 
+/**
+ * Whole-store eviction (two directory listings plus a stat per file) stays
+ * on `storeRenderedImage`; a GET only ever needs one file's own age, checked
+ * against the same TTL, so it reads one `stat` rather than paying for a
+ * sweep of the whole directory on every fetch.
+ */
 export function handleStoredImageGet(id: string, bounds?: ImageStoreBounds): Response {
   if (!IMAGE_ID_RE.test(id)) {
     return jsonError(STATUS_NOT_FOUND, 'unknown image')
   }
-  evictImages(bounds)
+  const path = join(storeDir(bounds), id)
   try {
-    const bytes = readFileSync(join(storeDir(bounds), id))
+    const ttlMs = bounds?.ttlMs ?? IMAGE_TTL_MS
+    if (storeNow(bounds) - statSync(path).mtimeMs > ttlMs) {
+      return jsonError(STATUS_NOT_FOUND, 'unknown image')
+    }
+    const bytes = readFileSync(path)
     const ext = extOf(id)
     return new Response(bytes, { headers: { [CONTENT_TYPE]: typeForExt(ext) } })
   } catch {
