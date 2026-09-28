@@ -134,6 +134,43 @@ upstream = "local"
     expect(after.config_error).toBeDefined()
     expect(after.config_error).toContain(path)
   })
+
+  test('a reload that parses clean but fails registry.reload keeps the old config serving and reports config_error', async () => {
+    const dir = mkdtempSync(join(TEST_ROOT, 'engined-reload-registry-fail-'))
+    const path = join(dir, 'config.toml')
+    writeFileSync(path, GoodConfig)
+
+    const door = createDoor(loadConfig(path), {
+      enginesRoot: '/nonexistent',
+      bunx: BUNX,
+    })
+
+    // Parses fine -- `kind` is explicit, so loadConfig never reads a spec --
+    // but a spec-less agentic-cli engine has no built-in launch, so
+    // registry.reload's buildEntries throws a FatalError.
+    writeFileSync(
+      path,
+      `
+[[engine]]
+id = "agentic"
+kind = "agentic-cli"
+
+[[route]]
+engine = "agentic"
+`,
+    )
+    door.reload(path)
+
+    expect(door.configError()).toMatch(/has no built-in launch/)
+    const after = (await (
+      await door.fetch(new Request('http://engined/engined/v1/engines'))
+    ).json()) as {
+      engines: { id: string }[]
+      config_error: string
+    }
+    expect(after.engines.map((e) => e.id)).toEqual(['claude'])
+    expect(after.config_error).toMatch(/has no built-in launch/)
+  })
 })
 
 function llamaTomlConfig(modelsDir: string): string {

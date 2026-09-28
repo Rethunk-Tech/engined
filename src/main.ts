@@ -334,9 +334,13 @@ export function createDoor(
   function reload(path: string): void {
     try {
       const next = loadConfig(path)
+      // registry.reload can still throw (a spec-less engine, a capability
+      // route nothing serves) even though `next` parsed clean. Applying it
+      // to the registry before swapping `config` keeps a failed reload
+      // serving the old config, with only `configErr` reporting the new one.
+      registry.reload(next)
       config = next
       configErr = undefined
-      registry.reload(next)
       for (const id of ctx.llamaRouters.keys()) {
         ctx.staleLlamaRouters.add(id)
       }
