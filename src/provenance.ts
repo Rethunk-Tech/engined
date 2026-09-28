@@ -127,7 +127,7 @@ const HEADER_COST_USD = 'x-engined-cost-usd'
  * resident still went through the same lease gate, it just was not held up
  * by it.
  */
-const HEADER_QUEUE_MS = 'x-engined-queue-ms'
+export const HEADER_QUEUE_MS = 'x-engined-queue-ms'
 
 /**
  * The one place that turns an answering attempt into the headers a caller

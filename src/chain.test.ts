@@ -780,6 +780,24 @@ test("a hop whose body carries a child agent's words records the status alone", 
   expect(lines.join('')).not.toContain('CHILD_AGENT_PARSE_WORDS')
 })
 
+// `x-engined-queue-ms` (`hop.ts`'s own llama hop sets it via `HopResult.headers`)
+// merges onto the answering-route set in `finalizeTerminal`, same as every
+// other per-hop header -- so a chain reports the hop that actually answered,
+// never the one that failed first, even though that one ran too.
+test('a chain reports the queue time of the hop that answered, not the one that failed first', async () => {
+  const { write } = collectLines()
+  const exec: HopExec = (hop) =>
+    Promise.resolve(
+      engineOf(hop) === 'dead'
+        ? { status: 502, body: 'down', headers: new Headers({ 'x-engined-queue-ms': '999' }) }
+        : { status: 200, body: 'answer', headers: new Headers({ 'x-engined-queue-ms': '4' }) },
+    )
+
+  const result = await runChain(['@/dead/m', '@/live/m'], baseOpts({ exec, write }))
+
+  expect(result.headers?.get('x-engined-queue-ms')).toBe('4')
+})
+
 const AGENTIC_SPEC = `
 kind = "agentic-cli"
 upstream = "optional"

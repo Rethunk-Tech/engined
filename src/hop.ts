@@ -34,6 +34,7 @@ import {
   sseFrames,
 } from './http.ts'
 import { reportedModelFrom } from './llama.ts'
+import { HEADER_QUEUE_MS } from './provenance.ts'
 import { errMessage, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
@@ -162,13 +163,21 @@ async function execLlama(
   // bookkeeping, and never model_reported: the two answer different questions
   // and one silently standing in for the other defeats provenance.
   try {
-    const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init)
+    const { response, modelResident, queueMs } = await router.proxy(
+      route,
+      enginePath(req.pathname),
+      init,
+    )
     const { stream, modelReported } = await readHopBody(response, req.setContentType)
     return {
       status: response.status,
       stream,
       modelReported,
       modelResident,
+      // `finalizeTerminal` (`chain.ts`) merges this onto the answering-route
+      // set, so a chain with several hops carries the queue time of the hop
+      // that actually answered, not the first one tried.
+      headers: new Headers({ [HEADER_QUEUE_MS]: String(queueMs) }),
     }
   } catch (err) {
     // Busy and Held are the two registry failures this hop answers directly,

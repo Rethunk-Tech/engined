@@ -38,6 +38,8 @@ export interface DoorOptions {
   usageStateRoot?: string
   /** Overrides `Date.now` for `src/usage.ts`'s own day-key math; a test pins this to cross a day boundary deterministically. */
   usageNow?: () => number
+  /** Overrides every `LlamaRouter`'s clock; a test injects one to make `queueMs`/`x-engined-queue-ms` deterministic against real-timer jitter. */
+  llamaNow?: () => number
 }
 
 /**
@@ -154,6 +156,7 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
     readyTimeoutS: engine.ready_timeout_s,
     httpClient: ctx.doorOpts.llamaHttpClient,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
+    now: ctx.doorOpts.llamaNow,
   })
   ctx.llamaRouters.set(engine.id, router)
   return router
