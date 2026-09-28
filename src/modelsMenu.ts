@@ -89,6 +89,9 @@ export function routeContextIn(
   return derivedContextIn(engine, route)
 }
 
+/** One request's `resolveUpstream` answers, keyed by upstream id. Must not outlive the request that built it. */
+type RemoteOk = Map<string, Promise<boolean>>
+
 /**
  * An engine-wide proof (`EngineStatus.state`) only ever vouches for what the
  * engine itself carries -- an agentic pin's read-only floor, a container's
@@ -104,9 +107,6 @@ export function routeContextIn(
  * private_url and never the upstream's address, so a comfy route naming a
  * peer serves without either half of this.
  */
-/** One request's `resolveUpstream` answers, keyed by upstream id. Must not outlive the request that built it. */
-type RemoteOk = Map<string, Promise<boolean>>
-
 async function remoteRouteState(
   ctx: DoorContext,
   route: ResolvedRoute,
