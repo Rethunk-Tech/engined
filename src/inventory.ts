@@ -31,6 +31,8 @@ export interface InventoryLookup {
   ids: string[]
   /** Set when ids came from an in-age cache because the live fetch failed. */
   fetchError?: string
+  /** Set when the upstream was forgotten while this fetch was in flight; nothing was cached. */
+  stale?: boolean
 }
 
 interface CachedInventory {
@@ -92,6 +94,8 @@ function parseModelsBody(raw: unknown): string[] | undefined {
 /** Live catalog cache, one in-memory entry per upstream, mirrored under `upstreams/<id>/`. */
 export class Inventory {
   private readonly mem = new Map<string, CachedInventory>()
+  /** Bumped by `forget`, so a fetch that began before it cannot write the old provider's list back. */
+  private readonly generations = new Map<string, number>()
   private readonly opts: InventoryOptions
 
   constructor(opts: InventoryOptions = {}) {
@@ -101,6 +105,7 @@ export class Inventory {
   /** Drops these upstreams' catalogs from memory and disk, so a re-pointed upstream never serves its old provider's list. */
   forget(upstreamIds: Iterable<string>): void {
     for (const id of upstreamIds) {
+      this.generations.set(id, (this.generations.get(id) ?? 0) + 1)
       this.mem.delete(id)
       this.dropFile(id)
     }
@@ -115,7 +120,11 @@ export class Inventory {
   }
 
   async refresh(upstream: Upstream): Promise<InventoryLookup> {
+    const generation = this.generations.get(upstream.id)
     const live = await this.fetchIds(upstream)
+    if (this.generations.get(upstream.id) !== generation) {
+      return { ids: [], stale: true }
+    }
     if (live.ok) {
       const cached: CachedInventory = { fetchedAt: this.now(), ids: live.ids }
       this.mem.set(upstream.id, cached)

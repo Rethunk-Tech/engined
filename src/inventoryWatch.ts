@@ -61,13 +61,19 @@ export class InventoryWatch {
     this.timers = []
   }
 
-  /** Drops the cached catalog of every upstream whose entry changed or disappeared; an untouched upstream keeps its own. */
-  forget(changedUpstreamIds: ReadonlySet<string>): void {
-    if (changedUpstreamIds.size === 0) {
-      return
-    }
+  /**
+   * Drops the cached catalog of every upstream whose entry changed or
+   * disappeared, and the fetch errors of engines routed to one under
+   * `previous` -- the config those errors were fetched for. An untouched
+   * upstream keeps both.
+   */
+  forget(changedUpstreamIds: ReadonlySet<string>, previous: Config): void {
     this.inventory.forget(changedUpstreamIds)
-    this.fetchErrors.clear()
+    for (const r of wildcardRoutes(previous)) {
+      if (r.upstream !== null && changedUpstreamIds.has(r.upstream)) {
+        this.fetchErrors.delete(r.engine)
+      }
+    }
   }
 
   /** The status with the engine's last catalog fetch failure as its `fix`, unless it already has one. */
@@ -81,6 +87,9 @@ export class InventoryWatch {
 
   private async refreshOne(config: Config, upstream: Upstream): Promise<void> {
     const result = await this.inventory.refresh(upstream)
+    if (result.stale) {
+      return
+    }
     const engines = new Set(
       wildcardRoutes(config)
         .filter((r) => r.upstream === upstream.id)

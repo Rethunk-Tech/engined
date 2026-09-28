@@ -510,12 +510,14 @@ export class EngineRegistry {
         this.teardown(old.engine.id)
       }
     }
-    const changedUpstreamIds = changedOrRemovedUpstreamIds(this.config.upstreams, config.upstreams)
+    this.inventoryWatch.forget(
+      changedOrRemovedUpstreamIds(this.config.upstreams, config.upstreams),
+      this.config,
+    )
     this.config = config
     this.entries = newEntries
     this.byId = new Map(newEntries.map((e) => [e.engine.id, e]))
     this.comfy.watch(newEntries)
-    this.inventoryWatch.forget(changedUpstreamIds)
     this.startInventoryRefresh()
   }
 

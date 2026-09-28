@@ -6,6 +6,7 @@ import { chatRequest } from './doorFixtures.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { decodeAddressSegment, encodeAddressSegment, Inventory } from './inventory.ts'
+import { InventoryWatch } from './inventoryWatch.ts'
 import { createDoor } from './main.ts'
 import { MS_PER_SECOND } from './records.ts'
 import type { ModelRow } from './responses.ts'
@@ -224,6 +225,29 @@ describe('provider /models inventory', () => {
     expect(result.ids).toEqual(['org/model:free'])
   })
 
+  test('a catalog fetch in flight when its upstream is forgotten writes nothing back', async () => {
+    let release: () => void = () => undefined
+    const stateRoot = join(TEST_ROOT, 'state-forget-in-flight')
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot,
+      fetch: async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return modelsList(['old-provider/model'])
+      },
+    })
+    const u = catalogUpstream('https://example.invalid')
+    const pending = inv.refresh(u)
+    await Bun.sleep(5)
+    inv.forget(['openrouter'])
+    release()
+    expect(await pending).toEqual({ ids: [], stale: true })
+    expect(inv.peek(u)).toEqual([])
+    expect(existsSync(join(stateRoot, 'upstreams', 'openrouter', 'inventory.json'))).toBe(false)
+  })
+
   test('catalog fetch does not follow redirects', async () => {
     let redirect: RequestInit['redirect']
     const inv = new Inventory({
@@ -237,6 +261,63 @@ describe('provider /models inventory', () => {
     const result = await inv.refresh(catalogUpstream('https://example.invalid'))
     expect(result.ids).toEqual(['org/model:free'])
     expect(redirect).toBe('error')
+  })
+})
+
+describe('inventory watch', () => {
+  test("forget clears only the changed upstream engines' fetch errors, and a fetch in flight across it cannot erase a newer one", async () => {
+    const releases: (() => void)[] = []
+    let gated = false
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, 'state-watch-forget'),
+      fetch: async () => {
+        if (gated) {
+          await new Promise<void>((resolve) => releases.push(resolve))
+        }
+        return new Response('nope', { status: 502 })
+      },
+    })
+    const cfg = config({
+      upstreams: [
+        { ...catalogUpstream('https://a.invalid'), id: 'a' },
+        { ...catalogUpstream('https://b.invalid'), id: 'b' },
+      ],
+      routes: [
+        route({ engine: 'ea', model: '*', upstream: 'a' }),
+        route({ engine: 'eb', model: '*', upstream: 'b' }),
+      ],
+    })
+    const watch = new InventoryWatch(inv)
+    const fixOf = (id: string) =>
+      watch.withFix({ id, kind: 'openai-http', serves: [], state: 'running', streaming: true }).fix
+    const settle = async (done: () => boolean) => {
+      for (let i = 0; i < 100 && !done(); i++) {
+        await Bun.sleep(1)
+      }
+    }
+    try {
+      watch.start(cfg)
+      await settle(() => fixOf('ea') !== undefined && fixOf('eb') !== undefined)
+      gated = true
+      watch.start(cfg)
+      await settle(() => releases.length === 2)
+      watch.forget(new Set(['a']), cfg)
+      expect(fixOf('ea')).toBeUndefined()
+      expect(fixOf('eb')).toMatch(/HTTP 502/)
+      // A refresh begun after the forget records its error; the stale one
+      // landing afterwards must not erase it.
+      gated = false
+      watch.start(cfg)
+      await settle(() => fixOf('ea') !== undefined)
+      for (const release of releases) {
+        release()
+      }
+      await Bun.sleep(10)
+      expect(fixOf('ea')).toMatch(/HTTP 502/)
+    } finally {
+      watch.stop()
+    }
   })
 })
 
