@@ -13,11 +13,7 @@ ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js --probe
 # The probe reads the same config the daemon does, and dispatches through the
 # door rather than launching anything itself, so it needs neither the door's
 # state directory nor its docker access.
-Environment=ENGINED_BUNX=@BUNX_PATH@
-Environment=BUN_INSTALL=@STATE_DIR@/bun-install
-Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 ProtectSystem=strict
-ReadWritePaths=@STATE_DIR@
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
