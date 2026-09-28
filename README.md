@@ -17,7 +17,7 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 
 ## Requirements
 
-- Linux with `systemd --user`, Docker, and [Bun](https://bun.sh) 1.4.
+- git, [Bun](https://bun.sh) 1.4, Docker, and rsync.
 - The shipped engine images are **optimised for AMD Strix Halo** (Ryzen AI
   Max, gfx1151): ROCm 7.2 for the PyTorch engines, RADV Vulkan for llama.cpp
   and whisper.cpp. Other hardware works by pointing an engine at your own image:
@@ -28,7 +28,15 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 
 ## Quick start
 
+Every `engines/*/spec.toml` names a `*:local` image: there is nothing to pull
+from a registry, and `scripts/install.sh` never builds one for you. The first
+request to an engine whose image is missing fails with the `docker build`
+line to run; see [docs/engines.md](docs/engines.md) for what each image
+needs and how long it takes.
+
 ```sh
+git clone https://github.com/Rethunk-Tech/engined.git
+cd engined
 bash scripts/install.sh
 mkdir -p ~/.config/engined
 cp config.example.toml ~/.config/engined/config.toml

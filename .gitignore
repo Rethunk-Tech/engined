@@ -4,6 +4,7 @@ dist/
 *.tsbuildinfo
 *.db
 __pycache__/
+.ruff_cache/
 .repo-ops-holds.txt
 .orchestrate/
 # Rendered by the local tier's router fixtures; regenerated every run.

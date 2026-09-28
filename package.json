@@ -2,8 +2,31 @@
   "name": "engined",
   "version": "0.1.0",
   "private": true,
+  "description": "Local model door: the sole owner of inference containers on one box",
   "license": "MIT",
+  "homepage": "https://github.com/Rethunk-Tech/engined",
+  "bugs": "https://github.com/Rethunk-Tech/engined/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rethunk-Tech/engined"
+  },
+  "keywords": [
+    "bun",
+    "daemon",
+    "docker",
+    "gpu",
+    "inference",
+    "llm",
+    "local-first",
+    "openai-compatible",
+    "rocm",
+    "self-hosted",
+    "typescript"
+  ],
   "type": "module",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
   "scripts": {
     "typecheck": "tsc -b --noEmit --pretty false",
     "lint": "biome check . && knip",
