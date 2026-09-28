@@ -331,7 +331,7 @@ export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
  * mid-upload makes the read throw, and that is the caller's malformed request,
  * not this door's failure.
  */
-export async function readCappedBytes(
+async function readCappedBytes(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,
