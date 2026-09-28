@@ -296,13 +296,7 @@ test('a held engine refuses to start, and starts again once the hold is dropped'
 
   expect((await door.fetch(held)).status).toBe(200)
 
-  const refused = await door.fetch(
-    new Request('http://engined/engined/v1/start', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: '@/local-llama/chat-model' }),
-    }),
-  )
+  const refused = await door.fetch(startRequest('@/local-llama/chat-model'))
   expect(refused.status).not.toBe(200)
   expect(JSON.stringify(await refused.json())).toContain('held')
 

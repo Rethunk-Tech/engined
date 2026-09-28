@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { chatRequest } from './doorFixtures.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { decodeAddressSegment, encodeAddressSegment, Inventory } from './inventory.ts'
@@ -297,13 +298,9 @@ describe('menu and chat expand a cached catalog', () => {
       expect(ids).not.toContain('@/openrouter/*')
 
       const chat = await door.fetch(
-        new Request(`http://127.0.0.1:${DOOR_PORT}/openai/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: '@/openrouter/org%2Fmodel:free',
-            messages: [{ role: 'user', content: 'hi' }],
-          }),
+        chatRequest({
+          model: '@/openrouter/org%2Fmodel:free',
+          messages: [{ role: 'user', content: 'hi' }],
         }),
       )
       expect(chat.status).toBe(200)

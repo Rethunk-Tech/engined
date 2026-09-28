@@ -8,6 +8,7 @@
 import { expect, test } from 'bun:test'
 import { handleSpeech } from './audioSpeech.ts'
 import { handleTranscription } from './audioTranscribe.ts'
+import { chatRequest } from './doorFixtures.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import { createDoor, type Door } from './main.ts'
 import { config as baseConfigFixture, engine, route, startFakeUpstream } from './test-support.ts'
@@ -293,14 +294,6 @@ function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}
       },
     ],
     chains: { 'chain-private': ['@/hosted/upstream-model-7'] },
-  })
-}
-
-function chatRequest(body: unknown): Request {
-  return new Request(`http://127.0.0.1:${TEST_LISTEN_PORT}/openai/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
   })
 }
 
