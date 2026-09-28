@@ -29,7 +29,10 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 ## Quick start
 
 ```sh
-bash scripts/install.sh && cp config.example.toml ~/.config/engined/config.toml
+bash scripts/install.sh
+mkdir -p ~/.config/engined
+cp config.example.toml ~/.config/engined/config.toml
+systemctl --user restart engined.service
 ```
 
 Edit the config, then `curl -s localhost:29200/engined/v1/engines` — runbook: **[HUMANS.md](HUMANS.md)**.

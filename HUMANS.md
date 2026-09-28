@@ -18,9 +18,16 @@ bash scripts/install.sh
 ```
 
 Builds a bundle, syncs `engines/` into `~/.local/share/engined/`
-(`$XDG_DATA_HOME/engined/` when set), renders the `systemd --user` unit, then
-enables and restarts it. Running it again **is** the update — nothing over HTTP
-writes to the install directory.
+(`$XDG_DATA_HOME/engined/` when set), creates `~/.config/engined/` so a
+following `cp` has somewhere to land, and renders the `systemd --user` units.
+It restarts `engined` only when `config.toml` is already there — a first run
+on a fresh box would otherwise exit 78 and `RestartPreventExitStatus` would
+leave the unit failed. Running the script again **is** the update — nothing
+over HTTP writes to the install directory.
+
+When Docker is on `PATH`, install also enables `engined-tls.service`: a
+`engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
+can speak TLS. See [docs/security-model.md § The Cursor TLS bridge](docs/security-model.md#the-cursor-tls-bridge-is-a-network-listener).
 
 **Never run it under `sudo`.** Root-owned outputs break later user-level builds.
 
@@ -30,8 +37,10 @@ directory — [docs/configuration.md § Paths](docs/configuration.md).
 ## Configure
 
 ```sh
+mkdir -p ~/.config/engined
 cp config.example.toml ~/.config/engined/config.toml
 $EDITOR ~/.config/engined/config.toml
+systemctl --user restart engined.service
 ```
 
 Name engines you have images for and GGUFs on disk. A missing file or spec
@@ -154,23 +163,24 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | Symptom | Cause |
 | --- | --- |
 | `ECONNREFUSED` on 29200 | unit not running — `systemctl --user status engined` |
-| exit 78 at startup | port already bound; error names the port |
+| exit 78 at startup | port already bound, or config missing/invalid; the error names which |
 | engine stuck `unavailable` | read its `fix` field and run that command |
 | a 400 saying `unknown model` | bare model or engine id — every address needs `@/`, e.g. `@/<engine>/<model>` |
 | a 400 listing qualified upstream forms | `@/<engine>/<model>` names a model two upstreams share on that engine — use `@/<engine>/<upstream>/<model>` |
 | config change had no effect on a running engine | takes effect at the engine's next start — the engine's `superseded` field names the call that brings it forward now |
 | an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
 | `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
-| `engined-probe` failed with "reports no `role`" | the running daemon predates the probe — re-run `scripts/install.sh` |
+| `engined-probe` failed with "reports no `vision` kind" | the running daemon predates the probe — re-run `scripts/install.sh` |
 | `engined-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |
 
 ## Uninstall
 
 ```sh
-systemctl --user disable --now engined engined-probe.timer
-rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-probe.*
+systemctl --user disable --now engined engined-probe.timer engined-tls.service
+rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-probe.* ~/.config/systemd/user/engined-tls.service
 systemctl --user daemon-reload
 rm -rf ~/.local/share/engined
+docker rm -f engined-tls
 ```
 
 Stop and remove any remaining `engined-*` containers. Config

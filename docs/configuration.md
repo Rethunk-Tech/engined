@@ -44,7 +44,7 @@ parse error naming the key.
 
 | Key | Applies to |
 | --- | --- |
-| `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201 |
+| `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201. `deploy/Caddyfile.cursor` proxies those same two backends; a changed port is a changed Caddyfile, or the TLS bridge aims at a listener that is not there |
 | `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling) |
 | `agentic_concurrency` | file root — positive integer, default 4. Live dispatch-path agentic launches; a further call is 429 with `Retry-After` |
 | `id`, `disable` | every `[[engine]]`, `[[upstream]]`, `[[route]]` and `[[chain]]` |

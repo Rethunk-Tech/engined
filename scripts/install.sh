@@ -60,17 +60,25 @@ resolve_paths() {
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
 }
 
+# True when $1 names $2 as a whole path segment. Unanchored substring match
+# would refuse any username that appears inside another component (ed in
+# engined, ted in stated, …) and those users could never install.
+path_has_segment() {
+  local p="$1" seg="$2"
+  [[ "$p" == "$seg" || "$p" == "$seg/"* || "$p" == *"/$seg" || "$p" == *"/$seg/"* ]]
+}
+
 # The %h rewrite in to_unit_path is the whole guarantee that no path in the
 # generated unit names a user; this is what catches a future template edit that
 # bypasses it before the file ever lands on disk. It covers the resolved bun
 # binaries too: bun installs under $HOME by default, and systemd expands %h in
 # ExecStart's program position exactly as it does in ReadWritePaths.
 assert_unit_names_no_user() {
-  local out="$1" user exec_line daemon_path
+  local out="$1" user exec_line daemon_path user_ere
   user="$(id -un)"
 
-  if [[ "$UNIT_INSTALL_DIR" == "$HOME"* || "$UNIT_INSTALL_DIR" == *"$user"* ||
-    "$UNIT_STATE_DIR" == "$HOME"* || "$UNIT_STATE_DIR" == *"$user"* ]]; then
+  if [[ "$UNIT_INSTALL_DIR" == "$HOME"* ]] || path_has_segment "$UNIT_INSTALL_DIR" "$user" ||
+    [[ "$UNIT_STATE_DIR" == "$HOME"* ]] || path_has_segment "$UNIT_STATE_DIR" "$user"; then
     echo "install.sh: install/state dir still names \$HOME or the user, refusing to render" >&2
     exit 1
   fi
@@ -80,13 +88,16 @@ assert_unit_names_no_user() {
   exec_line="$(grep '^ExecStart=' "$out" || true)"
   if [[ -n "$exec_line" ]]; then
     daemon_path="${exec_line#*ExecStart=* }"
-    if [[ "$daemon_path" == "$HOME"* || "$daemon_path" == *"$user"* ]]; then
+    if [[ "$daemon_path" == "$HOME"* ]] || path_has_segment "$daemon_path" "$user"; then
       echo "install.sh: ExecStart's daemon path names \$HOME or the user, refusing" >&2
       exit 1
     fi
   fi
 
-  if grep -qE -- "$HOME|$user" "$out"; then
+  # $HOME is a literal path, never an ERE. The username is a path segment so
+  # it cannot fire on a longer name that merely contains it.
+  user_ere="$(printf '%s' "$user" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+  if grep -qF -- "$HOME" "$out" || grep -qE -- "(^|/)${user_ere}(/|$)" "$out"; then
     echo "install.sh: the rendered unit names \$HOME or the user, refusing" >&2
     exit 1
   fi
@@ -148,7 +159,7 @@ main() {
     fi
   )
 
-  mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$STATE_DIR/bun-install" "$STATE_DIR/tmp"
+  mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$STATE_DIR/bun-install" "$STATE_DIR/tmp" "$CONFIG_HOME/engined"
 
   # main.js is one file, fully overwritten every run; engines/ syncs with
   # --delete because a spec directory removed from the repo has to disappear
@@ -193,9 +204,15 @@ main() {
 
   systemctl --user daemon-reload
   # enable, not just restart: without it the unit is only ever running because
-  # someone ran this script, and a logout takes it down for good.
+  # someone ran this script, and a logout takes it down for good. Restarting
+  # before config.toml exists exits 78, and RestartPreventExitStatus then
+  # leaves the unit failed, so a fresh box is told the next step instead.
   systemctl --user enable engined.service
-  systemctl --user restart engined.service
+  if [[ -f "$CONFIG_HOME/engined/config.toml" ]]; then
+    systemctl --user restart engined.service
+  else
+    echo "install.sh: no config.toml in $CONFIG_HOME/engined; copy config.example.toml there, then: systemctl --user restart engined.service" >&2
+  fi
   systemctl --user enable --now engined-probe.timer
   if [[ -n "$DOCKER_PATH" ]]; then
     systemctl --user enable engined-tls.service

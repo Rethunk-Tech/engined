@@ -124,6 +124,20 @@ file issues a new one.
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
 serves nothing today: an unclaimed prefix 404s like any other unmatched path.
 
+## Cursor door
+
+`cursor_port` (default 29201) is a second cleartext listener for the Cursor
+protocol. `/aiserver.*` rides with the rest of the door on `listen_port`.
+`/agent.v1.*` — in particular `/agent.v1.AgentService/Run` — is the HTTP/2
+turn stream and is served on `cursor_port`. cursor-agent picks those with
+ALPN, so a TLS terminator has to sit in front: the shipped
+`engined-tls` container runs `Caddyfile.cursor` at `engined.localhost:29443`
+and splits the two backends. Caddy mints an internal CA; point
+`NODE_EXTRA_CA_CERTS` at the root the container writes under the state
+directory (`…/caddy/caddy/pki/authorities/local/root.crt`). The Caddyfile
+backend ports must match `listen_port` and `cursor_port`. See
+[security-model.md § The Cursor TLS bridge](security-model.md#the-cursor-tls-bridge-is-a-network-listener).
+
 ## Error bodies
 
 Every JSON error on `/openai/v1/*` and `/engined/v1/*` uses OpenAI's object,
