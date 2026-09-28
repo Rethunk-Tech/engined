@@ -1186,20 +1186,31 @@ test("contention reports the request holding a role's lease and the one queued b
 })
 
 test('queueMs is 0 for a lease granted immediately and positive for one queued behind it', async () => {
-  const { b, router, release, res1 } = await gatedPair()
+  // An injected clock rather than real timers: a real-timer version of this
+  // assertion is exactly the flake a sibling run hit (the "immediate" grant
+  // read 1ms on a loaded box, since ensureStarted's own cold-start work is
+  // real wall-clock time too). The clock only ever advances where this test
+  // moves it, so which lease waited is provable by construction, not by luck.
+  let clock = 0
+  const { e, a, b } = pair()
+  const { client: gated, release, started } = gatedClient(CHAT_PATH, { once: true })
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
+  const router = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(gated), now: () => clock })
+  const res1 = chatHop(router, a, 'a')
+  await started
 
   // b's role/model is already the one a holds, so this one waits in line
-  // behind a's lease rather than being granted on arrival. A real delay,
-  // not just a microtask drain, so the wait has actual wall-clock time to
-  // measure rather than risking a same-millisecond race.
+  // behind a's lease rather than being granted on arrival.
+  clock = 5
   const res2 = chatHop(router, b, 'b')
-  await new Promise((r) => setTimeout(r, 5))
+  await drainMicrotasks()
+  clock = 9
 
   release()
   const [{ queueMs: queueMs1 }, { queueMs: queueMs2 }] = await Promise.all([res1, res2])
 
   expect(queueMs1).toBe(0)
-  expect(queueMs2).toBeGreaterThan(0)
+  expect(queueMs2).toBe(4)
 })
 
 test('6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door', async () => {

@@ -80,6 +80,8 @@ export interface LlamaRouterOptions {
   presetHostPath?: string
   httpClient?: HttpClient
   pollIntervalMs?: number
+  /** Defaults to the real clock; a test injects one to make `queueMs` deterministic against real-timer jitter. */
+  now?: () => number
 }
 
 /**
@@ -138,6 +140,10 @@ export class LlamaRouter {
       pinnedModel: (role) => this.pinnedFor(role)?.model,
     })
     this.presetHostPath = opts.presetHostPath ?? llamaPresetPath(engine.id)
+  }
+
+  private clock(): number {
+    return this.opts.now?.() ?? Date.now()
   }
 
   /**
@@ -445,9 +451,9 @@ export class LlamaRouter {
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. Slot placement runs inside the same lease, so a route on a slot table that was never touched never pays for one. */
   private fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
-    const queueStart = Date.now()
+    const queueStart = this.clock()
     return this.withLease(role, modelId, init.signal, async () => {
-      const queueMs = Date.now() - queueStart
+      const queueMs = this.clock() - queueStart
       const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
       try {
         const upstream = await this.upstream.fetch(path, placed, modelId)
@@ -477,10 +483,10 @@ export class LlamaRouter {
    * cancelled -- never at `beginLease` -- matching `withLease`'s contract.
    */
   private async fetchStreamed({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
-    const queueStart = Date.now()
+    const queueStart = this.clock()
     const emitWarming = !this.scheduler.isResident(role, modelId)
     await this.beginLease(role, modelId, init.signal)
-    const queueMs = Date.now() - queueStart
+    const queueMs = this.clock() - queueStart
     const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
     const release = this.streamRelease(
