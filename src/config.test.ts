@@ -598,8 +598,10 @@ models_dir = "~/.local/share/engined-models/llm"
 test('defaults apply when listen_port/chat_timeout/agent_timeout are absent', () => {
   const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
   expect(cfg.listen_port).toBe(DEFAULT_LISTEN_PORT)
+  expect(cfg.cursor_port).toBe(29_201)
   expect(cfg.chat_timeout_seconds).toBe(DEFAULT_CHAT_TIMEOUT_SECONDS)
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS)
+  expect(cfg.agentic_concurrency).toBe(4)
 })
 
 test('idle_stop_seconds and ready_timeout_s default when an engine omits them', () => {
@@ -609,7 +611,7 @@ test('idle_stop_seconds and ready_timeout_s default when an engine omits them', 
   expect(engine?.ready_timeout_s).toBe(DEFAULT_READY_TIMEOUT_S)
 })
 
-const RX_LISTEN_PORT_POSITIVE = /config "listen_port" must be greater than 0/
+const RX_LISTEN_PORT_POSITIVE = /config "listen_port" must be an integer between 1 and 65535/
 
 test('listen_port of 0 is a parse error', () => {
   expect(() => loadConfig(writeConfig(`listen_port = 0\n${llamaEngineAndRoute()}`))).toThrow(
@@ -1798,4 +1800,61 @@ model = "*"
 `
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_WILDCARD_REMOTE_ONLY)
   })
+})
+
+test('a typo at the config root is a parse error', () => {
+  expect(() => loadConfig(writeConfig(`listen_prot = 1\n${llamaEngineAndRoute()}`))).toThrow(
+    /config has unrecognised key "listen_prot"/,
+  )
+  expect(() =>
+    loadConfig(writeConfig(`${llamaEngineAndRoute()}\n[[routes]]\nengine = "x"\n`)),
+  ).toThrow(/config has unrecognised key "routes"/)
+  expect(() =>
+    loadConfig(writeConfig(`${llamaEngineAndRoute()}\n[[engines]]\nid = "x"\n`)),
+  ).toThrow(/config has unrecognised key "engines"/)
+})
+
+test('listen_port and cursor_port must be integers in 1-65535 and must differ', () => {
+  expect(() => loadConfig(writeConfig(`listen_port = 65536\n${llamaEngineAndRoute()}`))).toThrow(
+    RX_LISTEN_PORT_POSITIVE,
+  )
+  expect(() => loadConfig(writeConfig(`listen_port = 29200.5\n${llamaEngineAndRoute()}`))).toThrow(
+    RX_LISTEN_PORT_POSITIVE,
+  )
+  expect(() =>
+    loadConfig(writeConfig(`listen_port = 29200\ncursor_port = 29200\n${llamaEngineAndRoute()}`)),
+  ).toThrow(/"listen_port" and "cursor_port" must differ/)
+})
+
+test('a second-valued key above the setTimeout ceiling is a parse error naming the key', () => {
+  expect(() =>
+    loadConfig(writeConfig(`chat_timeout_seconds = 3000000\n${llamaEngineAndRoute()}`)),
+  ).toThrow(/config "chat_timeout_seconds" exceeds the setTimeout ceiling/)
+  expect(() =>
+    loadConfig(
+      writeConfig(
+        llamaEngineAndRoute().replace(
+          'kind = "openai-http"',
+          'kind = "openai-http"\nidle_stop_seconds = 3000000',
+        ),
+      ),
+    ),
+  ).toThrow(/"idle_stop_seconds" exceeds the setTimeout ceiling/)
+})
+
+test('agentic_concurrency must be a positive integer', () => {
+  expect(() =>
+    loadConfig(writeConfig(`agentic_concurrency = 0\n${llamaEngineAndRoute()}`)),
+  ).toThrow(/config "agentic_concurrency" must be a positive integer/)
+  expect(
+    loadConfig(writeConfig(`agentic_concurrency = 2\n${llamaEngineAndRoute()}`))
+      .agentic_concurrency,
+  ).toBe(2)
+})
+
+test('chains are keyed without Object.prototype names', () => {
+  const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
+  expect(Object.getPrototypeOf(cfg.chains)).toBeNull()
+  expect(cfg.chains.constructor).toBeUndefined()
+  expect(cfg.chains.toString).toBeUndefined()
 })

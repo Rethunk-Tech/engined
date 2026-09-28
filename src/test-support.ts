@@ -63,6 +63,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     cursor_port: 29_201,
     chat_timeout_seconds: 600,
     agent_timeout_seconds: 3600,
+    agentic_concurrency: 4,
     engines: [],
     upstreams: [],
     routes: [],

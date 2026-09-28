@@ -360,6 +360,8 @@ export interface Config {
   cursor_port: number
   chat_timeout_seconds: number
   agent_timeout_seconds: number
+  /** Live dispatch-path agentic launches allowed at once. Probe launches are not counted. */
+  agentic_concurrency: number
   engines: EngineEntry[]
   upstreams: Upstream[]
   /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */

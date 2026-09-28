@@ -34,12 +34,19 @@ engine.
 ## The closed key set
 
 Only keys engined's own logic reads stay first-class, and that list is closed
-per table — `src/config.ts`'s `ENGINE_KEYS`, `UPSTREAM_KEYS`, `MODEL_KEYS`,
-`ROUTE_KEYS` and `CHAIN_KEYS` each enforce their own. A typo'd key is a parse
-error by design rather than a silent no-op.
+per table and at the file root — `src/configParse.ts`'s `TOP_KEYS`,
+`ENGINE_KEYS`, `UPSTREAM_KEYS`, `MODEL_KEYS`, `ROUTE_KEYS` and `CHAIN_KEYS`
+each enforce their own. A typo'd key (`listen_prot`, `[[routes]]`,
+`[[engines]]`) is a parse error by design rather than a silent no-op.
+`listen_port` and `cursor_port` are integers 1–65535 and must differ.
+Second-valued keys that would overflow `setTimeout` (above 2147483) are a
+parse error naming the key.
 
 | Key | Applies to |
 | --- | --- |
+| `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201 |
+| `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling) |
+| `agentic_concurrency` | file root — positive integer, default 4. Live dispatch-path agentic launches; a further call is 429 with `Retry-After` |
 | `id`, `disable` | every `[[engine]]`, `[[upstream]]`, `[[route]]` and `[[chain]]` |
 | `spec_dir` | override the shipped spec directory (a privilege decision — see [security-model.md](security-model.md)) |
 | `models_dir` | engines with a host model tree |

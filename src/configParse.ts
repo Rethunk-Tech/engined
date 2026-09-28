@@ -90,6 +90,22 @@ export const ROUTE_KEYS = new Set([
   'reasoning',
 ])
 export const CHAIN_KEYS = new Set(['id', 'hops', 'disable'])
+/** Root of `config.toml`. A typo here is the same class of silent miss as a table typo. */
+export const TOP_KEYS = new Set([
+  'listen_port',
+  'cursor_port',
+  'chat_timeout_seconds',
+  'agent_timeout_seconds',
+  'agentic_concurrency',
+  'engine',
+  'upstream',
+  'model',
+  'route',
+  'chain',
+])
+
+/** `setTimeout` takes a signed 32-bit millisecond count; seconds above this clamp to 1 ms. */
+const MAX_SETTIMEOUT_SECONDS = 2_147_483
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
 export function asArray(v: unknown, key: string, file: string): unknown[] {
@@ -132,6 +148,54 @@ export function optionalPositive(v: unknown, label: string, file: string): numbe
     throw new ParseError(`${label} must be greater than 0`, file)
   }
   return n
+}
+
+/**
+ * A duration that will be multiplied by 1000 and handed to `setTimeout`.
+ * Values above `MAX_SETTIMEOUT_SECONDS` overflow that API and become 1 ms.
+ */
+export function optionalTimeoutSeconds(
+  v: unknown,
+  label: string,
+  file: string,
+): number | undefined {
+  const n = optionalPositive(v, label, file)
+  if (n !== undefined && n > MAX_SETTIMEOUT_SECONDS) {
+    throw new ParseError(
+      `${label} exceeds the setTimeout ceiling of ${MAX_SETTIMEOUT_SECONDS} seconds`,
+      file,
+    )
+  }
+  return n
+}
+
+const PORT_MAX = 65_535
+
+/** A TCP port: integer 1–65535. Absent uses `fallback`. */
+export function parsePort(v: unknown, label: string, file: string, fallback: number): number {
+  if (v === undefined) {
+    return fallback
+  }
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > PORT_MAX) {
+    throw new ParseError(`${label} must be an integer between 1 and ${PORT_MAX}`, file)
+  }
+  return v
+}
+
+/** Absent uses `fallback`. Present must be a positive integer. */
+export function parsePositiveInteger(
+  v: unknown,
+  label: string,
+  file: string,
+  fallback: number,
+): number {
+  if (v === undefined) {
+    return fallback
+  }
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
+    throw new ParseError(`${label} must be a positive integer`, file)
+  }
+  return v
 }
 
 /** `disable = true` is the only value that ever sets the derived flag; absent or `false` both mean "not disabled", so the flag is never explicitly `false`. */

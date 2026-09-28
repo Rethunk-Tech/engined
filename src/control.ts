@@ -5,7 +5,7 @@
  */
 
 import { parseHop } from './chain.ts'
-import { resolveQualified } from './dispatch.ts'
+import { hopsOfChain, resolveQualified } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
@@ -93,7 +93,7 @@ function resolveStartRoutes(
   ctx: DoorContext,
 ): { ok: true; routes: readonly ResolvedRoute[] } | { ok: false; error: string } {
   const config = ctx.getConfig()
-  const chainHops = config.chains[model]
+  const chainHops = hopsOfChain(config, model)
   if (chainHops !== undefined) {
     const [first] = chainHops
     if (first === undefined) {

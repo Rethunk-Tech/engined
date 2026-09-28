@@ -9,9 +9,9 @@
 # the exact rules this file is validated against, and src/config-example.test.ts
 # for the test that keeps this file itself honest.
 #
-# Every first-class key below is one of a closed set (src/config.ts's
-# ENGINE_KEYS / MODEL_KEYS / UPSTREAM_KEYS / ROUTE_KEYS / CHAIN_KEYS) -- a
-# typo'd key fails parse by design rather than doing nothing silently.
+# Every first-class key below is one of a closed set (src/configParse.ts's
+# TOP_KEYS / ENGINE_KEYS / MODEL_KEYS / UPSTREAM_KEYS / ROUTE_KEYS / CHAIN_KEYS)
+# -- a typo'd key fails parse by design rather than doing nothing silently.
 # Whatever isn't first-class for a given engine belongs in that engine's
 # [engine.args] table; whatever isn't first-class for a given route belongs
 # in that route's [route.args] table. Both reach the process argv verbatim.
@@ -31,6 +31,7 @@ chat_timeout_seconds = 1200 # covers a cold load of a 25 GB-class GGUF plus pref
 # depth (1291 t/s at 3.5k, 654 at 100k), so a full-window
 # request plus generation can approach the old ceiling.
 agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, not seconds.
+agentic_concurrency = 4      # live /openai/v1 agentic launches; over-cap is 429.
 
 # `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]
 # takes it out of service without deleting it. A disabled engine stays

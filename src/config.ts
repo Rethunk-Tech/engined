@@ -15,17 +15,22 @@ import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
 import {
   asArgs,
   asArray,
+  assertKnownKeys,
   CHAIN_KEYS,
   ENGINE_KEYS,
   expandConfigPath,
   MODEL_KEYS,
   optional,
   optionalPositive,
+  optionalTimeoutSeconds,
   parseCapabilities,
   parseDisable,
+  parsePort,
+  parsePositiveInteger,
   requireString,
   requireTable,
   SECRET_KEYS,
+  TOP_KEYS,
   UPSTREAM_KEYS,
 } from './configParse.ts'
 import { parseRouteRaw, resolveRoute, type SpecFacts, specFactsFor } from './configRoutes.ts'
@@ -64,6 +69,7 @@ const DEFAULT_LISTEN_PORT = 29_200
 const DEFAULT_CURSOR_PORT = 29_201
 const DEFAULT_CHAT_TIMEOUT_SECONDS = 600
 const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
+const DEFAULT_AGENTIC_CONCURRENCY = 4
 
 function parseSecret(value: unknown, site: string, file: string): SecretRef {
   const v = requireTable(value, `${site} "secret"`, SECRET_KEYS, file)
@@ -105,7 +111,7 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   // wait for a busy container, and a 503 telling the caller the engine has
   // not been free for 0s. Refused here rather than served as a wait nobody
   // asked for.
-  const drainTimeoutS = optionalPositive(
+  const drainTimeoutS = optionalTimeoutSeconds(
     raw.drain_timeout_seconds,
     `${site} "drain_timeout_seconds"`,
     file,
@@ -117,11 +123,11 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
     models_dir: rawModelsDir === undefined ? undefined : expandConfigPath(rawModelsDir),
     models_max: optionalPositive(raw.models_max, `${site} "models_max"`, file),
     idle_stop_seconds:
-      optionalPositive(raw.idle_stop_seconds, `${site} "idle_stop_seconds"`, file) ??
+      optionalTimeoutSeconds(raw.idle_stop_seconds, `${site} "idle_stop_seconds"`, file) ??
       DEFAULT_IDLE_STOP_SECONDS,
     drain_timeout_seconds: drainTimeoutS,
     ready_timeout_s:
-      optionalPositive(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file) ??
+      optionalTimeoutSeconds(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file) ??
       DEFAULT_READY_TIMEOUT_S,
     agent_version: agentVersion,
     kind: parseKind(raw, site, file),
@@ -156,12 +162,12 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   if (wireStr !== undefined && wireStr !== 'openai' && wireStr !== 'anthropic') {
     throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, file)
   }
-  const inventoryMaxAge = optionalPositive(
+  const inventoryMaxAge = optionalTimeoutSeconds(
     raw.inventory_max_age_seconds,
     `${site} "inventory_max_age_seconds"`,
     file,
   )
-  const inventoryRefresh = optionalPositive(
+  const inventoryRefresh = optionalTimeoutSeconds(
     raw.inventory_refresh_seconds,
     `${site} "inventory_refresh_seconds"`,
     file,
@@ -344,7 +350,7 @@ function parseChains(
 
   checkCollisions(rawChains, 'chain', file)
 
-  const chains: Record<string, string[]> = {}
+  const chains: Record<string, string[]> = Object.create(null)
   for (const c of rawChains) {
     // A disabled chain is not served at all -- its own top-level flag, not a
     // resolved-hop question the way an engine/upstream/route's is.
@@ -370,6 +376,7 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   const file = path ?? configPath()
   const root = enginesRoot ?? join(installDir(), 'engines')
   const raw = readConfigTable(file)
+  assertKnownKeys(raw, 'config', TOP_KEYS, file)
 
   const engines = asArray(raw.engine, 'engine', file).map((e, i) => parseEngine(e, i, file))
   checkCollisions(engines, 'engine', file)
@@ -455,17 +462,33 @@ function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => SpecFacts
 function parseTopLevelSettings(
   raw: Record<string, unknown>,
   file: string,
-): Pick<Config, 'listen_port' | 'cursor_port' | 'chat_timeout_seconds' | 'agent_timeout_seconds'> {
+): Pick<
+  Config,
+  | 'listen_port'
+  | 'cursor_port'
+  | 'chat_timeout_seconds'
+  | 'agent_timeout_seconds'
+  | 'agentic_concurrency'
+> {
+  const listenPort = parsePort(raw.listen_port, 'config "listen_port"', file, DEFAULT_LISTEN_PORT)
+  const cursorPort = parsePort(raw.cursor_port, 'config "cursor_port"', file, DEFAULT_CURSOR_PORT)
+  if (listenPort === cursorPort) {
+    throw new ParseError('config "listen_port" and "cursor_port" must differ', file)
+  }
   return {
-    listen_port:
-      optionalPositive(raw.listen_port, 'config "listen_port"', file) ?? DEFAULT_LISTEN_PORT,
-    cursor_port:
-      optionalPositive(raw.cursor_port, 'config "cursor_port"', file) ?? DEFAULT_CURSOR_PORT,
+    listen_port: listenPort,
+    cursor_port: cursorPort,
     chat_timeout_seconds:
-      optionalPositive(raw.chat_timeout_seconds, 'config "chat_timeout_seconds"', file) ??
+      optionalTimeoutSeconds(raw.chat_timeout_seconds, 'config "chat_timeout_seconds"', file) ??
       DEFAULT_CHAT_TIMEOUT_SECONDS,
     agent_timeout_seconds:
-      optionalPositive(raw.agent_timeout_seconds, 'config "agent_timeout_seconds"', file) ??
+      optionalTimeoutSeconds(raw.agent_timeout_seconds, 'config "agent_timeout_seconds"', file) ??
       DEFAULT_AGENT_TIMEOUT_SECONDS,
+    agentic_concurrency: parsePositiveInteger(
+      raw.agentic_concurrency,
+      'config "agentic_concurrency"',
+      file,
+      DEFAULT_AGENTIC_CONCURRENCY,
+    ),
   }
 }

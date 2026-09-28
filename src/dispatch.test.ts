@@ -627,3 +627,26 @@ describe('cursor reasoning_effort/service_tier addressing', () => {
     expect(result.ok && result.kind === 'model' && result.route.model).toBe('gpt-5.3-codex-fast')
   })
 })
+
+describe('chain ids are not Object.prototype names', () => {
+  test('constructor, __proto__ and toString are unknown models, not inherited methods', () => {
+    const cfg = config({ engines: [remoteOpenaiHttp('claude')] })
+    const reg = registry(cfg)
+    for (const name of ['constructor', '__proto__', 'toString'] as const) {
+      const result = resolveModel(name, CHAT, { config: cfg, registry: reg })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toContain(`unknown model "${name}"`)
+    }
+  })
+
+  test('a declared chain whose id is a prototype name still resolves', () => {
+    const cfg = config({
+      engines: [remoteOpenaiHttp('claude')],
+      routes: [route({ engine: 'claude', model: 'sonnet', upstream: null })],
+      chains: Object.assign(Object.create(null), { toString: ['@/claude/sonnet'] }),
+    })
+    const result = resolveModel('toString', CHAT, { config: cfg, registry: registry(cfg) })
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.kind === 'chain' && result.chain).toBe('toString')
+  })
+})

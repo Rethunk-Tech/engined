@@ -301,8 +301,13 @@ export const CHAIN_ENDPOINTS: ReadonlySet<string> = new Set([
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
 ])
 
+/** Chain hops by caller id. `Object.hasOwn` so inherited Object keys never resolve as chains. */
+export function hopsOfChain(config: Config, id: string): string[] | undefined {
+  return Object.hasOwn(config.chains, id) ? config.chains[id] : undefined
+}
+
 function resolveChain(model: string, endpoint: string, config: Config): Dispatch | undefined {
-  const hops = config.chains[model]
+  const hops = hopsOfChain(config, model)
   if (hops === undefined) {
     return
   }
