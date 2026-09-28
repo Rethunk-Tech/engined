@@ -192,16 +192,6 @@ main() {
     render_unit_file engined-tls.service.in "$TLS_SERVICE_PATH"
   fi
 
-  # The probe covered vision alone when it was installed under that name. An
-  # install that predates the rename still has its timer enabled, and rsync
-  # --delete takes the unit file out from under it, so a box updating in place
-  # would keep a timer whose ExecStart no longer resolves. Removed here rather
-  # than left to fail weekly and silently.
-  if [[ -e "$UNIT_DIR/engined-vision-probe.timer" ]]; then
-    systemctl --user disable --now engined-vision-probe.timer || true
-    rm -f "$UNIT_DIR/engined-vision-probe.timer" "$UNIT_DIR/engined-vision-probe.service"
-  fi
-
   systemctl --user daemon-reload
   # enable, not just restart: without it the unit is only ever running because
   # someone ran this script, and a logout takes it down for good. Restarting

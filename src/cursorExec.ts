@@ -44,7 +44,6 @@ export interface ToolRequest {
   command?: string
   content?: string
   pattern?: string
-  workdir?: string
   /** grep: restrict to matching files, the lever that makes it usable on a big repo. */
   glob?: string
   /** grep: `content` (default), `files_with_matches`, or `count` -- the client's own set. */
@@ -130,7 +129,7 @@ function argsFor(
         field: SHELL,
         args: message(
           stringField(1, command),
-          stringField(2, req.workdir ?? '.'),
+          stringField(2, '.'),
           intField(3, SHELL_TIMEOUT_MS),
           stringField(4, execId),
           bytesField(8, parsingResult(command)),
@@ -329,7 +328,7 @@ export function toolCallMessage(req: ToolRequest, callId: string): Uint8Array | 
         const command = req.command ?? ''
         return message(
           stringField(1, command),
-          stringField(2, req.workdir ?? '.'),
+          stringField(2, '.'),
           intField(3, SHELL_TIMEOUT_MS),
           stringField(4, callId),
           bytesField(8, parsingResult(command)),
