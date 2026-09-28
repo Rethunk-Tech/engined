@@ -339,6 +339,22 @@ describe('POST /openai/v1/completions: response mapping', () => {
     const failure = soleProvenanceRecord(lines).attempts[0]?.failure
     expect(failure).toBe('client disconnected')
   })
+
+  test('an infill that never answers is cut at chat_timeout_seconds and recorded as "timeout"', async () => {
+    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+    cfg.chat_timeout_seconds = 0.05
+    const { lines, write } = collectLines()
+    const httpClient: HttpClient = withLlamaControl(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
+    )
+    const door = doorFor(cfg, root, httpClient, write)
+    const res = await door.fetch(completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }))
+    expect(res.status).toBe(502)
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe('timeout')
+  })
 })
 
 /** `reader.read()` with a deadline: a pull that enqueues nothing and never gets called again hangs a plain reader forever, which a bare `await reader.read()` would mask as a slow test rather than a failure. */

@@ -17,6 +17,7 @@ import { routeAddress } from './control.ts'
 import { resolveOrRefuse, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { getLlamaRouter, recordDoorCall } from './doorContext.ts'
+import { timeoutSecondsForKind } from './hop.ts'
 import {
   CONTENT_TYPE,
   engineErrorStatus,
@@ -291,22 +292,35 @@ export async function handleCompletions(
   const call: CompletionCall = { ctx, route, modelId, rawModel, startedAt }
   let response: Response
   let queueMs = 0
+  // The same per-hop budget `/chat/completions` gets, cleared once headers
+  // arrive so a long stream is bounded by `stream_stall_seconds` instead.
+  const budget = new AbortController()
+  const timer = setTimeout(
+    () => budget.abort(),
+    timeoutSecondsForKind(engineEntry.kind, ctx.getConfig()) * MS_PER_SECOND,
+  )
+  const hopSignal = signal ? AbortSignal.any([budget.signal, signal]) : budget.signal
   try {
     ;({ response, queueMs } = await router.proxy(
       route,
       INFILL_PATH,
-      infillRequestInit(body, modelId, signal),
+      infillRequestInit(body, modelId, hopSignal),
     ))
   } catch (err) {
     // Checked before the generic transport failure: an aborted `signal` means
     // the caller hung up, not that the connection to llama-server failed --
     // the same distinction `chain.ts`'s own hop classifier draws.
-    const failure = signal?.aborted
-      ? 'client disconnected'
-      : `connection failed: ${errMessage(err)}`
+    let failure = `connection failed: ${errMessage(err)}`
+    if (signal?.aborted) {
+      failure = 'client disconnected'
+    } else if (budget.signal.aborted) {
+      failure = 'timeout'
+    }
     const status = engineErrorStatus(err)
     recordCompletion(call, false, failure)
     return jsonError(status, errMessage(err))
+  } finally {
+    clearTimeout(timer)
   }
   if (!response.ok) {
     const text = await response.text()
