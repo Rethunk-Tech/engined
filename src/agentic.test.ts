@@ -512,6 +512,35 @@ test('runAgentic: extraEnv is set on the child alongside the allowlist and wins 
   expect(opts.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
 })
 
+test('runAgentic: opencode gets a fresh XDG home and a read-only Bun cache', async () => {
+  const { spawn, calls } = fakeSpawn({
+    stdout: '{"type":"text","part":{"text":"ok"}}',
+    stderr: '',
+    exitCode: 0,
+  })
+
+  await runAgenticFixture(spawn, {
+    agent: 'opencode',
+    bwrap: '/usr/bin/bwrap',
+    upstream: { baseUrl: 'http://127.0.0.1:3000/openai/v1', model: 'local' },
+  })
+
+  const [argv, opts] = calls[0] as [string[], { env: Record<string, string> }]
+  const home = opts.env.HOME
+  const cache = opts.env.BUN_INSTALL
+  if (home === undefined || cache === undefined) {
+    throw new Error('sandbox environment omitted HOME or BUN_INSTALL')
+  }
+  expect(opts.env.XDG_CONFIG_HOME).toBe(`${home}/config`)
+  expect(opts.env.XDG_DATA_HOME).toBe(`${home}/data`)
+  expect(opts.env.XDG_STATE_HOME).toBe(`${home}/state`)
+  expect(cache).not.toContain('/launch-')
+  const cacheIndex = argv.indexOf(cache)
+  expect(argv.slice(cacheIndex - 1, cacheIndex + 2)).toEqual(['--ro-bind', cache, cache])
+  expect(argv).toContain('--tmpfs')
+  expect(argv).toContain('/run')
+})
+
 test("runAgentic: a successful result's version is the pin that was launched, not read back from anywhere else", async () => {
   const { spawn } = fakeOkSpawn()
 

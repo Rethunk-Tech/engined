@@ -13,8 +13,11 @@ any other completion, and engined never writes to a caller's worktree.
 `claude` honours one passed in argv (`--safe-mode --tools Read,Grep,Glob
 --strict-mcp-config`), and `assertNoForbiddenFlags` stops a config unsaying
 it. `opencode` exposes no such flag at all, so engined runs it under `bwrap`
-with the workdir bound read-only. An agent declared `sandbox` never launches
-without it: a missing `bwrap` refuses the call rather than running loose.
+with the workdir bound read-only, `/run` as tmpfs, isolated IPC, PID and UTS
+namespaces, a new session, and no capabilities. Each launch receives a fresh
+HOME and XDG state; its proved Bun install cache is bound read-only. An agent
+declared `sandbox` never launches without it: a missing `bwrap` refuses the
+call rather than running loose.
 
 An opt-in claude research call instead uses `--tools WebSearch,WebFetch` with
 `--safe-mode --strict-mcp-config`: it can search and read the web but has no file
@@ -91,10 +94,12 @@ planted settings hook for claude, a permissive `opencode.json` for opencode.
 **The two floors are not equally shaped.** claude's also restricts which
 *tools* it has, so it cannot run shell or fetch a URL. The sandbox restricts
 writing only: it shares the host network namespace, because the agent has to
-reach this door to reach a model at all. That costs no guarantee this document
-makes — confidentiality was never one, per the paragraphs above — but it does
-remove an incidental protection claude happened to provide. An agent pointed
-at a private repository is trusted with its contents under either floor.
+reach this door to reach a model at all. Abstract-namespace Unix sockets and
+loopback services therefore remain reachable from an opencode launch. That
+costs no guarantee this document makes — confidentiality was never one, per
+the paragraphs above — but it does remove an incidental protection claude
+happened to provide. An agent pointed at a private repository is trusted with
+its contents under either floor.
 
 ## The browser is a caller too
 
@@ -208,8 +213,9 @@ kept as `test/local/opencode.test.ts`.
 The gate itself does not repeat that round trip. A sandbox floor does not come
 from the pin, so a pin bump cannot drop it; what a bump must re-check is that
 this box still has a working `bwrap`. The `sandbox-refuses-writes` probe binds
-a scratch directory the way a real launch binds a workdir and requires a plain
-`sh` write into it to fail — the kernel does not care which binary is writing,
+a scratch directory the way a real launch binds a workdir and requires a write,
+a `systemd-run --user --wait true` launch, and a connection to
+`/run/docker.sock` to fail — the kernel does not care which binary is writing,
 so that proves what an agent round trip would, in milliseconds and with no LLM
 in the loop to be nondeterministic about.
 

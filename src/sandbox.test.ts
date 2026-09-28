@@ -24,6 +24,8 @@ function run(argv: readonly string[]): { code: number; stderr: string } {
   return { code: proc.exitCode, stderr: proc.stderr.toString() }
 }
 
+const bwrapIt = run([BWRAP, '--ro-bind', '/', '/', '--', '/bin/true']).code === 0 ? it : it.skip
+
 it('binds the whole filesystem read-only before carving anything back out', () => {
   const argv = sandboxArgv({ bwrap: BWRAP, home: '/h', workdir: '/w', argv: ['/bin/true'] })
   // Order is the mechanism: a later bind wins, so the read-only root has to be
@@ -38,9 +40,21 @@ it('binds the whole filesystem read-only before carving anything back out', () =
     '--',
     '/bin/true',
   ])
+  expect(argv).toEqual(
+    expect.arrayContaining([
+      '--tmpfs',
+      '/run',
+      '--unshare-ipc',
+      '--unshare-pid',
+      '--unshare-uts',
+      '--new-session',
+      '--cap-drop',
+      'ALL',
+    ]),
+  )
 })
 
-it('refuses a write into the workdir, which is the whole guarantee', () => {
+bwrapIt('refuses a write into the workdir, which is the whole guarantee', () => {
   const workdir = scratch('engined-sandbox-work-')
   const home = scratch('engined-sandbox-home-')
   writeFileSync(join(workdir, 'seed.txt'), 'pre-existing\n')
@@ -57,7 +71,7 @@ it('refuses a write into the workdir, which is the whole guarantee', () => {
   expect(existsSync(join(workdir, 'written.txt'))).toBe(false)
 })
 
-it('refuses to overwrite a file that already exists, not merely to create one', async () => {
+bwrapIt('refuses to overwrite a file that already exists, not merely to create one', async () => {
   const workdir = scratch('engined-sandbox-work-')
   const home = scratch('engined-sandbox-home-')
   const seed = join(workdir, 'seed.txt')
@@ -69,7 +83,7 @@ it('refuses to overwrite a file that already exists, not merely to create one', 
   expect(await Bun.file(seed).text()).toBe('pre-existing\n')
 })
 
-it('leaves the agent its own state directory writable, or it cannot cache anything', () => {
+bwrapIt('leaves the agent its own state directory writable, or it cannot cache anything', () => {
   const workdir = scratch('engined-sandbox-work-')
   const home = scratch('engined-sandbox-home-')
   const { code } = run(
@@ -84,11 +98,14 @@ it('leaves the agent its own state directory writable, or it cannot cache anythi
   expect(existsSync(join(home, 'session.json'))).toBe(true)
 })
 
-it('gives a writable temp directory, since an agent that cannot write one looks broken', () => {
-  const workdir = scratch('engined-sandbox-work-')
-  const home = scratch('engined-sandbox-home-')
-  const { code } = run(
-    sandboxArgv({ bwrap: BWRAP, home, workdir, argv: ['/bin/sh', '-c', 'printf x > /tmp/t'] }),
-  )
-  expect(code).toBe(0)
-})
+bwrapIt(
+  'gives a writable temp directory, since an agent that cannot write one looks broken',
+  () => {
+    const workdir = scratch('engined-sandbox-work-')
+    const home = scratch('engined-sandbox-home-')
+    const { code } = run(
+      sandboxArgv({ bwrap: BWRAP, home, workdir, argv: ['/bin/sh', '-c', 'printf x > /tmp/t'] }),
+    )
+    expect(code).toBe(0)
+  },
+)

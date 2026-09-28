@@ -24,7 +24,7 @@
  * against exfiltration, and an agent given a private repository is trusted
  * with its contents either way.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { stateDir } from './paths.ts'
@@ -47,11 +47,21 @@ export function sandboxHome(agentId: string): string {
   return home
 }
 
+/** A launch gets no persistent XDG state: only Bun's already-proved install cache is shared. */
+export function sandboxLaunchHome(agentId: string): string {
+  const parent = sandboxHome(agentId)
+  return mkdtempSync(join(parent, 'launch-'))
+}
+
 interface SandboxInput {
   /** Absolute `bwrap` path, resolved by the install script the way `bunx` is. */
   bwrap: string
   /** The agent's writable state directory, from `sandboxHome`. */
   home: string
+  /** Bun's persistent install tree, available read-only after its proof seeded it. */
+  cache?: string
+  /** Only the version-proof launch may seed Bun's install cache. */
+  cacheWritable?: boolean
   /** Bound read-only over itself: the one directory the agent was pointed at. */
   workdir: string
   /** The launch the sandbox wraps, `bunx` path first. */
@@ -71,6 +81,10 @@ interface SandboxInput {
  * another path that could mask a workdir mounted underneath it.
  */
 export function sandboxArgv(input: SandboxInput): string[] {
+  const cacheBind =
+    input.cache === undefined
+      ? []
+      : [input.cacheWritable === true ? '--bind' : '--ro-bind', input.cache, input.cache]
   return [
     input.bwrap,
     '--ro-bind',
@@ -82,6 +96,15 @@ export function sandboxArgv(input: SandboxInput): string[] {
     '/dev',
     '--tmpfs',
     '/tmp',
+    '--tmpfs',
+    '/run',
+    '--unshare-ipc',
+    '--unshare-pid',
+    '--unshare-uts',
+    '--new-session',
+    '--cap-drop',
+    'ALL',
+    ...cacheBind,
     '--bind',
     input.home,
     input.home,
@@ -118,7 +141,10 @@ export function resolveBwrap(): string | null {
  * anything to do with the workdir -- and that failure reads like a bug in the
  * agent rather than the floor doing its job.
  */
-export function sandboxEnv(home: string): Record<string, string> {
+export function sandboxEnv(
+  home: string,
+  cache: string = join(home, SANDBOX_BUN_DIR),
+): Record<string, string> {
   return {
     HOME: home,
     XDG_DATA_HOME: join(home, 'data'),
@@ -133,6 +159,6 @@ export function sandboxEnv(home: string): Record<string, string> {
     BUN_TMPDIR: '/tmp',
     // Inside the writable home rather than the tmpfs, so a fetched agent
     // package survives to the next launch instead of being downloaded again.
-    BUN_INSTALL: join(home, SANDBOX_BUN_DIR),
+    BUN_INSTALL: cache,
   }
 }

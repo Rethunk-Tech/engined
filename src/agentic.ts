@@ -19,7 +19,7 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
 import { argvFromArgs } from './agenticArgs.ts'
@@ -36,7 +36,7 @@ import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE }
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
 import { errMessage } from './records.ts'
-import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome } from './sandbox.ts'
+import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome, sandboxLaunchHome } from './sandbox.ts'
 
 const STDERR_TAIL_CHARS = 300
 
@@ -356,6 +356,8 @@ interface RunAgenticInput {
   onDelta?: (text: string) => void
   /** See `BuildArgvInput.resolveBinary`. */
   resolveBinary?: () => string
+  /** The pin proof alone may populate the Bun install cache before normal launches bind it read-only. */
+  seedSandboxCache?: boolean
 }
 
 export interface RunAgenticResult {
@@ -415,6 +417,7 @@ interface SandboxFloorInput {
   env: Record<string, string>
   /** Overrides `resolveBwrap()`; only ever set by a test. */
   bwrapOverride: string | null | undefined
+  seedCache: boolean
 }
 
 /** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
@@ -427,8 +430,8 @@ export function usableBwrap(override?: string | null): string | null {
 function applySandboxFloor(
   agent: AgentCli,
   input: SandboxFloorInput,
-): { argv: string[]; error?: RunAgenticResult } {
-  const { workdir, argv, env, bwrapOverride } = input
+): { argv: string[]; cleanup?: () => void; error?: RunAgenticResult } {
+  const { workdir, argv, env, bwrapOverride, seedCache } = input
   if (agent.floor !== 'sandbox') {
     return { argv }
   }
@@ -446,9 +449,20 @@ function applySandboxFloor(
       },
     }
   }
-  const home = sandboxHome(agent.id)
-  Object.assign(env, sandboxEnv(home))
-  return { argv: sandboxArgv({ bwrap, home, workdir, argv }) }
+  const home = sandboxLaunchHome(agent.id)
+  const cache = sandboxHome(agent.id)
+  Object.assign(env, sandboxEnv(home, cache))
+  return {
+    argv: sandboxArgv({
+      bwrap,
+      home,
+      cache,
+      cacheWritable: seedCache,
+      workdir,
+      argv,
+    }),
+    cleanup: () => rmSync(home, { recursive: true, force: true }),
+  }
 }
 
 interface LaunchInput {
@@ -567,20 +581,24 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   if (configured.error) {
     return configured.error
   }
+  let sandboxCleanup: (() => void) | undefined
   try {
     const sandboxed = applySandboxFloor(agent, {
       workdir: input.workdir,
       argv,
       env,
       bwrapOverride: input.bwrap,
+      seedCache: input.seedSandboxCache === true,
     })
     if (sandboxed.error) {
       return sandboxed.error
     }
+    sandboxCleanup = sandboxed.cleanup
     ;({ argv } = sandboxed)
     Object.assign(env, input.extraEnv)
     return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input)
   } finally {
+    sandboxCleanup?.()
     configured.cleanup?.()
   }
 }

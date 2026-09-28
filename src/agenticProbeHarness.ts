@@ -17,6 +17,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import {
   type AgenticSpawn,
   defaultAgenticSpawn,
@@ -147,6 +148,7 @@ function probeLaunch(
     ambientEnv: input.deps.ambientEnv,
     resolveBinary: input.deps.resolveBinary,
     upstream: input.roundTrip,
+    seedSandboxCache: input.agent === 'opencode',
   })
 }
 
@@ -228,11 +230,24 @@ async function runSandboxFloorProbe(input: ProbeInput): Promise<{ ok: boolean }>
   const home = sandboxHome(input.agent)
   try {
     const before = hashTree(workdir)
+    const floorCheck = `
+      const systemd = Bun.spawnSync(["systemd-run", "--user", "--wait", "true"]).exitCode !== 0
+      const socket = await new Promise((resolve) => {
+        const connection = require("node:net").connect("/run/docker.sock")
+        connection.once("connect", () => { connection.destroy(); resolve(false) })
+        connection.once("error", () => resolve(true))
+      })
+      if (!systemd || !socket) process.exit(1)
+    `
     const argv = sandboxArgv({
       bwrap,
       home,
       workdir,
-      argv: ['/bin/sh', '-c', `printf x > ${join(workdir, 'proof.txt')}`],
+      argv: [
+        process.execPath,
+        '--eval',
+        `import process from "node:process"; ${floorCheck}; require("node:fs").writeFileSync(${JSON.stringify(join(workdir, 'proof.txt'))}, "x")`,
+      ],
     })
     const spawned = await (input.deps.spawn ?? defaultAgenticSpawn)(argv, {
       cwd: workdir,
