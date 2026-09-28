@@ -218,6 +218,17 @@ caller whose own recovery from a vendor 400 is to drop the parameter and retry
 -- engined would put the configured value straight back. A `null` written in
 `[engine.args]` itself is unaffected: that is the operator asking to send one.
 
+**What load refuses because the llama preset INI would misread it.** A local
+llama route's `model` becomes a `[section]` header and each arg a `key =
+value` line, so load refuses:
+
+| Value | Refused |
+| ------ | ------ |
+| `model` on a local llama route | `[`, `]`, `=`, a line break, or a leading `;` or `#`. Other routes keep only the `/` rule, so `model = "opus[1m]"` is fine on an agentic or remote route |
+| `filename` | a line break |
+| an arg key, `[engine.args]` or `[route.args]` | `=`, `[`, `]`, a line break, a leading `;` or `#`, and `model` itself, which the preset writes from `filename` |
+| an arg value | a line break |
+
 ## Paths
 
 `~/.local/share/` in a config path means "wherever engined's own data lives" —

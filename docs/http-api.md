@@ -153,10 +153,12 @@ not a bare string:
 for 429, `server_error` for 5xx. `param` and `code` are always null. A chain
 that stops without an answer keeps `attempts` beside `error`.
 
-A request body is capped at 32 MiB before anything reads it: over that is 413
-`JSON body too large`, a body that is not a JSON object is 400 `invalid JSON
-body`, and an upload the caller abandons partway is 400 `request body could
-not be read`.
+A JSON request body, a comfy `POST /prompt` included, is capped at 32 MiB,
+counted in bytes as they arrive: a declared `Content-Length` over that, or a
+chunked body that reaches it, is 413 `JSON body too large` without the rest
+being buffered. A body that is not a JSON object is 400 `invalid JSON body`,
+and an upload the caller abandons partway is 400 `request body could not be
+read`.
 
 ## Choosing a model
 
