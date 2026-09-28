@@ -14,7 +14,7 @@ import { verifiedVersionPath } from '../../src/agenticProbe.ts'
 import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from '../../src/agenticProbeHarness.ts'
 import { loadConfig } from '../../src/config.ts'
 import { EngineRegistry } from '../../src/engines.ts'
-import { errMessage } from '../../src/records.ts'
+import { errMessage, isRecord } from '../../src/records.ts'
 import { clearVerifiedVersion, config, engine } from '../../src/test-support.ts'
 import type { Config, ResolvedRoute } from '../../src/types.ts'
 import { CONFIG_EXAMPLE, ENGINES_ROOT, LOCAL } from './exclusive.ts'
@@ -122,14 +122,18 @@ function agentIdFor(versionVar: string): string {
 }
 
 /**
- * `versionVar`'s pin, straight from the operator's real `config.example.toml`
- * -- the file `test:local` used to shell out to three `awk` one-liners for.
- * `undefined` whenever that file cannot be read (not this tier, or a box
- * without the real models it also validates) or no longer declares the agent.
+ * `versionVar`'s pin, read from `config.example.toml` as plain TOML rather
+ * than through `loadConfig`: full validation also demands every other route's
+ * weights, and a box missing an unrelated GGUF would silently skip every
+ * agentic suite. `undefined` when the file no longer declares the agent.
  */
 function configuredAgentVersion(versionVar: string): string | undefined {
-  return loadLocalConfig().config?.engines.find((e) => e.id === agentIdFor(versionVar))
-    ?.agent_version
+  const parsed: unknown = Bun.TOML.parse(readFileSync(CONFIG_EXAMPLE, 'utf8'))
+  const engines = isRecord(parsed) && Array.isArray(parsed.engine) ? parsed.engine : []
+  const agent = engines.find((e) => isRecord(e) && e.id === agentIdFor(versionVar))
+  return isRecord(agent) && typeof agent.agent_version === 'string'
+    ? agent.agent_version
+    : undefined
 }
 
 /**
