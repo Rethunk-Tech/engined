@@ -42,10 +42,11 @@ path = "/health"
 status = 200
 `
 
-function completionsRequest(body: unknown): Request {
+function completionsRequest(body: unknown, signal?: AbortSignal): Request {
   return new Request(`http://engined${COMPLETIONS_PATH}`, {
     method: 'POST',
     body: JSON.stringify(body),
+    signal,
   })
 }
 
@@ -309,5 +310,30 @@ describe('POST /openai/v1/completions: response mapping', () => {
       'Unable to connect',
     )
     expect(soleProvenanceRecord(lines).attempts[0]?.failure).toContain('connection failed')
+  })
+
+  test('an infill request whose caller already disconnected records "client disconnected", not "connection failed"', async () => {
+    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+    const { lines, write } = collectLines()
+    const control = llamaControlPlane()
+    const httpClient: HttpClient = (url, init) => {
+      const controlled = control(url, init)
+      if (controlled) {
+        return Promise.resolve(controlled)
+      }
+      // Whatever error a dropped connection surfaces as, the caller's own
+      // aborted signal is what should decide the recorded reason -- not the
+      // error's own shape.
+      return Promise.reject(new TypeError('other side closed'))
+    }
+    const door = doorFor(cfg, root, httpClient, write)
+    const controller = new AbortController()
+    controller.abort()
+    const res = await door.fetch(
+      completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }, controller.signal),
+    )
+    expect(res.status).toBe(502)
+    const failure = soleProvenanceRecord(lines).attempts[0]?.failure
+    expect(failure).toBe('client disconnected')
   })
 })

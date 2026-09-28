@@ -30,10 +30,11 @@ import {
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
-import { answeringHeaders, recordCall, type Usage } from './provenance.ts'
+import { answeringHeaders, type CallRecord, recordCall, type Usage } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS } from './routeServes.ts'
+import type { ResolvedRoute } from './types.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
 const INFILL_PATH = '/infill'
@@ -186,6 +187,42 @@ function mapInfillStream(
   })
 }
 
+/**
+ * The one record shape this route ever writes -- transport failure, an
+ * upstream error body, or success -- differing only in whether the call
+ * succeeded and the router/engine ids that go with it, exactly as
+ * `images.ts`'s and `audioDoor.ts`'s own record builders do.
+ */
+function recordCompletion(
+  ctx: DoorContext,
+  route: ResolvedRoute,
+  modelId: string,
+  rawModel: string | undefined,
+  startedAt: number,
+  ok: boolean,
+  failure: string | undefined,
+): void {
+  const record: CallRecord = {
+    chain: null,
+    requested: rawModel ?? '',
+    attempts: [
+      {
+        engine: route.engine,
+        model: modelId,
+        ok,
+        ...(failure === undefined ? {} : { failure }),
+        duration_ms: Date.now() - startedAt,
+        upstream_used: LOCAL_UPSTREAM,
+        egress: routeEgress(route, ctx.getConfig()),
+      },
+    ],
+    engine_used: ok ? route.engine : null,
+    upstream_used: ok ? LOCAL_UPSTREAM : null,
+  }
+  recordCall(record, ctx.doorOpts.write)
+  ctx.usage.record(record)
+}
+
 export async function handleCompletions(
   ctx: DoorContext,
   body: Record<string, unknown>,
@@ -229,28 +266,15 @@ export async function handleCompletions(
       infillRequestInit(body, modelId, signal),
     ))
   } catch (err) {
-    const message = errMessage(err)
+    // Checked before the generic transport failure: an aborted `signal` means
+    // the caller hung up, not that the connection to llama-server failed --
+    // the same distinction `chain.ts`'s own hop classifier draws.
+    const failure = signal?.aborted
+      ? 'client disconnected'
+      : `connection failed: ${errMessage(err)}`
     const status = err instanceof HeldError ? STATUS_UNAVAILABLE : STATUS_BAD_GATEWAY
-    const record = {
-      chain: null,
-      requested: rawModel ?? '',
-      attempts: [
-        {
-          engine: route.engine,
-          model: modelId,
-          ok: false,
-          failure: `connection failed: ${message}`,
-          duration_ms: Date.now() - startedAt,
-          upstream_used: LOCAL_UPSTREAM,
-          egress: routeEgress(route, ctx.getConfig()),
-        },
-      ],
-      engine_used: null,
-      upstream_used: null,
-    }
-    recordCall(record, ctx.doorOpts.write)
-    ctx.usage.record(record)
-    return jsonError(status, message)
+    recordCompletion(ctx, route, modelId, rawModel, startedAt, false, failure)
+    return jsonError(status, errMessage(err))
   }
   if (!response.ok) {
     const text = await response.text()
@@ -259,48 +283,13 @@ export async function handleCompletions(
       status: response.status,
       body: parsed ?? (text === '' ? undefined : jsonErrorBody(response.status, text)),
     })
-    const record = {
-      chain: null,
-      requested: rawModel ?? '',
-      attempts: [
-        {
-          engine: route.engine,
-          model: modelId,
-          ok: false,
-          ...(verdict.failure === undefined ? {} : { failure: verdict.failure }),
-          duration_ms: Date.now() - startedAt,
-          upstream_used: LOCAL_UPSTREAM,
-          egress: routeEgress(route, ctx.getConfig()),
-        },
-      ],
-      engine_used: null,
-      upstream_used: null,
-    }
-    recordCall(record, ctx.doorOpts.write)
-    ctx.usage.record(record)
+    recordCompletion(ctx, route, modelId, rawModel, startedAt, false, verdict.failure)
     return new Response(text, {
       status: response.status,
       headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
     })
   }
-  const record = {
-    chain: null,
-    requested: rawModel ?? '',
-    attempts: [
-      {
-        engine: route.engine,
-        model: modelId,
-        ok: true,
-        duration_ms: Date.now() - startedAt,
-        upstream_used: LOCAL_UPSTREAM,
-        egress: routeEgress(route, ctx.getConfig()),
-      },
-    ],
-    engine_used: route.engine,
-    upstream_used: LOCAL_UPSTREAM,
-  }
-  recordCall(record, ctx.doorOpts.write)
-  ctx.usage.record(record)
+  recordCompletion(ctx, route, modelId, rawModel, startedAt, true, undefined)
   const headers = answeringHeaders({
     route: routeAddress(route, ctx.getConfig().routes),
     upstreamUsed: LOCAL_UPSTREAM,
