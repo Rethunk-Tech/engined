@@ -14,6 +14,11 @@ First public release.
   an image for a text-only route, token counting from a GGUF's own vocabulary
   without loading weights, and per-day usage totals that keep no request
   content.
+- `config.d/*.toml` fragments beside `config.toml`, picked up on reload, so a
+  tool can add an engine and its routes for the length of a run and remove
+  them after.
+- `x-engined-queue-ms` on chat and completions: how long the call waited for
+  a llama slot, separate from how long it took.
 - Remote upstreams with keyring-held secrets, egress ceilings and extra
   request headers.
 
