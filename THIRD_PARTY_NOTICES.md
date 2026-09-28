@@ -26,8 +26,8 @@ GPL-3.0 component, and a model is usable only on its own terms.
 | [ROCm](https://github.com/ROCm/ROCm) (`rocm/dev-ubuntu-24.04`) | Per component, mostly MIT and Apache-2.0 | Base image for the ROCm engines |
 | [Fedora](https://fedoraproject.org), [Python](https://www.python.org) images | Per package | Base images for the llama and piper engines |
 
-`engines/llama/llama-grammar.patch`, which raises llama.cpp's
-`MAX_REPETITION_THRESHOLD` for large tool schemas, is KYmidnight's, from
+Raising llama.cpp's `MAX_REPETITION_THRESHOLD` for large tool schemas
+(`engines/llama/Dockerfile`) follows KYmidnight's report in
 [kyuz0/amd-strix-halo-toolboxes#70](https://github.com/kyuz0/amd-strix-halo-toolboxes/issues/70).
 
 ## Models

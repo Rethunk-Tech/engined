@@ -1,6 +1,6 @@
 # llama.cpp server, Vulkan/RADV, gfx1151 (Strix Halo).
 #
-# What this tree owns is the recipe and llama-grammar.patch. The source is
+# What this tree owns is the recipe. The source is
 # PrismML-Eng/llama.cpp (a fork of upstream llama.cpp, MIT) at the exact
 # commit LLAMA_COMMIT names below -- the built image labels that commit, so a
 # throughput measurement can be tied back to the source it was taken on.
@@ -39,8 +39,9 @@ RUN git clone "${REPO}" . \
 
 # MAX_REPETITION_THRESHOLD 2000 -> 100000: too low for complex tool-call
 # grammars (json-schema-derived GBNF can legitimately need more repetitions).
-COPY llama-grammar.patch /tmp/llama-grammar.patch
-RUN patch -p1 < /tmp/llama-grammar.patch
+# The grep fails the build if a new commit moved or renamed the define.
+RUN sed -i 's/^#define MAX_REPETITION_THRESHOLD 2000$/#define MAX_REPETITION_THRESHOLD 100000/' src/llama-grammar.cpp \
+    && grep -qx '#define MAX_REPETITION_THRESHOLD 100000' src/llama-grammar.cpp
 
 # EXAMPLES=OFF here breaks the build (LLAMA_BUILD_SERVER depends on it in
 # this fork's CMakeLists) -- confirmed by hitting exactly that failure.
