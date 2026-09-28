@@ -12,6 +12,7 @@ import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
+import { type CallRecord, recordCall } from './provenance.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import type { Config, EngineEntry } from './types.ts'
@@ -125,6 +126,17 @@ export interface ComfyBinding {
   at: number
   /** `(filename, subfolder, type)` as `/history` named them; `/view` rebuilds its query from this, never the caller's params. */
   views: { filename: string; subfolder: string; type: string }[]
+}
+
+/**
+ * The one place a verb hands off a finished call record, so writing the
+ * provenance line and crediting usage can never drift apart -- a handler
+ * that called only one of the pair used to be a silent way to bill a call
+ * nobody can see logged, or log one usage never counted.
+ */
+export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
+  recordCall(record, ctx.doorOpts.write)
+  ctx.usage.record(record)
 }
 
 export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {

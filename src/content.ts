@@ -10,7 +10,7 @@ import { parseHop, runChain } from './chain.ts'
 import { handleCompletions } from './completions.ts'
 import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.ts'
 import { type Dispatch, resolveModel } from './dispatch.ts'
-import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import { type DoorContext, getLlamaRouter, recordDoorCall } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { HeldError } from './errors/held.ts'
 import { proxyExtras } from './extras.ts'
@@ -29,7 +29,7 @@ import {
 import { handleImageEdit } from './imageEdits.ts'
 import { handleImageGeneration } from './images.ts'
 import { hopForwardsTools } from './modelsMenu.ts'
-import { type Attempt, recordCall } from './provenance.ts'
+import type { Attempt } from './provenance.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import {
@@ -114,8 +114,7 @@ async function handleModelRouted(
         upstream_used: null,
         vision_bridge: bridged.attempts,
       }
-      recordCall(record, ctx.doorOpts.write)
-      ctx.usage.record(record)
+      recordDoorCall(ctx, record)
       return bridged.response
     }
     body = bridged.body

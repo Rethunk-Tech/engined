@@ -20,7 +20,7 @@ import { classifyResult } from './chain.ts'
 import { comfyPromptId, submitComfyPrompt } from './comfyProxy.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
-import type { DoorContext } from './doorContext.ts'
+import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import { HeldError } from './errors/held.ts'
 import {
   ENGINE_ERROR_CHARS,
@@ -40,7 +40,7 @@ import {
   type RenderedImage,
   replyImageData,
 } from './imageStore.ts'
-import { answeringHeaders, recordCall } from './provenance.ts'
+import { answeringHeaders } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND } from './records.ts'
 import { CONTENT_ENDPOINT_IMAGES } from './routeServes.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -355,8 +355,7 @@ export async function renderWith(
       engine_used: ok ? route.engine : null,
       upstream_used: ok ? (route.upstream ?? null) : null,
     }
-    recordCall(record, ctx.doorOpts.write)
-    ctx.usage.record(record)
+    recordDoorCall(ctx, record)
   }
 }
 

@@ -16,7 +16,7 @@ import { classifyResult } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
-import { getLlamaRouter } from './doorContext.ts'
+import { getLlamaRouter, recordDoorCall } from './doorContext.ts'
 import { HeldError } from './errors/held.ts'
 import {
   CONTENT_TYPE,
@@ -30,7 +30,7 @@ import {
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
-import { answeringHeaders, type CallRecord, recordCall, type Usage } from './provenance.ts'
+import { answeringHeaders, type CallRecord, type Usage } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS } from './routeServes.ts'
@@ -219,8 +219,7 @@ function recordCompletion(
     engine_used: ok ? route.engine : null,
     upstream_used: ok ? LOCAL_UPSTREAM : null,
   }
-  recordCall(record, ctx.doorOpts.write)
-  ctx.usage.record(record)
+  recordDoorCall(ctx, record)
 }
 
 export async function handleCompletions(

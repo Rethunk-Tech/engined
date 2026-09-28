@@ -12,7 +12,7 @@ import { handleSpeech } from './audioSpeech.ts'
 import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveModel, resolveQualified, routeEgress } from './dispatch.ts'
-import type { DoorContext } from './doorContext.ts'
+import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
   CONTENT_TYPE,
@@ -23,7 +23,7 @@ import {
   STATUS_BAD_REQUEST,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { answeringHeaders, type CallRecord, recordCall } from './provenance.ts'
+import { answeringHeaders, type CallRecord } from './provenance.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments, routeForHop } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_SPEECH } from './routeServes.ts'
@@ -84,8 +84,7 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
       // resolved id either way.
       upstream_used: ok ? (upstream ?? null) : null,
     }
-    recordCall(record, ctx.doorOpts.write)
-    ctx.usage.record(record)
+    recordDoorCall(ctx, record)
   }
   if (!result.stream) {
     emit(result.bytes?.byteLength ?? 0)
