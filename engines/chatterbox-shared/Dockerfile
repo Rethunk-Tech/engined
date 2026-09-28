@@ -86,10 +86,13 @@ RUN sed -i \
 # thing this step exists to guarantee.
 ARG CHECKPOINT_MODULE
 ARG CHECKPOINT_CLASS
+# Each checkpoint is its own Hugging Face repo with its own history, so the
+# pinned revision is per image, not shared.
+ARG CHECKPOINT_REV
 ENV HF_HOME=/app/hf_cache
 RUN python3 -c "\
 import huggingface_hub as hh, importlib, torch; \
-REV='5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18'; \
+REV='${CHECKPOINT_REV}'; \
 _dl, _sd = hh.hf_hub_download, hh.snapshot_download; \
 hh.hf_hub_download = lambda *a, **k: _dl(*a, **{**k, 'revision': REV}); \
 hh.snapshot_download = lambda *a, **k: _sd(*a, **{**k, 'revision': REV}); \
