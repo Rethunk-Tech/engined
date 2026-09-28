@@ -7,6 +7,7 @@ import {
   MAX_JSON_BODY_BYTES,
   methodNotAllowed,
   readJsonBody,
+  readModelBody,
   STATUS_BAD_REQUEST,
   STATUS_FORBIDDEN,
   STATUS_METHOD_NOT_ALLOWED,
@@ -185,6 +186,25 @@ test('a JSON body past the cap with no Content-Length is 413 after the read', as
   }
   const result = await readJsonBody(new Request('http://door.local/', init))
   await expectJsonTooLarge(result)
+})
+
+test('readModelBody is 400 when the body has no model, and returns the parsed body otherwise', async () => {
+  const missing = await readModelBody(
+    new Request('http://door.local/', { method: 'POST', body: JSON.stringify({ content: 'x' }) }),
+  )
+  expect(missing).toBeInstanceOf(Response)
+  expect((missing as Response).status).toBe(STATUS_BAD_REQUEST)
+  expect(await (missing as Response).json()).toEqual(
+    jsonErrorBody(STATUS_BAD_REQUEST, 'model is required'),
+  )
+
+  const present = await readModelBody(
+    new Request('http://door.local/', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'ornith', content: 'x' }),
+    }),
+  )
+  expect(present).toEqual({ body: { model: 'ornith', content: 'x' }, model: 'ornith' })
 })
 
 test('a finite Content-Length past the cap is over the limit; an absent or unparseable one is not', () => {

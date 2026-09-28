@@ -17,7 +17,7 @@ import { HeldError } from './errors/held.ts'
 import { readGgufMetadata } from './ggufMetadata.ts'
 import {
   jsonError,
-  readJsonBody,
+  readModelBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
@@ -93,14 +93,11 @@ export async function supportsVocabTokenize(
 }
 
 export async function handleTokenizeRoute(ctx: DoorContext, req: Request): Promise<Response> {
-  const body = await readJsonBody(req)
-  if (body instanceof Response) {
-    return body
+  const parsed = await readModelBody(req)
+  if (parsed instanceof Response) {
+    return parsed
   }
-  const model = typeof body.model === 'string' ? body.model : ''
-  if (model === '') {
-    return jsonError(STATUS_BAD_REQUEST, 'model is required')
-  }
+  const { body, model } = parsed
   const content = typeof body.content === 'string' ? body.content : undefined
   if (content === undefined) {
     return jsonError(STATUS_BAD_REQUEST, 'content is required')

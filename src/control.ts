@@ -12,7 +12,7 @@ import { EngineBusyError } from './errors/engineBusy.ts'
 import { HeldError } from './errors/held.ts'
 import {
   jsonError,
-  readJsonBody,
+  readModelBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
@@ -207,15 +207,11 @@ async function startRoute(ctx: DoorContext, route: ResolvedRoute): Promise<Start
  * address; this verb only answers what state it is in.
  */
 export async function handleStart(ctx: DoorContext, req: Request): Promise<Response> {
-  const body = await readJsonBody(req)
-  if (body instanceof Response) {
-    return body
+  const parsed = await readModelBody(req)
+  if (parsed instanceof Response) {
+    return parsed
   }
-  const model = typeof body.model === 'string' ? body.model : ''
-  if (model === '') {
-    return jsonError(STATUS_BAD_REQUEST, 'model is required')
-  }
-  const resolved = resolveStartRoutes(model, ctx)
+  const resolved = resolveStartRoutes(parsed.model, ctx)
   if (!resolved.ok) {
     return jsonError(STATUS_BAD_REQUEST, resolved.error)
   }

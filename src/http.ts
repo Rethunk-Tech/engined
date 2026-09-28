@@ -321,3 +321,23 @@ export async function readJsonBody(req: Request): Promise<Record<string, unknown
   }
   return parseRecord(raw) ?? jsonError(STATUS_BAD_REQUEST, 'invalid JSON body')
 }
+
+/**
+ * `readJsonBody`, plus the "model is required" check every model-taking verb
+ * (`/engined/v1/start`, `/engined/v1/tokenize`) repeats. Returns the parsed
+ * body alongside the model so a caller with other fields to read (tokenize's
+ * `content`) still has it.
+ */
+export async function readModelBody(
+  req: Request,
+): Promise<{ body: Record<string, unknown>; model: string } | Response> {
+  const body = await readJsonBody(req)
+  if (body instanceof Response) {
+    return body
+  }
+  const model = typeof body.model === 'string' ? body.model : ''
+  if (model === '') {
+    return jsonError(STATUS_BAD_REQUEST, 'model is required')
+  }
+  return { body, model }
+}
