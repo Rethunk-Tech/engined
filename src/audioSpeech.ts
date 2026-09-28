@@ -121,19 +121,30 @@ function cachedSpeech(key: string): Buffer | undefined {
   return hit
 }
 
-function storeSpeech(key: string, bytes: Buffer): void {
+export function storeSpeech(key: string, bytes: Buffer): void {
   if (bytes.byteLength > SPEECH_CACHE_MAX_BYTES) {
     return
   }
+  // A concurrent miss on the same key overwrites rather than adds an entry,
+  // so the replaced buffer's bytes come back out of the running total too.
+  const replaced = speechCache.get(key)
+  if (replaced !== undefined) {
+    speechCacheBytes -= replaced.byteLength
+  }
   speechCache.set(key, bytes)
   speechCacheBytes += bytes.byteLength
-  for (const [oldest, old] of speechCache) {
+  for (const [oldest, evicted] of speechCache) {
     if (speechCacheBytes <= SPEECH_CACHE_MAX_BYTES) {
       break
     }
     speechCache.delete(oldest)
-    speechCacheBytes -= old.byteLength
+    speechCacheBytes -= evicted.byteLength
   }
+}
+
+/** The running byte total, for a test to verify eviction accounting without reaching into the cache map itself. */
+export function speechCacheByteCount(): number {
+  return speechCacheBytes
 }
 
 /** The cache outlives one request by design, so a suite counting engine calls starts from empty. */
