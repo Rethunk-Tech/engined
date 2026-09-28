@@ -63,8 +63,13 @@ export async function readComfyQueue(
   return parseRecord(await res.text()) ?? undefined
 }
 
+/** Under the poll interval, so a comfy that stops answering fails a poll rather than stacking them. */
+const QUEUE_FETCH_TIMEOUT_MS = 10_000
+
 export async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
-  const queue = await readComfyQueue(new URL(url).origin, fetch)
+  const queue = await readComfyQueue(new URL(url).origin, (u) =>
+    fetch(u, { signal: AbortSignal.timeout(QUEUE_FETCH_TIMEOUT_MS) }),
+  )
   if (queue === undefined) {
     throw new Error('comfy queue could not be read')
   }
@@ -93,6 +98,8 @@ export class ComfyQueueWatch {
    * before it ever elapsed.
    */
   private readonly lastEmpty = new Map<string, boolean>()
+  /** Engines whose previous poll has not settled; a tick for one of them is skipped rather than stacked. */
+  private readonly polling = new Set<string>()
 
   constructor(lifecycle: DockerLifecycle, queueFetch: QueueFetch, intervalMs: number) {
     this.lifecycle = lifecycle
@@ -107,7 +114,14 @@ export class ComfyQueueWatch {
       .filter((e) => !e.engine.disabled && e.spec.spec.kind === 'comfy')
       .map((entry) =>
         setInterval(() => {
-          this.poll(entry).catch(() => undefined)
+          const id = entry.engine.id
+          if (this.polling.has(id)) {
+            return
+          }
+          this.polling.add(id)
+          this.poll(entry)
+            .catch(() => undefined)
+            .finally(() => this.polling.delete(id))
         }, this.intervalMs),
       )
   }

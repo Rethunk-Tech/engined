@@ -21,4 +21,13 @@ describe('binExec', () => {
     const res = await exec([])
     expect(res).toEqual({ stdout: '', stderr: '', exitCode: 1 })
   })
+
+  test('a command that outlives its deadline is killed and reported as a timeout, not awaited', async () => {
+    const exec = binExec('sleep', 50)
+    const start = Date.now()
+    const res = await exec(['5'])
+    expect(Date.now() - start).toBeLessThan(2000)
+    expect(res.exitCode).toBe(124)
+    expect(res.stderr).toContain('timed out')
+  })
 })

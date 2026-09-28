@@ -12,12 +12,27 @@ export interface ExecResult {
 
 export type Exec = (args: readonly string[]) => Promise<ExecResult>
 
+/**
+ * Long enough for the slowest thing engined asks of either binary -- a `docker
+ * stop` waits out the container's own grace, a `docker run` creates one -- and
+ * short enough that a wedged dockerd or Secret Service cannot hang a request.
+ */
+const EXEC_TIMEOUT_MS = 120_000
+
+/** `timeout(1)`'s own code for a command it had to kill. */
+const EXIT_TIMED_OUT = 124
+
 /** The collector bound to one binary, which is the only thing that varies between callers. */
-export function binExec(bin: string): Exec {
+export function binExec(bin: string, timeoutMs: number = EXEC_TIMEOUT_MS): Exec {
   return async (args) => {
     let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
     try {
-      proc = Bun.spawn([bin, ...args], { stdout: 'pipe', stderr: 'pipe' })
+      proc = Bun.spawn([bin, ...args], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: timeoutMs,
+        killSignal: 'SIGKILL',
+      })
     } catch {
       return { stdout: '', stderr: '', exitCode: 1 }
     }
@@ -26,6 +41,13 @@ export function binExec(bin: string): Exec {
       new Response(proc.stderr).text(),
       proc.exited,
     ])
+    if (proc.signalCode === 'SIGKILL') {
+      return {
+        stdout,
+        stderr: `${bin} ${args[0] ?? ''} timed out after ${timeoutMs} ms`,
+        exitCode: EXIT_TIMED_OUT,
+      }
+    }
     return { stdout, stderr, exitCode }
   }
 }

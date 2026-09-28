@@ -47,10 +47,24 @@ const ADOPTED_IDLE_STOP_SECONDS = 900
 
 export const dockerExec: Exec = binExec('docker')
 
-export type Probe = (url: string, method: 'GET' | 'POST') => Promise<{ status: number }>
+export type Probe = (
+  url: string,
+  method: 'GET' | 'POST',
+  signal?: AbortSignal,
+) => Promise<{ status: number }>
 
-async function defaultProbe(url: string, method: 'GET' | 'POST'): Promise<{ status: number }> {
-  const res = await fetch(url, { method })
+/**
+ * The least one readiness probe is given, so a one-shot check against an
+ * already-running container (a deadline of now) still gets an answer.
+ */
+const PROBE_MIN_MS = 5000
+
+async function defaultProbe(
+  url: string,
+  method: 'GET' | 'POST',
+  signal?: AbortSignal,
+): Promise<{ status: number }> {
+  const res = await fetch(url, { method, signal })
   await discardBody(res)
   return { status: res.status }
 }
@@ -477,9 +491,12 @@ export class DockerLifecycle {
     return pollUntil(
       async () => {
         try {
+          // A container that accepts the connection and never answers would
+          // otherwise hold this probe past the deadline for Bun's idle timeout.
           const res = await this.httpProbe(
             `http://127.0.0.1:${hostPort}${ready.path}`,
             ready.method ?? 'GET',
+            AbortSignal.timeout(Math.max(PROBE_MIN_MS, deadline - Date.now())),
           )
           return probeSaysReady(ready, res.status)
         } catch {
