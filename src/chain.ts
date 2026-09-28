@@ -547,7 +547,12 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     }
     const outcome = await runOneHop(hop, opts)
     attempts.push(outcome.attempt)
-    if (outcome.advance) {
+    // A named chain that exhausts still answers with a synthesized 503. A
+    // direct `@/…` address is one hop with no chain name: that hop's own
+    // 429/5xx must reach the caller instead of being replaced. Stream-only
+    // hops carry no `body` for failureOf, so the status itself is the answer.
+    const directAddress = opts.chain === null && outcome.result !== undefined
+    if (outcome.advance && !directAddress) {
       continue
     }
     return finalizeTerminal(

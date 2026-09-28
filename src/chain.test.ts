@@ -534,6 +534,38 @@ test('every hop failing returns 503 listing each attempt', async () => {
   expect(body.attempts).toHaveLength(2)
 })
 
+test('a direct address that answers 429 returns 429 rather than a synthesized 503', async () => {
+  const up = startBehaviorUpstream({
+    ratelimited: { status: 429, body: 'slow down', contentType: 'text/plain' },
+  })
+  const result = await runChain(
+    ['@/ratelimited/model'],
+    baseOpts({ chain: null, exec: makeExec({ ratelimited: up.base }) }),
+  )
+  up.stop()
+
+  expect(result.status).toBe(429)
+  expect(result.body).toBe('slow down')
+})
+
+test('a stream-only 429 still returns 429', async () => {
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 429,
+      stream: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"error":"rate limited"}'))
+          controller.close()
+        },
+      }),
+    })
+
+  const result = await runChain(['@/e/m'], baseOpts({ chain: null, exec }))
+
+  expect(result.status).toBe(429)
+  expect(result.stream).toBeDefined()
+})
+
 test('max_egress: none drops every hop over the ceiling, wherever it sits in the list', async () => {
   const up = startBehaviorUpstream({
     localengine: { status: 200, body: 'local answer', contentType: 'text/plain' },

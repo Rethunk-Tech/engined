@@ -740,6 +740,26 @@ test("the role's lease is free after a failed load: a later request for the role
   expect(result.done && (JSON.parse(result.t) as { model?: string }).model).toBe('b')
 })
 
+test('a streamed 429 keeps the upstream content-type instead of text/event-stream', async () => {
+  const { a, router } = sseRouter(() =>
+    Response.json({ error: { message: 'rate limited' } }, { status: 429 }),
+  )
+
+  const { response: res } = await chatHop(router, a, 'a', { stream: true })
+  expect(res.status).toBe(429)
+  expect(res.headers.get('content-type')).toContain('application/json')
+})
+
+test('a streamed 400 keeps the upstream content-type instead of text/event-stream', async () => {
+  const { a, router } = sseRouter(() =>
+    Response.json({ error: { message: 'bad request' } }, { status: 400 }),
+  )
+
+  const { response: res } = await chatHop(router, a, 'a', { stream: true })
+  expect(res.status).toBe(400)
+  expect(res.headers.get('content-type')).toContain('application/json')
+})
+
 test('a cold streaming request emits `: warming` before its first real byte', async () => {
   const { a, router } = singleModelRouter()
 

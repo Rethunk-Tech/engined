@@ -492,10 +492,13 @@ export class LlamaRouter {
       const upstream = await this.upstream.fetch(path, placed, modelId)
       reader = upstream.body?.getReader() as ReadableStreamDefaultReader<Uint8Array> | undefined
       const modelResident = await this.residentModelId(role)
+      const contentType = upstream.ok
+        ? SSE_CONTENT_TYPE
+        : (upstream.headers.get(CONTENT_TYPE) ?? SSE_CONTENT_TYPE)
       return {
         response: new Response(pipeUpstream(reader, emitWarming, release), {
           status: upstream.status,
-          headers: { [CONTENT_TYPE]: SSE_CONTENT_TYPE },
+          headers: { [CONTENT_TYPE]: contentType },
         }),
         modelResident,
       }
