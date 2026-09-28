@@ -217,12 +217,6 @@ export function mapInfillStream(
   })
 }
 
-/**
- * The one record shape this route ever writes -- transport failure, an
- * upstream error body, or success -- differing only in whether the call
- * succeeded and the router/engine ids that go with it, exactly as
- * `images.ts`'s and `audioDoor.ts`'s own record builders do.
- */
 interface CompletionCall {
   ctx: DoorContext
   route: ResolvedRoute
@@ -231,6 +225,12 @@ interface CompletionCall {
   startedAt: number
 }
 
+/**
+ * The one record shape this route ever writes -- transport failure, an
+ * upstream error body, or success -- differing only in whether the call
+ * succeeded and the router/engine ids that go with it, exactly as
+ * `images.ts`'s and `audioDoor.ts`'s own record builders do.
+ */
 function recordCompletion(
   { ctx, route, modelId, rawModel, startedAt }: CompletionCall,
   ok: boolean,
