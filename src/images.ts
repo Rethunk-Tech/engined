@@ -21,6 +21,7 @@ import { comfyHistoryEntry, comfyPromptId, filenamesIn, submitComfyPrompt } from
 import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
+import { HeldError } from './errors/held.ts'
 import {
   discardBody,
   ENGINE_ERROR_CHARS,
@@ -30,6 +31,7 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
+  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { answeringHeaders, recordCall } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, pollUntil } from './records.ts'
@@ -381,7 +383,10 @@ export async function renderWith(
       },
     )
   } catch (err) {
-    return refuse({ status: STATUS_BAD_GATEWAY, error: errMessage(err) })
+    return refuse({
+      status: err instanceof HeldError ? STATUS_UNAVAILABLE : STATUS_BAD_GATEWAY,
+      error: errMessage(err),
+    })
   } finally {
     if (leased) {
       // An engine dropped by a config reload mid-request still holds this lease.

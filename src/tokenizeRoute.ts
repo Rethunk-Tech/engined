@@ -12,12 +12,14 @@ import { bpeTokenIds } from './bpeTokenize.ts'
 import { loadBpeVocab, UnsupportedVocabError } from './bpeVocab.ts'
 import { resolveQualified } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
+import { HeldError } from './errors/held.ts'
 import {
   jsonError,
   readJsonBody,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_PAYLOAD_TOO_LARGE,
+  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments } from './routeAddress.ts'
@@ -99,6 +101,9 @@ export async function handleTokenizeRoute(ctx: DoorContext, req: Request): Promi
   } catch (err) {
     if (err instanceof UnsupportedVocabError) {
       return jsonError(STATUS_BAD_REQUEST, errMessage(err))
+    }
+    if (err instanceof HeldError) {
+      return jsonError(STATUS_UNAVAILABLE, errMessage(err))
     }
     return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
   }

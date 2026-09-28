@@ -9,6 +9,7 @@ import {
   parseHostPort,
   specDigest,
 } from './dockerArgs.ts'
+import { HeldError } from './errors/held.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import { buildExec, containerRunning, makeTestRoot, portResult } from './test-support.ts'
@@ -1070,4 +1071,12 @@ test('a hold stops the engine and keeps it stopped, and expires rather than wedg
   await lifecycle.hold('held-test', 1)
   await Bun.sleep(5)
   expect(lifecycle.heldMsFor('held-test')).toBe(0)
+})
+
+test('start while held throws HeldError and does not run a container', async () => {
+  const runLog: string[][] = []
+  const lifecycle = new DockerLifecycle(buildExec({ runLog, port: STUB_HOST_PORT_A }), readyProbe)
+  await lifecycle.hold('held-start', 60_000)
+  await expect(lifecycle.start('held-start', SPEC, START_OPTS)).rejects.toBeInstanceOf(HeldError)
+  expect(runLog).toEqual([])
 })

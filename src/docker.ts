@@ -22,6 +22,7 @@ import {
   readResources,
   runContainer,
 } from './dockerCommands.ts'
+import { HeldError } from './errors/held.ts'
 import { binExec, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
 import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
@@ -191,6 +192,10 @@ export class DockerLifecycle {
     spec: RunnableContainerSpec,
     opts: LifecycleOptions,
   ): Promise<RuntimeStatus> {
+    const heldMs = this.table.heldMsFor(id)
+    if (heldMs > 0) {
+      throw new HeldError(id, heldMs)
+    }
     const rt = this.table.runtime(id)
     this.table.cancelIdle(rt)
     // Returning the map's record on faith hands back a corpse when the

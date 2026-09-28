@@ -304,15 +304,6 @@ export class EngineRegistry {
     if (entry.engine.disabled) {
       throw new Error(`engine "${id}" is disabled in config`)
     }
-    // Refused rather than queued: the holder wants the weights out of the pool,
-    // and a start that waited would leave the caller blocked for as long as the
-    // hold stands with nothing said about why.
-    const heldMs = this.lifecycle.heldMsFor(id)
-    if (heldMs > 0) {
-      throw new Error(
-        `engine "${id}" is held for another ${Math.ceil(heldMs / MS_PER_SECOND)}s; whatever took the hold wants this engine's memory`,
-      )
-    }
     if (!isContainerSpec(entry.spec.spec)) {
       // Nothing to warm up: a spec-less proxy or an agentic-cli engine has
       // no standing container.

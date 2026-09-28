@@ -12,6 +12,7 @@ import { attachLlamaRoles, engineWithLlamaRoles, routeAddress } from './control.
 import { type Dispatch, resolveModel } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
+import { HeldError } from './errors/held.ts'
 import { proxyExtras } from './extras.ts'
 import { buildHopExec, egressOf, timeoutSecondsForKind } from './hop.ts'
 import {
@@ -209,6 +210,9 @@ export async function handleExtras(
         } catch (err) {
           if (err instanceof EngineBusyError) {
             return jsonError(STATUS_CONFLICT, err.message)
+          }
+          if (err instanceof HeldError) {
+            return jsonError(STATUS_UNAVAILABLE, err.message)
           }
           return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
         }

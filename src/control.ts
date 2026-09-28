@@ -9,6 +9,7 @@ import { resolveQualified } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
+import { HeldError } from './errors/held.ts'
 import {
   jsonError,
   readJsonBody,
@@ -16,6 +17,7 @@ import {
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
+  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { errMessage } from './records.ts'
 import type { EngineStatus, StartResponse, StartRow } from './responses.ts'
@@ -223,6 +225,9 @@ export async function handleStart(ctx: DoorContext, req: Request): Promise<Respo
   } catch (err) {
     if (err instanceof EngineBusyError) {
       return jsonError(STATUS_CONFLICT, err.message)
+    }
+    if (err instanceof HeldError) {
+      return jsonError(STATUS_UNAVAILABLE, err.message)
     }
     return jsonError(STATUS_BAD_GATEWAY, errMessage(err))
   }

@@ -17,6 +17,7 @@ import { routeAddress } from './control.ts'
 import { resolveModel, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
 import { getLlamaRouter } from './doorContext.ts'
+import { HeldError } from './errors/held.ts'
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
@@ -25,6 +26,7 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_UNAVAILABLE,
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
@@ -228,6 +230,7 @@ export async function handleCompletions(
     ))
   } catch (err) {
     const message = errMessage(err)
+    const status = err instanceof HeldError ? STATUS_UNAVAILABLE : STATUS_BAD_GATEWAY
     const record = {
       chain: null,
       requested: rawModel ?? '',
@@ -247,7 +250,7 @@ export async function handleCompletions(
     }
     recordCall(record, ctx.doorOpts.write)
     ctx.usage.record(record)
-    return jsonError(STATUS_BAD_GATEWAY, message)
+    return jsonError(status, message)
   }
   if (!response.ok) {
     const text = await response.text()

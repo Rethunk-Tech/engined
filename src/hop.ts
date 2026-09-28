@@ -19,6 +19,7 @@ import { resolveUpstreamModelId } from './agenticRedirect.ts'
 import { type HopExec, type HopResult, parseHop } from './chain.ts'
 import { resolveServedRoute, routeEgress } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
+import { HeldError } from './errors/held.ts'
 import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
@@ -26,6 +27,7 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
+  STATUS_UNAVAILABLE,
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
@@ -157,13 +159,23 @@ async function execLlama(
   // the engine's own /v1/models — never the router's cached command
   // bookkeeping, and never model_reported: the two answer different questions
   // and one silently standing in for the other defeats provenance.
-  const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init)
-  const { stream, modelReported } = await readHopBody(response, req.setContentType)
-  return {
-    status: response.status,
-    stream,
-    modelReported,
-    modelResident,
+  try {
+    const { response, modelResident } = await router.proxy(route, enginePath(req.pathname), init)
+    const { stream, modelReported } = await readHopBody(response, req.setContentType)
+    return {
+      status: response.status,
+      stream,
+      modelReported,
+      modelResident,
+    }
+  } catch (err) {
+    if (err instanceof HeldError) {
+      return {
+        status: STATUS_UNAVAILABLE,
+        body: jsonErrorBody(STATUS_UNAVAILABLE, err.message),
+      }
+    }
+    throw err
   }
 }
 
