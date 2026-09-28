@@ -7,19 +7,19 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { infillRequestInit } from './completions.ts'
+import { infillRequestInit, mapInfillStream } from './completions.ts'
 import { createLlamaDoor, llamaExec } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
 import {
   collectLines,
   config,
   engine,
-  llamaControlPlane,
   makeTestRoot,
   route,
   soleProvenanceRecord,
   tempPresetPath,
   upstream,
+  withLlamaControl,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -85,17 +85,12 @@ function recordControlledClient(
   recorded: { url: string; body: string }[],
   respond: () => Response,
 ): HttpClient {
-  const control = llamaControlPlane()
-  return (url, init) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
+  return withLlamaControl((url, init) => {
     if (typeof init?.body === 'string') {
       recorded.push({ url, body: init.body })
     }
     return Promise.resolve(respond())
-  }
+  })
 }
 
 function makeInfillHttpClient(
@@ -256,12 +251,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('a stream that errors mid-body records a failure, not the success recorded before it started', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const { lines, write } = collectLines()
-    const control = llamaControlPlane()
-    const brokenStream: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
+    const brokenStream: HttpClient = withLlamaControl(() => {
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(new TextEncoder().encode(INFILL_SSE.slice(0, 30)))
@@ -271,7 +261,7 @@ describe('POST /openai/v1/completions: response mapping', () => {
       return Promise.resolve(
         new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
       )
-    }
+    })
     const door = doorFor(cfg, root, brokenStream, write)
     const res = await door.fetch(
       completionsRequest({ model: '@/local-llama/ornith', prompt: 'x', stream: true }),
@@ -295,16 +285,9 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('a failed infill records the engine error text, not a bare status', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const { lines, write } = collectLines()
-    const control = llamaControlPlane()
-    const httpClient: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
-      return Promise.resolve(
-        Response.json({ error: 'infill rejected the prefix' }, { status: 502 }),
-      )
-    }
+    const httpClient: HttpClient = withLlamaControl(() =>
+      Promise.resolve(Response.json({ error: 'infill rejected the prefix' }, { status: 502 })),
+    )
     const door = doorFor(cfg, root, httpClient, write)
     const res = await door.fetch(completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }))
     expect(res.status).toBe(502)
@@ -323,16 +306,9 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('an infill fetch that refuses the connection is JSON 502 with provenance, not an uncaught TypeError', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const { lines, write } = collectLines()
-    const control = llamaControlPlane()
-    const httpClient: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
-      return Promise.reject(
-        new TypeError('Unable to connect. Is the computer able to access the url?'),
-      )
-    }
+    const httpClient: HttpClient = withLlamaControl(() =>
+      Promise.reject(new TypeError('Unable to connect. Is the computer able to access the url?')),
+    )
     const door = doorFor(cfg, root, httpClient, write)
     const res = await door.fetch(completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }))
     expect(res.status).toBe(502)
@@ -346,17 +322,12 @@ describe('POST /openai/v1/completions: response mapping', () => {
   test('an infill request whose caller already disconnected records "client disconnected", not "connection failed"', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const { lines, write } = collectLines()
-    const control = llamaControlPlane()
-    const httpClient: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
-      // Whatever error a dropped connection surfaces as, the caller's own
-      // aborted signal is what should decide the recorded reason -- not the
-      // error's own shape.
-      return Promise.reject(new TypeError('other side closed'))
-    }
+    // Whatever error a dropped connection surfaces as, the caller's own
+    // aborted signal is what should decide the recorded reason -- not the
+    // error's own shape.
+    const httpClient: HttpClient = withLlamaControl(() =>
+      Promise.reject(new TypeError('other side closed')),
+    )
     const door = doorFor(cfg, root, httpClient, write)
     const controller = new AbortController()
     controller.abort()
@@ -367,4 +338,55 @@ describe('POST /openai/v1/completions: response mapping', () => {
     const failure = soleProvenanceRecord(lines).attempts[0]?.failure
     expect(failure).toBe('client disconnected')
   })
+})
+
+/** `reader.read()` with a deadline: a pull that enqueues nothing and never gets called again hangs a plain reader forever, which a bare `await reader.read()` would mask as a slow test rather than a failure. */
+function readWithTimeout(
+  reader: { read(): Promise<{ done: boolean; value?: Uint8Array }> },
+  ms: number,
+): Promise<{ done: boolean; value?: Uint8Array }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('mapInfillStream stalled on a keepalive frame')),
+      ms,
+    )
+    reader.read().then((result) => {
+      clearTimeout(timer)
+      resolve(result)
+    }, reject)
+  })
+}
+
+test('mapInfillStream keeps pulling past a keepalive frame that maps to nothing, rather than stalling a plain reader', async () => {
+  const source = new ReadableStream<Uint8Array>({
+    // Each frame arrives on its own tick, as separate TCP reads would, rather
+    // than pre-buffered together -- the shape that exposed the stall.
+    async start(controller) {
+      const encoder = new TextEncoder()
+      for (const frame of INFILL_SSE.split('\n\n')
+        .filter(Boolean)
+        .map((f) => `${f}\n\n`)) {
+        await Bun.sleep(0)
+        controller.enqueue(encoder.encode(frame))
+      }
+      controller.close()
+    },
+  })
+  const reader = mapInfillStream(source, 'ornith').getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  for (;;) {
+    const { done, value } = await readWithTimeout(reader, 500)
+    if (done) {
+      break
+    }
+    text += decoder.decode(value)
+  }
+  const frames = text
+    .trim()
+    .split('\n\n')
+    .filter((f) => f.startsWith('data:'))
+  expect(frames.at(-1)).toBe('data: [DONE]')
+  const parsed = frames.slice(0, -1).map((f) => JSON.parse(f.slice('data:'.length).trim()))
+  expect(parsed.map((p) => p.choices[0].text)).toEqual(['return', ' a + b'])
 })

@@ -12,11 +12,11 @@ import {
   BUNX,
   config,
   engine,
-  llamaControlPlane,
   makeTestRoot,
   route,
   startFakeUpstream,
   upstream,
+  withLlamaControl,
 } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-hop-')
@@ -67,12 +67,7 @@ test('a model-less SSE hop delivers the first chunk before the upstream stream e
   const { cfg, root } = llamaDoorConfig(TEST_ROOT)
   const encoder = new TextEncoder()
   let sourceEnded = false
-  const control = llamaControlPlane()
-  const httpClient: HttpClient = (url, init) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
+  const httpClient: HttpClient = withLlamaControl(() => {
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         controller.enqueue(
@@ -87,7 +82,7 @@ test('a model-less SSE hop delivers the first chunk before the upstream stream e
       },
     })
     return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } }))
-  }
+  })
   const door = createLlamaDoor(cfg, root, { llamaHttpClient: httpClient, write: () => undefined })
   const res = await door.fetch(
     chatRequest({

@@ -16,10 +16,10 @@ import {
   containerRunning,
   engine,
   inspectSinglePort,
-  llamaControlPlane,
   portResult,
   route,
   tempPresetPath,
+  withLlamaControl,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
@@ -107,19 +107,14 @@ export function createLlamaDoor(
  * "loaded" -- an already-resident model's 400 "already running" fires before the
  * child is actually able to serve, so it is not the signal `loadAndWait` trusts. */
 export function makeLlamaHttpClient(recorded: { body: string }[]): HttpClient {
-  const control = llamaControlPlane()
-  return (url: string, init?: RequestInit) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
+  return withLlamaControl((_url, init) => {
     if (typeof init?.body === 'string') {
       recorded.push({ body: init.body })
     }
     return Promise.resolve(
       Response.json({ id: 'resp-1', choices: [{ message: { content: 'hi' } }] }),
     )
-  }
+  })
 }
 
 export function fakeExec(value: string | undefined): Exec {
@@ -175,12 +170,7 @@ export function makeSplitHttpClient(
   deadCalls: string[],
   liveCalls: string[],
 ): HttpClient {
-  const control = llamaControlPlane()
-  return (url: string, init?: RequestInit) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
+  return withLlamaControl((url) => {
     const { port } = new URL(url)
     if (port === String(FAILOVER_DEAD_PORT)) {
       deadCalls.push(url)
@@ -190,7 +180,7 @@ export function makeSplitHttpClient(
     return Promise.resolve(
       Response.json({ id: 'resp-live', choices: [{ message: { content: 'live' } }] }),
     )
-  }
+  })
 }
 
 /** Two llama engines chained as a failover pair, its specs written under a fresh directory in `testRoot`. */

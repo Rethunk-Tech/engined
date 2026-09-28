@@ -24,11 +24,11 @@ import {
   collectLines,
   config,
   engine,
-  llamaControlPlane,
   makeTestRoot,
   route,
   soleProvenanceRecord,
   upstream,
+  withLlamaControl,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -105,14 +105,9 @@ describe('the door: answering-route headers', () => {
   })
 
   test('a chain nothing in it can answer carries no answering-route headers', async () => {
-    const control = llamaControlPlane()
-    const everyHopFails: HttpClient = (url, init) => {
-      const controlled = control(url, init)
-      if (controlled) {
-        return Promise.resolve(controlled)
-      }
-      return Promise.resolve(Response.json({ error: 'dead' }, { status: 500 }))
-    }
+    const everyHopFails: HttpClient = withLlamaControl(() =>
+      Promise.resolve(Response.json({ error: 'dead' }, { status: 500 })),
+    )
     const door = twoEngineFailoverDoor(everyHopFails)
     const res = await door.fetch(chainFailoverChat())
     await res.json()
@@ -408,12 +403,7 @@ describe('the door: extras injects the resident model for the right role', () =>
       )
     ).text()
 
-    await door.fetch(
-      new Request('http://engined/engined/v1/engines/local-llama/tokenize', {
-        method: 'POST',
-        body: JSON.stringify({ content: 'hello' }),
-      }),
-    )
+    await door.fetch(tokenizeHello('local-llama'))
 
     expect(extrasCalls).toHaveLength(1)
     const forwarded = JSON.parse(extrasCalls[0] ?? '{}') as { model?: string }

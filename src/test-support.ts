@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import { agenticVerifiedDir } from './agenticProbe.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import type { Exec, ExecResult } from './exec.ts'
+import type { HttpClient } from './http.ts'
 import type { CallRecord } from './provenance.ts'
 import type { Config, EngineEntry, ResolvedRoute, Upstream } from './types.ts'
 
@@ -273,6 +274,23 @@ export function llamaControlPlane(): (url: string, init?: RequestInit) => Respon
       })
     }
     return
+  }
+}
+
+/**
+ * Wraps a fallback `HttpClient` with a fresh `llamaControlPlane()`, so every
+ * fake that mixes real chat/completions traffic with load/unload/models
+ * calls answers the control-plane URLs the same way without repeating the
+ * dispatch shape at each call site.
+ */
+export function withLlamaControl(fallback: HttpClient): HttpClient {
+  const control = llamaControlPlane()
+  return (url, init) => {
+    const controlled = control(url, init)
+    if (controlled) {
+      return Promise.resolve(controlled)
+    }
+    return fallback(url, init)
   }
 }
 

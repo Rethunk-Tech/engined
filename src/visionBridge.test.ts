@@ -12,11 +12,11 @@ import {
   collectLines,
   config,
   engine,
-  llamaControlPlane,
   makeTestRoot,
   route,
   soleProvenanceRecord,
   upstream,
+  withLlamaControl,
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -79,12 +79,7 @@ function makeBridgeHttpClient(opts: {
   caption?: string
   bridgeStatus?: number
 }): HttpClient {
-  const control = llamaControlPlane()
-  return (url: string, init?: RequestInit) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
+  return withLlamaControl((_url: string, init?: RequestInit) => {
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as RecordedBody) : {}
     if (body.model === 'vision') {
       opts.bridgeCalls.push(body)
@@ -105,7 +100,7 @@ function makeBridgeHttpClient(opts: {
     return Promise.resolve(
       Response.json({ id: 'resp-1', choices: [{ message: { content: 'ok' } }] }),
     )
-  }
+  })
 }
 
 test('an image content part is captioned by the bridge route and spliced into the dispatched request, in order', async () => {
@@ -195,23 +190,19 @@ test('a failing bridge call refuses the whole request, naming the bridge, rather
 
 test('a caller abort reaches the bridge dispatch and refuses rather than hanging', async () => {
   const { cfg, root } = bridgedDoorConfig()
-  const control = llamaControlPlane()
-  const httpClient: HttpClient = (url, init) => {
-    const controlled = control(url, init)
-    if (controlled) {
-      return Promise.resolve(controlled)
-    }
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => resolve(Response.json({ choices: [{ message: { content: 'late' } }] })),
-        50,
-      )
-      init?.signal?.addEventListener('abort', () => {
-        clearTimeout(timer)
-        reject(new Error('The operation was aborted'))
-      })
-    })
-  }
+  const httpClient: HttpClient = withLlamaControl(
+    (_url, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(Response.json({ choices: [{ message: { content: 'late' } }] })),
+          50,
+        )
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new Error('The operation was aborted'))
+        })
+      }),
+  )
   const door = createLlamaDoor(cfg, root, { llamaHttpClient: httpClient, write: () => undefined })
   const controller = new AbortController()
   const req = new Request('http://engined/openai/v1/chat/completions', {
