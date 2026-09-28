@@ -29,6 +29,12 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { stateDir } from './paths.ts'
 
+/** State-dir segment that holds every agentic HOME. Cache prune names the same segment. */
+export const AGENTIC_HOME_DIR = 'agentic-home'
+
+/** Writable bun install tree inside an agentic HOME. Cache prune names the same segment. */
+export const SANDBOX_BUN_DIR = 'bun'
+
 /**
  * Writable, engined-owned, and never inside a repository -- so the agent keeps
  * its sessions and its downloaded provider packages across launches while the
@@ -36,7 +42,7 @@ import { stateDir } from './paths.ts'
  * provider on every single call.
  */
 export function sandboxHome(agentId: string): string {
-  const home = join(stateDir(), 'agentic-home', agentId)
+  const home = join(stateDir(), AGENTIC_HOME_DIR, agentId)
   mkdirSync(home, { recursive: true })
   return home
 }
@@ -127,6 +133,6 @@ export function sandboxEnv(home: string): Record<string, string> {
     BUN_TMPDIR: '/tmp',
     // Inside the writable home rather than the tmpfs, so a fetched agent
     // package survives to the next launch instead of being downloaded again.
-    BUN_INSTALL: join(home, 'bun'),
+    BUN_INSTALL: join(home, SANDBOX_BUN_DIR),
   }
 }

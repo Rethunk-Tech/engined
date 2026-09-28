@@ -1,11 +1,18 @@
 import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { isUnder, stateDir } from './paths.ts'
+import { AGENTIC_HOME_DIR, SANDBOX_BUN_DIR } from './sandbox.ts'
 
 /** Bun's install cache names a packed package `name@version@@@N`. */
 const BUN_CACHE_VERSION_MARK = '@@@'
 
-const OPENCODE_INSTALL_CACHE = ['agentic-home', 'opencode', 'bun', 'install', 'cache'] as const
+const OPENCODE_INSTALL_CACHE = [
+  AGENTIC_HOME_DIR,
+  'opencode',
+  SANDBOX_BUN_DIR,
+  'install',
+  'cache',
+] as const
 const CLAUDE_INSTALL_CACHE = ['bun-install', 'install', 'cache'] as const
 
 /** `opencode-ai` plus the four platform packages bun caches beside it. */
