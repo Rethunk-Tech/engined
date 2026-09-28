@@ -131,7 +131,7 @@ export function resolveBwrap(): string | null {
   if (configured !== undefined && configured !== '') {
     return configured
   }
-  return Bun.which('bwrap')
+  return Bun.which('bwrap', { PATH: process.env.PATH })
 }
 
 /**

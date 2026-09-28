@@ -11,6 +11,7 @@
  * be given. Every one of those differences lives here so that nothing else has
  * to know which agent it is talking to.
  */
+
 import {
   existsSync,
   mkdirSync,
@@ -22,6 +23,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import {
   AGENTIC_FLOOR,
   CLAUDE_MCP_CONFIG_FLAG,
@@ -457,7 +459,8 @@ function cursorVersionsDir(): string {
  * nothing, or worse, to some other program.
  */
 export function resolveCursorBinary(
-  which: (cmd: string) => string | null = Bun.which,
+  // `Bun.which` alone searches the PATH the process started with, not the one it has now.
+  which: (cmd: string) => string | null = (cmd) => Bun.which(cmd, { PATH: process.env.PATH }),
   versionsDir: string = cursorVersionsDir(),
 ): string {
   const onPath = which('agent')
