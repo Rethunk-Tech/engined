@@ -70,12 +70,7 @@ function defaultModel(models: string[]): Uint8Array {
   return first === undefined ? new Uint8Array() : bytesField(1, message(stringField(1, first)))
 }
 
-export async function handleCursor(
-  ctx: DoorContext,
-  req: Request,
-  pathname: string,
-): Promise<Response> {
-  await req.arrayBuffer()
+export function handleCursor(ctx: DoorContext, pathname: string): Response {
   const models = chatModels(ctx).flatMap((r) => (r.model === undefined ? [] : [r.model]))
   if (pathname.endsWith('/AvailableModels')) {
     return protoResponse(availableModels(models))

@@ -16,6 +16,7 @@ import {
   jsonError,
   MAX_IMAGE_UPLOAD_BYTES,
   OCTET_STREAM_CONTENT_TYPE,
+  readCappedText,
   STATUS_BAD_REQUEST,
   STATUS_CLIENT_CLOSED,
   STATUS_NOT_FOUND,
@@ -187,7 +188,10 @@ export async function proxyComfyPrompt(
   { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
 ): Promise<Response> {
-  const body = await req.text()
+  const body = await readCappedText(req)
+  if (body instanceof Response) {
+    return body
+  }
   return submitComfyPrompt({
     ctx,
     engineId,

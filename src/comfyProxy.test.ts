@@ -20,7 +20,15 @@ import process from 'node:process'
 import { comfyBindingsPath, loadComfyBindings } from './comfyBindings.ts'
 import { loadConfig } from './config.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
-import { errorMessageOf, type HttpClient, jsonErrorBody, STATUS_CLIENT_CLOSED } from './http.ts'
+import {
+  errorMessageOf,
+  type HttpClient,
+  jsonErrorBody,
+  MAX_JSON_BODY_BYTES,
+  STATUS_BAD_REQUEST,
+  STATUS_CLIENT_CLOSED,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { bindDualFamily, createDoor } from './main.ts'
 import {
   BUNX,
@@ -227,6 +235,30 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     )
     expect(res.status).toBe(200)
     expect(((await res.json()) as { prompt_id: string }).prompt_id).toBe('job-1')
+  })
+
+  test('a prompt body that is cut off or too large never reaches comfy', async () => {
+    const { client, calls } = recordingPromptClient('job-1')
+    const door = await comfyDoor(client)
+    const cutOff: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      duplex: 'half',
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new Error('client hung up'))
+        },
+      }),
+    }
+    const aborted = await door.fetch(new Request(`http://engined${PROXY_PATH}/prompt`, cutOff))
+    expect(aborted.status).toBe(STATUS_BAD_REQUEST)
+    const huge = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, {
+        method: 'POST',
+        headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
+      }),
+    )
+    expect(huge.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
+    expect(calls).toEqual([])
   })
 
   test("an uploaded filename reaches comfy renamed, never the caller's literal name", async () => {

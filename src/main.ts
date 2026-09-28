@@ -176,7 +176,7 @@ function routePost(
   launchScoped: boolean,
 ): Response | Promise<Response> | undefined {
   if (isCursorPath(pathname)) {
-    return handleCursor(ctx, req, pathname)
+    return handleCursor(ctx, pathname)
   }
   if (pathname === START_PATH) {
     return handleStart(ctx, req)
