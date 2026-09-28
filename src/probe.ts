@@ -20,7 +20,13 @@
  * kind of drift this repo keeps getting bitten by.
  */
 
-import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE, STATUS_BAD_REQUEST } from './http.ts'
+import {
+  CONTENT_TYPE,
+  discardBody,
+  ENGINE_ERROR_CHARS,
+  JSON_CONTENT_TYPE,
+  STATUS_BAD_REQUEST,
+} from './http.ts'
 import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
@@ -130,9 +136,6 @@ export function visionVerdict(reply: string): { ok: boolean; detail: string } {
   return { ok: true, detail: JSON.stringify(reply) }
 }
 
-/** How much of an error body is worth a journal line: enough to name the failure, not enough to bury it. */
-const ERROR_BODY_CHARS = 200
-
 async function postProbe(
   fetchImpl: typeof fetch,
   url: string,
@@ -146,7 +149,7 @@ async function postProbe(
   if (!res.ok) {
     return {
       ok: false,
-      detail: `http ${res.status}: ${(await res.text()).slice(0, ERROR_BODY_CHARS)}`,
+      detail: `http ${res.status}: ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
     }
   }
   return res
@@ -584,7 +587,7 @@ async function probeOneRefusal(
     }
     return {
       ok: false,
-      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ERROR_BODY_CHARS)}`,
+      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
     }
   } catch (err) {
     return { ok: false, detail: errMessage(err) }
