@@ -346,7 +346,7 @@ function doorFrom(
     agenticInFlight: 0,
     comfyBindings: new Map(),
     comfySlots: new Map(),
-    usage: new UsageTracker(),
+    usage: new UsageTracker({ stateRoot: mkdtempSync(join(TEST_ROOT, 'usage-')) }),
   }
   return { ctx, lifecycle, lines }
 }
@@ -905,6 +905,22 @@ test('a speech call records the upstream its route resolved to, not a bare null'
   const record = soleProvenanceRecord(lines)
   expect(record.upstream_used).toBe('local')
   expect(record.attempts[0]?.upstream_used).toBe('local')
+})
+
+test('a speech call appears in usage.read', async () => {
+  const fake = startFakeChatterboxMulti()
+  const { ctx } = speechDoorContext({ hostPort: Number(fake.base.split(':')[1]) })
+
+  const res = await handleAudioSpeech(ctx, {
+    model: '@/chatterbox-multi/local',
+    input: 'hello there',
+  })
+  fake.stop()
+  expect(res.status).toBe(200)
+
+  const row = ctx.usage.read(1).find((r) => r.route.startsWith('chatterbox-multi'))
+  expect(row?.requests).toBe(1)
+  ctx.usage.shutdown()
 })
 
 test("a speech body refused before the engine is started does not release another request's lease", async () => {

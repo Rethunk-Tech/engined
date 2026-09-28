@@ -402,29 +402,28 @@ export async function renderWith(
             status: refusal.status,
             body: jsonErrorBody(refusal.status, refusal.error),
           }).failure ?? `http ${refusal.status}`)
-    recordCall(
-      {
-        chain: null,
-        requested: rawModel ?? '',
-        attempts: [
-          {
-            engine: route.engine,
-            // A comfy route is modelless, so the engine id is the whole
-            // address a provenance reader can match on.
-            model: route.engine,
-            ok,
-            ...(failure === undefined ? {} : { failure }),
-            duration_ms: Date.now() - startedAt,
-            upstream_used: route.upstream ?? undefined,
-          },
-        ],
-        // The record's fields name what actually answered, so both are null
-        // when nothing did; the attempt above keeps the resolved ids either way.
-        engine_used: ok ? route.engine : null,
-        upstream_used: ok ? (route.upstream ?? null) : null,
-      },
-      ctx.doorOpts.write,
-    )
+    const record = {
+      chain: null,
+      requested: rawModel ?? '',
+      attempts: [
+        {
+          engine: route.engine,
+          // A comfy route is modelless, so the engine id is the whole
+          // address a provenance reader can match on.
+          model: route.engine,
+          ok,
+          ...(failure === undefined ? {} : { failure }),
+          duration_ms: Date.now() - startedAt,
+          upstream_used: route.upstream ?? undefined,
+        },
+      ],
+      // The record's fields name what actually answered, so both are null
+      // when nothing did; the attempt above keeps the resolved ids either way.
+      engine_used: ok ? route.engine : null,
+      upstream_used: ok ? (route.upstream ?? null) : null,
+    }
+    recordCall(record, ctx.doorOpts.write)
+    ctx.usage.record(record)
   }
 }
 

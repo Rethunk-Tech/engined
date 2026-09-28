@@ -23,7 +23,7 @@ import {
   STATUS_BAD_REQUEST,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { answeringHeaders, recordCall } from './provenance.ts'
+import { answeringHeaders, type CallRecord, recordCall } from './provenance.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments, routeForHop } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_SPEECH } from './routeServes.ts'
@@ -62,31 +62,30 @@ function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
     })
     const ok = verdict.ok && streamFailure === undefined
     const failure = streamFailure ?? verdict.failure
-    recordCall(
-      {
-        chain: null,
-        requested,
-        attempts: [
-          {
-            engine: engineId,
-            // A modelless engine (every TTS route, most STT ones) has no
-            // separate model id, so the engine id is the honest fill-in --
-            // the same convention the chat path's own Attempt.model follows.
-            model: model ?? engineId,
-            ok,
-            ...(failure === undefined ? {} : { failure }),
-            duration_ms: Date.now() - startedAt,
-            upstream_used: upstream,
-          },
-        ],
-        engine_used: ok ? engineId : null,
-        // The record's field names the upstream that actually answered, so it
-        // is null wherever `engine_used` is -- the attempt above keeps the
-        // resolved id either way.
-        upstream_used: ok ? (upstream ?? null) : null,
-      },
-      ctx.doorOpts.write,
-    )
+    const record: CallRecord = {
+      chain: null,
+      requested,
+      attempts: [
+        {
+          engine: engineId,
+          // A modelless engine (every TTS route, most STT ones) has no
+          // separate model id, so the engine id is the honest fill-in --
+          // the same convention the chat path's own Attempt.model follows.
+          model: model ?? engineId,
+          ok,
+          ...(failure === undefined ? {} : { failure }),
+          duration_ms: Date.now() - startedAt,
+          upstream_used: upstream,
+        },
+      ],
+      engine_used: ok ? engineId : null,
+      // The record's field names the upstream that actually answered, so it
+      // is null wherever `engine_used` is -- the attempt above keeps the
+      // resolved id either way.
+      upstream_used: ok ? (upstream ?? null) : null,
+    }
+    recordCall(record, ctx.doorOpts.write)
+    ctx.usage.record(record)
   }
   if (!result.stream) {
     emit(result.bytes?.byteLength ?? 0)
@@ -307,6 +306,7 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
       contentType = ct
     }),
     write: ctx.doorOpts.write,
+    onRecord: (record) => ctx.usage.record(record),
   })
   return doorResponseToResponse(
     {
