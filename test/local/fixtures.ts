@@ -109,11 +109,38 @@ function probeGateConfig(id: string, agent: string, agentVersion: string): Confi
 }
 
 /**
+ * `versionVar`'s agent id, read off its own name (`ENGINED_TEST_CURSOR_VERSION`
+ * -> `"cursor"`) rather than passed separately, since the two have never
+ * disagreed and a second parameter would be one more place for a call site to
+ * drift from the env var it names.
+ */
+function agentIdFor(versionVar: string): string {
+  return versionVar
+    .replace(/^ENGINED_TEST_/, '')
+    .replace(/_VERSION$/, '')
+    .toLowerCase()
+}
+
+/**
+ * `versionVar`'s pin, straight from the operator's real `config.example.toml`
+ * -- the file `test:local` used to shell out to three `awk` one-liners for.
+ * `undefined` whenever that file cannot be read (not this tier, or a box
+ * without the real models it also validates) or no longer declares the agent.
+ */
+function configuredAgentVersion(versionVar: string): string | undefined {
+  return loadLocalConfig().config?.engines.find((e) => e.id === agentIdFor(versionVar))
+    ?.agent_version
+}
+
+/**
  * The env every agentic suite in this tier gates on: the tier's own
- * `ENGINED_BUNX` and the one var recording the agent version the operator
- * last observed. `version` is the raw value, for the provenance assertion
- * that compares it against what actually launched; the two accessors are
- * what a test body calls, and throw only if the gate above them is broken.
+ * `ENGINED_BUNX` and the agent version to prove against, defaulted from
+ * `config.example.toml` so an operator need not restate a pin the config
+ * already carries -- `versionVar` still overrides it, for a self-update the
+ * committed example has not caught up with yet. `version` is the raw value,
+ * for the provenance assertion that compares it against what actually
+ * launched; the two accessors are what a test body calls, and throw only if
+ * the gate above them is broken.
  */
 export function agentEnv(versionVar: string): {
   version: string | undefined
@@ -122,7 +149,7 @@ export function agentEnv(versionVar: string): {
   ready: boolean
   skipReason: string
 } {
-  const version = process.env[versionVar]
+  const version = process.env[versionVar] ?? configuredAgentVersion(versionVar)
   const bunxPath = process.env.ENGINED_BUNX
   const missing = missingEnv({ [versionVar]: version, ENGINED_BUNX: bunxPath })
   return {
