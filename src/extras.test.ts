@@ -1,10 +1,8 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync } from 'node:fs'
-import { join } from 'node:path'
-import { createLlamaDoor, LOCAL_LLAMA_SPEC, makeLlamaHttpClient } from './doorFixtures.ts'
+import { createLlamaDoor, llamaDoorConfig, makeLlamaHttpClient } from './doorFixtures.ts'
 import { proxyExtras } from './extras.ts'
 import { ENGINE_ERROR_CHARS, errorMessageOf, type HttpClient } from './http.ts'
-import { config, engine, makeTestRoot, route, writeEngineSpec } from './test-support.ts'
+import { makeTestRoot } from './test-support.ts'
 
 const BASE = 'http://127.0.0.1:9999'
 
@@ -93,12 +91,7 @@ test('no resident model: injectable endpoints are forwarded without a model, let
 const TEST_ROOT = makeTestRoot('engined-extras-')
 
 function extrasLlamaDoor(extrasHttpClient?: HttpClient) {
-  const root = mkdtempSync(join(TEST_ROOT, 'door-'))
-  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
-  const cfg = config({
-    engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
-    routes: [route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' })],
-  })
+  const { cfg, root } = llamaDoorConfig(TEST_ROOT)
   return createLlamaDoor(cfg, root, {
     llamaHttpClient: makeLlamaHttpClient([]),
     extrasHttpClient,

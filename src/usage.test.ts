@@ -8,19 +8,11 @@ import { join } from 'node:path'
 import {
   chatRequest,
   createLlamaDoor,
-  LOCAL_LLAMA_SPEC,
+  llamaDoorConfig,
   makeLlamaHttpClient,
 } from './doorFixtures.ts'
 import type { CallRecord } from './provenance.ts'
-import {
-  collectLines,
-  config,
-  engine,
-  makeTestRoot,
-  route,
-  upstream,
-  writeEngineSpec,
-} from './test-support.ts'
+import { collectLines, makeTestRoot, upstream } from './test-support.ts'
 import { handleUsage, UsageTracker } from './usage.ts'
 
 const TEST_ROOT = makeTestRoot('engined-usage-test-')
@@ -206,14 +198,8 @@ test('handleUsage: "days" that is not a positive integer is a 400', () => {
 })
 
 test('a real chat call through the door shows up on GET /engined/v1/usage the same day', async () => {
-  const root = mkdtempSync(join(TEST_ROOT, 'usage-door-'))
-  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
-  const cfg = config({
-    engines: [engine({ id: 'local-llama', models_dir: '/data/gguf', models_max: 1 })],
-    upstreams: [upstream()],
-    routes: [route({ engine: 'local-llama', model: 'ornith', filename: 'x.gguf', role: 'chat' })],
-  })
-  const door = createLlamaDoor(cfg, root, {
+  const { cfg, root } = llamaDoorConfig(TEST_ROOT)
+  const door = createLlamaDoor({ ...cfg, upstreams: [upstream()] }, root, {
     llamaHttpClient: makeLlamaHttpClient([]),
     write: () => undefined,
     usageStateRoot: freshDir(),
