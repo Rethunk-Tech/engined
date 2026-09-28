@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import type { ObservedVersion } from './agentic.ts'
 import { type AgenticProbeRunner, verifiedVersionPath } from './agenticProbe.ts'
 import type { AgentTarget } from './agents.ts'
+import type { ObservedVersion } from './agentVersion.ts'
 import { EngineRegistry } from './engines.ts'
 import {
   AGENTIC,

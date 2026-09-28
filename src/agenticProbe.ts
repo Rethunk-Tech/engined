@@ -6,8 +6,8 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { launchScopedBaseUrl } from './agentic.ts'
 import type { AgentTarget } from './agents.ts'
+import { launchScopedBaseUrl } from './launchNonce.ts'
 import { stateDir } from './paths.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import type { Config } from './types.ts'

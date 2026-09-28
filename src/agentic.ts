@@ -19,8 +19,7 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { argvFromArgs } from './agenticArgs.ts'
 import {
@@ -29,13 +28,11 @@ import {
   type AgentTarget,
   agentCli,
   agentDelta,
-  resolveCursorBinary,
 } from './agents.ts'
 import type { ExecResult } from './exec.ts'
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
-import { errMessage } from './records.ts'
 import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome, sandboxLaunchHome } from './sandbox.ts'
 
 const STDERR_TAIL_CHARS = 300
@@ -62,28 +59,6 @@ export function renderEmptyMcpConfig(): string {
   mkdirSync(stateDir(), { recursive: true })
   writeFileSync(path, JSON.stringify({ mcpServers: {} }), 'utf8')
   return path
-}
-
-/**
- * A launch's single-use nonce: `crypto.randomUUID()` with its dashes stripped
- * -- 32 lowercase hex characters, the shape `main.ts`'s launch-scoped route
- * matches. Every agentic launch hands its child `/openai/v1/<nonce>/...`
- * rather than the plain surface, so a hop resolving back to an agentic engine
- * is refused instead of launching a further child. It lives here rather than
- * at either call site because there are two -- a caller's own dispatch and
- * the registry's round-trip probe -- and a launch minting nothing would be
- * handed the unscoped door.
- */
-export function mintLaunchNonce(): string {
-  return crypto.randomUUID().replace(/-/g, '')
-}
-
-/** Path of a launch-scoped OpenAI surface: `/openai/v1/<nonce>/...`. Capture 1 is the nonce; capture 2 is the rest of the path, including the leading slash. */
-export const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/
-
-/** The door URL handed to one agentic launch: this box, this listen port, this nonce. */
-export function launchScopedBaseUrl(port: number, nonce: string): string {
-  return `http://127.0.0.1:${port}/openai/v1/${nonce}`
 }
 
 interface AgenticSpawnOptions {
@@ -184,73 +159,6 @@ async function teeText(
     onChunk(text)
   }
   return all
-}
-
-export interface ObservedVersion {
-  ok: boolean
-  /** Present only when `ok` -- what the binary itself reports. */
-  version?: string
-  /** Present only when `!ok` -- why nothing could be observed. */
-  error?: string
-}
-
-/**
- * What an agent's binary reports RIGHT NOW, which a read-only floor proof
- * has to be checked against instead of the configured pin the moment
- * anything can update itself outside engined's control (agents.ts's
- * `resolveBinary`). An npm-pinned agent has no such gap -- `bunx` fetches
- * and pins in the same step, so its configured version already IS what
- * runs, and this returns that straight back with no process spawned at all.
- *
- * Never a model round trip: `--version` is a local, sub-second call with no
- * LLM in the loop, so `engines.ts`'s `agenticStatus` can afford to run this
- * on every status poll -- it is the (expensive, billed) probe re-run that is
- * gated on what this returns, never this itself.
- *
- * Keyed on the binary's realpath and mtime: a listing that finds the same
- * file as last time returns the last observation rather than spawning again.
- */
-const binaryVersionObservations = new Map<string, ObservedVersion>()
-
-export async function observeAgentVersion(
-  agent: string,
-  configuredVersion: string,
-  agenticSpawn: AgenticSpawn = defaultAgenticSpawn,
-): Promise<ObservedVersion> {
-  const cli = agentCli(agent)
-  if (cli?.resolveBinary === undefined) {
-    return { ok: true, version: configuredVersion }
-  }
-  let binary: string
-  try {
-    binary = agent === 'cursor' ? resolveCursorBinary() : cli.resolveBinary()
-  } catch (err) {
-    return { ok: false, error: errMessage(err) }
-  }
-  let key: string
-  try {
-    const resolved = realpathSync(binary)
-    key = `${resolved}:${statSync(resolved).mtimeMs}`
-  } catch (err) {
-    return { ok: false, error: errMessage(err) }
-  }
-  const cached = binaryVersionObservations.get(key)
-  if (cached !== undefined) {
-    return cached
-  }
-  let spawned: ExecResult
-  try {
-    spawned = await agenticSpawn([binary, '--version'], { cwd: tmpdir(), env: {}, input: '' })
-  } catch (err) {
-    return { ok: false, error: errMessage(err) }
-  }
-  const version = spawned.stdout.trim()
-  if (spawned.exitCode !== 0 || version === '') {
-    return { ok: false, error: `"${binary} --version" did not print a version` }
-  }
-  const observed: ObservedVersion = { ok: true, version }
-  binaryVersionObservations.set(key, observed)
-  return observed
 }
 
 interface BuildArgvInput {

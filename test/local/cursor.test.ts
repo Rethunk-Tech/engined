@@ -1,12 +1,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { rmSync } from 'node:fs'
-import {
-  defaultAgenticSpawn,
-  observeAgentVersion,
-  type RunAgenticResult,
-  runAgentic,
-} from '../../src/agentic.ts'
+import { defaultAgenticSpawn, type RunAgenticResult, runAgentic } from '../../src/agentic.ts'
 import { PROBE_ENV_ALLOWLIST, plantCursorPromptHook } from '../../src/agenticProbeHarness.ts'
+import { observeAgentVersion } from '../../src/agentVersion.ts'
 import {
   agentEnv,
   agenticIntegrityTests,

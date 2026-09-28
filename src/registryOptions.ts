@@ -1,7 +1,7 @@
 /** What an `EngineRegistry` is built with; everything past the engines root is injectable for tests. */
 
-import type { ObservedVersion } from './agentic.ts'
 import type { AgenticProbeRunner } from './agenticProbe.ts'
+import type { ObservedVersion } from './agentVersion.ts'
 import type { QueueFetch, ReleaseFetch } from './comfyQueue.ts'
 import type { DockerLifecycle, Probe } from './docker.ts'
 import type { Exec } from './exec.ts'

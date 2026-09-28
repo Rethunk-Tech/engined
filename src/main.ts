@@ -1,7 +1,6 @@
 /** The door: dual-family `Bun.serve`, Origin/Host check, OpenAI-shaped routes. */
 import { mkdirSync } from 'node:fs'
 import process from 'node:process'
-import { LAUNCH_NONCE_RE } from './agentic.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
@@ -41,6 +40,7 @@ import {
 } from './http.ts'
 import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
+import { LAUNCH_NONCE_RE } from './launchNonce.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'

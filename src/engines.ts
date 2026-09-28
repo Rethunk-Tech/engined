@@ -6,8 +6,8 @@
  */
 
 import process from 'node:process'
-import { observeAgentVersion } from './agentic.ts'
 import { AgenticGate } from './agenticGate.ts'
+import { observeAgentVersion } from './agentVersion.ts'
 import {
   COMFY_POLL_INTERVAL_MS,
   ComfyQueueWatch,

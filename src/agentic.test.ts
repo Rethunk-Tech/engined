@@ -526,11 +526,8 @@ test('runAgentic: opencode gets a fresh XDG home and a read-only Bun cache', asy
   })
 
   const [argv, opts] = calls[0] as [string[], { env: Record<string, string> }]
-  const home = opts.env.HOME
-  const cache = opts.env.BUN_INSTALL
-  if (home === undefined || cache === undefined) {
-    throw new Error('sandbox environment omitted HOME or BUN_INSTALL')
-  }
+  const home = requireEnv(opts.env, 'HOME')
+  const cache = requireEnv(opts.env, 'BUN_INSTALL')
   expect(opts.env.XDG_CONFIG_HOME).toBe(`${home}/config`)
   expect(opts.env.XDG_DATA_HOME).toBe(`${home}/data`)
   expect(opts.env.XDG_STATE_HOME).toBe(`${home}/state`)
@@ -760,3 +757,11 @@ test('defaultAgenticSpawn: aborting kills the real worker process, not just the 
 
   expect(settled).toBe(justAfterKill)
 }, 10_000)
+
+function requireEnv(env: Record<string, string | undefined>, key: string): string {
+  const value = env[key]
+  if (value === undefined) {
+    throw new Error(`sandbox environment omitted ${key}`)
+  }
+  return value
+}

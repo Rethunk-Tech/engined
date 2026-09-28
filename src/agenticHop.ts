@@ -5,13 +5,7 @@
  * SSE shape a streaming caller gets back.
  */
 
-import {
-  defaultAgenticSpawn,
-  launchScopedBaseUrl,
-  mintLaunchNonce,
-  type RunAgenticResult,
-  runAgentic,
-} from './agentic.ts'
+import { defaultAgenticSpawn, type RunAgenticResult, runAgentic } from './agentic.ts'
 import { claudeModelEnv, resolveRedirect } from './agenticRedirect.ts'
 import type { HopResult } from './chain.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -23,6 +17,7 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from './http.ts'
+import { launchScopedBaseUrl, mintLaunchNonce } from './launchNonce.ts'
 import { isRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { loadSpec } from './spec.ts'
