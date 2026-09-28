@@ -832,7 +832,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 env = ["HOME"]
 `
 

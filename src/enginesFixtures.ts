@@ -95,16 +95,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
-`
-
-/** No `{agent_version}` placeholder: loads even when the engine configures none, unlike the shipped spec. */
-export const AGENTIC_NO_VERSION_PLACEHOLDER = `
-kind = "agentic-cli"
-upstream = "optional"
-agent = "claude"
-serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code", "-p"]
 `
 
 /** Mirrors engines/chatterbox-multi and engines/kokoro's real shape: the image's own CMD is already correct, so command is deliberately empty. */

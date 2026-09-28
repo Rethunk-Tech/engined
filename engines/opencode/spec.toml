@@ -6,21 +6,12 @@ agent = "opencode"
 # The door forwards this agent's answer as it prints: `text` events over `run --format json`.
 streaming = true
 serves = ["/openai/v1/chat/completions"]
-# NOT the launch line -- src/spec.ts checks this array at parse (command[0]
-# must be the {bunx} placeholder, command[1] must be this agent's own
-# package, and assertNoForbiddenFlags runs over it too) and then it is
-# discarded. src/agentic.ts's buildArgv constructs the real argv from
-# scratch on every call.
-#
-# `run` is opencode's equivalent of `claude -p`, and it is a subcommand
-# rather than a flag: on `opencode run`, `-p` means `--password`. The JSON
-# format goes on in code beside it, the same as claude's.
-#
-# There is NO read-only floor in this argv, and that is not an omission:
-# opencode has no tool or permission flag to be given one with. Its floor is
-# the bwrap sandbox in src/sandbox.ts, applied in code because this agent is
-# declared `sandbox` in src/agents.ts. A spec cannot opt out of it.
-command = ["{bunx}", "opencode-ai@{agent_version}", "run"]
+# `run` is opencode's equivalent of `claude -p`, launched by src/agentic.ts's
+# buildArgv (src/agents.ts says the argv). There is NO read-only floor in
+# that argv, and that is not an omission: opencode has no tool or permission
+# flag to be given one with. Its floor is the bwrap sandbox in
+# src/sandbox.ts, applied in code because this agent is declared `sandbox`
+# in src/agents.ts. A spec cannot opt out of it.
 # PATH is here and absent from claude's: opencode resolves and executes its
 # own provider package, so a child with no PATH cannot start one.
 env = ["HOME", "PATH", "BUN_INSTALL", "BUN_TMPDIR"]

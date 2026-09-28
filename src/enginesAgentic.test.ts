@@ -6,7 +6,6 @@ import type { ObservedVersion } from './agentVersion.ts'
 import { EngineRegistry } from './engines.ts'
 import {
   AGENTIC,
-  AGENTIC_NO_VERSION_PLACEHOLDER,
   initTestRoot,
   newEnginesRoot,
   registry,
@@ -145,7 +144,7 @@ function agenticEngine(id: string, version: string): EngineEntry {
 describe('agentic engines: unproved by default', () => {
   test('no agent_version configured is unavailable, naming the engine', async () => {
     const root = newEnginesRoot()
-    writeEngineSpec(root, 'agentic-verify-noversion', AGENTIC_NO_VERSION_PLACEHOLDER)
+    writeEngineSpec(root, 'agentic-verify-noversion', AGENTIC)
     const reg = registry(config({ engines: [engine({ id: 'agentic-verify-noversion' })] }), root)
     const listed = (await reg.list()).engines.find((e) => e.id === 'agentic-verify-noversion')
     expect(listed?.state).toBe('unavailable')

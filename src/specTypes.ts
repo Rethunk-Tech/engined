@@ -18,7 +18,6 @@ interface SpecCommon {
   serves: string[]
   /** Allowlist. A `--user` unit hands every child the manager's environment. */
   env: string[]
-  command: string[]
   /**
    * How this engine gets an upstream when a route names none. Required on
    * every spec: a spec-full engine has no other source of truth for its
@@ -30,6 +29,7 @@ interface SpecCommon {
 
 export interface ContainerSpec extends SpecCommon {
   kind: Exclude<EngineKind, 'agentic-cli'>
+  command: string[]
   /**
    * Absent on the built-in spec a spec-less engine takes (one declaring
    * `kind` in config, e.g. a pure `openai-http` proxy) -- it launches

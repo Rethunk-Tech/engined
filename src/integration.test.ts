@@ -126,7 +126,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@1.0.0", "-p"]
 `
 
 const COMFY_SPEC = `

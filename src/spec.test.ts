@@ -80,13 +80,17 @@ describe('shipped specs', () => {
   test('claude resolves clean', () => {
     const loaded = loadShipped({ agent_version: '1.2.3' })
     expect(loaded.spec.kind).toBe('agentic-cli')
-    expect(loaded.spec.command).toEqual([BUNX, '@anthropic-ai/claude-code@1.2.3', '-p'])
+    if (loaded.spec.kind === 'agentic-cli') {
+      expect(loaded.spec.agent).toBe('claude')
+    }
   })
 
   test('cursor resolves clean', () => {
     const loaded = loadShipped({ id: 'cursor', agent_version: '2026.08.28-50f0823' })
     expect(loaded.spec.kind).toBe('agentic-cli')
-    expect(loaded.spec.command).toEqual([BUNX, 'cursor-agent@2026.08.28-50f0823', '-p'])
+    if (loaded.spec.kind === 'agentic-cli') {
+      expect(loaded.spec.agent).toBe('cursor')
+    }
   })
 
   test('whisper as shipped resolves clean, and keeps its POST probe and accept range', () => {
@@ -252,7 +256,7 @@ test('missing spec directory is fatal, naming the file', () => {
 test('an unresolved placeholder is fatal, naming it', () => {
   const root = specDir(
     'x',
-    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "{nope}"]\n`,
+    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = ["{nope}"]\n`,
   )
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
@@ -275,10 +279,7 @@ test('spec_dir override replaces wholesale: an omitted field is absent, not inhe
 })
 
 test('a port key anywhere in a spec is fatal, naming it', () => {
-  const root = specDir(
-    'x',
-    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}"]\nport = 8080\n`,
-  )
+  const root = specDir('x', `kind = "agentic-cli"\nagent = "claude"\nserves = []\nport = 8080\n`)
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow('port')
@@ -287,7 +288,7 @@ test('a port key anywhere in a spec is fatal, naming it', () => {
 test('a forbidden flag reintroduced by a spec_dir override is fatal', () => {
   const root = specDir(
     'x',
-    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "--dangerously-skip-permissions"]\n`,
+    `kind = "stt"\nupstream = "self"\nimage = "i"\nobtain = "pull"\nserves = []\ncommand = ["--dangerously-skip-permissions"]\n\n[ready]\npath = "/health"\nstatus = 200\n`,
   )
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
@@ -295,10 +296,7 @@ test('a forbidden flag reintroduced by a spec_dir override is fatal', () => {
 })
 
 test('an agentic spec carrying a container-only key is fatal, naming the key', () => {
-  const root = specDir(
-    'x',
-    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}"]\nimage = "nope"\n`,
-  )
+  const root = specDir('x', `kind = "agentic-cli"\nagent = "claude"\nserves = []\nimage = "nope"\n`)
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow('"image"')
@@ -316,22 +314,19 @@ test('streaming is valid on any kind now, not just tts', () => {
   expect(loaded.spec.streaming).toBe(true)
 })
 
-test('command[0] redirected away from {bunx} is fatal', () => {
+test('an agentic spec carrying "command" is refused as an unknown key', () => {
   const root = specDir(
     'x',
     `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["/usr/bin/evil"]\n`,
   )
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
-  ).toThrow('{bunx}')
+  ).toThrow('unrecognised key "command"')
 })
 
 test.each([
   ['a container spec', `kind = "stt"\nimage = "i"\nobtain = "pull"\nserves = []\ncommand = []\n`],
-  [
-    'an agentic spec',
-    `kind = "agentic-cli"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]\n`,
-  ],
+  ['an agentic spec', `kind = "agentic-cli"\nagent = "claude"\nserves = []\n`],
 ])('%s with no upstream trait is fatal', (_label, toml) => {
   const root = specDir('x', toml)
   expect(() =>
@@ -353,7 +348,7 @@ test.each([
   ],
   [
     'a top-level key on an agentic spec',
-    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\ncommand = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}"]\ntotally_bogus_key = 1\n`,
+    `kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\ntotally_bogus_key = 1\n`,
     'totally_bogus_key',
   ],
   [

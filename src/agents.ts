@@ -93,15 +93,8 @@ function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
  */
 export type FloorKind = 'flags' | 'sandbox'
 
-export interface AgentCli {
+interface AgentCliCommon {
   id: string
-  /**
-   * The npm package, without a version -- the pin is config, never code.
-   * For an agent declaring `resolveBinary` below, this is nominal only: kept
-   * so `spec.ts`'s parse-time `command[1]` check still has a name to match
-   * against, never used to build a real launch.
-   */
-  pkg: string
   floor: FloorKind
   /**
    * The wire shape this agent's own process speaks -- what a redirected
@@ -134,18 +127,20 @@ export interface AgentCli {
    * base URL and a key in the env, already handled as a remote redirect.
    */
   configure?: (upstream: AgentTarget) => { env: Record<string, string>; cleanup: () => void }
-  /**
-   * Present only for an agent with no npm distribution at all -- absent
-   * means today's path is unchanged: `bunx <pkg>@<agentVersion>` both
-   * fetches and pins the binary in one step. Present, `bunx` never runs for
-   * this agent; this returns the absolute path to invoke instead, resolved
-   * fresh on every call so a self-update between launches is picked up
-   * rather than cached stale. Throws, naming what it looked for and where,
-   * rather than ever falling back to a bare command name a spawned child's
-   * own (possibly narrower) PATH might fail to find.
-   */
-  resolveBinary?: () => string
 }
+
+/**
+ * An agent either names an npm package -- `bunx <pkg>@<agentVersion>` fetches
+ * and pins the binary in one step -- or resolves an already-installed binary
+ * itself, never both. `resolveBinary`, present only for an agent with no npm
+ * distribution at all, returns the absolute path to invoke instead, resolved
+ * fresh on every call so a self-update between launches is picked up rather
+ * than cached stale. Throws, naming what it looked for and where, rather than
+ * ever falling back to a bare command name a spawned child's own (possibly
+ * narrower) PATH might fail to find.
+ */
+export type AgentCli = AgentCliCommon &
+  ({ pkg: string; resolveBinary?: undefined } | { pkg?: undefined; resolveBinary: () => string })
 
 export interface AgentTarget {
   /** An OpenAI-compatible base, normally engined's own door. */
@@ -519,12 +514,6 @@ const AGENTS: Record<string, AgentCli> = {
   },
   cursor: {
     id: 'cursor',
-    // Nominal, for spec.ts's parse-time check only: `bunx cursor-agent@<pin>`
-    // resolves to an unrelated third-party npm package ("Task sequence
-    // creator for Cursor AI agents", zalab-inc, versions 1.0.0-1.0.3 only) --
-    // measured, and no `@anysphere/cursor-agent` or `@cursor/cli` package
-    // exists either. `resolveBinary` below is the real launch path.
-    pkg: 'cursor-agent',
     floor: 'flags',
     resolveBinary: resolveCursorBinary,
     // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself

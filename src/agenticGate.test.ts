@@ -35,7 +35,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "cursor"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "cursor-agent@{agent_version}", "-p"]
 `,
   )
   let spawns = 0
@@ -72,7 +71,6 @@ test('a pin added while the probe runs survives the prune', async () => {
     kind: 'agentic-cli',
     agent: 'opencode',
     serves: ['/openai/v1/chat/completions'],
-    command: ['echo'],
   } as AgenticSpec
   const gate = new AgenticGate({
     runner: () => {

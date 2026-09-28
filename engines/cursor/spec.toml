@@ -12,15 +12,6 @@ agent = "cursor"
 # The door forwards this agent's answer as it prints: `assistant` text parts over `--output-format stream-json`.
 streaming = true
 serves = ["/openai/v1/chat/completions"]
-# NOT the launch line -- src/spec.ts checks this array at parse (command[0]
-# must be the {bunx} placeholder, command[1] must be exactly this agent's
-# package at {agent_version}, and assertNoForbiddenFlags runs over it too)
-# and then it is discarded. src/agentic.ts's buildArgv constructs the real
-# argv from scratch on every call -- bunx path, package@pin, then whatever
-# src/agents.ts says this agent's launch is, which for cursor is "-p", the
-# stream-json output format and the read-only floor ("--mode plan --trust")
-# -- and never reads this field.
-command = ["{bunx}", "cursor-agent@{agent_version}", "-p"]
 # PATH is here, unlike claude's: cursor's floor is a mode, not a tool
 # allowlist, so its shell tool stays reachable under --mode plan --
 # measured, with no PATH a shell command it runs comes back

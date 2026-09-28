@@ -55,7 +55,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "claude"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "@anthropic-ai/claude-code@{agent_version}", "-p"]
 env = ["HOME"]
 `
 
@@ -64,7 +63,6 @@ kind = "agentic-cli"
 upstream = "optional"
 agent = "opencode"
 serves = ["/openai/v1/chat/completions"]
-command = ["{bunx}", "opencode-ai@{agent_version}", "run"]
 env = ["HOME"]
 `
 

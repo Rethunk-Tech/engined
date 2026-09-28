@@ -56,12 +56,13 @@ const CONTAINER_ONLY_KEYS = [
 const PORT_KEYS = new Set(['port', 'ports', 'expose'])
 
 /** Keys both dialects read. */
-const COMMON_KEYS = ['kind', 'upstream', 'serves', 'env', 'command', 'streaming'] as const
+const COMMON_KEYS = ['kind', 'upstream', 'serves', 'env', 'streaming'] as const
 
 const AGENTIC_KEYS: ReadonlySet<string> = new Set([...COMMON_KEYS, 'agent'])
 const CONTAINER_KEYS: ReadonlySet<string> = new Set([
   ...COMMON_KEYS,
   ...CONTAINER_ONLY_KEYS,
+  'command',
   'images_workflow',
   'images_edit_workflow',
 ])
@@ -92,9 +93,11 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
   const subs = buildSubs(engine, opts, specDir)
   spec = substituteDeep(spec, subs, file)
 
-  assertNoForbiddenFlags(spec.command, file)
-  if (isContainerSpec(spec) && spec.entrypoint) {
-    assertNoForbiddenFlags(spec.entrypoint, file)
+  if (isContainerSpec(spec)) {
+    assertNoForbiddenFlags(spec.command, file)
+    if (spec.entrypoint) {
+      assertNoForbiddenFlags(spec.entrypoint, file)
+    }
   }
 
   return { spec, source: specDir }
@@ -217,29 +220,11 @@ function parseAgentic(raw: Record<string, unknown>, file: string): AgenticSpec {
       file,
     )
   }
-  const command = requireStringArray(raw.command, 'command', file)
-  if (command[0] !== '{bunx}') {
-    throw new ParseError(
-      'command[0] of an agentic-cli spec must be the {bunx} placeholder engined resolves',
-      file,
-    )
-  }
-  // The launch argv is built from scratch in agentic.ts and this array is
-  // discarded, so this is the only moment a spec pointing the pin at some
-  // other package can be caught at all.
-  const [, pkg] = command
-  if (pkg === undefined || !(pkg === agent.pkg || pkg.startsWith(`${agent.pkg}@`))) {
-    throw new ParseError(
-      `command[1] of an agent "${agent.id}" spec must be the "${agent.pkg}" package, never another`,
-      file,
-    )
-  }
   return {
     kind: 'agentic-cli',
     agent: agent.id,
     serves: requireStringArray(raw.serves, 'serves', file),
     env: raw.env === undefined ? [] : requireStringArray(raw.env, 'env', file),
-    command,
     upstream: requireUpstreamTrait(raw, file),
     streaming: raw.streaming === true,
   }

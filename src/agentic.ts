@@ -183,10 +183,8 @@ interface BuildArgvInput {
 }
 
 /**
- * Built from scratch on every call, so the spec's own `command` array is
- * never what runs — it exists only so a spec that tried to redirect the
- * binary fails at parse. A `flags` agent's floor is prepended here and no
- * config entry or `spec_dir` override can reach it.
+ * Built from scratch on every call. A `flags` agent's floor is prepended
+ * here and no config entry or `spec_dir` override can reach it.
  *
  * The pinned-package prefix is only for an agent `bunx` actually fetches:
  * one with `resolveBinary` (agents.ts) instead resolves its own already-
