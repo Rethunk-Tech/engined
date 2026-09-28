@@ -299,12 +299,7 @@ function createDoorContext(
     lifecycle,
     launchNonces,
     presetHostPath: doorOpts.llamaPresetHostPath,
-    inventory:
-      registryOpts.inventory ??
-      new Inventory({
-        fetch: doorOpts.inventoryHttpClient,
-        secretExec: doorOpts.secretExec,
-      }),
+    inventory: registryOpts.inventory ?? new Inventory({ secretExec: doorOpts.secretExec }),
   })
   return {
     getConfig,
@@ -318,7 +313,7 @@ function createDoorContext(
     agenticInFlight: 0,
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
-    usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot, now: doorOpts.usageNow }),
+    usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot }),
   }
 }
 

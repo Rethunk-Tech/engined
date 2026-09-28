@@ -37,8 +37,6 @@ export async function observeAgentVersion(
   agent: string,
   configuredVersion: string,
   agenticSpawn: AgenticSpawn = defaultAgenticSpawn,
-  /** Test-only: stands in for `resolveCursorBinary`/`cli.resolveBinary`, which otherwise resolve a real installed binary this door cannot fake a replacement for. */
-  resolveBinary?: () => string,
 ): Promise<ObservedVersion> {
   const cli = agentCli(agent)
   if (cli?.resolveBinary === undefined) {
@@ -46,7 +44,7 @@ export async function observeAgentVersion(
   }
   let binary: string
   try {
-    binary = resolveBinary?.() ?? cli.resolveBinary()
+    binary = cli.resolveBinary()
   } catch (err) {
     return { ok: false, error: errMessage(err) }
   }

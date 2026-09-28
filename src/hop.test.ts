@@ -45,14 +45,12 @@ test('a local openai-http hop is proxied with no door fields', async () => {
   expect(body).not.toHaveProperty('max_egress')
 })
 
-test('a local llama chat hop carries x-engined-queue-ms, 0 for an uncontended request', async () => {
+// The exact value is the router's to prove (llama.test.ts, on an injected
+// clock); this only proves the chat path carries the header.
+test('a local llama chat hop carries x-engined-queue-ms', async () => {
   const { cfg, root } = llamaDoorConfig(TEST_ROOT)
-  // An injected clock, not real timers: nothing here waits on anything, so a
-  // real-timer version of this assertion would be measuring `ensureStarted`'s
-  // own cold-start cost rather than proving the header is wired at all.
   const door = createLlamaDoor(cfg, root, {
     llamaHttpClient: makeLlamaHttpClient([]),
-    llamaNow: () => 0,
     write: () => undefined,
   })
   const res = await door.fetch(
@@ -62,7 +60,7 @@ test('a local llama chat hop carries x-engined-queue-ms, 0 for an uncontended re
     }),
   )
   expect(res.status).toBe(200)
-  expect(res.headers.get('x-engined-queue-ms')).toBe('0')
+  expect(res.headers.get('x-engined-queue-ms')).toMatch(/^\d+$/)
 })
 
 test('a model-less SSE hop delivers the first chunk before the upstream stream ends', async () => {

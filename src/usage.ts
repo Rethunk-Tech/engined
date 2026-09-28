@@ -57,7 +57,6 @@ export interface UsageOptions {
   now?: () => number
   /** Overrides `stateDir()/usage`; a test redirects this so nothing writes under the operator's state. */
   stateRoot?: string
-  flushIntervalMs?: number
   /** Defaults to `process.stderr`; a test captures the one-line corrupt-file notice instead. */
   log?: (line: string) => void
 }
@@ -130,7 +129,7 @@ export class UsageTracker {
 
   constructor(opts: UsageOptions = {}) {
     this.opts = opts
-    this.timer = setInterval(() => this.flush(), opts.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS)
+    this.timer = setInterval(() => this.flush(), DEFAULT_FLUSH_INTERVAL_MS)
     // A flush timer must never be the reason a process (or a test) hangs
     // after everything else it was doing has finished.
     this.timer.unref?.()

@@ -32,14 +32,8 @@ export interface DoorOptions {
   secretExec?: SecretExec
   /** Defaults to the real `process.env`; a test overrides it so a planted ambient secret has somewhere deterministic to not leak from. */
   agenticAmbientEnv?: NodeJS.ProcessEnv
-  /** Defaults to the real `fetch`; a test overrides it so catalog refresh never dials a provider. */
-  inventoryHttpClient?: HttpClient
   /** Overrides where `src/usage.ts` persists its per-day counters; a test redirects this so nothing writes under the operator's state. */
   usageStateRoot?: string
-  /** Overrides `Date.now` for `src/usage.ts`'s own day-key math; a test pins this to cross a day boundary deterministically. */
-  usageNow?: () => number
-  /** Overrides every `LlamaRouter`'s clock; a test injects one to make `queueMs`/`x-engined-queue-ms` deterministic against real-timer jitter. */
-  llamaNow?: () => number
 }
 
 /**
@@ -156,7 +150,6 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
     readyTimeoutS: engine.ready_timeout_s,
     httpClient: ctx.doorOpts.llamaHttpClient,
     presetHostPath: ctx.doorOpts.llamaPresetHostPath,
-    now: ctx.doorOpts.llamaNow,
   })
   ctx.llamaRouters.set(engine.id, router)
   return router
