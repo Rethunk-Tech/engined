@@ -212,7 +212,10 @@ export async function handleExtras(
     return await proxyExtras(
       req,
       {
-        baseUrl: `http://${privateUrl}`,
+        baseUrl: () => {
+          const current = ctx.lifecycle.getStatus(engineId).private_url
+          return current === null ? null : `http://${current}`
+        },
         enginePath: `/${verb}`,
         hold:
           modelId === undefined

@@ -29,7 +29,7 @@ test('POST /tokenize with no model in the body gets the resident injected', asyn
   const { client, calls } = recordingClient(() => Response.json({ tokens: [1, 2, 3] }))
   const res = await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize' },
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
     'ornith',
     client,
   )
@@ -48,7 +48,7 @@ test('a model already present in the body is never overridden', async () => {
     method: 'POST',
     body: JSON.stringify({ messages: [], model: 'explicit' }),
   })
-  await proxyExtras(req, { baseUrl: BASE, enginePath: '/apply-template' }, 'ornith', client)
+  await proxyExtras(req, { baseUrl: () => BASE, enginePath: '/apply-template' }, 'ornith', client)
 
   const parsed = JSON.parse(calls[0]?.init?.body as string) as { model?: string }
   expect(parsed.model).toBe('explicit')
@@ -61,7 +61,12 @@ test('an oversized body is refused with the shared 413, never reaching the upstr
     body: JSON.stringify({ content: 'hi' }),
     headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
   })
-  const res = await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, 'ornith', client)
+  const res = await proxyExtras(
+    req,
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
+    'ornith',
+    client,
+  )
 
   expect(res.status).toBe(413)
   expect(calls.length).toBe(0)
@@ -77,7 +82,7 @@ test('an oversized passthrough body is refused with the shared 413 before any le
   const res = await proxyExtras(
     req,
     {
-      baseUrl: BASE,
+      baseUrl: () => BASE,
       enginePath: '/tokenize',
       hold: (work) => {
         leases += 1
@@ -104,7 +109,7 @@ test('the upstream response body passes through unmodified, SSE included', async
   })
   const res = await proxyExtras(
     req,
-    { baseUrl: BASE, enginePath: '/apply-template' },
+    { baseUrl: () => BASE, enginePath: '/apply-template' },
     'ornith',
     client,
   )
@@ -117,7 +122,7 @@ test('no resident model: injectable endpoints are forwarded without a model, let
   const { client, calls } = recordingClient(() => new Response(null, { status: 400 }))
   const res = await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize' },
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
     null,
     client,
   )
@@ -166,7 +171,7 @@ test('an extras proxy whose upstream fetch throws is JSON 503', async () => {
     Promise.reject(new TypeError('Unable to connect. Is the computer able to access the url?'))
   const res = await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize' },
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
     'ornith',
     client,
   )
@@ -192,12 +197,28 @@ test('proxyExtras holds the injected lease across the upstream fetch', async () 
   }
   await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize', hold },
+    { baseUrl: () => BASE, enginePath: '/tokenize', hold },
     'ornith',
     client,
   )
   expect(saw).toBe(1)
   expect(depth).toBe(0)
+})
+
+test('the engine address is read inside the lease, where a recreate may have moved it', async () => {
+  let address = 'http://127.0.0.1:1111'
+  const { client, calls } = recordingClient(() => Response.json({ tokens: [] }))
+  const hold = (work: () => Promise<Response>) => {
+    address = 'http://127.0.0.1:2222'
+    return work()
+  }
+  await proxyExtras(
+    tokenizeHiRequest(),
+    { baseUrl: () => address, enginePath: '/tokenize', hold },
+    'ornith',
+    client,
+  )
+  expect(calls[0]?.url).toBe('http://127.0.0.1:2222/tokenize')
 })
 
 test('proxyExtras forwards the request abort signal to the upstream client', async () => {
@@ -213,7 +234,7 @@ test('proxyExtras forwards the request abort signal to the upstream client', asy
     body: JSON.stringify({ content: 'hi' }),
     signal: ac.signal,
   })
-  await proxyExtras(req, { baseUrl: BASE, enginePath: '/tokenize' }, 'ornith', client)
+  await proxyExtras(req, { baseUrl: () => BASE, enginePath: '/tokenize' }, 'ornith', client)
   expect(signal?.aborted).toBe(true)
 })
 
@@ -222,7 +243,7 @@ test('proxyExtras caps an error body at ENGINE_ERROR_CHARS', async () => {
   const { client } = recordingClient(() => new Response(body, { status: 500 }))
   const res = await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize' },
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
     'ornith',
     client,
   )
@@ -235,7 +256,7 @@ test('proxyExtras caps a success body', async () => {
   const { client } = recordingClient(() => new Response(over, { status: 200 }))
   const res = await proxyExtras(
     tokenizeHiRequest(),
-    { baseUrl: BASE, enginePath: '/tokenize' },
+    { baseUrl: () => BASE, enginePath: '/tokenize' },
     'ornith',
     client,
   )
