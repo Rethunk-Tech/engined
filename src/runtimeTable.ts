@@ -21,6 +21,12 @@ export interface RuntimeStatus {
    * (`reconcile`, `stop`, `getStatus`) -- there is nothing for them to answer.
    */
   launched?: boolean
+  /**
+   * Set only on the one return whose call adopted a container an unclean exit
+   * left running. The caller alone knows which config the spec it passed came
+   * from, and that config is what the adopted container is proven to run.
+   */
+  adopted?: boolean
 }
 
 export interface Runtime {

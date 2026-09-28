@@ -203,12 +203,10 @@ export class DockerLifecycle {
     // and starting on faith destroys a container this process never started
     // but an earlier one did. A reconcile decides both, and only what it
     // leaves `running` is handed back without a fresh start.
-    if (
-      (await this.reconcile(id, spec, opts.idleStopSeconds)).state === 'running' &&
-      rt.hostPort !== null
-    ) {
+    const reconciled = await this.reconcile(id, spec, opts.idleStopSeconds)
+    if (reconciled.state === 'running' && rt.hostPort !== null) {
       this.refreshIdle(rt, opts.idleStopSeconds)
-      return { ...this.table.status(id), launched: false }
+      return { ...this.table.status(id), launched: false, adopted: reconciled.adopted }
     }
     if (rt.startPromise !== null) {
       // Joining someone else's in-flight start, not running doStart myself --
@@ -265,7 +263,9 @@ export class DockerLifecycle {
     }
     if (spec !== undefined && !rt.adoptChecked) {
       rt.adoptChecked = true
-      await this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS)
+      if (await this.adopt(rt, spec, idleStopSeconds ?? ADOPTED_IDLE_STOP_SECONDS)) {
+        return { ...this.table.status(id), adopted: true }
+      }
     }
     return this.table.status(id)
   }
@@ -291,10 +291,10 @@ export class DockerLifecycle {
     rt: Runtime,
     spec: RunnableContainerSpec,
     idleStopSeconds: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const found = await findOrphan(this.exec, rt.containerName)
     if (found === null) {
-      return
+      return false
     }
     if (found.digest !== specDigest(spec)) {
       this.declineAdoption(
@@ -303,23 +303,24 @@ export class DockerLifecycle {
           ? 'it carries no spec digest, so what it was launched from cannot be established'
           : 'its launch does not match the spec now in force',
       )
-      return
+      return false
     }
     const hostPort = parseHostPort(hostBindings(found.ports))
     if (hostPort === null) {
       this.declineAdoption(rt, 'docker publishes no host binding for it')
-      return
+      return false
     }
     // One attempt, not the start-path poll: a container that has been up long
     // enough to be an orphan is either answering now or is not worth keeping,
     // and this runs on the GET that every operator poll makes.
     if (!(await this.pollReady(hostPort, spec.ready, Date.now()))) {
       this.declineAdoption(rt, `${spec.ready.path} did not answer`)
-      return
+      return false
     }
     rt.hostPort = hostPort
     this.table.transition(rt, 'running')
     this.refreshIdle(rt, idleStopSeconds)
+    return true
   }
 
   private declineAdoption(rt: Runtime, reason: string): void {

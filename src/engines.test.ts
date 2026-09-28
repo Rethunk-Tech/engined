@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import process from 'node:process'
 import type { QueueSnapshot } from './comfyQueue.ts'
 import { DockerLifecycle, type Probe } from './docker.ts'
-import { buildRunArgs } from './dockerArgs.ts'
+import { buildRunArgs, specDigest } from './dockerArgs.ts'
 import { EngineRegistry } from './engines.ts'
 import {
   initTestRoot,
@@ -1219,32 +1219,38 @@ describe('a running engine whose config generation has been replaced', () => {
     )
   })
 
-  test('says so for a container this registry adopted rather than launched', async () => {
+  test('says so for an adopted container when config changed between adoption and its first start', async () => {
+    // The orphan an unclean exit left, launched from exactly the spec in force
+    // at adoption. Filled in once the registry has resolved that spec.
+    const orphan = { digest: '' }
+    const base = comfyExec()
+    const exec: Exec = (args) =>
+      args[0] === 'ps'
+        ? Promise.resolve({
+            stdout: `engined-comfy\t${orphan.digest}\t127.0.0.1:41000->8188/tcp\n`,
+            stderr: '',
+            exitCode: 0,
+          })
+        : base(args)
     await withComfyRegistry(
       {
-        exec: comfyExec(),
+        exec,
         cfg: comfyConfigWith(5),
         queueFetch: () => Promise.resolve(BUSY_QUEUE),
         comfyPollIntervalMs: 10_000,
       },
-      async (launcher, lifecycle) => {
-        await launcher.start('comfy')
-        // A second registry over the same lifecycle finds the container
-        // already up, as a restarted engined does: every start says launched false.
-        const adopter = new EngineRegistry(comfyConfigWith(5), {
-          enginesRoot: ENGINES_ROOT,
-          bunx: BUNX,
-          lifecycle,
-          queueFetch: () => Promise.resolve(BUSY_QUEUE),
-          comfyPollIntervalMs: 10_000,
-        })
-        try {
-          expect((await adopter.start('comfy')).launched).toBe(false)
-          adopter.reload(comfyConfigWith(6))
-          expect(adopter.get('comfy')?.superseded).toContain('/engined/v1/engines/comfy/stop')
-        } finally {
-          await adopter.shutdown()
+      async (reg) => {
+        const spec = reg.specFor('comfy')
+        if (spec === undefined || !isContainerSpec(spec)) {
+          throw new Error('comfy resolved to no container spec')
         }
+        orphan.digest = specDigest(spec)
+        // The status read every operator poll makes is what adopts it.
+        expect((await reg.list()).engines.find((e) => e.id === 'comfy')?.state).toBe('running')
+
+        reg.reload(comfyConfigWith(6))
+        expect((await reg.start('comfy')).launched).toBe(false)
+        expect(reg.get('comfy')?.superseded).toContain('/engined/v1/engines/comfy/stop')
       },
     )
   })

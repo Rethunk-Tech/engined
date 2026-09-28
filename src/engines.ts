@@ -60,9 +60,9 @@ export class EngineRegistry {
   private readonly inventoryWatch: InventoryWatch
   /**
    * The shape each running container was started under, set when this registry
-   * starts one. A later start overwrites it and only a running engine is ever
-   * asked, so a leftover entry for something stopped cannot report a
-   * supersession that is not there.
+   * starts or adopts one. A later launch overwrites it and only a running
+   * engine is ever asked, so a leftover entry for something stopped cannot
+   * report a supersession that is not there.
    */
   private readonly launchedShape = new Map<string, string>()
   private config: Config
@@ -214,6 +214,17 @@ export class EngineRegistry {
   }
 
   /**
+   * `shape` is built from the config in force when the call that proved the
+   * container was made, not when it returns: a reload in between would
+   * otherwise record the new config for a container still running the old.
+   */
+  private recordShape(id: string, proved: boolean | undefined, shape: string): void {
+    if (proved === true) {
+      this.launchedShape.set(id, shape)
+    }
+  }
+
+  /**
    * `syncStatus` for a container engine's non-running case is superseded by
    * `lifecycle.probe`, which checks image *and* artifact presence read-only
    * (never starts a container) so a never-started engine with either missing
@@ -235,14 +246,11 @@ export class EngineRegistry {
       return this.syncStatus(entry)
     }
     const { engine } = entry
-    return this.inventoryWatch.withFix(
-      statusFrom({
-        engine,
-        spec,
-        runtime: await this.lifecycle.probe(engine.id, spec, source, engine.idle_stop_seconds),
-        routes: this.config.routes,
-      }),
-    )
+    const { routes } = this.config
+    const shape = engineShape(engine, spec, routes)
+    const runtime = await this.lifecycle.probe(engine.id, spec, source, engine.idle_stop_seconds)
+    this.recordShape(engine.id, runtime.adopted, shape)
+    return this.inventoryWatch.withFix(statusFrom({ engine, spec, runtime, routes }))
   }
 
   async list(): Promise<EnginesResponse> {
@@ -327,13 +335,14 @@ export class EngineRegistry {
       writeLocalPreset(this.presetHostPathFor(entry.engine.id), entry.engine, this.config.routes)
     }
     const spec = specForModel(entry.spec.spec, this.config.routes, id, model)
+    const shape = engineShape(entry.engine, entry.spec.spec, this.config.routes)
     await this.residency.stopForSwitch(id, model)
     this.residency.enter(id)
     try {
       // `launched` is the lifecycle start lock's own answer to "did this call
       // spawn it", not a pre-read snapshot -- two concurrent calls on one cold
       // engine resolve to exactly one `true`.
-      const { launched } = await this.lifecycle.start(id, spec, {
+      const { launched, adopted } = await this.lifecycle.start(id, spec, {
         idleStopSeconds: entry.engine.idle_stop_seconds,
         readyTimeoutS: entry.engine.ready_timeout_s,
         specSource: entry.spec.source,
@@ -341,11 +350,7 @@ export class EngineRegistry {
       this.residency.started(id, model)
       // A start that found the container already up did not apply this
       // shape; recording it would hide the restart the old one still needs.
-      // A container adopted at boot is the exception: every start finds it up,
-      // and adoption already proved it runs the spec now in force.
-      if (launched === true || !this.launchedShape.has(id)) {
-        this.launchedShape.set(id, engineShape(entry.engine, entry.spec.spec, this.config.routes))
-      }
+      this.recordShape(id, launched === true || adopted === true, shape)
       if (opts?.lease === true) {
         this.lifecycle.beginLease(id)
       }
