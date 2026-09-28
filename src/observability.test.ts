@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ReleaseFetch } from './comfyQueue.ts'
+import { startRequest } from './doorFixtures.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import { errorMessageOf } from './http.ts'
 import { createDoor } from './main.ts'
@@ -265,12 +266,7 @@ test('a state change reaches a subscriber as a live frame', async () => {
   const res = await door.fetch(new Request('http://engined/engined/v1/engines/events'))
   const frames = readFrames(res, 2)
 
-  await door.fetch(
-    new Request('http://engined/engined/v1/start', {
-      method: 'POST',
-      body: JSON.stringify({ model: '@/local-llama/chat-model' }),
-    }),
-  )
+  await door.fetch(startRequest('@/local-llama/chat-model'))
 
   const live = (await frames).filter((f) => f.startsWith('event: engine'))
   expect(live.length).toBeGreaterThan(0)
