@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { ObservedVersion } from './agentic.ts'
-import type { AgenticProbeRunner } from './agenticProbe.ts'
+import { type AgenticProbeRunner, verifiedVersionPath } from './agenticProbe.ts'
 import type { AgentTarget } from './agents.ts'
 import { EngineRegistry } from './engines.ts'
 import {
@@ -15,7 +14,6 @@ import {
   TTS_EMPTY_COMMAND,
 } from './enginesFixtures.ts'
 import { FatalError } from './errors/fatal.ts'
-import { stateDir } from './paths.ts'
 import type { EngineStatus } from './responses.ts'
 import {
   BUNX,
@@ -356,8 +354,7 @@ describe('agentic engines: the observed-version gate (a self-updating binary dri
     expect(drifted?.state).toBe('installed')
     expect(calls).toEqual(['1.0.0'])
     expect(reproveCalls).toEqual(['1.0.1'])
-    const recorded = readFileSync(join(stateDir(), 'agentic', id, 'verified_version'), 'utf8')
-    expect(recorded.trim()).toBe('1.0.1')
+    expect(provedVersion(id)).toBe('1.0.1')
     clearVerifiedVersion(id)
   })
 
@@ -444,7 +441,7 @@ describe('agentic engines: a failed probe is cached, not retried, until the pin 
 
 /** The version the door has actually proved for an agentic engine, as recorded on disk. */
 function provedVersion(id: string): string {
-  return readFileSync(join(stateDir(), 'agentic', id, 'verified_version'), 'utf8').trim()
+  return readFileSync(verifiedVersionPath(id), 'utf8').trim()
 }
 
 /** A registry over one just-cleared agentic pin whose version observation is the caller's own. */
