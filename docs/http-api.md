@@ -367,6 +367,7 @@ caller can read without tailing a log:
 | `x-engined-egress` | that route's `egress` |
 | `x-engined-chain` | the chain name the caller addressed; absent when the caller named a route directly |
 | `x-engined-cost-usd` | what the answering hop itself reported the call cost, in dollars; only an agentic CLI reports one, so absent for every other engine |
+| `x-engined-queue-ms` | how long the call waited for a local llama role/container lease before reaching the upstream, in milliseconds; `0` when the role was already resident, present only on a local llama route |
 
 For a chain, these name whichever hop actually answered — the second hop of
 a fallover, not the first one that failed. For a streamed reply they are set

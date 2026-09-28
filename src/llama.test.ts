@@ -1185,6 +1185,23 @@ test("contention reports the request holding a role's lease and the one queued b
   expect(router.contention()).toEqual([])
 })
 
+test('queueMs is 0 for a lease granted immediately and positive for one queued behind it', async () => {
+  const { b, router, release, res1 } = await gatedPair()
+
+  // b's role/model is already the one a holds, so this one waits in line
+  // behind a's lease rather than being granted on arrival. A real delay,
+  // not just a microtask drain, so the wait has actual wall-clock time to
+  // measure rather than risking a same-millisecond race.
+  const res2 = chatHop(router, b, 'b')
+  await new Promise((r) => setTimeout(r, 5))
+
+  release()
+  const [{ queueMs: queueMs1 }, { queueMs: queueMs2 }] = await Promise.all([res1, res2])
+
+  expect(queueMs1).toBe(0)
+  expect(queueMs2).toBeGreaterThan(0)
+})
+
 test('6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door', async () => {
   const a = model({ id: 'a', filename: 'a.gguf', args: { parallel: 2 } })
   const { router, calls, release, inGate, send } = admissionOf(a)

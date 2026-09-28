@@ -58,6 +58,8 @@ const DEFAULT_POLL_INTERVAL_MS = 250
 export interface LlamaHop {
   response: Response
   modelResident: string | undefined
+  /** Time from `proxy()`'s own call to the lease grant -- `x-engined-queue-ms`'s source. 0 when nothing was waited on: an idle role's role/container are granted synchronously. */
+  queueMs: number
 }
 
 /** One `proxy()` call's fields, bundled so `fetchBuffered`/`fetchStreamed` take one object rather than five positional arguments. */
@@ -443,7 +445,9 @@ export class LlamaRouter {
 
   /** Buffered so the lease stays held until the whole body is read, same as the streaming path holds it until the stream ends. Slot placement runs inside the same lease, so a route on a slot table that was never touched never pays for one. */
   private fetchBuffered({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+    const queueStart = Date.now()
     return this.withLease(role, modelId, init.signal, async () => {
+      const queueMs = Date.now() - queueStart
       const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
       try {
         const upstream = await this.upstream.fetch(path, placed, modelId)
@@ -451,6 +455,7 @@ export class LlamaRouter {
         return {
           response: new Response(body, { status: upstream.status, headers: upstream.headers }),
           modelResident: await this.residentModelId(role),
+          queueMs,
         }
       } finally {
         releaseSlot()
@@ -472,8 +477,10 @@ export class LlamaRouter {
    * cancelled -- never at `beginLease` -- matching `withLease`'s contract.
    */
   private async fetchStreamed({ role, modelId, path, init, route }: HopCall): Promise<LlamaHop> {
+    const queueStart = Date.now()
     const emitWarming = !this.scheduler.isResident(role, modelId)
     await this.beginLease(role, modelId, init.signal)
+    const queueMs = Date.now() - queueStart
     const { init: placed, release: releaseSlot } = await this.placeSlot(route, modelId, init)
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
     const release = this.streamRelease(
@@ -501,6 +508,7 @@ export class LlamaRouter {
           headers: { [CONTENT_TYPE]: contentType },
         }),
         modelResident,
+        queueMs,
       }
     } catch (err) {
       release()

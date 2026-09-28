@@ -120,6 +120,14 @@ const HEADER_EGRESS = 'x-engined-egress'
 const HEADER_CHAIN = 'x-engined-chain'
 /** Only ever set for an agentic hop that reported its own dollar cost -- see `Usage.cost_usd`. Absent, never a fabricated zero, for every other engine. */
 const HEADER_COST_USD = 'x-engined-cost-usd'
+/**
+ * How long this call waited for a llama role/container lease before it ever
+ * reached the upstream -- `LlamaHop.queueMs` (`llama.ts`). Set on every
+ * llama-routed answer, 0 included: a request that found its role already
+ * resident still went through the same lease gate, it just was not held up
+ * by it.
+ */
+const HEADER_QUEUE_MS = 'x-engined-queue-ms'
 
 /**
  * The one place that turns an answering attempt into the headers a caller
@@ -142,6 +150,7 @@ export function answeringHeaders(fields: {
   egress: Egress
   chain: string | null
   costUsd?: number
+  queueMs?: number
 }): Headers {
   const headers = new Headers({
     [HEADER_ROUTE]: fields.route,
@@ -155,6 +164,9 @@ export function answeringHeaders(fields: {
   }
   if (fields.costUsd !== undefined) {
     headers.set(HEADER_COST_USD, String(fields.costUsd))
+  }
+  if (fields.queueMs !== undefined) {
+    headers.set(HEADER_QUEUE_MS, String(fields.queueMs))
   }
   return headers
 }

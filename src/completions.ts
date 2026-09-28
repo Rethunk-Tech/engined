@@ -258,8 +258,9 @@ export async function handleCompletions(
   const router = getLlamaRouter(ctx, engineEntry)
   const startedAt = Date.now()
   let response: Response
+  let queueMs = 0
   try {
-    ;({ response } = await router.proxy(
+    ;({ response, queueMs } = await router.proxy(
       route,
       INFILL_PATH,
       infillRequestInit(body, modelId, signal),
@@ -294,6 +295,7 @@ export async function handleCompletions(
     upstreamUsed: LOCAL_UPSTREAM,
     egress: routeEgress(route, ctx.getConfig()),
     chain: null,
+    queueMs,
   })
   const contentType = response.headers.get(CONTENT_TYPE) ?? ''
   if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
