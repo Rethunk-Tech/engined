@@ -315,7 +315,15 @@ export class EngineRegistry {
       return { ...(await this.statusFor(entry)), launched: false }
     }
     this.comfy.forget(id)
-    if (isLocalLlama(entry.engine, entry.spec.spec.kind)) {
+    // The preset file is the record of what a running llama was launched
+    // with, which `LlamaRouter` compares against to decide on a recreate;
+    // rewriting it under a live container would make that comparison lie.
+    const { state } = this.lifecycle.getStatus(id)
+    if (
+      isLocalLlama(entry.engine, entry.spec.spec.kind) &&
+      state !== 'running' &&
+      state !== 'warming'
+    ) {
       writeLocalPreset(this.presetHostPathFor(entry.engine.id), entry.engine, this.config.routes)
     }
     const spec = specForModel(entry.spec.spec, this.config.routes, id, model)

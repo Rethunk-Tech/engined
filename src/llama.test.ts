@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { DockerLifecycle, type Probe } from './docker.ts'
 import { buildRunArgs } from './dockerArgs.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
-import type { EngineRegistry } from './engines.ts'
+import { EngineRegistry } from './engines.ts'
 import { HeldError } from './errors/held.ts'
 import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
@@ -896,10 +896,19 @@ function routerModeLoadResponse(knownAtRun: Set<string>, requested: string | und
  * Found" forever. `--models-preset` is parsed exactly once, at process
  * start.
  */
-function fakeReloadableLlama(presetHostPath: string): { exec: Exec; client: HttpClient } {
+function fakeReloadableLlama(presetHostPath: string): {
+  exec: Exec
+  client: HttpClient
+  runs: () => number
+} {
   const knownAtRun = new Set<string>()
+  let runs = 0
   const exec: Exec = (args) => {
+    if (args[0] === 'inspect' && runs > 0) {
+      return Promise.resolve(containerRunning())
+    }
     if (args[0] === 'run') {
+      runs += 1
       knownAtRun.clear()
       for (const id of parseIniSections(readFileSync(presetHostPath, 'utf8')).keys()) {
         knownAtRun.add(id)
@@ -930,8 +939,33 @@ function fakeReloadableLlama(presetHostPath: string): { exec: Exec; client: Http
     }
     return Promise.resolve(Response.json({ ok: true, model: requested }))
   }
-  return { exec, client }
+  return { exec, client, runs: () => runs }
 }
+
+test('a registry start between a reload and the first chat does not hide the preset change from the router', async () => {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const b = model({ id: 'b', filename: 'b.gguf' })
+  const presetHostPath = tmpIniPath()
+  const { exec, client, runs } = fakeReloadableLlama(presetHostPath)
+  const lifecycle = new DockerLifecycle(exec, fakeProbe)
+  const router1 = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), presetHostPath })
+  expect(await text(chatHop(router1, a, 'a'))).toContain('"model":"a"')
+
+  const reg = new EngineRegistry(testConfig({ engines: [e], routes: [a, b] }), {
+    enginesRoot: ENGINES_ROOT,
+    bunx: BUNX,
+    exec,
+    lifecycle,
+    presetHostPath,
+  })
+  expect((await reg.start('llama')).launched).toBe(false)
+
+  const router2 = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(client), presetHostPath })
+  const { response: res } = await router2.proxy(b, CHAT_PATH, chatInit('b'))
+  expect(res.status).toBe(200)
+  expect(runs()).toBe(2)
+})
 
 test('a model added by config reload becomes genuinely servable, not just listed', async () => {
   const e = engine()
