@@ -53,20 +53,12 @@ export class InventoryWatch {
     this.timers = []
   }
 
-  /**
-   * Drops the cached catalog when at least one upstream's entry changed or
-   * disappeared between the old and new config -- an empty set is a no-op,
-   * so a reload that touches only engines or routes never wipes a wildcard
-   * catalog nothing asked to invalidate. `Inventory` has no per-upstream
-   * forget, so any real change still drops every cached catalog; that only
-   * costs a re-fetch on the (rarer) reload that actually renames or
-   * re-points an upstream.
-   */
+  /** Drops the cached catalog of every upstream whose entry changed or disappeared; an untouched upstream keeps its own. */
   forget(changedUpstreamIds: ReadonlySet<string>): void {
     if (changedUpstreamIds.size === 0) {
       return
     }
-    this.inventory.forget()
+    this.inventory.forget(changedUpstreamIds)
     this.fetchErrors.clear()
   }
 

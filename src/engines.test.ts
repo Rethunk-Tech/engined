@@ -225,7 +225,7 @@ test("a reload's teardown of a local llama engine removes its preset directory",
   }
 })
 
-test('a reload whose upstreams are unchanged keeps a cached wildcard catalog', async () => {
+test("a reload keeps an unchanged upstream's cached catalog and drops a re-pointed one's, disk included", async () => {
   const catalogUpstream = upstream({
     id: 'openrouter',
     base_url: 'https://example.invalid/v1',
@@ -242,10 +242,10 @@ test('a reload whose upstreams are unchanged keeps a cached wildcard catalog', a
   await inv.refresh(catalogUpstream)
   expect(inv.peek(catalogUpstream)).toEqual(['model-a'])
 
-  const cfgFor = () =>
+  const cfgFor = (u = catalogUpstream) =>
     config({
       engines: [engine({ id: 'openrouter', kind: 'openai-http' })],
-      upstreams: [catalogUpstream],
+      upstreams: [u],
       routes: [route({ engine: 'openrouter', model: WILDCARD_MODEL, upstream: 'openrouter' })],
     })
   const reg = new EngineRegistry(cfgFor(), {
@@ -257,8 +257,14 @@ test('a reload whose upstreams are unchanged keeps a cached wildcard catalog', a
   // A reload for an unrelated reason (a bakeoff engine added elsewhere,
   // say) that leaves every upstream's own entry as it was.
   reg.reload(cfgFor())
-
   expect(inv.peek(catalogUpstream)).toEqual(['model-a'])
+
+  // Re-pointed under the same id: the old provider's list must not survive
+  // on disk to be served when the new provider's first fetch fails.
+  const repointed = { ...catalogUpstream, base_url: 'https://elsewhere.invalid/v1' }
+  reg.reload(cfgFor(repointed))
+  expect(inv.peek(repointed)).toEqual([])
+  await reg.shutdown()
 })
 
 /** Builds a registry over a pulled `llama` from `before`, reloads it with `after`, and reports what was torn down. */

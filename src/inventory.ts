@@ -98,9 +98,12 @@ export class Inventory {
     this.opts = opts
   }
 
-  /** Drop in-memory entries so the next peek re-reads disk. Files stay. */
-  forget(): void {
-    this.mem.clear()
+  /** Drops these upstreams' catalogs from memory and disk, so a re-pointed upstream never serves its old provider's list. */
+  forget(upstreamIds: Iterable<string>): void {
+    for (const id of upstreamIds) {
+      this.mem.delete(id)
+      this.dropFile(id)
+    }
   }
 
   /**

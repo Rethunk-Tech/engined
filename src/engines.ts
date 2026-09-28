@@ -526,7 +526,7 @@ export class EngineRegistry {
   }
 }
 
-/** Ids of every upstream removed, or whose entry no longer matches the old one -- what `InventoryWatch.forget` uses to leave an untouched upstream's cached catalog alone. */
+/** Ids of every upstream removed, or whose entry no longer matches the old one: exactly the catalogs `InventoryWatch.forget` drops. */
 function changedOrRemovedUpstreamIds(
   before: readonly Upstream[],
   after: readonly Upstream[],
