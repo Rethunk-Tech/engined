@@ -117,7 +117,7 @@ file issues a new one.
 
 | Status | When |
 | --- | --- |
-| 413 | any upload past that verb's ceiling: a voice reference, a transcription or translation recording, an image-edit `image`, or a comfy `POST /upload/image`. Refused on `Content-Length` when declared, and again on the measured body, so a form that omits the header is still bounded |
+| 413 | any upload past that verb's ceiling: a voice reference, a transcription or translation recording, an image-edit `image`, or a comfy `POST /upload/image`. Refused on `Content-Length` when declared; otherwise the cap is counted in bytes as the body arrives, and a chunked upload that reaches it is refused without the rest being buffered |
 | 400 | a body that is not the multipart form that verb reads |
 
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
@@ -158,7 +158,8 @@ counted in bytes as they arrive: a declared `Content-Length` over that, or a
 chunked body that reaches it, is 413 `JSON body too large` without the rest
 being buffered. A body that is not a JSON object is 400 `invalid JSON body`,
 and an upload the caller abandons partway is 400 `request body could not be
-read`.
+read`. Multipart uploads carry their own per-verb caps, enforced the same way:
+see the upload status table under [Cloning a voice](#cloning-a-voice).
 
 ## Choosing a model
 
