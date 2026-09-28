@@ -8,16 +8,22 @@ import { makeTestRoot, writeGgufFixture } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-llama-slots-test-')
 
+/** A two-token gpt2 vocab with no merges: one token per character, so token counts equal character counts. */
+function tinyAbGguf(prefix: string): string {
+  const path = join(TEST_ROOT, `${prefix}-${Math.random().toString(36).slice(2)}.gguf`)
+  writeGgufFixture(path, {
+    'general.architecture': 'qwen3',
+    'tokenizer.ggml.model': 'gpt2',
+    'tokenizer.ggml.pre': 'gpt2',
+    'tokenizer.ggml.tokens': ['a', 'b'],
+    'tokenizer.ggml.merges': [],
+  })
+  return path
+}
+
 describe('classifyPrompt', () => {
   test('a long prompt classifies the same as a full tokenize', async () => {
-    const path = join(TEST_ROOT, `tiny-${Math.random().toString(36).slice(2)}.gguf`)
-    writeGgufFixture(path, {
-      'general.architecture': 'qwen3',
-      'tokenizer.ggml.model': 'gpt2',
-      'tokenizer.ggml.pre': 'gpt2',
-      'tokenizer.ggml.tokens': ['a', 'b'],
-      'tokenizer.ggml.merges': [],
-    })
+    const path = tinyAbGguf('tiny')
     const threshold = 256
     const text = 'a'.repeat(3000)
     const classified = await classifyPrompt(path, text, threshold)
@@ -54,14 +60,7 @@ describe('classifyPrompt', () => {
   })
 
   test('a megabyte of spaces classifies in under 500 ms', async () => {
-    const path = join(TEST_ROOT, `spaces-${Math.random().toString(36).slice(2)}.gguf`)
-    writeGgufFixture(path, {
-      'general.architecture': 'qwen3',
-      'tokenizer.ggml.model': 'gpt2',
-      'tokenizer.ggml.pre': 'gpt2',
-      'tokenizer.ggml.tokens': ['a', 'b'],
-      'tokenizer.ggml.merges': [],
-    })
+    const path = tinyAbGguf('spaces')
     const started = performance.now()
     await classifyPrompt(path, ' '.repeat(1024 * 1024), 256)
     expect(performance.now() - started).toBeLessThan(500)

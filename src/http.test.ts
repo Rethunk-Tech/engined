@@ -110,18 +110,22 @@ test('sseFrames yields a trimmed tail with no trailing boundary', async () => {
   expect(frames).toEqual(['data: {"x":1}'])
 })
 
-test('a JSON body whose declared Content-Length is past the cap is 413 without reading it', async () => {
-  const req = new Request('http://door.local/', {
-    method: 'POST',
-    headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
-  })
-  const result = await readJsonBody(req)
+async function expectJsonTooLarge(result: unknown): Promise<void> {
   expect(result).toBeInstanceOf(Response)
   if (!(result instanceof Response)) {
     return
   }
   expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
   expect(await result.json()).toEqual(jsonErrorBody('JSON body too large'))
+}
+
+test('a JSON body whose declared Content-Length is past the cap is 413 without reading it', async () => {
+  const req = new Request('http://door.local/', {
+    method: 'POST',
+    headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
+  })
+  const result = await readJsonBody(req)
+  await expectJsonTooLarge(result)
 })
 
 test('a JSON body past the cap with no Content-Length is 413 after the read', async () => {
@@ -138,12 +142,7 @@ test('a JSON body past the cap with no Content-Length is 413 after the read', as
     }),
   }
   const result = await readJsonBody(new Request('http://door.local/', init))
-  expect(result).toBeInstanceOf(Response)
-  if (!(result instanceof Response)) {
-    return
-  }
-  expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
-  expect(await result.json()).toEqual(jsonErrorBody('JSON body too large'))
+  await expectJsonTooLarge(result)
 })
 
 test('a finite Content-Length past the cap is over the limit; an absent or unparseable one is not', () => {
