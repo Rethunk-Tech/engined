@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { upstreamInventoryDir } from './paths.ts'
-import { errMessage, isRecord, MS_PER_SECOND } from './records.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { WILDCARD_MODEL } from './routeAddress.ts'
 import type { Upstream } from './types.ts'
 import { resolveUpstream, upstreamUrl } from './upstream.ts'
@@ -170,10 +170,8 @@ export class Inventory {
     } catch {
       return
     }
-    let raw: unknown
-    try {
-      raw = JSON.parse(text)
-    } catch {
+    const raw = parseRecord(text)
+    if (raw === null) {
       this.dropFile(upstreamId)
       return
     }

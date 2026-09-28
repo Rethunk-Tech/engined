@@ -181,6 +181,20 @@ describe('provider /models inventory', () => {
     expect(existsSync(join(cacheDir, 'inventory.json'))).toBe(false)
   })
 
+  test('a cache file that is not a JSON object is dropped', () => {
+    const stateRoot = join(TEST_ROOT, 'state-garbage')
+    const cacheDir = join(stateRoot, 'upstreams', 'openrouter')
+    mkdirSync(cacheDir, { recursive: true })
+    writeFileSync(join(cacheDir, 'inventory.json'), 'not-json\n')
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot,
+      now: () => 10 * MS_PER_SECOND,
+    })
+    expect(inv.peek(catalogUpstream('http://127.0.0.1:1'))).toEqual([])
+    expect(existsSync(join(cacheDir, 'inventory.json'))).toBe(false)
+  })
+
   test('a failed fetch with an expired cache expands empty', async () => {
     const { stateRoot, cacheDir } = expiredOpenrouterCache('state-expired-fetch')
     const fake = startFakeUpstream(() => new Response('nope', { status: 503 }))
