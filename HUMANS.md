@@ -9,7 +9,7 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 - Docker, with your user in the `docker` group
 - [Bun](https://bun.sh) on `PATH` (or `ENGINED_BUNX` set)
 - `secret-tool` (libsecret) for any engine that needs a key
-- For GPU engines on this box: AMD Strix Halo / gfx1151, ROCm 7.2+
+- For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+
 
 ## Install
 

@@ -383,9 +383,9 @@ test("a per-request language reaches the engine, asserted against the fake upstr
 })
 
 test('a per-request prompt reaches the engine, which is what biases a proper noun', async () => {
-  const asked = await transcribeEcho({ prompt: 'Priya, nginx, sekhmet' })
+  const asked = await transcribeEcho({ prompt: 'Priya, nginx, marmoset' })
 
-  expect(asked?.prompt).toBe('Priya, nginx, sekhmet')
+  expect(asked?.prompt).toBe('Priya, nginx, marmoset')
 })
 
 test('no prompt means the field is absent, not an empty initial prompt', async () => {

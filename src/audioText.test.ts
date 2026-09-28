@@ -123,7 +123,7 @@ test("an over-cap prompt keeps the newest 24 terms, in the caller's order", asyn
 })
 
 test('a prompt already under the cap reaches the engine unchanged', async () => {
-  expect(await biasPromptSent('Priya, nginx, sekhmet')).toBe('Priya, nginx, sekhmet')
+  expect(await biasPromptSent('Priya, nginx, marmoset')).toBe('Priya, nginx, marmoset')
 })
 
 test("a term longer than the window's share is clipped, and a duplicate spends no room", async () => {

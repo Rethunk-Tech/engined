@@ -24,7 +24,7 @@
 # pairing: filename, role, keep_resident, args. A [[chain]] is an ordered
 # fallback list of route addresses. None of the five owns another.
 
-listen_port = 29200         # IANA-unassigned.
+listen_port = 29200 # IANA-unassigned.
 # Omitted, this is 600 (`DEFAULT_CHAT_TIMEOUT_SECONDS` in src/config.ts).
 # 1200 here covers a cold load of a 25 GB-class GGUF plus a full-window
 # prefill: measured 153s for 100k tokens, degrading with depth (1291 t/s
@@ -206,8 +206,8 @@ fim = true # Opts this route into POST /openai/v1/completions
 # it too. Verified in the child's argv, the same way `embedding` below was.
 jinja = true
 spec-type = "draft-mtp"
-spec-draft-p-min = 0.1  # measured on this box; do not copy without re-measuring yours.
-spec-draft-n-max = 1    # measured on this box: 62.94 t/s at n=1 (73% draft
+spec-draft-p-min = 0.1  # measured on AMD Strix Halo (Ryzen AI Max+ 395, 128 GB); do not copy without re-measuring yours.
+spec-draft-n-max = 1    # measured on AMD Strix Halo (Ryzen AI Max+ 395, 128 GB): 62.94 t/s at n=1 (73% draft
 # acceptance), 62.75 at n=3 (54%), 24.85 at n=12 (19%),
 # 22.30 at n=16. Those are 32-token BURST figures --
 # acceptance decays with length, so sustained is ~54 t/s.
