@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { join } from 'node:path'
+import { speechCacheByteCount, storeSpeech } from './audioSpeech.ts'
 import { loadConfig } from './config.ts'
 import { chatRequest, createLlamaDoor, LOCAL_LLAMA_SPEC } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
@@ -170,6 +171,25 @@ engine = "agentic"
     }
     expect(after.engines.map((e) => e.id)).toEqual(['claude'])
     expect(after.config_error).toMatch(/has no built-in launch/)
+  })
+
+  test('a successful reload clears the speech cache so a changed engine or route args stop serving old audio', () => {
+    const dir = mkdtempSync(join(TEST_ROOT, 'engined-reload-speech-cache-'))
+    const path = join(dir, 'config.toml')
+    writeFileSync(path, GoodConfig)
+
+    const door = createDoor(loadConfig(path), {
+      enginesRoot: '/nonexistent',
+      bunx: BUNX,
+    })
+
+    storeSpeech('some-cache-key', Buffer.from('fake wav bytes'))
+    expect(speechCacheByteCount()).toBeGreaterThan(0)
+
+    door.reload(path)
+
+    expect(door.configError()).toBeUndefined()
+    expect(speechCacheByteCount()).toBe(0)
   })
 })
 

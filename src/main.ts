@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import process from 'node:process'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
+import { resetSpeechCache } from './audioSpeech.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
 import {
   COMFY_WS_SUFFIX,
@@ -341,6 +342,7 @@ export function createDoor(
       registry.reload(next)
       config = next
       configErr = undefined
+      resetSpeechCache()
       for (const id of ctx.llamaRouters.keys()) {
         ctx.staleLlamaRouters.add(id)
       }
