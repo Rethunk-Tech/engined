@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DockerLifecycle, type Probe } from './docker.ts'
+import { DockerLifecycle } from './docker.ts'
 import { buildRunArgs } from './dockerArgs.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
@@ -10,16 +10,33 @@ import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter, reportedModelFrom } from './llama.ts'
 import { buildLlamaSpec, renderPresetIni } from './llamaSpec.ts'
-import { MS_PER_SECOND, pollUntil } from './records.ts'
+import {
+  LLAMA_CHAT_PATH as CHAT_PATH,
+  llamaChatHop as chatHop,
+  llamaChatInit as chatInit,
+  drainMicrotasks,
+  llamaEngine as engine,
+  llamaFakeExec as fakeExec,
+  llamaFakeClient as fakeLlama,
+  llamaFakeProbe as fakeProbe,
+  llamaGatedClient as gatedClient,
+  LLAMA_LOAD_PATH as LOAD_PATH,
+  llamaBaseOpts,
+  llamaRouterWithClient,
+  LLAMA_MODELS_LIST_PATH as MODELS_LIST_PATH,
+  llamaModelRoute as model,
+  llamaModelsList as modelsList,
+  llamaPair as pair,
+  type LlamaRecordedCall as RecordedCall,
+  LLAMA_UNLOAD_PATH as UNLOAD_PATH,
+  waitFor,
+} from './llamaTestSupport.ts'
 import {
   BUNX,
-  engine as baseEngine,
   route as baseRoute,
   containerRunning,
   ENGINES_ROOT,
-  inspectSinglePort,
   makeTestRoot,
-  portResult,
   tempPresetPath,
   config as testConfig,
   writeGgufFixture,
@@ -27,37 +44,11 @@ import {
 import type { EngineEntry, ResolvedRoute } from './types.ts'
 import { UsageTracker } from './usage.ts'
 
+/** A stand-in exposed port for `buildRunArgs` assertions; unrelated to any router double's own port. */
 const CONTAINER_PORT = 8080
-const HOST_PORT = 55_123
-const LOAD_PATH = '/models/load'
-const UNLOAD_PATH = '/models/unload'
-const CHAT_PATH = '/openai/v1/chat/completions'
 const EMBED_PATH = '/openai/v1/embeddings'
-const MODELS_LIST_PATH = '/v1/models'
 const READY_TIMEOUT_ERROR = /readyTimeoutS/
-/** Tight, because every `waitFor` below is waiting on in-process work, not on a container. */
-const WAIT_INTERVAL_MS = 5
-/** Short enough to wait out in a test, and far longer than an eager reader ever leaves a chunk queued. */
-const STALL_SECONDS = 0.05
 const UNLOAD_FAILED_ERROR = /unload failed/
-
-function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
-  return baseEngine({ id: 'llama', models_dir: '/models-host', models_max: 3, ...overrides })
-}
-
-/** `id` names the route's `model` field -- kept as `id` here so every fixture below still reads as naming a GGUF, not a route. */
-function model(
-  overrides: { id?: string } & Omit<Partial<ResolvedRoute>, 'model'> = {},
-): ResolvedRoute {
-  const { id, ...rest } = overrides
-  return baseRoute({
-    engine: 'llama',
-    model: id ?? 'a',
-    filename: 'a.gguf',
-    role: 'chat',
-    ...rest,
-  })
-}
 
 const TEST_ROOT = makeTestRoot('engined-llama-test-')
 
@@ -65,46 +56,22 @@ function tmpIniPath(): string {
   return tempPresetPath(TEST_ROOT)
 }
 
+function baseOpts(httpClient: HttpClient) {
+  return llamaBaseOpts(httpClient, tmpIniPath())
+}
+
+/** Wires the given models to a router talking to `httpClient` over a fresh lifecycle. */
+function routerWithClient(
+  e: EngineEntry,
+  models: ResolvedRoute[],
+  httpClient: HttpClient,
+): LlamaRouter {
+  return llamaRouterWithClient(e, models, httpClient, tmpIniPath())
+}
+
 /** `proxy()` hands back the hop's `Response` plus the model resident under its lease, see llama.ts. */
 async function text(hop: Promise<LlamaHop>): Promise<string> {
   return (await hop).response.text()
-}
-
-/** Answers `docker image inspect`/`run`/`start`/`port` the way a fresh, never-started container would. */
-function fakeExec(): Exec {
-  return (args) => {
-    const [cmd] = args
-    if (cmd === 'image') {
-      return Promise.resolve(inspectSinglePort(CONTAINER_PORT))
-    }
-    if (cmd === 'start') {
-      return Promise.resolve({ exitCode: 1, stdout: '', stderr: 'not created yet' })
-    }
-    if (cmd === 'port') {
-      return Promise.resolve(portResult(HOST_PORT))
-    }
-    return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
-  }
-}
-
-const fakeProbe: Probe = () => Promise.resolve({ status: 200 })
-
-function baseOpts(httpClient: HttpClient) {
-  return {
-    enginesRoot: ENGINES_ROOT,
-    bunx: BUNX,
-    idleStopSeconds: 1000,
-    readyTimeoutS: 5,
-    presetHostPath: tmpIniPath(),
-    httpClient,
-    pollIntervalMs: 1,
-    streamStallSeconds: () => 60,
-  }
-}
-
-interface RecordedCall {
-  path: string
-  body: { model?: string; stream?: boolean; id_slot?: number } | undefined
 }
 
 /** Structured parse of `renderPresetIni`'s output: `id -> {key: value}`, section-name brackets stripped. */
@@ -128,64 +95,6 @@ function parseIniSections(ini: string): Map<string, Record<string, string>> {
   return out
 }
 
-/** Matches the real b10354 contract, probed live: `/models/load` never returns
- * `{status:"loaded"}` -- a not-yet-resident model answers `{success:true}`
- * (accepted) and an already-resident one 400s "model is already running".
- * That 400 is not readiness either -- probed live, it fired while a 23 GB
- * GGUF was still on load stage 0. The real signal is `GET /v1/models`'s
- * per-model `status.value`, which transitions unloaded -> loading -> loaded. */
-function modelsList(entries: Array<{ id: string; status: string }>): Response {
-  return Response.json({ data: entries.map((e) => ({ id: e.id, status: { value: e.status } })) })
-}
-
-/** A minimal llama-server router double: load/unload always succeed and the model
- * requested becomes immediately "loaded" on the next /v1/models poll; everything
- * else echoes its request model. */
-function fakeLlama(hook?: (call: RecordedCall) => Response | undefined): {
-  client: HttpClient
-  calls: RecordedCall[]
-} {
-  const calls: RecordedCall[] = []
-  let lastLoadRequested: string | undefined
-  const client: HttpClient = (input, init) => {
-    const url = new URL(String(input))
-    const bodyStr = typeof init?.body === 'string' ? init.body : undefined
-    const body = bodyStr === undefined ? undefined : (JSON.parse(bodyStr) as RecordedCall['body'])
-    const call: RecordedCall = { path: url.pathname, body }
-    calls.push(call)
-    const hooked = hook?.(call)
-    if (hooked) {
-      return Promise.resolve(hooked)
-    }
-    if (url.pathname === LOAD_PATH) {
-      lastLoadRequested = body?.model
-      return Promise.resolve(Response.json({ success: true }))
-    }
-    if (url.pathname === MODELS_LIST_PATH) {
-      return Promise.resolve(
-        modelsList(
-          lastLoadRequested === undefined ? [] : [{ id: lastLoadRequested, status: 'loaded' }],
-        ),
-      )
-    }
-    if (url.pathname === UNLOAD_PATH) {
-      return Promise.resolve(Response.json({ ok: true }))
-    }
-    return Promise.resolve(Response.json({ ok: true, model: body?.model }))
-  }
-  return { client, calls }
-}
-
-/** Wires the given models to a router talking to `httpClient` over a fresh lifecycle. */
-function routerWithClient(
-  e: EngineEntry,
-  models: ResolvedRoute[],
-  httpClient: HttpClient,
-): LlamaRouter {
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
-  return new LlamaRouter(e, models, lifecycle, baseOpts(httpClient))
-}
-
 /** Wires the given models to a router with the default `fakeLlama()` client. */
 function routerFor(
   e: EngineEntry,
@@ -193,14 +102,6 @@ function routerFor(
 ): { calls: RecordedCall[]; router: LlamaRouter } {
   const { client, calls } = fakeLlama()
   return { calls, router: routerWithClient(e, models, client) }
-}
-
-/** A single "a" model wired to a router with the default `fakeLlama()` client. */
-function singleModelRouter(): { e: EngineEntry; a: ResolvedRoute; router: LlamaRouter } {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const { router } = routerFor(e, [a])
-  return { e, a, router }
 }
 
 /** Sends one warm-up chat so "a" is resident, then reports how many loads that took. */
@@ -211,50 +112,6 @@ async function warmUpAndCountLoads(
 ): Promise<number> {
   await chatText(router, a, 'a')
   return calls.filter((c) => c.path === LOAD_PATH).length
-}
-
-/**
- * `fakeLlama()` with its calls to `path` parked at a gate, so a caller can
- * prove work is genuinely in flight rather than already finished: `started`
- * resolves once the first call is parked, `inGate` counts how many are parked,
- * and `release` lets them all through. `once` gates only the first call, which
- * is what holding one request open behind a second, distinguishing one needs;
- * gating every call is what admission-control tests need, where several must
- * be in flight together. `inGate` counts entries and never decrements -- every
- * caller reads it before releasing.
- */
-function gatedClient(
-  path: string,
-  { once = false }: { once?: boolean } = {},
-): {
-  client: HttpClient
-  calls: RecordedCall[]
-  release: () => void
-  started: Promise<void>
-  inGate: () => number
-} {
-  let release: () => void = () => undefined
-  const gate = new Promise<void>((r) => {
-    release = r
-  })
-  let started: () => void = () => undefined
-  const startedPromise = new Promise<void>((r) => {
-    started = r
-  })
-  let sawFirst = false
-  let waiting = 0
-  const { client, calls } = fakeLlama()
-  const gated: HttpClient = async (input, init) => {
-    const url = new URL(String(input))
-    if (url.pathname === path && !(once && sawFirst)) {
-      sawFirst = true
-      waiting += 1
-      started()
-      await gate
-    }
-    return client(input, init)
-  }
-  return { client: gated, calls, release, started: startedPromise, inGate: () => waiting }
 }
 
 /** Wires `models` to a gated router, fires the first "a" chat, and waits
@@ -277,34 +134,6 @@ async function startGatedChat(
   return { router, calls, release, res1 }
 }
 
-/** Polls a condition the router reaches on its own, for work no caller can await. */
-async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  if (!(await pollUntil(async () => cond(), Date.now() + timeoutMs, WAIT_INTERVAL_MS))) {
-    throw new Error('condition never became true')
-  }
-}
-
-/** Lets a pending `.then` chain run as far as it can without resolving any
- * new promise of its own -- three microtask turns is enough for the router's
- * internal queue pump to reach its next await. */
-async function drainMicrotasks(): Promise<void> {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
-}
-
-function chatInit(
-  modelId: string,
-  extra: { stream?: boolean; signal?: AbortSignal } = {},
-): RequestInit {
-  const { stream, signal } = extra
-  return {
-    method: 'POST',
-    body: JSON.stringify(stream === undefined ? { model: modelId } : { model: modelId, stream }),
-    ...(signal === undefined ? {} : { signal }),
-  }
-}
-
 function chatText(
   router: LlamaRouter,
   route: ResolvedRoute,
@@ -312,22 +141,6 @@ function chatText(
   extra: { stream?: boolean; signal?: AbortSignal } = {},
 ): Promise<string> {
   return text(router.proxy(route, CHAT_PATH, chatInit(modelId, extra)))
-}
-
-function chatHop(
-  router: LlamaRouter,
-  route: ResolvedRoute,
-  modelId: string,
-  extra: { stream?: boolean; signal?: AbortSignal } = {},
-): Promise<LlamaHop> {
-  return router.proxy(route, CHAT_PATH, chatInit(modelId, extra))
-}
-
-function pair(aExtra: Parameters<typeof model>[0] = {}, bExtra: Parameters<typeof model>[0] = {}) {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf', ...aExtra })
-  const b = model({ id: 'b', filename: 'b.gguf', ...bExtra })
-  return { e, a, b }
 }
 
 function pairRouter(
@@ -351,47 +164,6 @@ async function gatedPair(
 
 function goneExecFrom(base: Exec = fakeExec()): Exec {
   return (args) => (args[0] === 'inspect' ? Promise.resolve(containerRunning(false)) : base(args))
-}
-
-function sseBody(chunk: string, onCancel?: () => void): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    pull(controller) {
-      controller.enqueue(new TextEncoder().encode(chunk))
-    },
-    ...(onCancel === undefined ? {} : { cancel: onCancel }),
-  })
-}
-
-function loadListChatClient(chatReply: () => Response): HttpClient {
-  return (input) => {
-    const url = new URL(String(input))
-    if (url.pathname === LOAD_PATH) {
-      return Promise.resolve(Response.json({ success: true }))
-    }
-    if (url.pathname === MODELS_LIST_PATH) {
-      return Promise.resolve(modelsList([{ id: 'a', status: 'loaded' }]))
-    }
-    if (url.pathname === CHAT_PATH) {
-      return Promise.resolve(chatReply())
-    }
-    throw new Error(`unexpected path ${url.pathname}`)
-  }
-}
-
-function sseRouter(chatReply: () => Response): {
-  e: EngineEntry
-  a: ResolvedRoute
-  router: LlamaRouter
-} {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const router = new LlamaRouter(
-    e,
-    [a],
-    new DockerLifecycle(fakeExec(), fakeProbe),
-    baseOpts(loadListChatClient(chatReply)),
-  )
-  return { e, a, router }
 }
 
 function admissionOf(a: ResolvedRoute) {
@@ -741,168 +513,6 @@ test("the role's lease is free after a failed load: a later request for the role
   ])
   expect(result.done).toBe(true)
   expect(result.done && (JSON.parse(result.t) as { model?: string }).model).toBe('b')
-})
-
-test('a streamed 429 keeps the upstream content-type instead of text/event-stream', async () => {
-  const { a, router } = sseRouter(() =>
-    Response.json({ error: { message: 'rate limited' } }, { status: 429 }),
-  )
-
-  const { response: res } = await chatHop(router, a, 'a', { stream: true })
-  expect(res.status).toBe(429)
-  expect(res.headers.get('content-type')).toContain('application/json')
-})
-
-test('a streamed 400 keeps the upstream content-type instead of text/event-stream', async () => {
-  const { a, router } = sseRouter(() =>
-    Response.json({ error: { message: 'bad request' } }, { status: 400 }),
-  )
-
-  const { response: res } = await chatHop(router, a, 'a', { stream: true })
-  expect(res.status).toBe(400)
-  expect(res.headers.get('content-type')).toContain('application/json')
-})
-
-test('a cold streaming request emits `: warming` before its first real byte', async () => {
-  const { a, router } = singleModelRouter()
-
-  const { response: res } = await chatHop(router, a, 'a', { stream: true })
-  const reader = res.body?.getReader()
-  if (!reader) {
-    throw new Error('expected a body reader')
-  }
-  const { value } = await reader.read()
-  expect(new TextDecoder().decode(value)).toBe(': warming\n\n')
-})
-
-test('a client cancelling a streaming response cancels the upstream reader too, instead of leaking the connection', async () => {
-  let upstreamCancelled = false
-  const { a, router } = sseRouter(
-    () =>
-      new Response(
-        sseBody('data: chunk\n\n', () => {
-          upstreamCancelled = true
-        }),
-        { status: 200, headers: { 'content-type': 'text/event-stream' } },
-      ),
-  )
-
-  const { response: res } = await chatHop(router, a, 'a', { stream: true })
-  const reader = res.body?.getReader()
-  await reader?.read()
-  await reader?.cancel()
-
-  expect(upstreamCancelled).toBe(true)
-})
-
-test('a streaming client that aborts without draining the stream still releases its lease', async () => {
-  const { a, router } = sseRouter(
-    () =>
-      new Response(sseBody('data: chunk\n\n'), {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }),
-  )
-
-  const controller = new AbortController()
-  await chatHop(router, a, 'a', { stream: true, signal: controller.signal })
-
-  // The returned stream is never read and never cancelled -- exactly what a
-  // client that goes away mid-generation leaves behind. Only the abort signal
-  // can release the lease here.
-  expect(router.hasOutstandingLeases()).toBe(true)
-  controller.abort()
-  expect(router.hasOutstandingLeases()).toBe(false)
-})
-
-function stallRouter(chunks: () => ReadableStream<Uint8Array>): {
-  a: ResolvedRoute
-  router: LlamaRouter
-} {
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  const client = loadListChatClient(
-    () => new Response(chunks(), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
-  )
-  const router = new LlamaRouter(engine(), [a], new DockerLifecycle(fakeExec(), fakeProbe), {
-    ...baseOpts(client),
-    streamStallSeconds: () => STALL_SECONDS,
-  })
-  return { a, router }
-}
-
-test('a streaming client that holds the socket but stops reading is aborted as a stall and its lease released', async () => {
-  let upstreamCancelled = false
-  const { a, router } = stallRouter(() =>
-    sseBody('data: chunk\n\n', () => {
-      upstreamCancelled = true
-    }),
-  )
-
-  const { response } = await chatHop(router, a, 'a', { stream: true })
-  expect(router.hasOutstandingLeases()).toBe(true)
-
-  await waitFor(() => !router.hasOutstandingLeases())
-  expect(upstreamCancelled).toBe(true)
-  // What reaches provenance: the stream ends in an error naming the stall.
-  await expect(response.text()).rejects.toThrow(/client stalled/)
-})
-
-test('a client that keeps reading is never stalled, however long the upstream takes between chunks', async () => {
-  const gapMs = STALL_SECONDS * MS_PER_SECOND * 3
-  const { a, router } = stallRouter(() => {
-    let sent = 0
-    return new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        await Bun.sleep(gapMs)
-        sent += 1
-        controller.enqueue(new TextEncoder().encode(`data: ${sent}\n\n`))
-        if (sent === 3) {
-          controller.close()
-        }
-      },
-    })
-  })
-
-  const { response } = await chatHop(router, a, 'a', { stream: true })
-  expect(await response.text()).toEndWith('data: 1\n\ndata: 2\n\ndata: 3\n\n')
-  expect(router.hasOutstandingLeases()).toBe(false)
-})
-
-test('a streaming hop whose provenance read gets a non-JSON body releases its lease rather than leaking it', async () => {
-  const e = engine()
-  const a = model({ id: 'a', filename: 'a.gguf' })
-  // The load's own /v1/models poll must still answer JSON, or the failure
-  // under test is never reached: only the provenance read that runs AFTER the
-  // upstream has answered gets the body llama-server writes when it is not
-  // answering as a router at all.
-  let chatAnswered = false
-  const { client } = fakeLlama((call) => {
-    if (call.path === CHAT_PATH) {
-      chatAnswered = true
-      return
-    }
-    if (call.path === MODELS_LIST_PATH && chatAnswered) {
-      return new Response('<html>502 Bad Gateway</html>', { status: 502 })
-    }
-    return
-  })
-  const router = routerWithClient(e, [a], client)
-
-  await expect(router.proxy(a, CHAT_PATH, chatInit('a', { stream: true }))).rejects.toThrow()
-
-  expect(router.hasOutstandingLeases()).toBe(false)
-  expect(router.contention()).toEqual([])
-})
-
-test('a cold non-streaming request never gets an SSE `: warming` comment, which would corrupt its JSON body', async () => {
-  const { a, router } = singleModelRouter()
-
-  // No prior proxy() call: this is the container's first request, the
-  // coldest possible load.
-  const { response: res } = await router.proxy(a, CHAT_PATH, chatInit('a'))
-  const raw = await res.text()
-  expect(() => JSON.parse(raw)).not.toThrow()
-  expect(raw.startsWith(': warming')).toBe(false)
 })
 
 test('model_reported (the echoed body) and model_resident (read from /v1/models) differ on a stale echo', async () => {
@@ -1274,76 +884,6 @@ test("contention reports the request holding a role's lease and the one queued b
   // Nothing running and nothing queued reports as no roles at all, not zeroes.
   expect(router.contention()).toEqual([])
 })
-
-test('queueMs is 0 for a lease granted immediately and positive for one queued behind it', async () => {
-  // An injected clock rather than real timers: a real-timer version of this
-  // assertion is exactly the flake a sibling run hit (the "immediate" grant
-  // read 1ms on a loaded box, since ensureStarted's own cold-start work is
-  // real wall-clock time too). The clock only ever advances where this test
-  // moves it, so which lease waited is provable by construction, not by luck.
-  let clock = 0
-  const { e, a, b } = pair()
-  const { client: gated, release, started } = gatedClient(CHAT_PATH, { once: true })
-  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
-  const router = new LlamaRouter(e, [a, b], lifecycle, { ...baseOpts(gated), now: () => clock })
-  const res1 = chatHop(router, a, 'a')
-  await started
-
-  // b's role/model is already the one a holds, so this one waits in line
-  // behind a's lease rather than being granted on arrival.
-  clock = 5
-  const res2 = chatHop(router, b, 'b')
-  await drainMicrotasks()
-  clock = 9
-
-  release()
-  const [{ queueMs: queueMs1 }, { queueMs: queueMs2 }] = await Promise.all([res1, res2])
-
-  expect(queueMs1).toBe(0)
-  expect(queueMs2).toBe(4)
-})
-
-test.each([
-  ['a proxied chat', (router: LlamaRouter, a: ResolvedRoute) => chatHop(router, a, 'a')],
-  [
-    'a bare withLease',
-    (router: LlamaRouter) =>
-      router.withLease('chat', 'a', undefined, (queueMs) => Promise.resolve({ queueMs })),
-  ],
-] as const)(
-  'queueMs excludes a cold container start for %s: only lease contention counts',
-  async (_, hold) => {
-    let clock = 0
-    const e = engine()
-    const a = model({ id: 'a', filename: 'a.gguf' })
-    const { client } = fakeLlama()
-    let releaseProbe: () => void = () => undefined
-    const gate = new Promise<void>((r) => {
-      releaseProbe = r
-    })
-    let probeStarted: () => void = () => undefined
-    const probeStartedPromise = new Promise<void>((r) => {
-      probeStarted = r
-    })
-    const gatedProbe: Probe = async (url, method) => {
-      probeStarted()
-      await gate
-      return fakeProbe(url, method)
-    }
-    const lifecycle = new DockerLifecycle(fakeExec(), gatedProbe)
-    const router = new LlamaRouter(e, [a], lifecycle, { ...baseOpts(client), now: () => clock })
-
-    const res = hold(router, a)
-    await probeStartedPromise
-    // Time the fake clock never sees moving except where the test moves it --
-    // this stands in for the real wall-clock cost of the container coming up.
-    clock = 50
-    releaseProbe()
-
-    const { queueMs } = await res
-    expect(queueMs).toBe(0)
-  },
-)
 
 test('6 concurrent same-model requests against a parallel=2 role: active caps at 2, the other 4 queue at the door', async () => {
   const a = model({ id: 'a', filename: 'a.gguf', args: { parallel: 2 } })
