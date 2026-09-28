@@ -4,7 +4,12 @@ import { request as httpRequest } from 'node:http'
 import { join } from 'node:path'
 import { speechCacheByteCount, storeSpeech } from './audioSpeech.ts'
 import { loadConfig } from './config.ts'
-import { chatRequest, createLlamaDoor, LOCAL_LLAMA_SPEC } from './doorFixtures.ts'
+import {
+  chatRequest,
+  createLlamaDoor,
+  LOCAL_LLAMA_SPEC,
+  makeLlamaHttpClient,
+} from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
 import { bindDualFamily, createDoor, type Door, resolveBunx } from './main.ts'
 import { BUNX, config, deadPort, makeTestRoot, writeEngineSpec } from './test-support.ts'
@@ -339,6 +344,35 @@ describe('the door: reload mid in-flight request', () => {
     const otherActivityIdx = calls.findIndex((c) => c.includes('other'))
     expect(chatEndIdx).toBeGreaterThan(-1)
     expect(otherActivityIdx).toBeGreaterThan(chatEndIdx)
+  })
+})
+
+describe("the door: reload drops a removed engine's LlamaRouter", () => {
+  test('an engine removed from config on reload has its router disposed and gone', async () => {
+    const { root, configFilePath } = setupReloadRaceConfig()
+    const recorded: { body: string }[] = []
+    const door = createLlamaDoor(loadConfig(configFilePath), root, {
+      llamaHttpClient: makeLlamaHttpClient(recorded),
+      write: () => undefined,
+    })
+
+    await door.fetch(
+      chatRequest({ model: '@/local-llama/ornith', messages: [{ role: 'user', content: 'hi' }] }),
+    )
+    expect(door.ctx.llamaRouters.has('local-llama')).toBe(true)
+
+    writeFileSync(
+      configFilePath,
+      `
+[[upstream]]
+id = "local"
+egress = "none"
+`,
+    )
+    door.reload(configFilePath)
+
+    expect(door.configError()).toBeUndefined()
+    expect(door.ctx.llamaRouters.has('local-llama')).toBe(false)
   })
 })
 

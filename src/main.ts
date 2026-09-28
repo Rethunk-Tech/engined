@@ -343,8 +343,23 @@ export function createDoor(
       config = next
       configErr = undefined
       resetSpeechCache()
-      for (const id of ctx.llamaRouters.keys()) {
-        ctx.staleLlamaRouters.add(id)
+      const remainingIds = new Set(next.engines.map((e) => e.id))
+      for (const [id, router] of ctx.llamaRouters) {
+        if (remainingIds.has(id)) {
+          ctx.staleLlamaRouters.add(id)
+          continue
+        }
+        // Dropped from config entirely: nothing will ever call
+        // getLlamaRouter for this id again, so leaving it stale-marked
+        // would leak it forever. An outstanding lease still gets to finish
+        // -- the stale mark is the only trace left for it.
+        if (router.hasOutstandingLeases()) {
+          ctx.staleLlamaRouters.add(id)
+          continue
+        }
+        router.dispose()
+        ctx.llamaRouters.delete(id)
+        ctx.staleLlamaRouters.delete(id)
       }
     } catch (err) {
       configErr = errMessage(err)
