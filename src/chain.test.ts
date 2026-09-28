@@ -878,3 +878,23 @@ test("a failed pin probe's detail never reaches the provenance line", async () =
   expect(lines.join('')).not.toContain('CHILD_PARSE_WORDS')
   clearVerifiedVersion(id)
 })
+
+test('a streamed 5xx the chain advances past is cancelled at once, not left for the stall timer', async () => {
+  let cancelled = false
+  const exec: HopExec = (hop) =>
+    Promise.resolve(
+      hop === '@/first/m'
+        ? {
+            status: 503,
+            stream: new ReadableStream<Uint8Array>({
+              cancel: () => {
+                cancelled = true
+              },
+            }),
+          }
+        : { status: 200, body: { choices: [{ message: { content: 'ok' } }] } },
+    )
+  const result = await runChain(['@/first/m', '@/second/m'], baseOpts({ exec }))
+  expect(result.status).toBe(200)
+  expect(cancelled).toBe(true)
+})

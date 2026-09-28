@@ -561,6 +561,9 @@ export async function runChain(hops: string[], opts: RunChainOptions): Promise<C
     // hops carry no `body` for failureOf, so the status itself is the answer.
     const directAddress = opts.chain === null && outcome.result !== undefined
     if (outcome.advance && !directAddress) {
+      // A streamed hop holds its upstream (and a local llama lease) until its
+      // body ends; nobody will read this one, so end it now.
+      outcome.result?.stream?.cancel().catch(() => undefined)
       continue
     }
     return finalizeTerminal(
