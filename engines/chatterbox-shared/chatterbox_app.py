@@ -226,7 +226,9 @@ def _stream(
         # Keep expected model/encoding failures on the NDJSON stream as terminal error events.
         except (RuntimeError, ValueError) as err:
             logger.exception("Chatterbox synthesis failed")
-            q.put({"phase": "error", "detail": str(err)})
+            # The trace stays in the container log; the caller gets the class, not the message.
+            detail = f"synthesis failed ({type(err).__name__}); see the engine log"
+            q.put({"phase": "error", "detail": detail})
         finally:
             q.put(_SENTINEL)
 

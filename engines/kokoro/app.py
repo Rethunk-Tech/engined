@@ -399,6 +399,8 @@ def synthesize(req: TtsRequest):
         # Keep expected model/encoding failures on the NDJSON stream as terminal error events.
         except (IndexError, RuntimeError, ValueError) as err:
             logger.exception("Kokoro synthesis failed")
-            yield json.dumps({"phase": "error", "detail": str(err)}) + "\n"
+            # The trace stays in the container log; the caller gets the class, not the message.
+            detail = f"synthesis failed ({type(err).__name__}); see the engine log"
+            yield json.dumps({"phase": "error", "detail": detail}) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson")
