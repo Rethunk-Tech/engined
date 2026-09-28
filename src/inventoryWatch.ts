@@ -16,6 +16,7 @@ export class InventoryWatch {
   private timers: ReturnType<typeof setInterval>[] = []
   /** Last failed catalog fetch per engine, while an in-age cache is still served. */
   private readonly fetchErrors = new Map<string, string>()
+  private config: Config | undefined
 
   constructor(inventory: Inventory) {
     this.inventory = inventory
@@ -32,6 +33,7 @@ export class InventoryWatch {
    */
   start(config: Config): void {
     this.stop()
+    this.config = config
     // Only a refresh clears an engine's error, and an engine whose wildcard
     // route is gone is never refreshed again.
     const wildcardEngines = new Set(wildcardRoutes(config).map((r) => r.engine))
@@ -44,13 +46,13 @@ export class InventoryWatch {
     this.timers = upstreams.map((u) =>
       setInterval(
         () => {
-          this.refreshOne(config, u).catch(() => undefined)
+          this.refreshOne(u).catch(() => undefined)
         },
         (u.inventory_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS) * MS_PER_SECOND,
       ),
     )
     for (const u of upstreams) {
-      this.refreshOne(config, u).catch(() => undefined)
+      this.refreshOne(u).catch(() => undefined)
     }
   }
 
@@ -85,13 +87,15 @@ export class InventoryWatch {
     return fetchError === undefined ? status : { ...status, fix: fetchError }
   }
 
-  private async refreshOne(config: Config, upstream: Upstream): Promise<void> {
+  private async refreshOne(upstream: Upstream): Promise<void> {
     const result = await this.inventory.refresh(upstream)
-    if (result.stale) {
+    if (result.stale || this.config === undefined) {
       return
     }
+    // Read after the await: a reload while this fetch was out may have moved
+    // an engine off this upstream, and its error is no longer this one's.
     const engines = new Set(
-      wildcardRoutes(config)
+      wildcardRoutes(this.config)
         .filter((r) => r.upstream === upstream.id)
         .map((r) => r.engine),
     )

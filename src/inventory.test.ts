@@ -319,6 +319,49 @@ describe('inventory watch', () => {
       watch.stop()
     }
   })
+
+  test('a fetch in flight across a reload that moves its engine elsewhere does not land on that engine', async () => {
+    let release: () => void = () => undefined
+    const inv = new Inventory({
+      secretExec: foundSecret,
+      stateRoot: join(TEST_ROOT, 'state-watch-moved'),
+      fetch: async (url) => {
+        if (String(url).includes('a.invalid')) {
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+          return new Response('nope', { status: 502 })
+        }
+        return modelsList(['org/model:free'])
+      },
+    })
+    const upstreams = [
+      { ...catalogUpstream('https://a.invalid'), id: 'a' },
+      { ...catalogUpstream('https://b.invalid'), id: 'b' },
+    ]
+    const onA = config({ upstreams, routes: [route({ engine: 'e', model: '*', upstream: 'a' })] })
+    const onB = config({ upstreams, routes: [route({ engine: 'e', model: '*', upstream: 'b' })] })
+    const watch = new InventoryWatch(inv)
+    try {
+      watch.start(onA)
+      await Bun.sleep(5)
+      watch.start(onB)
+      await Bun.sleep(5)
+      release()
+      await Bun.sleep(10)
+      expect(
+        watch.withFix({
+          id: 'e',
+          kind: 'openai-http',
+          serves: [],
+          state: 'running',
+          streaming: true,
+        }).fix,
+      ).toBeUndefined()
+    } finally {
+      watch.stop()
+    }
+  })
 })
 
 const DOOR_PORT = 39_219
