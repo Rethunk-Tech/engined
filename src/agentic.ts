@@ -20,6 +20,7 @@
  */
 
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
 import { argvFromArgs } from './agenticArgs.ts'
 import {
   type AgentCli,
@@ -40,7 +41,8 @@ const STDERR_TAIL_CHARS = 300
 // here, so keeping the whole run in memory -- a runaway agent's endless
 // retry log, say -- buys nothing but risk. Some slack over STDERR_TAIL_CHARS
 // covers whitespace that collapses away in stderrTail itself.
-const STDERR_CAPTURE_CHARS = STDERR_TAIL_CHARS * 4
+const STDERR_CAPTURE_SLACK_FACTOR = 4
+const STDERR_CAPTURE_CHARS = STDERR_TAIL_CHARS * STDERR_CAPTURE_SLACK_FACTOR
 
 /** Whitespace-collapsed last few hundred characters: enough to name the fault, bounded so a fix line stays a line. */
 function stderrTail(stderr: string): string | undefined {
