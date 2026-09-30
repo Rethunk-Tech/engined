@@ -41,21 +41,13 @@
         "noImgElement": "off"
       },
       "style": {
-        "noTernary": "off",
-        "noNestedTernary": "off",
-        "noMagicNumbers": "off",
         "noJsxLiterals": "off",
-        "noContinue": "off",
         "noIncrementDecrement": {
           "level": "on",
           "options": {
             "allowForLoopAfterthoughts": true
           }
         },
-        "useDestructuring": "off",
-        "useExportsLast": "off",
-        "useExplicitLengthCheck": "off",
-        "useErrorCause": "off",
         "useNamingConvention": {
           "level": "on",
           "options": {
@@ -85,7 +77,6 @@
             "filenameCases": ["camelCase", "PascalCase", "kebab-case", "export"]
           }
         },
-        "noProcessEnv": "off",
         "noExcessiveLinesPerFile": {
           "level": "on",
           "options": {
