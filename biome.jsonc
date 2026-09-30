@@ -31,7 +31,8 @@
       },
       "suspicious": {
         "noReactSpecificProps": "off",
-        "noExplicitAny": "error"
+        "noExplicitAny": "error",
+        "noUnnecessaryConditions": "off"
       },
       "performance": {
         "noAwaitInLoops": "off",
