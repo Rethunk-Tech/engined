@@ -4,4 +4,8 @@
  */
 export class FatalError extends Error {
   static readonly EXIT_CODE = 78
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+  }
 }
