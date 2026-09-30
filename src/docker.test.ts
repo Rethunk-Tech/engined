@@ -538,8 +538,8 @@ describe('a container an unclean exit left running: adopted', () => {
     const calls: string[][] = []
     const live = recordingExec(calls, () => undefined)
     let releasePs: () => void = () => undefined
-    const psGate = new Promise<void>((resolve) => {
-      releasePs = resolve
+    const psGate = new Promise<void>((release) => {
+      releasePs = release
     })
     const lifecycle = new DockerLifecycle(
       (args) => (args[0] === 'ps' ? psGate.then(() => orphanPs(matchingOrphan())) : live(args)),
