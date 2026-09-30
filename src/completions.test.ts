@@ -159,33 +159,57 @@ describe('infillRequestInit: request mapping', () => {
   })
 })
 
+function assertBufferedInfillCompletion(
+  body: {
+    object: string
+    choices: { text: string; finish_reason: string | null }[]
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  },
+  recorded: { url: string; body: string }[],
+  lines: string[],
+): void {
+  expect(body.object).toBe('text_completion')
+  expect(body.choices[0]?.text).toBe('return a + b')
+  expect(body.choices[0]?.finish_reason).toBe('stop')
+  expect(body.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 })
+  expect(recorded[0]?.url.endsWith('/infill')).toBe(true)
+  expect(soleProvenanceRecord(lines).engine_used).toBe('local-llama')
+}
+
+async function fetchBufferedInfillCompletion(): Promise<{
+  body: {
+    object: string
+    choices: { text: string; finish_reason: string | null }[]
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  }
+  recorded: { url: string; body: string }[]
+  lines: string[]
+}> {
+  const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
+  const recorded: { url: string; body: string }[] = []
+  const { lines, write } = collectLines()
+  const door = doorFor(cfg, root, makeInfillHttpClient(recorded, 'buffered'), write)
+  const res = await door.fetch(
+    completionsRequest({
+      model: '@/local-llama/ornith',
+      prompt: 'def add(a, b):\n    ',
+      suffix: '\n\nprint(add(1, 2))\n',
+      max_tokens: 16,
+      stop: ['\n'],
+    }),
+  )
+  expect(res.status).toBe(200)
+  return {
+    body: (await res.json()) as Awaited<ReturnType<typeof fetchBufferedInfillCompletion>>['body'],
+    recorded,
+    lines,
+  }
+}
+
 describe('POST /openai/v1/completions: response mapping', () => {
   test('a buffered infill reply maps to the OpenAI completions shape', async () => {
-    const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
-    const recorded: { url: string; body: string }[] = []
-    const { lines, write } = collectLines()
-    const door = doorFor(cfg, root, makeInfillHttpClient(recorded, 'buffered'), write)
-    const res = await door.fetch(
-      completionsRequest({
-        model: '@/local-llama/ornith',
-        prompt: 'def add(a, b):\n    ',
-        suffix: '\n\nprint(add(1, 2))\n',
-        max_tokens: 16,
-        stop: ['\n'],
-      }),
-    )
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as {
-      object: string
-      choices: { text: string; finish_reason: string | null }[]
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-    }
-    expect(body.object).toBe('text_completion')
-    expect(body.choices[0]?.text).toBe('return a + b')
-    expect(body.choices[0]?.finish_reason).toBe('stop')
-    expect(body.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 })
-    expect(recorded[0]?.url.endsWith('/infill')).toBe(true)
-    expect(soleProvenanceRecord(lines).engine_used).toBe('local-llama')
+    const { body, recorded, lines } = await fetchBufferedInfillCompletion()
+    assertBufferedInfillCompletion(body, recorded, lines)
   })
 
   test('a buffered completions reply carries the answering-route headers', async () => {
