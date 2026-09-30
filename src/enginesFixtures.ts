@@ -3,6 +3,7 @@
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { EngineRegistry } from './engines.ts'
+import { assignEnv, clearEnv, readEnv } from './env.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import {
@@ -14,6 +15,8 @@ import {
   writeEngineSpec,
 } from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
+
+const STUB_CONTAINER_PORT = 8000
 
 let testRoot: string | undefined
 
@@ -44,13 +47,13 @@ function testRootDir(): string {
  */
 export function redirectStateHome(root?: string): () => void {
   const stateHome = mkdtempSync(join(root ?? testRootDir(), 'engined-state-'))
-  const previous = Bun.env.XDG_STATE_HOME
-  Bun.env.XDG_STATE_HOME = stateHome
+  const previous = readEnv('XDG_STATE_HOME')
+  assignEnv('XDG_STATE_HOME', stateHome)
   return () => {
     if (previous === undefined) {
-      delete Bun.env.XDG_STATE_HOME
+      clearEnv('XDG_STATE_HOME')
     } else {
-      Bun.env.XDG_STATE_HOME = previous
+      assignEnv('XDG_STATE_HOME', previous)
     }
   }
 }
@@ -154,7 +157,7 @@ status = 200
 function okExec(args: readonly string[]): Promise<ExecResult> {
   const result: ExecResult =
     args[0] === 'image' && args[1] === 'inspect'
-      ? inspectSinglePort(8000)
+      ? inspectSinglePort(STUB_CONTAINER_PORT)
       : { stdout: '', stderr: '', exitCode: 0 }
   return Promise.resolve(result)
 }
@@ -172,7 +175,7 @@ export function noImageExec(args: readonly string[]): Promise<ExecResult> {
 function missingArtifactExec(args: readonly string[]): Promise<ExecResult> {
   let result: ExecResult = { stdout: '', stderr: '', exitCode: 0 }
   if (args[0] === 'image' && args[1] === 'inspect') {
-    result = inspectSinglePort(8000)
+    result = inspectSinglePort(STUB_CONTAINER_PORT)
   } else if (args[0] === 'run') {
     result = { stdout: '', stderr: '', exitCode: 1 }
   }
