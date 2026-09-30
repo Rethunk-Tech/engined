@@ -10,6 +10,7 @@
 
 const CONTINUATION = 128
 const GROUP = 128
+const PROTOBUF_FIELD_KEY_SHIFT = 8
 const WIRE_VARINT = 0
 const WIRE_LENGTH = 2
 /** Connect stream frames start with a flag byte and a 4-byte length. */
@@ -30,7 +31,7 @@ function varint(value: number): Uint8Array {
 }
 
 function tag(fieldNo: number, wire: number): Uint8Array {
-  return varint(fieldNo * 8 + wire)
+  return varint(fieldNo * PROTOBUF_FIELD_KEY_SHIFT + wire)
 }
 
 /** A length-delimited field: a nested message or a `bytes` value. */
@@ -102,8 +103,8 @@ export function decode(buf: Uint8Array): Field[] {
     if (key === undefined) {
       return out
     }
-    const no = Math.floor(key.value / 8)
-    const wire = key.value % 8
+    const no = Math.floor(key.value / PROTOBUF_FIELD_KEY_SHIFT)
+    const wire = key.value % PROTOBUF_FIELD_KEY_SHIFT
     if (wire !== WIRE_LENGTH && wire !== WIRE_VARINT) {
       return out
     }
@@ -131,3 +132,57 @@ export function fieldString(fields: Field[], no: number): string | undefined {
   const raw = fieldBytes(fields, no)
   return raw === undefined ? undefined : new TextDecoder().decode(raw)
 }
+
+/** `cursorExec.ts` wire field numbers, from the pinned cursor-agent bundle. */
+export const cursorExecWire = {
+  bool: { false: 0, true: 1 },
+  parsing: {
+    executableName: 1,
+    executableArg: 2,
+    commandText: 3,
+    failed: 1,
+    executables: 2,
+    hasRedirects: 3,
+    hasCmdSubst: 4,
+  },
+  grep: {
+    pattern: 1,
+    path: 2,
+    glob: 3,
+    outputMode: 4,
+    contextBefore: 5,
+    contextAfter: 6,
+    context: 7,
+    caseInsensitive: 8,
+    fileType: 9,
+    headLimit: 10,
+    multiline: 11,
+    sort: 12,
+    sortAsc: 13,
+    callId: 14,
+    resultOffset: 16,
+  },
+  shell: {
+    command: 1,
+    cwd: 2,
+    timeout: 3,
+    execId: 4,
+    readOffset: 4,
+    readLimit: 5,
+    parsingResult: 8,
+    background: 11,
+    skipApproval: 12,
+    description: 15,
+    writeReturnContent: 4,
+    stdout: 5,
+    stderr: 6,
+    failSignal: 4,
+    spawnErrorText: 3,
+  },
+  read: { path: 1, execId: 2 },
+  write: { path: 1, content: 2, execId: 3 },
+  delete: { path: 1, execId: 2 },
+  ls: { path: 1, ignore: 2, execId: 3 },
+  agent: { serverExec: 2, messageId: 1 },
+  tool: { resultFailure: 2, nestedFirstString: 1 },
+} as const

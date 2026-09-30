@@ -24,6 +24,8 @@ import {
 } from './test-support.ts'
 import type { Config, EngineEntry } from './types.ts'
 
+const LLAMA_FAKE_INSPECT_PORT = 8080
+
 /** A plausible launch-scoped door URL for a `resolveRedirect` unit test that never touches the real door. */
 export const TEST_DOOR_URL = 'http://127.0.0.1:29200/openai/v1/deadbeefdeadbeefdeadbeefdeadbeef'
 
@@ -72,7 +74,7 @@ export function llamaExec(): Exec {
   return (args) => {
     let result: ExecResult = { stdout: '', stderr: '', exitCode: 0 }
     if (args[0] === 'image' && args[1] === 'inspect') {
-      result = inspectSinglePort(8080)
+      result = inspectSinglePort(LLAMA_FAKE_INSPECT_PORT)
     } else if (args[0] === 'port') {
       port += 1
       result = portResult(port)

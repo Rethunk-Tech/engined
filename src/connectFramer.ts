@@ -9,8 +9,12 @@ import { ENVELOPE_HEADER } from './cursorProto.ts'
  */
 const FLAG_COMPRESSED = 1
 
+const KIBIBYTE = 1024
+const MEBIBYTE = KIBIBYTE * KIBIBYTE
+const MAX_CONNECT_FRAME_MEBIBYTES = 16
+
 /** A Connect frame larger than this is a runaway, not a turn. */
-const MAX_CONNECT_FRAME = 16 * 1024 * 1024
+const MAX_CONNECT_FRAME = MAX_CONNECT_FRAME_MEBIBYTES * MEBIBYTE
 
 function peekEnvelope(
   chunks: Uint8Array[],

@@ -43,6 +43,15 @@ const TOOL_CALL_COMPLETED = 3
 const PARTIAL_TOOL_CALL = 7
 const MESSAGE_STARTED_AT_MS = 25
 
+const TOOL_CALL_ID_FIELD = 1
+const TOOL_CALL_BODY_FIELD = 2
+const TOOL_CALL_MODEL_ID_FIELD = 3
+const PARTIAL_ARGS_DELTA_FIELD = 3
+const PARTIAL_MODEL_ID_FIELD = 4
+const TURN_USAGE_INPUT = 1
+const TURN_USAGE_OUTPUT = 2
+const TURN_USAGE_CACHE_READ = 3
+
 /**
  * A local model can think for minutes on a long brief, and the client drops a
  * stream that goes quiet. Heartbeats hold it open without pretending to be
@@ -165,7 +174,14 @@ function thinkingCompleted(ms: number): Uint8Array {
 
 /** `ToolCallStartedUpdate`/`ToolCallCompletedUpdate{1 call_id, 2 tool_call, 3 model_call_id}`. */
 function toolCallFrame(field: number, callId: string, call: Uint8Array): Uint8Array {
-  return update(field, message(stringField(1, callId), bytesField(2, call), stringField(3, callId)))
+  return update(
+    field,
+    message(
+      stringField(TOOL_CALL_ID_FIELD, callId),
+      bytesField(TOOL_CALL_BODY_FIELD, call),
+      stringField(TOOL_CALL_MODEL_ID_FIELD, callId),
+    ),
+  )
 }
 
 /**
@@ -176,7 +192,11 @@ function toolCallFrame(field: number, callId: string, call: Uint8Array): Uint8Ar
 function partialToolCall(callId: string, argsDelta: string): Uint8Array {
   return update(
     PARTIAL_TOOL_CALL,
-    message(stringField(1, callId), stringField(3, argsDelta), stringField(4, callId)),
+    message(
+      stringField(TOOL_CALL_ID_FIELD, callId),
+      stringField(PARTIAL_ARGS_DELTA_FIELD, argsDelta),
+      stringField(PARTIAL_MODEL_ID_FIELD, callId),
+    ),
   )
 }
 
@@ -190,7 +210,11 @@ function turnEnded(usage: TurnUsage): Uint8Array {
     message(
       bytesField(
         TURN_ENDED,
-        message(intField(1, usage.input), intField(2, usage.output), intField(3, usage.cacheRead)),
+        message(
+          intField(TURN_USAGE_INPUT, usage.input),
+          intField(TURN_USAGE_OUTPUT, usage.output),
+          intField(TURN_USAGE_CACHE_READ, usage.cacheRead),
+        ),
       ),
     ),
   )

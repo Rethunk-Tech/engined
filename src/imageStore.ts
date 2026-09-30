@@ -19,7 +19,7 @@ import {
   STATUS_NOT_FOUND,
 } from './http.ts'
 import { imagesDir } from './paths.ts'
-import { errMessage, pollUntil } from './records.ts'
+import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
 
 /**
  * A refusal on its way out: the status and the words a `jsonError` will carry,
@@ -45,11 +45,21 @@ export const IMAGE_GET_RE = /^\/engined\/v1\/images\/([^/]+)$/
 
 const IMAGE_KEEP = 64
 
+const IMAGE_TTL_DAYS = 7
+const HOURS_PER_DAY = 24
+const MINUTES_PER_HOUR = 60
+const SECONDS_PER_MINUTE = 60
+
 /** Seven days from write, not from last GET: polling must not hold a URL open. */
-export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const IMAGE_TTL_MS =
+  IMAGE_TTL_DAYS * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND
+
+const KIBIBYTE = 1024
+const MEBIBYTE = KIBIBYTE * KIBIBYTE
+const IMAGE_STORE_MAX_MEBIBYTES = 256
 
 /** Cap on the directory, not one file: a busy box drops older renders first. */
-const IMAGE_STORE_MAX_BYTES = 256 * 1024 * 1024
+const IMAGE_STORE_MAX_BYTES = IMAGE_STORE_MAX_MEBIBYTES * MEBIBYTE
 
 const IMAGE_EXT_RE = /^(png|jpg|jpeg|webp|gif)$/
 

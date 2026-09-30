@@ -145,7 +145,9 @@ const COMFY_DRAIN_POLL_MS = 500
  * render that legitimately exceeds it answers 503 naming the engine and the
  * key to raise, which is recoverable; an unbounded wait is not.
  */
-const COMFY_DRAIN_TIMEOUT_MS = 15 * 60 * MS_PER_SECOND
+const COMFY_DRAIN_TIMEOUT_MINUTES = 15
+const SECONDS_PER_MINUTE = 60
+const COMFY_DRAIN_TIMEOUT_MS = COMFY_DRAIN_TIMEOUT_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND
 
 /** This engine's own ceiling, or the default above. */
 function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {

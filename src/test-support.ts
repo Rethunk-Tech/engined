@@ -303,13 +303,15 @@ export function withLlamaControl(fallback: HttpClient): HttpClient {
 export function writeGgufFixture(path: string, kv: Record<string, string | string[]>): void {
   mkdirSync(dirname(path), { recursive: true })
   const chunks: Buffer[] = []
+  const ggufUint32Bytes = 4
+  const ggufUint64Bytes = 8
   const u32 = (n: number) => {
-    const b = Buffer.alloc(4)
+    const b = Buffer.alloc(ggufUint32Bytes)
     b.writeUInt32LE(n)
     chunks.push(b)
   }
   const u64 = (n: number) => {
-    const b = Buffer.alloc(8)
+    const b = Buffer.alloc(ggufUint64Bytes)
     b.writeBigUInt64LE(BigInt(n))
     chunks.push(b)
   }
@@ -318,25 +320,26 @@ export function writeGgufFixture(path: string, kv: Record<string, string | strin
     u64(bytes.length)
     chunks.push(bytes)
   }
-  const GgufTypeString = 8
-  const GgufTypeArray = 9
+  const ggufTypeString = 8
+  const ggufTypeArray = 9
+  const GgufFixtureVersion = 3
 
   chunks.push(Buffer.from('GGUF', 'ascii'))
-  u32(3) // version
+  u32(GgufFixtureVersion)
   u64(0) // tensor_count
   const entries = Object.entries(kv)
   u64(entries.length)
   for (const [key, value] of entries) {
     str(key)
     if (Array.isArray(value)) {
-      u32(GgufTypeArray)
-      u32(GgufTypeString)
+      u32(ggufTypeArray)
+      u32(ggufTypeString)
       u64(value.length)
       for (const s of value) {
         str(s)
       }
     } else {
-      u32(GgufTypeString)
+      u32(ggufTypeString)
       str(value)
     }
   }

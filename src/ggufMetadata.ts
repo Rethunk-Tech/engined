@@ -8,6 +8,10 @@
 import { open } from 'node:fs/promises'
 
 const MAGIC = 0x46_55_47_47 // "GGUF" read little-endian as a u32
+const UINT32_BYTES = 4
+const UINT64_BYTES = 8
+const KIBIBYTE = 1024
+const MEBIBYTE = KIBIBYTE * KIBIBYTE
 
 const GgufValueType = {
   Uint8: 0,
@@ -77,16 +81,16 @@ class Cursor {
   }
 
   u32(): number {
-    this.need(4)
+    this.need(UINT32_BYTES)
     const v = this.buf.readUInt32LE(this.pos)
-    this.pos += 4
+    this.pos += UINT32_BYTES
     return v
   }
 
   u64(): number {
-    this.need(8)
+    this.need(UINT64_BYTES)
     const v = this.buf.readBigUInt64LE(this.pos)
-    this.pos += 8
+    this.pos += UINT64_BYTES
     // Every length and count read here (string bytes, array elements, kv
     // count) fits a real GGUF's metadata comfortably under 2^53 -- this file
     // reads no tensor offsets, which is the only field wide enough to need
@@ -186,8 +190,11 @@ function parse(buf: Buffer): GgufMetadata {
  * or switch to incremental reads if a model's metadata ever legitimately
  * exceeds it.
  */
-const INITIAL_BYTES = 16 * 1024 * 1024
-const MAX_BYTES = 256 * 1024 * 1024
+const INITIAL_METADATA_READ_MEBIBYTES = 16
+const MAX_METADATA_READ_MEBIBYTES = 256
+const METADATA_READ_GROWTH_FACTOR = 4
+const INITIAL_BYTES = INITIAL_METADATA_READ_MEBIBYTES * MEBIBYTE
+const MAX_BYTES = MAX_METADATA_READ_MEBIBYTES * MEBIBYTE
 
 /** Reads `path`'s GGUF key/value metadata, growing the buffered prefix until the whole metadata section fits or `MAX_BYTES` is exhausted. Never reads the tensor data that follows. */
 export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
@@ -206,7 +213,7 @@ export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
       if (size === MAX_BYTES) {
         break
       }
-      size = Math.min(size * 4, MAX_BYTES)
+      size = Math.min(size * METADATA_READ_GROWTH_FACTOR, MAX_BYTES)
     }
     throw new Error(`${path}: GGUF metadata exceeds ${MAX_BYTES} bytes`)
   } finally {

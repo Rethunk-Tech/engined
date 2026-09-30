@@ -52,15 +52,21 @@ const DEFAULT_CFG = 4.0
 const DEFAULT_SAMPLER = 'euler'
 const DEFAULT_SCHEDULER = 'simple'
 /** OpenAI's own cap on one request, and a sane one here: each image is a full pass through the sampler. */
-export const MAX_N = 10
-export const SEED_MAX = 2 ** 31
+const OPENAI_IMAGES_PER_REQUEST_CAP = 10
+export const MAX_N = OPENAI_IMAGES_PER_REQUEST_CAP
+const SEED_RANDOM_BIT_WIDTH = 31
+export const SEED_MAX = 2 ** SEED_RANDOM_BIT_WIDTH
 
 /** `${name}` exactly, and nothing else in the string: a placeholder is a whole value, never spliced into one, so a substituted number stays a number. */
 const PLACEHOLDER = /^\$\{([a-z_]+)\}$/
 
 /** OpenAI size grammar, plus this door's floor: 64–4096 and a multiple of 8. */
 const SIZE = /^(\d{2,5})x(\d{2,5})$/
-const sizeDim = (n: number): boolean => n >= 64 && n <= 4096 && n % 8 === 0
+const MIN_IMAGE_EDGE_PX = 64
+const MAX_IMAGE_EDGE_PX = 4096
+const IMAGE_EDGE_ALIGNMENT_PX = 8
+const sizeDim = (n: number): boolean =>
+  n >= MIN_IMAGE_EDGE_PX && n <= MAX_IMAGE_EDGE_PX && n % IMAGE_EDGE_ALIGNMENT_PX === 0
 
 /**
  * Replaces every `${name}` in the graph with `values[name]`, keeping the

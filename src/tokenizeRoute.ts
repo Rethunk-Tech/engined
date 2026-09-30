@@ -28,7 +28,10 @@ import type { Config, ResolvedRoute } from './types.ts'
 export const TOKENIZE_PATH = '/engined/v1/tokenize'
 
 /** Characters of `content` this verb will tokenize; past this the BPE scan is not worth the RAM. */
-export const MAX_TOKENIZE_CONTENT_CHARS = 4 * 1024 * 1024
+const TOKENIZE_CONTENT_LIMIT_MEBICHARS = 4
+const KIBICHAR = 1024
+const MEBICHAR = KIBICHAR * KIBICHAR
+export const MAX_TOKENIZE_CONTENT_CHARS = TOKENIZE_CONTENT_LIMIT_MEBICHARS * MEBICHAR
 
 /** The on-disk GGUF `route` points at, given that engine's `models_dir` -- `undefined` when the route is remote, has no `filename`, or `modelsDir` is unset. */
 export function ggufPath(route: ResolvedRoute, modelsDir: string | undefined): string | undefined {

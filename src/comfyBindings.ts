@@ -102,7 +102,12 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
  * surprised, short enough that the table does not accumulate a binding per
  * prompt forever on a box that renders daily.
  */
-const COMFY_BINDING_TTL_MS = 7 * 24 * 60 * 60 * MS_PER_SECOND
+const COMFY_BINDING_TTL_DAYS = 7
+const HOURS_PER_DAY = 24
+const MINUTES_PER_HOUR = 60
+const SECONDS_PER_MINUTE = 60
+const COMFY_BINDING_TTL_MS =
+  COMFY_BINDING_TTL_DAYS * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND
 
 /** Whether a binding bound at `at` has aged out. */
 export function expired(at: number, now: number): boolean {

@@ -6,6 +6,9 @@
  */
 
 import { crc32, deflateSync } from 'node:zlib'
+import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
+import { errMessage } from './records.ts'
+import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
 /** PNG's own field widths, which the format fixes and this encoder cannot choose: a chunk's length and CRC are 4 bytes each, and IHDR's payload is 13. */
 const PNG_LENGTH_BYTES = 4
@@ -16,7 +19,18 @@ const PNG_IHDR_BYTES = 13
 const IHDR_HEIGHT_OFFSET = 4
 
 /** IHDR's tail after width and height: 8-bit depth, colour type 2 (RGB), then the deflate/filter/interlace defaults, which are the only values this encoder emits. */
-const IHDR_TAIL = [8, 2, 0, 0, 0]
+const IHDR_BIT_DEPTH = 8
+const IHDR_COLOR_TYPE_RGB = 2
+const IHDR_COMPRESSION_DEFAULT = 0
+const IHDR_FILTER_DEFAULT = 0
+const IHDR_INTERLACE_NONE = 0
+const IHDR_TAIL = [
+  IHDR_BIT_DEPTH,
+  IHDR_COLOR_TYPE_RGB,
+  IHDR_COMPRESSION_DEFAULT,
+  IHDR_FILTER_DEFAULT,
+  IHDR_INTERLACE_NONE,
+]
 const IHDR_TAIL_OFFSET = 8
 
 /** One RGB pixel, and the leading filter-type-0 byte every scanline carries. */
@@ -24,7 +38,23 @@ const RGB_BYTES = 3
 const SCANLINE_FILTER_BYTES = 1
 
 /** The 8 bytes every PNG opens with. */
-const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10]
+const PNG_SIG_BYTE_MAGIC = 0x89
+const PNG_SIG_BYTE_P = 0x50
+const PNG_SIG_BYTE_N = 0x4e
+const PNG_SIG_BYTE_G = 0x47
+const PNG_SIG_BYTE_CR = 0x0d
+const PNG_SIG_BYTE_LF = 0x0a
+const PNG_SIG_BYTE_CTRL_Z = 0x1a
+const PNG_SIGNATURE = [
+  PNG_SIG_BYTE_MAGIC,
+  PNG_SIG_BYTE_P,
+  PNG_SIG_BYTE_N,
+  PNG_SIG_BYTE_G,
+  PNG_SIG_BYTE_CR,
+  PNG_SIG_BYTE_LF,
+  PNG_SIG_BYTE_CTRL_Z,
+  PNG_SIG_BYTE_LF,
+]
 
 /** One PNG chunk: length, 4-byte ASCII type, data, CRC32 over type+data. */
 function pngChunk(type: string, data: Uint8Array): Uint8Array {
@@ -83,7 +113,7 @@ function encodePng(width: number, height: number, raw: Buffer): Uint8Array {
  * it is generated per run, and ten glyphs is the whole alphabet that needs.
  * Letters would add glyphs without adding proof.
  */
-export const DIGIT_GLYPHS: readonly string[][] = [
+const DIGIT_GLYPHS: readonly string[][] = [
   ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
   ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
   ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
@@ -161,11 +191,187 @@ function paintCell(raw: Buffer, stride: number, cellX: number, cellY: number): v
 /** 64px square: large enough that the halves are unmistakable, small enough that the data URI stays a few hundred bytes of prompt. */
 const SPLIT_PNG_SIZE = 64
 /** Two hues no description confuses for one another, at full saturation so neither reads as a shade of the other. */
-const SPLIT_PNG_LEFT = [220, 20, 20] as const
-const SPLIT_PNG_RIGHT = [20, 20, 220] as const
+const SPLIT_PROBE_RED_CHANNEL = 220
+const SPLIT_PROBE_LOW_CHANNEL = 20
+const SPLIT_PROBE_BLUE_CHANNEL = 220
+const SPLIT_PNG_LEFT = [
+  SPLIT_PROBE_RED_CHANNEL,
+  SPLIT_PROBE_LOW_CHANNEL,
+  SPLIT_PROBE_LOW_CHANNEL,
+] as const
+const SPLIT_PNG_RIGHT = [
+  SPLIT_PROBE_LOW_CHANNEL,
+  SPLIT_PROBE_LOW_CHANNEL,
+  SPLIT_PROBE_BLUE_CHANNEL,
+] as const
 
 /** Red on the left, blue on the right. */
-export const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(SPLIT_PNG_SIZE, SPLIT_PNG_LEFT, SPLIT_PNG_RIGHT)).toString('base64')}`
+const SPLIT_PNG_DATA_URI = `data:image/png;base64,${Buffer.from(splitColorPng(SPLIT_PNG_SIZE, SPLIT_PNG_LEFT, SPLIT_PNG_RIGHT)).toString('base64')}`
 
 /** Two words is the whole answer this asks for; anything longer is tokens spent on prose the verdict discards. */
-export const VISION_MAX_TOKENS = 16
+const VISION_MAX_TOKENS = 16
+
+/** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */
+export function visionRequestBody(modelId: string): string {
+  return JSON.stringify({
+    model: modelId,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.',
+          },
+          { type: 'image_url', image_url: { url: SPLIT_PNG_DATA_URI } },
+        ],
+      },
+    ],
+    max_tokens: VISION_MAX_TOKENS,
+  })
+}
+
+const READ_PROBE_DIGITS = 8
+
+/** A fresh string per run, so no answer can come from having seen this image before. */
+export function readProbeText(): string {
+  return Array.from({ length: READ_PROBE_DIGITS }, () =>
+    String(Math.floor(Math.random() * DIGIT_GLYPHS.length)),
+  ).join('')
+}
+
+const READ_MAX_TOKENS = 64
+
+export function visionReadRequestBody(modelId: string, text: string): string {
+  return JSON.stringify({
+    model: modelId,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Read the digits in this image. Answer with the digits only.' },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:image/png;base64,${Buffer.from(digitsPng(text)).toString('base64')}`,
+            },
+          },
+        ],
+      },
+    ],
+    max_tokens: READ_MAX_TOKENS,
+  })
+}
+
+const NON_DIGITS = /\D+/g
+
+export function visionReadVerdict(
+  expected: string,
+  reply: string,
+): { ok: boolean; detail: string } {
+  const seen = reply.replace(NON_DIGITS, '')
+  if (!seen.includes(expected)) {
+    return { ok: false, detail: `expected ${expected}, read ${JSON.stringify(reply)}` }
+  }
+  return { ok: true, detail: `read ${expected}` }
+}
+
+export function visionVerdict(reply: string): { ok: boolean; detail: string } {
+  const seen = reply.toLowerCase()
+  const red = seen.indexOf('red')
+  const blue = seen.indexOf('blue')
+  if (red < 0 || blue < 0) {
+    return {
+      ok: false,
+      detail: `named ${red < 0 ? 'no red' : 'no blue'}: ${JSON.stringify(reply)}`,
+    }
+  }
+  if (red > blue) {
+    return { ok: false, detail: `named the halves in the wrong order: ${JSON.stringify(reply)}` }
+  }
+  return { ok: true, detail: JSON.stringify(reply) }
+}
+
+const RIFF_ASCII_R = 0x52
+const RIFF_ASCII_I = 0x49
+const RIFF_ASCII_F = 0x46
+const RIFF_WAVEFORM_SIZE_PLACEHOLDER = 0
+const NOT_REALLY_AUDIO = new Uint8Array([
+  RIFF_ASCII_R,
+  RIFF_ASCII_I,
+  RIFF_ASCII_F,
+  RIFF_ASCII_F,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+])
+
+interface TranslationProbeRow {
+  id?: unknown
+  role?: unknown
+  translate?: unknown
+  state?: unknown
+  serves?: unknown
+}
+
+interface ProbeLine {
+  address: string
+  ok: boolean
+  detail: string
+}
+
+function canAnswer(state: unknown): boolean {
+  return typeof state === 'string' && state !== 'unavailable'
+}
+
+async function probeOneRefusal(
+  doorUrl: string,
+  address: string,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: boolean; detail: string }> {
+  const form = new FormData()
+  form.append('file', new Blob([NOT_REALLY_AUDIO]), 'probe.wav')
+  form.append('model', address)
+  try {
+    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
+      method: 'POST',
+      body: form,
+    })
+    const text = await res.text()
+    if (res.status === STATUS_BAD_REQUEST) {
+      return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
+    }
+    return {
+      ok: false,
+      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
+    }
+  } catch (err) {
+    return { ok: false, detail: errMessage(err) }
+  }
+}
+
+/** English-only transcription routes must refuse `/translations` before any model loads. */
+export async function probeTranslations(
+  doorUrl: string,
+  rows: readonly TranslationProbeRow[],
+  fetchImpl: typeof fetch,
+): Promise<ProbeLine[]> {
+  const englishOnly = rows.filter(
+    (r): r is TranslationProbeRow & { id: string } =>
+      r.role === undefined &&
+      r.translate !== true &&
+      canAnswer(r.state) &&
+      typeof r.id === 'string' &&
+      Array.isArray(r.serves) &&
+      r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),
+  )
+  if (englishOnly.length === 0) {
+    return []
+  }
+  const lines: ProbeLine[] = []
+  for (const row of englishOnly) {
+    lines.push({ address: row.id, ...(await probeOneRefusal(doorUrl, row.id, fetchImpl)) })
+  }
+  return lines
+}

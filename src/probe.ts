@@ -20,121 +20,24 @@
  * kind of drift this repo keeps getting bitten by.
  */
 
+import { CONTENT_TYPE, discardBody, ENGINE_ERROR_CHARS, JSON_CONTENT_TYPE } from './http.ts'
 import {
-  CONTENT_TYPE,
-  discardBody,
-  ENGINE_ERROR_CHARS,
-  JSON_CONTENT_TYPE,
-  STATUS_BAD_REQUEST,
-} from './http.ts'
-import { DIGIT_GLYPHS, digitsPng, SPLIT_PNG_DATA_URI, VISION_MAX_TOKENS } from './probeImage.ts'
+  probeTranslations,
+  readProbeText,
+  visionReadRequestBody,
+  visionReadVerdict,
+  visionRequestBody,
+  visionVerdict,
+} from './probeImage.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_RERANK,
-  CONTENT_ENDPOINT_TRANSCRIPTIONS,
-  CONTENT_ENDPOINT_TRANSLATIONS,
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
-
-/** The chat body that asks for exactly what `visionVerdict` reads back, and nothing else worth paying tokens for. */
-export function visionRequestBody(modelId: string): string {
-  return JSON.stringify({
-    model: modelId,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: 'This image has two vertical halves. Name the color of the left half, then the color of the right half. Answer with two words.',
-          },
-          { type: 'image_url', image_url: { url: SPLIT_PNG_DATA_URI } },
-        ],
-      },
-    ],
-    max_tokens: VISION_MAX_TOKENS,
-  })
-}
-
-/** How many digits the read probe puts in the image: long enough that a guess cannot land it, short enough to stay one glance for a reader. */
-const READ_PROBE_DIGITS = 8
-
-/** A fresh string per run, so no answer can come from having seen this image before. */
-export function readProbeText(): string {
-  return Array.from({ length: READ_PROBE_DIGITS }, () =>
-    String(Math.floor(Math.random() * DIGIT_GLYPHS.length)),
-  ).join('')
-}
-
-/** The chat body for a `read` route: the digits as an image, and an instruction with no scene in it to describe. */
-function visionReadRequestBody(modelId: string, text: string): string {
-  return JSON.stringify({
-    model: modelId,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Read the digits in this image. Answer with the digits only.' },
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:image/png;base64,${Buffer.from(digitsPng(text)).toString('base64')}`,
-            },
-          },
-        ],
-      },
-    ],
-    max_tokens: READ_MAX_TOKENS,
-  })
-}
-
-/** Room for the digits plus whatever framing a model insists on, and no more. */
-const READ_MAX_TOKENS = 64
-
-/** Every digit in the reply, in order, with the prose a model may wrap them in dropped. */
-const NON_DIGITS = /\D+/g
-
-/**
- * The digits, in the order they were drawn. Punctuation and framing are
- * stripped rather than rejected -- a reader that answers "The digits are
- * 4 7 1 2." read the image correctly, and failing it would be failing the
- * wrapper rather than the recognition.
- */
-export function visionReadVerdict(
-  expected: string,
-  reply: string,
-): { ok: boolean; detail: string } {
-  const seen = reply.replace(NON_DIGITS, '')
-  if (!seen.includes(expected)) {
-    return { ok: false, detail: `expected ${expected}, read ${JSON.stringify(reply)}` }
-  }
-  return { ok: true, detail: `read ${expected}` }
-}
-
-/**
- * Both halves, and the order between them. Naming one colour proves the mmproj
- * path carried SOMETHING; naming both in the image's own order is the part a
- * plausible-but-wrong description cannot reach by guessing.
- */
-export function visionVerdict(reply: string): { ok: boolean; detail: string } {
-  const seen = reply.toLowerCase()
-  const red = seen.indexOf('red')
-  const blue = seen.indexOf('blue')
-  if (red < 0 || blue < 0) {
-    return {
-      ok: false,
-      detail: `named ${red < 0 ? 'no red' : 'no blue'}: ${JSON.stringify(reply)}`,
-    }
-  }
-  if (red > blue) {
-    return { ok: false, detail: `named the halves in the wrong order: ${JSON.stringify(reply)}` }
-  }
-  return { ok: true, detail: JSON.stringify(reply) }
-}
 
 async function postProbe(
   fetchImpl: typeof fetch,
@@ -520,75 +423,6 @@ async function probeOne(
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] }
     return check.verdict(body.choices?.[0]?.message?.content ?? '')
-  } catch (err) {
-    return { ok: false, detail: errMessage(err) }
-  }
-}
-
-/**
- * The translations guard, which is the half of that verb with a ground truth.
- *
- * Translation *quality* is deliberately not probed: unlike an image, speech
- * in a known foreign language cannot be generated in code here, so there is
- * nothing to check a translated transcript against. What can be checked is
- * the failure this door was built to prevent -- an English-only model handed
- * the translate flag does not error, it transcribes and returns something
- * that reads like a translation. So the guard is that a route which does NOT
- * declare `translate` is refused, and it is checked against every such route
- * the menu lists.
- *
- * No audio is decoded: the refusal happens at dispatch, before the upload
- * reaches an engine, so a few bytes standing in for a recording is enough and
- * the probe costs no model load at all.
- */
-async function probeTranslations(
-  doorUrl: string,
-  rows: readonly MenuRow[],
-  fetchImpl: typeof fetch,
-): Promise<ProbeLine[]> {
-  const englishOnly = rows.filter(
-    (r): r is MenuRow & { id: string } =>
-      r.role === undefined &&
-      r.translate !== true &&
-      canAnswer(r.state) &&
-      typeof r.id === 'string' &&
-      Array.isArray(r.serves) &&
-      r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),
-  )
-  if (englishOnly.length === 0) {
-    return []
-  }
-  const lines: ProbeLine[] = []
-  for (const row of englishOnly) {
-    lines.push({ address: row.id, ...(await probeOneRefusal(doorUrl, row.id, fetchImpl)) })
-  }
-  return lines
-}
-
-/** A few bytes standing in for a recording: enough to pass the upload check, never enough to be decoded, because the refusal lands first. */
-const NOT_REALLY_AUDIO = new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0])
-
-async function probeOneRefusal(
-  doorUrl: string,
-  address: string,
-  fetchImpl: typeof fetch,
-): Promise<{ ok: boolean; detail: string }> {
-  const form = new FormData()
-  form.append('file', new Blob([NOT_REALLY_AUDIO]), 'probe.wav')
-  form.append('model', address)
-  try {
-    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
-      method: 'POST',
-      body: form,
-    })
-    const text = await res.text()
-    if (res.status === STATUS_BAD_REQUEST) {
-      return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
-    }
-    return {
-      ok: false,
-      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
-    }
   } catch (err) {
     return { ok: false, detail: errMessage(err) }
   }
