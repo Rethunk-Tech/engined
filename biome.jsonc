@@ -41,6 +41,12 @@
         "noImgElement": "off"
       },
       "style": {
+        // canon ts-biome-00035
+        "noContinue": "off",
+        // canon ts-biome-00035
+        "noTernary": "off",
+        // canon ts-biome-00035
+        "useExportsLast": "off",
         "noJsxLiterals": "off",
         "noIncrementDecrement": {
           "level": "on",
