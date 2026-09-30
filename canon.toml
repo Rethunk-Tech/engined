@@ -1,0 +1,3 @@
+[deviations]
+# engined is a Bun daemon with no UI surface; there is no JSX and no i18n library.
+"ts-biome-00006 style/noJsxLiterals" = "single-language by design; no i18n library"
