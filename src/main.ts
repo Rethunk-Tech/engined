@@ -30,6 +30,7 @@ import { handleCursor, isCursorPath } from './cursorDoor.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
 import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
+import { ambientEnv } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
 import {
   headOf,
@@ -408,7 +409,7 @@ export function bindDualFamily(
 
 /** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */
 export function resolveBunx(
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = ambientEnv,
   which: (cmd: string) => string | null = Bun.which,
 ): string {
   const configured = env.ENGINED_BUNX

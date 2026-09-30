@@ -23,7 +23,6 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import process from 'node:process'
 import {
   AGENTIC_FLOOR,
   CLAUDE_MCP_CONFIG_FLAG,
@@ -32,6 +31,7 @@ import {
   CURSOR_FLOOR,
   CURSOR_OUTPUT_FORMAT,
 } from './agenticArgs.ts'
+import { pathSearchPath } from './env.ts'
 import { isUnder, stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
 import { finiteNumber, isRecord, parseRecord } from './records.ts'
@@ -460,7 +460,7 @@ function cursorVersionsDir(): string {
  */
 export function resolveCursorBinary(
   // `Bun.which` alone searches the PATH the process started with, not the one it has now.
-  which: (cmd: string) => string | null = (cmd) => Bun.which(cmd, { PATH: process.env.PATH }),
+  which: (cmd: string) => string | null = (cmd) => Bun.which(cmd, { PATH: pathSearchPath() }),
   versionsDir: string = cursorVersionsDir(),
 ): string {
   const onPath = which('agent')

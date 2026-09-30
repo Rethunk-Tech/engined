@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { posix } from 'node:path'
-import process from 'node:process'
+import { envString } from './env.ts'
 import { isRecord } from './records.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import type { Artifact, Volume } from './types.ts'
@@ -118,7 +118,7 @@ function specRunArgs(spec: RunnableContainerSpec): string[] {
     args.push('--init')
   }
   for (const envName of spec.env) {
-    const value = process.env[envName]
+    const value = envString(envName)
     if (value !== undefined) {
       args.push('-e', `${envName}=${value}`)
     }

@@ -26,7 +26,7 @@
  */
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
-import process from 'node:process'
+import { envString, pathSearchPath } from './env.ts'
 import { stateDir } from './paths.ts'
 
 /** State-dir segment that holds every agentic HOME. Cache prune names the same segment. */
@@ -127,11 +127,11 @@ export function sandboxArgv(input: SandboxInput): string[] {
  * running a write-capable agent loose in someone's repository.
  */
 export function resolveBwrap(): string | null {
-  const configured = process.env.ENGINED_BWRAP
+  const configured = envString('ENGINED_BWRAP')
   if (configured !== undefined && configured !== '') {
     return configured
   }
-  return Bun.which('bwrap', { PATH: process.env.PATH })
+  return Bun.which('bwrap', { PATH: pathSearchPath() })
 }
 
 /**

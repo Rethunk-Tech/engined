@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
-import process from 'node:process'
+import { envString } from './env.ts'
 
 /**
  * All three XDG variables are unset on this box, so the empty case is the
@@ -10,7 +10,7 @@ import process from 'node:process'
  * (and the recursive preset removal under it) would follow the cwd.
  */
 function xdg(name: string, fallback: string): string {
-  const v = process.env[name]
+  const v = envString(name)
   return v !== undefined && isAbsolute(v) ? v : join(homedir(), fallback)
 }
 

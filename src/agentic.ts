@@ -20,7 +20,6 @@
  */
 
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import process from 'node:process'
 import { argvFromArgs } from './agenticArgs.ts'
 import {
   type AgentCli,
@@ -29,6 +28,7 @@ import {
   agentCli,
   agentDelta,
 } from './agents.ts'
+import { ambientEnv } from './env.ts'
 import type { ExecResult } from './exec.ts'
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
 import { stateDir } from './paths.ts'
@@ -230,7 +230,7 @@ export function buildArgv(input: BuildArgvInput): string[] {
 /** Spawned processes get an allowlist, never the ambient environment — a `--user` unit hands every child the manager's environment otherwise, secrets included. */
 export function buildChildEnv(
   allowlist: readonly string[],
-  ambient: NodeJS.ProcessEnv = process.env,
+  ambient: NodeJS.ProcessEnv = ambientEnv,
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const key of allowlist) {
@@ -491,7 +491,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     resolveBinary: input.resolveBinary,
   })
   const env: Record<string, string> = {
-    ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? process.env),
+    ...buildChildEnv(input.envAllowlist, input.ambientEnv ?? ambientEnv),
   }
   // Whatever `configure` wrote (opencode's per-launch config file) outlives
   // this call only until the spawn it was rendered for returns -- the

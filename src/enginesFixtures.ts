@@ -2,7 +2,6 @@
 
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
-import process from 'node:process'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RegistryOptions } from './registryOptions.ts'
@@ -45,13 +44,13 @@ function testRootDir(): string {
  */
 export function redirectStateHome(root?: string): () => void {
   const stateHome = mkdtempSync(join(root ?? testRootDir(), 'engined-state-'))
-  const previous = process.env.XDG_STATE_HOME
-  process.env.XDG_STATE_HOME = stateHome
+  const previous = Bun.env.XDG_STATE_HOME
+  Bun.env.XDG_STATE_HOME = stateHome
   return () => {
     if (previous === undefined) {
-      delete process.env.XDG_STATE_HOME
+      delete Bun.env.XDG_STATE_HOME
     } else {
-      process.env.XDG_STATE_HOME = previous
+      Bun.env.XDG_STATE_HOME = previous
     }
   }
 }
