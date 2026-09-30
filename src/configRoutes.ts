@@ -198,11 +198,10 @@ export function specFactsFor(engine: EngineEntry, enginesRoot: string): SpecFact
   let raw: unknown
   try {
     raw = Bun.TOML.parse(readFileSync(specFile, 'utf8'))
-  } catch (err) {
+  } catch (cause) {
     throw new ParseError(
-      `engine "${engine.id}": cannot read its spec to resolve an upstream trait`,
-      specFile,
-      { cause: err },
+      `${specFile}: engine "${engine.id}": cannot read its spec to resolve an upstream trait`,
+      { cause },
     )
   }
   const trait = isRecord(raw) ? raw.upstream : undefined

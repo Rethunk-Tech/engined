@@ -27,7 +27,7 @@ function fragmentFiles(mainFile: string): string[] {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return []
     }
-    throw new ParseError('cannot read config.d', dir, { cause: err })
+    throw new ParseError(`${dir}: cannot read config.d`, { cause: err })
   }
   return (
     names
@@ -63,14 +63,14 @@ function readConfigTable(file: string): Record<string, unknown> {
   try {
     text = readFileSync(file, 'utf8')
   } catch (err) {
-    throw new ParseError('cannot read config', file, { cause: err })
+    throw new ParseError(`${file}: cannot read config`, { cause: err })
   }
 
   let raw: unknown
   try {
     raw = Bun.TOML.parse(text)
   } catch (err) {
-    throw new ParseError('invalid TOML', file, { cause: err })
+    throw new ParseError(`${file}: invalid TOML`, { cause: err })
   }
   if (!isRecord(raw)) {
     throw new ParseError('config must be a table', file)
