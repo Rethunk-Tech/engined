@@ -12,6 +12,7 @@
 
 import {
   bytesField,
+  cursorExecWire,
   decode,
   type Field,
   fieldBytes,
@@ -30,6 +31,19 @@ const READ = 7
 const LS = 8
 
 const EXEC_ID = 15
+
+const {
+  bool,
+  parsing,
+  grep: grepWire,
+  shell: shellWire,
+  read,
+  write,
+  ls,
+  agent,
+  tool,
+} = cursorExecWire
+const del = cursorExecWire.delete
 
 /**
  * `ShellArgs.timeout` is MILLISECONDS. Sending seconds kills the command
@@ -84,36 +98,39 @@ function parsingResult(command: string): Uint8Array {
   const parts = command.split(' ').filter((p) => p.length > 0)
   const name = parts[0] ?? command
   const executable = message(
-    stringField(1, name),
-    ...parts.slice(1).map((arg) => bytesField(2, stringField(1, arg))),
-    stringField(3, command),
+    stringField(parsing.executableName, name),
+    ...parts
+      .slice(1)
+      .map((arg) => bytesField(parsing.executableArg, stringField(parsing.executableName, arg))),
+    stringField(parsing.commandText, command),
   )
   return message(
-    intField(1, 0), // parsing_failed
-    bytesField(2, executable), // executable_commands
-    intField(3, 0), // has_redirects
-    intField(4, 0), // has_command_substitution
+    intField(parsing.failed, bool.false),
+    bytesField(parsing.executables, executable),
+    intField(parsing.hasRedirects, bool.false),
+    intField(parsing.hasCmdSubst, bool.false),
   )
 }
 
 function grepArgs(req: ToolRequest, path: string, execId: string): Uint8Array {
   return message(
-    stringField(1, req.pattern ?? ''),
-    stringField(2, path),
-    ...(req.glob === undefined ? [] : [stringField(3, req.glob)]),
-    ...(req.outputMode === undefined ? [] : [stringField(4, req.outputMode)]),
-    ...(req.contextBefore === undefined ? [] : [intField(5, req.contextBefore)]),
-    ...(req.contextAfter === undefined ? [] : [intField(6, req.contextAfter)]),
-    ...(req.context === undefined ? [] : [intField(7, req.context)]),
-    ...(req.caseInsensitive ? [intField(8, 1)] : []),
-    ...(req.fileType === undefined ? [] : [stringField(9, req.fileType)]),
-    ...(req.headLimit === undefined ? [] : [intField(10, req.headLimit)]),
-    ...(req.multiline ? [intField(11, 1)] : []),
-    ...(req.sort === undefined ? [] : [stringField(12, req.sort)]),
-    ...(req.sortAscending ? [intField(13, 1)] : []),
-    // The call id, which every tool carries.
-    stringField(14, execId),
-    ...(req.resultOffset === undefined ? [] : [intField(16, req.resultOffset)]),
+    stringField(grepWire.pattern, req.pattern ?? ''),
+    stringField(grepWire.path, path),
+    ...(req.glob === undefined ? [] : [stringField(grepWire.glob, req.glob)]),
+    ...(req.outputMode === undefined ? [] : [stringField(grepWire.outputMode, req.outputMode)]),
+    ...(req.contextBefore === undefined
+      ? []
+      : [intField(grepWire.contextBefore, req.contextBefore)]),
+    ...(req.contextAfter === undefined ? [] : [intField(grepWire.contextAfter, req.contextAfter)]),
+    ...(req.context === undefined ? [] : [intField(grepWire.context, req.context)]),
+    ...(req.caseInsensitive ? [intField(grepWire.caseInsensitive, bool.true)] : []),
+    ...(req.fileType === undefined ? [] : [stringField(grepWire.fileType, req.fileType)]),
+    ...(req.headLimit === undefined ? [] : [intField(grepWire.headLimit, req.headLimit)]),
+    ...(req.multiline ? [intField(grepWire.multiline, bool.true)] : []),
+    ...(req.sort === undefined ? [] : [stringField(grepWire.sort, req.sort)]),
+    ...(req.sortAscending ? [intField(grepWire.sortAsc, bool.true)] : []),
+    stringField(grepWire.callId, execId),
+    ...(req.resultOffset === undefined ? [] : [intField(grepWire.resultOffset, req.resultOffset)]),
   )
 }
 
@@ -128,14 +145,16 @@ function argsFor(
       return {
         field: SHELL,
         args: message(
-          stringField(1, command),
-          stringField(2, '.'),
-          intField(3, SHELL_TIMEOUT_MS),
-          stringField(4, execId),
-          bytesField(8, parsingResult(command)),
-          intField(12, 1), // skip_approval
-          ...(req.background ? [intField(11, 1)] : []),
-          ...(req.description === undefined ? [] : [stringField(15, req.description)]),
+          stringField(shellWire.command, command),
+          stringField(shellWire.cwd, '.'),
+          intField(shellWire.timeout, SHELL_TIMEOUT_MS),
+          stringField(shellWire.execId, execId),
+          bytesField(shellWire.parsingResult, parsingResult(command)),
+          intField(shellWire.skipApproval, bool.true),
+          ...(req.background ? [intField(shellWire.background, bool.true)] : []),
+          ...(req.description === undefined
+            ? []
+            : [stringField(shellWire.description, req.description)]),
         ),
       }
     }
@@ -143,33 +162,36 @@ function argsFor(
       return {
         field: READ,
         args: message(
-          stringField(1, path),
-          stringField(2, execId),
-          ...(req.offset === undefined ? [] : [intField(4, req.offset)]),
-          ...(req.limit === undefined ? [] : [intField(5, req.limit)]),
+          stringField(read.path, path),
+          stringField(read.execId, execId),
+          ...(req.offset === undefined ? [] : [intField(shellWire.readOffset, req.offset)]),
+          ...(req.limit === undefined ? [] : [intField(shellWire.readLimit, req.limit)]),
         ),
       }
     case 'write':
       return {
         field: WRITE,
         args: message(
-          stringField(1, path),
-          stringField(2, req.content ?? ''),
-          stringField(3, execId),
-          intField(4, 0), // return_file_content_after_write
+          stringField(write.path, path),
+          stringField(write.content, req.content ?? ''),
+          stringField(write.execId, execId),
+          intField(shellWire.writeReturnContent, bool.false),
         ),
       }
     case 'delete':
-      return { field: DELETE, args: message(stringField(1, path), stringField(2, execId)) }
+      return {
+        field: DELETE,
+        args: message(stringField(del.path, path), stringField(del.execId, execId)),
+      }
     case 'grep':
       return { field: GREP, args: grepArgs(req, path, execId) }
     case 'ls':
       return {
         field: LS,
         args: message(
-          stringField(1, path),
-          ...(req.ignore ?? []).map((name) => stringField(2, name)),
-          stringField(3, execId),
+          stringField(ls.path, path),
+          ...(req.ignore ?? []).map((name) => stringField(ls.ignore, name)),
+          stringField(ls.execId, execId),
         ),
       }
     default:
@@ -184,8 +206,12 @@ export function execRequest(id: number, execId: string, req: ToolRequest): Uint8
     return undefined
   }
   return bytesField(
-    2,
-    message(intField(1, id), stringField(EXEC_ID, execId), bytesField(built.field, built.args)),
+    agent.serverExec,
+    message(
+      intField(agent.messageId, id),
+      stringField(EXEC_ID, execId),
+      bytesField(built.field, built.args),
+    ),
   )
 }
 
@@ -207,8 +233,8 @@ function readShell(result: Field[]): ToolOutcome {
   const success = fieldBytes(result, SHELL_SUCCESS)
   if (success !== undefined) {
     const f = decode(success)
-    const stdout = fieldString(f, 5) ?? ''
-    const stderr = fieldString(f, 6) ?? ''
+    const stdout = fieldString(f, shellWire.stdout) ?? ''
+    const stderr = fieldString(f, shellWire.stderr) ?? ''
     return {
       ok: true,
       text: [stdout, stderr].filter((s) => s.length > 0).join('\n') || '(no output)',
@@ -217,13 +243,16 @@ function readShell(result: Field[]): ToolOutcome {
   const failure = fieldBytes(result, SHELL_FAILURE)
   if (failure !== undefined) {
     const f = decode(failure)
-    const signal = fieldString(f, 4)
-    const stderr = fieldString(f, 6) ?? ''
+    const signal = fieldString(f, shellWire.failSignal)
+    const stderr = fieldString(f, shellWire.stderr) ?? ''
     return { ok: false, text: `command failed${signal ? ` (${signal})` : ''}: ${stderr}`.trim() }
   }
   const spawn = fieldBytes(result, SHELL_SPAWN_ERROR)
   if (spawn !== undefined) {
-    return { ok: false, text: fieldString(decode(spawn), 3) ?? 'spawn error' }
+    return {
+      ok: false,
+      text: fieldString(decode(spawn), shellWire.spawnErrorText) ?? 'spawn error',
+    }
   }
   return { ok: false, text: 'unrecognised shell result' }
 }
@@ -262,10 +291,13 @@ function readTool(field: number, result: Field[]): ToolOutcome {
     const nested = fieldBytes(inner, want)
     return {
       ok: true,
-      text: nested === undefined ? '(done)' : (fieldString(decode(nested), 1) ?? '(done)'),
+      text:
+        nested === undefined
+          ? '(done)'
+          : (fieldString(decode(nested), tool.nestedFirstString) ?? '(done)'),
     }
   }
-  const failure = fieldBytes(result, 2)
+  const failure = fieldBytes(result, tool.resultFailure)
   return {
     ok: false,
     text:
@@ -281,9 +313,9 @@ function readTool(field: number, result: Field[]): ToolOutcome {
  */
 export function execOutcome(execClient: Uint8Array): ToolOutcome {
   const fields = decode(execClient)
-  const shell = fieldBytes(fields, SHELL)
-  if (shell !== undefined) {
-    return readShell(decode(shell))
+  const shellPayload = fieldBytes(fields, SHELL)
+  if (shellPayload !== undefined) {
+    return readShell(decode(shellPayload))
   }
   for (const field of [READ, WRITE, LS, GREP, DELETE]) {
     const raw = fieldBytes(fields, field)
@@ -327,20 +359,23 @@ export function toolCallMessage(req: ToolRequest, callId: string): Uint8Array | 
       case 'shell': {
         const command = req.command ?? ''
         return message(
-          stringField(1, command),
-          stringField(2, '.'),
-          intField(3, SHELL_TIMEOUT_MS),
-          stringField(4, callId),
-          bytesField(8, parsingResult(command)),
+          stringField(shellWire.command, command),
+          stringField(shellWire.cwd, '.'),
+          intField(shellWire.timeout, SHELL_TIMEOUT_MS),
+          stringField(shellWire.execId, callId),
+          bytesField(shellWire.parsingResult, parsingResult(command)),
         )
       }
       case 'read': // ReadToolArgs{1 path}
       case 'write': // EditArgs{1 path}
       case 'ls': // LsArgs{1 path}
       case 'delete': // DeleteArgs{1 path}
-        return message(stringField(1, path))
+        return message(stringField(read.path, path))
       case 'grep': // GrepArgs{1 pattern, 2 path}
-        return message(stringField(1, req.pattern ?? ''), stringField(2, path))
+        return message(
+          stringField(grepWire.pattern, req.pattern ?? ''),
+          stringField(grepWire.path, path),
+        )
       default:
         return
     }
