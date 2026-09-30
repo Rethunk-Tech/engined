@@ -175,11 +175,15 @@ async function captionOneImage(
   } catch (err) {
     clearTimeout(timer)
     const durationMs = Date.now() - start
-    const failure = opts.signal.aborted
-      ? 'client disconnected'
-      : controller.signal.aborted
-        ? 'timeout'
-        : `connection failed: ${errMessage(err)}`
+    const failure = (() => {
+      if (opts.signal.aborted) {
+        return 'client disconnected'
+      }
+      if (controller.signal.aborted) {
+        return 'timeout'
+      }
+      return `connection failed: ${errMessage(err)}`
+    })()
     return { ok: false, attempt: { engine, model, ok: false, failure, duration_ms: durationMs } }
   }
 }
