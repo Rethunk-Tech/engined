@@ -76,8 +76,7 @@ async function handleModelRouted(
   resolved: Extract<Dispatch, { ok: true }>,
   content: ContentRequest,
 ): Promise<Response> {
-  const { pathname, rawModel, signal, launchScoped } = content
-  let body = content.body
+  let { pathname, rawModel, signal, launchScoped, body } = content
   const maxEgress = parseMaxEgress(body.max_egress)
   if (!maxEgress.ok) {
     return jsonError(
@@ -114,8 +113,7 @@ async function handleModelRouted(
       recordDoorCall(ctx, record)
       return bridged.response
     }
-    body = bridged.body
-    visionBridgeAttempts = bridged.attempts
+    ;({ body, attempts: visionBridgeAttempts } = bridged)
   }
 
   const hops =

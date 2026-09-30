@@ -420,7 +420,7 @@ export function sweepOrphanOpencodeDirs(root: string = stateDir()): void {
     const path = join(root, name)
     let mtimeMs: number
     try {
-      mtimeMs = statSync(path).mtimeMs
+      ;({ mtimeMs } = statSync(path))
     } catch {
       continue
     }

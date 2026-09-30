@@ -286,10 +286,14 @@ export async function* sseFrames(
       if (done) {
         carry += decoder.decode()
       }
-      const split = splitSseFrames(carry, discarding)
-      carry = split.carry
-      discarding = split.discarding
-      for (const frame of split.frames) {
+      const {
+        carry: nextCarry,
+        discarding: nextDiscarding,
+        frames,
+      } = splitSseFrames(carry, discarding)
+      carry = nextCarry
+      discarding = nextDiscarding
+      for (const frame of frames) {
         yield frame
       }
       if (!done) {
@@ -321,7 +325,10 @@ export function imageTooLarge(bytes: number): Response {
 }
 
 /** JSON routes share this ceiling; the Bun server's larger upload cap is for audio, not tables. */
-export const MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
+const JSON_BODY_LIMIT_MEBIBYTES = 32
+const KIBIBYTE = 1024
+const MEBIBYTE = KIBIBYTE * KIBIBYTE
+export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
 
 /**
  * A request body within `max` bytes, or the 413/400 to return instead;

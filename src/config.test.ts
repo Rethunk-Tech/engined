@@ -609,7 +609,7 @@ test('defaults apply when listen_port/chat_timeout/agent_timeout/stream_stall ar
 
 test('idle_stop_seconds and ready_timeout_s default when an engine omits them', () => {
   const cfg = loadConfig(writeConfig(llamaEngineAndRoute()))
-  const engine = cfg.engines[0]
+  const [engine] = cfg.engines
   expect(engine?.idle_stop_seconds).toBe(DEFAULT_IDLE_STOP_SECONDS)
   expect(engine?.ready_timeout_s).toBe(DEFAULT_READY_TIMEOUT_S)
 })

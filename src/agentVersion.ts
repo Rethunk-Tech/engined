@@ -52,7 +52,7 @@ export async function observeAgentVersion(
   let mtimeMs: number
   try {
     resolved = realpathSync(binary)
-    mtimeMs = statSync(resolved).mtimeMs
+    ;({ mtimeMs } = statSync(resolved))
   } catch (err) {
     return { ok: false, error: errMessage(err) }
   }

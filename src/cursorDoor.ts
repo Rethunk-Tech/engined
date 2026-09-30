@@ -46,19 +46,26 @@ export function chatModels(ctx: DoorContext): ResolvedRoute[] {
  * and the CLI reads all three: answering only the first leaves its picker
  * empty with "Cannot use this model".
  */
+const MODEL_ROW_FIELD = 2
+const MODEL_NAME_FIELD = 1
+const MODEL_DEFAULT_ON_FIELD = 2
+const MODEL_SUPPORTS_AGENT_FIELD = 5
+const MODEL_SUPPORTS_PLAN_MODE_FIELD = 22
+const PROTO_BOOL_TRUE = 1
+
 function availableModels(models: string[]): Uint8Array {
   const rows = models.map((name) =>
     bytesField(
-      2,
+      MODEL_ROW_FIELD,
       message(
-        stringField(1, name),
-        intField(2, 1), // default_on
-        intField(5, 1), // supports_agent
-        intField(22, 1), // supports_plan_mode
+        stringField(MODEL_NAME_FIELD, name),
+        intField(MODEL_DEFAULT_ON_FIELD, PROTO_BOOL_TRUE),
+        intField(MODEL_SUPPORTS_AGENT_FIELD, PROTO_BOOL_TRUE),
+        intField(MODEL_SUPPORTS_PLAN_MODE_FIELD, PROTO_BOOL_TRUE),
       ),
     ),
   )
-  return message(...rows, ...models.map((name) => stringField(1, name)))
+  return message(...rows, ...models.map((name) => stringField(MODEL_NAME_FIELD, name)))
 }
 
 function modelDetails(models: string[]): Uint8Array {
@@ -66,7 +73,7 @@ function modelDetails(models: string[]): Uint8Array {
 }
 
 function defaultModel(models: string[]): Uint8Array {
-  const first = models[0]
+  const [first] = models
   return first === undefined ? new Uint8Array() : bytesField(1, message(stringField(1, first)))
 }
 

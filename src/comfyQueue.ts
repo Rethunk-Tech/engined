@@ -114,7 +114,9 @@ export class ComfyQueueWatch {
       .filter((e) => !e.engine.disabled && e.spec.spec.kind === 'comfy')
       .map((entry) =>
         setInterval(() => {
-          const id = entry.engine.id
+          const {
+            engine: { id },
+          } = entry
           if (this.polling.has(id)) {
             return
           }

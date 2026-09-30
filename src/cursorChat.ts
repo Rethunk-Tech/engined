@@ -45,7 +45,7 @@ export async function completeLocally(
   messages: ChatMessage[],
   on: StreamSink,
 ): Promise<ChatReply> {
-  const route = chatModels(ctx)[0]
+  const [route] = chatModels(ctx)
   if (route === undefined) {
     return { text: 'engined: no llama chat route is configured', toolCalls: [] }
   }

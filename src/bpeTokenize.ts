@@ -45,20 +45,28 @@ function splitWords(content: string, pre: string): string[] {
 }
 
 /** The standard GPT-2 byte encoder: every byte 0-255 maps to one printable, single-codepoint character, so a merges list built from vocab strings never has to represent a raw control byte. */
+const BYTE_COUNT = 256
+const PRINTABLE_ASCII_LOW = 0x21
+const PRINTABLE_ASCII_HIGH = 0x7e
+const PRINTABLE_LATIN1_LOW = 0xa1
+const PRINTABLE_LATIN1_MID_HIGH = 0xac
+const PRINTABLE_LATIN1_HIGH_LOW = 0xae
+const PRINTABLE_LATIN1_HIGH = 0xff
+
 const BYTE_TO_CHAR: readonly string[] = (() => {
-  const table = new Array<string>(256)
+  const table = new Array<string>(BYTE_COUNT)
   const printable = new Set<number>()
-  for (let b = 0x21; b <= 0x7e; b++) {
+  for (let b = PRINTABLE_ASCII_LOW; b <= PRINTABLE_ASCII_HIGH; b++) {
     printable.add(b)
   }
-  for (let b = 0xa1; b <= 0xac; b++) {
+  for (let b = PRINTABLE_LATIN1_LOW; b <= PRINTABLE_LATIN1_MID_HIGH; b++) {
     printable.add(b)
   }
-  for (let b = 0xae; b <= 0xff; b++) {
+  for (let b = PRINTABLE_LATIN1_HIGH_LOW; b <= PRINTABLE_LATIN1_HIGH; b++) {
     printable.add(b)
   }
-  let next = 256
-  for (let b = 0; b < 256; b++) {
+  let next = BYTE_COUNT
+  for (let b = 0; b < BYTE_COUNT; b++) {
     table[b] = String.fromCodePoint(printable.has(b) ? b : next)
     if (!printable.has(b)) {
       next += 1
@@ -148,7 +156,7 @@ function heapPush(heap: BpeBigram[], item: BpeBigram): void {
 }
 
 function heapPop(heap: BpeBigram[]): BpeBigram | undefined {
-  const first = heap[0]
+  const [first] = heap
   if (first === undefined) {
     return undefined
   }
