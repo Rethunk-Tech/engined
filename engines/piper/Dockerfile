@@ -15,7 +15,7 @@
 # pure wheels, and the espeak-ng phonemizer data ships inside the wheel
 # itself (piper/espeak-ng-data/), so unlike kokoro this image installs no
 # apt espeak-ng at all. What the split actually buys is dropping uv and curl.
-FROM python:3.14.8-slim@sha256:89fb7d3da20043c370643435258bdd7ab755d326d359001d02988ed15ae5219e AS builder
+FROM python:3.14.8-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl \
@@ -64,7 +64,7 @@ RUN mkdir -p /app/voices \
     # one step; the runtime never imports it.
     && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
-FROM python:3.14.8-slim@sha256:89fb7d3da20043c370643435258bdd7ab755d326d359001d02988ed15ae5219e
+FROM python:3.14.8-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

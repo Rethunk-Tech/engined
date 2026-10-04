@@ -48,7 +48,7 @@ einops==0.8.2
     #   s3tokenizer
 fastapi==0.142.2
     # via -r requirements.in
-filelock==4.0.9
+filelock==4.0.10
     # via
     #   diffusers
     #   huggingface-hub
@@ -105,7 +105,7 @@ llvmlite==0.50.0
     # via numba
 markdown-it-py==4.2.0
     # via rich
-markupsafe==3.0.3
+markupsafe==3.0.4
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
@@ -158,7 +158,7 @@ pillow==12.3.0
     # via
     #   diffusers
     #   torchvision
-platformdirs==4.12.2
+platformdirs==4.12.3
     # via
     #   pooch
     #   virtualenv
@@ -291,13 +291,13 @@ uvicorn==0.54.0
     # via -r requirements.in
 uvloop==0.23.0
     # via uvicorn
-virtualenv==21.14.4
+virtualenv==21.14.5
     # via pre-commit
 watchfiles==1.3.0
     # via uvicorn
-websockets==17.1
+websockets==17.2
     # via uvicorn
 wrapt==2.5.0
     # via deprecated
-zipp==4.1.0
+zipp==4.1.1
     # via importlib-metadata
