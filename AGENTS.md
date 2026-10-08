@@ -8,7 +8,7 @@ is worth writing down here: an acceptance criterion nobody has actually
 proven stays recorded even when the feature looks done, because deleting it
 erases the only record that it is unproven.
 
-This one checkout is often worked by several sessions at once. A commit no worker of yours claims, a gate failure on files nobody in your run touched, or a finding already fixed is usually a sibling: date it (`git log -S<symbol>`) before "fixing" it, since every session commits under the same author, and prefer serial work to fan-out while siblings are active.
+This checkout is often worked by several sessions at once: `rules/fleet.md` (shared checkouts).
 
 Implementation: `src/`, Bun and TypeScript. Acceptance criteria and engine
 traps live beside the code they govern.
