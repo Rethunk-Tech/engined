@@ -178,4 +178,4 @@ Before committing: `gate` (build, typecheck, lint, test, actionlint).
 `bun run ci` runs the same four bun tasks through turbo, which keys each
 on its own inputs -- a docs-only change replays them from cache.
 
-Do not cut consumers over until engined can replace what they run today.
+maitre, earshot and bastion-client-discord already run on engined: check a change to a verb they use against them.
