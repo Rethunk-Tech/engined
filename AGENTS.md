@@ -22,15 +22,10 @@ Three tiers:
 - `test/local/*.test.ts` — `ENGINED_LOCAL=1`, serial against real containers.
   Never in CI. **The constraint is free memory, not a running container.**
   `requireMemoryFor` (`test/local/exclusive.ts`) reads `MemAvailable` and
-  refuses only when the pool cannot hold what the suite is about to load. A
-  running container is not a resident model: llama-server idles with nothing
-  loaded until a request arrives, so `docker ps` routinely shows an engine
-  holding a few hundred MiB and no weights. Only comfy (~42 GiB) and llama
-  (~30 GiB with its 262k-token KV cache) are large enough to contend, and only
-  the suites loading them check at all — every TTS and STT engine is under
-  ~3.5 GiB and several are resident together without contention, so the audio
-  suite needs no check. Stopping the unit is one way to free the pool, never
-  a precondition. Run as `bun run test:local` (not by pointing `bun` at the
+  refuses only when the pool cannot hold what the suite is about to load; an idle
+  llama-server holds no weights. Only comfy (~42 GiB) and llama (~30 GiB) are large
+  enough to contend, so only their suites check. Stopping the unit is never a
+  precondition. Run as `bun run test:local` (not by pointing `bun` at the
   directory).
 - No mocks — traps are tool behaviour; substitutes are injected functions with
   real defaults and recorded output.
@@ -39,32 +34,11 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
-Two criteria that were recorded here are now proven and no longer need a note:
-a rerank request through the real door (`engined-probe` reports `ok
-@/llama/rerank: ranked the answering document first`) and an image edit
-through a real comfy (a 512x512 render fed back through
-`/openai/v1/images/edits` returned a derived image, verified by eye).
-
-**Measured, and poor: translation quality on large-v3-turbo-q8_0.** The verb
-itself is proven end to end. Speech synthesized through
-`@/chatterbox-multi/local` saying "El gato negro duerme sobre la mesa de
-madera en la cocina" came back from `/openai/v1/audio/transcriptions` on
-`@/whisper/large-v3-turbo` character for character, and from
-`/openai/v1/audio/translations` on the same route as English -- while
-`@/whisper/medium.en` refused that verb with a 400. Plumbing, refusal and
-round trip all hold.
-
-The English was wrong: "The black man sleeps on the bed in the kitchen."
-`gato` became "man" and `mesa de madera` became "bed". That is not an audio
-problem and the transcription is what proves it -- the same recording was
-heard perfectly, so the loss is in the model's translation head rather than in
-anything this door does. Whether q8_0 costs translation more than it costs
-transcription is untested and is the first thing to try.
-
-So: wire a consumer to this verb only after checking it against speech you
-understand, and do not read a fluent English sentence as a correct one. The
-probe cannot catch this -- it is the same confident-wrong-answer shape as the
-vision defect, and there is no ground truth for it in code.
+**Measured, and poor: translation quality on large-v3-turbo-q8_0.** The
+`/openai/v1/audio/translations` verb works end to end, but the English it returns can be
+confidently wrong ("gato" became "man", "mesa de madera" became "bed") while the same
+audio transcribes perfectly, so the loss is in the model's translation head. Wire a consumer
+to this verb only after checking it against speech you understand; the probe cannot catch it.
 
 Agentic cost is read from each CLI's own envelope, and each shape was
 captured from a real run rather than guessed -- claude's `total_cost_usd`,
