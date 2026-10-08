@@ -148,6 +148,8 @@ reported it: a gain too small to matter for a single consumer is worth taking
 when all of them bank it. Fix the floor in the engine
 rather than working around it in each caller.
 
+When suggesting features for an engined consumer (e.g. engined-vscode), include ones engined does not support yet and pair each with the engine change it needs; a missing door capability is a reason to extend engined, not to drop the idea.
+
 Before committing: `gate` (build, typecheck, lint, test, actionlint).
 `bun run ci` runs the same four bun tasks through turbo, which keys each
 on its own inputs -- a docs-only change replays them from cache.
