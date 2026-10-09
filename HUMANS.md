@@ -203,4 +203,4 @@ are not touched.
 ## Development
 
 `bun test src` is the CI tier. `bun run test:local` needs real containers and
-the unit stopped first — see [AGENTS.md](AGENTS.md).
+enough free memory for the suite's engine (the unit may stay up) — see [AGENTS.md](AGENTS.md).
