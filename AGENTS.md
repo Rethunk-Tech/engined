@@ -164,5 +164,5 @@ with knip, actionlint, shellcheck, `bun test src`), the same set CI runs through
 the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize` (it was 9.7 s wall, 4.5
 CPU-s with files run in series: the suite is idle timer waits, so file-level parallelism overlaps
 them). Randomised order caught one order-dependent assertion in `cursorModels.test.ts`, now
-self-contained; four consecutive runs, two of them concurrent, were green with no port, dir or env
+self-contained; three runs after that fix, two of them concurrent, were green with no port, dir or env
 collisions.
