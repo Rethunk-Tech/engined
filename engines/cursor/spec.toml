@@ -13,8 +13,8 @@ agent = "cursor"
 streaming = true
 serves = ["/openai/v1/chat/completions"]
 # PATH is here, unlike claude's: cursor's floor is a mode, not a tool
-# allowlist, so its shell tool stays reachable under --mode plan --
+# allowlist, so its shell tool stays reachable under --mode ask --
 # with no PATH a shell command it runs comes back
 # "command not found", and with PATH it runs normally. Denied
-# a *write*, plan mode still reads files and runs read-only shell commands.
+# a *write*, ask mode still reads files and runs read-only shell commands.
 env = ["HOME", "PATH", "BUN_INSTALL", "BUN_TMPDIR"]

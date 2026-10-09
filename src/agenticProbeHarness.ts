@@ -81,7 +81,7 @@ export function plantUserPromptSubmitHook(workdir: string, witness: string): voi
   )
 }
 
-/** cursor's own hook file, `beforeSubmitPrompt` being its closest equivalent to claude's `UserPromptSubmit`. Verified to fire for a plain `-p` launch and to stay silent under `--mode plan`. */
+/** cursor's own hook file, `beforeSubmitPrompt` being its closest equivalent to claude's `UserPromptSubmit`. Verified to fire for a plain `-p` launch and to stay silent under `--mode ask`. */
 export function plantCursorPromptHook(workdir: string, witness: string): void {
   const cursorDir = join(workdir, '.cursor')
   mkdirSync(cursorDir, { recursive: true })

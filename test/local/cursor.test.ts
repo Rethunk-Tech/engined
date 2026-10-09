@@ -80,7 +80,7 @@ const WORKTREE_PREFIX = 'engined-cursor-'
 /**
  * PATH, unlike claude's own version of this call: cursor's floor is a mode,
  * not a tool allowlist, so its shell tool stays reachable under
- * `--mode plan`; without PATH a shell command it runs comes
+ * `--mode ask`; without PATH a shell command it runs comes
  * back "command not found".
  */
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {

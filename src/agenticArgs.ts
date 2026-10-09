@@ -42,15 +42,13 @@ export const CLAUDE_STREAM_FORMAT = [
 export const CURSOR_OUTPUT_FORMAT = ['--output-format', 'stream-json'] as const
 
 /**
- * cursor's floor: a mode, not a tool allowlist. See docs/security-model.md: under `--mode plan` it read files and ran
- * read-only shell commands, but a write instruction produced no file and the
- * text "Plan mode blocks file writes", reaching for its plan tool instead --
- * unmoved by a permissive `.cursor/cli-config.json` planted in the workdir and
- * its parent. `--trust` carries no write capability of its own; without it a
- * fresh workdir's workspace-trust prompt refuses the launch outright before
- * plan mode is ever reached.
+ * cursor's floor: a mode, not a tool allowlist. See docs/security-model.md: under `--mode ask` it
+ * answers without edits. `--mode plan` on 2026.10.08-4f5c08d is not a floor:
+ * a write prompt SwitchMode'd to agent and created the file. `--trust` carries
+ * no write capability of its own; without it a fresh workdir's workspace-trust
+ * prompt refuses the launch outright before ask mode is ever reached.
  */
-export const CURSOR_FLOOR = ['--mode', 'plan', '--trust'] as const
+export const CURSOR_FLOOR = ['--mode', 'ask', '--trust'] as const
 
 /**
  * Everything engined itself prepends to an agentic launch, keyed by the agent
@@ -79,7 +77,7 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
   '--permission-mode',
   // cursor's own two spellings of "run everything without asking" --
   // `--yolo` is documented as a bare alias for `--force`. Whether either
-  // actually overrides `--mode plan` was never tested; the assertion costs
+  // actually overrides `--mode ask` was never tested; the assertion costs
   // nothing either way, and cursor exposes more ways to say yes than claude
   // does.
   '--force',

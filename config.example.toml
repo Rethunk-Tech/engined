@@ -422,8 +422,8 @@ upstream = "local"
 model = "ornith"
 wire_model = "@/llama/ornith"
 
-# cursor's floor is a mode (--mode plan), not a tool allowlist -- measured
-# clean against 2026.08.28-50f0823 in docs/security-model.md. Ambient only:
+# cursor's floor is a mode (--mode ask), not a tool allowlist -- measured
+# clean against 2026.10.08-4f5c08d in docs/security-model.md. Ambient only:
 # `CURSOR_API_KEY` is checked against Cursor's own key format client-side
 # before any network attempt, so no third-party upstream key can ever pass
 # it (see engines/cursor/spec.toml and src/agents.ts's cursor entry) --
@@ -434,13 +434,13 @@ wire_model = "@/llama/ornith"
 id = "cursor"
 disable = true
 # Whatever pin you've actually proved on this box -- see claude's own
-# comment above for what "proved" means here. This one was proved 2026-09-07.
+# comment above for what "proved" means here. This one was proved 2026-10-09.
 # cursor self-updates in place, so this pin goes stale on its own schedule,
 # not on yours: test:local reads it and fails loudly the moment the installed
 # binary disagrees, which is the intended way to find out.
-agent_version = "2026.09.07-2bbdcc3"
+agent_version = "2026.10.08-4f5c08d"
 # No [engine.args] output-format or mode here: cursor's launch in agents.ts
-# sets --output-format stream-json and --mode plan unconditionally in code,
+# sets --output-format stream-json and --mode ask unconditionally in code,
 # so both keys are never real tunables -- assertNoForbiddenFlags refuses a
 # config that tries either.
 

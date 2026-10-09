@@ -151,7 +151,7 @@ it('an unknown agent resolves to nothing, so the spec parser can refuse it by na
 })
 
 /**
- * Captured verbatim: `agent -p --output-format stream-json --mode plan
+ * Captured verbatim: `agent -p --output-format stream-json --mode ask
  * --trust "Say hello in one short sentence."` against 2026.08.28-50f0823,
  * logged in, trimmed to the lines the parser reads.
  */
@@ -206,7 +206,7 @@ it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist 
     '--output-format',
     'stream-json',
     '--mode',
-    'plan',
+    'ask',
     '--trust',
   ])
   expect(

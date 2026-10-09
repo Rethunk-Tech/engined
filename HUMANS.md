@@ -181,7 +181,7 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | a 400 saying `unknown model` | bare model or engine id — every address needs `@/`, e.g. `@/<engine>/<model>` |
 | a 400 listing qualified upstream forms | `@/<engine>/<model>` names a model two upstreams share on that engine — use `@/<engine>/<upstream>/<model>` |
 | config change had no effect on a running engine | takes effect at the engine's next start — the engine's `superseded` field names the call that brings it forward now |
-| an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor |
+| an agentic engine refuses to serve | `agent_version` bumped; re-prove the read-only floor (cursor: `--mode ask`) |
 | `opencode` refuses to serve | no `bwrap` on the box — the `fix` field says which |
 | `engined-probe` failed with "reports no `vision` kind" | the running daemon predates the probe — re-run `scripts/install.sh` |
 | `engined-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |

@@ -220,35 +220,33 @@ so that proves what an agent round trip would, in milliseconds and with no LLM
 in the loop to be nondeterministic about.
 
 `cursor-agent`'s floor is **argv, like claude's** — first measured against
-2026.08.28-50f0823 and re-verified against 2026.09.01-597265b. It launches: the
+2026.08.28-50f0823 as `--mode plan`, then moved to `--mode ask` against
+2026.10.08-4f5c08d after plan mode stopped holding. It launches: the
 binary is resolved from PATH or `~/.local/share/cursor-agent/versions/`, not
 from npm. It stays disabled for the reason above — nothing can thread a door URL
 to it — not for want of a launch path.
 
-Under `--mode plan --trust` it answered a question about a file in the workspace
-with the file's actual contents, so it demonstrably ran; asked to create a file
-in the same mode it wrote nothing, said *"Plan mode blocks file writes"*, and
-reached for its plan tool instead of a write tool. A permissive
-`.cursor/cli-config.json` allowing `Write` and `Shell(*)`, planted in the
-workdir and its parent the way opencode's was, did not move it. The control is
-what makes those refusals mean anything: the same request under plain `-p`
-created the file, so writes were available in that directory throughout.
+Under `--mode ask --trust` a write instruction left the worktree byte-identical
+and the stream showed no `SwitchMode` and no write tool. `--mode plan` on
+2026.10.08-4f5c08d is not a floor: the same prompt `SwitchMode`'d to agent and
+created `proof.txt`. A permissive `.cursor/cli-config.json` allowing `Write`
+and `Shell(*)`, planted in the workdir and its parent the way opencode's was,
+did not move the older plan-mode refusals. The control is what makes those
+refusals mean anything: the same request under plain `-p` created the file, so
+writes were available in that directory throughout.
 
 **Read it with `--output-format stream-json`, never `text`.** A refused write
 emits an empty `text` stream — which is exactly the ambiguity that sank the
 first attempt. The tool calls and the refusal are visible only in the JSON
 stream, so the format is part of the floor's evidence, not a preference.
 
-Plan mode also refuses **network egress of any verb**, which is tighter than
-"blocks writes, allows reads" would predict. Asked under `--mode plan --trust`
-to `curl` a throwaway listener on a local port, it refused both a GET and a
-POST — *"Plan mode blocked shell execution"* — and nothing ever arrived at the
-listener. So a read-shaped request over the network is still shell, and still
-blocked. That is what makes the absent door URL a belt-and-braces gap rather
-than the only thing standing between cursor and this box's other ports.
+Ask mode is the floor because it cannot switch to agent the way plan mode
+did. Plan mode's older extra claim — refusing **network egress of any verb**
+under `--mode plan --trust` — was measured on 2026.08.28-50f0823 and is not
+re-claimed for ask. The write probe is what the pin now proves.
 
 Two things this does not settle. Whether `--force`/`--yolo` or
-`--sandbox disabled` override `--mode plan` was not tested, so all three belong
+`--sandbox disabled` override `--mode ask` was not tested, so all three belong
 in the forbidden-flag assertion regardless of what they turn out to do. And a
 config planted at those two paths is the repo-borne threat, not proof that no
 config anywhere can unsay the flag.
