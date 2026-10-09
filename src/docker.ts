@@ -23,6 +23,7 @@ import {
   runContainer,
 } from './dockerCommands.ts'
 import { HeldError } from './errors/held.ts'
+import { StopFailedError } from './errors/stopFailed.ts'
 import { binExec, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
 import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
@@ -123,8 +124,14 @@ export class DockerLifecycle {
    * where an OOM takes the whole box and everything else on it.
    */
   async hold(id: string, ttlMs: number): Promise<void> {
-    await this.stop(id)
+    // Set before the stop so a start arriving during docker's grace period is
+    // refused rather than relaunching the engine the hold is removing.
     this.table.holdFor(id, ttlMs)
+    const status = await this.stop(id)
+    if (status.state === 'running' || status.state === 'warming') {
+      this.table.unhold(id)
+      throw new StopFailedError(id, status.last_error ?? 'docker stop failed')
+    }
   }
 
   /** Ends a hold early. Idempotent: releasing one that has already expired is the state the caller wanted. */

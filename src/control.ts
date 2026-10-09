@@ -8,10 +8,12 @@ import { parseHop } from './chain.ts'
 import { hopsOfChain, resolveQualified } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
+import { StopFailedError } from './errors/stopFailed.ts'
 import {
   engineErrorStatus,
   jsonError,
   readModelBody,
+  STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
 } from './http.ts'
@@ -241,7 +243,10 @@ export async function handleHold(
   try {
     return Response.json(await registry.hold(id, seconds))
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err))
+    return jsonError(
+      err instanceof StopFailedError ? STATUS_BAD_GATEWAY : STATUS_NOT_FOUND,
+      errMessage(err),
+    )
   }
 }
 

@@ -10,6 +10,7 @@ import {
   specDigest,
 } from './dockerArgs.ts'
 import { HeldError } from './errors/held.ts'
+import { StopFailedError } from './errors/stopFailed.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import { buildExec, containerRunning, makeTestRoot, portResult } from './test-support.ts'
@@ -1095,6 +1096,37 @@ test('a hold stops the engine and keeps it stopped, and expires rather than wedg
   await lifecycle.hold('held-test', 1)
   await Bun.sleep(5)
   expect(lifecycle.heldMsFor('held-test')).toBe(0)
+})
+
+test('a start arriving while docker stop is in flight is refused by the hold', async () => {
+  const runLog: string[][] = []
+  const inner = buildExec({ runLog, port: STUB_HOST_PORT_B })
+  const slowStop: Exec = async (args) => {
+    if (args[0] === 'stop') {
+      await Bun.sleep(100)
+    }
+    return await inner(args)
+  }
+  const lifecycle = new DockerLifecycle(slowStop, readyProbe)
+  await lifecycle.start('held-race', SPEC, START_OPTS)
+  const runsBefore = runLog.length
+  const holding = lifecycle.hold('held-race', 60_000)
+  await Bun.sleep(10)
+  await expect(lifecycle.start('held-race', SPEC, START_OPTS)).rejects.toBeInstanceOf(HeldError)
+  await holding
+  expect(runLog.length).toBe(runsBefore)
+  expect(lifecycle.getStatus('held-race').state).toBe('installed')
+})
+
+test('a hold whose docker stop fails rejects and leaves no hold standing', async () => {
+  const inner = buildExec({ port: STUB_HOST_PORT_B })
+  const failingStop: Exec = async (args) =>
+    args[0] === 'stop' ? { stdout: '', stderr: 'daemon gone', exitCode: 1 } : await inner(args)
+  const lifecycle = new DockerLifecycle(failingStop, readyProbe)
+  await lifecycle.start('held-fail', SPEC, START_OPTS)
+  await expect(lifecycle.hold('held-fail', 60_000)).rejects.toBeInstanceOf(StopFailedError)
+  expect(lifecycle.heldMsFor('held-fail')).toBe(0)
+  expect(lifecycle.getStatus('held-fail').state).toBe('running')
 })
 
 test('start while held throws HeldError and does not run a container', async () => {
