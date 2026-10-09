@@ -216,3 +216,20 @@ test('a real chat call through the door shows up on GET /engined/v1/usage the sa
   expect(row?.requests).toBe(1)
   door.ctx.usage.shutdown()
 })
+
+test('a failed flush is logged and retried, never thrown out of flush or shutdown', () => {
+  const blocker = join(freshDir(), 'blocker')
+  writeFileSync(blocker, 'a file where the state dir should be')
+  const lines: string[] = []
+  const tracker = new UsageTracker({
+    stateRoot: join(blocker, 'usage'),
+    now: () => DAY_1,
+    log: (line) => lines.push(line),
+  })
+  tracker.record(callRecord([{ engine: 'llama', model: 'embed', ok: true, duration_ms: 1 }]))
+
+  expect(() => tracker.flush()).not.toThrow()
+  expect(() => tracker.shutdown()).not.toThrow()
+  expect(lines.length).toBe(2)
+  expect(lines[0]).toContain('could not write 2026-01-01')
+})

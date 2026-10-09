@@ -179,10 +179,17 @@ export class UsageTracker {
 
   /** Every date touched since the last flush, written atomically (temp file + rename). Safe to call any time, including with nothing dirty. */
   flush(): void {
-    for (const date of this.dirty) {
-      this.writeFile(date)
+    for (const date of [...this.dirty]) {
+      try {
+        this.writeFile(date)
+        this.dirty.delete(date)
+      } catch (err) {
+        // Kept dirty so the next tick retries; an exception out of a timer
+        // callback would exit the daemon over a full or read-only disk.
+        const log = this.opts.log ?? ((line: string) => process.stderr.write(`${line}\n`))
+        log(`usage: could not write ${date}: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }
-    this.dirty.clear()
   }
 
   shutdown(): void {
