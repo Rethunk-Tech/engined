@@ -22,8 +22,8 @@ export const SPEECH_RESPONSE_FORMATS = new Set(['wav'])
 
 /**
  * Markup a TTS engine vocalizes, and the cost of leaving it in: `**bold**`
- * synthesizes 3.5x slower than `bold` and a bare URL 2.2x, measured against
- * piper. Backticks and list hyphens measured free, so backticks stay --
+ * and a bare URL synthesize several times slower than plain words on piper.
+ * Backticks and list hyphens cost nothing, so backticks stay --
  * removing what costs nothing only risks mangling quoted code -- and
  * underscores stay too, since `some_var` is an identifier far more often than
  * emphasis.

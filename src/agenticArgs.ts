@@ -42,8 +42,7 @@ export const CLAUDE_STREAM_FORMAT = [
 export const CURSOR_OUTPUT_FORMAT = ['--output-format', 'stream-json'] as const
 
 /**
- * cursor's floor: a mode, not a tool allowlist. Measured (docs/security-model.md)
- * against 2026.08.28-50f0823: under `--mode plan` it read files and ran
+ * cursor's floor: a mode, not a tool allowlist. See docs/security-model.md: under `--mode plan` it read files and ran
  * read-only shell commands, but a write instruction produced no file and the
  * text "Plan mode blocks file writes", reaching for its plan tool instead --
  * unmoved by a permissive `.cursor/cli-config.json` planted in the workdir and

@@ -9,8 +9,8 @@
 # rocm/dev-ubuntu-24.04:7.2.4, not rocm/pytorch or the "-complete" tag: the
 # official PyTorch ROCm wheel is self-contained (bundles its own
 # MIOpen/rocBLAS/rocRAND/etc.), so a base that also ships those duplicates
-# them for no benefit. Measured on the source box: rocm/pytorch is 40GB;
-# this base plus the wheel is 19GB, both correctly detect gfx1151. Native
+# them for no benefit. The pytorch image is roughly twice the size and
+# both correctly detect gfx1151. Native
 # gfx1151 detection -- no HSA_OVERRIDE_GFX_VERSION anywhere in the fleet's
 # ROCm images, here included.
 FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054 AS builder

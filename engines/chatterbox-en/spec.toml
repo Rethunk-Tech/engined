@@ -19,7 +19,7 @@ security_opt = ["label=disable"]
 #
 # MIOPEN_FIND_MODE=FAST is set in the Dockerfile rather than here, because
 # `env` in a spec is an allowlist of host variables to forward, not a place to
-# set a value -- and the setting is a property of this image's measured
+# set a value -- and the setting is a property of this image's
 # tuning, not of the install.
 
 [ready]

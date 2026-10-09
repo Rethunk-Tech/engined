@@ -5,8 +5,8 @@
 # commit LLAMA_COMMIT names below -- the built image labels that commit, so a
 # throughput measurement can be tied back to the source it was taken on.
 #
-# The fork rather than mainline for decode: measured warm on the same prompt,
-# ornith runs 59.8 t/s on a mainline-based build against 64-69 here.
+# The fork rather than mainline for decode: it decodes faster on the same prompt
+# (figures: docs/tuning.md).
 #
 # Fedora, not rocm/dev-ubuntu like the sibling engines -- this is a Vulkan
 # build (mesa-vulkan-drivers + the loader), not a ROCm/PyTorch one, so it
@@ -46,10 +46,9 @@ RUN sed -i 's/^#define MAX_REPETITION_THRESHOLD 2000$/#define MAX_REPETITION_THR
 # EXAMPLES=OFF here breaks the build (LLAMA_BUILD_SERVER depends on it in
 # this fork's CMakeLists) -- confirmed by hitting exactly that failure.
 #
-# Vulkan alone. A ROCm backend built in beside it measured 54.1 t/s decode on
-# ornith against Vulkan's 69.1, same prompt, and every route here decodes more
-# than it prefills; ROCm's better prefill (113 t/s against 46) does not pay
-# for that. Building both also means each route must pin `device`, since a
+# Vulkan alone. A ROCm backend built in beside it decodes slower on
+# ornith than Vulkan, and every route here decodes more than it prefills;
+# ROCm's better prefill does not pay for that (figures: docs/tuning.md). Building both also means each route must pin `device`, since a
 # route naming none gets whichever backend ggml ranks first.
 RUN cmake -S . -B build -G Ninja \
     -DGGML_VULKAN=ON \

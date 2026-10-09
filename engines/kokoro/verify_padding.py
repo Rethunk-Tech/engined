@@ -9,9 +9,8 @@ with no padding involved at all) and an unpatched pipeline against a patched
 one (the `padded` column). The tolerance is not a fixed constant: it is
 `CONTROL_MARGIN` times whatever the control column measures for that same
 text in the same run, because the control noise itself grows with input
-length (measured: 0.066/0.078/0.15 absolute across the three lengths below,
-on this box) -- a fixed number calibrated at one length under- or
-over-tolerates at another.
+length across the three lengths below -- a fixed number calibrated at one
+length under- or over-tolerates at another.
 
 This file is not baked into the image. Bind-mount it and set PYTHONPATH so
 `app` and `kokoro` import from /app:

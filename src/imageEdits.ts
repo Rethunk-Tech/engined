@@ -25,9 +25,8 @@ import { CONTENT_ENDPOINT_IMAGE_EDITS } from './routeServes.ts'
 /**
  * The default an img2img caller gets when they say nothing.
  *
- * 0.9, not the 0.75 this shipped with, because 0.75 was picked by convention
- * and measured wrong. Against Chroma1-HD through this door, one 512x512 image
- * of a red cube and the prompt "a deep blue cube on a white table":
+ * 0.9, because lower values left the prompt with no visible effect on
+ * Chroma1-HD (a red cube prompted "a deep blue cube on a white table"):
  *
  *   denoise 0.6   -- cube still red, prompt had no visible effect
  *   denoise 0.75  -- cube still red, same
@@ -39,8 +38,7 @@ import { CONTENT_ENDPOINT_IMAGE_EDITS } from './routeServes.ts'
  * prompt silently ignored looks like the door dropped it.
  *
  * The ladder is this model's. A different checkpoint may honour a prompt at a
- * lower denoise, and 0.8-0.85 is simply unmeasured here rather than known to
- * be too low.
+ * lower denoise.
  */
 const DEFAULT_DENOISE = 0.9
 

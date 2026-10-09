@@ -1,5 +1,5 @@
 /**
- * The two envelope parsers, against output measured from the real binaries
+ * The two envelope parsers, against output captured from the real binaries
  * rather than invented -- opencode 1.18.25 pointed at engined's own door, and
  * the same launch against a dead upstream for the failure shape.
  */

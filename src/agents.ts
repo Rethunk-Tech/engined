@@ -72,8 +72,7 @@ export function usageOrUndefined(usage: Usage): Usage | undefined {
  * claude's `prompt_tokens` is deliberately absent while cursor's is not, and
  * the difference is real rather than an oversight. claude splits the input
  * side across `input_tokens`, `cache_creation_input_tokens` and
- * `cache_read_input_tokens` -- measured 2 / 21863 / 9869 on a four-token
- * reply -- and those three bill at different rates, so their sum is not a
+ * `cache_read_input_tokens` -- and those three bill at different rates, so their sum is not a
  * prompt size anyone should charge against. `total_cost_usd` is the figure
  * that question does have an answer to, and claude states it outright.
  * cursor's `inputTokens` is one unambiguous number, so it maps straight.
@@ -260,7 +259,7 @@ function answerTextOf(event: Record<string, unknown>): string {
  * `opencode run --format json` prints one JSON object per line, not an
  * envelope: `step_start`, then a `text` event per chunk of answer, then
  * `step_finish`. A failure arrives as its own `{"type":"error"}` line carrying
- * an `APIError`, measured against a dead upstream.
+ * an `APIError`.
  *
  * opencode does exit 1 on that failure where claude exits 0, but the exit code
  * is still not consulted -- an agent that reports failure in two places can
@@ -272,7 +271,7 @@ function answerTextOf(event: Record<string, unknown>): string {
  * `tokens: {total, input, output, reasoning, cache: {...}}` and `cost`.
  *
  * Unlike claude's, the input side here is one number and `total` is already
- * `input + output` (measured 11226 + 18 = 11244), so all three map straight
+ * `input + output`, so all three map straight
  * across with no arithmetic of engined's own.
  */
 function opencodeUsage(event: Record<string, unknown>): Usage | undefined {
@@ -348,7 +347,7 @@ export function parseCursorEvents(stdout: string): AgenticOutcome {
  * and still be accounted for like every other call through it.
  *
  * The `permission` and `tools` blocks are defence in depth and NOTHING MORE.
- * Measured: a project `opencode.json` in the workdir or any ancestor of it
+ * A project `opencode.json` in the workdir or any ancestor of it
  * overrides every one of them, because opencode's rules are last-wins. The
  * floor is `sandbox.ts`; this only closes the ordinary case where no such
  * file exists, and must never be described as what makes opencode safe.
@@ -531,10 +530,8 @@ const AGENTS: Record<string, AgentCli> = {
     parse: parseCursorEvents,
     delta: cursorDelta,
     // No `configure`: `CURSOR_API_KEY` is checked against Cursor's own key
-    // format client-side before any network attempt -- measured against a
-    // real OpenRouter key (rejected in ~0.4s, no connection made) and
-    // against a Cursor-shaped placeholder pointed at an unreachable address
-    // (a real connection attempt followed). No key this box holds passes
+    // format client-side before any network attempt, so a third-party key is
+    // rejected without a connection. No key this box holds passes
     // that check, so redirecting cursor's own inference through engined's
     // door here would turn every launch into a guaranteed failure, ambient
     // ones included -- worse than leaving it on its own login.

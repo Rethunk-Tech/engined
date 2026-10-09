@@ -9,10 +9,9 @@
  * The exec is not a stylistic choice. A container's processes run as root, and
  * `/proc/<pid>/fdinfo` is readable only by the owning UID -- engined is a
  * `systemd --user` unit, so reading the host's `/proc` would silently skip
- * every engine. Measured with all six running: the host-side read saw
- * 13.45 GiB of desktop applications while the kernel's own amdgpu counters
- * reported 85.07 GiB in use. Going through the containers accounted for the
- * missing 71.63 GiB and reconciled with the kernel to within 10 MiB.
+ * every engine, and the host-side read would see only desktop applications
+ * while the kernel's amdgpu counters report the engines' graphics memory.
+ * Going through the containers reconciles with the kernel.
  *
  * Parsing is pure and takes strings, same contract as docker.ts -- the shell
  * snippet below is the only thing that needs a container.
@@ -30,10 +29,9 @@ export interface EngineResources {
    * unreadable.
    *
    * Not a substitute for `graphics_bytes` and not comparable to it: a loaded
-   * model lands in GTT, which the cgroup does not account for. Measured with
-   * three GGUFs resident, `engined-llama` reported 1.59 GiB here while
-   * holding 40.89 GiB of graphics memory -- a consumer showing only this
-   * number understates a busy engine by more than an order of magnitude.
+   * model lands in GTT, which the cgroup does not account for, so a consumer
+   * showing only this number understates a busy engine by more than an order
+   * of magnitude.
    *
    * It also counts reclaimable page cache, so it spikes after a release and
    * settles on its own: comfy read 8.30 GiB loaded, 33.74 GiB in the seconds
@@ -48,9 +46,8 @@ export interface EngineResources {
    *
    * VRAM **and** GTT, summed. On an APU both come out of the same physical
    * pool -- the BIOS carve-out is what gets called VRAM and GTT is the rest --
-   * so neither number alone describes the footprint. Measured on a Strix Halo
-   * box, VRAM alone was 292 MiB against 14810 MiB of GTT: reporting it by
-   * itself would have shown 2% of what was actually held.
+   * so neither number alone describes the footprint: VRAM alone is a
+   * small fraction of what is actually held.
    */
   graphics_bytes: number | null
 }
@@ -106,9 +103,8 @@ function foldLine(perFile: Map<string, FdEntry>, line: string): void {
 
 /**
  * Sums per DRM client, never per fd. One client appears once per open fd --
- * 29 of them for a single process on the machine this was measured against --
- * and every copy repeats that client's whole total, so adding fds up reported
- * 59490 MiB on a host holding 15101 MiB. Taking the largest observation per
+ * a single process can hold dozens -- and every copy repeats that client's
+ * whole total, so adding fds up overcounts several-fold. Taking the largest observation per
  * `drm-client-id` reproduces the real figure.
  */
 export function parseGraphicsBytes(fdinfo: string): number {

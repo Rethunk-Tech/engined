@@ -1,10 +1,9 @@
 /**
  * Cache-aware slot placement for a local llama route running `parallel >= 2`.
  *
- * Measured problem (operator's real VS Code Copilot chats on ornith,
- * llama-server logs): a new chat's ~31k-token prompt, identical in its first
- * ~30k tokens to the previous chat's, is fully re-prefilled (47-50 s) because
- * Copilot's small side requests (10-276 tokens) land by llama's own
+ * Problem (figures: docs/tuning.md): a new chat's long prompt, identical in
+ * its first tokens to the previous chat's, is fully re-prefilled because
+ * Copilot's small side requests land by llama's own
  * cross-request LRU on the slot holding the long cached prompt and overwrite
  * it. llama-server honours a caller-supplied `"id_slot": N` on the wire
  * (`selected slot by id (N)` in its own log); `GET /slots` reports no cache

@@ -372,12 +372,11 @@ function usageFrom(result: HopResult): Usage | undefined {
  * The LAST usage seen wins. An upstream that reports cumulatively per frame
  * ends on the total; one that reports once ends on the only one.
  *
- * Measured, against llama-server b10637 through this door: a streamed reply
+ * Against llama-server, a streamed reply
  * carries NO `usage` frame unless the caller sent
  * `stream_options: {include_usage: true}`. It always carries `timings`, whose
  * `prompt_n`/`predicted_n` are token counts -- deliberately not read here.
- * With a prefix-cache hit `prompt_n` is only the uncached remainder (measured
- * `prompt_n: 4, cache_n: 8` against `usage.prompt_tokens: 12`), so a figure
+ * With a prefix-cache hit `prompt_n` is only the uncached remainder, so a figure
  * from it would be engined's own arithmetic rather than the engine's answer,
  * and llama is the local engine, which no budget is counting anyway. The
  * paid upstreams all speak `usage` or nothing.

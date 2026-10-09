@@ -117,8 +117,8 @@ ENV HF_HOME=/app/hf_cache
 ENV TORCH_HOME=/app/hf_cache/torch
 # MIOpen's default kernel search picks a GemmFwdRest fallback for the vocoder's
 # convolutions and warns that it was handed no workspace. FAST skips that
-# search and roughly halves RTF here; NORMAL, HYBRID and DYNAMIC_HYBRID all
-# measured indistinguishable from the default, so this one mode is the whole
+# search and cuts RTF sharply; NORMAL, HYBRID and DYNAMIC_HYBRID all
+# behave like the default from the default, so this one mode is the whole
 # win -- and vocoding dominates wall time, making it the single largest lever
 # on either engine. Figures: docs/engines.md.
 ENV MIOPEN_FIND_MODE=FAST

@@ -43,8 +43,7 @@ command = ["--preview-method", "latent2rgb"]
 
 # ComfyUI's ENTRYPOINT is exec-form, so python3 is PID 1 -- and Linux applies
 # no default signal disposition to PID 1, so main.py ignores `docker stop`'s
-# SIGTERM entirely and is SIGKILLed 10s later. Measured: 10.19s and exit 137
-# without this, 0.128s and a clean exit 143 with it. Every other engine here
+# SIGTERM entirely and is SIGKILLed after the grace period. Every other engine here
 # handles SIGTERM itself and needs nothing.
 init = true
 

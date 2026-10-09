@@ -55,10 +55,8 @@ export function imageBuilt(image: string): boolean {
 }
 
 /**
- * Measured resident cost, in GiB, of the only engines large enough to contend.
- * comfy is ~42 GiB of checkpoints and llama ~30 GiB with its 262k-token KV
- * cache; every TTS and STT engine is under ~3.5 GiB (piper 0.3, kokoro ~1,
- * chatterbox ~3.3, whisper smaller still) and several are resident together
+ * Resident cost, in GiB, of the only engines large enough to contend (see
+ * docs/engines.md § Occupancy). Every TTS and STT engine is small and several are resident together
  * without contention, so a suite that loads only those needs no room check.
  */
 const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const

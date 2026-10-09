@@ -178,7 +178,7 @@ test('an unavailable vision address is not probed: /engined/v1/engines already n
   expect(report.lines[0]?.detail).toBe('no reachable address to prove')
 })
 
-// Measured against the live install before the daemon was updated: a door
+// A door
 // built before `role` answers with every vision route present and no role on
 // any of them, and reading only "is any row vision?" reports a pass it never
 // earned. The failure names the install command because that is the fix.

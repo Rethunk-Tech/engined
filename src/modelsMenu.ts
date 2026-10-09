@@ -54,9 +54,7 @@ function routeCapabilities(
  * windows of `ctx-size / parallel` each (`llamaSpec.ts`'s own comment),
  * *unless* `kv-unified` is explicitly set: that flag overrides whatever
  * `parallel` would otherwise pick, giving every slot the one shared,
- * whole-`ctx-size` pool regardless (measured on ornith: `parallel = 4` with
- * `kv-unified = true` still reports `n_ctx = 262144`, the undivided size, on
- * every slot). `kv-unified` absent falls back to `parallel`'s own default:
+ * whole-`ctx-size` pool regardless (every slot then reports the undivided size). `kv-unified` absent falls back to `parallel`'s own default:
  * unified only when `parallel` is not a positive integer. Only meaningful for
  * a locally-hosted llama container: an `openai-http` proxy to a remote
  * upstream has no `ctx-size` of its own, and `isLocalLlama` is what tells the

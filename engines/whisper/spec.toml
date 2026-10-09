@@ -46,13 +46,9 @@ streaming = true
 # published main-vulkan tag (see its own comment for how that was found and
 # verified), so these are what the Vulkan/RADV backend actually opens at
 # startup -- not the dead grant they were against the CPU-only image this
-# spec ran before. Measured on this box (gfx1151), same probe table as the
-# CPU baseline, GPU-lock serialized: 3.9-7.2x faster at every clip
-# length/model pair (181-846ms vs 625-5098ms CPU at the same -t 16), and the
-# transcripts match byte-for-byte on 5 of 6 probes -- the sixth (medium.en,
-# the 33.8s clip) differed by one filler word. That drift is now bounded
-# rather than merely noted: ~500 words across an 8-sentence corpus on both
-# models, plus four 26s concatenations, diverge on ONE word -- about 0.2%.
+# spec ran before. The GPU is several times faster than the CPU backend at
+# every clip length/model pair and the transcripts match, bar a rare
+# one-word drift (figures: docs/engines.md).
 #
 # The divergence is not a backend being wrong. It lands on a proper name that
 # both backends get equally wrong when the sentence is transcribed alone
@@ -86,16 +82,9 @@ command = [
   "--inference-path",
   "/v1/audio/transcriptions",
   "-fa",
-  # 16, the box's physical core count, not 32 (SMT2 total) and not the 8 this
-  # was pinned at with no comment before. A/B'd against the same probe
-  # table, -t 4/8/16, GPU-lock held for the CPU image so nothing else on the
-  # box was contending, which made the numbers untrustworthy. Re-run
-  # on an idle box, thread count does not matter at all: 2.1s / 5.7s / 34.1s
-  # clips measured 70/113/483ms at -t 4, 69/114/475ms at -t 8 and
-  # 68/112/473ms at -t 16 -- a 1-2% spread, inside noise at every length.
-  #
-  # The earlier sweep where -t 4 lost badly (1.9-10.0s) was on the CPU
-  # backend. Encode now runs on the GPU (see devices/group_add above), so this
+  # 16, the box's physical core count, not 32 (SMT2 total). Thread count
+  # makes no difference beyond noise at any clip length (figures:
+  # docs/engines.md). Encode now runs on the GPU (see devices/group_add above), so this
   # governs only VAD and request handling. 16 is kept because it is the
   # physical core count and nothing argues against it -- not because it wins.
   "-t",
@@ -108,10 +97,8 @@ command = [
 # of any recording past the first window.
 #
 # It does not, because --vad above splits the audio into speech segments before
-# any of it is decoded, so no single decode ever spans the window. Measured
-# through the door on this spec: a 35.2s clip of ten distinct sentences
-# returned all ten, and a 72.6s clip of twenty-five returned all twenty-five,
-# with the flag in place. Dropping it changed no content -- only segment
+# any of it is decoded, so no single decode ever spans the window. Long
+# multi-sentence clips come back complete with the flag in place. Dropping it changed no content -- only segment
 # boundaries, which arrive as newlines.
 #
 # So the flag stays, and the pairing is what makes it safe: removing --vad
@@ -172,21 +159,15 @@ name = "{spec_dir}"
 path = "/spec"
 read_only = true
 
-# medium.en is what measured best here, on both axes at once. Word error
-# rate over 8 recorded speech clips (4.3-8.7s, known transcripts, scored
-# after normalising numeral formatting so "twenty five" vs "25" is not
-# counted a mishearing), median encode per clip on this box:
-#
-#   medium.en-q8_0        11.5% WER   2715 ms
-#   large-v3-turbo-q8_0   13.5% WER   4063 ms
-#   small.en-q8_0         13.5% WER    929 ms
+# medium.en is the accuracy end and small.en the speed end (WER and latency
+# table: docs/engines.md).
 #
 # So the larger multilingual model is beaten on accuracy AND speed, and the
 # English-only pair is the whole useful frontier: "@/whisper/medium.en" takes
 # the accurate end, "@/whisper/small.en" the fast one -- two routes on this
 # one engine, not two engines, since the image, models_dir and VAD file are
-# all shared. Load time is 41-196ms for all three -- encode is the entire
-# cost, so model size does not buy back its own load.
+# all shared. Encode is the entire cost, so model size does not buy back its
+# own load.
 #
 # q8_0 rather than a smaller quantisation: a CPU sweep
 # (github.com/ggml-org/whisper.cpp discussions/3752) shows q5_0 running
@@ -196,16 +177,15 @@ read_only = true
 path = "/models/ggml-medium.en-q8_0.bin"
 obtain = "curl -fL -o {models_dir}/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin"
 
-# The fast end of the same frontier, above: 13.5% WER at 929ms against
-# medium.en's 11.5% at 2715ms -- a consumer waiting on a transcript in a loop
+# The fast end of the same frontier, above: a consumer waiting on a transcript in a loop
 # names "@/whisper/small.en", and one that is not names "@/whisper/medium.en".
 [[artifact]]
 path = "/models/ggml-small.en-q8_0.bin"
 obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin"
 
 # The multilingual model, and the only one of the three that can translate.
-# It is NOT the accuracy or speed choice for English -- measured above at
-# 13.5% WER / 4063 ms against medium.en's 11.5% / 2715 ms -- so it earns its
+# It is NOT the accuracy or speed choice for English -- it is both less
+# accurate and slower than medium.en (docs/engines.md) -- so it earns its
 # place on the one thing the English-only pair cannot do at all, not on the
 # frontier they already cover. A box that never asks for a translation has no
 # reason to download it, which is why this is an artifact with its own obtain

@@ -131,3 +131,34 @@ splitting them.
 Measured and not worth it for this: `--checkpoint-min-step 1024` (default
 8192) reused exactly as much as the default, and `--cache-idle-slots` with the
 default `--cache-ram` never restored anything on this model. Neither is set.
+
+## Measurements behind the spec comments (build b10637, Strix Halo, 2026-10)
+
+Slot geometry by `parallel`:
+
+| `parallel` | `n_slots` | `n_ctx_slot` | `kv_unified` |
+| ------ | ------ | ------ | ------ |
+| -1 | 4 | 32768 | true |
+| 1 | 1 | ctx-size | false |
+| 2 | 2 | ctx-size / 2 | false |
+
+`-1` is one shared 32768 pool, not four windows: 24.62 GiB loaded against a
+23.13 GiB GGUF, where 32768 tokens of q8_0 KV is 0.64 GiB and four independent
+windows would be 2.56 GiB on their own. At `parallel = 2`, `ctx-size = 262144`
+is two independent 131072 windows; 262144 tokens of q8_0 KV is ~5.1 GiB (27.20
+GiB loaded), and GTT held 48.6 GB of 133 GB with ornith resident.
+
+Concurrency at `parallel = 1`: three simultaneous ornith requests waited
+0.18 / 2.41 / 4.73 s. Concurrent generation at `parallel = 2` is slower per
+request than solo (3.27 s against 2.06 s for 128 tokens) because slots share
+memory bandwidth.
+
+Prefix cache (default `cache_prompt`): an identical ~2226-token system prompt
+prefills in 1903.9 ms cold (2.20 s total) and 64.3 ms warm with `cache_n=2222`
+(0.32 s total), an 85% cut. Prefill runs 1169-1291 t/s on real prompts. Swap
+between the two GGUFs on disk is 8-16 s warm, scaling with file size.
+
+Backend and fork: the PrismML fork decodes ornith at 64-69 t/s against 59.8 on
+a mainline-based build. A ROCm backend decodes at 54.1 t/s against Vulkan's
+69.1 on ornith, with better prefill (113 t/s against 46) that does not pay for
+it. Draft acceptance observed live is 72-92%.

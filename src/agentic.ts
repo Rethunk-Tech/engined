@@ -8,7 +8,7 @@
  * WHERE the floor comes from is per-agent, and `agents.ts` says which. claude
  * honours it as argv, and `assertNoForbiddenFlags` stops a config unsaying it.
  * opencode offers no such flag, so its floor is `sandbox.ts`'s mount table --
- * measured, its config-level floor is overridable from any ancestor of the
+ * its config-level floor is overridable from any ancestor of the
  * workdir. An agent whose floor is the sandbox never launches without it:
  * a missing `bwrap` refuses the call rather than running loose.
  *

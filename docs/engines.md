@@ -319,6 +319,36 @@ or on a multilingual model that is not currently configured.
 Both routes mount the same `models_dir`, so the Silero VAD model both load
 is one file on disk, not two.
 
+### Other measurements behind spec and source comments
+
+Measured 2026-10 on this box unless stated.
+
+- **Whisper on GPU against CPU.** The Vulkan backend is 3.9-7.2x faster at every
+  clip length/model pair (181-846 ms against 625-5098 ms on CPU at `-t 16`).
+  Transcripts match byte-for-byte on 5 of 6 probes; the sixth (medium.en, the
+  33.8 s clip) differed by one filler word. Across ~500 words of an 8-sentence
+  corpus plus four 26 s concatenations, one word diverges (~0.2%). Thread count
+  does not matter on the GPU: 2.1 / 5.7 / 34.1 s clips took 70/113/483 ms at
+  `-t 4`, 69/114/475 ms at `-t 8` and 68/112/473 ms at `-t 16`. On the CPU
+  backend `-t 4` lost badly (1.9-10.0 s). Through the door, a 35.2 s clip of ten
+  sentences and a 72.6 s clip of twenty-five came back complete.
+- **Speech cache hit.** One short phrase warm: chatterbox-multi 3.6-3.9 s (N=3,
+  after a 16.6 s model-load first call), piper ~80 ms (N=5, median); a hit is
+  a Map lookup.
+- **Markup in TTS input.** `**bold**` synthesizes 3.5x slower than `bold` and a
+  bare URL 2.2x on piper; backticks and list hyphens cost nothing.
+- **`init = true`.** Without docker's init the comfy engine ignores SIGTERM:
+  10.19 s and exit 137. With it, 0.128 s and exit 143.
+- **ComfyUI base image.** `rocm/pytorch` is 40 GB; the dev base plus the PyTorch
+  wheel is 19 GB, both detecting gfx1151.
+- **Kokoro frame buckets.** Warm repeat at a seen shape ~0.15 s; a new shape
+  costs ~1.1-3 s regardless of text length. Ahead-of-vocoder modules cost ~1.1 s
+  on a new input length (0.61 s against 0.20 s at 36 chars, 1.61 s against
+  0.52 s at 185). Control-run noise across the three padding-check lengths is
+  0.066 / 0.078 / 0.15 absolute.
+- **Resident sizes.** comfy ~42 GiB of checkpoints, llama ~30 GiB with its
+  262k-token KV cache; piper 0.3, kokoro ~1, chatterbox ~3.3 GiB.
+
 ## `streaming`, a spec key on every kind
 
 Whether the engine can serve a streamed request:

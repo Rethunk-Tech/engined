@@ -238,10 +238,9 @@ async function probeVision(
  * back ordered best-first, so the check is on `results[0].index`.
  *
  * Built here rather than read from a fixture for the same reason the vision
- * image is: the expected answer has to be known by construction. Measured on
- * Qwen3-Reranker-0.6B-seq-cls, the relevant document scored 0.907 against
- * 7.8e-11 and 4.9e-11, so a model that is working clears this by orders of
- * magnitude and one that is not cannot land on it by chance.
+ * image is: the expected answer has to be known by construction. A working
+ * reranker clears this by orders of magnitude and a broken one cannot land on
+ * it by chance.
  */
 const RERANK_QUERY = 'How do I stop a running container?'
 const RERANK_DOCUMENTS = [
@@ -308,10 +307,9 @@ async function probeOneRerank(
 /**
  * The fill-in-the-middle ground truth: a one-line function body sits between
  * a known prefix and a known suffix, so the check is on the reply carrying
- * *any* text at all rather than on the exact tokens -- measured against the
- * resident model, the first line was correct in 3/4 runs, which is a real
- * model working, not a guessable string this probe could pin further without
- * flagging a fine daemon as broken on its off run.
+ * *any* text at all rather than on the exact tokens -- a real model's first
+ * line is not always the same, so pinning it further would flag a fine daemon
+ * as broken on its off run.
  */
 const FIM_PREFIX = 'def add(a, b):\n    '
 const FIM_SUFFIX = '\n\nprint(add(1, 2))\n'
@@ -377,7 +375,7 @@ async function probeOneCompletion(
  * model does with one. `describe` reads a scene back and is checked on naming
  * two colours in order; `read` recognises characters and is checked on reading
  * a freshly generated string back. Sending either check to the other model
- * fails a model that is working -- measured against PaddleOCR-VL, which
+ * fails a model that is working -- PaddleOCR-VL
  * answers the colour question with degenerate repetition.
  */
 function checkFor(row: MenuRow & { id: string }):

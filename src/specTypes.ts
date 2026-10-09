@@ -45,8 +45,7 @@ export interface ContainerSpec extends SpecCommon {
    * Run the container under docker's own init, so it is PID 1 rather than the
    * engine's own process. Linux gives PID 1 no default signal disposition, so
    * a process that installs no SIGTERM handler simply ignores `docker stop`
-   * and is SIGKILLed once the grace period expires. Measured on this box:
-   * 10.19s and exit 137 without it, 0.128s and a clean exit 143 with it.
+   * and is SIGKILLed once the grace period expires.
    *
    * Only for an engine whose process does not handle SIGTERM itself. Every
    * other engine here stops cleanly on its own, and wrapping those buys

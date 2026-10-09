@@ -33,7 +33,7 @@ Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 # The per-agent read-only floor is in the launch itself (`src/agents.ts`):
 # argv flags for claude and cursor, a `bwrap` sandbox for opencode. These
 # directives sandbox the door process on the host; they are not that floor.
-# Measured under ProtectSystem=strict, ReadWritePaths=@STATE_DIR@,
+# Under ProtectSystem=strict, ReadWritePaths=@STATE_DIR@,
 # ProtectHome=read-only, PrivateTmp=yes, BindPaths=/tmp below: a write to a
 # repository under $HOME and to one outside it both fail EROFS, the state
 # directory stays writable, and `docker` still reaches /var/run/docker.sock
@@ -48,9 +48,8 @@ Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
 # cursor's CLI keeps per-project state under ~/.cursor/projects/<workdir> and
-# dies before answering when that mkdir fails -- measured under this unit:
-# "ENOENT: no such file or directory, mkdir '~/.cursor/projects/...'" on every
-# launch, so every probe failed. The one other home path left writable.
+# dies before answering when that mkdir fails (ENOENT on every launch,
+# so every probe failed). The one other home path left writable.
 ReadWritePaths=%h/.cursor
 ProtectHome=read-only
 NoNewPrivileges=yes

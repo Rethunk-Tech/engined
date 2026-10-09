@@ -49,20 +49,11 @@ security_opt = ["label=disable"]
 # The draft-token-count flag is `spec-draft-n-max`, not `spec-n-max` --
 # `spec-n-max` fails at router init with "option 'spec-n-max' not recognized
 # in preset 'ornith'", exit 1, before the container ever answers /health.
-# `--help` on the installed binary is what named the real flag. Measured on
-# this box, warm, same prompt: n=1 gives 62.94 t/s decode at 73% draft
-# acceptance, n=3 is 62.75 at 54%, n=12 collapses to 24.85 at 19% and n=16 to
-# 22.30. Decode degrades monotonically as acceptance falls, so raising it is
-# a loss here; a published gfx1151 ladder claiming the opposite does not
-# reproduce against this model.
-#
-# Read that ladder as BURST numbers, because that is what they are. Draft
-# acceptance decays with generation length and decode tracks acceptance
-# almost exactly, so the same build measures 62.6 t/s over 32 generated
-# tokens (93% acceptance), 54.3 over 128 (73%), and 54.0 over 512 (71%).
-# The ladder's ORDERING is what holds; its absolute figure is a 32-token
-# regime. Quote ~54 t/s for anything that generates a paragraph, and never
-# compare a decode number taken over 32 tokens with one taken over 512.
+# `--help` on the installed binary is what named the real flag. Decode
+# degrades as draft acceptance falls, so raising it is a loss here; a
+# published gfx1151 ladder claiming the opposite does not reproduce against
+# this model. Figures, and why short-burst numbers overstate sustained decode:
+# docs/tuning.md.
 #
 # A per-model arg is honoured per flag, not as a class: only `spec-type`,
 # `spec-draft-p-min`, `embedding`, `rerank`, `ctx-size` and `parallel` are
@@ -79,7 +70,7 @@ security_opt = ["label=disable"]
 # argv is `--embeddings`, plural. Without it the embed child launches without
 # the flag and every request 501s ("Start it with --embeddings"). Confirmed
 # via /proc/<pid>/cmdline on the embed sub-process, then a real request
-# through the door returning a 1024-length vector. See config.example.toml's
+# through the door returning a vector. See config.example.toml's
 # `embed` model's [model.args].
 #
 # `rerank` is the same trap and was proven the same way, with the control run
@@ -107,8 +98,8 @@ security_opt = ["label=disable"]
 # swapped-in test resident (test/local/llama.test.ts's same-role swap test),
 # not just the rendered preset.
 #
-# POST /models/load is asynchronous: it returned in 7 ms with status
-# "loading"; poll until "loaded" before proxying, and that poll IS the
+# POST /models/load is asynchronous: it returns status
+# "loading" at once; poll until "loaded" before proxying, and that poll IS the
 # `warming` state a caller sees.
 # --no-models-autoload is structural, not a tunable: router mode plus
 # per-role occupancy is what this engine is, and an [engine.args] key able to
@@ -120,34 +111,23 @@ security_opt = ["label=disable"]
 # `parallel`, `ctx-size`, `cache-type-k/v` are config-level [engine.args] --
 # see config.example.toml, not this file -- but both `parallel` and
 # `ctx-size` are settable per model too, which is how ornith gets a window
-# the other roles do not pay for. Measured slot geometry on b10637:
-#   -1 -> n_slots=4, n_ctx_slot=32768,        kv_unified=true
-#    1 -> n_slots=1, n_ctx_slot=ctx-size,     kv_unified=false
-#    2 -> n_slots=2, n_ctx_slot=ctx-size / 2, kv_unified=false
-#
-# kv_unified=true does NOT give each of those four slots its own 32768
-# window -- it gives all four ONE shared 32768 pool, and /slots reporting
-# n_ctx=32768 four times is what makes that easy to misread. The footprint
-# is the proof: 24.62 GiB loaded against a 23.13 GiB GGUF, where KV for
-# 32768 tokens at q8_0 computes to 0.64 GiB and four independent windows
-# would be 2.56 GiB on their own -- more than the entire measured overhead.
-# So `-np -1`'s "four slots" is a concurrency number and never a context
-# number: two concurrent 20k conversations already evict each other.
+# the other roles do not pay for. Slot geometry per `parallel` value is in
+# docs/tuning.md. `-1` (auto) gives four slots sharing ONE unified pool, not
+# four windows, and /slots reporting the same n_ctx on every slot is what makes
+# that easy to misread. So `-np -1`'s "four slots" is a concurrency number and
+# never a context number: concurrent long conversations evict each other.
 #
 # The ctx-halving at `-np 2` is therefore a lever, not only a footgun. It
 # divides a declared ctx-size across slots, so ctx-size=262144 with
 # parallel=2 is two genuinely independent 131072 windows -- what this
-# config runs. KV scales with the declared total and not the slot count:
-# 262144 tokens of q8_0 KV is ~5.1 GiB, measured as a 27.20 GiB loaded
-# footprint against the same GGUF. 262144 is also this model's
-# n_ctx_train, so none of it involves RoPE scaling.
+# config runs. KV scales with the declared total and not the slot count.
+# 262144 is also this model's n_ctx_train, so none of it involves RoPE
+# scaling.
 #
 # Watch serialization rather than memory. At parallel=1 concurrent ornith
-# requests queue outright (measured waits of 0.18 / 2.41 / 4.73s across
-# three simultaneous requests); at parallel=2 two run together and the
-# third waits. Concurrent generation is slower per request than solo
-# (3.27s vs 2.06s for the same 128 tokens) because the two slots share
-# memory bandwidth -- aggregate throughput still wins.
+# requests queue outright; at parallel=2 two run together and the third
+# waits. Concurrent generation is slower per request than solo because the
+# slots share memory bandwidth -- aggregate throughput still wins.
 #
 # engined's own door had no admission control against this: `activeCount`
 # was uncapped, so a burst past `parallel` forwarded straight through and
@@ -156,7 +136,7 @@ security_opt = ["label=disable"]
 # `activeCount` at this same merged `parallel`, resolved once per resident
 # model and queued past that exactly like a model swap already queues --
 # `parallel <= 0` (llama.cpp's `-1` auto, or the key simply unset) caps at
-# the auto's measured four above rather than running uncapped, since the
+# the auto's four rather than running uncapped, since the
 # child admits four either way and forwarding past that only moves the
 # queue into llama-server's scheduler where the door cannot see it. The
 # door caps; the child keeps its one unified pool.
@@ -169,10 +149,10 @@ security_opt = ["label=disable"]
 # LLAMA_COMMIT the Dockerfile pins, and that pin is a value meant to be
 # bumped. A bump that moved the auto would desynchronise the two silently,
 # admitting more or fewer than the child agreed to with nothing said, so a
-# LLAMA_COMMIT bump re-measures the geometry table above AND re-runs that
+# LLAMA_COMMIT bump re-measures the geometry table in docs/tuning.md AND re-runs that
 # assertion.
 #
-# One combination neither the table above nor docs/tuning.md measured:
+# One combination not measured:
 # `parallel = 0` set explicitly. The door reads `<= 0` as auto and admits
 # four, while `--parallel 0` reaches the child as written -- unmeasured
 # ground rather than a hazard, since admitting four is tighter than
@@ -182,40 +162,31 @@ security_opt = ["label=disable"]
 # re-investigated:
 #
 # Prefix caching is already on and already realized -- llama-server's
-# default `cache_prompt`, no engine tunable involved. Identical ~2226-token
-# system prompt: cold `cache_n=0`, prefill 1903.9ms, total 2.20s; warm
-# repeat `cache_n=2222`, prefill 64.3ms, total 0.32s -- an 85% end-to-end
-# cut. Live production logs confirm it running continuously ("selected slot
-# by LCP similarity, f_sim_best=0.83-1.00"). The only way to lose it is
+# default `cache_prompt`, no engine tunable involved (cold vs warm figures:
+# docs/tuning.md). The only way to lose it is
 # consumer-side: a re-serialized message array not byte-identical to the
 # previous turn's tail breaks the LCP match.
 #
 # GPU offload is complete. `-ngl` is left at llama-server's `auto`, verified
 # from the live child's real argv via `docker top`, not from this spec.
-# GTT usage measured at 48.6 GB / 133 GB with ornith resident -- 24.8 GB
-# GGUF plus ~5.1 GiB q8_0 KV for the 262144-token window -- nothing on
+# With ornith resident the model and its KV window sit in GTT and nothing on
 # CPU-only RAM. An explicit `-ngl 999` would add a line without changing
 # behavior.
 #
 # `-b`/`-ub`/`--threads` are at defaults (2048 / 512 / auto->32) and should
-# stay there. Prefill already runs 1169-1291 t/s on real prompts, so there
-# is no starved-prefill signal; raising ubatch would only cost KV and
-# compute-buffer memory for no measured gain.
+# stay there. Prefill shows no starved signal; raising ubatch would only cost
+# KV and compute-buffer memory for no gain.
 #
-# The honest throughput picture: sustained decode is ~55-63 t/s, not the
-# 62.94 t/s figure alone -- that is a real but cherry-picked 32-token burst
-# (see docs/tuning.md's own burst-vs-sustained note). At the ~2000-token
-# system prompts real consumers send, prefill dominates TTFT on any
-# non-cache-hot turn (1.9s cold vs 65ms warm, above). Draft acceptance
-# observed live at 72-92%. Do not force a model swap to measure swap cost --
-# it evicts the resident model every other consumer is using, for a number
-# already on record (8-16s, same build b10637-39817c476, above).
+# At the ~2000-token system prompts real consumers send, prefill dominates
+# TTFT on any non-cache-hot turn. Do not force a model swap to measure swap
+# cost -- it evicts the resident model every other consumer is using, for a
+# number already on record in docs/tuning.md.
 # --host 0.0.0.0 is structural, not a tunable: llama-server's own default is
 # 127.0.0.1, which binds fine inside the container and passes nothing --
 # docker's -p forwards to the container's interface, not its loopback, so a
 # 127.0.0.1-bound child is a container that starts, is adopted, and never
-# answers /health or a proxied request. Measured: with this flag absent, the
-# container ran and the process listened, but every host-side connection --
+# answers /health or a proxied request. With this flag absent, the
+# container runs and the process listened, but every host-side connection --
 # readiness poll included -- got a bare connection failure indistinguishable
 # from a crashed child.
 command = [
@@ -243,8 +214,7 @@ command = [
 # pairs, and that is three data points, not a fix upstream, so keep checking
 # fidelity per consumer rather than assuming it from this comment.
 #
-# Model swap is seconds, not instant -- measured warm at roughly 8-16s
-# across the two GGUFs on disk, scaling with file size. Idle is `docker
+# Model swap is seconds, not instant, scaling with file size. Idle is `docker
 # stop`, not `/models/unload` alone: the resting state is no llama process,
 # so unload is the swap lever, not the idle lever.
 [ready]

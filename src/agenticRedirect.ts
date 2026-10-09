@@ -20,8 +20,7 @@ import { noBaseUrlFix, resolveUpstreamSecret } from './upstream.ts'
  * e.g. OpenRouter) is `ANTHROPIC_AUTH_TOKEN` -- and `ANTHROPIC_API_KEY` must
  * still be set, to the EMPTY STRING, because an unset var and an empty one
  * behave differently: unset, the CLI falls back to sending `x-api-key` and
- * the gateway 401s every request. Measured against `~/.local/bin/claude-openrouter`
- * on this box.
+ * the gateway 401s every request.
  *
  * Every model tier is pointed at the same `model`, so nothing silently
  * falls back to an Anthropic-named tier this endpoint does not serve. The

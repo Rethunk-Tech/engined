@@ -23,7 +23,7 @@ import {
  * regression it exists to catch.
  *
  * cursor's binary self-updates in the background with no version-pinning
- * subcommand -- measured live, twice, mid-delivery, on this very box. Nothing
+ * subcommand. Nothing
  * launched here ever selects a specific pin (`buildArgv` skips the pinned-
  * package prefix entirely for an agent with `resolveBinary`); the box's
  * currently-installed binary is whatever runs, always. `ENGINED_TEST_CURSOR_
@@ -80,8 +80,8 @@ const WORKTREE_PREFIX = 'engined-cursor-'
 /**
  * PATH, unlike claude's own version of this call: cursor's floor is a mode,
  * not a tool allowlist, so its shell tool stays reachable under
- * `--mode plan` -- measured, without PATH a shell command it runs comes
- * back "ls: command not found" (exit 127).
+ * `--mode plan`; without PATH a shell command it runs comes
+ * back "command not found".
  */
 function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
   assertVersionCurrent()

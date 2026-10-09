@@ -321,10 +321,8 @@ export class LlamaRouter {
    * different model cannot swap occupancy between the answer and this read.
    *
    * Costs a round-trip to the engine on every roled attempt.
-   * Measured live against this box's llama-server: the round trip itself
-   * averages 0.19 ms over a warmed connection (N=20), against 292-390 ms for
-   * a short end-to-end chat completion (N=5, max_tokens=8) -- under 0.1% of
-   * the request it rides on. Not worth caching. The independence from
+   * The round trip is negligible next to the request it rides on, so it is
+   * not worth caching. The independence from
    * `residentModel` is the point, and caching would dissolve it.
    */
   async residentModelId(role: Role): Promise<string | undefined> {

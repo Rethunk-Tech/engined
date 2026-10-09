@@ -143,7 +143,7 @@ const PAPER = 255
  *
  * A `read` route recognises characters rather than describing a scene, so the
  * two-colour image proves nothing about it -- asked to name colours,
- * PaddleOCR-VL answers with degenerate repetition, measured live. This is the
+ * PaddleOCR-VL answers with degenerate repetition. This is the
  * same idea as that image (ground truth this code created, so the right answer
  * is known) aimed at what the model actually does.
  */

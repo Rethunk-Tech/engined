@@ -29,8 +29,8 @@ export function readIfExists(path: string): string | undefined {
 }
 
 /**
- * The slot count llama.cpp's `parallel = -1` auto resolves to: measured at
- * n_slots=4 on build b10637 (`engines/llama/spec.toml`), sharing one unified
+ * The slot count llama.cpp's `parallel = -1` auto resolves to: four on the pinned
+ * build (`docs/tuning.md`), sharing one unified
  * KV pool rather than four windows. The door needs a number to admit against
  * when a role leaves the key at auto; this is the child's real one. Proven
  * against the live child by `test/local/llama.test.ts`, which reads this

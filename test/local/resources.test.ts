@@ -28,7 +28,6 @@ import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from './fixtu
  *
  *  - A loaded model lands in GTT, which the cgroup does not account for, so
  *    `memory_bytes` alone understates a busy engine by orders of magnitude.
- *    Measured here at 0.30 GiB of cgroup against 27.16 GiB of graphics.
  *
  * The independent oracle is amdgpu's own `mem_info_` counters under
  * /sys/class/drm, which is what the original measurement reconciled against.
@@ -41,7 +40,7 @@ import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from './fixtu
  *
  * What this cannot cover: `parseGraphicsBytes` also folds per DRM client
  * because one client repeats its whole total once per open fd. That was
- * measured on the HOST, where a desktop process held 29 of them. Inside an
+ * seen on the HOST, where a desktop process held dozens. Inside an
  * engine container the census is one fdinfo entry and one client id, so the
  * fold is a no-op here and no container-based test can catch its removal.
  * Only the unit tier's recorded multi-fd fixture covers that half.
@@ -61,7 +60,7 @@ const MIN_LOADED_GRAPHICS_BYTES = GIB
 
 /**
  * How far the engine's reading may sit from the device's own delta. Generous
- * against the measured agreement (exact to 10 MiB) so unrelated GPU activity
+ * against the observed agreement so unrelated GPU activity
  * on the box cannot redden this, while still an order of magnitude tighter
  * than any per-fd inflation.
  */
@@ -199,8 +198,7 @@ describe.skipIf(!READY)(skipTitle('engine resources (local)', READY, skipReason(
 
       // The real reconciliation, against the kernel rather than against
       // ourselves: what this engine reports holding must equal how much amdgpu
-      // says the whole device gained by loading it. Measured at 27.16 GiB on
-      // both sides. A wrong field, a KiB/byte slip, GTT dropped, or a probe
+      // says the whole device gained by loading it. A wrong field, a KiB/byte slip, GTT dropped, or a probe
       // that silently returned nothing all stop matching that delta.
       expect(Math.abs(graphics - (kernelAfter - kernelBefore))).toBeLessThan(RECONCILE_TOLERANCE)
     },

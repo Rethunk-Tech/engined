@@ -133,8 +133,8 @@ export function liveBinding(ctx: DoorContext, key: string): ComfyBinding | undef
  *
  * Evicting a binding is what makes `GET /view` refuse an output the door
  * itself produced, so this is set well above what a session plausibly
- * generates rather than as tight as the file could bear -- ~108 bytes per
- * binding measured, so the whole table stays under ~108 KB at 1000 entries.
+ * generates rather than as tight as the file could bear; a binding is small
+ * enough that the whole table stays a modest file at the cap.
  *
  * Two shortcuts are held up by this cap and are what to revisit before
  * raising it: the whole-table rewrite on every save just below, and

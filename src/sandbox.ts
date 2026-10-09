@@ -7,8 +7,7 @@
  * is a config file, and config is discovered by walking UP from the working
  * directory -- so any ancestor of the workdir can hand `edit`, `bash` and
  * `write` back, and even the built-in read-only `plan` agent can be redefined
- * the same way, because the rules are last-wins. Both measured against
- * opencode 1.18.25.
+ * the same way, because the rules are last-wins.
  *
  * For an agent like that the guarantee has to come from something it cannot
  * argue with. `bwrap` binds the filesystem read-only and the agent's own state
@@ -153,8 +152,8 @@ export function sandboxEnv(
     XDG_CACHE_HOME: join(home, 'cache'),
     // The child's environment is an allowlist, so it has no TMPDIR unless one
     // is put there. Without it `bunx` refuses to run at all, with an error
-    // about a temporary directory that says nothing about a sandbox --
-    // measured, and the reason this is not left to the ambient environment.
+    // about a temporary directory that says nothing about a sandbox, so it is
+    // not left to the ambient environment.
     TMPDIR: '/tmp',
     BUN_TMPDIR: '/tmp',
     // Inside the writable home rather than the tmpfs, so a fetched agent

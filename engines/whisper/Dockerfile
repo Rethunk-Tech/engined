@@ -19,8 +19,8 @@
 # reads "ggml_vulkan: Found 1 Vulkan devices: 0 = Radeon 8060S Graphics
 # (RADV GFX1151) (radv)" and "whisper_backend_init_gpu: using Vulkan0
 # backend" -- genuinely offloaded, not a driver that loaded and silently
-# fell back to CPU. Measured faster than the CPU image at every probed
-# clip length/model pair; see spec.toml for the numbers. Same CLI surface
+# fell back to CPU. Faster than the CPU image at every probed
+# clip length/model pair (docs/engines.md). Same CLI surface
 # too: `whisper-server --help` on this image lists every flag the command
 # below already passes (--vad, -vm, --request-path, --inference-path, -fa,
 # -t, --no-timestamps) -- this is a backend swap, not a flag migration.

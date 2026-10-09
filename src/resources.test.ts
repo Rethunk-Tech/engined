@@ -18,16 +18,15 @@ dri
 test('both resident models are counted, VRAM and GTT together', () => {
   const { memory_bytes, graphics_bytes } = parseResources(TWO_MODELS)
   expect(memory_bytes).toBe(19_310_452_736)
-  // (41440 + 28363444 + 6716 + 3110280) KiB, measured at 30.06 GiB on the box.
+  // (41440 + 28363444 + 6716 + 3110280) KiB.
   expect(graphics_bytes).toBe(32_278_405_120)
   expect((graphics_bytes ?? 0) / GIB).toBeCloseTo(30.06, 1)
 })
 
 // One DRM client appears once per open fd, each copy repeating the client's
-// whole total. The engine containers measured so far hold one fd each, so this
-// changes nothing for them -- but the same read across host processes summed
-// 59490 MiB where the machine held 15101 MiB, a 3.9x overcount, and nothing
-// stops an engine from opening the device more than once.
+// whole total. The engine containers hold one fd each, so this changes nothing
+// for them -- but a read across host processes overcounts several-fold, and
+// nothing stops an engine from opening the device more than once.
 test('a client holding several fds is counted once, not once per fd', () => {
   const repeated = ['dri']
     .concat(
@@ -42,8 +41,8 @@ test('a client holding several fds is counted once, not once per fd', () => {
   expect(parseGraphicsBytes(repeated)).toBe(4096 * 1024)
 })
 
-// An idle container with a GPU holds nothing; one with no GPU cannot be
-// measured at all. A card showing "0" for both would be lying about the second.
+// An idle container with a GPU holds nothing; one with no GPU has nothing
+// to measure. A card showing "0" for both would be lying about the second.
 test('no DRM device reports null, an idle GPU reports zero', () => {
   expect(parseResources('123\nno-dri\n').graphics_bytes).toBeNull()
   expect(parseResources('123\ndri\n').graphics_bytes).toBe(0)

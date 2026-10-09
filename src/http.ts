@@ -173,7 +173,7 @@ export function errorMessageOf(body: unknown): string | undefined {
 /**
  * The Content-Length the caller declared, when it is a finite number past
  * `max`. An absent or unparseable header is not a refusal — the body is still
- * read and measured. Every oversized upload is 413; the wording of that 413
+ * read and counted. Every oversized upload is 413; the wording of that 413
  * is the caller's, because the verbs do not share one noun for the bytes.
  */
 export function declaredOverLimit(req: Request, max: number): number | undefined {
@@ -187,10 +187,9 @@ export type HttpClient = (url: string, init?: RequestInit) => Promise<Response>
 /**
  * Releases a response whose body this door will not read.
  *
- * Dropping an unread body does not tell the far side to stop: measured against
- * a source stream that records its own cancellation, twenty-five dropped
- * bodies produced zero cancellations, while an explicit `cancel()` produced
- * one each. An engine answering an error still holds its producer open until
+ * Dropping an unread body does not tell the far side to stop: a dropped
+ * body never reaches its source's cancellation, while an explicit `cancel()`
+ * does. An engine answering an error still holds its producer open until
  * something collects it, so the door releases it on the way out.
  *
  * Suppressed rather than surfaced: a cancel that rejects must not replace the

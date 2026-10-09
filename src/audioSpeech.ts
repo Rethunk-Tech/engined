@@ -84,12 +84,8 @@ function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse
  * eviction pass, a state directory no spec mounts, and a test suite that stops
  * being idempotent the moment one run leaves entries behind for the next.
  *
- * What a hit buys, measured warm through this door on one short phrase
- * ("Your build finished successfully."): chatterbox-multi 3.6-3.9 s (N=3,
- * discarding a 16.6 s first call that was the model load), piper ~80 ms
- * (N=5, median). A hit is a Map lookup. The spread is the point -- the same
- * stock phrase costs a neural TTS seconds and costs this nothing, and every
- * consumer that says it banks that rather than the one that measured it.
+ * What a hit buys: a Map lookup instead of a neural TTS render (figures:
+ * docs/engines.md). Every consumer that repeats a stock phrase banks that.
  */
 const SPEECH_CACHE_MAX_BYTES = 67_108_864
 
@@ -199,8 +195,8 @@ export async function handleSpeech(
   //
   // Synthesis is stochastic, so this does change behaviour -- a repeated request
   // returns the same rendition rather than a fresh one. That is the point for
-  // the stock phrases this exists for, and it is what a chat consumer's own cache, the
-  // one consumer that measured this, already did unconditionally. A caller that
+  // the stock phrases this exists for, and it is what a chat consumer's own cache
+  // already did unconditionally. A caller that
   // wants variation varies something in the key, most simply `speed`.
   const cacheKey = streaming ? undefined : speechCacheKey(req, text)
   if (cacheKey !== undefined) {

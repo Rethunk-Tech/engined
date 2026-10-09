@@ -20,7 +20,7 @@ import { agentEnv, seedWorktree, skipTitle } from './fixtures.ts'
  * The second test is the one that matters. opencode's own read-only config is
  * overridable by a project `opencode.json` in the workdir or any ancestor of
  * it, so this plants exactly that, as permissively as the format allows, and
- * asserts the write still cannot land. Measured when it was written: opencode
+ * asserts the write still cannot land. When it was written, opencode
  * did run its `write` tool and did fall back to `printf >`, and both came back
  * "Read-only file system".
  */
@@ -35,7 +35,7 @@ const DOOR = process.env.ENGINED_TEST_DOOR ?? 'http://127.0.0.1:29200/openai/v1'
 // and this round trip must not depend on the example config declaring one.
 const MODEL = process.env.ENGINED_TEST_AGENT_MODEL ?? '@/llama/ornith'
 
-/** A warm round trip measured ~11s; a cold one also resolves the npm package. */
+/** A cold round trip also resolves the npm package. */
 const ROUND_TRIP_TIMEOUT_MS = 240_000
 /** The sandbox probe is a mount and a failed write: milliseconds, no model. */
 const PROBE_GATE_TIMEOUT_MS = 10_000

@@ -30,24 +30,22 @@ from pydantic import BaseModel
 app = FastAPI()
 logger = logging.getLogger(__name__)
 
-# Measured on this box (gfx1151/ROCm 7.2): the vocoder (KModel.decoder) is
+# On gfx1151/ROCm: the vocoder (KModel.decoder) is
 # the entire cost of time-to-first-audio, and that cost is not FLOPs -- it is
 # MIOpen JIT-compiling a fresh kernel the first time it sees a given exact
-# frame count. Repeat calls at an already-seen exact shape run in ~0.15s;
-# a never-before-seen one costs ~1.1-3s regardless of how short the text is
-# (confirmed: a 14-phoneme "Hi there friend" cost as much as a 71-phoneme
-# sentence). Since every distinct sentence produces a distinct frame count
+# frame count. Repeat calls at an already-seen exact shape run fast;
+# a never-before-seen one costs seconds regardless of how short the text is
+# (figures: docs/engines.md). Since every distinct sentence produces a distinct frame count
 # (duration is predicted per phoneme, not quantized), production traffic
 # hits a cold shape on nearly every request. Bucketing collapses that
 # unbounded shape space to a fixed, enumerable set of frame counts so a
 # one-time warm-up (below) can pre-pay the compile for the whole practical
 # range, and any request's true frame count reuses whichever bucket covers it.
-# What this does NOT cover, measured rather than assumed: the modules ahead of
+# What this does NOT cover: the modules ahead of
 # the vocoder -- bert, predictor.text_encoder, predictor.lstm, F0Ntrain -- key
 # their own compiled kernels on the INPUT phoneme count, which this wrapper
-# never touches. A never-before-seen input length costs ~1.1s over a repeat of
-# the same one (0.61s vs 0.20s at 36 chars, 1.61s vs 0.52s at 185), flat across
-# lengths, and it recurs once per container life.
+# never touches. A never-before-seen input length costs a flat extra second or so
+# over a repeat of the same one, and it recurs once per container life.
 #
 # Two cheaper fixes were tried and do not work. The MIOpen cache volume below
 # does NOT amortize it: after a restart the same shape costs 1.585s again

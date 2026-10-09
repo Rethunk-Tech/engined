@@ -15,7 +15,7 @@ export type Role = 'chat' | 'vision' | 'embedding' | 'rerank'
  * not say: `describe` reads a scene back in prose, `read` recognises the
  * characters printed in it. Both take an image and answer in text, so nothing
  * else on a route or its capabilities tells them apart -- and asking a reader
- * to describe a scene gets degenerate output, measured against PaddleOCR-VL.
+ * to describe a scene gets degenerate output from PaddleOCR-VL.
  *
  * Required on a `vision` route and a parse error on any other. Not defaulted:
  * the default was "describe", and it was the wrong answer for half the vision
