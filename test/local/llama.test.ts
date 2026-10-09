@@ -16,7 +16,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from './exclusive.ts'
-import { loadLocalConfig, skipTitle } from './fixtures.ts'
+import { loadLocalConfig, missingNote, skipTitle } from './fixtures.ts'
 
 /**
  * Drives the real `LlamaRouter` against llama's real container and
@@ -47,6 +47,7 @@ interface Fixture {
   routes: ResolvedRoute[]
   image?: string
   error?: string
+  missing?: string[]
 }
 
 const EMPTY_ENGINE: EngineEntry = engine({ id: 'llama' })
@@ -58,7 +59,7 @@ const EMPTY_ENGINE: EngineEntry = engine({ id: 'llama' })
  * entirely, not just the tests themselves.
  */
 function loadFixture(): Fixture {
-  const { config, error } = loadLocalConfig()
+  const { config, error, missing } = loadLocalConfig()
   if (!config) {
     return { engine: EMPTY_ENGINE, routes: [], error }
   }
@@ -71,7 +72,7 @@ function loadFixture(): Fixture {
     }
   }
   const routes = config.routes.filter((r) => r.engine === 'llama' && r.upstream === 'local')
-  return { engine: llamaEngine, routes, image: specImage(llamaEngine) }
+  return { engine: llamaEngine, routes, image: specImage(llamaEngine), missing }
 }
 
 /** A route for `role` that actually names a model -- narrowed once here so every caller below reads `.model` as a plain string, never `string | undefined`. */
@@ -124,7 +125,7 @@ function skipReason(): string {
   if (FIXTURE.error !== undefined) {
     return `config.example.toml did not load cleanly: ${FIXTURE.error}`
   }
-  return "config.example.toml has no usable chat or embedding route on the llama engine's local routes"
+  return `config.example.toml has no usable chat or embedding route on the llama engine's local routes${missingNote(FIXTURE.missing ?? [])}`
 }
 
 function buildRouter(

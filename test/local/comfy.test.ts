@@ -15,7 +15,7 @@ import {
   specImage,
   TEST_NAME_PREFIX,
 } from './exclusive.ts'
-import { type ChatRoute, isChatRoute, loadLocalConfig, skipTitle } from './fixtures.ts'
+import { type ChatRoute, isChatRoute, loadLocalConfig, missingNote, skipTitle } from './fixtures.ts'
 
 /**
  * Two related local-tier gaps, one shared container pair: a chat GGUF and a
@@ -78,8 +78,11 @@ interface Fixture {
 }
 
 /** Never throws: a stale or unreachable config.example.toml is a clean skip, not a crash before any test registers. */
+let missingWeights: string[] = []
+
 function loadFixture(): Fixture | undefined {
-  const { config: loaded } = loadLocalConfig()
+  const { config: loaded, missing } = loadLocalConfig()
+  missingWeights = missing
   if (!loaded) {
     return
   }
@@ -121,7 +124,7 @@ if (READY) {
 
 function skipReason(): string {
   if (FIXTURE === undefined) {
-    return 'config.example.toml is missing llama, comfy, or a llama chat model'
+    return `config.example.toml is missing llama, comfy, or a llama chat model${missingNote(missingWeights)}`
   }
   if (FIXTURE.llamaImage === undefined || FIXTURE.comfyImage === undefined) {
     return 'a spec did not resolve an image -- check engines/llama and engines/comfy spec.toml'

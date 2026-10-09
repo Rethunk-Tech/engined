@@ -12,8 +12,8 @@ import process from 'node:process'
 import type { RunAgenticResult } from '../../src/agentic.ts'
 import { verifiedVersionPath } from '../../src/agenticProbe.ts'
 import { buildAgenticProbeRunner, hashTree, WORKTREE_SEED } from '../../src/agenticProbeHarness.ts'
-import { loadConfig } from '../../src/config.ts'
 import { EngineRegistry } from '../../src/engines.ts'
+import { loadConfigWithoutMissingWeights } from '../../src/localConfigPrune.ts'
 import { errMessage, isRecord } from '../../src/records.ts'
 import { clearVerifiedVersion, config, engine } from '../../src/test-support.ts'
 import type { Config, ResolvedRoute } from '../../src/types.ts'
@@ -56,19 +56,25 @@ function missingEnvReason(missing: string[]): string {
  * against the repo's real `engines/`, so a clean parse is also live proof the
  * example still matches this box.
  *
- * Never throws. `loadConfig` validates the whole file, so an unrelated
- * engine's absent weights fail a suite that never speaks to it; every caller
- * here degrades to a named skip instead, and `error` is what names it.
+ * Never throws. `loadConfig` validates the whole file, so one route's absent
+ * weights would fail every suite; those routes are dropped instead and their
+ * files listed in `missing`, so only a suite that needs one skips (naming it
+ * via `missingNote`). Any other load failure is `error`.
  */
-export function loadLocalConfig(): { config?: Config; error?: string } {
+export function loadLocalConfig(): { config?: Config; error?: string; missing: string[] } {
   if (!LOCAL) {
-    return { error: NOT_LOCAL_REASON }
+    return { error: NOT_LOCAL_REASON, missing: [] }
   }
   try {
-    return { config: loadConfig(CONFIG_EXAMPLE, ENGINES_ROOT) }
+    return loadConfigWithoutMissingWeights(CONFIG_EXAMPLE, ENGINES_ROOT)
   } catch (err) {
-    return { error: errMessage(err) }
+    return { error: errMessage(err), missing: [] }
   }
+}
+
+/** Suffix for a skip reason: the model files this box lacks, which is usually why a route is absent. */
+export function missingNote(missing: readonly string[]): string {
+  return missing.length === 0 ? '' : ` (model files absent on this box: ${missing.join(', ')})`
 }
 
 /** A route that really names a model, so every caller reads `.model` as a plain string rather than `string | undefined`. */
