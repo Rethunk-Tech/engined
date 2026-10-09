@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Rethunk-Tech/gh-actions/setup-bun@99dfb9093ab089d28f76d8036322a7c062259e76 # v1.13
+      - uses: Rethunk-Tech/gh-actions/setup-bun@1417493f40c23b8826601ac9de8d7abda0b84ec6 # v1.15
         with:
           # Turbo keys each task on its own inputs, so a docs-only push replays
           # every check from cache instead of re-running it. The sha in the key
