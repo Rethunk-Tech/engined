@@ -401,7 +401,7 @@ of the right half is the color of the right half on the second" -- it reads
 characters, it does not describe scenes. Both routes on this box prove through
 their own check.
 
-The timer is why this criterion no longer depends on someone remembering it.
+The timer means this criterion does not depend on someone remembering it.
 A failure is a failed unit with the reply in journald; a box with no vision
 route configured gets a line saying so and a clean exit, not a standing red.
 

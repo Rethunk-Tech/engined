@@ -441,7 +441,7 @@ function llamaDoorConfigWithComfy(): { cfg: Config; root: string } {
 describe('the door: extras address one named engine, and refuse any other', () => {
   /**
    * `:id` is a raw engine id, so a comfy-shaped engine carrying `models_dir`
-   * alongside local-llama is no longer an ambiguity -- it is simply a
+   * alongside local-llama is not ambiguous -- it is simply a
    * different id. What matters is that naming it is refused rather than
    * starting that container and posting a chat body into it.
    */

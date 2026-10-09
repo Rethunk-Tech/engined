@@ -136,7 +136,7 @@ clears the synthesized-speech cache. A running container keeps its old shape
 until next start (idle-stop or `POST /engined/v1/start`) — llama-server reads
 presets INI once at startup. See [docs/configuration.md](docs/configuration.md).
 
-That is no longer silent: an engine still running under a replaced config
+An engine still running under a replaced config
 generation reports a `superseded` field carrying the literal call that brings
 it forward, and the door never acts on it by itself — restarting an engine
 would reload whatever it had resident, up to ~30 GiB for llama, over an edit

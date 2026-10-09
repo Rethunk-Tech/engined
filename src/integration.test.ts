@@ -709,10 +709,9 @@ test('a chain whose first hop is dead completes on the second, and provenance na
 test('a streaming chain whose first hop 5xxs on the actual chat call advances to the second hop, and provenance names the second engine', async () => {
   // Both hops stand up cleanly (load/unload/readiness all answer for real --
   // this is not a connection failure); only the first hop's actual chat call
-  // fails. That isolates the streaming-proxy bug: `LlamaRouter.proxy` used to
-  // hand back an unconditional 200 the instant a streaming request arrived,
-  // before it had even contacted the upstream, so `classifyResult` never saw
-  // this 500 and treated the dead hop as the terminal, successful answer.
+  // fails. `LlamaRouter.proxy` must not answer 200 before contacting the
+  // upstream, or `classifyResult` never sees this 500 and treats the dead hop
+  // as the terminal, successful answer.
   const dead = startFakeUpstream(fakeLlamaUpstream('boom', 500))
   const good = startFakeUpstream(fakeLlamaUpstream('answered by good'))
   const deadHostPort = String(dead.port)
