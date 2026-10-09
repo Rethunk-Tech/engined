@@ -38,6 +38,11 @@ function isStageOrContext(source: string): boolean {
   return /^[A-Za-z][A-Za-z0-9_-]*$/.test(source)
 }
 
+test('install.sh pins the TLS terminator image by digest', () => {
+  const script = readFileSync(join(dirname(ENGINES), 'scripts', 'install.sh'), 'utf8')
+  expect(script).toMatch(new RegExp(`CADDY_IMAGE="\\S+${SHA256.source}"`))
+})
+
 describe('engine Dockerfiles pin every build input', () => {
   const files = dockerfiles(ENGINES)
   test('engines/ contains Dockerfiles', () => {

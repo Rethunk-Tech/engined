@@ -54,7 +54,7 @@ resolve_paths() {
   # The terminator runs the same way every engine does -- a container this
   # box already knows how to pull -- so it adds no host package.
   DOCKER_PATH="$(command -v docker || true)"
-  CADDY_IMAGE="caddy:2.11.4-alpine"
+  CADDY_IMAGE="caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f"
 
   UNIT_INSTALL_DIR="$(to_unit_path "$INSTALL_DIR")"
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
