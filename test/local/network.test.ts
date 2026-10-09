@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { bindDualFamily } from '../../src/main.ts'
+import { bindDualFamily } from '../../src/listen.ts'
 import { LOCAL } from './exclusive.ts'
 
 /**
@@ -30,7 +30,7 @@ describe.skipIf(!LOCAL)('dual-family real socket (local)', () => {
 
   afterAll(() => {
     bound?.v4.stop(true)
-    bound?.v6.stop(true)
+    bound?.v6?.stop(true)
   })
 
   test('127.0.0.1 and [::1] both answer on the same real port', async () => {
@@ -38,7 +38,7 @@ describe.skipIf(!LOCAL)('dual-family real socket (local)', () => {
       throw new Error('beforeAll did not run -- bound is unset')
     }
     const { port } = bound.v4
-    expect(bound.v6.port).toBe(port)
+    expect(bound.v6?.port).toBe(port)
 
     const v4 = await fetch(`http://127.0.0.1:${port}/`)
     const v6 = await fetch(`http://[::1]:${port}/`)
@@ -69,7 +69,7 @@ describe.skipIf(!LOCAL)('slow response over a real socket (local)', () => {
 
   afterAll(() => {
     bound?.v4.stop(true)
-    bound?.v6.stop(true)
+    bound?.v6?.stop(true)
   })
 
   test("an answer slower than Bun's default idle timeout still reaches the caller", async () => {

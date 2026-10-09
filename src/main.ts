@@ -2,16 +2,10 @@
 import { mkdirSync } from 'node:fs'
 import process from 'node:process'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
-import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { resetSpeechCache } from './audioSpeech.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
-import {
-  COMFY_WS_SUFFIX,
-  type ComfyWsData,
-  type EnginedServer,
-  matchComfyPath,
-} from './comfyProxy.ts'
-import { comfyWebSocketHandlers, handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
+import { COMFY_WS_SUFFIX, type EnginedServer, matchComfyPath } from './comfyProxy.ts'
+import { handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
 import { loadConfig } from './config.ts'
 import { handleContent, handleEngineEvents, handleExtras } from './content.ts'
 import {
@@ -43,6 +37,7 @@ import {
 import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
 import { LAUNCH_NONCE_RE } from './launchNonce.ts'
+import { bindDualFamily, errorCode } from './listen.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { runProbes } from './probe.ts'
@@ -380,33 +375,6 @@ export function createDoor(
   return { fetch, reload, registry, ctx, configError: () => configErr }
 }
 
-/**
- * The door's real listener setup: both loopback families bound to the same
- * port. Exported so a test can bind through this exact code rather than a
- * hand-rolled `Bun.serve` pair that would pass even if the `::1` listener
- * were deleted here.
- */
-export function bindDualFamily(
-  fetch: Door['fetch'],
-  port: number,
-): { v4: EnginedServer; v6: EnginedServer } {
-  // `idleTimeout: 0`: Bun's default 10s timer closes with no body, and Bun
-  // rejects a value above 255, below `chat_timeout_seconds`. The hop budget
-  // is engined's. `websocket` is the comfy proxy upgrade only.
-  const serveOpts = {
-    fetch,
-    error(err: Error) {
-      return jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err))
-    },
-    idleTimeout: 0,
-    maxRequestBodySize: MAX_AUDIO_UPLOAD_BYTES,
-    websocket: comfyWebSocketHandlers,
-  } as const
-  const v4 = Bun.serve<ComfyWsData>({ hostname: '127.0.0.1', port, ...serveOpts })
-  const v6 = Bun.serve<ComfyWsData>({ hostname: '::1', port: v4.port, ...serveOpts })
-  return { v4, v6 }
-}
-
 /** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */
 export function resolveBunx(
   env: NodeJS.ProcessEnv = ambientEnv,
@@ -469,13 +437,13 @@ if (import.meta.main) {
     process.exit(FatalError.EXIT_CODE)
   }
 
-  let bound: { v4: EnginedServer; v6: EnginedServer }
+  let bound: ReturnType<typeof bindDualFamily>
   try {
     bound = bindDualFamily(door.fetch, startupConfig.listen_port)
     door.registry.startInventoryRefresh()
   } catch (err) {
-    const message = errMessage(err)
-    process.stderr.write(`port ${startupConfig.listen_port} already in use: ${message}\n`)
+    const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
+    process.stderr.write(`port ${startupConfig.listen_port} ${what}: ${errMessage(err)}\n`)
     process.exit(FatalError.EXIT_CODE)
   }
 
@@ -493,7 +461,7 @@ if (import.meta.main) {
         door.ctx.usage.shutdown()
         cursorAgent.stop()
         bound.v4.stop()
-        bound.v6.stop()
+        bound.v6?.stop()
         process.exit(0)
       })
   })

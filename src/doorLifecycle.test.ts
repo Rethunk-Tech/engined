@@ -11,7 +11,8 @@ import {
   makeLlamaHttpClient,
 } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
-import { bindDualFamily, createDoor, type Door, resolveBunx } from './main.ts'
+import { bindDualFamily } from './listen.ts'
+import { createDoor, type Door, resolveBunx } from './main.ts'
 import { BUNX, config, deadPort, makeTestRoot, writeEngineSpec } from './test-support.ts'
 import type { Config } from './types.ts'
 
@@ -39,7 +40,7 @@ function startDualBind(fetch: Door['fetch'], port: number): { stop: () => void }
   return {
     stop: () => {
       v4.stop()
-      v6.stop()
+      v6?.stop()
     },
   }
 }

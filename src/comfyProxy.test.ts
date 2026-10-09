@@ -29,7 +29,8 @@ import {
   STATUS_CLIENT_CLOSED,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
-import { bindDualFamily, createDoor } from './main.ts'
+import { bindDualFamily } from './listen.ts'
+import { createDoor } from './main.ts'
 import {
   BUNX,
   buildExec,
@@ -649,7 +650,7 @@ async function startWsDoor(): Promise<{
     doorPort,
     stop: () => {
       bound.v4.stop(true)
-      bound.v6.stop(true)
+      bound.v6?.stop(true)
       fakeComfy.stop()
     },
   }
