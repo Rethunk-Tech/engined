@@ -930,6 +930,8 @@ provenance itself follows. `egress` is the most recently observed category for
 that route, not a sum. Counters, never raw records: no request content and no
 request id are ever kept.
 
+`date` is a UTC calendar date, so a day rolls over at 00:00 UTC, not local midnight.
+
 Persisted as one JSON file per day under engined's state directory, held in
 memory and flushed to disk on an interval (at most every 10s) and on shutdown
 -- a read always answers from memory, and the file is only a restart's
