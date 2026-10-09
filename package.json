@@ -31,7 +31,7 @@
     "typecheck": "tsc -b --noEmit --pretty false",
     "lint": "biome check . && knip",
     "format": "biome check --write .",
-    "test": "bun test src",
+    "test": "bun test src --parallel=8 --randomize",
     "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outfile=dist/main.js",
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} /usr/bin/flock -w 3600 /tmp/engined-local-tier.lock bun test test/local",
     "ci": "turbo run typecheck lint test build"

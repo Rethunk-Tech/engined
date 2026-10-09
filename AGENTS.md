@@ -161,8 +161,8 @@ maitre, earshot and bastion-client-discord already run on engined: check a chang
 Measured at load average 6 to 15 on 32 cores. `gate` auto-detects six steps (build, typecheck, lint
 with knip, actionlint, shellcheck, `bun test src`), the same set CI runs through turbo, and skips
 `test:local`; nothing slow is detected that CI omits, and nothing CI runs is missing, apart from
-the bubblewrap install that only CI's runner needs. Warm: 9.7 s wall twice, 4.5 CPU-s. Cold (no
-`.turbo`, `dist`, `tsbuildinfo` or ruff cache): 10.0 s wall, 6.0 CPU-s. The test step is the whole
-wall time and is wait-bound, not CPU-bound: `bun test` runs files one after another and the
-slowest files (`docker.test.ts`, `comfyProxy.test.ts`, `engines.test.ts`) spend 1 to 2 s each
-waiting on timers. At the 10 s warm bar, so the lever is overlapping those waits, not CPU.
+the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize` (it was 9.7 s wall, 4.5
+CPU-s with files run in series: the suite is idle timer waits, so file-level parallelism overlaps
+them). Randomised order caught one order-dependent assertion in `cursorModels.test.ts`, now
+self-contained; four consecutive runs, two of them concurrent, were green with no port, dir or env
+collisions.

@@ -104,8 +104,6 @@ describe('resolveCursorVariant: exact multi-suffix round trip', () => {
   // exactly what the `thinking` request field breaks the tie on. Sent
   // alongside its own (base, level, fast), every one of the 241 real ids
   // round-trips to itself exactly, with no lossy remainder.
-  let exact = 0
-
   for (const id of FIXTURE_IDS) {
     const v = parseCursorModelId(id)
     const group = groups.get(v.base) as CursorBaseGroup
@@ -121,12 +119,22 @@ describe('resolveCursorVariant: exact multi-suffix round trip', () => {
       })
       expect(picked).toBeDefined()
       expect(picked?.id).toBe(id)
-      exact += 1
     })
   }
 
   test('every one of the 241 real ids round-trips exactly', () => {
-    expect(exact).toBe(FIXTURE_IDS.length)
+    const exact = FIXTURE_IDS.filter((id) => {
+      const v = parseCursorModelId(id)
+      const group = groups.get(v.base) as CursorBaseGroup
+      return (
+        resolveCursorVariant(group, {
+          reasoningEffort: v.effort ?? 'medium',
+          serviceTier: v.fast ? 'priority' : 'auto',
+          thinking: v.thinking,
+        })?.id === id
+      )
+    })
+    expect(exact).toHaveLength(FIXTURE_IDS.length)
   })
 })
 
