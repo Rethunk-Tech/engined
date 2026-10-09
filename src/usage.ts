@@ -10,7 +10,7 @@
  * always answers from memory.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { DoorContext } from './doorContext.ts'
@@ -26,6 +26,7 @@ export const ENGINED_ENGINES_PATH = '/engined/v1/engines'
 const DEFAULT_DAYS = 7
 const MAX_DAYS = 90
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000
+const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.json$/
 const MS_PER_DAY = 24 * 60 * 60 * MS_PER_SECOND
 
 interface RouteCounters {
@@ -177,7 +178,7 @@ export class UsageTracker {
     return rows
   }
 
-  /** Every date touched since the last flush, written atomically (temp file + rename). Safe to call any time, including with nothing dirty. */
+  /** Every date touched since the last flush, written atomically (temp file + rename), then day files older than the longest readable window removed. Safe to call any time, including with nothing dirty. */
   flush(): void {
     for (const date of [...this.dirty]) {
       try {
@@ -188,6 +189,32 @@ export class UsageTracker {
         // callback would exit the daemon over a full or read-only disk.
         const log = this.opts.log ?? ((line: string) => process.stderr.write(`${line}\n`))
         log(`usage: could not write ${date}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    this.prune()
+  }
+
+  /** A day older than `MAX_DAYS` can never be read back (`handleUsage` caps `days`), so its file is dead weight. */
+  private prune(): void {
+    let names: string[]
+    try {
+      names = readdirSync(this.dir())
+    } catch {
+      return
+    }
+    const oldestKept = shiftDateKey(this.today(), -(MAX_DAYS - 1))
+    for (const name of names) {
+      const date = DAY_FILE.exec(name)?.[1]
+      if (date === undefined || date >= oldestKept) {
+        continue
+      }
+      this.days.delete(date)
+      this.dirty.delete(date)
+      try {
+        rmSync(join(this.dir(), name))
+      } catch (err) {
+        const log = this.opts.log ?? ((line: string) => process.stderr.write(`${line}\n`))
+        log(`usage: could not remove ${name}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
   }

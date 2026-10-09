@@ -233,3 +233,19 @@ test('a failed flush is logged and retried, never thrown out of flush or shutdow
   expect(lines.length).toBe(2)
   expect(lines[0]).toContain('could not write 2026-01-01')
 })
+
+test('flush removes day files older than the 90-day window and keeps the rest', () => {
+  const dir = freshDir()
+  const day = (offset: number): string =>
+    new Date(DAY_1 + offset * 86_400_000).toISOString().slice(0, 10)
+  const body = '{"routes":{}}\n'
+  const files = [day(-89), day(-90), day(-200)].map((d) => join(dir, `${d}.json`))
+  for (const file of files) {
+    writeFileSync(file, body)
+  }
+  writeFileSync(join(dir, 'notes.txt'), 'not a day file')
+  const tracker = new UsageTracker({ stateRoot: dir, now: () => DAY_1 })
+  tracker.flush()
+  expect(files.map((file) => existsSync(file))).toEqual([true, false, false])
+  expect(existsSync(join(dir, 'notes.txt'))).toBe(true)
+})

@@ -909,7 +909,8 @@ carries no request content or id -- for that, journald is still the query.
 
 `GET /engined/v1/usage?days=N` (default 7, max 90; a non-positive or
 non-integer `days` is a 400) returns per-day, per-route totals folded from the
-same call records provenance emits:
+same call records provenance emits (day files older
+than 90 days are deleted on the periodic flush):
 
 ```json
 {"object":"list","data":[
