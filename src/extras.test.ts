@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { holdSeconds } from './control.ts'
 import { createLlamaDoor, llamaDoorConfig, makeLlamaHttpClient } from './doorFixtures.ts'
 import { proxyExtras } from './extras.ts'
 import { ENGINE_ERROR_CHARS, errorMessageOf, type HttpClient, MAX_JSON_BODY_BYTES } from './http.ts'
@@ -284,4 +285,12 @@ test('proxyExtras caps a success body', async () => {
   )
   expect(res.status).toBe(200)
   expect((await res.text()).length).toBe(1_048_576)
+})
+
+test('hold seconds: empty, zero and garbage take the default; the ceiling clamps', () => {
+  const secs = (q: string) => holdSeconds(new URL(`http://engined/hold${q}`))
+  expect([secs(''), secs('?seconds='), secs('?seconds=0'), secs('?seconds=x')]).toEqual([
+    1800, 1800, 1800, 1800,
+  ])
+  expect([secs('?seconds=60'), secs('?seconds=99999')]).toEqual([60, 3600])
 })

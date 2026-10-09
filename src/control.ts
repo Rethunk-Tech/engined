@@ -221,6 +221,12 @@ export async function handleStart(ctx: DoorContext, req: Request): Promise<Respo
   }
 }
 
+/** `?seconds=` clamped to the documented ceiling; absent, empty, zero or non-numeric means the default. */
+export function holdSeconds(url: URL): number {
+  const asked = Math.trunc(Number(url.searchParams.get('seconds')))
+  return asked >= 1 ? Math.min(asked, MAX_HOLD_SECONDS) : DEFAULT_HOLD_SECONDS
+}
+
 /**
  * `POST /engined/v1/engines/<id>/hold`: stop this engine and keep it stopped,
  * so a second process can load the same weights without racing the door for
@@ -236,10 +242,7 @@ export async function handleHold(
   id: string,
   url: URL,
 ): Promise<Response> {
-  const asked = Number(url.searchParams.get('seconds') ?? DEFAULT_HOLD_SECONDS)
-  const seconds = Number.isFinite(asked)
-    ? Math.min(Math.max(1, Math.trunc(asked)), MAX_HOLD_SECONDS)
-    : DEFAULT_HOLD_SECONDS
+  const seconds = holdSeconds(url)
   try {
     return Response.json(await registry.hold(id, seconds))
   } catch (err) {
