@@ -40,6 +40,7 @@ import { LAUNCH_NONCE_RE } from './launchNonce.ts'
 import { bindDualFamily, errorCode } from './listen.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
+import { DonorLedger } from './potluck.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
@@ -310,6 +311,7 @@ function createDoorContext(
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
     usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot }),
+    donorSpend: new DonorLedger({ stateRoot: doorOpts.usageStateRoot }),
   }
 }
 

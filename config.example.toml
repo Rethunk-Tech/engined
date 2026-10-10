@@ -70,6 +70,16 @@ wire = "anthropic"
 # are refused at parse — they would override what engined sets.
 # [upstream.headers]
 # anthropic-version = "2023-06-01"
+#
+# A potluck donation also carries `fingerprint` (64 hex) and, when the donor
+# set one, `monthly_cap_usd`. The ceiling is the cost those calls themselves
+# reported this UTC month; engined does not price tokens. Liveness goes back
+# only when this table is set, and the bearer is a keyring item, never a
+# literal in this file:
+#
+# [potluck]
+# callback_url = "https://potluck.example/api/callback/status"
+# callback_secret = { service = "potluck", username = "callback" }
 
 #   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 [[upstream]]

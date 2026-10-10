@@ -11,13 +11,14 @@
  * call shares the same lease/abort plumbing: a caller abort cancels it too.
  */
 
-import { classifyResult, type HopResult, parseHop, pickUsage } from './chain.ts'
+import { classifyResult, type HopResult, parseHop } from './chain.ts'
 import type { DoorContext } from './doorContext.ts'
 import { buildHopExec } from './hop.ts'
 import { jsonError, STATUS_BAD_GATEWAY } from './http.ts'
 import type { Attempt } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND } from './records.ts'
 import { CONTENT_ENDPOINT_CHAT } from './routeServes.ts'
+import { pickUsage } from './streamUsage.ts'
 
 /**
  * Fixed rather than configurable: the bridge exists to feed a text-only route

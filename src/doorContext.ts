@@ -6,12 +6,14 @@
  * there could only reach them as an import cycle.
  */
 
+import process from 'node:process'
 import type { AgenticSpawn } from './agentic.ts'
 import type { DockerLifecycle } from './docker.ts'
 import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
+import type { DonorLedger } from './potluck.ts'
 import { type CallRecord, recordCall } from './provenance.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import { localRoutesOf } from './routeAddress.ts'
@@ -78,6 +80,11 @@ export interface DoorContext {
   comfySlots: ComfySlots
   /** Per-day, per-route call counters -- see `src/usage.ts`. */
   usage: UsageTracker
+  /**
+   * Monthly donor ceilings and the potluck liveness posts. Set by the door.
+   * A fixture that never serves a donated upstream leaves it unset.
+   */
+  donorSpend?: DonorLedger
 }
 
 /**
@@ -133,6 +140,12 @@ export interface ComfyBinding {
 export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
   recordCall(record, ctx.doorOpts.write)
   ctx.usage.record(record)
+  const pending = ctx.donorSpend?.observe(ctx, record)
+  if (pending !== undefined) {
+    pending.catch((err: unknown) => {
+      process.stderr.write(`potluck: ${err instanceof Error ? err.message : String(err)}\n`)
+    })
+  }
 }
 
 export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRouter {

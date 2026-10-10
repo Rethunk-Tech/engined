@@ -54,6 +54,8 @@ export const UPSTREAM_KEYS = new Set([
   'inventory_max_age_seconds',
   'inventory_refresh_seconds',
   'headers',
+  'fingerprint',
+  'monthly_cap_usd',
 ])
 /** Re-fetch interval when an upstream omits `inventory_refresh_seconds`. */
 export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600
@@ -103,7 +105,12 @@ export const TOP_KEYS = new Set([
   'model',
   'route',
   'chain',
+  'potluck',
 ])
+/** `[potluck]` on the main file: where a donated upstream's liveness is reported. */
+export const POTLUCK_KEYS = new Set(['callback_url', 'callback_secret'])
+/** Keyring name for the callback bearer. Not an upstream secret: it has no header of its own. */
+export const CALLBACK_SECRET_KEYS = new Set(['service', 'username'])
 
 /** `setTimeout` takes a signed 32-bit millisecond count; seconds above this clamp to 1 ms. */
 const MAX_SETTIMEOUT_SECONDS = 2_147_483

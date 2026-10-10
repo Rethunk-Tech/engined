@@ -225,6 +225,24 @@ export interface Upstream {
    * header `secret` names, and `Host`, are refused at parse (case-insensitive).
    */
   headers?: Record<string, string>
+  /**
+   * potluck donation fingerprint (64 hex). Present only on an upstream the
+   * export emitted. Liveness reports send it back unchanged.
+   */
+  fingerprint?: string
+  /**
+   * Donor monthly ceiling in USD. Engined stops sending this upstream once
+   * the cost those calls themselves reported for the UTC month reaches it.
+   * Absent means no ceiling. A figure the upstream did not report is not
+   * treated as zero and does not count toward the ceiling.
+   */
+  monthly_cap_usd?: number
+}
+
+/** Where engined posts what normal use of a fingerprinted upstream already showed. */
+export interface PotluckCallback {
+  url: string
+  secret: { service: string; username: string }
 }
 
 /**
@@ -364,6 +382,8 @@ export interface Config {
   stream_stall_seconds: number
   /** Live dispatch-path agentic launches allowed at once. Probe launches are not counted. */
   agentic_concurrency: number
+  /** Absent unless this install reports donated-upstream liveness back to potluck. */
+  potluck?: PotluckCallback
   engines: EngineEntry[]
   upstreams: Upstream[]
   /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */

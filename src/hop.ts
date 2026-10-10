@@ -29,6 +29,7 @@ import {
   SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
+  STATUS_PAYMENT_REQUIRED,
   STATUS_TOO_MANY_REQUESTS,
   sseDataPayloads,
   sseFrames,
@@ -293,6 +294,13 @@ async function execRemoteHttp(
         STATUS_BAD_GATEWAY,
         `engine "${engineEntry.id}" has no resolvable upstream`,
       ),
+    }
+  }
+  const capHit = ctx.donorSpend?.refusal(upstream)
+  if (capHit !== undefined) {
+    return {
+      status: STATUS_PAYMENT_REQUIRED,
+      body: jsonErrorBody(STATUS_PAYMENT_REQUIRED, capHit),
     }
   }
   const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec)

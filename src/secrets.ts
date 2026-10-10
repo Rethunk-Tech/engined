@@ -16,14 +16,14 @@ type SecretOutcome =
 
 export const secretExec: Exec = binExec('secret-tool')
 
-function storeFix(ref: SecretRef): string {
+function storeFix(ref: Pick<SecretRef, 'service' | 'username'>): string {
   return `secret-tool store --label='${ref.service}' service ${ref.service} username ${ref.username}`
 }
 
 const LOCKED_FIX = 'keyring is locked; resolves automatically once the operator signs in'
 
 export async function resolveSecret(
-  ref: SecretRef,
+  ref: Pick<SecretRef, 'service' | 'username'>,
   exec: Exec = secretExec,
 ): Promise<SecretOutcome> {
   const result = await exec(['lookup', 'service', ref.service, 'username', ref.username])

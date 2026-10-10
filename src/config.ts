@@ -41,10 +41,15 @@ import {
   validateWildcardRoutes,
 } from './configRouteValidate.ts'
 import { collectEntries, fileLookup, readConfigSources } from './configSources.ts'
+import {
+  parsePotluckCallback,
+  parseUpstreamHeaders,
+  readFingerprint,
+  readMonthlyCap,
+} from './configUpstream.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { configPath, installDir } from './paths.ts'
-import { isRecord } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments, WILDCARD_MODEL } from './routeAddress.ts'
 import type {
   Config,
@@ -207,39 +212,9 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
     inventory_max_age_seconds: inventoryMaxAge,
     inventory_refresh_seconds: inventoryRefresh,
     headers: parseUpstreamHeaders(raw.headers, site, file, secret?.header),
+    fingerprint: readFingerprint(raw.fingerprint, site, file),
+    monthly_cap_usd: readMonthlyCap(raw.monthly_cap_usd, site, file),
   }
-}
-
-function parseUpstreamHeaders(
-  v: unknown,
-  site: string,
-  file: string,
-  secretHeader: string | undefined,
-): Record<string, string> | undefined {
-  if (v === undefined) {
-    return
-  }
-  if (!isRecord(v)) {
-    throw new ParseError(`${site} "headers" must be a table`, file)
-  }
-  const out: Record<string, string> = {}
-  for (const [key, value] of Object.entries(v)) {
-    if (typeof value !== 'string') {
-      throw new ParseError(`${site} "headers" key "${key}" must be a string`, file)
-    }
-    const lower = key.toLowerCase()
-    if (lower === 'host') {
-      throw new ParseError(`${site} "headers" must not set "Host"`, file)
-    }
-    if (secretHeader !== undefined && lower === secretHeader.toLowerCase()) {
-      throw new ParseError(
-        `${site} "headers" must not set "${key}": that header is set from "secret"`,
-        file,
-      )
-    }
-    out[key] = value
-  }
-  return out
 }
 
 function parseModel(value: unknown, index: number, file: string): ModelEntry {
@@ -495,6 +470,7 @@ function parseTopLevelSettings(
   | 'agent_timeout_seconds'
   | 'stream_stall_seconds'
   | 'agentic_concurrency'
+  | 'potluck'
 > {
   const listenPort = parsePort(raw.listen_port, 'config "listen_port"', file, DEFAULT_LISTEN_PORT)
   const cursorPort = parsePort(raw.cursor_port, 'config "cursor_port"', file, DEFAULT_CURSOR_PORT)
@@ -519,5 +495,6 @@ function parseTopLevelSettings(
       file,
       DEFAULT_AGENTIC_CONCURRENCY,
     ),
+    ...parsePotluckCallback(raw, file),
   }
 }
