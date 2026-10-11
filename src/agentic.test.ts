@@ -93,12 +93,10 @@ test('researchMode: accepts true, false and absence, but rejects non-boolean val
   })
 })
 
-// buildArgv itself stays a dumb assembler: it does not (and should not)
-// reject anything, because rejection has to happen before a bad config ever
-// reaches it. assertNoForbiddenFlags is where config.ts actually enforces
-// this for every engine's `[engine.args]` and every model's `[model.args]`
-// (config.ts:158,207) -- these tests exercise that real choke point, plus
-// loadConfig end to end, rather than only the shape buildArgv would produce.
+// buildArgv itself stays a dumb assembler: it does not reject anything.
+// assertNoForbiddenFlags is the choke point, at config parse and again in
+// runAgentic before spawn. These tests exercise both, plus loadConfig end
+// to end, rather than only the shape buildArgv would produce.
 
 test('assertNoForbiddenFlags: every floor flag is rejected if a config names it, and the thrown message names it', () => {
   const floorFlagNames = AGENTIC_FLOOR.filter((token) => token.startsWith('--'))
@@ -349,6 +347,34 @@ function runAgenticFixture(
     ...overrides,
   })
 }
+
+test('runAgentic: cursor refuses --force, --yolo, and --sandbox before any spawn', async () => {
+  // `force: false` still names the key. argvFromArgs would emit nothing for
+  // it, which is exactly the spelling a value-reading check would wave through.
+  const cases: Record<string, unknown>[] = [
+    { force: true },
+    { yolo: true },
+    { sandbox: 'disabled' },
+    { force: false },
+  ]
+  for (const args of cases) {
+    const calls: unknown[][] = []
+    const spawn: AgenticSpawn = (argv, opts) => {
+      calls.push([argv, opts])
+      return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
+    }
+    const flag = Object.keys(args)[0] ?? ''
+    const result = await runAgenticFixture(spawn, { agent: 'cursor', args })
+    expect(result).toMatchObject({
+      status: 400,
+      ok: false,
+      envelopeFailure: false,
+      failure: expect.stringContaining(`--${flag}`),
+    })
+    expect(result.version).toBeUndefined()
+    expect(calls).toHaveLength(0)
+  }
+})
 
 test('runAgentic: a final stdout chunk without a newline still reaches onDelta', async () => {
   const deltas: string[] = []
@@ -694,6 +720,28 @@ test('buildAgenticProbeRunner: a cursor hook that actually fires fails no-hook-f
   const outcome = await runCursorProbe(spawn)
 
   expect(outcome).toEqual({ ok: false, failedProbe: 'no-hook-fires' })
+})
+
+test('buildAgenticProbeRunner: a cursor request carrying --sandbox disabled fails the probe and never spawns', async () => {
+  const calls: string[] = []
+  const spawn: AgenticSpawn = () => {
+    calls.push('spawned')
+    return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
+  }
+  const runner = buildAgenticProbeRunner(BUNX, {
+    spawn,
+    resolveBinary: () => '/opt/cursor/agent',
+    args: { sandbox: 'disabled' },
+  })
+
+  const outcome = await runner(PIN, 'cursor')
+
+  expect(calls).toHaveLength(0)
+  expect(outcome.ok).toBe(false)
+  expect(outcome.failedProbe).toBe('byte-identical')
+  const detail = outcome.detail ?? ''
+  expect(detail).toContain('--sandbox')
+  expect(detail).toContain('400')
 })
 
 test('buildAgenticProbeRunner: cursor writing into the scratch worktree fails byte-identical', async () => {

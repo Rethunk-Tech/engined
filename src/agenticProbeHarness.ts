@@ -100,6 +100,12 @@ interface AgenticProbeRunnerDeps {
   ambientEnv?: NodeJS.ProcessEnv
   /** Defaults to the agent's own installed-binary lookup; a test injects a path so a runner without that agent installed still reaches `spawn`. */
   resolveBinary?: () => string
+  /**
+   * The same args table a door launch would hand `runAgentic`. Empty for the
+   * version probe, which has no caller request; a table that names a
+   * forbidden flag fails the probe before spawn.
+   */
+  args?: Record<string, unknown>
 }
 
 interface ProbeInput {
@@ -139,7 +145,7 @@ function probeLaunch(
   return runAgentic({
     agent: input.agent,
     agentVersion: input.agentVersion,
-    args: {},
+    args: input.deps.args ?? {},
     envAllowlist: PROBE_ENV_ALLOWLIST,
     workdir,
     prompt,

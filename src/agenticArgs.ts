@@ -75,11 +75,10 @@ export const FORBIDDEN_AGENTIC_FLAGS = [
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--permission-mode',
-  // cursor's own two spellings of "run everything without asking" --
-  // `--yolo` is documented as a bare alias for `--force`. Whether either
-  // actually overrides `--mode ask` was never tested; the assertion costs
-  // nothing either way, and cursor exposes more ways to say yes than claude
-  // does.
+  // cursor's own two spellings of "run everything without asking".
+  // `--yolo` is documented as a bare alias for `--force`. Both are refused
+  // by name before spawn, so a launch never asks the binary whether either
+  // would override `--mode ask`.
   '--force',
   '--yolo',
   // cursor's own escape hatch from its sandbox. Only `disabled` dissolves

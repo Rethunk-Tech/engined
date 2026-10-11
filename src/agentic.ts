@@ -6,11 +6,13 @@
  * runs, but is not a boundary on what the agent can read.
  *
  * WHERE the floor comes from is per-agent, and `agents.ts` says which. claude
- * honours it as argv, and `assertNoForbiddenFlags` stops a config unsaying it.
- * opencode offers no such flag, so its floor is `sandbox.ts`'s mount table --
- * its config-level floor is overridable from any ancestor of the
- * workdir. An agent whose floor is the sandbox never launches without it:
- * a missing `bwrap` refuses the call rather than running loose.
+ * honours it as argv, and `assertNoForbiddenFlags` stops a config or a
+ * request unsaying it. A launch returns before spawn when the request
+ * carries a forbidden flag. opencode offers no such flag, so its floor is
+ * `sandbox.ts`'s mount table -- its config-level floor is overridable from
+ * any ancestor of the workdir. An agent whose floor is the sandbox never
+ * launches without it: a missing `bwrap` refuses the call rather than
+ * running loose.
  *
  * Failure lives in what the agent printed, never in its exit code. Verified:
  * `claude -p --output-format json` exited 0 with `"subtype": "success"` and a
@@ -21,7 +23,12 @@
 
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
-import { argvFromArgs } from './agenticArgs.ts'
+import {
+  argKeysAsFlags,
+  argvFromArgs,
+  assertNoForbiddenFlags,
+  FORBIDDEN_AGENTIC_FLAGS,
+} from './agenticArgs.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -443,7 +450,44 @@ async function spawnAndParse(
   }
 }
 
+/**
+ * A flag that dissolves the floor is a request-shape error, the same as a
+ * missing workdir: the child is never spawned. Duplicates of flags engined
+ * itself prepends stay the config parser's refusal -- a launch's merged
+ * args may still carry one, such as `--verbose`, without unsaying the floor.
+ */
+function refusedArgs(args: Record<string, unknown>): RunAgenticResult | undefined {
+  const dissolving = argKeysAsFlags(args).filter((arg) => {
+    const bare = arg.split('=', 1)[0] ?? arg
+    return (FORBIDDEN_AGENTIC_FLAGS as readonly string[]).includes(bare)
+  })
+  const [first] = dissolving
+  if (first === undefined) {
+    return undefined
+  }
+  // Same sentence config parse throws, so a launch and a probe name the flag
+  // the same way.
+  let failure = `request: ${first} dissolves the read-only floor`
+  try {
+    assertNoForbiddenFlags([first], 'request')
+  } catch (err) {
+    if (err instanceof Error) {
+      failure = err.message
+    }
+  }
+  return {
+    status: STATUS_BAD_REQUEST,
+    ok: false,
+    failure,
+    envelopeFailure: false,
+  }
+}
+
 export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResult> {
+  const refused = refusedArgs(input.args)
+  if (refused !== undefined) {
+    return refused
+  }
   if (input.workdir === undefined || input.workdir === '') {
     return {
       status: STATUS_BAD_REQUEST,

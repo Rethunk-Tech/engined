@@ -245,8 +245,9 @@ did. Plan mode's older extra claim — refusing **network egress of any verb**
 under `--mode plan --trust` — was measured on 2026.08.28-50f0823 and is not
 re-claimed for ask. The write probe is what the pin now proves.
 
-Two things this does not settle. Whether `--force`/`--yolo` or
-`--sandbox disabled` override `--mode ask` was not tested, so all three belong
-in the forbidden-flag assertion regardless of what they turn out to do. And a
-config planted at those two paths is the repo-borne threat, not proof that no
-config anywhere can unsay the flag.
+`--force`, `--yolo`, and `--sandbox` (including `--sandbox disabled`) are
+refused by name before a launch or a probe spawns `cursor-agent`. The
+forbidden-flag assertion is what holds that: a request carrying any of them
+fails, and the binary is never asked whether the flag would override
+`--mode ask`. A config planted at the workdir and its parent is the
+repo-borne threat, not proof that no config anywhere can unsay the flag.
