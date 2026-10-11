@@ -49,9 +49,13 @@ interface RouteServesFields {
  * no role (agentic, proxied, media) whatever its engine serves.
  *
  * Translations is the one path a role cannot decide, because it is the model
- * file and not the role that separates a whisper route that can translate
- * from one that cannot. Every stt route on an engine whose spec serves that
- * path would otherwise inherit it, English-only weights and all.
+ * file and not the role that separates a whisper route that opted in from
+ * one that did not. The default is to omit `translate`, which does not serve
+ * the path. `translate = true` is an explicit opt-in to a verb whose English
+ * can be confidently wrong; it is not a quality claim. Every stt route on an
+ * engine whose spec serves that path would otherwise inherit it, English-only
+ * weights and all, and an English-only model handed the flag transcribes
+ * instead of failing.
  *
  * Completions is the same shape of question for a different reason: every
  * local llama route's engine spec lists it (llama-server's `/infill` answers

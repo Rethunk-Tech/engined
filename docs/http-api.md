@@ -21,7 +21,7 @@ treated as a caller.
 | `/openai/v1/rerank` | POST | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank) |
 | `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
 | `/openai/v1/audio/transcriptions` | POST | `stt` |
-| `/openai/v1/audio/translations` | POST | `stt`, and only a route declaring `translate` — same upload, rendered as English. See [Translations](#translations) |
+| `/openai/v1/audio/translations` | POST | `stt`, only a route that opts in with `translate = true`. The default (key absent) refuses the path. Not production-safe: the English can be confidently wrong while transcription of the same audio is fine. See [Translations](#translations) |
 | `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed, response_format}` in, `{created, data:[{b64_json}]}` or `{created, data:[{url}]}` out — see [Images](#images) |
 | `/openai/v1/images/edits` | POST | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
@@ -587,15 +587,31 @@ fails on a non-2xx.
 
 ## Translations
 
-`POST /openai/v1/audio/translations` is the transcriptions verb with one field
-added: whisper renders the speech as English instead of in the language it was
-spoken. Same multipart upload, same `prompt` and `response_format`.
+**Not production-safe.** `POST /openai/v1/audio/translations` is the
+transcriptions verb with one field added: whisper is asked to render the
+speech as English. Same multipart upload, same `prompt` and `response_format`.
 
-Which routes answer it is a property of the weights, not of the engine. An
+The route default is to omit `translate`. An omitted key, and
+`translate = false`, do not serve this path. `translate = true` is the explicit opt-in, and opting
+in does not mean the English is right. Measured on large-v3-turbo-q8_0:
+Spanish for "the black cat sleeps on the wooden table in the kitchen"
+transcribed character for character, and translated as "The black man sleeps
+on the bed in the kitchen" — the same recording, heard perfectly, rendered
+wrong. A consumer must not treat this path as safe without that opt-in, and
+the opt-in accepts the failure rather than fixing it. Check the verb against
+speech you understand before wiring a consumer to it. The weekly probe only
+checks that a route which did not opt in refuses the path; it cannot tell a
+fluent wrong translation from a right one.
+
+`GET /openai/v1/models` reports `translate: true` on a route that opted in.
+That field, and a `serves` entry for this path, mean the route accepts the
+verb. They are not a quality claim.
+
+Which routes may opt in is a property of the weights, not of the engine. An
 English-only model handed the translate flag does not fail — it transcribes,
-and returns something that reads like a translation. So a route declares
-`translate = true` in config, and one that does not **does not serve this
-path**: the refusal is a 400 naming the address, before any audio is decoded.
+and returns something that reads like a translation. A route that has not
+opted in **does not serve this path**: the refusal is a 400 naming the
+address, before any audio is decoded.
 
 ```sh
 curl -s localhost:29200/openai/v1/audio/translations \
@@ -604,13 +620,6 @@ curl -s localhost:29200/openai/v1/audio/translations \
 
 `--form-string` for the model, not `-F`: an address begins `@/`, which `-F`
 reads as "upload this file". Only `file=@clip.wav` wants that.
-
-**A fluent answer is not a correct one.** Measured on large-v3-turbo-q8_0:
-Spanish for "the black cat sleeps on the wooden table in the kitchen"
-transcribed character for character, and translated as "The black man sleeps
-on the bed in the kitchen" -- the same recording, heard perfectly, rendered
-wrong. Check this verb against speech you understand before wiring a consumer
-to it.
 
 `@/whisper/medium.en` on that same call is a 400 saying it does not serve the
 endpoint — it is English-only, and the config says so.

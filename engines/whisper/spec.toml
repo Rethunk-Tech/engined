@@ -117,8 +117,10 @@ command = [
 # the same loaded model answers both verbs. What it does need is the right
 # weights: `--translate` against an English-only model does not error, it
 # transcribes. That is why `translate` is declared per route in config rather
-# than inferred from the engine, and why an undeclared route does not serve
-# /openai/v1/audio/translations at all.
+# than inferred from the engine, and why an undeclared route -- the default --
+# does not serve /openai/v1/audio/translations at all. Declaring it is an
+# explicit opt-in. The English can still be confidently wrong while the same
+# audio transcribes correctly; the flag is not a claim that it is safe.
 
 # a chat consumer's own probe: /health is not confirmed to exist on this image (a
 # bootstrap script tries it and falls back), so readiness POSTs the real

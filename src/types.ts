@@ -272,15 +272,17 @@ export interface ResolvedRoute extends ModelCapabilities {
   /** See `VisionKind`. Absent on any route that is not `role = "vision"`. */
   vision?: VisionKind
   /**
-   * This STT model's weights are multilingual, so it can be asked to render
-   * speech in another language as English -- what `/openai/v1/audio/translations`
-   * is. Declared per route rather than inferred, because the model file is the
-   * whole difference and nothing about a request reveals it: an English-only
-   * model handed the translate flag does not fail, it transcribes the audio
-   * as though the flag were absent and returns a confident wrong answer.
+   * Explicit opt-in to `/openai/v1/audio/translations`. The default is to omit
+   * it, and an omitted key does not serve that verb (`routeServes`): the
+   * refusal is a 400 naming the address rather than a silent no-op.
    *
-   * A route that does not declare it does not serve that verb (`routeServes`),
-   * so the refusal is a 400 naming the address rather than a silent no-op.
+   * Opting in is not a claim the English is right. The translation head can
+   * return a confident wrong sentence while transcription of the same audio
+   * is fine, and nothing in the response signals that. Declared per route
+   * rather than inferred, because the model file is the whole difference and
+   * nothing about a request reveals it: an English-only model handed the
+   * translate flag does not fail, it transcribes as though the flag were
+   * absent.
    */
   translate?: boolean
   /**

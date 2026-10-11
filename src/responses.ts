@@ -168,9 +168,11 @@ export interface ModelRow {
    */
   vision?: VisionKind
   /**
-   * See `ResolvedRoute.translate`: this STT model's weights are multilingual,
-   * so it may be asked to render speech as English. Reported because `serves`
-   * says the address answers the translations path but not that the route was
+   * See `ResolvedRoute.translate`. Present and `true` only on a route that
+   * explicitly opted in to `/openai/v1/audio/translations`. That opt-in is
+   * not a claim the English is right: the translation can be confidently
+   * wrong while transcription of the same audio is fine. Reported because
+   * `serves` says the address answers the path but not that the route was
    * the one allowed to -- and `src/probe.ts` reads it to know which
    * transcription routes must REFUSE that verb. Absent unless declared.
    */

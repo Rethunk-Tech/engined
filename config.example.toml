@@ -557,14 +557,19 @@ upstream = "local"
 model = "small.en"
 filename = "ggml-small.en-q8_0.bin"
 
-# The multilingual one, and the only route on this box that answers
-# /openai/v1/audio/translations -- speech in another language, rendered as
-# English. `translate` is declared here rather than inferred from the
-# filename, because the failure it guards is silent: whisper handed the
-# translate flag with English-only weights does not error, it transcribes and
-# returns something that reads like a translation. A route that omits the key
-# does not serve the verb at all, so medium.en and small.en above answer it
-# with a 400 naming the address instead.
+# Not production-safe. The default is to omit `translate`, which is what
+# medium.en and small.en do: they do not serve /openai/v1/audio/translations,
+# and answer it with a 400 naming the address. `translate = true` below is the
+# explicit opt-in. It is not a claim the English is right. Measured on this
+# file, Spanish for "the black cat sleeps on the wooden table" transcribed
+# correctly and translated as "the black man sleeps on the bed". Check the
+# verb against speech you understand before a consumer depends on it. The
+# probe only checks that a route without this key refuses the path.
+#
+# Declared here rather than inferred from the filename, because the other
+# failure is silent too: whisper handed the translate flag with English-only
+# weights does not error, it transcribes and returns something that reads
+# like a translation.
 #
 # Worse than medium.en at English on both axes (13.5% WER / 4063 ms against
 # 11.5% / 2715 ms), so it earns its place on translation alone. Download it

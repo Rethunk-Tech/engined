@@ -429,10 +429,12 @@ describe("a role's claimed endpoint", () => {
 
 /**
  * Translations is the one path a role cannot decide: whisper's own spec
- * offers it, and whether a given route may answer depends on the weights that
- * route names. Tested against `routeServes` directly because no spec-less
- * engine serves the path -- only whisper's shipped spec does, so a fixture
- * engine cannot express the question.
+ * offers it, and whether a given route may answer depends on an explicit
+ * opt-in, not on the route merely existing. The default (key absent) does
+ * not serve the path. `translate = true` serves it and is still not a claim
+ * the English is right. Tested against `routeServes` directly because no
+ * spec-less engine serves the path -- only whisper's shipped spec does, so a
+ * fixture engine cannot express the question.
  */
 describe("a route's translate declaration", () => {
   const WhisperServes = [CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS]

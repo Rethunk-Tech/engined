@@ -96,12 +96,16 @@ role returns to. `filename`, `role` and `keep_resident` all live on the route,
 not the model — `ornith` on `llama` has a GGUF file and a role, `ornith`
 through `claude` has neither.
 
-`translate` says this STT model's weights are multilingual, so it can render
-speech in another language as English. Only an `stt` route may declare it, and
-a route that does not declare it does not serve
-`/openai/v1/audio/translations` at all -- the failure it guards is silent, not
-loud: whisper handed the translate flag with English-only weights transcribes
-rather than erroring.
+`translate` is the explicit opt-in to `/openai/v1/audio/translations`. The
+default is to omit it. An omitted key, and `translate = false`, do not serve
+that path. Opting in does not make the verb production-safe: on
+large-v3-turbo-q8_0 the same audio transcribed correctly and translated wrong
+("the black cat" became "the black man", "wooden table" became "bed"), so the
+English can be confident and false. Only an `stt` route may declare the key.
+The other failure it guards is silent too: whisper handed the translate flag
+with English-only weights transcribes rather than erroring, which is why the
+door refuses the path instead of forwarding the flag. See
+[http-api.md § Translations](http-api.md#translations).
 
 `vision` says what a `role = "vision"` model does with an image, which the
 role itself does not — both take an image and answer in text, so nothing else
