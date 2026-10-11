@@ -294,7 +294,16 @@ test('a held engine refuses to start, and starts again once the hold is dropped'
     method: 'POST',
   })
 
-  expect((await door.fetch(held)).status).toBe(200)
+  const holdRes = await door.fetch(held)
+  expect(holdRes.status).toBe(200)
+  const holdBody = (await holdRes.json()) as { held_until?: string }
+  expect(holdBody.held_until).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+  const listed = (await (
+    await door.fetch(new Request('http://engined/engined/v1/engines'))
+  ).json()) as { engines: { id: string; held_until?: string }[] }
+  const llama = listed.engines.find((row) => row.id === 'local-llama')
+  expect(llama?.held_until).toBe(holdBody.held_until)
+  expect(listed.engines.find((row) => row.id === 'hosted')?.held_until).toBeUndefined()
 
   const refused = await door.fetch(startRequest('@/local-llama/chat-model'))
   expect(refused.status).not.toBe(200)
@@ -304,6 +313,11 @@ test('a held engine refuses to start, and starts again once the hold is dropped'
     new Request('http://engined/engined/v1/engines/local-llama/unhold', { method: 'POST' }),
   )
   expect(dropped.status).toBe(200)
+  expect(((await dropped.json()) as { held_until?: string }).held_until).toBeUndefined()
+  const after = (await (
+    await door.fetch(new Request('http://engined/engined/v1/engines'))
+  ).json()) as { engines: { id: string; held_until?: string }[] }
+  expect(after.engines.find((row) => row.id === 'local-llama')?.held_until).toBeUndefined()
 })
 
 test('hold and unhold 404 on an engine that does not exist', async () => {

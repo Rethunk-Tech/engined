@@ -85,6 +85,11 @@ export interface EngineStatus {
    */
   active_leases?: number
   /**
+   * ISO-8601 instant a hold on this engine lapses. Present only while the
+   * hold still stands; omitted once it has ended or was never set.
+   */
+  held_until?: string
+  /**
    * What this engine's own model-bearing routes can be asked for, one entry
    * per non-disabled route -- the config surface `[[route]]`/`[[model]]`
    * capability fields exist to answer, so a caller learns it from this

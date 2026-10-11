@@ -410,6 +410,7 @@ export function statusFrom({
     superseded,
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
+    ...(runtime.held_until === undefined ? {} : { held_until: runtime.held_until }),
   }
 }
 

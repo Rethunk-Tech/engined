@@ -1082,6 +1082,10 @@ test('a hold stops the engine and keeps it stopped, and expires rather than wedg
   await lifecycle.hold('held-test', 60_000)
   expect(stopLog.length).toBe(1)
   expect(lifecycle.heldMsFor('held-test')).toBeGreaterThan(0)
+  const heldUntil = lifecycle.getStatus('held-test').held_until
+  expect(heldUntil).toBeDefined()
+  expect(Date.parse(heldUntil ?? '') - Date.now()).toBeGreaterThan(0)
+  expect(Date.parse(heldUntil ?? '') - Date.now()).toBeLessThanOrEqual(60_000)
 
   // Re-holding extends rather than stacking, so a long run refreshes instead of
   // asking for an open-ended hold up front.
@@ -1090,12 +1094,14 @@ test('a hold stops the engine and keeps it stopped, and expires rather than wedg
 
   lifecycle.unhold('held-test')
   expect(lifecycle.heldMsFor('held-test')).toBe(0)
+  expect(lifecycle.getStatus('held-test').held_until).toBeUndefined()
 
   // A holder that dies must not keep the engine out of service forever: the TTL
   // is what makes that impossible rather than merely unlikely.
   await lifecycle.hold('held-test', 1)
   await Bun.sleep(5)
   expect(lifecycle.heldMsFor('held-test')).toBe(0)
+  expect(lifecycle.getStatus('held-test').held_until).toBeUndefined()
 })
 
 test('a start arriving while docker stop is in flight is refused by the hold', async () => {

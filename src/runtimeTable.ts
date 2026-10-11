@@ -15,6 +15,11 @@ export interface RuntimeStatus {
   /** Requests holding this engine open right now. Absent unless it is running. */
   active_leases?: number
   /**
+   * ISO-8601 instant a hold lapses. Present only while `heldMsFor` is still
+   * positive, so a listing of an engine that is not held carries no field.
+   */
+  held_until?: string
+  /**
    * Set only by `start()`: whether this call is the one that ran `doStart`,
    * as opposed to finding the container already running or joining another
    * caller's in-flight start. Absent from every other return of this type
@@ -135,6 +140,9 @@ export class RuntimeTable {
       fix: rt.fix,
       last_error: rt.lastError,
       active_leases: rt.state === 'running' ? rt.activeLeases : undefined,
+      ...(rt.heldUntil !== undefined && this.heldMsFor(id) > 0
+        ? { held_until: new Date(rt.heldUntil).toISOString() }
+        : {}),
     }
   }
 

@@ -441,7 +441,9 @@ endpoint, and `GET /openai/v1/models` does not advertise it.
 A running engine also reports `active_leases`: the requests holding it open
 right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
-wait becomes visible from outside.
+wait becomes visible from outside. While a hold stands, the same listing
+reports `held_until`, the ISO-8601 instant it lapses, and omits the field once
+the hold has ended.
 
 `POST /openai/v1/audio/speech` buffers by default and returns a complete `audio/wav`.
 With `"stream": true` it returns `audio/L16; rate=<engine's own rate>;
