@@ -69,7 +69,15 @@ export class RoleScheduler {
     const busy: RoleContention[] = []
     for (const [role, state] of this.roleStates) {
       if (state.activeCount > 0 || state.queue.length > 0) {
-        busy.push({ role, active: state.activeCount, waiting: state.queue.length })
+        const row: RoleContention = {
+          role,
+          active: state.activeCount,
+          waiting: state.queue.length,
+        }
+        if (state.activeModelId !== null) {
+          row.model = state.activeModelId
+        }
+        busy.push(row)
       }
     }
     return busy

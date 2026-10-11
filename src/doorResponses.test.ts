@@ -17,7 +17,10 @@ import {
   twoEngineExec,
 } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
+import { llamaFakeClient } from './llamaTestSupport.ts'
 import { createDoor } from './main.ts'
+import { pollUntil } from './records.ts'
+import type { RoleContention } from './responses.ts'
 import {
   BUNX,
   clearVerifiedVersion,
@@ -494,6 +497,93 @@ describe('no response ever carries a container address', () => {
     const text = await res.text()
     expect(res.status).toBe(200)
     expect(text).not.toContain('private_url')
+  })
+
+  test('GET /engined/v1/engines names the loaded GGUF and omits model while the role is only queued', async () => {
+    const { cfg: base, root } = llamaDoorConfig(TEST_ROOT)
+    const cfg = { ...base, upstreams: [upstream()] }
+    let releaseLoad: () => void = () => undefined
+    const loadGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve
+    })
+    let loadParked: () => void = () => undefined
+    const loadStarted = new Promise<void>((resolve) => {
+      loadParked = resolve
+    })
+    let releaseChat: () => void = () => undefined
+    const chatGate = new Promise<void>((resolve) => {
+      releaseChat = resolve
+    })
+    let chatParked: () => void = () => undefined
+    const chatStarted = new Promise<void>((resolve) => {
+      chatParked = resolve
+    })
+    const { client } = llamaFakeClient()
+    const http: HttpClient = async (input, init) => {
+      const { pathname } = new URL(String(input))
+      if (pathname === '/models/load') {
+        loadParked()
+        await loadGate
+      }
+      if (pathname === '/v1/chat/completions') {
+        chatParked()
+        await chatGate
+      }
+      return client(input, init)
+    }
+    const door = createLlamaDoor(cfg, root, { llamaHttpClient: http })
+    const chat = (content: string) =>
+      door.fetch(
+        chatRequest({
+          model: '@/local-llama/ornith',
+          messages: [{ role: 'user', content }],
+        }),
+      )
+    const listed = async (): Promise<{ roles?: RoleContention[]; wire: string }> => {
+      const res = await door.fetch(new Request('http://engined/engined/v1/engines'))
+      const wire = await res.text()
+      const body = JSON.parse(wire) as {
+        engines: Array<{ id: string; roles?: RoleContention[] }>
+      }
+      const llama = body.engines.find((row) => row.id === 'local-llama')
+      return { roles: llama?.roles, wire }
+    }
+    try {
+      const first = chat('a')
+      await loadStarted
+      const second = chat('b')
+      const queued = await pollUntil(
+        async () => {
+          const { roles } = await listed()
+          return roles?.[0]?.waiting === 1 && roles[0].model === undefined
+        },
+        Date.now() + 2000,
+        5,
+      )
+      expect(queued).toBe(true)
+      const whileQueued = await listed()
+      expect(whileQueued.roles).toEqual([{ role: 'chat', active: 0, waiting: 1 }])
+      expect(whileQueued.wire).not.toContain('private_url')
+
+      releaseLoad()
+      await chatStarted
+      const loaded = await pollUntil(
+        async () => (await listed()).roles?.[0]?.model === 'ornith',
+        Date.now() + 2000,
+        5,
+      )
+      expect(loaded).toBe(true)
+      expect((await listed()).roles).toEqual([
+        { role: 'chat', active: 2, waiting: 0, model: 'ornith' },
+      ])
+
+      releaseChat()
+      expect((await first).status).toBe(200)
+      expect((await second).status).toBe(200)
+      expect((await listed()).roles).toBeUndefined()
+    } finally {
+      await door.registry.shutdown()
+    }
   })
 
   test("POST /engined/v1/start's own response never mentions private_url", async () => {

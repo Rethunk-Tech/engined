@@ -875,7 +875,7 @@ test("contention reports the request holding a role's lease and the one queued b
   const res2 = chatHop(router, b, 'b')
   await drainMicrotasks()
 
-  expect(router.contention()).toEqual([{ role: 'chat', active: 1, waiting: 1 }])
+  expect(router.contention()).toEqual([{ role: 'chat', active: 1, waiting: 1, model: 'a' }])
 
   release()
   await text(res1)
@@ -900,7 +900,7 @@ test('6 concurrent same-model requests against a parallel=2 role: active caps at
   // capped at the role's parallel and the remainder waiting.
   await drainMicrotasks()
   expect(inGate()).toBe(2)
-  expect(router.contention()).toEqual([{ role: 'chat', active: 2, waiting: 4 }])
+  expect(router.contention()).toEqual([{ role: 'chat', active: 2, waiting: 4, model: 'a' }])
 
   release()
   await Promise.all([text(r1), text(r2), ...rest.map(text)])
@@ -926,7 +926,7 @@ for (const [label, args] of [
 
     await drainMicrotasks()
     expect(inGate()).toBe(4)
-    expect(router.contention()).toEqual([{ role: 'chat', active: 4, waiting: 1 }])
+    expect(router.contention()).toEqual([{ role: 'chat', active: 4, waiting: 1, model: 'a' }])
 
     release()
     await Promise.all(sent.map(text))
@@ -963,7 +963,7 @@ test('a request for the resident model arriving while that GGUF is mid-unload qu
 
   // Nothing may be in flight during a swap: "a" is gone from the child and
   // "b" is not there yet.
-  expect(router.contention()).toEqual([{ role: 'chat', active: 0, waiting: 1 }])
+  expect(router.contention()).toEqual([{ role: 'chat', active: 0, waiting: 1, model: 'a' }])
 
   release()
   await Promise.all([text(resB), text(resA)])
@@ -995,7 +995,7 @@ test('a request for the resident model arriving while a keep_resident re-warm un
   const resB = chatHop(router, b, 'b')
   await drainMicrotasks()
 
-  expect(router.contention()).toEqual([{ role: 'chat', active: 0, waiting: 1 }])
+  expect(router.contention()).toEqual([{ role: 'chat', active: 0, waiting: 1, model: 'b' }])
 
   release()
   await text(resB)

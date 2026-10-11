@@ -22,6 +22,7 @@ export interface RoleContention {
   role: Role
   active: number
   waiting: number
+  model?: string
 }
 
 /**
@@ -51,7 +52,9 @@ export interface EngineStatus {
    * Per-role contention, for the llama engines that have roles at all. Absent
    * when nothing is queued or running, and absent entirely on a kind that has
    * no leases -- the distinction a caller needs is "waiting behind someone"
-   * versus "loading", which `state` alone cannot answer.
+   * versus "loading", which `state` alone cannot answer. `model` on a row is
+   * the resident GGUF id when one is loaded, and is omitted while that role
+   * is only queued.
    */
   roles?: RoleContention[]
   /**
