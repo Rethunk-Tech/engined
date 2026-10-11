@@ -411,6 +411,7 @@ export function statusFrom({
     last_error: runtime.last_error,
     active_leases: runtime.active_leases,
     ...(runtime.held_until === undefined ? {} : { held_until: runtime.held_until }),
+    ...(runtime.idle_until === undefined ? {} : { idle_until: runtime.idle_until }),
   }
 }
 

@@ -443,7 +443,10 @@ right now. The audio engines serialize every request on one process-wide lock
 inside the container, so a second caller simply waits; this count is how that
 wait becomes visible from outside. While a hold stands, the same listing
 reports `held_until`, the ISO-8601 instant it lapses, and omits the field once
-the hold has ended.
+the hold has ended. A running engine with no leases and an idle-stop timer
+armed also reports `idle_until`, the ISO-8601 instant that stop is due. The
+field is omitted when the timer is cancelled, a lease is held, or the engine
+is not running. A stop that fails and re-arms reports the new instant.
 
 `POST /openai/v1/audio/speech` buffers by default and returns a complete `audio/wav`.
 With `"stream": true` it returns `audio/L16; rate=<engine's own rate>;

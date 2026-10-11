@@ -93,6 +93,12 @@ export interface EngineStatus {
    */
   held_until?: string
   /**
+   * ISO-8601 instant an armed idle-stop will fire. Present only on a running
+   * engine with no leases and a timer still armed; omitted when the timer is
+   * cancelled, a lease is held, or the engine is not running.
+   */
+  idle_until?: string
+  /**
    * What this engine's own model-bearing routes can be asked for, one entry
    * per non-disabled route -- the config surface `[[route]]`/`[[model]]`
    * capability fields exist to answer, so a caller learns it from this

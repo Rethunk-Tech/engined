@@ -20,6 +20,11 @@ export interface RuntimeStatus {
    */
   held_until?: string
   /**
+   * ISO-8601 instant the idle-stop timer will fire. Present only while that
+   * timer is armed on a running engine with no leases.
+   */
+  idle_until?: string
+  /**
    * Set only by `start()`: whether this call is the one that ran `doStart`,
    * as opposed to finding the container already running or joining another
    * caller's in-flight start. Absent from every other return of this type
@@ -49,6 +54,11 @@ export interface Runtime {
   idleStopAttempts: number
   /** Requests holding this container open. Idle-stop is armed only at zero, so a start with no traffic behind it still counts down. */
   activeLeases: number
+  /**
+   * Epoch ms at which the armed idle-stop timer fires. Cleared with the
+   * timer, so a status read never reports an instant that is no longer armed.
+   */
+  idleUntil?: number
   /**
    * Whether this process has already asked docker about a container holding
    * this name that it did not start. Only an unclean exit can leave one, so
@@ -143,6 +153,12 @@ export class RuntimeTable {
       ...(rt.heldUntil !== undefined && this.heldMsFor(id) > 0
         ? { held_until: new Date(rt.heldUntil).toISOString() }
         : {}),
+      ...(rt.state === 'running' &&
+      rt.activeLeases === 0 &&
+      rt.idleTimer !== null &&
+      rt.idleUntil !== undefined
+        ? { idle_until: new Date(rt.idleUntil).toISOString() }
+        : {}),
     }
   }
 
@@ -151,6 +167,7 @@ export class RuntimeTable {
       clearTimeout(rt.idleTimer)
       rt.idleTimer = null
     }
+    rt.idleUntil = undefined
   }
 
   /**

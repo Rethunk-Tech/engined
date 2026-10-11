@@ -213,6 +213,7 @@ const OUTLAST_WAIT_MS = 80
 const SHORT_WAIT_MS = 10
 const PAST_IDLE_WAIT_MS = 60
 const START_OPTS = { idleStopSeconds: 60, readyTimeoutS: 1 }
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 const RACE_RUN_DELAY_MS = 40
 /** Comfortably inside RACE_RUN_DELAY_MS -- the first `run` must still be pending here, proving genuine overlap rather than sequencing. */
@@ -244,7 +245,9 @@ test('start: two concurrent calls against a stopped engine spawn exactly one con
   const { launched: bLaunched, ...bRest } = b
   expect(aRest).toEqual(bRest)
   expect([aLaunched, bLaunched].sort()).toEqual([false, true])
-  expect(aRest).toEqual({
+  expect(aRest.idle_until).toMatch(ISO_INSTANT)
+  const { idle_until: _idleUntil, ...withoutIdle } = aRest
+  expect(withoutIdle).toEqual({
     state: 'running',
     private_url: `127.0.0.1:${STUB_HOST_PORT_A}`,
     fix: undefined,
@@ -298,6 +301,27 @@ test('an engine warmed by start and never dispatched to still idle-stops', async
   await Bun.sleep(PAST_IDLE_WAIT_MS)
   expect(stopLog.length).toBe(1)
   expect(lifecycle.getStatus('warm-only').state).toBe('installed')
+})
+
+test('idle_until is the armed stop instant, and leaves when a lease is held or the engine stops', async () => {
+  const lifecycle = new DockerLifecycle(buildExec({ port: STUB_HOST_PORT_B }), readyProbe)
+  await lifecycle.start('idle-until', SPEC, START_OPTS)
+
+  const armed = lifecycle.getStatus('idle-until').idle_until
+  expect(armed).toMatch(ISO_INSTANT)
+  const remainingMs = Date.parse(armed ?? '') - Date.now()
+  expect(remainingMs).toBeGreaterThan(0)
+  expect(remainingMs).toBeLessThanOrEqual(START_OPTS.idleStopSeconds * 1000)
+
+  lifecycle.beginLease('idle-until')
+  expect(lifecycle.getStatus('idle-until').idle_until).toBeUndefined()
+
+  lifecycle.endLease('idle-until', START_OPTS.idleStopSeconds)
+  expect(lifecycle.getStatus('idle-until').idle_until).toMatch(ISO_INSTANT)
+
+  await lifecycle.stop('idle-until')
+  expect(lifecycle.getStatus('idle-until').state).not.toBe('running')
+  expect(lifecycle.getStatus('idle-until').idle_until).toBeUndefined()
 })
 
 test('concurrent leases: the countdown starts only when the last one is released', async () => {
@@ -658,12 +682,16 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
   await lifecycle.start('flaky-stop', SPEC, opts)
 
   lifecycle.endLease('flaky-stop', opts.idleStopSeconds)
+  const firstUntil = lifecycle.getStatus('flaky-stop').idle_until
+  expect(firstUntil).toMatch(ISO_INSTANT)
   await Bun.sleep(PAST_IDLE_WAIT_MS)
 
   const status = lifecycle.getStatus('flaky-stop')
   expect(status.state).toBe('running')
   expect(status.last_error).toBe('container is not running')
   expect(stopCalls.length).toBe(1)
+  // The failed stop re-armed, so the reported instant is the new one.
+  expect(Date.parse(status.idle_until ?? '')).toBeGreaterThan(Date.parse(firstUntil ?? ''))
 
   // No new traffic arrives: the idle timer alone retries on the same
   // cadence -- this is the fix. One initial attempt plus 3 retries, then it
@@ -678,6 +706,7 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
   await Bun.sleep(RetrySettleWaitMs)
   expect(stopCalls.length).toBe(TotalAttemptsWithRetries)
   expect(lifecycle.getStatus('flaky-stop').state).toBe('running')
+  expect(lifecycle.getStatus('flaky-stop').idle_until).toBeUndefined()
 })
 
 test('readiness honours a POST probe and an accept range, not just an exact GET status', async () => {

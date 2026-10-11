@@ -186,8 +186,10 @@ export class DockerLifecycle {
    * engine's resources until a fresh request happens to arrive.
    */
   private armIdleStop(rt: Runtime, idleStopSeconds: number): void {
+    rt.idleUntil = Date.now() + idleStopSeconds * MS_PER_SECOND
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null
+      rt.idleUntil = undefined
       this.stopContainer(rt)
         .then((stopped) => {
           if (!stopped && rt.idleStopAttempts < MAX_IDLE_STOP_RETRIES) {
@@ -236,11 +238,13 @@ export class DockerLifecycle {
       // launcher's `true`.
       return { ...(await rt.startPromise), launched: false }
     }
-    const promise = this.doStart(id, rt, spec, opts)
+    const promise = this.doStart(id, rt, spec, opts).then(() => {
+      this.refreshIdle(rt, opts.idleStopSeconds)
+      return this.table.status(id)
+    })
     rt.startPromise = promise
     const status = await promise
     rt.startPromise = null
-    this.refreshIdle(rt, opts.idleStopSeconds)
     return { ...status, launched: true }
   }
 
