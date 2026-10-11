@@ -105,15 +105,27 @@ if (READY) {
   await requireMemoryFor('llama')
   // Vision is deliberately not part of HAVE_MODELS, which would demote a lost
   // vision route to a clean skip alongside a missing image. The fidelity check
-  // below is the only acceptance criterion this repo records as unproven
-  // (docs/engines.md), so a run that never reaches it must say so rather than
-  // report a green tier that proved nothing about it.
+  // below is the acceptance criterion this repo records as unproven for a
+  // consumer's own images (docs/engines.md), so a run that would otherwise
+  // drive the container and never reaches a vision route must say so rather
+  // than report a green tier that proved nothing about it.
   if (VISION === undefined) {
     throw new Error(
       "config.example.toml has no vision-role route on llama's local routes, so the one unproven acceptance criterion in this repo cannot be checked here. Restore the route rather than running this tier without it.",
     )
   }
 }
+
+test('a silent mis-description fails the vision verdict, with no model loaded', () => {
+  const asked = visionRequestBody('vision').toLowerCase()
+  expect(asked.includes('red')).toBe(false)
+  expect(asked.includes('blue')).toBe(false)
+  expect(visionVerdict('Red, blue.').ok).toBe(true)
+  expect(visionVerdict('A photograph of a cat.').ok).toBe(false)
+  expect(visionVerdict('Blue.').ok).toBe(false)
+  expect(visionVerdict('Blue, red.').ok).toBe(false)
+  expect(visionVerdict('').ok).toBe(false)
+})
 
 function skipReason(): string {
   if (FIXTURE.image === undefined) {

@@ -5,13 +5,14 @@
  * the only place that can prove it: against the live door, on a timer, rather
  * than in a note someone has to remember to act on.
  *
- * `docs/engines.md` records the one defect in this repo that nothing in a
- * response can signal: a vision request can come back a confident, plausible,
- * WRONG description of the image. It did not reproduce across three live
- * checks, which is three data points and not a fix, and a wrong description is
- * indistinguishable from a right one without ground truth. This module is the
- * ground truth -- an image whose content is known because it was built here,
- * with an answer that can be checked.
+ * `docs/engines.md` records the defect a response cannot signal: a vision
+ * request can come back a confident, plausible, WRONG description of the
+ * image. This module is ground truth for one synthetic image built here, not
+ * for a consumer's real pictures. A green result proves that image on that
+ * GGUF and mmproj. It does not prove the Vulkan fault is gone. A vision
+ * address that is configured but cannot be asked fails the run: a skip is
+ * not a pass. A door with no vision address at all still reports that and
+ * exits clean, because nothing was configured to be wrong.
  *
  * It lives in `src/` rather than in the local test tier because two callers
  * need the same image and the same verdict: `test/local/llama.test.ts`, which
@@ -74,9 +75,14 @@ interface ProbeReport {
 /**
  * Whether this address can answer a probe at all.
  *
- * `unavailable` is the only state worth skipping: `GET /engined/v1/engines`
- * already reports why, with the literal command that fixes it, and a probe
- * repeating that in a different voice adds nothing.
+ * `unavailable` is the only state worth skipping for rerank, translations and
+ * completions: `GET /engined/v1/engines` already reports why, with the literal
+ * command that fixes it, and a probe repeating that in a different voice adds
+ * nothing.
+ *
+ * Vision does not skip. A configured vision route that cannot be asked fails
+ * the run (`probeVision`); filtering it out here would be a green result that
+ * checked nothing.
  *
  * NOT `state === "installed"`, which is what this checked first and which
  * quietly meant "prove nothing whenever the engine is already up" -- a
@@ -149,14 +155,14 @@ async function staleDoorLine(
  * Every vision address the door lists, probed in turn.
  *
  * `role` is what makes this discoverable at all -- chat and vision answer the
- * same door path, so `serves` cannot tell them apart. An address that is not
- * `installed` is left alone: `GET /engined/v1/engines` already reports why,
- * with the literal command that fixes it, and a probe repeating that in a
- * different voice adds nothing.
+ * same door path, so `serves` cannot tell them apart. A vision address that
+ * exists but cannot be asked (`unavailable`) fails this run. `GET
+ * /engined/v1/engines` already names the fix; the probe does not repeat that
+ * command, and it does not report a pass for a check it did not run.
  *
  * A door with no vision address at all is not a failure. Nothing is
  * configured to be wrong, and the report says exactly that rather than
- * reporting a pass it did not earn.
+ * reporting a pass it did not earn. That line is not a fidelity result.
  */
 export async function runProbes(
   doorUrl: string,
@@ -211,6 +217,9 @@ export async function runProbes(
   return { ok: lines.every((l) => l.ok), lines }
 }
 
+/** Shown when a vision route is configured and this run never asked it anything. */
+const VISION_UNCHECKED = 'unavailable, so vision fidelity was not checked; a skip is not a pass'
+
 /** Every vision address the door lists, each sent the ground-truth check its own `vision` kind can answer. */
 async function probeVision(
   doorUrl: string,
@@ -218,8 +227,7 @@ async function probeVision(
   fetchImpl: typeof fetch,
 ): Promise<ProbeLine[]> {
   const vision = rows.filter(
-    (r): r is MenuRow & { id: string } =>
-      r.role === 'vision' && canAnswer(r.state) && typeof r.id === 'string',
+    (r): r is MenuRow & { id: string } => r.role === 'vision' && typeof r.id === 'string',
   )
   if (vision.length === 0) {
     return []
@@ -227,6 +235,10 @@ async function probeVision(
 
   const lines: ProbeLine[] = []
   for (const row of vision) {
+    if (!canAnswer(row.state)) {
+      lines.push({ address: row.id, ok: false, detail: VISION_UNCHECKED })
+      continue
+    }
     lines.push({ address: row.id, ...(await probeOne(doorUrl, row, fetchImpl)) })
   }
   return lines

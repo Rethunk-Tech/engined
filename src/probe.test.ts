@@ -7,6 +7,7 @@ import {
   readProbeText,
   splitColorPng,
   visionReadVerdict,
+  visionRequestBody,
   visionVerdict,
 } from './probeImage.ts'
 import { CONTRACT } from './responses.ts'
@@ -87,6 +88,12 @@ test('the verdict needs both halves and their order, not one colour', () => {
   expect(visionVerdict('Blue, red.').ok).toBe(false)
   expect(visionVerdict('Blue.').ok).toBe(false)
   expect(visionVerdict('A photograph of a cat.').ok).toBe(false)
+  expect(visionVerdict('').ok).toBe(false)
+  // The prompt must not contain the answer. A model that echoes it would pass
+  // without having seen the image, and a green verdict would have proved nothing.
+  const asked = visionRequestBody('probe').toLowerCase()
+  expect(asked.includes('red')).toBe(false)
+  expect(asked.includes('blue')).toBe(false)
   // The detail carries the reply, because a failure nobody can read is a
   // failure nobody acts on.
   expect(visionVerdict('Blue, red.').detail).toContain('Blue, red.')
@@ -171,11 +178,12 @@ test('only vision rows are probed: a chat row serves the same path and is left a
   expect(report.lines[0]?.detail).toBe('no reachable address to prove')
 })
 
-test('an unavailable vision address is not probed: /engined/v1/engines already names its fix', async () => {
+test('an unavailable vision address fails rather than passing unproved', async () => {
   const rows = [{ id: '@/llama/see', role: 'vision', vision: 'describe', state: 'unavailable' }]
   const report = await runProbes('http://door', fakeDoor(rows, 'a cat'))
-  expect(report.ok).toBe(true)
-  expect(report.lines[0]?.detail).toBe('no reachable address to prove')
+  expect(report.ok).toBe(false)
+  expect(report.lines[0]?.address).toBe('@/llama/see')
+  expect(report.lines[0]?.detail).toContain('not checked')
 })
 
 // A door
@@ -366,13 +374,14 @@ test('an address on an engine that is already running is still probed', async ()
   expect(report.ok).toBe(true)
 })
 
-test('an unavailable address is left alone: /engined/v1/engines already names its fix', async () => {
+test('an unavailable vision address is not a pass: the nonsense reply was never accepted', async () => {
   const down = { ...VISION_ROW, state: 'unavailable' }
 
   const report = await runProbes('http://door', fakeDoor([down], 'nonsense'))
 
+  expect(report.ok).toBe(false)
   expect(report.lines).toHaveLength(1)
-  expect(report.lines[0]?.detail).toBe('no reachable address to prove')
+  expect(report.lines[0]?.detail).toContain('not checked')
 })
 
 // The menu has to report `translate` for the refusal check to know which

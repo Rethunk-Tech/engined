@@ -394,28 +394,20 @@ Two upstream Vulkan defects affect the vision role. One crashes llama-server
 and has a workaround engined already applies (`no-mmproj-offload`, see
 `engines/llama/spec.toml`).
 
-The other has none: **a vision request can return a confident, plausible,
+The other has none. **A vision request can return a confident, plausible,
 wrong description of the image, with nothing in the response to signal it.**
-Three live checks did not reproduce that Vulkan fault, which is three data
-points and not a fix — nothing in this repo can detect a recurrence of it,
-because a wrong description is indistinguishable from a right one without
-ground truth.
+Three live checks did not reproduce that Vulkan fault. Those checks are three
+data points, not a fix, and the fault stays unproven for any image this probe
+did not build.
 
-If you are wiring a consumer to the vision role, check output fidelity
-against an image whose content you already know, and re-check it when the
-image, the GGUF or the mmproj build changes. Treat the Vulkan fault as
-unproven until you have done that for your own consumer; the other roles
-carry no equivalent caveat.
-
-`src/probe.ts` is a different check: that a `describe` or `read` route names
-the colours or digits of a synthetic image this repo builds in code. Two
-things run it. `test/local/llama.test.ts`
-drives it against the router directly, and the install ships it as a weekly
-`systemd --user` timer (`engined-probe.timer`) that runs
-`main.js --probe` against the live door -- every vision address the
-model menu lists, found by its `role`. Both send an image built in code (no
-fixture file to go stale, a fresh one every run) through the OpenAI chat verb
-as an `image_url` data URI.
+`src/probe.ts` is the regression for a silent mis-description of an image
+whose content is known because this repo built it. Two things run it.
+`test/local/llama.test.ts` drives the live check against the router directly,
+and the install ships it as a weekly `systemd --user` timer
+(`engined-probe.timer`) that runs `main.js --probe` against the live door --
+every vision address the model menu lists, found by its `role`. Both send an
+image built in code (no fixture file to go stale, a fresh one every run)
+through the OpenAI chat verb as an `image_url` data URI.
 
 Which image depends on the route's `vision` kind, because a vision role says
 an address takes an image and not what its model does with one:
@@ -431,19 +423,37 @@ of the right half is the color of the right half on the second" -- it reads
 characters, it does not describe scenes. Both routes on this box prove through
 their own check.
 
-The timer means this criterion does not depend on someone remembering it.
-A failure is a failed unit with the reply in journald; a box with no vision
-route configured gets a line saying so and a clean exit, not a standing red.
-
 The order is the point. A single flat colour is a weak probe for this defect
 specifically: a description that never read the image still has only a handful
 of colour words to reach for, so a confident wrong answer lands on the
 expected one often enough that passing means little. Two halves in a stated
-left-to-right order is not something guessing reaches.
+left-to-right order is not something guessing reaches. The verdict still only
+reads those two words and their order. A wrong scene that happens to say red
+before blue passes. That is the limit of the check.
 
-That still proves fidelity only for this GGUF, this mmproj build and this one
-synthetic image -- re-check with your own consumer's real images before
-trusting the vision role for them.
+A green result proves fidelity only for this GGUF, this mmproj build and this
+one synthetic image. Re-check with your own consumer's real images before
+trusting the vision role for them, and again when the image, the GGUF or the
+mmproj build changes. Until that check, the Vulkan fault is unproven. The
+other roles carry no equivalent caveat.
+
+The timer means this criterion does not depend on someone remembering it.
+A failure is a failed unit with the reply in journald. A box with no vision
+route configured gets a line saying so and a clean exit, not a standing red.
+That clean exit proved nothing about fidelity. A vision route that is
+configured but `unavailable` fails the probe instead: the run asked it
+nothing, and a skip is not a pass.
+
+The local tier is stricter on a missing route. When
+`test/local/llama.test.ts` is otherwise going to drive the container, no
+vision route throws before any test runs, so that run cannot exit green
+having skipped the criterion. A skipped tier (`ENGINED_LOCAL` unset, the
+image not built, the config not loadable) also proved nothing about the live
+model. The mis-description regression in that file does not need the model:
+a cat, a single colour, an empty reply, and the halves named backwards all
+fail `visionVerdict`, the prompt does not contain the answer words, and that
+test is not behind the container skip. It does not substitute for the live
+check.
 
 ## Occupancy
 

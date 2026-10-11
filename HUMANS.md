@@ -162,7 +162,12 @@ and fails if the reply does not name both halves in order; a rerank query with
 one answering document among three, and fails if that one is not ranked first;
 and a translate request at every transcription route that did not declare
 `translate`, failing if any answers instead of refusing. A box with none of
-those configured gets one line saying so and a clean exit.
+those configured gets one line saying so and a clean exit. That clean exit
+proved nothing about vision fidelity. A configured vision route that is
+unavailable fails the probe: the run asked it nothing, and a skip is not a
+pass. A green vision line proves the synthetic image only — see
+[docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) for what it
+does not cover, and re-check a consumer's real images before trusting the role.
 
 An engine stops after `idle_stop_seconds` with no leases. Warm deliberately:
 
