@@ -368,6 +368,10 @@ export interface EngineEntry {
   drain_timeout_seconds?: number
   ready_timeout_s: number
   agent_version?: string
+  /** The route `model` segment `ModelRow.default` marks on this engine; absent means the discovered newest of the engine's preferred family (`modelDiscovery.ts`). */
+  default_model?: string
+  /** How often this engine's provider is asked what it serves; `DEFAULT_MODEL_REFRESH_SECONDS` when absent. */
+  model_refresh_seconds?: number
   /** An engine has no address of its own; every dialect it speaks comes from `kind` or a real shipped spec. */
   kind?: EngineKind
   /** The engine's own process flags. A model's args win over the same key. */
@@ -392,6 +396,8 @@ export interface Config {
   routes: ResolvedRoute[]
   /** Every hop is a fully-qualified `@/<engine>/<model>`. */
   chains: Record<string, string[]>
+  /** Engine id -> the route `model` its menu row marks `default`. Set only on the view `ModelDiscovery.apply` returns, never by parse. */
+  default_models?: Record<string, string>
 }
 
 export interface Volume {

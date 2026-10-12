@@ -175,6 +175,7 @@ async function modelRow(
     upstream: route.upstream ?? undefined,
     model: route.model,
     display_name: route.display_name,
+    default: config.default_models?.[route.engine] === route.model ? true : undefined,
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),

@@ -13,6 +13,7 @@ import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
+import type { ModelDiscovery } from './modelDiscovery.ts'
 import type { DonorLedger } from './potluck.ts'
 import { type CallRecord, recordCall } from './provenance.ts'
 import type { RegistryOptions } from './registryOptions.ts'
@@ -21,6 +22,8 @@ import type { Config, EngineEntry } from './types.ts'
 import type { UsageTracker } from './usage.ts'
 
 export interface DoorOptions {
+  /** A test passes one with a fake provider and a scratch state root. */
+  discovery?: ModelDiscovery
   agenticSpawn?: AgenticSpawn
   llamaHttpClient?: HttpClient
   extrasHttpClient?: HttpClient

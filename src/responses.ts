@@ -152,6 +152,8 @@ export interface ModelRow {
    * and on every chain row. Never an address.
    */
   display_name?: string
+  /** `true` on the one route per engine a client should preselect: the operator's `default_model`, else the newest of the engine's preferred family. Absent elsewhere. */
+  default?: boolean
   egress?: Egress
   streaming: boolean
   /**

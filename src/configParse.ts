@@ -41,6 +41,8 @@ export const ENGINE_KEYS = new Set([
   'drain_timeout_seconds',
   'ready_timeout_s',
   'agent_version',
+  'default_model',
+  'model_refresh_seconds',
   'kind',
   'args',
 ])

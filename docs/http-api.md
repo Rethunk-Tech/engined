@@ -229,6 +229,7 @@ is `{id, engine, upstream, model, display_name, egress, streaming, tools, serves
 capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
 that has any. `display_name` is present only when the route declared one; a
 row without it omits the field, and a chain never carries it.
+`default: true` marks the one route per `claude` or `cursor` engine a client should preselect (the engine's `default_model`, else the newest Sonnet or Cursor's own default); every other row omits it. Those engines' routes come from the provider's own model list as well as from config.
 
 `capabilities.context_in` is the route's own declared value when it has one;
 for an undeclared local llama route it is derived instead, from the same

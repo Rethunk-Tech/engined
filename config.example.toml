@@ -362,6 +362,22 @@ context_in = 200000
 context_out = 64000
 reasoning = ["none", "low", "high"]
 
+# engined asks Anthropic's Models API what it serves at start and every
+# `model_refresh_seconds` (default 3600), using ANTHROPIC_API_KEY or the
+# Claude CLI's own login, and caches the answer under the state dir. Every
+# model it lists is routed as @/claude/<id without "claude-" and any date>
+# with the capabilities Anthropic reports, so no [[route]] below is needed
+# for a model to appear. A [[route]] for the same model wins field by field:
+# declare one to rename, pin capabilities, or hide a model (`disable = true`).
+# The menu marks one route per engine `default`: the newest Sonnet, or
+# `default_model` below. `default_model` names a route's `model` segment.
+# default_model = "sonnet-5-5"
+# model_refresh_seconds = 3600
+
+# Declared routes are only needed to override discovery. A declared claude
+# route with no capabilities still reports image input (every current Claude
+# family accepts it).
+#
 # No upstream: ambient means the CLI's own subscription login rather than an
 # API token, and an ambient route's egress is always "remote". The model still
 # reaches the CLI verbatim (it is what makes @/claude/sonnet-5 and

@@ -38,6 +38,7 @@ import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
 import { LAUNCH_NONCE_RE } from './launchNonce.ts'
 import { bindDualFamily, errorCode } from './listen.ts'
+import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { DonorLedger } from './potluck.ts'
@@ -130,6 +131,8 @@ export interface Door {
   registry: EngineRegistry
   /** The live door state, so a sibling listener reads the same config a reload swapped in. */
   ctx: DoorContext
+  /** Provider model lists behind `ctx.getConfig()`; production arms its timers, tests leave it cold. */
+  discovery: ModelDiscovery
   configError: () => string | undefined
 }
 
@@ -322,7 +325,8 @@ export function createDoor(
 ): Door {
   let config = initialConfig
   let configErr: string | undefined
-  const ctx = createDoorContext(() => config, registryOpts, doorOpts)
+  const discovery = doorOpts.discovery ?? new ModelDiscovery()
+  const ctx = createDoorContext(() => discovery.apply(config), registryOpts, doorOpts)
   const { registry } = ctx
 
   function reload(path: string): void {
@@ -374,7 +378,7 @@ export function createDoor(
     }
   }
 
-  return { fetch, reload, registry, ctx, configError: () => configErr }
+  return { fetch, reload, registry, ctx, discovery, configError: () => configErr }
 }
 
 /** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */
@@ -453,6 +457,7 @@ if (import.meta.main) {
   try {
     bound = bindDualFamily(door.fetch, startupConfig.listen_port)
     door.registry.startInventoryRefresh()
+    door.discovery.start(door.ctx.getConfig())
   } catch (err) {
     const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
     process.stderr.write(`port ${startupConfig.listen_port} ${what}: ${errMessage(err)}\n`)
@@ -463,7 +468,10 @@ if (import.meta.main) {
     complete: (messages, on) => completeLocally(door.ctx, messages, on),
   })
 
-  process.on('SIGHUP', () => door.reload(configPath()))
+  process.on('SIGHUP', () => {
+    door.reload(configPath())
+    door.discovery.start(door.ctx.getConfig())
+  })
 
   process.on('SIGTERM', () => {
     door.registry

@@ -149,6 +149,12 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
       optionalTimeoutSeconds(raw.ready_timeout_s, `${site} "ready_timeout_s"`, file) ??
       DEFAULT_READY_TIMEOUT_S,
     agent_version: agentVersion,
+    default_model: optional(raw.default_model, 'string', `${site} "default_model"`, file),
+    model_refresh_seconds: optionalTimeoutSeconds(
+      raw.model_refresh_seconds,
+      `${site} "model_refresh_seconds"`,
+      file,
+    ),
     kind: parseKind(raw, site, file),
     args,
   }
