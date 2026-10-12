@@ -501,7 +501,11 @@ async function runCli(
 }
 
 /** A door on an ephemeral port. `menuStatus` is what `GET /openai/v1/models` answers. */
-async function withDoor(menuStatus: number, fn: (port: number) => Promise<void>): Promise<void> {
+async function withDoor(
+  menuStatus: number,
+  fn: (port: number) => Promise<void>,
+  enginesPayload: Record<string, unknown> = { contract: CONTRACT, engines: [] },
+): Promise<void> {
   let hits = 0
   const server = Bun.serve({
     port: 0,
@@ -514,7 +518,7 @@ async function withDoor(menuStatus: number, fn: (port: number) => Promise<void>)
           : new Response('unavailable', { status: menuStatus })
       }
       if (path === ENGINED_ENGINES_PATH) {
-        return Response.json({ contract: CONTRACT, engines: [] })
+        return Response.json(enginesPayload)
       }
       return new Response('unhandled', { status: 404 })
     },
@@ -562,6 +566,40 @@ test('--probe --json keeps text mode failing exit and lines', async () => {
     expect(parsed.ok).toBe(false)
     expect(parsed.lines).toEqual(reportedLines(text.stdout))
   })
+})
+
+test('--probe --json includes discovery.claude.last_error when refresh fails', async () => {
+  const lastError = 'GET /v1/models returned HTTP 401'
+  await withDoor(
+    200,
+    async (port) => {
+      const env = { XDG_CONFIG_HOME: configHomeFor(port) }
+      const text = await runCli(['--probe'], env)
+      const json = await runCli(['--probe', '--json'], env)
+      expect(text.code).toBe(0)
+      expect(text.stdout).toBe(`ok http://127.0.0.1:${port}: no reachable address to prove\n`)
+      expect(text.stdout).not.toContain(lastError)
+      expect(json.code).toBe(0)
+      const parsed = JSON.parse(json.stdout) as {
+        discovery: { claude: { last_error?: string; models: number; findings: unknown[] } }
+      }
+      expect(parsed.discovery.claude.last_error).toBe(lastError)
+      expect(parsed.discovery.claude.models).toBe(4)
+      expect(parsed.discovery.claude.findings).toEqual([])
+    },
+    {
+      contract: CONTRACT,
+      engines: [],
+      discovery: {
+        claude: {
+          fetched_at: '2026-01-01T00:00:00.000Z',
+          models: 4,
+          last_error: lastError,
+          findings: [],
+        },
+      },
+    },
+  )
 })
 
 test('--json without --engines or --probe is refused', async () => {

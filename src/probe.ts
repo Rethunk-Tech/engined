@@ -71,6 +71,13 @@ interface ProbeReport {
   /** False only when an address answered and got it wrong, or could not be reached at all. A door offering nothing to prove is `true` with one line saying so. */
   ok: boolean
   lines: ProbeLine[]
+  /**
+   * The door's `discovery` map, the same object `GET /engined/v1/engines`
+   * serves. Text mode still prints findings as lines; this is how `--json`
+   * keeps `last_error` and `fetched_at`, which those lines do not carry.
+   * Absent when that fetch failed.
+   */
+  discovery?: Record<string, DiscoveryStatus>
 }
 
 /**
@@ -214,31 +221,43 @@ export async function runProbes(
       ? [{ address: doorUrl, ok: true, detail: 'no reachable address to prove' }]
       : proofs
   // Findings are advice about the config, not a failed proof: they never fail the run.
-  lines.push(...(await discoveryFindingLines(doorUrl, fetchImpl)))
-  return { ok: lines.every((l) => l.ok), lines }
+  const discovered = await discoveryReport(doorUrl, fetchImpl)
+  lines.push(...discovered.lines)
+  const ok = lines.every((l) => l.ok)
+  return discovered.discovery === undefined
+    ? { ok, lines }
+    : { ok, lines, discovery: discovered.discovery }
 }
 
-/** One passing line per declared route that model discovery makes redundant or stale, each carrying the literal fix. */
-async function discoveryFindingLines(
+/**
+ * Findings as passing lines, plus the discovery map itself for `--json`.
+ *
+ * A failed refresh keeps the previous list and sets `last_error`. That string
+ * is not a finding, so text mode has nowhere to put it; the JSON report
+ * carries the map the engines list already serves.
+ */
+async function discoveryReport(
   doorUrl: string,
   fetchImpl: typeof fetch,
-): Promise<ProbeLine[]> {
+): Promise<{ lines: ProbeLine[]; discovery?: Record<string, DiscoveryStatus> }> {
   try {
     const res = await fetchImpl(`${doorUrl}${ENGINED_ENGINES_PATH}`)
     if (!res.ok) {
       await discardBody(res)
-      return []
+      return { lines: [] }
     }
     const { discovery } = (await res.json()) as { discovery?: Record<string, DiscoveryStatus> }
-    return Object.entries(discovery ?? {}).flatMap(([engine, status]) =>
+    const map = discovery ?? {}
+    const lines = Object.entries(map).flatMap(([engine, status]) =>
       status.findings.map((f) => ({
         address: `@/${engine}/${f.route}`,
         ok: true,
         detail: `finding (${f.kind}): ${f.fix}`,
       })),
     )
+    return { lines, discovery: map }
   } catch {
-    return []
+    return { lines: [] }
   }
 }
 
