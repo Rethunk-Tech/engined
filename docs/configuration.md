@@ -139,6 +139,10 @@ why this is per model and opt-in.
 Everything else passes through untouched. A first-class key not on that list
 is a bug in the list rather than a passthrough.
 
+## Pruning routes discovery makes redundant
+
+`engined --prune-config CONFIG --out OUTPUT` writes a copy of the config without the `[[route]]` blocks `GET /engined/v1/engines` reports as `duplicate` or `retired` findings (an ambient `claude` or `cursor` route with no `upstream`), plus any `[[model]]` block whose routes were all removed. It edits the text, so comments, ordering and every other byte survive; it never writes in place (`--out` must differ from `CONFIG`). `config.d/` fragments are pruned too and written to `config.d/` beside `OUTPUT`. A comment sitting above a removed block stays. It asks each provider afresh and refuses, writing nothing, if any enabled engine's list cannot be fetched, so an offline box deletes nothing. It prints each removal and a count per engine, and checks that `OUTPUT` still loads. Review the diff, back up the live file, copy `OUTPUT` over it, then reload.
+
 ## Turning something off
 
 `disable = true` on an `[[engine]]`, `[[upstream]]`, `[[route]]` or `[[chain]]`

@@ -7,6 +7,7 @@ import { loadComfyBindings } from './comfyBindings.ts'
 import { COMFY_WS_SUFFIX, type EnginedServer, matchComfyPath } from './comfyProxy.ts'
 import { handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
 import { loadConfig } from './config.ts'
+import { pruneCli } from './configPrune.ts'
 import { handleContent, handleEngineEvents, handleExtras } from './content.ts'
 import {
   handleEngines,
@@ -422,8 +423,13 @@ if (import.meta.main) {
   const probe = process.argv.includes('--probe')
   const json = process.argv.includes('--json')
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    writeToStdout('Usage: engined [-h|--help] [--probe [--json]]')
+    writeToStdout(
+      'Usage: engined [-h|--help] [--probe [--json]] [--prune-config CONFIG --out OUTPUT]',
+    )
     process.exit(0)
+  }
+  if (process.argv.includes('--prune-config')) {
+    process.exit(await pruneCli(process.argv, writeToStdout))
   }
   if (json && !probe) {
     process.stderr.write('--json requires --probe\n')

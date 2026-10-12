@@ -15,8 +15,8 @@ const MISSING_FILENAME = /"filename" does not exist at "([^"]+)"/
 const TABLE_HEADER = /^\s*\[\[?\s*([A-Za-z0-9_.-]+)\s*\]\]?\s*(#.*)?$/
 const FILENAME_LINE = /^\s*filename\s*=\s*"([^"]*)"/
 
-/** Each `[[route]]` block with its `[route.*]` sub-tables, as `[start, end)` line ranges. */
-function routeBlocks(lines: readonly string[]): [number, number][] {
+/** Each `[[<table>]]` block with its `[<table>.*]` sub-tables, as `[start, end)` line ranges. */
+export function tableBlocks(lines: readonly string[], table: string): [number, number][] {
   const blocks: [number, number][] = []
   let start = -1
   const close = (end: number): void => {
@@ -30,10 +30,10 @@ function routeBlocks(lines: readonly string[]): [number, number][] {
     if (header === undefined) {
       return
     }
-    if (header === 'route' && line.trimStart().startsWith('[[')) {
+    if (header === table && line.trimStart().startsWith('[[')) {
       close(i)
       start = i
-    } else if (!header.startsWith('route.')) {
+    } else if (!header.startsWith(`${table}.`)) {
       close(i)
     }
   })
@@ -47,7 +47,7 @@ export function dropRoutesWithFilename(
   filename: string,
 ): { toml: string; dropped: number } {
   const lines = toml.split('\n')
-  const drop = routeBlocks(lines).filter(([from, to]) =>
+  const drop = tableBlocks(lines, 'route').filter(([from, to]) =>
     lines.slice(from, to).some((l) => FILENAME_LINE.exec(l)?.[1] === filename),
   )
   const kept = lines.filter((_, i) => !drop.some(([from, to]) => i >= from && i < to))

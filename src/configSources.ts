@@ -18,7 +18,7 @@ interface ConfigSource {
  * order their `[[engine]]`/etc. arrays are appended in. A missing directory
  * is normal and silent, since most installs have no fragments at all.
  */
-function fragmentFiles(mainFile: string): string[] {
+export function fragmentFiles(mainFile: string): string[] {
   const dir = join(dirname(mainFile), 'config.d')
   let names: string[]
   try {
