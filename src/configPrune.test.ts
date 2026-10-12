@@ -142,3 +142,32 @@ test('refuses, writing nothing, when a provider list cannot be fetched', async (
   ).rejects.toThrow('refusing to prune: the provider list for "claude" could not be fetched')
   expect(() => readFileSync(out, 'utf8')).toThrow()
 })
+
+test('keeps a [[model]] block while a remaining route still uses its id', async () => {
+  const { main, out } = fixture()
+  writeFileSync(
+    main,
+    `${readFileSync(main, 'utf8')}
+[[upstream]]
+id = "moonshot"
+base_url = "https://example.invalid/anthropic"
+egress = "remote"
+wire = "anthropic"
+
+[[route]]
+engine = "claude"
+upstream = "moonshot"
+model = "sonnet-5-5"
+`,
+  )
+  const result = await pruneConfig({
+    file: main,
+    out,
+    enginesRoot: ENGINES,
+    discovery: discovery(),
+  })
+  expect(result.removals.map((r) => `${r.kind}:${r.name}`)).not.toContain('model:sonnet-5-5')
+  const text = readFileSync(out, 'utf8')
+  expect(text).toContain('id = "sonnet-5-5"')
+  expect(text).toContain('upstream = "moonshot"')
+})
