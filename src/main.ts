@@ -396,7 +396,7 @@ export function resolveBunx(
 }
 
 /** `main.js --probe`: call the already-serving door; never bind a second one. */
-async function probeExit(): Promise<number> {
+async function probeExit(json: boolean): Promise<number> {
   let port: number
   try {
     port = loadConfig().listen_port
@@ -405,20 +405,30 @@ async function probeExit(): Promise<number> {
     return FatalError.EXIT_CODE
   }
   const report = await runProbes(`http://127.0.0.1:${port}`)
-  for (const line of report.lines) {
-    writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)
+  if (json) {
+    writeToStdout(JSON.stringify(report))
+  } else {
+    for (const line of report.lines) {
+      writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)
+    }
   }
   return report.ok ? 0 : 1
 }
 if (import.meta.main) {
+  const probe = process.argv.includes('--probe')
+  const json = process.argv.includes('--json')
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    writeToStdout('Usage: engined [-h|--help] [--probe]')
+    writeToStdout('Usage: engined [-h|--help] [--probe [--json]]')
     process.exit(0)
+  }
+  if (json && !probe) {
+    process.stderr.write('--json requires --probe\n')
+    process.exit(FatalError.EXIT_CODE)
   }
   // Before anything that binds or starts: this mode talks to the door that is
   // already running, so creating one here would take the port from it.
-  if (process.argv.includes('--probe')) {
-    process.exit(await probeExit())
+  if (probe) {
+    process.exit(await probeExit(json))
   }
   let startupConfig: Config
   let door: Door

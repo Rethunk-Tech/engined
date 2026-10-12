@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import process from 'node:process'
+import { FatalError } from './errors/fatal.ts'
 import { runProbes } from './probe.ts'
 import {
   digitsPng,
@@ -11,6 +13,9 @@ import {
   visionVerdict,
 } from './probeImage.ts'
 import { CONTRACT } from './responses.ts'
+import { OPENAI_MODELS_PATH } from './routeServes.ts'
+import { makeTestRoot } from './test-support.ts'
+import { ENGINED_ENGINES_PATH } from './usage.ts'
 
 /** The ExecStart flag, read once: a regex rebuilt per call is a lint warning and a wasted compile. */
 const RX_EXEC_START_FLAG = /^ExecStart=.*?(--[a-z-]+)\s*$/m
@@ -436,4 +441,132 @@ test('only a route serving /openai/v1/completions is probed: a plain chat route 
 
   expect(report.lines).toHaveLength(1)
   expect(report.lines[0]?.detail).toBe('no reachable address to prove')
+})
+
+const PROBE_ROOT = makeTestRoot('engined-probe-cli-')
+
+/** `ok|FAIL <address>: <detail>`. The address contains colons; the separator is colon-space. */
+const RX_PROBE_TEXT = /^(ok|FAIL) (.*?): (.*)$/
+
+interface ReportedLine {
+  address: string
+  ok: boolean
+  detail: string
+}
+
+function reportedLines(stdout: string): ReportedLine[] {
+  const body = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout
+  return body.split('\n').map((line) => {
+    const match = RX_PROBE_TEXT.exec(line)
+    if (match === null) {
+      throw new Error(`probe text line: ${line}`)
+    }
+    const [, status, address, detail] = match
+    if (status === undefined || address === undefined || detail === undefined) {
+      throw new Error(`probe text line: ${line}`)
+    }
+    return { ok: status === 'ok', address, detail }
+  })
+}
+
+function configHomeFor(port: number): string {
+  const configHome = join(mkdtempSync(join(PROBE_ROOT, 'home-')), 'config')
+  mkdirSync(join(configHome, 'engined'), { recursive: true })
+  writeFileSync(join(configHome, 'engined', 'config.toml'), `listen_port = ${port}\n`)
+  return configHome
+}
+
+async function runCli(
+  args: string[],
+  env: Record<string, string>,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts'), ...args], {
+    env: { ...process.env, ...env },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const timer = setTimeout(() => proc.kill(), 10_000)
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    return { code, stdout, stderr }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** A door on an ephemeral port. `menuStatus` is what `GET /openai/v1/models` answers. */
+async function withDoor(menuStatus: number, fn: (port: number) => Promise<void>): Promise<void> {
+  let hits = 0
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      hits += 1
+      const path = new URL(req.url).pathname
+      if (path === OPENAI_MODELS_PATH) {
+        return menuStatus === 200
+          ? Response.json({ object: 'list', data: [] })
+          : new Response('unavailable', { status: menuStatus })
+      }
+      if (path === ENGINED_ENGINES_PATH) {
+        return Response.json({ contract: CONTRACT, engines: [] })
+      }
+      return new Response('unhandled', { status: 404 })
+    },
+  })
+  const port = server.port
+  try {
+    if (port === undefined) {
+      throw new Error('the fake door did not bind a port')
+    }
+    await fn(port)
+    expect(hits).toBeGreaterThan(0)
+  } finally {
+    server.stop(true)
+  }
+}
+
+test('--probe --json prints the probe report as one JSON document', async () => {
+  await withDoor(200, async (port) => {
+    const env = { XDG_CONFIG_HOME: configHomeFor(port) }
+    const text = await runCli(['--probe'], env)
+    const json = await runCli(['--probe', '--json'], env)
+    expect(text.code).toBe(0)
+    expect(text.stderr).toBe('')
+    expect(text.stdout).toBe(`ok http://127.0.0.1:${port}: no reachable address to prove\n`)
+    expect(json.code).toBe(text.code)
+    expect(json.stderr).toBe('')
+    const parsed = JSON.parse(json.stdout) as { ok: boolean; lines: ReportedLine[] }
+    expect(parsed.ok).toBe(true)
+    expect(parsed.lines).toEqual(reportedLines(text.stdout))
+    expect(json.stdout.trim().split('\n')).toHaveLength(1)
+  })
+})
+
+test('--probe --json keeps text mode failing exit and lines', async () => {
+  await withDoor(503, async (port) => {
+    const env = { XDG_CONFIG_HOME: configHomeFor(port) }
+    const text = await runCli(['--probe'], env)
+    const json = await runCli(['--json', '--probe'], env)
+    expect(text.code).toBe(1)
+    expect(text.stdout).toBe(
+      `FAIL http://127.0.0.1:${port}: the door answered http 503 for its own model menu\n`,
+    )
+    expect(json.code).toBe(text.code)
+    const parsed = JSON.parse(json.stdout) as { ok: boolean; lines: ReportedLine[] }
+    expect(parsed.ok).toBe(false)
+    expect(parsed.lines).toEqual(reportedLines(text.stdout))
+  })
+})
+
+test('--json without --probe is refused', async () => {
+  const configHome = join(mkdtempSync(join(PROBE_ROOT, 'bare-')), 'config')
+  mkdirSync(configHome, { recursive: true })
+  const run = await runCli(['--json'], { XDG_CONFIG_HOME: configHome })
+  expect(run.code).toBe(FatalError.EXIT_CODE)
+  expect(run.stderr).toBe('--json requires --probe\n')
+  expect(run.stdout).toBe('')
 })
