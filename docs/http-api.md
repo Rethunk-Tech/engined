@@ -223,6 +223,8 @@ the alias. Empty or expired inventory adds no discovered rows.
 `GET /engined/v1/engines` `capabilities[]` stays the declared routes; expansion
 lives only on this menu.
 
+`GET /engined/v1/engines` also carries `discovery`, keyed by `claude` and `cursor` when enabled: `{fetched_at, models, last_error?, findings}`. `fetched_at` (ISO time) is when the list in use was last fetched, so its age is how stale the menu is. `last_error` is present while the latest refresh failed (the previous list keeps serving) and clears on the next success. `findings` lists declared routes discovery makes redundant (`duplicate`: the route states nothing discovery does not already serve) or stale (`retired`: the provider no longer lists the model), each with `route` and a literal `fix`; `engined --probe` prints them as passing lines and never fails on them. A provider that does not answer within 30 s counts as a failed refresh.
+
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, display_name, egress, streaming, tools, serves, role, vision, state,

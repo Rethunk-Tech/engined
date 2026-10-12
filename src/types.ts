@@ -6,6 +6,7 @@
  */
 
 import { STATUS_NOT_FOUND } from './http.ts'
+import type { DiscoveryStatus } from './modelDiscovery.ts'
 
 /** Occupancy is one resident GGUF per role, so the set is closed. */
 export type Role = 'chat' | 'vision' | 'embedding' | 'rerank'
@@ -398,6 +399,8 @@ export interface Config {
   chains: Record<string, string[]>
   /** Engine id -> the route `model` its menu row marks `default`. Set only on the view `ModelDiscovery.apply` returns, never by parse. */
   default_models?: Record<string, string>
+  /** Engine id -> what model discovery last found; set only on the view `ModelDiscovery.apply` returns. */
+  model_discovery?: Record<string, DiscoveryStatus>
 }
 
 export interface Volume {

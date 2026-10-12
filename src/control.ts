@@ -75,6 +75,7 @@ export async function handleEngines(
   const listed = await ctx.registry.list()
   attachLlamaRoles(ctx, listed.engines)
   listed.config_error = configErr
+  listed.discovery = ctx.getConfig().model_discovery
   return Response.json(listed)
 }
 

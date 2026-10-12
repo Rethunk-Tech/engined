@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createDoor } from './main.ts'
-import { ModelDiscovery, parseCursorModels } from './modelDiscovery.ts'
+import { type DiscoveryStatus, ModelDiscovery } from './modelDiscovery.ts'
+import { parseCursorModels } from './modelSources.ts'
+import { runProbes } from './probe.ts'
 import { BUNX, config, engine, makeTestRoot, route } from './test-support.ts'
 
 const ROOT = makeTestRoot('engined-discovery-test-')
@@ -131,7 +133,7 @@ test('a failed refresh keeps the list, and an offline start reads it from disk',
   const log: string[] = []
   const failing = discovery({ stateRoot, status: 500, log })
   failing.d.start(CLAUDE)
-  await failing.d.refresh('claude')
+  await Bun.sleep(30)
   failing.d.stop()
   expect(log.at(-1)).toBe(
     'models: claude: refresh failed (GET /v1/models returned HTTP 500); keeping 4 cached, fetched 0 min ago',
@@ -236,9 +238,108 @@ test('a rejected login (401) keeps the cached list and the line gives its age', 
   const d = new ModelDiscovery({ ...opts, fetch: async () => new Response('no', { status: 401 }) })
   d.start(CLAUDE)
   d.stop()
-  await d.refresh('claude')
+  await Bun.sleep(30)
   expect(log.at(-1)).toBe(
     'models: claude: refresh failed (GET /v1/models returned HTTP 401); keeping 4 cached, fetched 180 min ago',
   )
   expect(d.apply(CLAUDE).routes.some((r) => r.model === 'sonnet-5-5')).toBe(true)
+})
+
+const DECLARED = config({
+  engines: [engine({ id: 'claude', agent_version: '1' })],
+  routes: [
+    // Says nothing discovery does not.
+    route({
+      engine: 'claude',
+      model: 'opus-5-5',
+      wire_model: 'claude-opus-5-5',
+      upstream: null,
+      display_name: 'claude-opus-5-5',
+    }),
+    route({ engine: 'claude', model: 'sonnet-5', wire_model: 'claude-sonnet-5', upstream: null }),
+    // Overrides the label, so it earns its place.
+    route({
+      engine: 'claude',
+      model: 'sonnet-5-5',
+      wire_model: 'claude-sonnet-5-5',
+      upstream: null,
+      display_name: 'Mine',
+    }),
+    // The provider no longer lists it.
+    route({ engine: 'claude', model: 'opus-4-1', wire_model: 'claude-opus-4-1', upstream: null }),
+  ],
+})
+
+async function engines(door: ReturnType<typeof createDoor>) {
+  const res = await door.fetch(new Request('http://engined/engined/v1/engines'))
+  return (await res.json()) as { discovery?: Record<string, DiscoveryStatus> }
+}
+
+test('declared routes discovery makes redundant or stale become findings with the fix, and the probe prints them', async () => {
+  const { d } = discovery({})
+  const door = createDoor(
+    DECLARED,
+    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    { discovery: d },
+  )
+  await d.refresh('claude')
+  const status = (await engines(door)).discovery?.claude
+  expect(status?.findings.map((f) => `${f.kind}:${f.route}`).sort()).toEqual([
+    'duplicate:opus-5-5',
+    'duplicate:sonnet-5',
+    'retired:opus-4-1',
+  ])
+  expect(status?.findings[0]?.fix).toContain('delete the [[route]] block with engine = "claude"')
+  const client = ((input: string | URL | Request, init?: RequestInit) =>
+    Promise.resolve(door.fetch(new Request(String(input), init)))) as typeof fetch
+  const report = await runProbes('http://engined', client)
+  expect(report.ok).toBe(true)
+  expect(report.lines.map((l) => l.address)).toContain('@/claude/opus-4-1')
+})
+
+test('the engines list says when the list was fetched and why the last refresh failed', async () => {
+  const stateRoot = mkdtempSync(join(ROOT, 'state-'))
+  await discovery({ stateRoot }).d.refresh('claude')
+  const failing = discovery({ stateRoot, status: 401 })
+  const door = createDoor(
+    CLAUDE,
+    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    { discovery: failing.d },
+  )
+  failing.d.start(CLAUDE)
+  failing.d.stop()
+  await Bun.sleep(30)
+  const status = (await engines(door)).discovery?.claude
+  expect(status?.models).toBe(4)
+  expect(status?.last_error).toBe('GET /v1/models returned HTTP 401')
+  expect(Number.isNaN(Date.parse(status?.fetched_at ?? ''))).toBe(false)
+})
+
+test('a provider that never answers delays neither start nor another engine, and times out', async () => {
+  const log: string[] = []
+  const d = new ModelDiscovery({
+    stateRoot: mkdtempSync(join(ROOT, 'state-')),
+    env: {},
+    log: (l) => log.push(l),
+    fetchTimeoutMs: 50,
+    claudeDir: claudeLogin(),
+    fetch: () => new Promise<Response>(() => undefined),
+    cursorExec: async () => ({ stdout: CURSOR_LIST, stderr: '', exitCode: 0 }),
+  })
+  const both = config({
+    engines: [
+      engine({ id: 'claude', agent_version: '1' }),
+      engine({ id: 'cursor', agent_version: '1' }),
+    ],
+    routes: [],
+  })
+  const started = performance.now()
+  d.start(both)
+  expect(performance.now() - started).toBeLessThan(40)
+  await Bun.sleep(150)
+  d.stop()
+  expect(log).toContain(
+    'models: claude: refresh failed (no answer within 50 ms); keeping 0 cached, none fetched yet',
+  )
+  expect(d.apply(both).routes.some((r) => r.engine === 'cursor')).toBe(true)
 })

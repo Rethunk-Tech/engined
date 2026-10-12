@@ -7,25 +7,24 @@
  * Providers that cannot be asked have no source here and keep declared lists.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { resolveCursorBinary } from './agents.ts'
 import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
-import { binExec, type Exec } from './exec.ts'
-import type { HttpClient } from './http.ts'
+import {
+  CLAUDE_ENGINE_ID,
+  DEFAULT_FETCH_TIMEOUT_MS,
+  type DiscoveredModel,
+  type DiscoveryOptions,
+  type ModelSource,
+  SOURCES,
+} from './modelSources.ts'
 import { stateDir } from './paths.ts'
 import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import type { Config, EngineEntry, ModelCapabilities, ResolvedRoute } from './types.ts'
 
 const DEFAULT_MODEL_REFRESH_SECONDS = DEFAULT_INVENTORY_REFRESH_SECONDS
 
-const CLAUDE_ENGINE_ID = 'claude'
-const CURSOR_ENGINE_ID = 'cursor'
-const MODELS_URL = 'https://api.anthropic.com/v1/models'
-const MAX_PAGES = 10
-const MODELS_PAGE_SIZE = 1000
 const CACHE_VERSION = 1
 const MS_PER_MINUTE = 60_000
 
@@ -49,191 +48,10 @@ const CLAUDE_FAMILY_CAPABILITIES: Record<string, ModelCapabilities> = {
 const PREFERRED_LINE: Record<string, string> = { [CLAUDE_ENGINE_ID]: 'sonnet' }
 
 const CLAUDE_WIRE_ID = /^claude-([a-z]+)-/
-const CLAUDE_PREFIX = /^claude-/
-const CURSOR_ROW = /^(\S+) - (.+)$/
-const DATE_SUFFIX = /-\d{8}$/
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
-
-export interface DiscoveredModel {
-  /** The id the provider serves; sent on the wire. */
-  wire: string
-  /** The route `model` segment it is addressed by. */
-  segment: string
-  display_name?: string
-  /** The provider's model line (`sonnet`), when it names one. */
-  line?: string
-  created?: string
-  /** The provider itself marks this its default. */
-  provider_default?: boolean
-  capabilities: ModelCapabilities
-}
-
-interface ModelSource {
-  fetch(): Promise<DiscoveredModel[]>
-}
-
-export interface DiscoveryOptions {
-  fetch?: HttpClient
-  /** Runs `cursor-agent --list-models`; defaults to the resolved cursor binary. */
-  cursorExec?: Exec
-  env?: Record<string, string | undefined>
-  /** Directory holding `.credentials.json`; defaults to `$CLAUDE_CONFIG_DIR` or `~/.claude`. */
-  claudeDir?: string
-  now?: () => number
-  stateRoot?: string
-  log?: (line: string) => void
-}
 
 interface Cached {
   fetchedAt: number
   models: DiscoveredModel[]
-}
-
-/** `claude-haiku-4-5-20251001` is addressed as `haiku-4-5`, matching the hand-written convention. */
-function claudeSegment(wire: string): string {
-  return wire.replace(CLAUDE_PREFIX, '').replace(DATE_SUFFIX, '')
-}
-
-function claudeCapabilities(row: Record<string, unknown>): ModelCapabilities {
-  const caps = isRecord(row.capabilities) ? row.capabilities : {}
-  const supported = (v: unknown): boolean => isRecord(v) && v.supported === true
-  const effort = isRecord(caps.effort) ? caps.effort : {}
-  const reasoning = EFFORT_LEVELS.filter((level) => supported(effort[level]))
-  return {
-    input: supported(caps.image_input) ? ['text', 'image'] : ['text'],
-    output: ['text'],
-    context_in: finiteNumber(row.max_input_tokens),
-    context_out: finiteNumber(row.max_tokens),
-    reasoning: reasoning.length > 0 ? reasoning : undefined,
-  }
-}
-
-/** One page of Anthropic's Models API (`GET /v1/models`) as models, plus the cursor to the next. */
-function parseClaudePage(body: unknown): { models: DiscoveredModel[]; next?: string } {
-  if (!(isRecord(body) && Array.isArray(body.data))) {
-    throw new Error('GET /v1/models was not a models list')
-  }
-  const models: DiscoveredModel[] = []
-  for (const row of body.data) {
-    if (!(isRecord(row) && typeof row.id === 'string')) {
-      continue
-    }
-    models.push({
-      wire: row.id,
-      segment: claudeSegment(row.id),
-      display_name: typeof row.display_name === 'string' ? row.display_name : undefined,
-      line: typeof row.line === 'string' ? row.line : undefined,
-      created: typeof row.created_at === 'string' ? row.created_at : undefined,
-      capabilities: claudeCapabilities(row),
-    })
-  }
-  const last = models.at(-1)
-  return { models, next: body.has_more === true ? last?.wire : undefined }
-}
-
-/**
- * The credential the Models API accepts: `ANTHROPIC_API_KEY`, else the access
- * token the Claude CLI keeps for its own login. The CLI refreshes that token
- * whenever it runs, so an expired one is a failed refresh (the cache serves),
- * not something engined renews.
- */
-function claudeAuthHeaders(opts: DiscoveryOptions, now: number): Record<string, string> {
-  const apiKey = opts.env?.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY
-  const base = { 'anthropic-version': '2023-06-01' }
-  if (apiKey !== undefined && apiKey !== '') {
-    return { ...base, 'x-api-key': apiKey }
-  }
-  const dir =
-    opts.claudeDir ??
-    opts.env?.CLAUDE_CONFIG_DIR ??
-    process.env.CLAUDE_CONFIG_DIR ??
-    join(homedir(), '.claude')
-  const path = join(dir, '.credentials.json')
-  const creds = existsSync(path) ? parseRecord(readFileSync(path, 'utf8')) : null
-  const oauth = creds !== null && isRecord(creds.claudeAiOauth) ? creds.claudeAiOauth : undefined
-  if (oauth === undefined || typeof oauth.accessToken !== 'string') {
-    throw new Error(`no ANTHROPIC_API_KEY and no Claude login in ${path}`)
-  }
-  const expiresAt = finiteNumber(oauth.expiresAt)
-  if (expiresAt !== undefined && expiresAt <= now) {
-    throw new Error(`the Claude login token in ${path} has expired; running claude refreshes it`)
-  }
-  return {
-    ...base,
-    authorization: `Bearer ${oauth.accessToken}`,
-    'anthropic-beta': 'oauth-2025-04-20',
-  }
-}
-
-function claudeSource(opts: DiscoveryOptions): ModelSource {
-  return {
-    async fetch() {
-      const http = opts.fetch ?? fetch
-      const headers = claudeAuthHeaders(opts, opts.now?.() ?? Date.now())
-      const models: DiscoveredModel[] = []
-      let after: string | undefined
-      for (let page = 0; page < MAX_PAGES; page += 1) {
-        const url = new URL(MODELS_URL)
-        url.searchParams.set('limit', String(MODELS_PAGE_SIZE))
-        if (after !== undefined) {
-          url.searchParams.set('after_id', after)
-        }
-        const res = await http(url.toString(), { method: 'GET', headers, redirect: 'error' })
-        if (!res.ok) {
-          throw new Error(`GET /v1/models returned HTTP ${res.status}`)
-        }
-        const parsed = parseClaudePage(await res.json())
-        models.push(...parsed.models)
-        after = parsed.next
-        if (after === undefined) {
-          return models
-        }
-      }
-      throw new Error(`GET /v1/models paged past ${MAX_PAGES} pages`)
-    },
-  }
-}
-
-/** `cursor-agent --list-models` prints `<id> - <Display Name>` rows between a header and a tip. */
-export function parseCursorModels(stdout: string): DiscoveredModel[] {
-  const models: DiscoveredModel[] = []
-  for (const line of stdout.split('\n')) {
-    const match = CURSOR_ROW.exec(line.trim())
-    if (match === null) {
-      continue
-    }
-    const [, id, display] = match as unknown as [string, string, string]
-    models.push({
-      wire: id,
-      segment: id,
-      display_name: display,
-      provider_default: display.includes('(default)'),
-      capabilities: {},
-    })
-  }
-  return models
-}
-
-function cursorSource(opts: DiscoveryOptions): ModelSource {
-  return {
-    async fetch() {
-      const exec = opts.cursorExec ?? binExec(resolveCursorBinary())
-      const result = await exec(['--list-models'])
-      if (result.exitCode !== 0) {
-        throw new Error(`cursor --list-models exited ${result.exitCode}: ${result.stderr.trim()}`)
-      }
-      const models = parseCursorModels(result.stdout)
-      if (models.length === 0) {
-        throw new Error('cursor --list-models listed no models')
-      }
-      return models
-    },
-  }
-}
-
-const SOURCES: Record<string, (opts: DiscoveryOptions) => ModelSource> = {
-  [CLAUDE_ENGINE_ID]: claudeSource,
-  [CURSOR_ENGINE_ID]: cursorSource,
 }
 
 function isDiscoveredModel(v: unknown): v is DiscoveredModel {
@@ -286,6 +104,8 @@ export class ModelDiscovery {
   private readonly cache = new Map<string, Cached>()
   private timers: ReturnType<typeof setInterval>[] = []
   private generation = 0
+  private readonly errors = new Map<string, string>()
+  private readonly inFlight = new Set<string>()
   private applied: { config: Config; generation: number; view: Config } | undefined
   private readonly opts: DiscoveryOptions
 
@@ -321,11 +141,28 @@ export class ModelDiscovery {
     if (source === undefined) {
       return
     }
+    if (this.inFlight.has(engineId)) {
+      return
+    }
+    this.inFlight.add(engineId)
+    try {
+      await this.refreshFrom(engineId, source)
+    } finally {
+      this.inFlight.delete(engineId)
+    }
+  }
+
+  private async refreshFrom(engineId: string, source: ModelSource): Promise<void> {
     const previous = this.cache.get(engineId)?.models ?? []
     let found: DiscoveredModel[]
     try {
-      found = await source.fetch()
+      found = await withTimeout(
+        source.fetch(),
+        this.opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
+      )
     } catch (err) {
+      this.errors.set(engineId, errMessage(err))
+      this.generation += 1
       this.log(
         `models: ${engineId}: refresh failed (${errMessage(err)}); keeping ${previous.length} cached, ${this.age(engineId)}`,
       )
@@ -344,9 +181,8 @@ export class ModelDiscovery {
     const cached = { fetchedAt: this.opts.now?.() ?? Date.now(), models: found }
     this.cache.set(engineId, cached)
     this.writeCache(engineId, cached)
-    if (changed) {
-      this.generation += 1
-    }
+    this.errors.delete(engineId)
+    this.generation += 1
   }
 
   /**
@@ -360,6 +196,7 @@ export class ModelDiscovery {
     }
     const routes = [...config.routes]
     const defaults: Record<string, string> = {}
+    const status: Record<string, DiscoveryStatus> = {}
     for (const engine of this.served(config)) {
       const models = this.cache.get(engine.id)?.models ?? []
       const byWire = new Map(models.map((m) => [m.wire, m]))
@@ -380,14 +217,29 @@ export class ModelDiscovery {
           routes.push(discoveredRoute(engine.id, m))
         }
       }
+      status[engine.id] = this.statusFor(engine.id, config, models)
       const model = this.defaultModel(engine, models, routes)
       if (model !== undefined) {
         defaults[engine.id] = model
       }
     }
-    const view = { ...config, routes, default_models: defaults }
+    const view = { ...config, routes, default_models: defaults, model_discovery: status }
     this.applied = { config, generation: this.generation, view }
     return view
+  }
+
+  private statusFor(
+    engineId: string,
+    config: Config,
+    models: readonly DiscoveredModel[],
+  ): DiscoveryStatus {
+    const cached = this.cache.get(engineId)
+    return {
+      fetched_at: cached === undefined ? undefined : new Date(cached.fetchedAt).toISOString(),
+      models: models.length,
+      last_error: this.errors.get(engineId),
+      findings: cached === undefined ? [] : findingsFor(engineId, config.routes, models),
+    }
   }
 
   private defaultModel(
@@ -474,4 +326,82 @@ function discoveredRoute(engine: string, m: DiscoveredModel): ResolvedRoute {
     args: {},
     ...m.capabilities,
   }
+}
+
+interface DiscoveryFinding {
+  kind: 'duplicate' | 'retired'
+  route: string
+  /** What to do to the config, literally. */
+  fix: string
+}
+
+/** Per engine, what the last asks of its provider found; served on `GET /engined/v1/engines`. */
+export interface DiscoveryStatus {
+  /** When the list in use was last fetched; absent before the first success. */
+  fetched_at?: string
+  models: number
+  /** Why the most recent refresh failed, while the list in use is older than it. */
+  last_error?: string
+  findings: DiscoveryFinding[]
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)
+  })
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer))
+}
+
+const CAPABILITY_KEYS = ['input', 'output', 'context_in', 'context_out', 'reasoning'] as const
+
+/** Whether a declared route states nothing discovery would not already say. */
+function addsNothing(route: ResolvedRoute, found: DiscoveredModel): boolean {
+  if (route.model !== found.segment || (route.wire_model ?? route.model) !== found.wire) {
+    return false
+  }
+  if (route.display_name !== undefined && route.display_name !== found.display_name) {
+    return false
+  }
+  return CAPABILITY_KEYS.every(
+    (key) =>
+      route[key] === undefined ||
+      JSON.stringify(route[key]) === JSON.stringify(found.capabilities[key]),
+  )
+}
+
+function findingsFor(
+  engineId: string,
+  routes: readonly ResolvedRoute[],
+  models: readonly DiscoveredModel[],
+): DiscoveryFinding[] {
+  const byWire = new Map(models.map((m) => [m.wire, m]))
+  const findings: DiscoveryFinding[] = []
+  for (const route of routes) {
+    if (
+      route.engine !== engineId ||
+      route.upstream !== null ||
+      route.disabled ||
+      route.model === undefined
+    ) {
+      continue
+    }
+    const block = `the [[route]] block with engine = "${engineId}" and model = "${route.model}"`
+    const wire = route.wire_model ?? route.model
+    const found = byWire.get(wire)
+    if (found === undefined) {
+      findings.push({
+        kind: 'retired',
+        route: route.model,
+        fix: `the provider no longer lists "${wire}"; delete ${block}`,
+      })
+    } else if (addsNothing(route, found)) {
+      findings.push({
+        kind: 'duplicate',
+        route: route.model,
+        fix: `discovery already serves "${wire}" identically; delete ${block}`,
+      })
+    }
+  }
+  return findings
 }

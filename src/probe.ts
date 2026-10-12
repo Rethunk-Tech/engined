@@ -22,6 +22,7 @@
  */
 
 import { CONTENT_TYPE, discardBody, ENGINE_ERROR_CHARS, JSON_CONTENT_TYPE } from './http.ts'
+import type { DiscoveryStatus } from './modelDiscovery.ts'
 import {
   probeTranslations,
   readProbeText,
@@ -199,7 +200,7 @@ export async function runProbes(
     return { ok: false, lines: [stale] }
   }
 
-  const lines = [
+  const proofs = [
     ...(await probeVision(doorUrl, rows, fetchImpl)),
     ...(await probeRerank(doorUrl, rows, fetchImpl)),
     ...(await probeTranslations(doorUrl, rows, fetchImpl)),
@@ -208,13 +209,37 @@ export async function runProbes(
   // One line for a door with nothing configured to prove, rather than one per
   // family saying the same thing: nothing here is wrong, and a report that
   // says so three times buries the one run where something is.
-  if (lines.length === 0) {
-    return {
-      ok: true,
-      lines: [{ address: doorUrl, ok: true, detail: 'no reachable address to prove' }],
-    }
-  }
+  const lines =
+    proofs.length === 0
+      ? [{ address: doorUrl, ok: true, detail: 'no reachable address to prove' }]
+      : proofs
+  // Findings are advice about the config, not a failed proof: they never fail the run.
+  lines.push(...(await discoveryFindingLines(doorUrl, fetchImpl)))
   return { ok: lines.every((l) => l.ok), lines }
+}
+
+/** One passing line per declared route that model discovery makes redundant or stale, each carrying the literal fix. */
+async function discoveryFindingLines(
+  doorUrl: string,
+  fetchImpl: typeof fetch,
+): Promise<ProbeLine[]> {
+  try {
+    const res = await fetchImpl(`${doorUrl}${ENGINED_ENGINES_PATH}`)
+    if (!res.ok) {
+      await discardBody(res)
+      return []
+    }
+    const { discovery } = (await res.json()) as { discovery?: Record<string, DiscoveryStatus> }
+    return Object.entries(discovery ?? {}).flatMap(([engine, status]) =>
+      status.findings.map((f) => ({
+        address: `@/${engine}/${f.route}`,
+        ok: true,
+        detail: `finding (${f.kind}): ${f.fix}`,
+      })),
+    )
+  } catch {
+    return []
+  }
 }
 
 /** Shown when a vision route is configured and this run never asked it anything. */

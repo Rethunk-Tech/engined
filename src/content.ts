@@ -330,6 +330,7 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
         .list()
         .then((listed) => {
           attachLlamaRoles(ctx, listed.engines)
+          listed.discovery = ctx.getConfig().model_discovery
           send('snapshot', listed)
         })
         .catch(() => {

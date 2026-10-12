@@ -3,6 +3,7 @@
  * and the contract number that says when one of their meanings changed.
  */
 
+import type { DiscoveryStatus } from './modelDiscovery.ts'
 import type { EngineCapability } from './routeServes.ts'
 import type {
   Egress,
@@ -124,6 +125,8 @@ export interface EnginesResponse {
    * the only place an operator learns the edit did not take.
    */
   config_error?: string
+  /** Per `claude`/`cursor` engine, when its provider's model list was last fetched, why the latest refresh failed, and which declared routes discovery makes redundant or stale (`modelDiscovery.ts`). */
+  discovery?: Record<string, DiscoveryStatus>
 }
 
 /**
