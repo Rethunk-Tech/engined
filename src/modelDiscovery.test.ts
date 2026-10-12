@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-
+import { createDoor } from './main.ts'
 import { ModelDiscovery, parseCursorModels } from './modelDiscovery.ts'
-import { config, engine, makeTestRoot, route } from './test-support.ts'
+import { BUNX, config, engine, makeTestRoot, route } from './test-support.ts'
 
 const ROOT = makeTestRoot('engined-discovery-test-')
 
@@ -134,7 +134,7 @@ test('a failed refresh keeps the list, and an offline start reads it from disk',
   await failing.d.refresh('claude')
   failing.d.stop()
   expect(log.at(-1)).toBe(
-    'models: claude: refresh failed (GET /v1/models returned HTTP 500); keeping 4 cached',
+    'models: claude: refresh failed (GET /v1/models returned HTTP 500); keeping 4 cached, fetched 0 min ago',
   )
   expect(failing.d.apply(CLAUDE).routes.some((r) => r.model === 'sonnet-5-5')).toBe(true)
 })
@@ -160,4 +160,85 @@ test('cursor list output parses to ids and display names, with the provider defa
     ['auto', 'Auto (default)', true],
     ['glm-5.2-max', 'GLM 5.2 Max', false],
   ])
+})
+
+const CURSOR_LIST = [
+  'Available models',
+  '',
+  'auto - Auto (default)',
+  'gpt-5.3-codex-low - Codex 5.3 Low',
+  'gpt-5.3-codex-high - Codex 5.3 High',
+  'gpt-5.3-codex-high-fast - Codex 5.3 High Fast',
+  '',
+].join('\n')
+
+async function menuFor(cursorList: string) {
+  const d = new ModelDiscovery({
+    stateRoot: mkdtempSync(join(ROOT, 'state-')),
+    claudeDir: claudeLogin(),
+    env: {},
+    log: () => undefined,
+    fetch: async () => Response.json(LIST),
+    cursorExec: async () => ({ stdout: cursorList, stderr: '', exitCode: 0 }),
+  })
+  const door = createDoor(
+    config({
+      engines: [
+        engine({ id: 'claude', agent_version: '1' }),
+        engine({ id: 'cursor', agent_version: '1' }),
+      ],
+      routes: [],
+    }),
+    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    { discovery: d },
+  )
+  await d.refresh('claude')
+  await d.refresh('cursor')
+  const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+  expect(res.status).toBe(200)
+  const body = (await res.json()) as {
+    data: { engine: string; model: string; default?: boolean }[]
+  }
+  return body.data
+}
+
+test('engines with no declared routes are served from discovery, one default each', async () => {
+  const rows = await menuFor(CURSOR_LIST)
+  const defaults = rows.filter((r) => r.default).map((r) => `${r.engine}/${r.model}`)
+  expect(defaults.sort()).toEqual(['claude/sonnet-5-5', 'cursor/auto'])
+  expect(rows.filter((r) => r.engine === 'claude')).toHaveLength(4)
+})
+
+test('a default that is a cursor variant marks its collapsed base row', async () => {
+  const rows = await menuFor(
+    CURSOR_LIST.replace('auto - Auto (default)', 'auto - Auto').replace(
+      'gpt-5.3-codex-high - Codex 5.3 High',
+      'gpt-5.3-codex-high - Codex 5.3 High (default)',
+    ),
+  )
+  const defaults = rows.filter((r) => r.default && r.engine === 'cursor')
+  expect(defaults.map((r) => r.model)).toEqual(['gpt-5.3-codex'])
+})
+
+test('a rejected login (401) keeps the cached list and the line gives its age', async () => {
+  const stateRoot = mkdtempSync(join(ROOT, 'state-'))
+  const log: string[] = []
+  let now = 1_000_000
+  const opts = {
+    stateRoot,
+    claudeDir: claudeLogin(),
+    env: {},
+    now: () => now,
+    log: (l: string) => log.push(l),
+  }
+  await new ModelDiscovery({ ...opts, fetch: async () => Response.json(LIST) }).refresh('claude')
+  now += 3 * 60 * 60_000
+  const d = new ModelDiscovery({ ...opts, fetch: async () => new Response('no', { status: 401 }) })
+  d.start(CLAUDE)
+  d.stop()
+  await d.refresh('claude')
+  expect(log.at(-1)).toBe(
+    'models: claude: refresh failed (GET /v1/models returned HTTP 401); keeping 4 cached, fetched 180 min ago',
+  )
+  expect(d.apply(CLAUDE).routes.some((r) => r.model === 'sonnet-5-5')).toBe(true)
 })

@@ -5,7 +5,12 @@
  */
 
 import { parseHop, routeForChainHop } from './chain.ts'
-import { cursorBaseDisplayName, groupCursorModels, representativeVariant } from './cursorModels.ts'
+import {
+  cursorBaseDisplayName,
+  groupCursorModels,
+  parseCursorModelId,
+  representativeVariant,
+} from './cursorModels.ts'
 import {
   CHAIN_ENDPOINTS,
   expandWildcardRoutes,
@@ -175,7 +180,7 @@ async function modelRow(
     upstream: route.upstream ?? undefined,
     model: route.model,
     display_name: route.display_name,
-    default: config.default_models?.[route.engine] === route.model ? true : undefined,
+    default: isDefaultRoute(config, route) ? true : undefined,
     egress: routeEgress(route, config),
     streaming: route.streaming ?? status?.streaming ?? false,
     tools: forwardsTools(status, route.role),
@@ -187,6 +192,15 @@ async function modelRow(
     state,
     capabilities,
   }
+}
+
+/** The one ambient route per engine `config.default_models` names; a cursor default may be a variant, which its collapsed base row stands for. */
+function isDefaultRoute(config: Config, route: ResolvedRoute): boolean {
+  const named = config.default_models?.[route.engine]
+  if (named === undefined || route.upstream !== null) {
+    return false
+  }
+  return route.model === (route.engine === 'cursor' ? parseCursorModelId(named).base : named)
 }
 
 /**

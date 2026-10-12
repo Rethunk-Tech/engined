@@ -27,6 +27,7 @@ const MODELS_URL = 'https://api.anthropic.com/v1/models'
 const MAX_PAGES = 10
 const MODELS_PAGE_SIZE = 1000
 const CACHE_VERSION = 1
+const MS_PER_MINUTE = 60_000
 
 /**
  * The capabilities of a Claude family, for a declared route the provider has
@@ -326,7 +327,7 @@ export class ModelDiscovery {
       found = await source.fetch()
     } catch (err) {
       this.log(
-        `models: ${engineId}: refresh failed (${errMessage(err)}); keeping ${previous.length} cached`,
+        `models: ${engineId}: refresh failed (${errMessage(err)}); keeping ${previous.length} cached, ${this.age(engineId)}`,
       )
       return
     }
@@ -405,6 +406,18 @@ export class ModelDiscovery {
     }
     const wire = defaultWire(engine.id, models)
     return ambient.find((r) => (r.wire_model ?? r.model) === wire)?.model
+  }
+
+  /** How stale the cached list is, for the failure line: an operator reads it to tell a list that is hours old from one that is fresh. */
+  private age(engineId: string): string {
+    const cached = this.cache.get(engineId)
+    if (cached === undefined) {
+      return 'none fetched yet'
+    }
+    const minutes = Math.floor(
+      ((this.opts.now?.() ?? Date.now()) - cached.fetchedAt) / MS_PER_MINUTE,
+    )
+    return `fetched ${minutes} min ago`
   }
 
   private served(config: Config): EngineEntry[] {
