@@ -499,7 +499,7 @@ describe('no response ever carries a container address', () => {
     expect(text).not.toContain('private_url')
   })
 
-  test('GET /engined/v1/engines names the loaded GGUF and omits model while the role is only queued', async () => {
+  test('GET /engined/v1/engines names the queued GGUF before anything is resident, and the resident id once it is loaded', async () => {
     const { cfg: base, root } = llamaDoorConfig(TEST_ROOT)
     const cfg = { ...base, upstreams: [upstream()] }
     let releaseLoad: () => void = () => undefined
@@ -555,14 +555,14 @@ describe('no response ever carries a container address', () => {
       const queued = await pollUntil(
         async () => {
           const { roles } = await listed()
-          return roles?.[0]?.waiting === 1 && roles[0].model === undefined
+          return roles?.[0]?.waiting === 1 && roles[0].active === 0 && roles[0].model === 'ornith'
         },
         Date.now() + 2000,
         5,
       )
       expect(queued).toBe(true)
       const whileQueued = await listed()
-      expect(whileQueued.roles).toEqual([{ role: 'chat', active: 0, waiting: 1 }])
+      expect(whileQueued.roles).toEqual([{ role: 'chat', active: 0, waiting: 1, model: 'ornith' }])
       expect(whileQueued.wire).not.toContain('private_url')
 
       releaseLoad()

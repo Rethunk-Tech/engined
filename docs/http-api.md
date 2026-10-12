@@ -524,7 +524,7 @@ head start, not a pin. `keep_resident` in [configuration.md](configuration.md)
 is what makes residency survive.
 
 A llama engine additionally reports `roles`, one entry per role that is doing
-something: `{ role, active, waiting, model? }`. `model` is the resident GGUF id when one is loaded, and is omitted while that role is only queued. These are not the same number as
+something: `{ role, active, waiting, model? }`. `model` is the resident GGUF id when `active` is greater than zero. When `active` is zero and `waiting` is greater than zero, it is the head-of-queue model id — the GGUF the next caller asked for, before anything is resident. When both are zero the role is omitted, so `model` is too. A role that is loaded and still has waiters keeps reporting the resident id, not the queue head. These are not the same number as
 `active_leases` and answer a different question -- that one counts the whole
 container, this one counts a single role's occupancy, where `waiting` is the
 requests queued behind a resident model that has to be swapped out before

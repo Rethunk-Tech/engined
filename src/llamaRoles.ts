@@ -74,8 +74,15 @@ export class RoleScheduler {
           active: state.activeCount,
           waiting: state.queue.length,
         }
-        if (state.activeModelId !== null) {
-          row.model = state.activeModelId
+        if (state.activeCount > 0) {
+          if (state.activeModelId !== null) {
+            row.model = state.activeModelId
+          }
+        } else {
+          const head = state.queue[0]
+          if (head !== undefined) {
+            row.model = head.modelId
+          }
         }
         busy.push(row)
       }

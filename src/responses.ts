@@ -53,8 +53,12 @@ export interface EngineStatus {
    * when nothing is queued or running, and absent entirely on a kind that has
    * no leases -- the distinction a caller needs is "waiting behind someone"
    * versus "loading", which `state` alone cannot answer. `model` on a row is
-   * the resident GGUF id when one is loaded, and is omitted while that role
-   * is only queued.
+   * the resident GGUF id when `active` is greater than zero. When `active` is
+   * zero and `waiting` is greater than zero, it is the head-of-queue model
+   * id — the GGUF the next caller asked for, which is the only id there is
+   * before anything is resident. When both are zero the row is omitted, so
+   * the field is too. A loaded role that still has waiters keeps reporting
+   * the resident id, not the queue head.
    */
   roles?: RoleContention[]
   /**
