@@ -40,7 +40,7 @@ The motivating consumer is a short-lived fragment: a tool drops
 `config.d/<name>.toml` declaring its own throwaway engine and routes, sends
 `SIGHUP` to reload, and deletes the file when it is done. A failed reload
 (a bad fragment, same as a bad main file) keeps the config already running
-and reports it via `config_error`, exactly as a bad `config.toml` does.
+and reports it via `config_error`, exactly as a bad `config.toml` does. `engined --engines --json` still exits 0 with that JSON on stdout, and writes the `config_error` string to stderr.
 
 ## Config versus spec, and why the split is not tidiness
 

@@ -641,6 +641,39 @@ test('--engines --json prints the door engine list and does not start an engine'
   }
 })
 
+test('--engines --json warns on stderr when the served config failed to reload', async () => {
+  const configError = 'config.d/scratch.toml: expected a value'
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const path = new URL(req.url).pathname
+      if (req.method === 'GET' && path === ENGINED_ENGINES_PATH) {
+        return Response.json({
+          contract: CONTRACT,
+          engines: [{ id: 'local-llama' }],
+          config_error: configError,
+        })
+      }
+      return new Response('unhandled', { status: 404 })
+    },
+  })
+  const port = server.port
+  try {
+    if (port === undefined) {
+      throw new Error('the fake door did not bind a port')
+    }
+    const run = await runCli(['--engines', '--json'], { XDG_CONFIG_HOME: configHomeFor(port) })
+    expect(run.code).toBe(0)
+    expect(run.stderr).toContain(configError)
+    expect(run.stderr).toBe(`${configError}\n`)
+    const parsed = JSON.parse(run.stdout) as { config_error?: string; engines: unknown }
+    expect(parsed.config_error).toBe(configError)
+    expect(Array.isArray(parsed.engines)).toBe(true)
+  } finally {
+    server.stop(true)
+  }
+})
+
 test('--engines without --json is refused, and so is combining it with --probe', async () => {
   const configHome = join(mkdtempSync(join(PROBE_ROOT, 'engines-flags-')), 'config')
   mkdirSync(configHome, { recursive: true })

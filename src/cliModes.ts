@@ -44,7 +44,28 @@ export async function enginesExit(): Promise<number> {
   }
   const body = await res.text()
   writeToStdout(body.endsWith('\n') ? body.slice(0, -1) : body)
+  // A failed reload keeps serving the previous config and exits 0. The JSON
+  // body carries `config_error`; stderr is where an operator sees it without
+  // parsing that body.
+  const configError = servedConfigError(body)
+  if (configError !== undefined) {
+    process.stderr.write(`${configError}\n`)
+  }
   return 0
+}
+
+function servedConfigError(body: string): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return undefined
+  }
+  const error = (parsed as { config_error?: unknown }).config_error
+  return typeof error === 'string' && error !== '' ? error : undefined
 }
 
 /** `engined --probe`: call the already-serving door; never bind a second one. */
