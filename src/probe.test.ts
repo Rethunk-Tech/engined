@@ -267,6 +267,8 @@ test('--help and -h print usage and exit 0 without starting the door', async () 
   ])
   expect(code).toBe(0)
   expect(stdout).toContain('Usage:')
+  expect(stdout).toContain('--engines --json')
+  expect(stdout).toContain('no text listing')
   expect(stderr).toBe('')
 })
 
@@ -562,11 +564,55 @@ test('--probe --json keeps text mode failing exit and lines', async () => {
   })
 })
 
-test('--json without --probe is refused', async () => {
+test('--json without --engines or --probe is refused', async () => {
   const configHome = join(mkdtempSync(join(PROBE_ROOT, 'bare-')), 'config')
   mkdirSync(configHome, { recursive: true })
   const run = await runCli(['--json'], { XDG_CONFIG_HOME: configHome })
   expect(run.code).toBe(FatalError.EXIT_CODE)
-  expect(run.stderr).toBe('--json requires --probe\n')
+  expect(run.stderr).toBe('--json requires --engines or --probe\n')
   expect(run.stdout).toBe('')
+})
+
+test('--engines --json prints the door engine list and does not start an engine', async () => {
+  const seen: { method: string; path: string }[] = []
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const path = new URL(req.url).pathname
+      seen.push({ method: req.method, path })
+      if (req.method === 'GET' && path === ENGINED_ENGINES_PATH) {
+        return Response.json({ contract: CONTRACT, engines: [{ id: 'local-llama' }] })
+      }
+      return new Response('unhandled', { status: 404 })
+    },
+  })
+  const port = server.port
+  try {
+    if (port === undefined) {
+      throw new Error('the fake door did not bind a port')
+    }
+    const run = await runCli(['--engines', '--json'], { XDG_CONFIG_HOME: configHomeFor(port) })
+    expect(run.code).toBe(0)
+    expect(run.stderr).toBe('')
+    const parsed = JSON.parse(run.stdout) as { contract: unknown; engines: unknown }
+    expect(parsed.contract).toBe(6)
+    expect(Array.isArray(parsed.engines)).toBe(true)
+    expect(seen).toEqual([{ method: 'GET', path: ENGINED_ENGINES_PATH }])
+  } finally {
+    server.stop(true)
+  }
+})
+
+test('--engines without --json is refused, and so is combining it with --probe', async () => {
+  const configHome = join(mkdtempSync(join(PROBE_ROOT, 'engines-flags-')), 'config')
+  mkdirSync(configHome, { recursive: true })
+  const env = { XDG_CONFIG_HOME: configHome }
+  const bare = await runCli(['--engines'], env)
+  expect(bare.code).toBe(FatalError.EXIT_CODE)
+  expect(bare.stderr).toBe('--engines requires --json\n')
+  expect(bare.stdout).toBe('')
+  const both = await runCli(['--engines', '--probe'], env)
+  expect(both.code).toBe(FatalError.EXIT_CODE)
+  expect(both.stderr).toBe('--engines and --probe are mutually exclusive\n')
+  expect(both.stdout).toBe('')
 })

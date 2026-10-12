@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import process from 'node:process'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { resetSpeechCache } from './audioSpeech.ts'
+import { enginesExit, probeExit } from './cliModes.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
 import { COMFY_WS_SUFFIX, type EnginedServer, matchComfyPath } from './comfyProxy.ts'
 import { handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
@@ -43,7 +44,6 @@ import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { DonorLedger } from './potluck.ts'
-import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
@@ -400,43 +400,39 @@ export function resolveBunx(
   )
 }
 
-/** `main.js --probe`: call the already-serving door; never bind a second one. */
-async function probeExit(json: boolean): Promise<number> {
-  let port: number
-  try {
-    port = loadConfig().listen_port
-  } catch (err) {
-    process.stderr.write(`${errMessage(err)}\n`)
-    return FatalError.EXIT_CODE
-  }
-  const report = await runProbes(`http://127.0.0.1:${port}`)
-  if (json) {
-    writeToStdout(JSON.stringify(report))
-  } else {
-    for (const line of report.lines) {
-      writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)
-    }
-  }
-  return report.ok ? 0 : 1
-}
 if (import.meta.main) {
   const probe = process.argv.includes('--probe')
+  const engines = process.argv.includes('--engines')
   const json = process.argv.includes('--json')
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     writeToStdout(
-      'Usage: engined [-h|--help] [--probe [--json]] [--prune-config CONFIG --out OUTPUT]',
+      'Usage: engined [-h|--help] [--probe [--json]] [--engines --json] [--prune-config CONFIG --out OUTPUT]',
+    )
+    writeToStdout(
+      '--engines prints the JSON from GET /engined/v1/engines and does not start an engine. There is no text listing, so --json is required. --engines and --probe are mutually exclusive.',
     )
     process.exit(0)
   }
   if (process.argv.includes('--prune-config')) {
     process.exit(await pruneCli(process.argv, writeToStdout))
   }
-  if (json && !probe) {
-    process.stderr.write('--json requires --probe\n')
+  if (engines && probe) {
+    process.stderr.write('--engines and --probe are mutually exclusive\n')
     process.exit(FatalError.EXIT_CODE)
   }
-  // Before anything that binds or starts: this mode talks to the door that is
+  if (json && !probe && !engines) {
+    process.stderr.write('--json requires --engines or --probe\n')
+    process.exit(FatalError.EXIT_CODE)
+  }
+  if (engines && !json) {
+    process.stderr.write('--engines requires --json\n')
+    process.exit(FatalError.EXIT_CODE)
+  }
+  // Before anything that binds or starts: these modes talk to the door that is
   // already running, so creating one here would take the port from it.
+  if (engines) {
+    process.exit(await enginesExit())
+  }
   if (probe) {
     process.exit(await probeExit(json))
   }
