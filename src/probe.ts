@@ -24,6 +24,7 @@
 import { CONTENT_TYPE, discardBody, ENGINE_ERROR_CHARS, JSON_CONTENT_TYPE } from './http.ts'
 import type { DiscoveryStatus } from './modelDiscovery.ts'
 import {
+  canAnswer,
   probeTranslations,
   readProbeText,
   visionReadRequestBody,
@@ -78,28 +79,6 @@ interface ProbeReport {
    * Absent when that fetch failed.
    */
   discovery?: Record<string, DiscoveryStatus>
-}
-
-/**
- * Whether this address can answer a probe at all.
- *
- * `unavailable` is the only state worth skipping for rerank, translations and
- * completions: `GET /engined/v1/engines` already reports why, with the literal
- * command that fixes it, and a probe repeating that in a different voice adds
- * nothing.
- *
- * Vision does not skip. A configured vision route that cannot be asked fails
- * the run (`probeVision`); filtering it out here would be a green result that
- * checked nothing.
- *
- * NOT `state === "installed"`, which is what this checked first and which
- * quietly meant "prove nothing whenever the engine is already up" -- a
- * running engine reports `running`, so a box mid-use skipped every address it
- * had. That is the silence this module exists to end, so the test below pins
- * it.
- */
-export function canAnswer(state: unknown): boolean {
-  return typeof state === 'string' && state !== 'unavailable'
 }
 
 /** The subset of a `/openai/v1/models` row this probe reads. Parsed from the wire, so it is narrowed here rather than imported: a row is whatever the running door sent, not whatever this build's `ModelRow` says. */

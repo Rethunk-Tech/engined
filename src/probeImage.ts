@@ -7,7 +7,6 @@
 
 import { crc32, deflateSync } from 'node:zlib'
 import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
-import { canAnswer } from './probe.ts'
 import { errMessage } from './records.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
@@ -320,6 +319,28 @@ interface ProbeLine {
   address: string
   ok: boolean
   detail: string
+}
+
+/**
+ * Whether this address can answer a probe at all.
+ *
+ * `unavailable` is the only state worth skipping for rerank, translations and
+ * completions: `GET /engined/v1/engines` already reports why, with the literal
+ * command that fixes it, and a probe repeating that in a different voice adds
+ * nothing.
+ *
+ * Vision does not skip. A configured vision route that cannot be asked fails
+ * the run (`probeVision`); filtering it out here would be a green result that
+ * checked nothing.
+ *
+ * NOT `state === "installed"`, which is what this checked first and which
+ * quietly meant "prove nothing whenever the engine is already up" -- a
+ * running engine reports `running`, so a box mid-use skipped every address it
+ * had. That is the silence this module exists to end, so the test below pins
+ * it.
+ */
+export function canAnswer(state: unknown): boolean {
+  return typeof state === 'string' && state !== 'unavailable'
 }
 
 async function probeOneRefusal(
