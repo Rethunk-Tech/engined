@@ -13,11 +13,11 @@ import { afterAll } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { assignEnv, readEnv } from './env.ts'
+import { assignEnv, envString } from './env.ts'
 
 const run = mkdtempSync(join(tmpdir(), 'engined-run-'))
 assignEnv('TMPDIR', run)
-if (readEnv('ENGINED_LOCAL') !== '1') {
+if (envString('ENGINED_LOCAL') !== '1') {
   assignEnv('XDG_STATE_HOME', join(run, 'state'))
   assignEnv('XDG_CACHE_HOME', join(run, 'cache'))
 }

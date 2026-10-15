@@ -16,7 +16,7 @@ import process from 'node:process'
 
 import { loadConfig } from './config.ts'
 import { fragmentFiles } from './configSources.ts'
-import { tableBlocks } from './localConfigPrune.ts'
+import { dropRanges, tableBlocks } from './localConfigPrune.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { SOURCES } from './modelSources.ts'
 import { errMessage, isRecord } from './records.ts'
@@ -59,10 +59,6 @@ function removalRange(lines: readonly string[], from: number, to: number): [numb
     stop += 1
   }
   return [from, stop]
-}
-
-function dropRanges(lines: readonly string[], ranges: readonly [number, number][]): string {
-  return lines.filter((_, i) => !ranges.some(([from, to]) => i >= from && i < to)).join('\n')
 }
 
 /** Routes of `engine`/`model` named in `targets` with no `upstream`, dropped from one file's text. */

@@ -98,7 +98,7 @@ interface ProbeReport {
  * had. That is the silence this module exists to end, so the test below pins
  * it.
  */
-function canAnswer(state: unknown): boolean {
+export function canAnswer(state: unknown): boolean {
   return typeof state === 'string' && state !== 'unavailable'
 }
 

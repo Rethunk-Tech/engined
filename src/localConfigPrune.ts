@@ -41,6 +41,11 @@ export function tableBlocks(lines: readonly string[], table: string): [number, n
   return blocks
 }
 
+/** Lines outside every `[from, to)` range, joined back into the file's text. */
+export function dropRanges(lines: readonly string[], ranges: readonly [number, number][]): string {
+  return lines.filter((_, i) => !ranges.some(([from, to]) => i >= from && i < to)).join('\n')
+}
+
 /** `toml` without every `[[route]]` block (and its sub-tables) whose `filename` is `filename`; `dropped` counts them. */
 export function dropRoutesWithFilename(
   toml: string,
@@ -50,8 +55,7 @@ export function dropRoutesWithFilename(
   const drop = tableBlocks(lines, 'route').filter(([from, to]) =>
     lines.slice(from, to).some((l) => FILENAME_LINE.exec(l)?.[1] === filename),
   )
-  const kept = lines.filter((_, i) => !drop.some(([from, to]) => i >= from && i < to))
-  return { toml: kept.join('\n'), dropped: drop.length }
+  return { toml: dropRanges(lines, drop), dropped: drop.length }
 }
 
 /** The `filename` values in `toml` that `target` (an absolute path) ends with. */

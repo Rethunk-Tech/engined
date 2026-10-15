@@ -7,6 +7,7 @@
 
 import { crc32, deflateSync } from 'node:zlib'
 import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
+import { canAnswer } from './probe.ts'
 import { errMessage } from './records.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
@@ -319,10 +320,6 @@ interface ProbeLine {
   address: string
   ok: boolean
   detail: string
-}
-
-function canAnswer(state: unknown): boolean {
-  return typeof state === 'string' && state !== 'unavailable'
 }
 
 async function probeOneRefusal(

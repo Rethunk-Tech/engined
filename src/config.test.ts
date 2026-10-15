@@ -6,6 +6,7 @@ import { FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
 import { loadConfig } from './config.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
+import { errMessage } from './records.ts'
 import { makeTestRoot } from './test-support.ts'
 
 const RESERVED_FOR_THIS_BOX = /reserved for this box/
@@ -26,7 +27,7 @@ function messageOf(path: string): string {
     loadConfig(path)
     throw new Error('expected loadConfig to throw')
   } catch (err) {
-    return err instanceof Error ? err.message : String(err)
+    return errMessage(err)
   }
 }
 

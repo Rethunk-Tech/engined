@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
+import { CAPABILITY_FIELDS, DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
 import {
   CLAUDE_ENGINE_ID,
   DEFAULT_FETCH_TIMEOUT_MS,
@@ -76,7 +76,7 @@ function filledCapabilities(
       ? CLAUDE_FAMILY_CAPABILITIES[family]
       : undefined
   const fill: Partial<ResolvedRoute> = {}
-  for (const key of ['input', 'output', 'context_in', 'context_out', 'reasoning'] as const) {
+  for (const key of CAPABILITY_FIELDS) {
     if (route[key] === undefined) {
       const value = provided?.[key] ?? table?.[key]
       if (value !== undefined) {
@@ -353,8 +353,6 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   return Promise.race([work, expired]).finally(() => clearTimeout(timer))
 }
 
-const CAPABILITY_KEYS = ['input', 'output', 'context_in', 'context_out', 'reasoning'] as const
-
 /** Whether a declared route states nothing discovery would not already say. */
 function addsNothing(route: ResolvedRoute, found: DiscoveredModel): boolean {
   if (route.model !== found.segment || (route.wire_model ?? route.model) !== found.wire) {
@@ -363,7 +361,7 @@ function addsNothing(route: ResolvedRoute, found: DiscoveredModel): boolean {
   if (route.display_name !== undefined && route.display_name !== found.display_name) {
     return false
   }
-  return CAPABILITY_KEYS.every(
+  return CAPABILITY_FIELDS.every(
     (key) =>
       route[key] === undefined ||
       JSON.stringify(route[key]) === JSON.stringify(found.capabilities[key]),

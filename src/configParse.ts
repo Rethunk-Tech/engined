@@ -288,7 +288,13 @@ export function requireTable(
   return raw
 }
 
-const CAPABILITY_FIELDS = ['input', 'output', 'context_in', 'context_out', 'reasoning'] as const
+export const CAPABILITY_FIELDS = [
+  'input',
+  'output',
+  'context_in',
+  'context_out',
+  'reasoning',
+] as const
 
 export function parseCapabilities(
   raw: Record<string, unknown>,

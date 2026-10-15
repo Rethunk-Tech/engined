@@ -20,7 +20,3 @@ export function assignEnv(name: string, value: string): void {
 export function clearEnv(name: string): void {
   delete Bun.env[name]
 }
-
-export function readEnv(name: string): string | undefined {
-  return Bun.env[name]
-}

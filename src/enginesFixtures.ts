@@ -3,7 +3,7 @@
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { EngineRegistry } from './engines.ts'
-import { assignEnv, clearEnv, readEnv } from './env.ts'
+import { assignEnv, clearEnv, envString } from './env.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import {
@@ -47,7 +47,7 @@ function testRootDir(): string {
  */
 export function redirectStateHome(root?: string): () => void {
   const stateHome = mkdtempSync(join(root ?? testRootDir(), 'engined-state-'))
-  const previous = readEnv('XDG_STATE_HOME')
+  const previous = envString('XDG_STATE_HOME')
   assignEnv('XDG_STATE_HOME', stateHome)
   return () => {
     if (previous === undefined) {

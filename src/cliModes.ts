@@ -9,7 +9,7 @@ import { FatalError } from './errors/fatal.ts'
 import { discardBody } from './http.ts'
 import { runProbes } from './probe.ts'
 import { writeToStdout } from './provenance.ts'
-import { errMessage } from './records.ts'
+import { errMessage, parseRecord } from './records.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
 
 function configuredPort(): number | undefined {
@@ -55,16 +55,11 @@ export async function enginesExit(): Promise<number> {
 }
 
 function servedConfigError(body: string): string | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(body)
-  } catch {
+  const parsed = parseRecord(body)
+  if (parsed === null) {
     return undefined
   }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return undefined
-  }
-  const error = (parsed as { config_error?: unknown }).config_error
+  const error = parsed.config_error
   return typeof error === 'string' && error !== '' ? error : undefined
 }
 
