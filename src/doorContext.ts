@@ -16,6 +16,7 @@ import { LlamaRouter } from './llama.ts'
 import type { ModelDiscovery } from './modelDiscovery.ts'
 import type { DonorLedger } from './potluck.ts'
 import { type CallRecord, recordCall } from './provenance.ts'
+import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import type { Config, EngineEntry } from './types.ts'
@@ -146,7 +147,7 @@ export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
   const pending = ctx.donorSpend?.observe(ctx, record)
   if (pending !== undefined) {
     pending.catch((err: unknown) => {
-      process.stderr.write(`potluck: ${err instanceof Error ? err.message : String(err)}\n`)
+      process.stderr.write(`potluck: ${errMessage(err)}\n`)
     })
   }
 }

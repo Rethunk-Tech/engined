@@ -9,10 +9,16 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import type { DoorContext } from './doorContext.ts'
-import { STATUS_FORBIDDEN, STATUS_PAYMENT_REQUIRED, STATUS_UNAUTHORIZED } from './http.ts'
+import {
+  CONTENT_TYPE,
+  JSON_CONTENT_TYPE,
+  STATUS_FORBIDDEN,
+  STATUS_PAYMENT_REQUIRED,
+  STATUS_UNAUTHORIZED,
+} from './http.ts'
 import { stateDir } from './paths.ts'
 import type { Attempt, CallRecord } from './provenance.ts'
-import { errMessage, isRecord, parseRecord } from './records.ts'
+import { errMessage, finiteNumber, isRecord, parseRecord } from './records.ts'
 import { resolveSecret } from './secrets.ts'
 import type { Upstream } from './types.ts'
 
@@ -142,7 +148,7 @@ export class DonorLedger {
           method: 'POST',
           headers: {
             authorization: `Bearer ${token.value}`,
-            'content-type': 'application/json',
+            [CONTENT_TYPE]: JSON_CONTENT_TYPE,
           },
           body: JSON.stringify({ fingerprint, status, lastUsedAt }),
           redirect: 'error',
@@ -176,8 +182,9 @@ export class DonorLedger {
       }
       const saved = new Map<string, number>()
       for (const [id, value] of Object.entries(rows)) {
-        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-          saved.set(id, value)
+        const amount = finiteNumber(value)
+        if (amount !== undefined && amount > 0) {
+          saved.set(id, amount)
         }
       }
       if (saved.size > 0) {

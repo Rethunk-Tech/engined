@@ -3,8 +3,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import process from 'node:process'
 import { resolveCursorBinary } from './agents.ts'
+import { envString } from './env.ts'
 import { binExec, type Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { finiteNumber, isRecord, parseRecord } from './records.ts'
@@ -102,7 +102,7 @@ function parseClaudePage(body: unknown): { models: DiscoveredModel[]; next?: str
  * not something engined renews.
  */
 function claudeAuthHeaders(opts: DiscoveryOptions, now: number): Record<string, string> {
-  const apiKey = opts.env?.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY
+  const apiKey = opts.env?.ANTHROPIC_API_KEY ?? envString('ANTHROPIC_API_KEY')
   const base = { 'anthropic-version': '2023-06-01' }
   if (apiKey !== undefined && apiKey !== '') {
     return { ...base, 'x-api-key': apiKey }
@@ -110,7 +110,7 @@ function claudeAuthHeaders(opts: DiscoveryOptions, now: number): Record<string, 
   const dir =
     opts.claudeDir ??
     opts.env?.CLAUDE_CONFIG_DIR ??
-    process.env.CLAUDE_CONFIG_DIR ??
+    envString('CLAUDE_CONFIG_DIR') ??
     join(homedir(), '.claude')
   const path = join(dir, '.credentials.json')
   const creds = existsSync(path) ? parseRecord(readFileSync(path, 'utf8')) : null

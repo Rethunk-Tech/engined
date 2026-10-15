@@ -26,7 +26,7 @@ import {
   stringField,
 } from './cursorProto.ts'
 import { FatalError } from './errors/fatal.ts'
-import { STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
+import { CONTENT_TYPE, STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
 
 const RUN_PATH = '/agent.v1.AgentService/Run'
@@ -463,7 +463,7 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
       stream.end()
       return
     }
-    stream.respond({ ':status': STATUS_OK, 'content-type': CONNECT_STREAM_TYPE })
+    stream.respond({ ':status': STATUS_OK, [CONTENT_TYPE]: CONNECT_STREAM_TYPE })
 
     let started = false
     let deliverExec: ((payload: Uint8Array) => void) | undefined

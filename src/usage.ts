@@ -17,7 +17,7 @@ import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
-import { isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { type Egress, isEgress } from './types.ts'
 
 export const USAGE_PATH = '/engined/v1/usage'
@@ -188,7 +188,7 @@ export class UsageTracker {
         // Kept dirty so the next tick retries; an exception out of a timer
         // callback would exit the daemon over a full or read-only disk.
         const log = this.opts.log ?? ((line: string) => process.stderr.write(`${line}\n`))
-        log(`usage: could not write ${date}: ${err instanceof Error ? err.message : String(err)}`)
+        log(`usage: could not write ${date}: ${errMessage(err)}`)
       }
     }
     this.prune()
@@ -214,7 +214,7 @@ export class UsageTracker {
         rmSync(join(this.dir(), name))
       } catch (err) {
         const log = this.opts.log ?? ((line: string) => process.stderr.write(`${line}\n`))
-        log(`usage: could not remove ${name}: ${err instanceof Error ? err.message : String(err)}`)
+        log(`usage: could not remove ${name}: ${errMessage(err)}`)
       }
     }
   }
