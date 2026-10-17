@@ -14,6 +14,10 @@
 
 {
 	auto_https disable_redirects
+	# The container shares the host network, so Caddy's admin API would sit on the host's
+	# 127.0.0.1:2019 where any local process could rewrite the proxy. Nothing here reloads
+	# Caddy through it: engined-tls re-renders this file and restarts the container instead.
+	admin off
 }
 
 engined.localhost:29443 {
