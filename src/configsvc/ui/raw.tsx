@@ -110,7 +110,6 @@ export function RawView() {
   const saved = snapshot.value
   return (
     <section>
-      <h2>Raw config.toml</h2>
       <div ref={host} class="editor" />
       {shown.length === 0 ? (
         <p class="ok">The pending text loads cleanly.</p>

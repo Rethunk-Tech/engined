@@ -25,11 +25,12 @@ test('edit a route field, see validate and the diff, save, and hot reload', asyn
   // Every view renders against the example config without a script error.
   for (const link of await page.locator('nav a').all()) {
     await link.click()
-    await expect(page.locator('main h2').first()).toBeVisible()
+    await expect(page.locator('main section').first()).toBeVisible()
   }
   expect(faults).toEqual([])
 
   await page.getByRole('link', { name: 'Engines' }).click()
+  await page.locator('a.tile').first().click()
   const route = page.locator('.route').first()
   await route.getByRole('button', { name: 'Edit' }).click()
   const field = route.locator('.field:has(.fieldname:text-is("display_name")) input')

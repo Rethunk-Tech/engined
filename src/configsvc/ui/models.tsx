@@ -46,7 +46,6 @@ export function ModelsView() {
   }
   return (
     <section>
-      <h2>Models</h2>
       <p class="muted">
         Capability rows a route can inherit by naming the model; a route's own fields win.
       </p>

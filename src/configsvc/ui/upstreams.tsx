@@ -13,6 +13,7 @@ import {
 } from './data.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { type Doc, parseDoc, routeAddress, type Table } from './model.ts'
+import { viewParam } from './nav.ts'
 import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
@@ -222,6 +223,50 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
   )
 }
 
+function hostOf(url: unknown): string | undefined {
+  if (typeof url !== 'string' || url === '') {
+    return undefined
+  }
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** One upstream in the grid; the card behind it holds the whole form. */
+function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
+  const id = String(upstream.id)
+  const resolve = upstreamResolver(d)
+  const addresses = d.route
+    .filter((r) => resolve(r) === id)
+    .flatMap((r) => routeAddress(d, r) ?? [])
+  const secret = secrets.value.find((s) => s.upstream === id)
+  const cap = typeof upstream.monthly_cap_usd === 'number' ? upstream.monthly_cap_usd : undefined
+  return (
+    <a
+      class={`tile panel${upstream.disable === true ? ' off' : ''}`}
+      href={`#upstreams/${encodeURIComponent(id)}`}
+    >
+      <div class="rowhead">
+        <h3>{id}</h3>
+        <span class="pill">{String(upstream.egress ?? 'egress unset')}</span>
+        {upstream.wire === undefined ? null : <span class="pill">{String(upstream.wire)}</span>}
+      </div>
+      <code class="muted small-text">{hostOf(upstream.base_url) ?? 'this box'}</code>
+      {secret === undefined ? null : (
+        <span class={`small-text ${secret.present ? 'ok' : 'bad'}`}>
+          {secret.present ? 'secret in the keyring' : 'secret missing from the keyring'}
+        </span>
+      )}
+      <span class="muted small-text">
+        {addresses.length} route(s) · ${monthSpend(addresses).toFixed(2)}
+        {cap === undefined ? '' : ` of $${cap}`} this month
+      </span>
+    </a>
+  )
+}
+
 export function UpstreamsView() {
   useEffect(() => {
     void loadSchema()
@@ -234,12 +279,30 @@ export function UpstreamsView() {
   if (parsed === undefined) {
     return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
   }
+  const open = viewParam.value
+  if (open !== undefined) {
+    const index = parsed.upstream.findIndex((u) => String(u.id) === open)
+    const upstream = parsed.upstream[index]
+    return (
+      <section>
+        <a class="back" href="#upstreams">
+          ← Upstreams
+        </a>
+        {upstream === undefined ? (
+          <p class="bad">No upstream "{open}" in the pending config.</p>
+        ) : (
+          <UpstreamCard d={parsed} upstream={upstream} index={index} />
+        )}
+      </section>
+    )
+  }
   return (
     <section>
-      <h2>Upstreams</h2>
-      {parsed.upstream.map((u, i) => (
-        <UpstreamCard key={String(u.id)} d={parsed} upstream={u} index={i} />
-      ))}
+      <div class="tiles">
+        {parsed.upstream.map((u) => (
+          <UpstreamTile key={String(u.id)} d={parsed} upstream={u} />
+        ))}
+      </div>
       <div class="panel rowhead">
         <input
           placeholder="new upstream id"

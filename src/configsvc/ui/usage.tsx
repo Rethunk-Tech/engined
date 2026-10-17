@@ -24,7 +24,7 @@ export function UsageView() {
   const rows = [...totals.values()].sort((a, b) => b.requests - a.requests)
   return (
     <section>
-      <h2>Usage, last 7 days</h2>
+      <p class="muted">Last 7 days.</p>
       {rows.length === 0 ? (
         <p class="muted">No calls recorded.</p>
       ) : (

@@ -22,7 +22,6 @@ export function AddressBookView() {
   const rows = addressBook(parsed, upstreamResolver(parsed))
   return (
     <section>
-      <h2>Address book</h2>
       <p class="muted">
         What a consumer puts in <code>model</code>. Calls are the last 7 days.
       </p>

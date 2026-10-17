@@ -8,6 +8,7 @@ import { call } from './api.ts'
 import { ArgsEditor } from './args.tsx'
 import { suggestArgKeys } from './argsRules.ts'
 import {
+  callsFor,
   ensureSpec,
   forgetSpec,
   liveEngines,
@@ -27,6 +28,7 @@ import {
   routesOf,
   type Table,
 } from './model.ts'
+import { viewParam } from './nav.ts'
 import { type EngineCtx, RouteCard } from './routes.tsx'
 import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
@@ -265,6 +267,43 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
   )
 }
 
+const TILE_ROUTES = 4
+
+/** One engine in the grid: enough to find it and see its health; the card behind it edits. */
+function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
+  const id = String(engine.id)
+  const kind = engineKind(engine, specs.value[id]?.info)
+  const addresses = routesOf(d, id).flatMap((r) => routeAddress(d, r.route) ?? [])
+  const fix = liveEngines.value[id]?.fix ?? liveEngines.value[id]?.last_error
+  const calls = addresses.reduce((sum, a) => sum + callsFor(a), 0)
+  return (
+    <a
+      class={`tile panel${engine.disable === true ? ' off' : ''}`}
+      href={`#engines/${encodeURIComponent(id)}`}
+    >
+      <div class="rowhead">
+        <h3>{id}</h3>
+        <span class="pill">{kind ?? 'unknown kind'}</span>
+        <StatePill id={id} />
+      </div>
+      {fix === undefined ? null : <span class="muted small-text clamp">{fix}</span>}
+      <ul class="tile-list">
+        {addresses.slice(0, TILE_ROUTES).map((a) => (
+          <li key={a}>
+            <code>{a}</code>
+          </li>
+        ))}
+        {addresses.length > TILE_ROUTES ? (
+          <li class="muted small-text">+{addresses.length - TILE_ROUTES} more</li>
+        ) : null}
+      </ul>
+      <span class="muted small-text">
+        {addresses.length} route(s) · {calls} call(s) / 7 d
+      </span>
+    </a>
+  )
+}
+
 function AddEngine() {
   const [id, setId] = useState('')
   const [kind, setKind] = useState('')
@@ -319,12 +358,30 @@ export function EnginesView() {
   if (parsed === undefined) {
     return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
   }
+  const open = viewParam.value
+  if (open !== undefined) {
+    const index = parsed.engine.findIndex((e) => String(e.id) === open)
+    const engine = parsed.engine[index]
+    return (
+      <section>
+        <a class="back" href="#engines">
+          ← Engines
+        </a>
+        {engine === undefined ? (
+          <p class="bad">No engine "{open}" in the pending config.</p>
+        ) : (
+          <EngineCard d={parsed} engine={engine} index={index} />
+        )}
+      </section>
+    )
+  }
   return (
     <section>
-      <h2>Engines</h2>
-      {parsed.engine.map((engine, index) => (
-        <EngineCard key={String(engine.id)} d={parsed} engine={engine} index={index} />
-      ))}
+      <div class="tiles">
+        {parsed.engine.map((engine) => (
+          <EngineTile key={String(engine.id)} d={parsed} engine={engine} />
+        ))}
+      </div>
       <AddEngine />
       <SnippetBox table="engine" />
       <SnippetBox table="route" />

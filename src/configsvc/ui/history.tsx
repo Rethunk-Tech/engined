@@ -29,7 +29,6 @@ export function HistoryView() {
   }
   return (
     <section>
-      <h2>History</h2>
       <p class="muted">Each save keeps the file it replaced. The newest 20 are kept.</p>
       <table class="grid">
         <tbody>

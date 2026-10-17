@@ -14,7 +14,7 @@ const doc = computed(() => parseDoc(draft.value))
 
 const NOTE: Record<HopState, string> = {
   ok: '',
-  dropped: 'dropped: every route it reaches is disabled',
+  dropped: 'dropped: its routes are disabled',
   unresolved: 'matches no route',
 }
 
@@ -132,11 +132,12 @@ export function ChainsView() {
   }
   return (
     <section>
-      <h2>Chains</h2>
       <p class="muted">A chain tries its hops in order and moves to the next when one fails.</p>
-      {parsed.chain.map((c, i) => (
-        <Chain key={String(c.id)} d={parsed} chain={c} index={i} />
-      ))}
+      <div class="chain-grid">
+        {parsed.chain.map((c, i) => (
+          <Chain key={String(c.id)} d={parsed} chain={c} index={i} />
+        ))}
+      </div>
       <div class="panel rowhead">
         <input
           placeholder="new chain id"

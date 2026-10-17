@@ -136,7 +136,6 @@ export function StarterView() {
   }, [engines, chosen])
   return (
     <section>
-      <h2>Starter config</h2>
       <p class="muted">
         There is no config yet. Pick what to run; the proposal below becomes the pending text, which
         you review and save.

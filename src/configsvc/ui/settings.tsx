@@ -28,7 +28,6 @@ export function SettingsView() {
   const svc = (parsed.top.configsvc ?? {}) as Table
   return (
     <section>
-      <h2>Settings</h2>
       <h3>Door</h3>
       <div class="form">
         {TOP.map((k) => (

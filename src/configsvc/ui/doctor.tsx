@@ -32,7 +32,6 @@ export function DoctorView() {
   const current = report.value
   return (
     <section>
-      <h2>Host checks</h2>
       <div class="rowhead">
         {current === undefined ? null : (
           <span class={summaryTone(current.checks)}>{summary(current.checks)}</span>

@@ -1,4 +1,4 @@
-import { computed, signal } from '@preact/signals'
+import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { AddressBookView } from './addressbook.tsx'
 import { hopState } from './addresses.ts'
@@ -19,6 +19,7 @@ import { EnginesView } from './engines.tsx'
 import { HistoryView } from './history.tsx'
 import { parseDoc } from './model.ts'
 import { ModelsView } from './models.tsx'
+import { viewId } from './nav.ts'
 import { RawView } from './raw.tsx'
 import { SaveView } from './savepanel.tsx'
 import { SettingsView } from './settings.tsx'
@@ -162,7 +163,6 @@ function Overview() {
           .filter((h) => hopState(d, h, resolve) !== 'ok').length
   return (
     <section>
-      <h2>Overview</h2>
       {saved !== undefined && (
         <p class="muted small-text">
           {saved.path} · sha256 {saved.sha256.slice(0, 12)} · {saved.fragments.length} config.d
@@ -251,14 +251,9 @@ const VIEWS: ViewDef[] = [
   { id: 'raw', title: 'Raw TOML', render: RawView },
 ]
 
-const hash = signal(location.hash.slice(1))
-addEventListener('hashchange', () => {
-  hash.value = location.hash.slice(1)
-})
-
 const visible = computed(() => VIEWS.filter((v) => v.when === undefined || v.when()))
 const current = computed(
-  () => VIEWS.find((v) => v.id === hash.value) ?? (visible.value[0] as ViewDef),
+  () => VIEWS.find((v) => v.id === viewId.value) ?? (visible.value[0] as ViewDef),
 )
 
 export function ViewNav() {

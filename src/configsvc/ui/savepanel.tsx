@@ -131,7 +131,6 @@ export function SaveView() {
   const faults = problems.value
   return (
     <section>
-      <h2>Review and save</h2>
       {conflict.value === undefined ? null : <Conflict />}
       <Applied />
       {dirty.value ? <DiffView diff={draftDiff.value} /> : <p class="muted">Nothing pending.</p>}
