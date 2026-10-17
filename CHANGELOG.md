@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 - 2026-10-17
 
 - Config UI: every engine says what it is and links to its project, on its tile, its card and in
   the starter wizard. A spec declares this with `description` and `homepage` (an https URL); every
