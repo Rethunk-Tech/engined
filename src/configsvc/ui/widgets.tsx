@@ -27,6 +27,8 @@ export function Labeled(props: {
   label: string
   help?: string
   warn?: string
+  /** A fact about the current value, such as the size of the file it names. */
+  note?: string
   children: ComponentChildren
 }) {
   return (
@@ -34,6 +36,7 @@ export function Labeled(props: {
       <span class="fieldname">{props.label}</span>
       {props.children}
       {props.warn === undefined ? null : <span class="bad small-text">{props.warn}</span>}
+      {props.note === undefined ? null : <span class="small-text">{props.note}</span>}
       {props.help === undefined ? null : <span class="muted small-text">{props.help}</span>}
     </div>
   )
@@ -71,6 +74,7 @@ export function Prop(props: {
   /** Why the field is read-only, shown instead of an editable control. */
   locked?: string
   warn?: string
+  note?: string
   label?: string
 }) {
   const prop = propOf(props.table, props.name)
@@ -140,6 +144,7 @@ export function Prop(props: {
       label={props.label ?? props.name}
       help={props.locked ?? prop.description}
       warn={props.warn}
+      note={props.note}
     >
       {control}
     </Labeled>

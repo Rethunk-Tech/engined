@@ -272,16 +272,17 @@ function RouteForm(props: { ctx: EngineCtx; entry: IndexedRoute }) {
           value={route.filename}
           path={[...base, 'filename']}
           options={files.map((f) => f.path)}
+          note={
+            file === undefined
+              ? undefined
+              : `${formatBytes(file.bytes)}${
+                  file.gguf === undefined
+                    ? ''
+                    : ` · ${file.gguf.architecture ?? '?'} · ${file.gguf.quantization ?? '?'} · trained context ${file.gguf.context_length ?? '?'}`
+                }`
+          }
         />
       ) : null}
-      {file === undefined ? null : (
-        <p class="muted small-text">
-          {formatBytes(file.bytes)}
-          {file.gguf === undefined
-            ? ''
-            : ` · ${file.gguf.architecture ?? '?'} · ${file.gguf.quantization ?? '?'} · trained context ${file.gguf.context_length ?? '?'}`}
-        </p>
-      )}
       {shown('role') ? (
         <Prop table="route" name="role" value={route.role} path={[...base, 'role']} />
       ) : null}

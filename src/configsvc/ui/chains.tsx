@@ -37,57 +37,67 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         <h3>{id}</h3>
         <code>@/{id}</code>
         <span class="grow" />
-        <button
-          type="button"
-          class="small"
-          onClick={() =>
-            void editDraft([
-              {
-                op: 'setKey',
-                path: ['chain', index, 'disable'],
-                value: chain.disable === true ? undefined : true,
-              },
-            ])
-          }
-        >
-          {chain.disable === true ? 'Enable' : 'Disable'}
-        </button>
-        <CopyButton text={entryToToml('chain', chain)} label="Copy TOML" />
-        <DeleteGuard doc={d} table="chain" id={id} index={index} addresses={[`@/${id}`]} />
+        <span class="group">
+          <button
+            type="button"
+            class="small"
+            onClick={() =>
+              void editDraft([
+                {
+                  op: 'setKey',
+                  path: ['chain', index, 'disable'],
+                  value: chain.disable === true ? undefined : true,
+                },
+              ])
+            }
+          >
+            {chain.disable === true ? 'Enable' : 'Disable'}
+          </button>
+          <CopyButton text={entryToToml('chain', chain)} label="Copy TOML" />
+          <DeleteGuard doc={d} table="chain" id={id} index={index} addresses={[`@/${id}`]} />
+        </span>
       </div>
       {/* A chain may name the same hop twice, so keys come from position among equal hops. */}
-      <div class="hops" style={`--addr-w: ${Math.max(0, ...hops.map((h) => h.length))}ch`}>
+      <div class="hops">
         {hops.map((hop, i) => {
           const key = lineKeys(hops)[i]
           const state = hopState(d, hop, upstreamOf)
           return (
             <div class="hop" key={key}>
               <span class="muted">{i + 1}.</span>
-              <code class="addr">{hop}</code>
-              <span class="bad small-text">{NOTE[state]}</span>
+              <span class="hopaddr">
+                <code>{hop}</code>
+                {state === 'ok' ? null : <span class="bad small-text">{NOTE[state]}</span>}
+              </span>
               <span class="group">
                 <button
                   type="button"
-                  class="small"
+                  class="icon"
+                  title="Move up"
+                  aria-label={`Move ${hop} up`}
                   disabled={i === 0}
                   onClick={() => move(i, i - 1)}
                 >
-                  Up
+                  ↑
                 </button>
                 <button
                   type="button"
-                  class="small"
+                  class="icon"
+                  title="Move down"
+                  aria-label={`Move ${hop} down`}
                   disabled={i === hops.length - 1}
                   onClick={() => move(i, i + 1)}
                 >
-                  Down
+                  ↓
                 </button>
                 <button
                   type="button"
-                  class="small"
+                  class="icon"
+                  title="Remove"
+                  aria-label={`Remove ${hop}`}
                   onClick={() => set(hops.filter((_, j) => j !== i))}
                 >
-                  Remove
+                  ✕
                 </button>
               </span>
             </div>

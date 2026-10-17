@@ -68,6 +68,21 @@ button {
 }
 button {
   cursor: pointer;
+  min-height: 32px;
+}
+button.small {
+  min-height: 0;
+}
+button.icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+/* A one-line row inside a card lines its controls up on the row, not on the card's rhythm. */
+.panel.rowhead > * + * {
+  margin-top: 0;
 }
 button.primary {
   background: var(--accent);

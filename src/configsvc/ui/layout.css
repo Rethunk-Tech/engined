@@ -12,9 +12,9 @@
 }
 .hop {
   display: grid;
-  grid-template-columns: 3ch max-content 1fr max-content;
+  grid-template-columns: 2.5ch minmax(0, 1fr) max-content;
   gap: 12px;
-  align-items: center;
+  align-items: start;
   padding: 3px 0;
 }
 .stats {
@@ -103,10 +103,20 @@ a.tile:hover {
   align-items: start;
   margin-bottom: 16px;
 }
-.chain-grid .hop {
-  grid-template-columns: 3ch minmax(0, max-content) 1fr max-content;
+.chain-grid {
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
 }
-.chain-grid .hop .addr {
+.hopaddr {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow-wrap: anywhere;
+  padding-top: 3px;
+}
+/* Full-width cards stacked in a view; grid tiles space themselves with gap. */
+main section > .panel + .panel,
+main section > .panel + details,
+main section > details + .panel,
+main section > details + details {
+  margin-top: 12px;
 }
