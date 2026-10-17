@@ -182,3 +182,24 @@ main {
   overflow: auto;
   white-space: pre;
 }
+.editor {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.errors {
+  padding-left: 18px;
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+details.panel {
+  margin: 8px 0;
+}
+details pre {
+  overflow: auto;
+}

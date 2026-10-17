@@ -96,7 +96,7 @@ async function checkDraft(text: string, mine: number): Promise<void> {
 }
 
 /** Replaces the pending text; the validate result and diff follow after a quiet 300 ms. */
-function setDraft(text: string): void {
+export function setDraft(text: string): void {
   draft.value = text
   generation++
   const mine = generation

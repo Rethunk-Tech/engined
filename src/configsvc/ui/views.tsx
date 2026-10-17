@@ -1,4 +1,5 @@
 import { computed, signal } from '@preact/signals'
+import { RawView } from './raw.tsx'
 import { draftDiff, problems, snapshot } from './store.ts'
 
 interface ViewDef {
@@ -33,7 +34,10 @@ function Overview() {
   )
 }
 
-const VIEWS: ViewDef[] = [{ id: 'overview', title: 'Overview', render: Overview }]
+const VIEWS: ViewDef[] = [
+  { id: 'overview', title: 'Overview', render: Overview },
+  { id: 'raw', title: 'Raw TOML', render: RawView },
+]
 
 const hash = signal(location.hash.slice(1))
 addEventListener('hashchange', () => {
