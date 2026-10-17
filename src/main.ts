@@ -27,6 +27,7 @@ import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorCo
 import { EngineRegistry } from './engines.ts'
 import { ambientEnv } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
+import { extraModeExit } from './extraModes.ts'
 import {
   headOf,
   jsonError,
@@ -462,14 +463,9 @@ if (import.meta.main) {
   const probe = process.argv.includes('--probe')
   const engines = process.argv.includes('--engines')
   const json = process.argv.includes('--json')
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    writeToStdout(
-      'Usage: engined [-h|--help] [--probe [--json]] [--engines --json] [--prune-config CONFIG --out OUTPUT]',
-    )
-    writeToStdout(
-      '--engines prints the JSON from GET /engined/v1/engines and does not start an engine. There is no text listing, so --json is required. --engines and --probe are mutually exclusive.',
-    )
-    process.exit(0)
+  const extra = await extraModeExit(process.argv)
+  if (extra !== undefined) {
+    process.exit(extra)
   }
   if (process.argv.includes('--prune-config')) {
     process.exit(await pruneCli(process.argv, writeToStdout))

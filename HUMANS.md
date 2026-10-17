@@ -112,6 +112,8 @@ curl -s localhost:29200/engined/v1/engines | jq     # state and fix for unavaila
 journalctl --user -u engined -f             # one JSON line per call
 systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
+engined --configsvc-url                     # URL the config UI logged at its last start
+engined --hash-password                     # one line on stdin -> argon2id hash for [configsvc] password_hash
 ```
 
 For a quick per-day, per-route total without folding journald yourself:

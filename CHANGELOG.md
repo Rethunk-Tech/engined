@@ -14,6 +14,11 @@
 
 ### Door
 
+- `engined --configsvc-url` prints the URL the config UI unit last logged
+  (`configsvc: <url>`), and says why when there is none. `engined --hash-password`
+  reads one line from stdin and prints the argon2id hash for
+  `[configsvc] password_hash`.
+
 - `GET /engined/v1/engines` reports `config_sha256` (the config text the running
   config was loaded from) and, beside `config_error`, `config_error_sha256` (the
   text of the failed attempt).
