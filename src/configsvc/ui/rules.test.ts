@@ -14,6 +14,7 @@ import { resolveRoute } from './resolved.ts'
 import { ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
 import { needsEnableDefault, revertTarget, verdict, waitForApply } from './saveflow.ts'
 import { entryToToml, snippetEntries } from './snippet.ts'
+import { blockers, modelIdFromFile, proposedByDefault, starterOps } from './starter.ts'
 import { comfyChoices, modelSuggestions, trainedContext } from './suggest.ts'
 
 const TEXT = `# keep me
@@ -252,4 +253,48 @@ test('safe apply waits for the saved hash, reports faults, and defaults configsv
   expect(revertTarget([{ name: 'new' }, { name: 'old' }])).toBe('new')
   expect(needsEnableDefault(parseDoc('a = 1\n') as never)).toBe(true)
   expect(needsEnableDefault(parseDoc('[configsvc]\nenable = false\n') as never)).toBe(false)
+})
+
+test('the starter proposes only what the host can run and writes routes for chosen files', () => {
+  const llama = {
+    id: 'llama',
+    kind: 'openai-http',
+    upstream: 'self',
+    artifacts: false,
+    devices: ['/dev/dri'],
+    models_dir: '~/m/llm',
+    files: [],
+  }
+  const claude = {
+    id: 'claude',
+    kind: 'agentic-cli',
+    upstream: 'optional',
+    agent: 'claude',
+    artifacts: false,
+    devices: [],
+    files: [],
+  }
+  const checks = [
+    { id: 'docker', ok: false, detail: 'down', fix: 'start docker' },
+    { id: '/dev/dri', ok: true, detail: 'present' },
+    { id: 'agent claude', ok: true, detail: 'ok' },
+  ]
+  expect(blockers(llama, checks).map((c) => c.id)).toEqual(['docker'])
+  expect(proposedByDefault(claude, blockers(claude, checks))).toBe(true)
+  expect(proposedByDefault(llama, blockers(llama, checks))).toBe(false)
+  expect(modelIdFromFile('Qwen/Qwen3 8B Q4_K_M.gguf')).toBe('Qwen3-8B-Q4_K_M')
+  const ops = starterOps([
+    { engine: llama, files: [{ path: 'q/m.gguf', role: 'chat' }] },
+    { engine: claude, files: [] },
+  ])
+  expect(ops.map((o) => (o.op === 'addEntry' ? `${o.table}` : o.op))).toEqual([
+    'upstream',
+    'engine',
+    'route',
+    'engine',
+    'route',
+  ])
+  expect(ops[2]).toMatchObject({
+    entry: { model: 'm', filename: 'q/m.gguf', role: 'chat', upstream: 'local' },
+  })
 })

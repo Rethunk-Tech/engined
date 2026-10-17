@@ -1,12 +1,14 @@
 import { computed, signal } from '@preact/signals'
 import { AddressBookView } from './addressbook.tsx'
 import { ChainsView } from './chains.tsx'
+import { DoctorView } from './doctor.tsx'
 import { EnginesView } from './engines.tsx'
 import { HistoryView } from './history.tsx'
 import { ModelsView } from './models.tsx'
 import { RawView } from './raw.tsx'
 import { SaveView } from './savepanel.tsx'
 import { SettingsView } from './settings.tsx'
+import { StarterView } from './starterview.tsx'
 import { draftDiff, problems, snapshot } from './store.ts'
 import { UpstreamsView } from './upstreams.tsx'
 import { UsageView } from './usage.tsx'
@@ -15,6 +17,8 @@ import { DiffView } from './widgets.tsx'
 interface ViewDef {
   id: string
   title: string
+  /** Shown in the nav only while this holds. */
+  when?: () => boolean
   render: () => preact.JSX.Element
 }
 
@@ -44,7 +48,10 @@ function Overview() {
   )
 }
 
+const configEmpty = () => (snapshot.value?.text ?? '').trim() === ''
+
 const VIEWS: ViewDef[] = [
+  { id: 'starter', title: 'Starter', render: StarterView, when: configEmpty },
   { id: 'overview', title: 'Overview', render: Overview },
   { id: 'engines', title: 'Engines', render: EnginesView },
   { id: 'upstreams', title: 'Upstreams', render: UpstreamsView },
@@ -55,6 +62,7 @@ const VIEWS: ViewDef[] = [
   { id: 'settings', title: 'Settings', render: SettingsView },
   { id: 'save', title: 'Review & save', render: SaveView },
   { id: 'history', title: 'History', render: HistoryView },
+  { id: 'doctor', title: 'Host checks', render: DoctorView },
   { id: 'raw', title: 'Raw TOML', render: RawView },
 ]
 
@@ -63,12 +71,15 @@ addEventListener('hashchange', () => {
   hash.value = location.hash.slice(1)
 })
 
-const current = computed(() => VIEWS.find((v) => v.id === hash.value) ?? (VIEWS[0] as ViewDef))
+const visible = computed(() => VIEWS.filter((v) => v.when === undefined || v.when()))
+const current = computed(
+  () => VIEWS.find((v) => v.id === hash.value) ?? (visible.value[0] as ViewDef),
+)
 
 export function ViewNav() {
   return (
     <nav>
-      {VIEWS.map((v) => (
+      {visible.value.map((v) => (
         <a key={v.id} href={`#${v.id}`} class={current.value.id === v.id ? 'active' : ''}>
           {v.title}
         </a>

@@ -191,6 +191,12 @@ does not, or reports a `config_error`, or the route test fails, it asks Keep or 
 the change. Revert restores the file the save replaced and reloads the same way. History lists the kept
 files (newest 20), diffs one against the current file and restores it.
 
+Host checks is the `--doctor` report with the fix beside each failure. On a box whose `config.toml` is
+absent or empty the UI opens on Starter: it reads those checks, the shipped engines (`engines/*/spec.toml`)
+and the weights already in each engine's default directory, lets you tick what to run and which files to
+serve, and shows the resulting TOML as a diff. Using it only fills the pending text; saving goes through
+Review and save like any other change.
+
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):

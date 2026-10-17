@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { loadConfig } from './config.ts'
 import { type ConfigsvcDeps, readJson } from './configsvcApi.ts'
+import { shippedEngines } from './configsvcShipped.ts'
 import { readGgufMetadata } from './ggufMetadata.ts'
 import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from './http.ts'
 import { runProbes } from './probe.ts'
@@ -137,6 +138,17 @@ async function models(deps: ConfigsvcDeps): Promise<Response> {
       })
     }
   }
+  return Response.json({ engines })
+}
+
+/** Shipped engines with the files already sitting in each one's default weights directory. */
+async function shipped(deps: ConfigsvcDeps): Promise<Response> {
+  const engines = await Promise.all(
+    shippedEngines(deps.enginesRoot).map(async (engine) => ({
+      ...engine,
+      files: engine.models_path === undefined ? [] : await modelFiles(engine.models_path),
+    })),
+  )
   return Response.json({ engines })
 }
 
@@ -290,6 +302,8 @@ export function liveApi(
         return deps.doctor().then((report) => Response.json(report))
       case '/api/models':
         return models(deps)
+      case '/api/shipped':
+        return shipped(deps)
       case '/api/discovery':
         return discovery(deps)
       case '/api/secrets':

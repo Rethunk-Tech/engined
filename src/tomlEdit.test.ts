@@ -37,6 +37,17 @@ test('adding then removing a route leaves every other line byte-identical', () =
   expect(removeEntry(added, 'route', routes)).toBe(EXAMPLE)
 })
 
+test('the first entry of a table the file lacks is appended, comments intact', () => {
+  const src = '# keep\nlisten_port = 1 # port\n'
+  const out = addEntry(src, 'upstream', { id: 'local', egress: 'none' })
+  expect(out.startsWith(src)).toBe(true)
+  expect(Bun.TOML.parse(out)).toEqual({
+    listen_port: 1,
+    upstream: [{ id: 'local', egress: 'none' }],
+  })
+  expect(Bun.TOML.parse(addEntry('', 'engine', { id: 'e' }))).toEqual({ engine: [{ id: 'e' }] })
+})
+
 /** The example with its models_dir swapped for a scratch dir of empty placeholders, written as a config. */
 function loadable(text: string): string {
   const models = mkdtempSync(join(TEST_ROOT, 'models-'))

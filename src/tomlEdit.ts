@@ -5,7 +5,7 @@
  * result as exactly the mutated object, or the edit throws. A wrong file is
  * never returned.
  */
-import { parse, patch } from '@decimalturn/toml-patch'
+import { parse, patch, stringify } from '@decimalturn/toml-patch'
 import { ID_RE } from './config.ts'
 import type { EditOp, TomlPath } from './editOps.ts'
 import { isRecord } from './records.ts'
@@ -94,19 +94,31 @@ function setAt(doc: Doc, path: TomlPath, value: unknown): void {
   }
 }
 
+/** toml-patch cannot create a `[[table]]` key that the document does not have yet, so the first entry is appended as text. */
+function appendFirstEntry(src: string, table: string, entry: Record<string, unknown>): string {
+  const block = stringify({ [table]: [entry] })
+  return src.trim() === '' ? block : `${src.trimEnd()}\n\n${block}`
+}
+
 /** Runs `ops` in order against `src`; any op, or a result Bun reads differently, throws. */
 export function applyOps(src: string, ops: readonly EditOp[]): string {
-  const patched = parse(src) as Doc
+  let text = src
   const expected = Bun.TOML.parse(src) as Doc
   for (const op of ops) {
-    applyOne(patched, op)
+    const firstOfTable = op.op === 'addEntry' && !Array.isArray(expected[op.table])
     applyOne(expected, op)
+    if (firstOfTable) {
+      text = appendFirstEntry(text, op.table, op.entry)
+    } else {
+      const patched = parse(text) as Doc
+      applyOne(patched, op)
+      text = patch(text, patched)
+    }
+    if (!Bun.deepEquals(Bun.TOML.parse(text), expected, true)) {
+      throw new Error('the edit would not round-trip; nothing was changed')
+    }
   }
-  const out = patch(src, patched)
-  if (!Bun.deepEquals(Bun.TOML.parse(out), expected, true)) {
-    throw new Error('the edit would not round-trip; nothing was changed')
-  }
-  return out
+  return text
 }
 
 export const setKey = (src: string, path: TomlPath, value: unknown): string =>

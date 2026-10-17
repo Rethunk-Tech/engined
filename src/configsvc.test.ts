@@ -237,6 +237,16 @@ test('validate names the file, position and config path of a fault; edit, reload
   })
   expect(refresh.status).toBe(404)
 
+  const shipped = (await (await h.call('/api/shipped', { cookie })).json()) as {
+    engines: { id: string; kind: string; models_dir?: string; devices: string[] }[]
+  }
+  const llama = shipped.engines.find((e) => e.id === 'llama')
+  expect(llama).toMatchObject({
+    kind: 'openai-http',
+    models_dir: '~/.local/share/engined-models/llm',
+  })
+  expect(llama?.devices).toContain('/dev/dri')
+  expect(shipped.engines.find((e) => e.id === 'claude')).toMatchObject({ kind: 'agentic-cli' })
   expect((await h.call('/api/logs/nobody?tail=5', { cookie })).status).toBe(404)
   expect((await h.call('/api/resources/nobody', { cookie })).status).toBe(404)
 
