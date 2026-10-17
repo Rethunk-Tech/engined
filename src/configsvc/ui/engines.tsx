@@ -115,11 +115,11 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
     if (panel === 'logs') {
       void call<{ lines: string[] }>(`/api/logs/${encodeURIComponent(id)}?tail=200`)
         .then((r) => setText(r.lines.join('\n')))
-        .catch((e: unknown) => setText(String(e)))
+        .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
     } else if (panel === 'resources') {
       void call<unknown>(`/api/resources/${encodeURIComponent(id)}`)
         .then((r) => setText(JSON.stringify(r, null, 2)))
-        .catch((e: unknown) => setText(String(e)))
+        .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
     } else if (panel === 'obtain') {
       void postStream(`/api/obtain/${encodeURIComponent(id)}`, (frame) => {
         const d = frame.data as {

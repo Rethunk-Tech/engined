@@ -1,6 +1,6 @@
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
-import { type Diagnostic, forceLinting, linter, lintGutter } from '@codemirror/lint'
+import { type Diagnostic, lintGutter, setDiagnostics } from '@codemirror/lint'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
@@ -75,7 +75,6 @@ export function RawView() {
           syntaxHighlighting(highlight),
           theme,
           lintGutter(),
-          linter(diagnostics, { delay: 0 }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               setDraft(update.state.doc.toString())
@@ -92,9 +91,11 @@ export function RawView() {
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
       }
     })
+    // Problems arrive from the server after a debounce, so they are pushed into the editor when
+    // they change rather than pulled by a linter that runs before they exist.
     const relint = effect(() => {
       if (problems.value) {
-        forceLinting(view)
+        view.dispatch(setDiagnostics(view.state, diagnostics(view)))
       }
     })
     return () => {
