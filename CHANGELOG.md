@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 - 2026-10-17
 
 - Config UI: the Map tints chains, engines and upstreams in their own colours, with a legend that
   also shows what a disabled entry looks like.
