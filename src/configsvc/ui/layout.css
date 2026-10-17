@@ -68,7 +68,8 @@ a.stat:hover {
 .tile > * + * {
   margin-top: 0;
 }
-a.tile:hover {
+a.tile:hover,
+.tile.picked {
   border-color: var(--accent);
 }
 .tile .rowhead {

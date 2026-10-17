@@ -29,6 +29,7 @@ import { draft, draftDiff, problems, snapshot } from './store.ts'
 import { UpstreamsView } from './upstreams.tsx'
 import { UsageView } from './usage.tsx'
 import { DiffView, plural } from './widgets.tsx'
+import { AddView } from './wizard.tsx'
 
 interface ViewDef {
   id: string
@@ -259,6 +260,8 @@ const VIEWS: ViewDef[] = [
   { id: 'history', title: 'History', render: HistoryView },
   { id: 'doctor', title: 'Host checks', render: DoctorView },
   { id: 'raw', title: 'Raw TOML', render: RawView },
+  // Reached from the Use the Add wizard links beside each Add box, not from the nav.
+  { id: 'add', title: 'Add', render: AddView, when: () => false },
 ]
 
 const visible = computed(() => VIEWS.filter((v) => v.when === undefined || v.when()))

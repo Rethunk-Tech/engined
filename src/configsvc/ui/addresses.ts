@@ -65,8 +65,8 @@ export function addressBook(doc: Doc, upstreamOf: UpstreamOf): AddressRow[] {
   return [...routes, ...chains].sort((x, y) => x.address.localeCompare(y.address))
 }
 
-/** Every route address a hop can be chosen from. */
+/** Every route address a hop can be chosen from; a wildcard route is a catalog, not one model to try. */
 export const hopChoices = (doc: Doc, upstreamOf: UpstreamOf): string[] =>
   addressBook(doc, upstreamOf)
-    .filter((row) => row.kind === 'route')
+    .filter((row) => row.kind === 'route' && !row.address.endsWith('/*'))
     .map((row) => row.address)

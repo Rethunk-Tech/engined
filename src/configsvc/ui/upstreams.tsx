@@ -360,6 +360,14 @@ export function UpstreamsView() {
         >
           Add upstream
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            location.hash = 'add/provider'
+          }}
+        >
+          Use the Add wizard
+        </button>
       </div>
       <SnippetBox table="upstream" />
     </section>

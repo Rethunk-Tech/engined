@@ -165,6 +165,14 @@ export function ChainsView() {
         >
           Add chain
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            location.hash = 'add/chain'
+          }}
+        >
+          Use the Add wizard
+        </button>
       </div>
       <SnippetBox table="chain" />
     </section>

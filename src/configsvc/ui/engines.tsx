@@ -455,7 +455,7 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
 }
 
 /** The shipped engines this config does not run yet, each addable as the starter would add it. */
-function ShippedPicker({ d }: { d: Doc }) {
+export function ShippedPicker({ d }: { d: Doc }) {
   const [shipped, setShipped] = useState<ShippedEngine[]>([])
   useEffect(() => {
     void call<{ engines: ShippedEngine[] }>('/api/shipped')
@@ -522,6 +522,14 @@ function AddEngine() {
         }}
       >
         Add engine
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          location.hash = 'add/engine'
+        }}
+      >
+        Use the Add wizard
       </button>
     </div>
   )

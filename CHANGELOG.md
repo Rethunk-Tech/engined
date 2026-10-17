@@ -6,6 +6,10 @@
   also shows what a disabled entry looks like.
 - Config UI: an upstream no route uses says so on its tile and card, with how to give it one: an
   upstream alone serves no models.
+- Config UI: an Add wizard, opened beside each Add box, connects a hosted provider in one pass
+  (upstream, key into the keyring, engine and routes, with presets for OpenAI, OpenRouter, Google AI,
+  Anthropic, Groq, Mistral and DeepSeek), adds a shipped local engine, or builds a chain from its
+  hops. Chain hops no longer offer a wildcard route, which is a catalog rather than one model.
 
 ## 0.2.2 - 2026-10-17
 
