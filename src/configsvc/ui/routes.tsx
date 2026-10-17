@@ -201,7 +201,7 @@ function RouteArgs(props: { ctx: EngineCtx; entry: IndexedRoute; plan: Plan }) {
     <>
       {plan.args.disposition === 'forbidden' ? null : (
         <div class="argsbox">
-          <strong>args</strong>
+          <span class="section-title">args</span>
           <ArgsEditor
             args={route.args}
             path={[...base, 'args']}
@@ -324,11 +324,11 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
     <div class={`route panel${route.disable === true ? ' off' : ''}`}>
       <div class="rowhead">
         <span class="group">
-          <code>{address ?? '(incomplete)'}</code>
+          <code class="addr">{address ?? '(incomplete)'}</code>
           {address === undefined ? null : <CopyButton text={address} />}
           <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
         </span>
-        <span class="muted">{callsFor(address)} call(s) / 7 d</span>
+        <span class="muted calls">{callsFor(address)} call(s) / 7 d</span>
         <span class="grow" />
         <span class="group">
           {address === undefined ? null : (

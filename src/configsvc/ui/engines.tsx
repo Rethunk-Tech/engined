@@ -233,7 +233,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
             <Prop key={f} table="engine" name={f} value={engine[f]} path={['engine', index, f]} />
           ))}
           <div class="argsbox">
-            <strong>args</strong>
+            <span class="section-title">args</span>
             <ArgsEditor
               args={engine.args}
               path={['engine', index, 'args']}
@@ -247,7 +247,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
           </div>
         </div>
       </details>
-      <div class="routes">
+      <div class="routes" style={`--addr-w: ${Math.max(0, ...addresses.map((a) => a.length))}ch`}>
         {routes.map((r) => (
           <RouteCard key={r.index} ctx={ctx} entry={r} />
         ))}

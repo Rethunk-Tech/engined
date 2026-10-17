@@ -134,7 +134,6 @@ export function SaveView() {
       <h2>Review and save</h2>
       {conflict.value === undefined ? null : <Conflict />}
       <Applied />
-      <h3>Pending changes</h3>
       {dirty.value ? <DiffView diff={draftDiff.value} /> : <p class="muted">Nothing pending.</p>}
       {faults.map((p) => (
         <p class="bad" key={p.message}>

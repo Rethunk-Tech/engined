@@ -21,7 +21,7 @@ function ArgRow(props: {
   const issue = argIssue(props.name, argValueFromText(text), props.scope)
   const listId = `arg-${props.path.join('-')}-${props.name}`
   return (
-    <div class="argrow">
+    <div class="kvrow">
       <code>{props.name}</code>
       <input
         list={props.options.length > 0 ? listId : undefined}
@@ -95,7 +95,7 @@ export function ArgsEditor(props: {
           options={props.valueOptions?.(name) ?? []}
         />
       ))}
-      <div class="argrow">
+      <div class="kvrow">
         <input
           list={keysId}
           placeholder="key"

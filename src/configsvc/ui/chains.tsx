@@ -8,7 +8,7 @@ import { type Doc, parseDoc, type Table } from './model.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton } from './widgets.tsx'
+import { CopyButton, lineKeys } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -55,36 +55,46 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         <CopyButton text={entryToToml('chain', chain)} label="Copy TOML" />
         <DeleteGuard doc={d} table="chain" id={id} index={index} addresses={[`@/${id}`]} />
       </div>
-      <ol>
+      {/* A chain may name the same hop twice, so keys come from position among equal hops. */}
+      <div class="hops" style={`--addr-w: ${Math.max(0, ...hops.map((h) => h.length))}ch`}>
         {hops.map((hop, i) => {
+          const key = lineKeys(hops)[i]
           const state = hopState(d, hop, upstreamOf)
           return (
-            <li key={hop}>
-              <code>{hop}</code>{' '}
-              {state === 'ok' ? null : <span class="bad small-text">{NOTE[state]}</span>}{' '}
-              <button type="button" class="small" disabled={i === 0} onClick={() => move(i, i - 1)}>
-                Up
-              </button>{' '}
-              <button
-                type="button"
-                class="small"
-                disabled={i === hops.length - 1}
-                onClick={() => move(i, i + 1)}
-              >
-                Down
-              </button>{' '}
-              <button
-                type="button"
-                class="small"
-                onClick={() => set(hops.filter((_, j) => j !== i))}
-              >
-                Remove
-              </button>
-            </li>
+            <div class="hop" key={key}>
+              <span class="muted">{i + 1}.</span>
+              <code class="addr">{hop}</code>
+              <span class="bad small-text">{NOTE[state]}</span>
+              <span class="group">
+                <button
+                  type="button"
+                  class="small"
+                  disabled={i === 0}
+                  onClick={() => move(i, i - 1)}
+                >
+                  Up
+                </button>
+                <button
+                  type="button"
+                  class="small"
+                  disabled={i === hops.length - 1}
+                  onClick={() => move(i, i + 1)}
+                >
+                  Down
+                </button>
+                <button
+                  type="button"
+                  class="small"
+                  onClick={() => set(hops.filter((_, j) => j !== i))}
+                >
+                  Remove
+                </button>
+              </span>
+            </div>
           )
         })}
-      </ol>
-      <div class="argrow">
+      </div>
+      <div class="addrow">
         <select value={pick} onChange={(e) => setPick(e.currentTarget.value)}>
           <option value="">add a hop…</option>
           {hopChoices(d, upstreamOf).map((a) => (

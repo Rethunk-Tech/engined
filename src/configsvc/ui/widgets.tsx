@@ -85,17 +85,21 @@ export function Prop(props: {
     control = <input value={asText(props.value)} disabled={true} />
   } else if (type === 'boolean') {
     const current = props.value === undefined ? '' : String(props.value)
+    // Three states, not a checkbox: an absent key takes the default, which is not the same as false.
     control = (
-      <select
-        value={current}
-        onChange={(e) =>
-          commit(e.currentTarget.value === '' ? undefined : e.currentTarget.value === 'true')
-        }
-      >
-        <option value="">(unset)</option>
-        <option value="true">true</option>
-        <option value="false">false</option>
-      </select>
+      <fieldset class="seg">
+        {(['', 'true', 'false'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            class={current === v ? 'on' : ''}
+            aria-pressed={current === v}
+            onClick={() => commit(v === '' ? undefined : v === 'true')}
+          >
+            {v === '' ? 'default' : v}
+          </button>
+        ))}
+      </fieldset>
     )
   } else if (prop.enum === undefined) {
     control = (
@@ -122,7 +126,7 @@ export function Prop(props: {
         value={asText(props.value)}
         onChange={(e) => commit(e.currentTarget.value === '' ? undefined : e.currentTarget.value)}
       >
-        <option value="">(unset)</option>
+        <option value="">(default)</option>
         {prop.enum.map((v) => (
           <option key={v} value={v}>
             {v}

@@ -21,14 +21,11 @@ import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
-const FIELDS = [
-  'base_url',
-  'egress',
-  'wire',
-  'disable',
-  'inventory_max_age_seconds',
-  'inventory_refresh_seconds',
-  'monthly_cap_usd',
+const SECTIONS = [
+  ['Connection', ['base_url', 'egress', 'wire']],
+  ['Inventory', ['inventory_max_age_seconds', 'inventory_refresh_seconds']],
+  ['Cost', ['monthly_cap_usd']],
+  ['State', ['disable']],
 ] as const
 
 function Headers({ index, headers }: { index: number; headers: unknown }) {
@@ -38,9 +35,9 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
     typeof headers === 'object' && headers !== null ? Object.entries(headers as Table) : []
   return (
     <div class="argsbox">
-      <strong>headers</strong>
+      <span class="section-title">headers</span>
       {rows.map(([k, v]) => (
-        <div class="argrow" key={k}>
+        <div class="kvrow" key={k}>
           <code>{k}</code>
           <code>{String(v)}</code>
           <button
@@ -56,7 +53,7 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
           </button>
         </div>
       ))}
-      <div class="argrow">
+      <div class="kvrow">
         <input placeholder="name" value={name} onInput={(e) => setName(e.currentTarget.value)} />
         <input placeholder="value" value={value} onInput={(e) => setValue(e.currentTarget.value)} />
         <button
@@ -98,7 +95,7 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
   }
   return (
     <div class="argsbox">
-      <strong>secret</strong>{' '}
+      <span class="section-title">secret</span>{' '}
       {row === undefined ? null : (
         <span class={row.present ? 'ok' : 'bad'}>
           {row.present ? 'present in the keyring' : 'missing from the keyring'}
@@ -120,6 +117,7 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
           <input
             type="password"
             autocomplete="off"
+            class="secretvalue"
             placeholder="secret value (written to the keyring, never shown again)"
             value={value}
             onInput={(e) => setValue(e.currentTarget.value)}
@@ -187,26 +185,33 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
         <CopyButton text={entryToToml('upstream', upstream)} label="Copy TOML" />
         <DeleteGuard doc={d} table="upstream" id={id} index={index} addresses={addresses} />
       </div>
-      <div class="form">
-        {FIELDS.map((f) => (
-          <Prop
-            key={f}
-            table="upstream"
-            name={f}
-            value={upstream[f]}
-            path={['upstream', index, f]}
-          />
-        ))}
-        <Labeled
-          label="spend this month"
-          help="From the cost the upstream reported on calls through the routes below."
-        >
-          <input
-            value={cap === undefined ? `$${spend.toFixed(4)}` : `$${spend.toFixed(4)} of $${cap}`}
-            disabled={true}
-          />
-        </Labeled>
-      </div>
+      {SECTIONS.map(([title, fields]) => (
+        <div class="fsect" key={title}>
+          <span class="section-title">{title}</span>
+          <div class="form">
+            {fields.map((f) => (
+              <Prop
+                key={f}
+                table="upstream"
+                name={f}
+                value={upstream[f]}
+                path={['upstream', index, f]}
+              />
+            ))}
+            {title === 'Cost' ? (
+              <Labeled
+                label="spend this month"
+                help="From the cost the upstream reported on calls through the routes below."
+              >
+                <span class="readout">
+                  ${spend.toFixed(2)}
+                  {cap === undefined ? null : <span class="muted"> of ${cap}</span>}
+                </span>
+              </Labeled>
+            ) : null}
+          </div>
+        </div>
+      ))}
       <Headers index={index} headers={upstream.headers} />
       <SecretBox index={index} upstream={upstream} />
       <Inventory id={id} />
