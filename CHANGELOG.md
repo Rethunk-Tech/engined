@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Door
+
+- A config file with a TOML syntax error is reported as
+  `file:line:column: invalid TOML: <reason>`, at startup and in
+  `config_error` after a failed reload, instead of a bare "invalid TOML".
+
 ## 0.1.0 - 2026-10-17
 
 First public release.
