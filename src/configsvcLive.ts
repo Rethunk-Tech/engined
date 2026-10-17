@@ -58,6 +58,8 @@ interface ModelFile {
     head_count_kv?: number
     embedding_length?: number
     key_length?: number
+    full_attention_interval?: number
+    nextn_predict_layers?: number
     value_length?: number
     quantization?: string
     has_chat_template: boolean
@@ -86,6 +88,8 @@ async function ggufDetails(file: string, mtimeMs: number): Promise<ModelFile['gg
       embedding_length: meta.embeddingLength,
       key_length: meta.keyLength,
       value_length: meta.valueLength,
+      full_attention_interval: meta.fullAttentionInterval,
+      nextn_predict_layers: meta.nextnPredictLayers,
       quantization: meta.quantization,
       has_chat_template: meta.hasChatTemplate,
     }

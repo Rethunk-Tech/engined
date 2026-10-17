@@ -26,6 +26,14 @@ test('KV cache follows cache-type-k and cache-type-v separately', () => {
   )
 })
 
+test('a hybrid model caches only its full-attention layers plus its MTP layers', () => {
+  // 41 layers = 40 main + 1 MTP; every 4th main layer is full attention -> 10 + 1 = 11 cached layers.
+  const hybrid = { ...gguf, block_count: 41, full_attention_interval: 4, nextn_predict_layers: 1 }
+  expect(estimateResidentBytes({ bytes: 0, gguf: hybrid }, 1000).bytes).toBe(
+    (ELEMENTS / 32) * 11 * 2 * 2,
+  )
+})
+
 test('explicit key/value length beats embedding / heads; ctx falls back to the trained window; no shape means file size', () => {
   const wide = {
     bytes: 0,

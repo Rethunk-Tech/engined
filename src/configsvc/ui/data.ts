@@ -39,6 +39,8 @@ export interface ModelFile {
     head_count_kv?: number
     embedding_length?: number
     key_length?: number
+    full_attention_interval?: number
+    nextn_predict_layers?: number
     value_length?: number
     quantization?: string
     has_chat_template: boolean

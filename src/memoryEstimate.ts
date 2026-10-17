@@ -8,6 +8,8 @@ export interface GgufShape {
   head_count_kv?: number
   embedding_length?: number
   key_length?: number
+  full_attention_interval?: number
+  nextn_predict_layers?: number
   value_length?: number
 }
 
@@ -28,6 +30,19 @@ const DEFAULT_CACHE_BYTES = 2
 const cacheBytesPerElement = (type: unknown): number =>
   (typeof type === 'string' ? CACHE_TYPE_BYTES[type.toLowerCase()] : undefined) ??
   DEFAULT_CACHE_BYTES
+
+/**
+ * Layers that hold a KV cache. On a hybrid model only every `full_attention_interval`-th main layer
+ * does (the others keep a fixed recurrent state); MTP layers after the main ones always do.
+ */
+function attentionLayers(gguf: GgufShape, layers: number): number {
+  const interval = gguf.full_attention_interval
+  if (interval === undefined || interval <= 1) {
+    return layers
+  }
+  const mtp = gguf.nextn_predict_layers ?? 0
+  return Math.floor((layers - mtp) / interval) + mtp
+}
 
 /**
  * KV cache bytes: layers x ctx x kv heads x (K head dim x K bytes + V head dim x V bytes).
@@ -51,7 +66,7 @@ function kvCacheBytes(
   }
   const valueDim = gguf.value_length ?? keyDim
   return (
-    layers *
+    attentionLayers(gguf, layers) *
     ctx *
     kvHeads *
     (keyDim * cacheBytesPerElement(cacheTypeK) + valueDim * cacheBytesPerElement(cacheTypeV))

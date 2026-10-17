@@ -59,6 +59,10 @@ export interface GgufMetadata {
   /** `<architecture>.attention.key_length` and `value_length`, present when the head size is not embedding_length / head_count. */
   keyLength?: number
   valueLength?: number
+  /** `<architecture>.full_attention_interval` on hybrid models: every Nth main layer is full attention, the rest keep a fixed recurrent state instead of a KV cache. */
+  fullAttentionInterval?: number
+  /** `<architecture>.nextn_predict_layers`: multi-token-prediction layers appended after the main ones, each with full attention. */
+  nextnPredictLayers?: number
   /** Whether the file ships a `tokenizer.chat_template`; its text is not read. */
   hasChatTemplate: boolean
   /** Bytes on disk, tensors included. */
@@ -120,6 +124,8 @@ const ARCH_KEYS = {
   embeddingLength: '.embedding_length',
   keyLength: '.attention.key_length',
   valueLength: '.attention.value_length',
+  fullAttentionInterval: '.full_attention_interval',
+  nextnPredictLayers: '.nextn_predict_layers',
 } as const
 const ARCH_SUFFIXES = new Set<string>(Object.values(ARCH_KEYS))
 const archSuffixOf = (key: string): string | undefined => {
