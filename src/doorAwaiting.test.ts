@@ -33,3 +33,23 @@ test('a door with no config answers 503 with config_error until a reload loads a
   expect((await door.fetch(get('/openai/v1/models'))).status).toBe(200)
   expect(door.configError()).toBeUndefined()
 })
+
+test('a hot reload keeps the old ports and names SIGUSR1; a hard reload moves them', async () => {
+  const path = join(TEST_ROOT, 'ports.toml')
+  await Bun.write(path, 'listen_port = 29200\n')
+  const door = awaitingDoor(path)
+  door.served.cursor = 29_201
+
+  await Bun.write(path, 'listen_port = 29210\n')
+  door.reload(path)
+  expect(door.configError()).toContain('listen_port 29200 -> 29210')
+  expect(door.configError()).toContain('kill -s USR1 engined.service')
+  expect((await door.fetch(get('/openai/v1/models'))).status).toBe(200)
+
+  door.reload(path, (next) => {
+    door.served.listen = next.listen_port
+  })
+  expect(door.configError()).toBeUndefined()
+  const moved = await door.fetch(new Request('http://127.0.0.1:29210/openai/v1/models'))
+  expect(moved.status).toBe(200)
+})

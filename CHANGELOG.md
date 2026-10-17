@@ -9,6 +9,10 @@
   503 with the error on every route, and reports it as `config_error` on
   `GET /engined/v1/engines`. A reload loads the config and brings it live.
   A port already in use still exits 78.
+- `SIGUSR1` is a hard reload: it stops every container engined started,
+  answers pending requests 503, reloads the config and rebinds `listen_port`
+  and `cursor_port` when they changed. `SIGHUP` stays a hot reload and now
+  refuses a port change, reporting `config_error` that names USR1.
 
 ## 0.1.1 - 2026-10-17
 

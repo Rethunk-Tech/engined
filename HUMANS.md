@@ -139,6 +139,16 @@ says which absence is which.
 
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
+Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):
+
+| Signal | Reload | Keeps | Applies |
+| --- | --- | --- | --- |
+| `HUP` | hot | running containers, both ports | everything except `listen_port` and `cursor_port`; a changed port is refused and `config_error` names USR1 |
+| `USR1` | hard | nothing: stops every container this process started, answers pending requests 503 | the whole config, including a moved `listen_port` or `cursor_port` |
+| `TERM` | exit | nothing | stops every container, then exits |
+
+Either reload also loads a config the daemon was waiting on.
+
 `systemctl --user reload` re-reads `config.toml` and `config.d/`; in-flight
 requests finish on the old engine list. A config the parser or the engine
 registry rejects is not applied at all: the old one keeps serving and
