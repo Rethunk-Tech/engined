@@ -228,7 +228,7 @@ const CONFIGSVC_FIELDS: Fields = {
     DEFAULT_CONFIGSVC_PORT,
   ),
   password_hash: str(
-    'Login hash from Bun.password.hash with argon2id; required once enable is true.',
+    'Optional static login hash from `engined --hash-password` (argon2id). Absent, the config UI mints a random token on every start and logs its URL.',
     {
       pattern: '^\\$argon2id\\$',
     },

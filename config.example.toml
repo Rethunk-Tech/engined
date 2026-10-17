@@ -83,8 +83,9 @@ wire = "anthropic"
 # callback_secret = { service = "potluck", username = "callback" }
 
 # The config web UI (`engined --configsvc`, its own unit) reads these. engined
-# only validates them. `password_hash` is an argon2id hash:
-#   bun -e 'console.log(await Bun.password.hash(process.argv[1], {algorithm: "argon2id"}))' 'password'
+# only validates them. Without `password_hash` it mints a random token on every
+# start and logs the URL (`engined --configsvc-url`); `password_hash` is the
+# optional static alternative, an argon2id hash from `engined --hash-password`.
 # `port` must differ from `listen_port` and `cursor_port`.
 #
 # [configsvc]

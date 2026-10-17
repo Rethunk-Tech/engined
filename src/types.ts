@@ -384,7 +384,7 @@ export interface ConfigsvcSettings {
   enable: boolean
   host: string
   port: number
-  /** An argon2id hash from `Bun.password.hash`; required once `enable` is true. */
+  /** An argon2id hash from `Bun.password.hash`. Absent: the config UI mints a one-time token on every start and logs its URL. */
   password_hash?: string
 }
 

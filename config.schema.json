@@ -529,7 +529,7 @@
         "password_hash": {
           "type": "string",
           "pattern": "^\\$argon2id\\$",
-          "description": "Login hash from Bun.password.hash with argon2id; required once enable is true."
+          "description": "Optional static login hash from `engined --hash-password` (argon2id). Absent, the config UI mints a random token on every start and logs its URL."
         }
       }
     }

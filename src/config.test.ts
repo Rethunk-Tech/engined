@@ -2079,7 +2079,7 @@ test('[configsvc] defaults off, carries an enabled table, and refuses what canno
     password_hash: hash,
   })
   expect(parseMessage(on('port = 29200\n'))).toContain('must differ from "listen_port"')
-  expect(parseMessage('[configsvc]\nenable = true\n')).toContain('no "password_hash"')
+  expect(loadConfig(writeConfig('[configsvc]\nenable = true\n')).configsvc.enable).toBe(true)
   expect(parseMessage('[configsvc]\npassword_hash = "$2b$10$x"\n')).toContain('argon2id')
   expect(parseMessage('[configsvc]\nenabel = true\n')).toContain('unrecognised key "enabel"')
 })

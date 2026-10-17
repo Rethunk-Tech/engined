@@ -87,12 +87,6 @@ export function parseConfigsvc(
       { file, key: 'configsvc.password_hash' },
     )
   }
-  if (enable && passwordHash === undefined) {
-    throw new ParseError('config "configsvc" is enabled but has no "password_hash"', {
-      file,
-      key: 'configsvc',
-    })
-  }
   if (enable && (port === ports.listen || port === ports.cursor)) {
     throw new ParseError(
       'config "configsvc.port" must differ from "listen_port" and "cursor_port"',
