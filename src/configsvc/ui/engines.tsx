@@ -105,43 +105,48 @@ function StateBadge({ id, disabled, word }: { id: string; disabled: boolean; wor
 }
 
 function Rename({ engine }: { engine: Table }) {
+  const id = String(engine.id)
   const [name, setName] = useState('')
-  const [open, setOpen] = useState(false)
-  if (!open) {
-    return (
-      <button type="button" class="small" onClick={() => setOpen(true)}>
-        Rename
-      </button>
-    )
+  const dialog = useRef<HTMLDialogElement>(null)
+  const apply = async (event: Event) => {
+    event.preventDefault()
+    if (
+      name !== '' &&
+      name !== id &&
+      (await editDraft([{ op: 'renameId', table: 'engine', oldId: id, newId: name }]))
+    ) {
+      forgetSpec(id)
+      dialog.current?.close()
+    }
   }
   return (
-    <span class="inline">
-      <input
-        value={name}
-        placeholder={String(engine.id)}
-        onInput={(e) => setName(e.currentTarget.value)}
-      />
+    <>
       <button
         type="button"
         class="small"
-        disabled={name === '' || name === engine.id}
-        onClick={async () => {
-          if (
-            await editDraft([
-              { op: 'renameId', table: 'engine', oldId: String(engine.id), newId: name },
-            ])
-          ) {
-            forgetSpec(String(engine.id))
-            setOpen(false)
-          }
+        onClick={() => {
+          setName(id)
+          dialog.current?.showModal()
         }}
       >
-        Apply
+        Rename
       </button>
-      <button type="button" class="small" onClick={() => setOpen(false)}>
-        Cancel
-      </button>
-    </span>
+      <dialog ref={dialog} class="guard panel">
+        <form onSubmit={apply}>
+          <label class="field">
+            <span class="fieldname">Rename engine "{id}"</span>
+            <input value={name} onInput={(e) => setName(e.currentTarget.value)} />
+          </label>
+          <p class="muted small-text">Routes and chains that name it are updated with it.</p>
+          <button type="submit" class="primary" disabled={name === '' || name === id}>
+            Rename
+          </button>{' '}
+          <button type="button" onClick={() => dialog.current?.close()}>
+            Cancel
+          </button>
+        </form>
+      </dialog>
+    </>
   )
 }
 

@@ -163,7 +163,7 @@ function Inventory({ id }: { id: string }) {
       <span class="muted small-text">
         {cached?.ids === undefined
           ? 'no cached catalog'
-          : `${cached.ids.length} model id(s) cached`}
+          : `${plural(cached.ids.length, 'model id')} cached`}
       </span>
       {msg === undefined ? null : <span class="bad small-text">{msg}</span>}
     </div>
@@ -181,7 +181,7 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
     <section class={`panel${upstream.disable === true ? ' off' : ''}`}>
       <div class="rowhead">
         <h3>{id}</h3>
-        <span class="muted">{String(upstream.egress ?? 'egress unset')}</span>
+        <EgressIcon egress={upstream.egress} word={true} />
         <span class="grow" />
         <CopyButton text={entryToToml('upstream', upstream)} label="Copy TOML" />
         <DeleteGuard doc={d} table="upstream" id={id} index={index} addresses={addresses} />
@@ -240,12 +240,20 @@ const EGRESS_LOOK: Record<string, { icon: IconName; label: string }> = {
   remote: { icon: 'globe', label: 'egress remote: the internet' },
 }
 
-function EgressIcon({ egress }: { egress: unknown }) {
+/** The upstream's egress as an icon, with the word beside it when `word` is set. */
+function EgressIcon({ egress, word }: { egress: unknown; word?: boolean }) {
   const look = typeof egress === 'string' ? EGRESS_LOOK[egress] : undefined
-  return look === undefined ? (
-    <span class="pill bad">egress unset</span>
+  if (look === undefined) {
+    return <span class="pill bad">egress unset</span>
+  }
+  const icon = <Icon name={look.icon} label={look.label} tone="muted" />
+  return word === true ? (
+    <span class="state muted">
+      {icon}
+      {String(egress)}
+    </span>
   ) : (
-    <Icon name={look.icon} label={look.label} tone="muted" />
+    icon
   )
 }
 

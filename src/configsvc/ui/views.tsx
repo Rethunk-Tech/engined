@@ -173,7 +173,13 @@ function Overview() {
         <Stat
           label="Engines"
           value={d?.engine.length ?? 0}
-          detail={tally(Object.values(liveEngines.value).map((e) => e.state)) || undefined}
+          detail={
+            tally(
+              Object.values(liveEngines.value).map((e) =>
+                e.disabled === true ? 'disabled' : e.state,
+              ),
+            ) || undefined
+          }
           href="#engines"
         />
         <Stat

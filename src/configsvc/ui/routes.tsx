@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals'
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import example from '../../../config.example.toml'
 import { estimateResidentBytes } from '../../memoryEstimate.ts'
 import type { EngineKind, UpstreamTrait } from '../../types.ts'
@@ -319,11 +319,20 @@ function RouteForm(props: { ctx: EngineCtx; entry: IndexedRoute }) {
   )
 }
 
+/** The one route whose form is open, by its index in the config's `[[route]]` list. */
+const editing = signal<number | undefined>(undefined)
+
 export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
   const { ctx, entry } = props
   const { doc, engine } = ctx
   const route = entry.route
-  const [open, setOpen] = useState(false)
+  const open = editing.value === entry.index
+  const card = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (open) {
+      card.current?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [open])
   const [confirm, setConfirm] = useState(false)
   const base = ['route', entry.index]
   const address = routeAddress(doc, route)
@@ -336,7 +345,7 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
     (c) => Array.isArray(c.hops) && address !== undefined && c.hops.includes(address),
   )
   return (
-    <div class={`route panel${route.disable === true ? ' off' : ''}`}>
+    <div ref={card} class={`route panel${route.disable === true ? ' off' : ''}`}>
       <div class="rowhead">
         <span class="group">
           <code class="addr">{address ?? '(incomplete)'}</code>
@@ -369,7 +378,13 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
           >
             {route.disable === true ? 'Enable' : 'Disable'}
           </button>
-          <button type="button" class="small" onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            class="small"
+            onClick={() => {
+              editing.value = open ? undefined : entry.index
+            }}
+          >
             {open ? 'Close' : 'Edit'}
           </button>
         </span>
@@ -396,7 +411,8 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
       </div>
       {confirm && chains.length > 0 ? (
         <p class="bad small-text">
-          Chain(s) {chains.map((c) => String(c.id)).join(', ')} list this address as a hop.
+          {chains.length === 1 ? 'Chain' : 'Chains'} {chains.map((c) => String(c.id)).join(', ')}{' '}
+          {chains.length === 1 ? 'lists' : 'list'} this address as a hop.
         </p>
       ) : null}
       {warn === undefined ? null : <p class="bad small-text">{warn}</p>}

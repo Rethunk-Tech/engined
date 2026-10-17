@@ -9,6 +9,8 @@
   are icons; disabled engines show as disabled rather than unavailable; a tile whose weights are missing
   links straight to Obtain. Shipped engines not yet in the config can be added from a list, an engine
   with many routes gets a filter, the logs panel follows new lines, and Usage covers 7 or 31 days.
+- Config UI: delete and rename open as modals instead of growing the card header; field help is shown
+  in full; one route form is open at a time; the Overview counts disabled engines as disabled.
 - Config UI: a route's Test sends the request that route serves (speech, transcription, embeddings,
   rerank, completions), not always a chat request; image routes say they have no cheap test.
 - Config UI: on a first run, the "cannot read config" error from before any save no longer marks the
