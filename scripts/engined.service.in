@@ -49,8 +49,10 @@ ProtectSystem=strict
 ReadWritePaths=@STATE_DIR@
 # cursor's CLI keeps per-project state under ~/.cursor/projects/<workdir> and
 # dies before answering when that mkdir fails (ENOENT on every launch,
-# so every probe failed). The one other home path left writable.
-ReadWritePaths=%h/.cursor
+# so every probe failed). The one other home path left writable. The `-` lets
+# a box without Cursor start: a missing ReadWritePaths= target fails the unit
+# with 226/NAMESPACE.
+ReadWritePaths=-%h/.cursor
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes
