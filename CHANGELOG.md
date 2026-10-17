@@ -14,6 +14,9 @@
 
 ### Door
 
+- `POST /engined/v1/engines/:id/obtain` runs the engine spec's missing `[[artifact]]`
+  obtain commands and streams their output as SSE (`step`, `line`, then `exit`
+  events). 404 when the spec declares none, 409 while one is already running.
 - `engined --doctor [--json]` checks the host (docker, `/dev/kfd` and `/dev/dri`,
   bwrap, each agent's binary, the keyring, the listen, cursor and config UI
   ports, each engine's `models_dir`) and prints one line per check with its fix.

@@ -140,6 +140,14 @@ hop each report no usage, and counting them as zero would understate the
 month. [docs/http-api.md § What a call cost](docs/http-api.md#what-a-call-cost)
 says which absence is which.
 
+`POST /engined/v1/engines/<id>/obtain` fetches an engine's missing model files:
+it runs the spec's `[[artifact]]` obtain commands (the ones its `fix` field
+names) for artifacts not on disk yet, in order, and streams SSE events `step`
+(`{step, command}`), `line` (`{step, stream, line}`) and a final `exit`
+(`{exitCode, steps}`; `steps` is 0 when nothing was missing). It stops at the
+first failing command, kills the command if the client disconnects, answers 404
+for an engine whose spec declares no artifacts and 409 while one is running.
+
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):

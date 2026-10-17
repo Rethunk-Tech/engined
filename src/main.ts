@@ -12,19 +12,16 @@ import { handleContent, handleEngineEvents, handleExtras } from './content.ts'
 import {
   type ConfigFault,
   handleEngines,
-  handleHold,
   handleLogs,
-  handleRelease,
   handleResources,
   handleStart,
-  handleStop,
-  handleUnhold,
 } from './control.ts'
 import { handleCursor, isCursorPath } from './cursorDoor.ts'
 import { runDaemon } from './daemon.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
 import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
+import { isEngineVerbPath, routeEngineVerb } from './engineVerbs.ts'
 import { ambientEnv } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
 import { extraModeExit } from './extraModes.ts'
@@ -79,12 +76,8 @@ const START_PATH = '/engined/v1/start'
 function engineVerbRe(verb: string): RegExp {
   return new RegExp(`^${ENGINED_ENGINES_PATH}/([^/]+)/${verb}$`)
 }
-const STOP_RE = engineVerbRe('stop')
 const LOGS_RE = engineVerbRe('logs')
 const RESOURCES_RE = engineVerbRe('resources')
-const RELEASE_RE = engineVerbRe('release')
-const HOLD_RE = engineVerbRe('hold')
-const UNHOLD_RE = engineVerbRe('unhold')
 /** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
@@ -196,21 +189,9 @@ function routePost(
   if (pathname === TOKENIZE_PATH) {
     return handleTokenizeRoute(ctx, req)
   }
-  const stopMatch = pathname.match(STOP_RE)?.[1]
-  if (stopMatch !== undefined) {
-    return handleStop(ctx.registry, stopMatch)
-  }
-  const releaseMatch = pathname.match(RELEASE_RE)?.[1]
-  if (releaseMatch !== undefined) {
-    return handleRelease(ctx.registry, releaseMatch)
-  }
-  const holdMatch = pathname.match(HOLD_RE)?.[1]
-  if (holdMatch !== undefined) {
-    return handleHold(ctx.registry, holdMatch, new URL(req.url))
-  }
-  const unholdMatch = pathname.match(UNHOLD_RE)?.[1]
-  if (unholdMatch !== undefined) {
-    return handleUnhold(ctx.registry, unholdMatch)
+  const verb = routeEngineVerb(ctx, req, pathname)
+  if (verb !== undefined) {
+    return verb
   }
   if (pathname === VOICE_UPLOAD_PATH) {
     return handleVoiceUpload(req)
@@ -241,10 +222,7 @@ function allowFor(pathname: string): string[] {
     pathname === TOKENIZE_PATH ||
     pathname === VOICE_UPLOAD_PATH ||
     CONTENT_ENDPOINTS.has(pathname) ||
-    STOP_RE.test(pathname) ||
-    RELEASE_RE.test(pathname) ||
-    HOLD_RE.test(pathname) ||
-    UNHOLD_RE.test(pathname) ||
+    isEngineVerbPath(pathname) ||
     EXTRAS_RE.test(pathname)
   return [...(get ? ['GET', 'HEAD'] : []), ...(post ? ['POST'] : [])]
 }
