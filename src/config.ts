@@ -102,7 +102,7 @@ function parseKind(
   return kindStr as EngineKind | undefined
 }
 
-const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
  * An engine or upstream id becomes a state path (llama/<id>/preset.ini,

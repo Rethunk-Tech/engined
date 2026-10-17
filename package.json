@@ -28,6 +28,7 @@
     "bun": ">=1.4.2"
   },
   "scripts": {
+    "schema": "bun -e \"await Bun.write('config.schema.json', (await import('./src/configSchema.ts')).renderConfigSchema())\"",
     "typecheck": "tsc -b --noEmit --pretty false",
     "lint": "biome check . && knip",
     "format": "biome check --write .",

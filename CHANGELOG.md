@@ -7,6 +7,9 @@
 - New `[configsvc]` table (`enable`, `host`, `port`, `password_hash`) for the config
   web UI. engined validates it (argon2id hash, port distinct from `listen_port`
   and `cursor_port`) and otherwise ignores it. `enable` defaults to false.
+- `config.schema.json` is a JSON Schema of `config.toml`, generated from the
+  parser's key sets (`bun run schema`); `config.example.toml` points at it with
+  a `#:schema` directive for Taplo / Even Better TOML.
 
 ### Door
 

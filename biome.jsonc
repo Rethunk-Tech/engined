@@ -9,6 +9,7 @@
       "!**/*.dc.html",
       "!**/*.min.js",
       "!**/vendor",
+      "!config.schema.json",
       "!.claude",
       "!**/database.types.ts",
       "!**/design/doc-page.js",

@@ -1,3 +1,4 @@
+#:schema ./config.schema.json
 # engined worked example.
 #
 # Copy this to $XDG_CONFIG_HOME/engined/config.toml (~/.config/engined/config.toml

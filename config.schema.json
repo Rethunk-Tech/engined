@@ -1,0 +1,537 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "engined config.toml",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "listen_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 29200,
+      "description": "Port of the door."
+    },
+    "cursor_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 29201,
+      "description": "Port of the Cursor turn-stream listener; must differ from listen_port."
+    },
+    "chat_timeout_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 2147483,
+      "default": 600,
+      "description": "Budget for one chat hop."
+    },
+    "agent_timeout_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 2147483,
+      "default": 3600,
+      "description": "Budget for one agentic task."
+    },
+    "stream_stall_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 2147483,
+      "default": 60,
+      "description": "How long a streamed answer may sit unread by its client before it is aborted."
+    },
+    "agentic_concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 4,
+      "description": "Live agentic launches allowed at once; a further call is refused with 429."
+    },
+    "engine": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/engine"
+      },
+      "description": "Engines the door may start or reach."
+    },
+    "upstream": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/upstream"
+      },
+      "description": "Where non-local bytes come from."
+    },
+    "model": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/model"
+      },
+      "description": "Optional capability declarations for a model id."
+    },
+    "route": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      },
+      "description": "Pairings of an engine with an upstream and, where one applies, a model."
+    },
+    "chain": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/chain"
+      },
+      "description": "Ordered failover lists of routes."
+    },
+    "potluck": {
+      "$ref": "#/$defs/potluck",
+      "description": "Where a donated upstream’s liveness is reported."
+    },
+    "configsvc": {
+      "$ref": "#/$defs/configsvc",
+      "description": "The config web UI’s listener and login; engined only validates it."
+    }
+  },
+  "$defs": {
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Engine id; also names its state paths, so it may not contain \"/\" or start with \".\"."
+        },
+        "disable": {
+          "type": "boolean",
+          "description": "Turns this entry off without deleting it."
+        },
+        "spec_dir": {
+          "type": "string",
+          "description": "Overrides the shipped spec directory. A privilege decision: spec is trusted code."
+        },
+        "models_dir": {
+          "type": "string",
+          "description": "Host directory holding this engine’s model files."
+        },
+        "models_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Llama occupancy floor; may not be below the number of distinct roles."
+        },
+        "idle_stop_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "default": 900,
+          "description": "How long an engine may sit unheld before it stops."
+        },
+        "drain_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "description": "How long a comfy submission waits for the engine to be free before it is refused. Default 15 minutes."
+        },
+        "ready_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "default": 60,
+          "description": "How long a start may take to pass its readiness probe."
+        },
+        "agent_version": {
+          "type": "string",
+          "description": "Agentic engines: the pinned CLI version, never \"latest\"."
+        },
+        "default_model": {
+          "type": "string",
+          "description": "Claude and cursor engines: the route model the models menu marks as default."
+        },
+        "model_refresh_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "description": "Claude and cursor engines: how often the provider is asked which models it serves. Default 3600."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "openai-http",
+            "agentic-cli",
+            "tts",
+            "stt",
+            "comfy"
+          ],
+          "description": "For an engine that ships no spec directory: which built-in spec it takes."
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Launch parameters for this engine; a route’s own args override them."
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Upstream id; \"local\" is reserved for this box and cannot carry base_url or secret."
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Where the upstream is reached."
+        },
+        "secret": {
+          "$ref": "#/$defs/secret",
+          "description": "Keyring item whose value authenticates calls to this upstream."
+        },
+        "egress": {
+          "type": "string",
+          "enum": [
+            "none",
+            "lan",
+            "remote"
+          ],
+          "description": "How far a call to this upstream travels: none (this box), lan or remote."
+        },
+        "wire": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic"
+          ],
+          "description": "The request shape this upstream speaks."
+        },
+        "disable": {
+          "type": "boolean",
+          "description": "Turns this entry off without deleting it."
+        },
+        "inventory_max_age_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "description": "How long a cached provider model list stays usable; required when a wildcard route names this upstream."
+        },
+        "inventory_refresh_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2147483,
+          "default": 3600,
+          "description": "How often the provider model list is re-fetched; must be less than inventory_max_age_seconds."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra headers sent on every remote hop; the auth header and Host are refused."
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "A potluck donation’s identity: 64 hex characters."
+        },
+        "monthly_cap_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Cost ceiling per UTC month, from the cost the upstream itself reports."
+        }
+      },
+      "required": [
+        "id",
+        "egress"
+      ]
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "Keyring service attribute."
+        },
+        "username": {
+          "type": "string",
+          "description": "Keyring username attribute."
+        },
+        "header": {
+          "type": "string",
+          "description": "Header that carries the resolved credential."
+        },
+        "scheme": {
+          "type": "string",
+          "description": "Auth prefix such as \"Bearer\"; absent sends the raw value."
+        }
+      },
+      "required": [
+        "service",
+        "username",
+        "header"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Model id that routes name."
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Input modalities this model accepts, for example \"text\" or \"image\"."
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Output modalities this model produces."
+        },
+        "context_in": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Token window for input."
+        },
+        "context_out": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Token window for output."
+        },
+        "reasoning": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Reasoning-effort words this model accepts."
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string",
+          "description": "Id of the engine this route runs on."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model segment of the address; \"*\" expands the upstream’s catalog."
+        },
+        "wire_model": {
+          "type": "string",
+          "description": "The id the upstream knows, sent in place of model."
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Human label a client may show; not an address."
+        },
+        "upstream": {
+          "type": "string",
+          "description": "Id of the upstream serving this route; absent means local."
+        },
+        "filename": {
+          "type": "string",
+          "description": "Model file under the engine’s models_dir."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "vision",
+            "embedding",
+            "rerank"
+          ],
+          "description": "Llama role this model fills."
+        },
+        "vision": {
+          "type": "string",
+          "enum": [
+            "describe",
+            "read"
+          ],
+          "description": "For a vision role: whether the model describes a scene or reads characters."
+        },
+        "translate": {
+          "type": "boolean",
+          "description": "Opts a speech route into the translations verb."
+        },
+        "fim": {
+          "type": "boolean",
+          "description": "Opts a local llama route into fill-in-the-middle completions."
+        },
+        "keep_resident": {
+          "type": "boolean",
+          "description": "Load this model at engine start and reload it whenever its role returns."
+        },
+        "streaming": {
+          "type": "boolean",
+          "description": "Overrides whether this route streams, against the engine spec."
+        },
+        "slot_long_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Token count at or above which a request goes to a long slot."
+        },
+        "vision_bridge": {
+          "type": "string",
+          "description": "Address of a vision route that captions image attachments for this chat route."
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Launch parameters for this route; they override the engine’s."
+        },
+        "disable": {
+          "type": "boolean",
+          "description": "Turns this entry off without deleting it."
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Input modalities this model accepts, for example \"text\" or \"image\"."
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Output modalities this model produces."
+        },
+        "context_in": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Token window for input."
+        },
+        "context_out": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Token window for output."
+        },
+        "reasoning": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Reasoning-effort words this model accepts."
+        }
+      },
+      "required": [
+        "engine"
+      ]
+    },
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Chain name callers address."
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ordered fully-qualified route addresses, \"@/engine/model\" or \"@/engine/upstream/model\"."
+        },
+        "disable": {
+          "type": "boolean",
+          "description": "Turns this entry off without deleting it."
+        }
+      },
+      "required": [
+        "id",
+        "hops"
+      ]
+    },
+    "potluck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "callback_url": {
+          "type": "string",
+          "description": "Where a donated upstream’s liveness is reported."
+        },
+        "callback_secret": {
+          "$ref": "#/$defs/callback_secret",
+          "description": "Keyring item holding the callback bearer."
+        }
+      },
+      "required": [
+        "callback_url",
+        "callback_secret"
+      ]
+    },
+    "callback_secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "Keyring service attribute."
+        },
+        "username": {
+          "type": "string",
+          "description": "Keyring username attribute."
+        }
+      },
+      "required": [
+        "service",
+        "username"
+      ]
+    },
+    "configsvc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the config web UI may run."
+        },
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Address the config web UI binds."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 29202,
+          "description": "Port of the config web UI; must differ from listen_port and cursor_port."
+        },
+        "password_hash": {
+          "type": "string",
+          "pattern": "^\\$argon2id\\$",
+          "description": "Login hash from Bun.password.hash with argon2id; required once enable is true."
+        }
+      }
+    }
+  }
+}
