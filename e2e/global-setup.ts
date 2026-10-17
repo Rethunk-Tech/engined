@@ -6,7 +6,7 @@ export default async function globalSetup(): Promise<() => void> {
   const child = spawn('bun', [join(import.meta.dirname, 'serve.ts')], {
     stdio: ['ignore', 'pipe', 'inherit'],
     // Bundled the way a release serves the page, without Bun's development client.
-    env: { ...process.env, NODE_ENV: 'production' },
+    env: { ...process.env, NODE_ENV: 'production', E2E: '1' },
   })
   const ready = await new Promise<{ url: string; configFile: string }>((resolve, reject) => {
     let seen = ''

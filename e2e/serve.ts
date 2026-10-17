@@ -8,6 +8,7 @@ import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { startConfigsvc } from '../src/configsvc.ts'
 import { secretTool } from '../src/configsvcSecrets.ts'
+import { runDoctor } from '../src/doctor.ts'
 
 const repo = join(import.meta.dir, '..')
 
@@ -91,7 +92,8 @@ const svc = startConfigsvc(
     secrets: secretTool,
     audit: () => undefined,
     fetch,
-    doctor: async () => ({ ok: true, checks: [] }),
+    // The smoke stays independent of this host's docker, GPU and agents; a manual preview reports them.
+    doctor: process.env.E2E === '1' ? async () => ({ ok: true, checks: [] }) : () => runDoctor(),
   },
 )
 console.log(`READY ${JSON.stringify({ url: svc.logLine.replace(/^configsvc: /, ''), configFile })}`)

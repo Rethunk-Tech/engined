@@ -14,6 +14,17 @@ export async function runDoctor(): Promise<void> {
   }))
 }
 
+export function summary(checks: readonly DoctorCheck[]): string {
+  const failed = checks.filter((c) => !(c.ok || c.skipped)).length
+  const skipped = checks.filter((c) => c.skipped).length
+  const passed = checks.length - failed - skipped
+  return `${passed} passed · ${failed} failed · ${skipped} skipped`
+}
+
+function summaryTone(checks: readonly DoctorCheck[]): string {
+  return checks.some((c) => !(c.ok || c.skipped)) ? 'bad' : 'ok'
+}
+
 export function DoctorView() {
   useEffect(() => {
     void runDoctor()
@@ -22,11 +33,18 @@ export function DoctorView() {
   return (
     <section>
       <h2>Host checks</h2>
-      <button type="button" onClick={() => void runDoctor()}>
-        Run again
-      </button>
+      <div class="rowhead">
+        {current === undefined ? null : (
+          <span class={summaryTone(current.checks)}>{summary(current.checks)}</span>
+        )}
+        <button type="button" class="small" onClick={() => void runDoctor()}>
+          Run again
+        </button>
+      </div>
       {current === undefined ? (
         <p class="muted">Checking…</p>
+      ) : current.checks.length === 0 ? (
+        <p class="muted">The host report came back with no checks.</p>
       ) : (
         <table class="grid">
           <tbody>
