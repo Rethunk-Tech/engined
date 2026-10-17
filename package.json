@@ -44,5 +44,11 @@
     "turbo": "^2.11.8",
     "typescript": "^7.0.2"
   },
-  "packageManager": "bun@1.4.3"
+  "packageManager": "bun@1.4.3",
+  "dependencies": {
+    "@decimalturn/toml-patch": "3.3.0"
+  },
+  "patchedDependencies": {
+    "@decimalturn/toml-patch@3.3.0": "patches/@decimalturn%2Ftoml-patch@3.3.0.patch"
+  }
 }

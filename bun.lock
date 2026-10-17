@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "engined",
+      "dependencies": {
+        "@decimalturn/toml-patch": "3.3.0",
+      },
       "devDependencies": {
         "@biomejs/biome": "^2.5.15",
         "@types/bun": "^1.4.3",
@@ -12,6 +15,9 @@
         "typescript": "^7.0.2",
       },
     },
+  },
+  "patchedDependencies": {
+    "@decimalturn/toml-patch@3.3.0": "patches/@decimalturn%2Ftoml-patch@3.3.0.patch",
   },
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
@@ -31,6 +37,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.5.15", "", { "os": "win32", "cpu": "arm64" }, "sha512-2kPKzhNlm8C+Ru3GcO0Me2ODkCBLrVOUNuyi84RJyWDVKAA4+Kjj3jMjL938lF6BRfvltC4vB2nPY9SvN51Ovg=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.15", "", { "os": "win32", "cpu": "x64" }, "sha512-yAzh4UqEImV6Hcy0zjUqNfJAsUhoD64FBQCdTG8Md/Z2wQeVP/ZmJ3XRYAs1g8J9fjTFyl2fCtc5FB5til47+g=="],
+
+    "@decimalturn/toml-patch": ["@decimalturn/toml-patch@3.3.0", "", {}, "sha512-xyamcHl5Jlm+KfI9Vn7k6Je+kqQ8bAmJtoWleQ7yNqUL9fwwc66+Q3bRO326U/ZLYjrVzB3irvJz8nuG+JwFdA=="],
 
     "@emnapi/core": ["@emnapi/core@1.11.2", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA=="],
 

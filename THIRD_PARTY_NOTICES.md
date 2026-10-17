@@ -32,6 +32,12 @@ Raising llama.cpp's `MAX_REPETITION_THRESHOLD` for large tool schemas
 (`engines/llama/Dockerfile`) follows KYmidnight's report in
 [kyuz0/amd-strix-halo-toolboxes#70](https://github.com/kyuz0/amd-strix-halo-toolboxes/issues/70).
 
+## Bundled libraries
+
+| Project | Licence | How engined uses it |
+| --- | --- | --- |
+| [@decimalturn/toml-patch](https://github.com/DecimalTurn/toml-patch) 3.3.0 | MIT | Comment-preserving `config.toml` edits, bundled into `dist/main.js`. `patches/` carries one fix, offered upstream in [DecimalTurn/toml-patch#321](https://github.com/DecimalTurn/toml-patch/pull/321): removing a `[[table]]` entry no longer drops the sub-tables of the entries after it |
+
 ## Models
 
 Each is fetched by an engine's image build or by the `obtain` command in its
