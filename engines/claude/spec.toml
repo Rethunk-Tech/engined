@@ -1,4 +1,6 @@
 kind = "agentic-cli"
+description = "Anthropic's Claude Code CLI, run under the operator's own login and served as a chat model."
+homepage = "https://github.com/anthropics/claude-code"
 # A route naming no upstream is ambient: claude carries its own login, not a
 # configured address or secret.
 upstream = "optional"

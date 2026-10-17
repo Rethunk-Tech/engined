@@ -1,4 +1,6 @@
 kind = "comfy"
+description = "Image generation and editing with ComfyUI, a node-graph runner for diffusion models; engined drives it through saved workflows."
+homepage = "https://github.com/Comfy-Org/ComfyUI"
 # comfy runs here, or on some peer's `local`, and never against a foreign
 # provider -- it has no dialect to speak to one.
 upstream = "self"

@@ -1,4 +1,6 @@
 kind = "tts"
+description = "Text to speech with Piper, a small ONNX voice that runs on the CPU, so it never contends for the GPU."
+homepage = "https://github.com/OHF-Voice/piper1-gpl"
 upstream = "self"
 image = "engined-piper:local"
 obtain = "build"

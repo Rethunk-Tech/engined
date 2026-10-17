@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Config UI: every engine says what it is and links to its project, on its tile, its card and in
+  the starter wizard. A spec declares this with `description` and `homepage` (an https URL); every
+  shipped spec carries both.
+
 ## 0.2.1 - 2026-10-17
 
 - Config UI: each llama engine card shows estimated resident memory (GGUF size plus KV cache at the

@@ -1,4 +1,6 @@
 kind = "agentic-cli"
+description = "The opencode coding-agent CLI, run with its own provider config and served as a chat model."
+homepage = "https://github.com/anomalyco/opencode"
 # A route naming no upstream is ambient: opencode's own provider config
 # carries the login, not an engined-configured address or secret.
 upstream = "optional"

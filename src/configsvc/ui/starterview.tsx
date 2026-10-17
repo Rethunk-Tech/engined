@@ -12,7 +12,7 @@ import {
 } from './starter.ts'
 import { snapshot } from './store.ts'
 import { formatBytes } from './suggest.ts'
-import { DiffView } from './widgets.tsx'
+import { About, DiffView } from './widgets.tsx'
 
 type Chosen = Record<string, { on: boolean; files: Record<string, string> }>
 
@@ -39,6 +39,7 @@ function EngineChoice(props: {
         <strong>{engine.id}</strong>
         <span class="muted">{engine.kind}</span>
       </label>
+      <About info={engine} />
       {blocked.map((c) => (
         <p class="bad small-text" key={c.id}>
           {c.id}: {c.detail}

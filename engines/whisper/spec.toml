@@ -1,4 +1,6 @@
 kind = "stt"
+description = "Speech to text with whisper.cpp, a C/C++ port of OpenAI's Whisper: transcribes uploaded audio, optionally streaming the text as it is recognised."
+homepage = "https://github.com/ggml-org/whisper.cpp"
 upstream = "self"
 # The bare upstream image (pinned digest, still the base layer of ./Dockerfile
 # below) declares no EXPOSE, and engined's port discovery has exactly one

@@ -1,4 +1,6 @@
 kind = "tts"
+description = "English text to speech with Resemble AI's Chatterbox Turbo; clones a voice from a short reference clip."
+homepage = "https://github.com/resemble-ai/chatterbox"
 upstream = "self"
 image = "engined-chatterbox-en:local"
 obtain = "build"

@@ -1,4 +1,6 @@
 kind = "agentic-cli"
+description = "Cursor's agent CLI, run under the operator's own Cursor login and served as a chat model."
+homepage = "https://cursor.com/docs/cli/overview"
 # A route naming no upstream is ambient: cursor carries its own Cursor
 # account login, not a configured address or secret. On the installed
 # version this is also the ONLY pairing that works today --

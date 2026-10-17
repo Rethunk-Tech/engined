@@ -55,8 +55,16 @@ const CONTAINER_ONLY_KEYS = [
 /** A spec declares no port: the container side is the image's EXPOSE, the host side is docker's. */
 const PORT_KEYS = new Set(['port', 'ports', 'expose'])
 
-/** Keys both dialects read. */
-const COMMON_KEYS = ['kind', 'upstream', 'serves', 'env', 'streaming'] as const
+/** Keys both dialects read. `description` and `homepage` are for people: the config UI shows them. */
+const COMMON_KEYS = [
+  'kind',
+  'upstream',
+  'serves',
+  'env',
+  'streaming',
+  'description',
+  'homepage',
+] as const
 
 const AGENTIC_KEYS: ReadonlySet<string> = new Set([...COMMON_KEYS, 'agent'])
 const CONTAINER_KEYS: ReadonlySet<string> = new Set([
@@ -85,6 +93,7 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
 
   const raw = Bun.TOML.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
   assertNoPortKey(raw, file)
+  assertAbout(raw, file)
 
   const kind = requireString(raw.kind, '"kind"', file)
   let spec: Spec =
@@ -164,6 +173,14 @@ function substituteDeep<T>(value: T, subs: Record<string, string>, file: string)
     return out as T
   }
   return value
+}
+
+function assertAbout(raw: Record<string, unknown>, file: string): void {
+  optional(raw.description, 'string', '"description"', file)
+  const homepage = optional(raw.homepage, 'string', '"homepage"', file)
+  if (homepage !== undefined && !homepage.startsWith('https://')) {
+    throw new ParseError('"homepage" must be an https:// URL', file)
+  }
 }
 
 function assertNoPortKey(obj: unknown, file: string): void {

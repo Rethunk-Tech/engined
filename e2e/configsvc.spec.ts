@@ -31,6 +31,7 @@ test('edit a route field, see validate and the diff, save, and hot reload', asyn
 
   await page.getByRole('link', { name: 'Engines' }).click()
   await page.locator('a.tile').first().click()
+  await expect(page.locator('.engine a[href^="https://"]').first()).toBeVisible()
   const route = page.locator('.route').first()
   await route.getByRole('button', { name: 'Edit' }).click()
   const field = route.locator('.field:has(.fieldname:text-is("display_name")) input')

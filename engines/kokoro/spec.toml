@@ -1,4 +1,6 @@
 kind = "tts"
+description = "Text to speech with Kokoro, a small 82M-parameter model with a set of built-in voices."
+homepage = "https://github.com/hexgrad/kokoro"
 upstream = "self"
 image = "engined-kokoro:local"
 obtain = "build"

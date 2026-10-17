@@ -1,4 +1,6 @@
 kind = "openai-http"
+description = "Runs local GGUF language models through llama.cpp's server: chat, embeddings, reranking and code completion. Built from the PrismML-Eng fork of llama.cpp for its faster decode."
+homepage = "https://github.com/ggml-org/llama.cpp"
 # self, not the openai-http default of "required": this engine IS the
 # upstream. A route naming none defaults to "local", never ambient or a
 # configured address.

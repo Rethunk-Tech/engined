@@ -175,3 +175,23 @@ export function DiffView({ diff }: { diff: string }) {
     </pre>
   )
 }
+
+/** What a shipped engine is, from its spec's `description` and `homepage`. */
+export function About({ info }: { info: { description?: string; homepage?: string } | undefined }) {
+  if (info?.description === undefined && info?.homepage === undefined) {
+    return null
+  }
+  return (
+    <p class="small-text">
+      {info.description}
+      {info.homepage === undefined ? null : (
+        <>
+          {' '}
+          <a href={info.homepage} target="_blank" rel="noreferrer">
+            {info.homepage.replace(/^https:\/\//, '')}
+          </a>
+        </>
+      )}
+    </p>
+  )
+}

@@ -40,7 +40,7 @@ import { SnippetBox } from './snippets.tsx'
 import { postStream } from './sse.ts'
 import { draft, status } from './store.ts'
 import { findModelFile, formatBytes } from './suggest.ts'
-import { CopyButton, Labeled, Prop } from './widgets.tsx'
+import { About, CopyButton, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -216,6 +216,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
         </span>
         <DeleteGuard doc={d} table="engine" id={id} index={index} addresses={addresses} />
       </div>
+      <About info={entry?.info} />
       <MemoryLine d={d} engine={engine} />
       {liveEngines.value[id]?.last_error ? (
         <p class="bad small-text">{liveEngines.value[id]?.last_error}</p>
@@ -308,7 +309,8 @@ const TILE_ROUTES = 4
 /** One engine in the grid: enough to find it and see its health; the card behind it edits. */
 function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   const id = String(engine.id)
-  const kind = engineKind(engine, specs.value[id]?.info)
+  const info = specs.value[id]?.info
+  const kind = engineKind(engine, info)
   const addresses = routesOf(d, id).flatMap((r) => routeAddress(d, r.route) ?? [])
   const fix = liveEngines.value[id]?.fix ?? liveEngines.value[id]?.last_error
   const calls = addresses.reduce((sum, a) => sum + callsFor(a), 0)
@@ -322,6 +324,9 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
         <span class="pill">{kind ?? 'unknown kind'}</span>
         <StatePill id={id} />
       </div>
+      {info?.description === undefined ? null : (
+        <span class="small-text clamp">{info.description}</span>
+      )}
       {fix === undefined ? null : <span class="muted small-text clamp">{fix}</span>}
       <ul class="tile-list">
         {addresses.slice(0, TILE_ROUTES).map((a) => (

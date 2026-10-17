@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { shippedEngines } from './configsvcShipped.ts'
 import { buildLlamaSpec, MODELS_CONTAINER_PATH, PRESET_CONTAINER_PATH } from './llamaSpec.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -388,4 +389,26 @@ test('every shipped spec parses against the closed key sets', () => {
     )
     expect(loaded.spec.kind).toBeString()
   }
+})
+
+test('every shipped engine says what it is and where its project lives', () => {
+  const shipped = shippedEngines(ENGINES_ROOT)
+  expect(shipped.length).toBeGreaterThan(0)
+  for (const e of shipped) {
+    expect([e.id, e.description, e.homepage?.startsWith('https://')]).toEqual([
+      e.id,
+      expect.any(String),
+      true,
+    ])
+  }
+})
+
+test('a homepage that is not https is fatal', () => {
+  const root = specDir(
+    'x',
+    'kind = "agentic-cli"\nupstream = "optional"\nagent = "claude"\nserves = []\nhomepage = "http://example.com"\n',
+  )
+  expect(() =>
+    loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
+  ).toThrow('"homepage" must be an https:// URL')
 })

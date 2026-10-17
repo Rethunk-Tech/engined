@@ -9,6 +9,9 @@ export interface ShippedEngine {
   kind: string
   upstream: string
   agent?: string
+  /** What the engine does and where its project lives, for the people choosing it. */
+  description?: string
+  homepage?: string
   /** The spec declares `[[artifact]]` entries `obtain` can fetch. */
   artifacts: boolean
   /** Host devices the container needs; the doctor's `/dev/...` checks gate on them. */
@@ -54,6 +57,8 @@ export function shippedEngines(enginesRoot: string): ShippedEngine[] {
         kind: spec.kind,
         upstream: spec.upstream,
         agent: typeof spec.agent === 'string' ? spec.agent : undefined,
+        description: typeof spec.description === 'string' ? spec.description : undefined,
+        homepage: typeof spec.homepage === 'string' ? spec.homepage : undefined,
         artifacts: Array.isArray(spec.artifact) && spec.artifact.length > 0,
         devices: stringList(spec.devices),
         models_dir: dir,

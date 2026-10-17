@@ -20,6 +20,8 @@ export interface SpecInfo {
   kind?: EngineKind
   upstream?: UpstreamTrait
   agent?: string
+  description?: string
+  homepage?: string
   artifacts: boolean
   /** The spec's own `[args]` defaults, which config args override. */
   args: Table
@@ -57,6 +59,8 @@ export function parseSpec(text: string): SpecInfo {
       upstream:
         trait === 'self' || trait === 'optional' || trait === 'required' ? trait : undefined,
       agent: typeof raw.agent === 'string' ? raw.agent : undefined,
+      description: typeof raw.description === 'string' ? raw.description : undefined,
+      homepage: typeof raw.homepage === 'string' ? raw.homepage : undefined,
       artifacts: Array.isArray(raw.artifact) && raw.artifact.length > 0,
       args: isTable(raw.args) ? raw.args : {},
     }
