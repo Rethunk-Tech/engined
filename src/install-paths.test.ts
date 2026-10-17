@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
-import { configHome, installDir, stateDir } from './paths.ts'
+import { configHome, dataHome, installDir, stateDir } from './paths.ts'
 
 const script = join(import.meta.dir, '..', 'scripts', 'install.sh')
 const XDG = 'XDG_DATA_HOME'
@@ -71,6 +71,23 @@ test.each([
   expect(err).toBe('')
   expect(code).toBe(0)
   expect(out.split('\n')).toEqual(fromPathsModule(dataHome))
+})
+
+test.each([
+  ['absolute, so it wins', '/usr/lib/engined', '/usr/lib/engined'],
+  ['relative, so ignored', 'usr/lib/engined', undefined],
+])('ENGINED_INSTALL_DIR %s', (_label, value, expected) => {
+  const previous = process.env.ENGINED_INSTALL_DIR
+  process.env.ENGINED_INSTALL_DIR = value
+  try {
+    expect(installDir()).toBe(expected ?? join(dataHome(), 'engined'))
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ENGINED_INSTALL_DIR
+    } else {
+      process.env.ENGINED_INSTALL_DIR = previous
+    }
+  }
 })
 
 test('install.sh refuses a resolution too shallow to install into', async () => {

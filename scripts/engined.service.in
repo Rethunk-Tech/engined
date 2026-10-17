@@ -19,6 +19,11 @@ ExecReload=/bin/kill -HUP $MAINPID
 
 # {bunx} in a spec.toml command resolves to this at render time.
 Environment=ENGINED_BUNX=@BUNX_PATH@
+Environment=ENGINED_INSTALL_DIR=@INSTALL_DIR@
+
+# ReadWritePaths= below needs the state directory to exist before the
+# namespace is built. install.sh creates it; a package cannot, per user.
+StateDirectory=engined engined/bun-install engined/tmp
 
 # ProtectHome=read-only makes bunx fail "Unexpected accessing temporary
 # directory" without naming the sandbox as the cause. The cache this points

@@ -27,9 +27,14 @@ export function configPath(): string {
   return join(configHome(), 'engined', 'config.toml')
 }
 
-/** Where the install script syncs `main.js` and the `engines/` spec directories. */
+/**
+ * Where `main.js` and the `engines/` spec directories live. A package sets
+ * `ENGINED_INSTALL_DIR` in its units (`/usr/lib/engined`); `install.sh` syncs
+ * under the data home. A relative value is ignored, as for the XDG variables.
+ */
 export function installDir(): string {
-  return join(dataHome(), 'engined')
+  const v = envString('ENGINED_INSTALL_DIR')
+  return v !== undefined && isAbsolute(v) ? v : join(dataHome(), 'engined')
 }
 
 /** The one writable path under `ProtectSystem=strict`. */

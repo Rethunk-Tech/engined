@@ -16,10 +16,10 @@ export const VISION_KINDS: readonly VisionKind[] = ['describe', 'read']
 
 /**
  * `~/.local/share/` in a config path means "wherever engined's own data
- * lives" -- the same base `dataHome()` gives `installDir()` -- not literally
- * the caller's home directory. Routing that one prefix through `dataHome()`
- * is what keeps a configured `models_dir` a sibling of `installDir()` even
- * when `XDG_DATA_HOME` overrides where both live; a bare `expandTilde` never
+ * lives" -- `dataHome()`, the base an `install.sh` install sits under -- not
+ * literally the caller's home directory. Routing that one prefix through
+ * `dataHome()` is what keeps a configured `models_dir` under the data home even
+ * when `XDG_DATA_HOME` overrides where it lives; a bare `expandTilde` never
  * consults it and drifts to `$HOME/.local/share` regardless. Any other tilde
  * path is a literal home-directory reference and expands as one.
  */
