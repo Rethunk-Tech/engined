@@ -12,7 +12,7 @@ export interface JournalRead {
   exitCode: number
 }
 
-export async function readConfigsvcJournal(): Promise<JournalRead> {
+async function readConfigsvcJournal(): Promise<JournalRead> {
   const proc = Bun.spawn(
     ['journalctl', '--user', '-u', CONFIGSVC_UNIT, '-o', 'cat', '--no-pager'],
     {

@@ -253,9 +253,9 @@ test("the probe unit's ExecStart names the flag main.ts branches on", () => {
 })
 
 test('--help and -h print usage and exit 0 without starting the door', async () => {
-  const main = readFileSync(join(import.meta.dir, 'main.ts'), 'utf8')
-  expect(main).toContain("process.argv.includes('--help')")
-  expect(main).toContain("process.argv.includes('-h')")
+  const modes = readFileSync(join(import.meta.dir, 'extraModes.ts'), 'utf8')
+  expect(modes).toContain("argv.includes('--help')")
+  expect(modes).toContain("argv.includes('-h')")
   const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts'), '--help'], {
     stdout: 'pipe',
     stderr: 'pipe',
