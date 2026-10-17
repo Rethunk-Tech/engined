@@ -5,6 +5,14 @@
 - Config UI: every engine says what it is and links to its project, on its tile, its card and in
   the starter wizard. A spec declares this with `description` and `homepage` (an https URL); every
   shipped spec carries both.
+- Config UI: kinds read in plain words ("text to speech", not `tts`); engine state and upstream egress
+  are icons; disabled engines show as disabled rather than unavailable; a tile whose weights are missing
+  links straight to Obtain. Shipped engines not yet in the config can be added from a list, an engine
+  with many routes gets a filter, the logs panel follows new lines, and Usage covers 7 or 31 days.
+- Config UI: a route's Test sends the request that route serves (speech, transcription, embeddings,
+  rerank, completions), not always a chat request; image routes say they have no cheap test.
+- Config UI: on a first run, the "cannot read config" error from before any save no longer marks the
+  first save and reload as failed.
 
 ## 0.2.1 - 2026-10-17
 
