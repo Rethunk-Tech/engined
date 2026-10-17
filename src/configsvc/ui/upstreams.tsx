@@ -216,9 +216,14 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
       <Headers index={index} headers={upstream.headers} />
       <SecretBox index={index} upstream={upstream} />
       <Inventory id={id} />
-      <p class="muted small-text">
-        Used by {used.length === 0 ? 'no routes' : addresses.join(', ')}
-      </p>
+      {used.length === 0 ? (
+        <p class="bad small-text">
+          No route uses this upstream, so it serves no models. Give it an engine of kind openai-http
+          and a route naming both; <code>model = "*"</code> lists the provider's whole catalog.
+        </p>
+      ) : (
+        <p class="muted small-text">Used by {addresses.join(', ')}</p>
+      )}
     </section>
   )
 }
@@ -283,6 +288,9 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
           {secret.present ? 'secret in the keyring' : 'secret missing from the keyring'}
         </span>
       )}
+      {addresses.length === 0 ? (
+        <span class="bad small-text">No route uses it, so it serves no models</span>
+      ) : null}
       <span class="muted small-text">
         {plural(addresses.length, 'route')} · ${monthSpend(addresses).toFixed(2)}
         {cap === undefined ? '' : ` of $${cap}`} this month

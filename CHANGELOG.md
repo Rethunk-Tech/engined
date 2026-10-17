@@ -4,6 +4,8 @@
 
 - Config UI: the Map tints chains, engines and upstreams in their own colours, with a legend that
   also shows what a disabled entry looks like.
+- Config UI: an upstream no route uses says so on its tile and card, with how to give it one: an
+  upstream alone serves no models.
 
 ## 0.2.2 - 2026-10-17
 
