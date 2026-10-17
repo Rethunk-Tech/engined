@@ -31,6 +31,7 @@ import {
   CURSOR_FLOOR,
   CURSOR_OUTPUT_FORMAT,
 } from './agenticArgs.ts'
+import { AGENT_WIRES } from './agentWires.ts'
 import { pathSearchPath } from './env.ts'
 import { isUnder, stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
@@ -488,7 +489,7 @@ const AGENTS: Record<string, AgentCli> = {
     id: 'claude',
     pkg: '@anthropic-ai/claude-code',
     floor: 'flags',
-    wire: 'anthropic',
+    wire: AGENT_WIRES.claude,
     launch: (mcpConfigPath, streaming, systemPrompt, research) => [
       '-p',
       ...(streaming === true ? CLAUDE_STREAM_FORMAT : CLAUDE_OUTPUT_FORMAT),
@@ -507,7 +508,7 @@ const AGENTS: Record<string, AgentCli> = {
     id: 'opencode',
     pkg: 'opencode-ai',
     floor: 'sandbox',
-    wire: 'openai',
+    wire: AGENT_WIRES.opencode,
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
     launch: () => ['run', '--format', 'json'],
     parse: parseOpencodeEvents,
@@ -523,7 +524,7 @@ const AGENTS: Record<string, AgentCli> = {
     // Chat Completions format" before it reaches a model -- the closest
     // available classification of the two this repo has. Nominal only: no
     // `configure` is declared below, so no route can actually reach it yet.
-    wire: 'openai',
+    wire: AGENT_WIRES.cursor,
     // cursor has no config-path flag of its own -- `mcpConfigPath` is part
     // of every agent's `launch` signature but unused here.
     launch: () => ['-p', ...CURSOR_OUTPUT_FORMAT, ...CURSOR_FLOOR],

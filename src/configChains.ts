@@ -1,6 +1,7 @@
 /** `[[chain]]`: parsing each table and resolving its hops against the routes that exist. */
 import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
-import { asArray, CHAIN_KEYS, parseDisable, requireString, requireTable } from './configParse.ts'
+import { CHAIN_KEYS } from './configKeys.ts'
+import { asArray, parseDisable, requireString, requireTable } from './configParse.ts'
 import { engineHasWildcard } from './configRouteValidate.ts'
 import { type ConfigPath, ParseError } from './errors/parse.ts'
 import { qualifiedSegments, WILDCARD_MODEL } from './routeAddress.ts'

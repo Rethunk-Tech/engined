@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { asArray, assertKnownKeys, TOP_KEYS } from './configParse.ts'
+import { TOP_KEYS } from './configKeys.ts'
+import { asArray, assertKnownKeys } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 import { errMessage, isRecord } from './records.ts'
 

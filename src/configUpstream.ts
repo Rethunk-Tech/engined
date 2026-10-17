@@ -3,12 +3,10 @@
  * so that file stays inside the line ceiling.
  */
 
+import { CALLBACK_SECRET_KEYS, CONFIGSVC_KEYS, POTLUCK_KEYS } from './configKeys.ts'
 import {
-  CALLBACK_SECRET_KEYS,
-  CONFIGSVC_KEYS,
   optional,
   optionalPositive,
-  POTLUCK_KEYS,
   parsePort,
   requireString,
   requireTable,

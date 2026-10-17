@@ -4,7 +4,7 @@
  * over, so the engine's status can name it.
  */
 
-import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
+import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configKeys.ts'
 import type { Inventory } from './inventory.ts'
 import { MS_PER_SECOND } from './records.ts'
 import type { EngineStatus } from './responses.ts'

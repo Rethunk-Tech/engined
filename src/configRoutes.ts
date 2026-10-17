@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
+import { ROLES, ROUTE_KEYS, VISION_KINDS, WILDCARD_FORBIDDEN_KEYS } from './configKeys.ts'
 import {
   asArgs,
   expandConfigPath,
@@ -16,11 +17,8 @@ import {
   optionalPositive,
   parseCapabilities,
   parseDisable,
-  ROLES,
-  ROUTE_KEYS,
   requireString,
   requireTable,
-  VISION_KINDS,
 } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 import { isRecord } from './records.ts'
@@ -88,18 +86,7 @@ export function parseRouteRaw(
   if (modelStr === WILDCARD_MODEL) {
     // A catalog expansion is not one model: local-file keys, a wire alias,
     // and per-route args would describe a SKU the operator has not named.
-    for (const key of [
-      'filename',
-      'role',
-      'vision',
-      'translate',
-      'fim',
-      'keep_resident',
-      'wire_model',
-      'slot_long_threshold',
-      'vision_bridge',
-      'args',
-    ] as const) {
+    for (const key of WILDCARD_FORBIDDEN_KEYS) {
       if (raw[key] !== undefined) {
         throw new ParseError(`${site} is a wildcard route and must not declare "${key}"`, {
           file,

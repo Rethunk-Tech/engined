@@ -28,7 +28,7 @@ import {
   TOP_KEYS,
   UPSTREAM_KEYS,
   VISION_KINDS,
-} from './configParse.ts'
+} from './configKeys.ts'
 import { DEFAULT_CONFIGSVC_PORT } from './configUpstream.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { EGRESS_RANK, KIND_TRAITS } from './types.ts'

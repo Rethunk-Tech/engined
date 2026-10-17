@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { CAPABILITY_FIELDS, DEFAULT_INVENTORY_REFRESH_SECONDS } from './configParse.ts'
+import { CAPABILITY_FIELDS, DEFAULT_INVENTORY_REFRESH_SECONDS } from './configKeys.ts'
 import {
   CLAUDE_ENGINE_ID,
   DEFAULT_FETCH_TIMEOUT_MS,

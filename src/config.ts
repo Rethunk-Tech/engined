@@ -11,12 +11,11 @@
 import { join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { buildChains, parseChainRaw } from './configChains.ts'
+import { ENGINE_KEYS, MODEL_KEYS, SECRET_KEYS, UPSTREAM_KEYS } from './configKeys.ts'
 import { recordOrigins } from './configOrigin.ts'
 import {
   asArgs,
-  ENGINE_KEYS,
   expandConfigPath,
-  MODEL_KEYS,
   optional,
   optionalPositive,
   optionalTimeoutSeconds,
@@ -26,8 +25,6 @@ import {
   parsePositiveInteger,
   requireString,
   requireTable,
-  SECRET_KEYS,
-  UPSTREAM_KEYS,
 } from './configParse.ts'
 import { parseRouteRaw, resolveRoute, type SpecFacts, specFactsFor } from './configRoutes.ts'
 import {
