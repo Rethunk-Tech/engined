@@ -51,11 +51,10 @@ describe('bpeTokenIds', () => {
     expect(() => bpeTokenIds(v, 'a')).toThrow(UnsupportedVocabError)
   })
 
-  test('a run of spaces four times longer takes well under sixteen times as long', () => {
+  test('a run of spaces four times longer costs well under sixteen times the rank lookups', () => {
     // Each rank doubles a run of spaces, so a naive merge rescans the whole
-    // word once per merge: quadratic in the run length, 16x for a 4x run.
-    // A ratio rather than a wall-clock ceiling, which a loaded CI runner
-    // misses; the fastest of three runs drops one-off stalls.
+    // word once per merge: quadratic in the run length, 16x the lookups for a
+    // 4x run. Counting lookups rather than timing them cannot flake on a busy box.
     const tokens = ['h', 'e', 'l', 'o', 'x', 'Ġ']
     const merges: string[] = []
     let run = 'Ġ'
@@ -64,17 +63,19 @@ describe('bpeTokenIds', () => {
       run += run
       tokens.push(run)
     }
-    const v = vocab('qwen2', tokens, merges)
-    const fastest = (spaces: number): number => {
-      let best = Number.POSITIVE_INFINITY
-      for (let i = 0; i < 3; i++) {
-        const started = performance.now()
-        expect(bpeTokenIds(v, `hello${' '.repeat(spaces)}x`).length).toBeGreaterThan(0)
-        best = Math.min(best, performance.now() - started)
+    class CountingMap extends Map<string, number> {
+      lookups = 0
+      override get(key: string): number | undefined {
+        this.lookups += 1
+        return super.get(key)
       }
-      return best
     }
-    const short = fastest(10_000)
-    expect(fastest(40_000) / short).toBeLessThan(8)
+    const lookups = (spaces: number): number => {
+      const mergeRank = new CountingMap(merges.map((m, i) => [m, i]))
+      const v = { ...vocab('qwen2', tokens, []), mergeRank }
+      expect(bpeTokenIds(v, `hello${' '.repeat(spaces)}x`).length).toBeGreaterThan(0)
+      return mergeRank.lookups
+    }
+    expect(lookups(40_000) / lookups(10_000)).toBeLessThan(8)
   })
 })
