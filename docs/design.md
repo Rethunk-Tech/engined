@@ -81,8 +81,12 @@ resident 35B model costs ~27 GiB of a 133 GB shared pool and idle-stop returns
 it, so three resident engines still sit inside the pool. It stays unbuilt
 until a measured peak actually approaches that ceiling.
 
-No multi-machine, auth, tenancy or web UI — the operator surface is
-`GET /engined/v1/engines`. No stub adapter, for the same reason the tests carry no
+No multi-machine, auth or tenancy on the door. The runtime
+operator surface is `GET /engined/v1/engines`. Configuration has one browser UI,
+`--configsvc`, a separate unit on loopback that edits `config.toml` through a JSON
+API (validate, comment-preserving edit, diff, atomic save with history, reload by
+signal) and never starts an engine itself; its gate and why a config write is
+root-equivalent are in [security-model.md](security-model.md). No stub adapter, for the same reason the tests carry no
 mocks: every trap here was tool behaviour rather than logic, and a fake
 reproduces the logic and none of the behaviour.
 

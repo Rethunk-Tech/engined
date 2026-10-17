@@ -152,57 +152,66 @@ names) for artifacts not on disk yet, in order, and streams SSE events `step`
 first failing command, kills the command if the client disconnects, answers 404
 for an engine whose spec declares no artifacts and 409 while one is running.
 
-The config UI is `main.js --configsvc` (the `engined-configsvc` unit; with a valid config it exits unless
-`[configsvc] enable = true`). It binds `127.0.0.1:29202`, logs `configsvc: <url>`
-at each start (`engined --configsvc-url` finds it) and signs in with that URL's
-one-time token, or with `password_hash` when set (five wrong tries a minute lock
-a client out; sessions end after 12 hours idle). It is the only writer of
-`config.toml`: a save validates the text the way engined loads it, keeps the
-previous file in `~/.config/engined/.history/` (newest 20), writes atomically,
-and logs one audit line; it never restarts anything itself, it reports which
-engines would restart and whether the ports changed, and reloads engined by
-signal on request. With a broken config it still starts, so the file can be
-repaired through it. Open the logged URL (`engined --configsvc-url`) in a browser: the
-page trades the token in the link for a session cookie and drops it from the address bar.
-A banner shows whether engined runs the config on disk. To reach it from another machine set
-`[configsvc] host` to the name or address clients dial and restart `engined-tls`: the UI stays on loopback
-and Caddy serves `https://<host>:29444` in front of it (the logged URL is that one). Use `password_hash`
-there; [docs/security-model.md](docs/security-model.md) says why a config writer is root-equivalent. The Raw TOML view edits the pending text with
-TOML highlighting; every change is validated the way engined loads it (after a 300 ms pause), errors are
-marked in the margin and listed under the editor, and `config.d/` fragments are shown read-only. The Engines view is one card per engine: live state,
-disable, rename (a spec-keyed engine id is refused, with the reason), a delete guard that lists what still
-points at it and its 7-day calls, container logs and resources, the read-only spec, Obtain when the spec
-has artifacts, and its routes. A route form shows only the fields its engine kind allows, offers the
-upstreams the engine can use, suggests models and files (with GGUF quantisation and context, and a warning
-when `ctx-size` exceeds it), checks each `args` entry as you type, and shows the resolved upstream,
-capabilities and args. Test sends one token through the route. Every form change edits the pending text
-(comments kept); nothing is written until it is saved.
-Upstreams edit `base_url`, egress, wire, headers and the keyring reference (present or missing is shown; the
-store form writes the value to the desktop keyring and never shows it again), fetch a catalog, list the routes
-that use the upstream and show this month's reported spend against `monthly_cap_usd`. Models are the
-`[[model]]` capability rows and the routes that inherit them. Chains order hops from every route address and
-mark a hop that would be skipped because all its routes are disabled. The Address book lists every
-`@/...` address a consumer can use, with a copy button and 7-day calls. Any entry can be copied as TOML, and a
-pasted `[[table]]` snippet is added only if the merged config validates.
+### The config UI
 
-Review and save shows the diff against the file on disk and saves with the hash the page read: if the file
-changed meanwhile you see that change and choose between reloading from disk and saving yours over it. A
-save without a `[configsvc] enable` value writes `enable = true` (untick it on Settings to turn the UI off).
-After a save you choose a hot or hard reload (hard is preselected when a port moved), and may name a route
-to test afterwards. The page then waits up to about 10 seconds for engined to report the saved config; if it
-does not, or reports a `config_error`, or the route test fails, it asks Keep or Revert, and no answer keeps
-the change. Revert restores the file the save replaced and reloads the same way. History lists the kept
-files (newest 20), diffs one against the current file and restores it.
+A browser editor for `config.toml`, run by its own unit (`engined-configsvc`, `main.js --configsvc`). It is
+the only writer of the file, it never starts or stops an engine, and it reloads engined only by the signals
+in the table below when you ask.
 
-Host checks is the `--doctor` report with the fix beside each failure. On a box whose `config.toml` is
-absent or empty the UI opens on Starter: it reads those checks, the shipped engines (`engines/*/spec.toml`)
-and the weights already in each engine's default directory, lets you tick what to run and which files to
-serve, and shows the resulting TOML as a diff. Using it only fills the pending text; saving goes through
-Review and save like any other change.
+**Open it.** `engined --configsvc-url` prints the URL the unit last logged (the same line is in
+`journalctl --user -u engined-configsvc`). The URL carries a one-time token that is minted at every start;
+the page trades it for a session cookie and drops it from the address bar. The unit listens on
+`127.0.0.1:29202`.
 
-`GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
+**Enable or disable it.** It runs when `[configsvc] enable = true`. A valid config without that exits the unit
+with status 0; a missing or broken config still starts it, so the file can be repaired through it.
+`install.sh` enables the unit either way and prints `engined --configsvc-url` on a box with no config.
 
-Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):
+**Password mode.** Set `[configsvc] password_hash` to the output of `engined --hash-password` (it reads one line
+from stdin) and the page asks for that password instead of a token. Five wrong tries a minute lock a client
+out, and a session ends after 12 hours idle.
+
+**From another machine.** Set `[configsvc] host` to the name or address clients dial and restart
+`engined-tls`: the UI stays on loopback and Caddy serves `https://<host>:29444` in front of it, and the logged
+URL is that one. Use `password_hash` there. Saving a config is root-equivalent (a `spec_dir` runs as root
+through docker); [docs/security-model.md](docs/security-model.md) has the reasoning.
+
+What each view does:
+
+| View | What it does |
+| --- | --- |
+| Starter | Only while `config.toml` is absent or empty. Reads the host checks, the shipped engines (`engines/*/spec.toml`) and the weights already in each engine's default directory, lets you tick what to run and which files to serve, and fills the pending text with the result as a diff. |
+| Overview | Where the file is, its hash, and the pending diff. |
+| Engines | One card per engine: live state, disable, rename (a spec-keyed engine id is refused, with the reason), a delete guard listing what still points at it and its 7-day calls, container logs and resources, the read-only `spec.toml`, Obtain when the spec has artifacts. Its routes sit under it: a form that shows only the fields the engine kind allows, offers the upstreams the engine can use, suggests models and weight files (GGUF quantisation and context, with a warning when `ctx-size` exceeds it), checks each `args` entry as you type, shows the resolved upstream, capabilities and args, and has a Test button that sends one token through the route. |
+| Upstreams | `base_url`, egress, wire, headers and the keyring reference. Present or missing is shown, the store form writes the value to the desktop keyring and never shows it again, a catalog fetch, the routes that use the upstream, and this month's reported spend against `monthly_cap_usd`. |
+| Models | The `[[model]]` capability rows and the routes that inherit them. |
+| Chains | Hops in order, chosen from every route address; a hop whose routes are all disabled is flagged as dropped. |
+| Address book | Every `@/...` address a consumer can use, with a copy button and 7-day calls. |
+| Usage | Calls, failures and reported cost per route over 7 days. |
+| Settings | The door's ports and timeouts, and `[configsvc]`. |
+| Review & save | The diff against the file on disk, then Save. |
+| History | The kept files (newest 20): diff one against the current file, or restore it. |
+| Host checks | The `--doctor` report with the fix beside each failure. |
+| Raw TOML | The pending text in an editor with TOML highlighting. Every change is validated the way engined loads it after a 300 ms pause; errors are marked at their line and column and listed under the editor. `config.d/` fragments are shown read-only. |
+
+Every form change edits the pending text through the same comment-preserving editor, so comments and layout
+survive; nothing is written until Save. Any entry can be copied as TOML, and a pasted `[[table]]` snippet is
+added only if the merged config validates.
+
+**Saving.** Save writes with the hash the page read: if the file changed meanwhile you see that change and
+choose between reloading from disk and saving yours over it. A save without a `[configsvc] enable` value writes
+`enable = true` (untick it on Settings to turn the UI off). The result lists the engines whose container changes
+and restarts on its next start. You then choose a hot reload (`HUP`) or a hard one (`USR1`, preselected when a
+port moved), see [Signals](#signals-to-the-unit) below, and may name a route to test afterwards. The page waits
+up to about 10 seconds for engined to report the saved config; if it does not, reports a `config_error`, or the
+route test fails, it asks Keep or Revert. No answer keeps the change; Revert restores the file the save
+replaced and reloads the same way.
+
+`GET /engined/v1/engines` is the runtime operator surface — no `/v1/health`. The config UI above edits config; it adds nothing the door answers.
+
+### Signals to the unit
+
+`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP. The config UI's reload buttons send the first two:
 
 | Signal | Reload | Keeps | Applies |
 | --- | --- | --- | --- |
