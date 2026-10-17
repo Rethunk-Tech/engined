@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Config: a disabled route no longer counts toward the roles `models_max` must cover.
+- Config UI: chain hops offer every model in an enabled wildcard route's cached catalog, and a hop
+  onto a catalog model reads as served rather than "matches no route".
 
 ## 0.2.4 - 2026-10-17
 

@@ -11,13 +11,12 @@ import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { upstreamInventoryDir } from './paths.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
-import { WILDCARD_MODEL } from './routeAddress.ts'
+import { encodeAddressSegment } from './routeAddress.ts'
 import type { Upstream } from './types.ts'
 import { resolveUpstream, upstreamUrl } from './upstream.ts'
 
 const MODELS_PATH = '/models'
 const CACHE_FILE = 'inventory.json'
-const ENCODED_SLASH = '%2F'
 
 export interface InventoryOptions {
   fetch?: HttpClient
@@ -38,23 +37,6 @@ export interface InventoryLookup {
 interface CachedInventory {
   fetchedAt: number
   ids: string[]
-}
-
-/**
- * Address segment for a provider id: only `/` becomes `%2F`. An id that
- * already contains that sequence, or that is the wildcard sentinel, cannot
- * round-trip as a segment and is skipped.
- */
-export function encodeAddressSegment(providerId: string): string | undefined {
-  if (providerId === WILDCARD_MODEL || providerId.includes(ENCODED_SLASH)) {
-    return
-  }
-  return providerId.replaceAll('/', ENCODED_SLASH)
-}
-
-/** Reverse of `encodeAddressSegment`: only `%2F` becomes `/`. */
-export function decodeAddressSegment(segment: string): string {
-  return segment.replaceAll(ENCODED_SLASH, '/')
 }
 
 function isFresh(fetchedAt: number, maxAgeSeconds: number, now: number): boolean {

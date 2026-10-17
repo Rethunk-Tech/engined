@@ -5,11 +5,12 @@ import { join } from 'node:path'
 import { chatRequest } from './doorFixtures.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
-import { decodeAddressSegment, encodeAddressSegment, Inventory } from './inventory.ts'
+import { Inventory } from './inventory.ts'
 import { InventoryWatch } from './inventoryWatch.ts'
 import { createDoor } from './main.ts'
 import { MS_PER_SECOND } from './records.ts'
 import type { ModelRow } from './responses.ts'
+import { decodeAddressSegment, encodeAddressSegment } from './routeAddress.ts'
 import {
   BUNX,
   config,

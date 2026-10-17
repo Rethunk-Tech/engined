@@ -2,7 +2,7 @@ import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { editDraft } from './actions.ts'
 import { type HopState, hopChoices, hopState } from './addresses.ts'
-import { ensureSpec, upstreamResolver } from './data.ts'
+import { discovery, ensureSpec, loadDiscovery, upstreamResolver } from './data.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { type Doc, parseDoc, type Table } from './model.ts'
 import { entryToToml } from './snippet.ts'
@@ -107,7 +107,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
       <div class="addrow">
         <select value={pick} onChange={(e) => setPick(e.currentTarget.value)}>
           <option value="">add a hop…</option>
-          {hopChoices(d, upstreamOf).map((a) => (
+          {hopChoices(d, upstreamOf, discovery.value.inventories).map((a) => (
             <option key={a} value={a}>
               {a}
             </option>
@@ -132,6 +132,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
 export function ChainsView() {
   const [id, setId] = useState('')
   useEffect(() => {
+    void loadDiscovery()
     for (const e of doc.value?.engine ?? []) {
       void ensureSpec(String(e.id))
     }

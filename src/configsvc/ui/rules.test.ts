@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { addressBook, hopState } from './addresses.ts'
+import { addressBook, hopChoices, hopState } from './addresses.ts'
 import { argIssue, argValueFromText, suggestArgKeys } from './argsRules.ts'
 import { removalOps } from './guard.ts'
 import {
@@ -190,6 +190,22 @@ test('suggestions merge model rows, discovery and inventory; GGUF context and co
   expect(trainedContext(files, 'x.gguf')).toBe(8192)
   expect(comfyChoices(files, 'vae')).toEqual(['ae.safetensors'])
   expect(comfyChoices(files, 'unet')).toEqual(['u.safetensors'])
+})
+
+test('a wildcard route offers its cached catalog as hops, which resolve through it', () => {
+  const doc = parseDoc(
+    '[[engine]]\nid = "e"\n[[upstream]]\nid = "or"\n[[route]]\nengine = "e"\nupstream = "or"\nmodel = "*"\n[[route]]\nengine = "e"\nupstream = "or"\nmodel = "m"\n',
+  )
+  if (doc === undefined) {
+    throw new Error('fixture must parse')
+  }
+  const up = (r: { upstream?: unknown }) => String(r.upstream)
+  expect(hopChoices(doc, up, { or: { ids: ['m', 'org/x:free', '*'] } })).toEqual([
+    '@/e/m',
+    '@/e/or/org%2Fx:free',
+  ])
+  expect(hopState(doc, '@/e/or/org%2Fx:free', up)).toBe('ok')
+  expect(hopState(doc, '@/e/elsewhere/x', up)).toBe('unresolved')
 })
 
 test('hops resolve or are flagged dropped; the address book lists routes and chains; snippets round-trip', () => {

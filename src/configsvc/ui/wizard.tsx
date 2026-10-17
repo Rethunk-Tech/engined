@@ -5,7 +5,7 @@ import type { Wire } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { hopChoices } from './addresses.ts'
 import { call } from './api.ts'
-import { loadSecrets, upstreamResolver } from './data.ts'
+import { discovery, loadDiscovery, loadSecrets, upstreamResolver } from './data.ts'
 import { ShippedPicker } from './engines.tsx'
 import { parseDoc } from './model.ts'
 import { viewParam } from './nav.ts'
@@ -264,6 +264,9 @@ function ChainPath() {
   const [id, setId] = useState('')
   const [hops, setHops] = useState<string[]>([])
   const [pick, setPick] = useState('')
+  useEffect(() => {
+    void loadDiscovery()
+  }, [])
   if (d === undefined) {
     return null
   }
@@ -297,7 +300,7 @@ function ChainPath() {
         <div class="addrow">
           <select value={pick} onChange={(e) => setPick(e.currentTarget.value)}>
             <option value="">add a hop…</option>
-            {hopChoices(d, upstreamResolver(d))
+            {hopChoices(d, upstreamResolver(d), discovery.value.inventories)
               .filter((a) => !hops.includes(a))
               .map((a) => (
                 <option key={a} value={a}>

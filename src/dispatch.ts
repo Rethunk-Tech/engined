@@ -9,8 +9,14 @@ import { groupCursorModels, resolveCursorVariant } from './cursorModels.ts'
 import type { DoorContext } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
-import { decodeAddressSegment, encodeAddressSegment, type Inventory } from './inventory.ts'
-import { qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
+import type { Inventory } from './inventory.ts'
+import {
+  decodeAddressSegment,
+  encodeAddressSegment,
+  qualifiedSegments,
+  routeForHop,
+  WILDCARD_MODEL,
+} from './routeAddress.ts'
 import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_SPEECH,

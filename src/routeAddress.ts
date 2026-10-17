@@ -7,6 +7,25 @@ import type { ResolvedRoute } from './types.ts'
 
 export const WILDCARD_MODEL = '*'
 
+const ENCODED_SLASH = '%2F'
+
+/**
+ * Address segment for a provider id: only `/` becomes `%2F`. An id that
+ * already contains that sequence, or that is the wildcard sentinel, cannot
+ * round-trip as a segment and is skipped.
+ */
+export function encodeAddressSegment(providerId: string): string | undefined {
+  if (providerId === WILDCARD_MODEL || providerId.includes(ENCODED_SLASH)) {
+    return
+  }
+  return providerId.replaceAll('/', ENCODED_SLASH)
+}
+
+/** Reverse of `encodeAddressSegment`: only `%2F` becomes `/`. */
+export function decodeAddressSegment(segment: string): string {
+  return segment.replaceAll(ENCODED_SLASH, '/')
+}
+
 /** Reserved id of THIS box's own upstream — the one `config` refuses to let an operator name a remote. */
 export const LOCAL_UPSTREAM = 'local'
 

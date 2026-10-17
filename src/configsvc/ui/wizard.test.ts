@@ -69,5 +69,5 @@ test('a wildcard route is not offered as a chain hop', () => {
   if (doc === undefined) {
     throw new Error('fixture must parse')
   }
-  expect(hopChoices(doc, () => 'up')).toEqual(['@/e/m'])
+  expect(hopChoices(doc, () => 'up', {})).toEqual(['@/e/m'])
 })

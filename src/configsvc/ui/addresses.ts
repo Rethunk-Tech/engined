@@ -1,6 +1,6 @@
 /** Every address a caller can put in `model`, and whether a chain hop would be served. */
-import { qualifiedSegments } from '../../routeAddress.ts'
-import { type Doc, routeAddress, type Table } from './model.ts'
+import { encodeAddressSegment, qualifiedSegments, WILDCARD_MODEL } from '../../routeAddress.ts'
+import { type Doc, isTable, routeAddress, type Table } from './model.ts'
 
 export type HopState = 'ok' | 'dropped' | 'unresolved'
 
@@ -17,7 +17,11 @@ function routeOff(doc: Doc, route: Table, upstreamOf: UpstreamOf): boolean {
   )
 }
 
-/** The routes a hop's address can reach, by the segment count rules of `routeForHop`. */
+/**
+ * The routes a hop's address can reach, by the segment count rules of `routeForHop`. An
+ * undeclared model on an engine (and upstream) with an enabled wildcard resolves to that
+ * wildcard, as engined parses it: a catalog id served once the inventory holds it.
+ */
 export function candidates(doc: Doc, hop: string, upstreamOf: UpstreamOf): Table[] {
   const seg = qualifiedSegments(hop)
   if (seg === undefined) {
@@ -28,10 +32,19 @@ export function candidates(doc: Doc, hop: string, upstreamOf: UpstreamOf): Table
     return doc.route.filter((r) => r.model === a)
   }
   const engine = doc.route.filter((r) => r.engine === a)
-  if (seg.length === 2) {
-    return engine.filter((r) => r.model === b || (r.model === undefined && upstreamOf(r) === b))
+  const declared =
+    seg.length === 2
+      ? engine.filter((r) => r.model === b || (r.model === undefined && upstreamOf(r) === b))
+      : engine.filter((r) => r.model === c && upstreamOf(r) === b)
+  if (declared.length > 0) {
+    return declared
   }
-  return engine.filter((r) => r.model === c && upstreamOf(r) === b)
+  return engine.filter(
+    (r) =>
+      r.model === WILDCARD_MODEL &&
+      (seg.length === 2 || upstreamOf(r) === b) &&
+      !routeOff(doc, r, upstreamOf),
+  )
 }
 
 /** `dropped` is a hop whose every candidate route is disabled: the chain skips it silently. */
@@ -65,8 +78,34 @@ export function addressBook(doc: Doc, upstreamOf: UpstreamOf): AddressRow[] {
   return [...routes, ...chains].sort((x, y) => x.address.localeCompare(y.address))
 }
 
-/** Every route address a hop can be chosen from; a wildcard route is a catalog, not one model to try. */
-export const hopChoices = (doc: Doc, upstreamOf: UpstreamOf): string[] =>
-  addressBook(doc, upstreamOf)
+/**
+ * Every address a hop can be chosen from: each declared route, and each id in the cached
+ * catalog of an enabled wildcard route. The wildcard itself is a catalog, not one model to try.
+ */
+export function hopChoices(
+  doc: Doc,
+  upstreamOf: UpstreamOf,
+  inventories: Record<string, unknown>,
+): string[] {
+  const declared = addressBook(doc, upstreamOf)
     .filter((row) => row.kind === 'route' && !row.address.endsWith('/*'))
     .map((row) => row.address)
+  const catalog = doc.route.flatMap((r) => {
+    const up = upstreamOf(r)
+    if (r.model !== WILDCARD_MODEL || up === null || routeOff(doc, r, upstreamOf)) {
+      return []
+    }
+    const cached = inventories[up]
+    const ids = isTable(cached) && Array.isArray(cached.ids) ? cached.ids : []
+    const named = new Set(
+      doc.route.filter((d) => d.engine === r.engine && upstreamOf(d) === up).map((d) => d.model),
+    )
+    return ids.flatMap((id) => {
+      const segment = typeof id === 'string' ? encodeAddressSegment(id) : undefined
+      return segment === undefined || named.has(id)
+        ? []
+        : [`@/${String(r.engine)}/${up}/${segment}`]
+    })
+  })
+  return [...new Set([...declared, ...catalog])]
+}
