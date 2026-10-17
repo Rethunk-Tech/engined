@@ -9,7 +9,7 @@
  * prove redundant.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import process from 'node:process'
@@ -132,47 +132,57 @@ export async function pruneConfig({
   discovery?: ModelDiscovery
 }): Promise<PruneResult> {
   const config = loadConfig(file, enginesRoot)
-  const asker =
-    discovery ??
-    new ModelDiscovery({
-      stateRoot: mkdtempSync(join(tmpdir(), 'engined-prune-')),
-    })
-  const served = config.engines.filter((e) => !e.disabled && SOURCES[e.id] !== undefined)
-  for (const engine of served) {
-    await asker.refresh(engine.id)
-  }
-  const status = asker.apply(config).model_discovery ?? {}
-  for (const engine of served) {
-    const s = status[engine.id]
-    if (s?.fetched_at === undefined || s.last_error !== undefined) {
-      throw new Error(
-        `refusing to prune: the provider list for "${engine.id}" could not be fetched (${s?.last_error ?? 'no answer'}); nothing is deleted that cannot be proved redundant`,
-      )
+  // The scratch state dir exists only so the operator's discovery cache is untouched; it goes when the prune does.
+  const scratch =
+    discovery === undefined ? mkdtempSync(join(tmpdir(), 'engined-prune-')) : undefined
+  const asker = discovery ?? new ModelDiscovery({ stateRoot: scratch as string })
+  try {
+    const served = config.engines.filter((e) => !e.disabled && SOURCES[e.id] !== undefined)
+    for (const engine of served) {
+      await asker.refresh(engine.id)
     }
-  }
-  const targets: Targets = new Map()
-  for (const [engine, s] of Object.entries(status)) {
-    for (const f of s.findings) {
-      targets.set(targetKey(engine, f.route), f.kind)
+    const status = asker.apply(config).model_discovery ?? {}
+    for (const engine of served) {
+      const s = status[engine.id]
+      if (s?.fetched_at === undefined || s.last_error !== undefined) {
+        throw new Error(
+          `refusing to prune: the provider list for "${engine.id}" could not be fetched (${s?.last_error ?? 'no answer'}); nothing is deleted that cannot be proved redundant`,
+        )
+      }
     }
-  }
+    const targets: Targets = new Map()
+    for (const [engine, s] of Object.entries(status)) {
+      for (const f of s.findings) {
+        targets.set(targetKey(engine, f.route), f.kind)
+      }
+    }
 
-  const files = [file, ...fragmentFiles(file)]
-  const routePass = files.map((f) => pruneRoutes(readFileSync(f, 'utf8'), f, targets))
-  const removedModels = new Set(routePass.flatMap((p) => [...p.models]))
-  const still = new Set(routePass.flatMap((p) => [...usedModels(p.text)]))
-  const removals: PruneRemoval[] = routePass.flatMap((p) => p.removals)
-  const written: string[] = []
-  for (const [i, f] of files.entries()) {
-    const modelPass = pruneModels((routePass[i] as { text: string }).text, f, removedModels, still)
-    removals.push(...modelPass.removals)
-    const dest = i === 0 ? out : join(dirname(out), 'config.d', basename(f))
-    mkdirSync(dirname(dest), { recursive: true })
-    writeFileSync(dest, modelPass.text)
-    written.push(dest)
+    const files = [file, ...fragmentFiles(file)]
+    const routePass = files.map((f) => pruneRoutes(readFileSync(f, 'utf8'), f, targets))
+    const removedModels = new Set(routePass.flatMap((p) => [...p.models]))
+    const still = new Set(routePass.flatMap((p) => [...usedModels(p.text)]))
+    const removals: PruneRemoval[] = routePass.flatMap((p) => p.removals)
+    const written: string[] = []
+    for (const [i, f] of files.entries()) {
+      const modelPass = pruneModels(
+        (routePass[i] as { text: string }).text,
+        f,
+        removedModels,
+        still,
+      )
+      removals.push(...modelPass.removals)
+      const dest = i === 0 ? out : join(dirname(out), 'config.d', basename(f))
+      mkdirSync(dirname(dest), { recursive: true })
+      writeFileSync(dest, modelPass.text)
+      written.push(dest)
+    }
+    loadConfig(out, enginesRoot)
+    return { removals, written }
+  } finally {
+    if (scratch !== undefined) {
+      rmSync(scratch, { recursive: true, force: true })
+    }
   }
-  loadConfig(out, enginesRoot)
-  return { removals, written }
 }
 
 function flagValue(argv: readonly string[], flag: string): string | undefined {
