@@ -42,6 +42,53 @@ export interface GgufMetadata {
   tokenizerPre?: string
   tokens?: string[]
   merges?: string[]
+  /** `<architecture>.context_length`: the window the model was trained for. */
+  contextLength?: number
+  /** `general.file_type`, llama.cpp's quantization enum. */
+  fileType?: number
+  /** `fileType` as its quantization name, for example "Q4_K_M"; absent for a value this table does not name. */
+  quantization?: string
+  /** Whether the file ships a `tokenizer.chat_template`; its text is not read. */
+  hasChatTemplate: boolean
+  /** Bytes on disk, tensors included. */
+  sizeBytes: number
+}
+
+/** llama.cpp's `llama_ftype` values that appear in files; the removed 4-6 are absent. */
+const FILE_TYPE_NAMES: Record<number, string> = {
+  0: 'F32',
+  1: 'F16',
+  2: 'Q4_0',
+  3: 'Q4_1',
+  7: 'Q8_0',
+  8: 'Q5_0',
+  9: 'Q5_1',
+  10: 'Q2_K',
+  11: 'Q3_K_S',
+  12: 'Q3_K_M',
+  13: 'Q3_K_L',
+  14: 'Q4_K_S',
+  15: 'Q4_K_M',
+  16: 'Q5_K_S',
+  17: 'Q5_K_M',
+  18: 'Q6_K',
+  19: 'IQ2_XXS',
+  20: 'IQ2_XS',
+  21: 'Q2_K_S',
+  22: 'IQ3_XS',
+  23: 'IQ3_XXS',
+  24: 'IQ1_S',
+  25: 'IQ4_NL',
+  26: 'IQ3_S',
+  27: 'IQ3_M',
+  28: 'IQ2_S',
+  29: 'IQ2_M',
+  30: 'IQ4_XS',
+  31: 'IQ1_M',
+  32: 'BF16',
+  36: 'TQ1_0',
+  37: 'TQ2_0',
+  38: 'MXFP4_MOE',
 }
 
 const WANTED_KEYS = new Set([
@@ -50,7 +97,10 @@ const WANTED_KEYS = new Set([
   'tokenizer.ggml.pre',
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.merges',
+  'general.file_type',
 ])
+const CHAT_TEMPLATE_KEY = 'tokenizer.chat_template'
+const CONTEXT_LENGTH_SUFFIX = '.context_length'
 
 const FIXED_TYPE_SIZES: Partial<Record<GgufValueType, number>> = {
   [GgufValueType.Uint8]: 1,
@@ -106,6 +156,25 @@ class Cursor {
     return s
   }
 
+  /** An unsigned or signed integer of `type`, as a number; the only widths a window or enum needs. */
+  integer(type: GgufValueType): number {
+    switch (type) {
+      case GgufValueType.Uint32:
+        return this.u32()
+      case GgufValueType.Int32: {
+        this.need(UINT32_BYTES)
+        const v = this.buf.readInt32LE(this.pos)
+        this.pos += UINT32_BYTES
+        return v
+      }
+      case GgufValueType.Uint64:
+      case GgufValueType.Int64:
+        return this.u64()
+      default:
+        throw new Error(`GGUF value type ${type} is not an integer this reader decodes`)
+    }
+  }
+
   /** Advances past a value of a fixed-size scalar type without decoding it. */
   skipFixed(size: number): void {
     this.need(size)
@@ -133,6 +202,9 @@ function readValue(c: Cursor, type: GgufValueType, want: boolean): unknown {
     }
     return out
   }
+  if (want && INTEGER_TYPES.has(type)) {
+    return c.integer(type)
+  }
   const size = FIXED_TYPE_SIZES[type]
   if (size === undefined) {
     throw new Error(`unknown GGUF value type ${type}`)
@@ -141,7 +213,14 @@ function readValue(c: Cursor, type: GgufValueType, want: boolean): unknown {
   return undefined
 }
 
-function parse(buf: Buffer): GgufMetadata {
+const INTEGER_TYPES: ReadonlySet<GgufValueType> = new Set([
+  GgufValueType.Uint32,
+  GgufValueType.Int32,
+  GgufValueType.Uint64,
+  GgufValueType.Int64,
+])
+
+function parse(buf: Buffer, sizeBytes: number): GgufMetadata {
   const c = new Cursor(buf)
   if (c.u32() !== MAGIC) {
     throw new Error('not a GGUF file (bad magic)')
@@ -150,16 +229,30 @@ function parse(buf: Buffer): GgufMetadata {
   c.u64() // tensor_count -- the metadata this door reads ends before tensor data
   const kvCount = c.u64()
 
-  const out: GgufMetadata = {}
+  const out: GgufMetadata = { hasChatTemplate: false, sizeBytes }
+  // The architecture key need not come first, so every window is kept and the right one picked after.
+  const windows = new Map<string, number>()
   for (let i = 0; i < kvCount; i++) {
     const key = c.str()
     const type = c.u32() as GgufValueType
-    const want = WANTED_KEYS.has(key)
+    const isWindow = key.endsWith(CONTEXT_LENGTH_SUFFIX)
+    const want = WANTED_KEYS.has(key) || isWindow
     const value = readValue(c, type, want)
+    if (key === CHAT_TEMPLATE_KEY) {
+      out.hasChatTemplate = true
+    }
     if (!want) {
       continue
     }
+    if (isWindow) {
+      windows.set(key, value as number)
+      continue
+    }
     switch (key) {
+      case 'general.file_type':
+        out.fileType = value as number
+        out.quantization = FILE_TYPE_NAMES[value as number]
+        break
       case 'general.architecture':
         out.architecture = value as string
         break
@@ -179,6 +272,7 @@ function parse(buf: Buffer): GgufMetadata {
         break
     }
   }
+  out.contextLength = windows.get(`${out.architecture}${CONTEXT_LENGTH_SUFFIX}`)
   return out
 }
 
@@ -200,11 +294,12 @@ const MAX_BYTES = MAX_METADATA_READ_MEBIBYTES * MEBIBYTE
 export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
   const handle = await open(path, 'r')
   try {
+    const { size: sizeBytes } = await handle.stat()
     for (let size = INITIAL_BYTES; size <= MAX_BYTES; ) {
       const buf = Buffer.alloc(size)
       const { bytesRead } = await handle.read(buf, 0, size, 0)
       try {
-        return parse(buf.subarray(0, bytesRead))
+        return parse(buf.subarray(0, bytesRead), sizeBytes)
       } catch (err) {
         if (err !== NEED_MORE_BYTES || bytesRead < size) {
           throw err

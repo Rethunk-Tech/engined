@@ -301,7 +301,10 @@ export function withLlamaControl(fallback: HttpClient): HttpClient {
  * real (multi-gigabyte) model file. String and string-array values are the
  * only two shapes `bpeVocab.ts` reads, so they are the only two this writes.
  */
-export function writeGgufFixture(path: string, kv: Record<string, string | string[]>): void {
+export function writeGgufFixture(
+  path: string,
+  kv: Record<string, string | string[] | number>,
+): void {
   mkdirSync(dirname(path), { recursive: true })
   const chunks: Buffer[] = []
   const ggufUint32Bytes = 4
@@ -321,6 +324,7 @@ export function writeGgufFixture(path: string, kv: Record<string, string | strin
     u64(bytes.length)
     chunks.push(bytes)
   }
+  const ggufTypeUint32 = 4
   const ggufTypeString = 8
   const ggufTypeArray = 9
   const GgufFixtureVersion = 3
@@ -339,6 +343,9 @@ export function writeGgufFixture(path: string, kv: Record<string, string | strin
       for (const s of value) {
         str(s)
       }
+    } else if (typeof value === 'number') {
+      u32(ggufTypeUint32)
+      u32(value)
     } else {
       u32(ggufTypeString)
       str(value)

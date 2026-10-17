@@ -25,6 +25,24 @@ describe('readGgufMetadata', () => {
     expect(meta.merges).toEqual(['a b'])
   })
 
+  test('reads the window, quantization name, chat-template presence and size, wherever the architecture key sits', async () => {
+    const path = join(TEST_ROOT, 'details.gguf')
+    writeGgufFixture(path, {
+      'llama.context_length': 8192,
+      'qwen3.context_length': 40_960,
+      'general.file_type': 15,
+      'tokenizer.chat_template': '{{ messages }}',
+      'general.architecture': 'qwen3',
+    })
+    const meta = await readGgufMetadata(path)
+    expect(meta.contextLength).toBe(40_960)
+    expect(meta.fileType).toBe(15)
+    expect(meta.quantization).toBe('Q4_K_M')
+    expect(meta.hasChatTemplate).toBe(true)
+    expect(meta.sizeBytes).toBe(Bun.file(path).size)
+    expect(meta.tokens).toBeUndefined()
+  })
+
   test('a file with no tokenizer keys at all reads clean, everything absent', async () => {
     const path = join(TEST_ROOT, 'no-tokenizer.gguf')
     writeGgufFixture(path, { 'general.architecture': 'something' })
