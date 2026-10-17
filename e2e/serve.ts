@@ -3,7 +3,7 @@
  * Nothing here touches the real unit: reloads signal the scratch door's own pid.
  * Prints `READY <json>` once both listen; stops both on SIGTERM.
  */
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { startConfigsvc } from '../src/configsvc.ts'
@@ -101,5 +101,7 @@ console.log(`READY ${JSON.stringify({ url: svc.logLine.replace(/^configsvc: /, '
 process.on('SIGTERM', () => {
   svc.stop()
   door.kill('SIGTERM')
+  // Every run makes a fresh scratch root; without this each smoke and preview leaves one in /var/tmp.
+  rmSync(root, { recursive: true, force: true })
   process.exit(0)
 })
