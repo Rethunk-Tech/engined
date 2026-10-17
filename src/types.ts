@@ -155,6 +155,9 @@ export const KIND_TRAITS: Record<
   },
 }
 
+/** The phrase a missing [[artifact]] puts in an engine's `last_error`; the config UI keys its Obtain link on it. */
+export const ARTIFACT_MISSING = 'artifact missing at'
+
 /** What each kind does, in words for someone choosing an engine. */
 export const KIND_LABELS: Record<EngineKind, string> = {
   'openai-http': 'language model',

@@ -209,3 +209,59 @@ export function KindPill({ kind }: { kind: string | undefined }) {
     </span>
   )
 }
+
+const ICONS = {
+  running: <circle cx="8" cy="8" r="5" fill="currentColor" />,
+  installed: <circle cx="8" cy="8" r="5" />,
+  warming: (
+    <>
+      <circle cx="8" cy="8" r="5" />
+      <path d="M8 3a5 5 0 0 1 0 10z" fill="currentColor" />
+    </>
+  ),
+  unavailable: <path d="M8 2.5 14 13H2zM8 6.5v3M8 11.5v.01" />,
+  disabled: <path d="M6 4v8M10 4v8" />,
+  home: <path d="M2.5 7.5 8 3l5.5 4.5M4 6.5V13h8V6.5" />,
+  lan: (
+    <>
+      <rect x="6" y="2" width="4" height="3" />
+      <rect x="2" y="11" width="4" height="3" />
+      <rect x="10" y="11" width="4" height="3" />
+      <path d="M8 5v3M4 11V8h8v3" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" />
+    </>
+  ),
+}
+
+export type IconName = keyof typeof ICONS
+
+/** A 16 px line icon; `label` is its accessible name and tooltip. */
+export function Icon({ name, label, tone }: { name: IconName; label: string; tone?: string }) {
+  return (
+    <svg
+      class={tone === undefined ? 'icon' : `icon ${tone}`}
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      {ICONS[name]}
+    </svg>
+  )
+}
+
+export function plural(n: number, word: string, many = `${word}s`): string {
+  return `${n} ${n === 1 ? word : many}`
+}

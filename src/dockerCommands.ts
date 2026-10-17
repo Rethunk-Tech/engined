@@ -19,7 +19,7 @@ import {
 import type { Exec } from './exec.ts'
 import { type EngineResources, parseResources, RESOURCE_PROBE_SH } from './resources.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
-import type { Artifact } from './types.ts'
+import { ARTIFACT_MISSING, type Artifact } from './types.ts'
 
 /** docker's own "could not start the container" exit code, distinct from the command that ran failing. */
 const DOCKER_START_FAILURE_EXIT_CODE = 125
@@ -75,7 +75,7 @@ function missingArtifact(image: string, artifact: Artifact): Result {
   return {
     ok: false,
     fix: artifact.obtain,
-    error: `${image}: artifact missing at ${artifact.path}`,
+    error: `${image}: ${ARTIFACT_MISSING} ${artifact.path}`,
   }
 }
 

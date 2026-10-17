@@ -18,7 +18,7 @@ import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton, Labeled, Prop } from './widgets.tsx'
+import { CopyButton, Icon, type IconName, Labeled, Prop, plural } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -234,6 +234,21 @@ function hostOf(url: unknown): string | undefined {
   }
 }
 
+const EGRESS_LOOK: Record<string, { icon: IconName; label: string }> = {
+  none: { icon: 'home', label: 'egress none: this box only' },
+  lan: { icon: 'lan', label: 'egress lan: the local network' },
+  remote: { icon: 'globe', label: 'egress remote: the internet' },
+}
+
+function EgressIcon({ egress }: { egress: unknown }) {
+  const look = typeof egress === 'string' ? EGRESS_LOOK[egress] : undefined
+  return look === undefined ? (
+    <span class="pill bad">egress unset</span>
+  ) : (
+    <Icon name={look.icon} label={look.label} tone="muted" />
+  )
+}
+
 /** One upstream in the grid; the card behind it holds the whole form. */
 function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
   const id = String(upstream.id)
@@ -250,8 +265,9 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
     >
       <div class="rowhead">
         <h3>{id}</h3>
-        <span class="pill">{String(upstream.egress ?? 'egress unset')}</span>
         {upstream.wire === undefined ? null : <span class="pill">{String(upstream.wire)}</span>}
+        <span class="grow" />
+        <EgressIcon egress={upstream.egress} />
       </div>
       <code class="muted small-text">{hostOf(upstream.base_url) ?? 'this box'}</code>
       {secret === undefined ? null : (
@@ -260,7 +276,7 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
         </span>
       )}
       <span class="muted small-text">
-        {addresses.length} route(s) · ${monthSpend(addresses).toFixed(2)}
+        {plural(addresses.length, 'route')} · ${monthSpend(addresses).toFixed(2)}
         {cap === undefined ? '' : ` of $${cap}`} this month
       </span>
     </a>

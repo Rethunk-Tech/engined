@@ -131,6 +131,18 @@ code {
 .ok {
   color: var(--ok);
 }
+.warn {
+  color: var(--warn);
+}
+.icon {
+  flex: none;
+  vertical-align: -3px;
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .grow {
   flex: 1;
 }

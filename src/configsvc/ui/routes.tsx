@@ -19,7 +19,7 @@ import {
   modelSuggestions,
   trainedContext,
 } from './suggest.ts'
-import { CopyButton, Labeled, Prop } from './widgets.tsx'
+import { CopyButton, Labeled, Prop, plural } from './widgets.tsx'
 
 export interface EngineCtx {
   doc: Doc
@@ -343,7 +343,7 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
           {address === undefined ? null : <CopyButton text={address} />}
           <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
         </span>
-        <span class="muted calls">{callsFor(address)} call(s) / 7 d</span>
+        <span class="muted calls">{plural(callsFor(address), 'call')} / 7 d</span>
         <span class="grow" />
         <span class="group">
           {address === undefined ? null : (

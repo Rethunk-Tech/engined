@@ -27,7 +27,7 @@ import { StarterView } from './starterview.tsx'
 import { draft, draftDiff, problems, snapshot } from './store.ts'
 import { UpstreamsView } from './upstreams.tsx'
 import { UsageView } from './usage.tsx'
-import { DiffView } from './widgets.tsx'
+import { DiffView, plural } from './widgets.tsx'
 
 interface ViewDef {
   id: string
@@ -165,8 +165,8 @@ function Overview() {
     <section>
       {saved !== undefined && (
         <p class="muted small-text">
-          {saved.path} · sha256 {saved.sha256.slice(0, 12)} · {saved.fragments.length} config.d
-          fragment(s)
+          {saved.path} · sha256 {saved.sha256.slice(0, 12)} ·{' '}
+          {plural(saved.fragments.length, 'config.d fragment')}
         </p>
       )}
       <div class="stats">
@@ -185,14 +185,14 @@ function Overview() {
         <Stat
           label="Upstreams"
           value={d?.upstream.length ?? 0}
-          detail={`${missingSecrets} keyring secret(s) missing`}
+          detail={`${plural(missingSecrets, 'keyring secret')} missing`}
           tone={missingSecrets > 0 ? 'bad' : undefined}
           href="#upstreams"
         />
         <Stat
           label="Chains"
           value={d?.chain.length ?? 0}
-          detail={`${dropped} hop(s) dropped`}
+          detail={`${plural(dropped, 'hop')} dropped`}
           tone={dropped > 0 ? 'bad' : undefined}
           href="#chains"
         />
@@ -206,7 +206,9 @@ function Overview() {
         <Stat
           label="Pending changes"
           value={added + removed === 0 ? 'none' : `+${added} −${removed}`}
-          detail={problems.value.length === 0 ? 'validates' : `${problems.value.length} problem(s)`}
+          detail={
+            problems.value.length === 0 ? 'validates' : plural(problems.value.length, 'problem')
+          }
           tone={problems.value.length > 0 ? 'bad' : undefined}
           href="#save"
         />

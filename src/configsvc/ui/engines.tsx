@@ -4,7 +4,7 @@ import example from '../../../config.example.toml'
 import type { ShippedEngine } from '../../configsvcShipped.ts'
 import { engineMemory, estimateResidentBytes, memoryVerdict } from '../../memoryEstimate.ts'
 import type { EngineKind } from '../../types.ts'
-import { KIND_LABELS, KIND_TRAITS } from '../../types.ts'
+import { ARTIFACT_MISSING, KIND_LABELS, KIND_TRAITS } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { call } from './api.ts'
 import { ArgsEditor } from './args.tsx'
@@ -14,6 +14,7 @@ import {
   callsFor,
   ensureSpec,
   forgetSpec,
+  type LiveEngine,
   liveEngines,
   loadDiscovery,
   loadModelFiles,
@@ -42,7 +43,16 @@ import { postStream } from './sse.ts'
 import { engineOps, LOCAL_UPSTREAM_OP } from './starter.ts'
 import { draft, status } from './store.ts'
 import { findModelFile, formatBytes } from './suggest.ts'
-import { About, CopyButton, KindPill, Labeled, Prop } from './widgets.tsx'
+import {
+  About,
+  CopyButton,
+  Icon,
+  type IconName,
+  KindPill,
+  Labeled,
+  Prop,
+  plural,
+} from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -58,13 +68,35 @@ const ENGINE_FIELDS = [
   'spec_dir',
 ] as const
 
-function StatePill({ id }: { id: string }) {
-  const live =
+const STATE_LOOK: Record<string, { icon: IconName; tone?: string }> = {
+  running: { icon: 'running', tone: 'ok' },
+  installed: { icon: 'installed' },
+  warming: { icon: 'warming', tone: 'warn' },
+  unavailable: { icon: 'unavailable', tone: 'bad' },
+  disabled: { icon: 'disabled', tone: 'muted' },
+}
+
+function liveOf(id: string): LiveEngine | undefined {
+  return (
     liveEngines.value[id] ??
-    (status.value?.engines as { id: string; state: string }[] | undefined)?.find((e) => e.id === id)
-  const state = live?.state ?? 'unknown'
-  const tone = state === 'running' ? 'ok' : state === 'unavailable' ? 'bad' : 'muted'
-  return <span class={`pill ${tone}`}>{state}</span>
+    (status.value?.engines as LiveEngine[] | undefined)?.find((e) => e.id === id)
+  )
+}
+
+/** The engine's state as an icon, with the word beside it when `word` is set. */
+function StateBadge({ id, disabled, word }: { id: string; disabled: boolean; word?: boolean }) {
+  const live = liveOf(id)
+  const state = disabled || live?.disabled === true ? 'disabled' : (live?.state ?? 'unknown')
+  const look = STATE_LOOK[state] ?? { icon: 'installed', tone: 'muted' }
+  const icon = <Icon name={look.icon} label={state} tone={look.tone} />
+  return word === true ? (
+    <span class={`state ${look.tone ?? ''}`}>
+      {icon}
+      {state}
+    </span>
+  ) : (
+    icon
+  )
 }
 
 function Rename({ engine }: { engine: Table }) {
@@ -158,7 +190,7 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
         setText((t) => `${t}${line ?? ''}\n`)
       })
     }
-    return undefined
+    return
   }, [id, panel])
   return (
     <pre
@@ -207,9 +239,10 @@ function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
 /** Past this many routes an engine card gets a filter box. */
 const ROUTE_FILTER_MIN = 8
 
-function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number }) {
+function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?: Panel }) {
+  const { d, engine, index } = props
   const id = String(engine.id)
-  const [panel, setPanel] = useState<Panel | undefined>()
+  const [panel, setPanel] = useState<Panel | undefined>(props.initialPanel)
   const entry = specs.value[id]
   const kind = engineKind(engine, entry?.info)
   const ctx: EngineCtx = {
@@ -237,7 +270,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
       <div class="rowhead">
         <h3>{id}</h3>
         <KindPill kind={kind} />
-        <StatePill id={id} />
+        <StateBadge id={id} disabled={engine.disable === true} word={true} />
         <span class="grow" />
         <span class="group">
           <button
@@ -265,7 +298,8 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
       {liveEngines.value[id]?.last_error ? (
         <p class="bad small-text">{liveEngines.value[id]?.last_error}</p>
       ) : null}
-      {liveEngines.value[id]?.fix ? (
+      {liveEngines.value[id]?.fix &&
+      !(engine.disable === true || liveEngines.value[id]?.disabled) ? (
         <p class="muted small-text">
           fix: <code>{liveEngines.value[id]?.fix}</code>
         </p>
@@ -362,6 +396,8 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
 }
 
 const TILE_ROUTES = 4
+/** Appended to an engine's detail link to open it with the Obtain panel running. */
+const OBTAIN_SUFFIX = '/obtain'
 
 /** One engine in the grid: enough to find it and see its health; the card behind it edits. */
 function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
@@ -369,21 +405,26 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   const info = specs.value[id]?.info
   const kind = engineKind(engine, info)
   const addresses = routesOf(d, id).flatMap((r) => routeAddress(d, r.route) ?? [])
-  const fix = liveEngines.value[id]?.fix ?? liveEngines.value[id]?.last_error
+  const live = liveOf(id)
+  const disabled = engine.disable === true || live?.disabled === true
+  const weightsMissing = !disabled && live?.last_error?.includes(ARTIFACT_MISSING) === true
+  const fix = disabled || weightsMissing ? undefined : (live?.fix ?? live?.last_error)
   const calls = addresses.reduce((sum, a) => sum + callsFor(a), 0)
   return (
     <a
-      class={`tile panel${engine.disable === true ? ' off' : ''}`}
-      href={`#engines/${encodeURIComponent(id)}`}
+      class={`tile panel${disabled ? ' off' : ''}`}
+      href={`#engines/${encodeURIComponent(id)}${weightsMissing ? OBTAIN_SUFFIX : ''}`}
     >
       <div class="rowhead">
         <h3>{id}</h3>
         <KindPill kind={kind} />
-        <StatePill id={id} />
+        <span class="grow" />
+        <StateBadge id={id} disabled={disabled} />
       </div>
       {info?.description === undefined ? null : (
         <span class="small-text clamp">{info.description}</span>
       )}
+      {weightsMissing ? <span class="bad small-text">weights missing · Obtain</span> : null}
       {fix === undefined ? null : <span class="muted small-text clamp">{fix}</span>}
       <ul class="tile-list">
         {addresses.slice(0, TILE_ROUTES).map((a) => (
@@ -396,7 +437,8 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
         ) : null}
       </ul>
       <span class="muted small-text">
-        {addresses.length} route(s) · {calls} call(s) / 7 d
+        {plural(addresses.length, 'route')} · {calls === 0 ? 'no calls' : plural(calls, 'call')} in
+        7 days
       </span>
     </a>
   )
@@ -496,8 +538,10 @@ export function EnginesView() {
   if (parsed === undefined) {
     return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
   }
-  const open = viewParam.value
-  if (open !== undefined) {
+  const param = viewParam.value
+  if (param !== undefined) {
+    const obtain = param.endsWith(OBTAIN_SUFFIX)
+    const open = obtain ? param.slice(0, -OBTAIN_SUFFIX.length) : param
     const index = parsed.engine.findIndex((e) => String(e.id) === open)
     const engine = parsed.engine[index]
     return (
@@ -508,7 +552,12 @@ export function EnginesView() {
         {engine === undefined ? (
           <p class="bad">No engine "{open}" in the pending config.</p>
         ) : (
-          <EngineCard d={parsed} engine={engine} index={index} />
+          <EngineCard
+            d={parsed}
+            engine={engine}
+            index={index}
+            initialPanel={obtain ? 'obtain' : undefined}
+          />
         )}
       </section>
     )

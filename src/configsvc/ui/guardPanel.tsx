@@ -5,6 +5,7 @@ import { callsFor } from './data.ts'
 import { removalOps } from './guard.ts'
 import type { Doc } from './model.ts'
 import { draft } from './store.ts'
+import { plural } from './widgets.tsx'
 
 /**
  * Delete with a guard: lists what still points at the entry and what it served in the last
@@ -49,7 +50,8 @@ export function DeleteGuard(props: {
         Delete {props.table} "{props.id}"?
       </strong>
       <p class="muted">
-        {calls} call(s) in the last 7 days across {props.addresses.length} address(es).
+        {plural(calls, 'call')} in the last 7 days across{' '}
+        {plural(props.addresses.length, 'address', 'addresses')}.
       </p>
       {deps.length === 0 ? (
         <p class="ok">Nothing else points at it.</p>
