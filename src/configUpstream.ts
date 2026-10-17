@@ -5,15 +5,17 @@
 
 import {
   CALLBACK_SECRET_KEYS,
+  CONFIGSVC_KEYS,
   optional,
   optionalPositive,
   POTLUCK_KEYS,
+  parsePort,
   requireString,
   requireTable,
 } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 import { isRecord } from './records.ts'
-import type { PotluckCallback } from './types.ts'
+import type { ConfigsvcSettings, PotluckCallback } from './types.ts'
 
 const FINGERPRINT = /^[0-9a-f]{64}$/
 
@@ -52,6 +54,50 @@ export function parsePotluckCallback(
         username: requireString(secret.username, 'config "potluck.callback_secret.username"', file),
       },
     },
+  }
+}
+
+export const DEFAULT_CONFIGSVC_PORT = 29_202
+const ARGON2ID_PREFIX = '$argon2id$'
+
+/** The two listeners are already bound by the door, so `[configsvc]` may not claim either port. */
+export function parseConfigsvc(
+  raw: Record<string, unknown>,
+  ports: { listen: number; cursor: number },
+  file: string,
+): ConfigsvcSettings {
+  const table =
+    raw.configsvc === undefined
+      ? {}
+      : requireTable(raw.configsvc, 'config "configsvc"', CONFIGSVC_KEYS, file)
+  const enable = optional(table.enable, 'boolean', 'config "configsvc.enable"', file) ?? false
+  const port = parsePort(table.port, 'config "configsvc.port"', file, DEFAULT_CONFIGSVC_PORT)
+  const passwordHash = optional(
+    table.password_hash,
+    'string',
+    'config "configsvc.password_hash"',
+    file,
+  )
+  if (passwordHash !== undefined && !passwordHash.startsWith(ARGON2ID_PREFIX)) {
+    throw new ParseError(
+      `config "configsvc.password_hash" must be an argon2id hash (starts with "${ARGON2ID_PREFIX}")`,
+      file,
+    )
+  }
+  if (enable && passwordHash === undefined) {
+    throw new ParseError('config "configsvc" is enabled but has no "password_hash"', file)
+  }
+  if (enable && (port === ports.listen || port === ports.cursor)) {
+    throw new ParseError(
+      'config "configsvc.port" must differ from "listen_port" and "cursor_port"',
+      file,
+    )
+  }
+  return {
+    enable,
+    host: optional(table.host, 'string', 'config "configsvc.host"', file) ?? '127.0.0.1',
+    port,
+    ...(passwordHash === undefined ? {} : { password_hash: passwordHash }),
   }
 }
 

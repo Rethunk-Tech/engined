@@ -379,6 +379,15 @@ export interface EngineEntry {
   args: Record<string, unknown>
 }
 
+/** The `[configsvc]` table. engined only carries it; `engined --configsvc` reads it. */
+export interface ConfigsvcSettings {
+  enable: boolean
+  host: string
+  port: number
+  /** An argon2id hash from `Bun.password.hash`; required once `enable` is true. */
+  password_hash?: string
+}
+
 export interface Config {
   listen_port: number
   /** h2c listener for the Cursor turn stream; see `cursorAgent.ts`. */
@@ -391,6 +400,7 @@ export interface Config {
   agentic_concurrency: number
   /** Absent unless this install reports donated-upstream liveness back to potluck. */
   potluck?: PotluckCallback
+  configsvc: ConfigsvcSettings
   engines: EngineEntry[]
   upstreams: Upstream[]
   /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */

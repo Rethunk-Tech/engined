@@ -66,6 +66,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     agent_timeout_seconds: 3600,
     stream_stall_seconds: 60,
     agentic_concurrency: 4,
+    configsvc: { enable: false, host: '127.0.0.1', port: 29_202 },
     engines: [],
     upstreams: [],
     routes: [],

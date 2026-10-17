@@ -81,6 +81,17 @@ wire = "anthropic"
 # callback_url = "https://potluck.example/api/callback/status"
 # callback_secret = { service = "potluck", username = "callback" }
 
+# The config web UI (`engined --configsvc`, its own unit) reads these. engined
+# only validates them. `password_hash` is an argon2id hash:
+#   bun -e 'console.log(await Bun.password.hash(process.argv[1], {algorithm: "argon2id"}))' 'password'
+# `port` must differ from `listen_port` and `cursor_port`.
+#
+# [configsvc]
+# enable = false
+# host = "127.0.0.1"
+# port = 29202
+# password_hash = "$argon2id$..."
+
 #   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
 [[upstream]]
 id = "elevenlabs"

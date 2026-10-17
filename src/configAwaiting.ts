@@ -8,6 +8,7 @@ import {
   DEFAULT_STREAM_STALL_SECONDS,
 } from './config.ts'
 import { parsePort } from './configParse.ts'
+import { DEFAULT_CONFIGSVC_PORT } from './configUpstream.ts'
 import { configPath } from './paths.ts'
 import { isRecord } from './records.ts'
 import type { Config } from './types.ts'
@@ -36,6 +37,7 @@ export function awaitingConfig(listenPort: number): Config {
     agent_timeout_seconds: DEFAULT_AGENT_TIMEOUT_SECONDS,
     stream_stall_seconds: DEFAULT_STREAM_STALL_SECONDS,
     agentic_concurrency: DEFAULT_AGENTIC_CONCURRENCY,
+    configsvc: { enable: false, host: '127.0.0.1', port: DEFAULT_CONFIGSVC_PORT },
     engines: [],
     upstreams: [],
     routes: [],

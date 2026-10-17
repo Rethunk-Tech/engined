@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Config
+
+- New `[configsvc]` table (`enable`, `host`, `port`, `password_hash`) for the config
+  web UI. engined validates it (argon2id hash, port distinct from `listen_port`
+  and `cursor_port`) and otherwise ignores it. `enable` defaults to false.
+
 ### Door
 
 - A missing or invalid `config.toml` no longer exits 78 at startup. The door

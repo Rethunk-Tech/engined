@@ -108,9 +108,12 @@ export const TOP_KEYS = new Set([
   'route',
   'chain',
   'potluck',
+  'configsvc',
 ])
 /** `[potluck]` on the main file: where a donated upstream's liveness is reported. */
 export const POTLUCK_KEYS = new Set(['callback_url', 'callback_secret'])
+/** `[configsvc]` on the main file: the config web UI's listener and its login. */
+export const CONFIGSVC_KEYS = new Set(['enable', 'host', 'port', 'password_hash'])
 /** Keyring name for the callback bearer. Not an upstream secret: it has no header of its own. */
 export const CALLBACK_SECRET_KEYS = new Set(['service', 'username'])
 

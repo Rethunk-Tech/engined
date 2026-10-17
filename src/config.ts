@@ -42,6 +42,7 @@ import {
 } from './configRouteValidate.ts'
 import { collectEntries, fileLookup, readConfigSources } from './configSources.ts'
 import {
+  parseConfigsvc,
   parsePotluckCallback,
   parseUpstreamHeaders,
   readFingerprint,
@@ -477,6 +478,7 @@ function parseTopLevelSettings(
   | 'stream_stall_seconds'
   | 'agentic_concurrency'
   | 'potluck'
+  | 'configsvc'
 > {
   const listenPort = parsePort(raw.listen_port, 'config "listen_port"', file, DEFAULT_LISTEN_PORT)
   const cursorPort = parsePort(raw.cursor_port, 'config "cursor_port"', file, DEFAULT_CURSOR_PORT)
@@ -502,5 +504,6 @@ function parseTopLevelSettings(
       DEFAULT_AGENTIC_CONCURRENCY,
     ),
     ...parsePotluckCallback(raw, file),
+    configsvc: parseConfigsvc(raw, { listen: listenPort, cursor: cursorPort }, file),
   }
 }

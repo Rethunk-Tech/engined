@@ -2062,3 +2062,24 @@ role = "chat"
     expect(message).toMatch(/filename" does not exist at/)
   })
 })
+
+test('[configsvc] defaults off, carries an enabled table, and refuses what cannot serve', async () => {
+  expect(loadConfig(writeConfig('')).configsvc).toEqual({
+    enable: false,
+    host: '127.0.0.1',
+    port: 29_202,
+  })
+  const hash = await Bun.password.hash('pw', { algorithm: 'argon2id' })
+  const on = (extra: string) =>
+    `listen_port = 29200\n[configsvc]\nenable = true\npassword_hash = "${hash}"\n${extra}`
+  expect(loadConfig(writeConfig(on('host = "0.0.0.0"\nport = 29300\n'))).configsvc).toEqual({
+    enable: true,
+    host: '0.0.0.0',
+    port: 29_300,
+    password_hash: hash,
+  })
+  expect(parseMessage(on('port = 29200\n'))).toContain('must differ from "listen_port"')
+  expect(parseMessage('[configsvc]\nenable = true\n')).toContain('no "password_hash"')
+  expect(parseMessage('[configsvc]\npassword_hash = "$2b$10$x"\n')).toContain('argon2id')
+  expect(parseMessage('[configsvc]\nenabel = true\n')).toContain('unrecognised key "enabel"')
+})
