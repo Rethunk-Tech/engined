@@ -15,7 +15,7 @@ optdepends=(
 )
 install=engined.install
 source=("$pkgname::git+$url.git#tag=v$pkgver")
-sha256sums=('SKIP')
+sha256sums=('7afbea4408001728f0d2fa24b89ed3ce8cadb95c542163c95bf5f9f252116b84')
 
 build() {
   cd "$pkgname"
