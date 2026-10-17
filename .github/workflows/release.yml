@@ -1,7 +1,8 @@
 name: release
 
-# A tag is the release: its annotation is the notes, and install.sh runs from a
-# clone checked out at that tag, so there is no asset to attach.
+# A tag is the release: its annotation is the notes. The one asset is the
+# prebuilt tarball the AUR `engined` package installs from, so a user never
+# builds anything; install.sh still builds from a clone checked out at the tag.
 
 on:
   push:
@@ -18,7 +19,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       # A shallow checkout has the commit but not the annotated tag object the
       # notes are read from.
@@ -26,21 +27,42 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: Rethunk-Tech/gh-actions/setup-bun@bc5fa5b1004205c9c9399fc941d79d5ada53c59b # v1.16
+
+      # Everything packaging/aur/engined/PKGBUILD's package() reads, under one
+      # top-level directory. Reproducible (sorted, fixed mtime and owner, gzip -n)
+      # so a re-run uploads the same bytes the PKGBUILD's checksum names.
+      - name: Build the release tarball
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          bun install --frozen-lockfile
+          ENGINED_COMMIT="$GITHUB_SHA" bun run build
+          stage="engined-$version"
+          mkdir "$stage"
+          cp -r dist engines deploy scripts docs "$stage/"
+          # install.sh resolves its paths through src/paths.ts, the one definition.
+          cp --parents src/paths.ts src/env.ts "$stage/"
+          cp config.example.toml config.schema.json LICENSE README.md HUMANS.md THIRD_PARTY_NOTICES.md "$stage/"
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime="@$(git log -1 --format=%ct)" -cf - "$stage" | gzip -n >"$stage.tar.gz"
+          tar -tzf "$stage.tar.gz" | grep -q "^$stage/dist/main.js$"
+
       - name: Create the GitHub release from the tag's annotation
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # A re-run after the release already exists is the desired end state.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; nothing to do."
-            exit 0
+          # A re-run after the release already exists still (re)attaches the asset.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            subject=$(git tag -l --format='%(contents:subject)' "$TAG")
+            body=$(git tag -l --format='%(contents:body)' "$TAG")
+            [ -n "$subject" ] || subject=$(git log -1 --format='%s' "$TAG")
+            [ -n "$body" ] || body=$(git log -1 --format='%b' "$TAG")
+            gh release create "$TAG" \
+              --title "$TAG: $subject" \
+              --notes "${body:-$subject}" \
+              --verify-tag
           fi
-          subject=$(git tag -l --format='%(contents:subject)' "$TAG")
-          body=$(git tag -l --format='%(contents:body)' "$TAG")
-          [ -n "$subject" ] || subject=$(git log -1 --format='%s' "$TAG")
-          [ -n "$body" ] || body=$(git log -1 --format='%b' "$TAG")
-          gh release create "$TAG" \
-            --title "$TAG: $subject" \
-            --notes "${body:-$subject}" \
-            --verify-tag
+          gh release upload "$TAG" "engined-${TAG#v}.tar.gz" --clobber

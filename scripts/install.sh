@@ -147,15 +147,16 @@ main() {
   # declared as the turbo task's env input, which is what stops the cache handing
   # back a bundle stamped with a different commit.
   #
-  # The bundle has no runtime dependencies, so a checkout with nothing installed
-  # builds the same bytes. turbo and tsc are devDependencies: where they are
-  # present the turbo run adds a typecheck and replays a re-install at the same
-  # commit from cache, and where they are not, going straight to the build is what
-  # keeps this working on a cold clone with no network -- rather than an install
-  # step whose lockfile check can fail an update for a reason unrelated to it.
+  # The bundle embeds runtime dependencies (the comment-preserving TOML editor),
+  # so a checkout is installed from its lockfile first: --frozen-lockfile builds
+  # exactly what the commit pins and fails rather than resolving anything new.
+  # That needs the network on a cold clone. turbo is a devDependency installed by
+  # the same step; it adds a typecheck and replays a rebuild at the same commit
+  # from cache.
   (
     cd "$REPO_ROOT"
     export ENGINED_COMMIT="$COMMIT"
+    bun install --frozen-lockfile
     if [[ -x node_modules/.bin/turbo ]]; then
       bunx turbo run build
     else

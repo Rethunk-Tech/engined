@@ -6,11 +6,10 @@ pkgbase = engined
 	install = engined.install
 	arch = any
 	license = MIT
-	makedepends = git
 	depends = bun
 	optdepends = docker: run the inference engines and the Cursor TLS bridge
 	optdepends = bubblewrap: read-only sandbox for the opencode engine
-	source = engined::git+https://github.com/Rethunk-Tech/engined.git#tag=v0.1.1
-	sha256sums = 43c91653509375ccfd980c26dcf24e56832a1cc0d506178a1832d4243f6b802e
+	source = https://github.com/Rethunk-Tech/engined/releases/download/v0.1.1/engined-0.1.1.tar.gz
+	sha256sums = SKIP
 
 pkgname = engined

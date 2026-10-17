@@ -21,6 +21,8 @@
   is a token logged at each start or `[configsvc] password_hash`.
 - `scripts/install.sh` installs, enables and restarts `engined-configsvc.service` (also on a box with no config, where it prints `engined --configsvc-url` as the next step), sandboxed
   like the daemon with only `~/.config/engined` writable.
+- Releases attach a prebuilt `engined-<version>.tar.gz`; the AUR `engined` package
+  installs from it instead of building.
 - `POST /engined/v1/upstreams/:id/refresh` fetches that upstream's model list
   now.
 

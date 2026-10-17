@@ -29,20 +29,27 @@ packaging/aur/release.sh tag 0.1.0       # local only
 packaging/aur/release.sh publish 0.1.0   # pushes
 ```
 
-`tag` dates the changelog section, bumps `package.json`, commits, tags with the
-section as the annotation (the release workflow's notes), and points `engined`
-at the tag in a second commit. That checksum cannot be in the tagged commit:
-makepkg checksums a git source over the tagged tree, which contains the
-PKGBUILD. It is taken from the local tag and matches a GitHub clone.
+`tag` dates the changelog section, bumps `package.json`, commits, and tags with
+the section as the annotation (the release workflow's notes). Nothing else.
 
-`publish` pushes main and the tag in one atomic push, then pushes `engined` to
-the AUR. Nothing waits on CI.
+`publish` pushes main and the tag in one atomic push, then waits for the
+release workflow run on the tag's commit (`gh run watch`). That run builds
+`engined-<version>.tar.gz` (the bundle, `engines/`, the unit templates, docs,
+`config.schema.json`, and the two source files `install.sh` resolves paths through, under one `engined-<version>/` directory) and attaches it
+to the GitHub release. `publish` downloads that asset, writes its sha256 into
+`packaging/aur/engined/PKGBUILD`, regenerates `.SRCINFO`, commits
+`chore(aur): engined <version>`, and pushes `engined` to the AUR. The PKGBUILD
+installs from the extracted tarball and builds nothing, so the checksum is the
+asset's and cannot exist before the workflow ran. The `chore(aur)` commit stays
+local until the next push to main.
 
-Both need Docker (makepkg runs in `archlinux:base-devel`) and an SSH key the
-AUR account accepts. No AUR key is kept in GitHub.
+`publish` needs Docker (makepkg runs in `archlinux:base-devel`), `gh` logged in
+to the repository, and an SSH key the AUR account accepts. No AUR key is kept
+in GitHub.
 
-`engined-git` is pushed by hand on its own cadence: a tag changes nothing in a
-package whose `pkgver()` is `git describe`. Regenerate its `.SRCINFO` with
+`engined-git` builds from main with `bun install --frozen-lockfile` and is
+pushed by hand on its own cadence: a tag changes nothing in a package whose
+`pkgver()` is `git describe`. Regenerate its `.SRCINFO` with
 `makepkg --printsrcinfo` before pushing.
 
 Check the result with a fresh clone, not the RPC or cgit, which lag by minutes.

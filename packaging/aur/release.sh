@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # Release engined and publish it to the AUR from this machine.
 #
-#   release.sh tag <version>      date the changelog, bump, commit, tag, and
-#                                 point `engined` at the tag
-#   release.sh publish <version>  push main and the tag, publish `engined`
+#   release.sh tag <version>      date the changelog, bump, commit, tag (local)
+#   release.sh publish <version>  push main and the tag, wait for the release
+#                                 workflow, point `engined` at the tarball it
+#                                 attached, publish `engined` to the AUR
 #
-# The bundle is architecture-independent, so there is no -bin package and
-# nothing here waits on CI.
-#
-# The `engined` checksum cannot live in the tagged commit: makepkg checksums a
-# git source over the tagged tree, and the PKGBUILD is part of that tree. So the
-# sum is a commit on top of the tag. It is taken from the local tag, which gives
-# the same sum as a GitHub clone.
+# The bundle is architecture-independent, so there is no -bin package. The
+# `engined` package installs the tarball the release workflow builds, so its
+# checksum is that asset's, known only once the workflow has run: it is a commit
+# on top of the tag, made by `publish` and pushed with the next push to main.
 #
 # The AUR account is shared with packages that are not ours, so the AUR push
 # names its package base and never iterates over the account's repos.
@@ -91,25 +89,49 @@ tag_release() {
   git commit -q -m "chore(release): engined $version"
   { echo "engined $version"; echo; notes; } | git tag -a --cleanup=verbatim "$tag" -F -
 
+  echo "tagged $tag; next: ${0##*/} publish $version"
+}
+
+# The release workflow run for the tag's commit: the run list can lag the push
+# by a few seconds, so it is polled for rather than read once.
+release_run() {
+  local sha id
+  sha=$(git rev-parse "$tag^{commit}")
+  for _ in $(seq 1 30); do
+    id=$(gh run list --workflow release.yml --json databaseId,headSha --limit 20 \
+      --jq ".[] | select(.headSha == \"$sha\") | .databaseId" | head -n 1)
+    [[ -n $id ]] && { printf '%s\n' "$id"; return; }
+    sleep 4
+  done
+  die "no release workflow run for $tag ($sha)"
+}
+
+# Download the asset the workflow attached, write its checksum into the PKGBUILD.
+point_at_asset() {
+  local work sum
+  work=$(mktemp -d)
+  gh release download "$tag" --pattern "engined-$version.tar.gz" --dir "$work"
+  sum=$(sha256sum "$work/engined-$version.tar.gz" | cut -d' ' -f1)
+  rm -rf -- "$work"
   sed -i "s/^pkgver=.*/pkgver=$version/; s/^pkgrel=.*/pkgrel=1/" "$aur/engined/PKGBUILD"
-  # A later source= wins, so the sum comes from the local tag, before it is pushed.
-  local sum
-  sum=$(in_arch engined "echo 'source=(\"engined::git+file:///repo#tag=$tag\")' >>PKGBUILD && makepkg -g" |
-    sed -n "s/^sha256sums=('\([^']*\)')$/\1/p")
   sed -i "s|^sha256sums=('[^']*')|sha256sums=('$(hex64 "$sum")')|" "$aur/engined/PKGBUILD"
   srcinfo engined
   git add "$aur/engined"
-  git commit -q -m "chore(aur): engined $version"
-  echo "tagged $tag; next: ${0##*/} publish $version"
+  if git diff --cached --quiet; then
+    echo "packaging/aur/engined already at $version"
+  else
+    git commit -q -m "chore(aur): engined $version"
+  fi
 }
 
 publish() {
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null || die "no tag $tag; run: ${0##*/} tag $version"
-  grep -q "^pkgver=$version$" "$aur/engined/PKGBUILD" || die "packaging/aur/engined is not at $version"
 
   echo "pushing main and $tag:"
   git log --oneline '@{u}..HEAD'
   git push -q --atomic origin main "refs/tags/$tag"
+  gh run watch "$(release_run)" --exit-status
+  point_at_asset
   aur_push engined
 }
 
