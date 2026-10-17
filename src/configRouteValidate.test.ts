@@ -40,6 +40,15 @@ describe('validateModelsMax', () => {
     expect(() => validateModelsMax([e], routes)).not.toThrow()
   })
 
+  test('a disabled route holds no role, so it does not raise the floor', () => {
+    const e = engine({ id: 'llama', models_max: 1 })
+    const routes = [
+      route({ engine: 'llama', model: 'a', role: 'chat' }),
+      route({ engine: 'llama', model: 'b', role: 'vision', disabled: true }),
+    ]
+    expect(() => validateModelsMax([e], routes)).not.toThrow()
+  })
+
   test('an engine with no models_max is never checked', () => {
     const e = engine({ id: 'llama' })
     const routes = [route({ engine: 'llama', model: 'a', role: 'chat' })]

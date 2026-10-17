@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Config: a disabled route no longer counts toward the roles `models_max` must cover.
+
 ## 0.2.4 - 2026-10-17
 
 - Config: a disabled route, or any route on a disabled engine or upstream, may name a `filename`

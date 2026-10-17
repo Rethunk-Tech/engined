@@ -115,7 +115,7 @@ export function validateModelsMax(
     }
     const roles = new Set(
       localRoutesOf(routes, e.id)
-        .filter((r) => r.role)
+        .filter((r) => r.role && r.disabled !== true)
         .map((r) => r.role),
     )
     if (e.models_max < roles.size) {
