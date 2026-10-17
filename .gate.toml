@@ -1,0 +1,5 @@
+# Opt-in: a bare gate skips it, gate --e2e runs it. It needs `playwright install chromium` once.
+[gates.e2e]
+run = "bun run test:e2e"
+e2e = true
+timeout = "2m"

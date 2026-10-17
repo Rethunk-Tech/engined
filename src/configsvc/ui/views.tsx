@@ -89,5 +89,6 @@ export function ViewNav() {
 }
 
 export function View() {
-  return current.value.render()
+  const Current = current.value.render
+  return <Current />
 }

@@ -16,3 +16,7 @@ docs/four-doors/
 docs/specs/
 # Recovers Cursor RPC schemas from an installed cursor-agent bundle; kept local only.
 scripts/cursor-proto-extract.py
+
+# Playwright
+test-results/
+playwright-report/

@@ -35,10 +35,12 @@
     "test": "bun test src --parallel=8 --randomize",
     "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outdir=dist",
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} /usr/bin/flock -w 3600 /tmp/engined-local-tier.lock bun test test/local",
-    "ci": "turbo run typecheck lint test build"
+    "ci": "turbo run typecheck lint test build",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "^1.64.1",
     "@types/bun": "^1.4.3",
     "knip": "^6.41.0",
     "turbo": "^2.11.8",

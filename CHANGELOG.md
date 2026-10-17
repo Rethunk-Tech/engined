@@ -19,6 +19,9 @@
   comments kept, diff and save `config.toml` with history and an audit line,
   reload engined, and see its status, models, secrets and host checks. Sign-in
   is a token logged at each start or `[configsvc] password_hash`.
+- `bun run test:e2e` (also `gate --e2e`) runs one Chromium smoke of the config UI: every view renders
+  without a script or CSP error, a route field edit shows its diff, saves one changed line and
+  hot-reloads a scratch door.
 - `GET /api/shipped` lists the shipped engines with their default weights directory contents.
 - Editing a config that lacks a table no longer fails on the first `addEntry` to it.
 - `GET /api/history/:name` returns one kept file. `GET /api/logs/:engine`, `GET /api/resources/:engine` and `POST /api/dependents` join the config UI's API.

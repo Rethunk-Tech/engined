@@ -15,7 +15,7 @@ traps live beside the code they govern.
 
 ## Testing
 
-Three tiers:
+Three tiers, and one opt-in browser smoke:
 
 - `src/*.test.ts` — CI: parse, dispatch, chain-advance, provenance against a
   fake upstream. Nothing installed.
@@ -27,6 +27,9 @@ Three tiers:
   enough to contend, so only their suites check. Stopping the unit is never a
   precondition. Run as `bun run test:local` (not by pointing `bun` at the
   directory).
+- `e2e/` — one Playwright (Chromium) smoke of the config UI against a scratch door and a copy of
+  `config.example.toml`. Opt-in: `gate --e2e` or `bun run test:e2e`; a bare `gate` and CI skip it.
+  It needs `bunx playwright install chromium` once.
 - No mocks — traps are tool behaviour; substitutes are injected functions with
   real defaults and recorded output.
 
