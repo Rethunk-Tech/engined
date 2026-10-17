@@ -77,7 +77,7 @@ for (let tries = 0; ; tries++) {
 }
 
 const svc = startConfigsvc(
-  { host: '127.0.0.1', port: 0 },
+  { port: 0 },
   {
     configFile,
     enginesRoot: join(repo, 'engines'),

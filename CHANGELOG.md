@@ -19,6 +19,10 @@
   comments kept, diff and save `config.toml` with history and an audit line,
   reload engined, and see its status, models, secrets and host checks. Sign-in
   is a token logged at each start or `[configsvc] password_hash`.
+- `[configsvc] host` is now the name clients dial, not a bind address: the UI always listens on
+  loopback, and a non-loopback host gets an HTTPS site (`:29444`) in the `engined-tls` Caddyfile, which
+  `engined --caddyfile TEMPLATE OUT` renders before Caddy starts. The UI accepts that bridged `Host`
+  with an https `Origin`, marks its cookie `Secure`, and logs the https URL. `0.0.0.0` is refused.
 - `bun run test:e2e` (also `gate --e2e`) runs one Chromium smoke of the config UI: every view renders
   without a script or CSP error, a route field edit shows its diff, saves one changed line and
   hot-reloads a scratch door.

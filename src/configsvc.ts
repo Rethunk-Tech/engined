@@ -4,6 +4,7 @@ import page from './configsvc/ui/index.html'
 import { type ConfigsvcDeps, configApi } from './configsvcApi.ts'
 import { createAuth, SESSION_COOKIE, SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_URL_PREFIX } from './configsvcCli.ts'
+import { bridgeAuthority, CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
 import { liveApi } from './configsvcLive.ts'
 import {
   jsonError,
@@ -13,7 +14,7 @@ import {
   STATUS_UNAUTHORIZED,
 } from './http.ts'
 
-const LOOPBACK_BINDS = new Set(['127.0.0.1', 'localhost', '::1'])
+const LOOPBACK = '127.0.0.1'
 const SECURITY_HEADERS = {
   'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
   'x-content-type-options': 'nosniff',
@@ -21,11 +22,12 @@ const SECURITY_HEADERS = {
 }
 
 export interface ConfigsvcOptions {
-  host: string
   /** 0 picks a free port; the bound one is on the result. */
   port: number
   passwordHash?: string
   now?: () => number
+  /** The name the TLS bridge serves this listener on; its requests arrive over HTTPS with that `Host`. */
+  bridgeHost?: string
 }
 
 export interface StartedConfigsvc {
@@ -39,30 +41,34 @@ export interface StartedConfigsvc {
 
 /**
  * Host and Origin, as the door checks them: a page on another origin, or a
- * request addressed to a name that is not this listener's, is refused. A
- * listener bound beyond loopback is meant to be reached by name, so there the
- * Host must only agree with the Origin.
+ * request addressed to a name that is not this listener's, is refused. The
+ * listener is loopback, so the Host is a loopback name at its port, or the
+ * bridge's own authority, which then must come with an https Origin of that name.
  */
-function refuseForeign(req: Request, bindHost: string, port: number): Response | undefined {
+function refuseForeign(
+  req: Request,
+  port: number,
+  bridgeHost: string | undefined,
+): Response | undefined {
   const site = req.headers.get('Sec-Fetch-Site')
   const host = req.headers.get('Host')
   const origin = req.headers.get('Origin')
   if (site !== null && site !== 'none' && site !== 'same-origin') {
     return jsonError(STATUS_FORBIDDEN, 'cross-origin requests are refused')
   }
-  if (origin !== null && origin !== `http://${host}`) {
+  const bridged = bridgeHost !== undefined && host === bridgeAuthority(bridgeHost)
+  if (origin !== null && origin !== `${bridged ? 'https' : 'http'}://${host}`) {
     return jsonError(STATUS_FORBIDDEN, 'cross-origin requests are refused')
   }
-  const loopback = LOOPBACK_BINDS.has(bindHost)
   const allowed = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]
-  if (loopback && host !== null && !allowed.includes(host)) {
+  if (!bridged && host !== null && !allowed.includes(host)) {
     return jsonError(STATUS_FORBIDDEN, `Host "${host}" is outside the loopback set`)
   }
   return undefined
 }
 
-function sessionCookie(id: string): string {
-  return `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_IDLE_MS / 1000}`
+function sessionCookie(id: string, secure: boolean): string {
+  return `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; ${secure ? 'Secure; ' : ''}Path=/; Max-Age=${SESSION_IDLE_MS / 1000}`
 }
 
 function withHeaders(res: Response): Response {
@@ -75,10 +81,13 @@ function withHeaders(res: Response): Response {
 
 export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): StartedConfigsvc {
   const auth = createAuth({ passwordHash: opts.passwordHash, now: opts.now })
+  const viaBridge = (req: Request): boolean =>
+    opts.bridgeHost !== undefined && req.headers.get('Host') === bridgeAuthority(opts.bridgeHost)
 
   const exchange = async (
     secret: string,
     client: string,
+    secure: boolean,
   ): Promise<{ cookie?: string; refusal?: Response }> => {
     const session = await auth.login(secret, client)
     if (session === 'limited') {
@@ -88,7 +97,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     }
     return session === undefined
       ? { refusal: jsonError(STATUS_UNAUTHORIZED, 'wrong credentials') }
-      : { cookie: sessionCookie(session) }
+      : { cookie: sessionCookie(session, secure) }
   }
 
   /** The one unauthenticated API route: `POST /login`. The shell page and its assets are served by Bun's route table before this runs, and the page exchanges a `?token=` link through this route. */
@@ -98,7 +107,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     }
     const body = (await req.json().catch(() => ({}))) as { password?: unknown; token?: unknown }
     const secret = auth.token === undefined ? body.password : body.token
-    const done = await exchange(typeof secret === 'string' ? secret : '', client)
+    const done = await exchange(typeof secret === 'string' ? secret : '', client, viaBridge(req))
     return (
       done.refusal ??
       new Response(JSON.stringify({ ok: true }), {
@@ -109,7 +118,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
 
   async function handle(req: Request, client: string): Promise<Response> {
     const url = new URL(req.url)
-    const refusal = refuseForeign(req, opts.host, server.port as number)
+    const refusal = refuseForeign(req, server.port as number, opts.bridgeHost)
     if (refusal !== undefined) {
       return refusal
     }
@@ -126,7 +135,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
       return new Response(JSON.stringify({ ok: true }), {
         headers: {
           'content-type': 'application/json',
-          'set-cookie': `${SESSION_COOKIE}=; Max-Age=0; Path=/`,
+          'set-cookie': `${SESSION_COOKIE}=; Max-Age=0; ${viaBridge(req) ? 'Secure; ' : ''}Path=/`,
         },
       })
     }
@@ -137,20 +146,28 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
   }
 
   const server = Bun.serve({
-    hostname: opts.host,
+    hostname: LOOPBACK,
     port: opts.port,
     idleTimeout: 0,
     routes: { '/': page },
     async fetch(req, srv) {
       try {
-        return withHeaders(await handle(req, srv.requestIP(req)?.address ?? 'unknown'))
+        // Behind the bridge every request comes from Caddy; its forwarded address keeps the failure limit per client.
+        const peer = srv.requestIP(req)?.address ?? 'unknown'
+        const forwarded = viaBridge(req)
+          ? req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
+          : undefined
+        return withHeaders(await handle(req, forwarded || peer))
       } catch (err) {
         return withHeaders(jsonError(500, err instanceof Error ? err.message : String(err)))
       }
     },
   })
   const port = server.port as number
-  const url = `http://${opts.host}:${port}/`
+  const url =
+    opts.bridgeHost === undefined
+      ? `http://${LOOPBACK}:${port}/`
+      : `https://${opts.bridgeHost}:${CONFIGSVC_TLS_PORT}/`
   const shown = auth.token === undefined ? url : `${url}?token=${auth.token}`
   return {
     port,

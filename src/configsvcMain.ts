@@ -6,6 +6,7 @@ import { loadConfig } from './config.ts'
 import { bestEffortListenPort } from './configAwaiting.ts'
 import { startConfigsvc } from './configsvc.ts'
 import type { ConfigsvcDeps } from './configsvcApi.ts'
+import { isLoopbackHost } from './configsvcHost.ts'
 import { secretTool } from './configsvcSecrets.ts'
 import { runDoctor } from './doctor.ts'
 import { FatalError } from './errors/fatal.ts'
@@ -91,7 +92,14 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
   process.chdir(import.meta.dir)
   let started: ReturnType<typeof startConfigsvc>
   try {
-    started = startConfigsvc(settings, deps)
+    started = startConfigsvc(
+      {
+        port: settings.port,
+        passwordHash: settings.passwordHash,
+        bridgeHost: isLoopbackHost(settings.host) ? undefined : settings.host,
+      },
+      deps,
+    )
   } catch (err) {
     const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
     process.stderr.write(`configsvc port ${settings.port} ${what}: ${errMessage(err)}\n`)

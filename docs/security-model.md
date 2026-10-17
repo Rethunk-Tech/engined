@@ -165,6 +165,44 @@ firewall rule, a tunnel that authenticates, or a reverse proxy with its own
 auth before exposing it beyond machines you trust. The loopback door itself is
 unchanged: without `engined-tls` running, nothing listens off-box.
 
+## The config UI is a root-equivalent writer
+
+`engined --configsvc` (the `engined-configsvc` unit) edits `config.toml`, and
+that is not a harmless file. A config can set `spec_dir` to any directory, and
+a spec directory is trusted code that `docker run` executes as root (the
+section above), so whoever can save a config can run a container as root. The
+UI is therefore gated like the privilege it holds:
+
+- **Login.** Without `[configsvc] password_hash` it mints a random token on each
+  start and logs a URL that carries it; with a hash (`engined --hash-password`,
+  argon2id) it takes that password. Five wrong tries a minute lock a client out
+  and a session ends after 12 hours idle. The cookie is `HttpOnly` and
+  `SameSite=Strict`.
+- **Loopback.** The listener always binds `127.0.0.1`, and a request whose
+  `Host` is not a loopback name at its port, or whose `Origin` is not its own,
+  is refused. A page on another origin cannot drive it.
+- **Page.** The page is served with `default-src 'self'`: no inline script or
+  style, nothing from a CDN.
+- **Audit.** Each save logs one line with the client, what changed and the
+  before and after hashes. The previous file is kept in `.history/`.
+- **Secrets.** A value typed into the UI goes to `secret-tool` on stdin and is
+  never read back; the UI only learns whether an item exists.
+
+**LAN access goes through TLS.** When `[configsvc] host` names something other
+than loopback, the UI still listens on loopback only. The `engined-tls` Caddy
+renders a site for `https://<host>:29444` that proxies to it, the page logs the
+https URL, and the UI accepts that one `Host` (with an https `Origin` of the
+same name), sets `Secure` on its cookie and rate-limits by the forwarded
+client address. `host` is a name or address clients dial, never `0.0.0.0`.
+Restart `engined-tls` after changing it: the Caddyfile is rendered when the
+unit starts (`engined --caddyfile`). Caddy's internal CA signs the site, so a
+browser needs that root once, as for the Cursor door.
+
+Reaching the bridge is reaching a root-equivalent editor: the token or password
+is the only gate, and a token log line is readable by anything that reads the
+user's journal. Prefer `password_hash` for any host that is not loopback, and
+the firewall and tunnel advice for the Cursor bridge applies here too.
+
 ## Secrets
 
 Secrets never live in `config.toml`. A remote engine names a keyring entry and

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { join } from 'node:path'
 import { startConfigsvc } from './configsvc.ts'
 import { SESSION_IDLE_MS } from './configsvcAuth.ts'
+import { CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
 import { bindDualFamily } from './listen.ts'
 import { createDoor } from './main.ts'
 import { BUNX, config, deadPort, ENGINES_ROOT, makeTestRoot } from './test-support.ts'
@@ -16,7 +17,7 @@ afterEach(() => {
 })
 
 /** A real config dir, a real in-process door as engined, and the config UI over them; only the three host tools are fakes. */
-async function harness(opts: { passwordHash?: string } = {}) {
+async function harness(opts: { passwordHash?: string; bridgeHost?: string } = {}) {
   const dir = mkdtempSync(join(TEST_ROOT, 'cfg-'))
   const configFile = join(dir, 'config.toml')
   const doorPort = deadPort()
@@ -31,7 +32,7 @@ async function harness(opts: { passwordHash?: string } = {}) {
   const reloads: string[] = []
   const clock = { now: 1_000_000 }
   const svc = startConfigsvc(
-    { host: '127.0.0.1', port: 0, passwordHash: opts.passwordHash, now: () => clock.now },
+    { port: 0, passwordHash: opts.passwordHash, bridgeHost: opts.bridgeHost, now: () => clock.now },
     {
       configFile,
       enginesRoot: ENGINES_ROOT,
@@ -252,4 +253,27 @@ test('validate names the file, position and config path of a fault; edit, reload
 
   const status = (await (await h.call('/api/status', { cookie })).json()) as { contract: number }
   expect(status.contract).toBeNumber()
+})
+
+test('behind the TLS bridge the bridged Host and https Origin are accepted, cookies are Secure, and the log line is https', async () => {
+  const h = await harness({ bridgeHost: 'engined.lan' })
+  expect(h.svc.logLine).toContain(`https://engined.lan:${CONFIGSVC_TLS_PORT}/?token=`)
+  const bridged = { Host: `engined.lan:${CONFIGSVC_TLS_PORT}`, 'X-Forwarded-For': '192.168.1.9' }
+  const login = await h.call('/login', {
+    method: 'POST',
+    body: JSON.stringify({ token: h.svc.token }),
+    headers: { ...bridged, Origin: `https://engined.lan:${CONFIGSVC_TLS_PORT}` },
+  })
+  expect(login.status).toBe(200)
+  const setCookie = login.headers.get('set-cookie') as string
+  expect(setCookie).toContain('Secure')
+  const cookie = setCookie.split(';')[0] as string
+  expect((await h.call('/api/history', { cookie, headers: bridged })).status).toBe(200)
+  // A bridged Host with the plain-http Origin, another name, or a loopback Host dressed with the bridge Origin is refused.
+  const refuse = (headers: Record<string, string>) => h.call('/api/history', { cookie, headers })
+  expect(
+    (await refuse({ ...bridged, Origin: `http://engined.lan:${CONFIGSVC_TLS_PORT}` })).status,
+  ).toBe(403)
+  expect((await refuse({ Host: `evil.example:${CONFIGSVC_TLS_PORT}` })).status).toBe(403)
+  expect((await h.call('/api/history', { cookie })).status).toBe(200)
 })

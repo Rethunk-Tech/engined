@@ -164,7 +164,10 @@ engines would restart and whether the ports changed, and reloads engined by
 signal on request. With a broken config it still starts, so the file can be
 repaired through it. Open the logged URL (`engined --configsvc-url`) in a browser: the
 page trades the token in the link for a session cookie and drops it from the address bar.
-A banner shows whether engined runs the config on disk. The Raw TOML view edits the pending text with
+A banner shows whether engined runs the config on disk. To reach it from another machine set
+`[configsvc] host` to the name or address clients dial and restart `engined-tls`: the UI stays on loopback
+and Caddy serves `https://<host>:29444` in front of it (the logged URL is that one). Use `password_hash`
+there; [docs/security-model.md](docs/security-model.md) says why a config writer is root-equivalent. The Raw TOML view edits the pending text with
 TOML highlighting; every change is validated the way engined loads it (after a 300 ms pause), errors are
 marked in the margin and listed under the editor, and `config.d/` fragments are shown read-only. The Engines view is one card per engine: live state,
 disable, rename (a spec-keyed engine id is refused, with the reason), a delete guard that lists what still

@@ -2072,13 +2072,15 @@ test('[configsvc] defaults off, carries an enabled table, and refuses what canno
   const hash = await Bun.password.hash('pw', { algorithm: 'argon2id' })
   const on = (extra: string) =>
     `listen_port = 29200\n[configsvc]\nenable = true\npassword_hash = "${hash}"\n${extra}`
-  expect(loadConfig(writeConfig(on('host = "0.0.0.0"\nport = 29300\n'))).configsvc).toEqual({
+  expect(loadConfig(writeConfig(on('host = "engined.lan"\nport = 29300\n'))).configsvc).toEqual({
     enable: true,
-    host: '0.0.0.0',
+    host: 'engined.lan',
     port: 29_300,
     password_hash: hash,
   })
   expect(parseMessage(on('port = 29200\n'))).toContain('must differ from "listen_port"')
+  expect(parseMessage(on('host = "0.0.0.0"\n'))).toContain('configsvc.host')
+  expect(parseMessage(on('host = "a b"\n'))).toContain('configsvc.host')
   expect(loadConfig(writeConfig('[configsvc]\nenable = true\n')).configsvc.enable).toBe(true)
   expect(parseMessage('[configsvc]\npassword_hash = "$2b$10$x"\n')).toContain('argon2id')
   expect(parseMessage('[configsvc]\nenabel = true\n')).toContain('unrecognised key "enabel"')

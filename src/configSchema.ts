@@ -222,7 +222,10 @@ const CALLBACK_SECRET_FIELDS: Fields = {
 
 const CONFIGSVC_FIELDS: Fields = {
   enable: bool('Whether the config web UI may run.', false),
-  host: str('Address the config web UI binds.', { default: '127.0.0.1' }),
+  host: str(
+    'Name or address clients dial the config web UI on. It always listens on loopback; a value that is not loopback is served over HTTPS by the engined-tls bridge (restart it after a change).',
+    { default: '127.0.0.1' },
+  ),
   port: port(
     'Port of the config web UI; must differ from listen_port and cursor_port.',
     DEFAULT_CONFIGSVC_PORT,

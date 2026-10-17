@@ -517,7 +517,7 @@
         "host": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "Address the config web UI binds."
+          "description": "Name or address clients dial the config web UI on. It always listens on loopback; a value that is not loopback is served over HTTPS by the engined-tls bridge (restart it after a change)."
         },
         "port": {
           "type": "integer",

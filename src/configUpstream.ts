@@ -58,6 +58,8 @@ export function parsePotluckCallback(
   }
 }
 
+import { isBridgeHost, isLoopbackHost } from './configsvcHost.ts'
+
 export const DEFAULT_CONFIGSVC_PORT = 29_202
 const ARGON2ID_PREFIX = '$argon2id$'
 
@@ -91,9 +93,16 @@ export function parseConfigsvc(
       { file, key: 'configsvc.port' },
     )
   }
+  const host = optional(table.host, 'string', 'config "configsvc.host"', file) ?? '127.0.0.1'
+  if (!(isLoopbackHost(host) || isBridgeHost(host))) {
+    throw new ParseError(
+      'config "configsvc.host" must be a name or address clients dial (not 0.0.0.0): the UI listens on loopback and the TLS bridge serves that name',
+      { file, key: 'configsvc.host' },
+    )
+  }
   return {
     enable,
-    host: optional(table.host, 'string', 'config "configsvc.host"', file) ?? '127.0.0.1',
+    host,
     port,
     ...(passwordHash === undefined ? {} : { password_hash: passwordHash }),
   }
