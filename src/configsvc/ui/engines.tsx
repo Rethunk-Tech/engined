@@ -158,23 +158,25 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
         <span class="pill">{kind ?? 'unknown kind'}</span>
         <StatePill id={id} />
         <span class="grow" />
-        <button
-          type="button"
-          class="small"
-          onClick={() =>
-            void editDraft([
-              {
-                op: 'setKey',
-                path: ['engine', index, 'disable'],
-                value: engine.disable === true ? undefined : true,
-              },
-            ])
-          }
-        >
-          {engine.disable === true ? 'Enable' : 'Disable'}
-        </button>
-        <CopyButton text={entryToToml('engine', engine)} label="Copy TOML" />
-        <Rename engine={engine} />
+        <span class="group">
+          <button
+            type="button"
+            class="small"
+            onClick={() =>
+              void editDraft([
+                {
+                  op: 'setKey',
+                  path: ['engine', index, 'disable'],
+                  value: engine.disable === true ? undefined : true,
+                },
+              ])
+            }
+          >
+            {engine.disable === true ? 'Enable' : 'Disable'}
+          </button>
+          <CopyButton text={entryToToml('engine', engine)} label="Copy TOML" />
+          <Rename engine={engine} />
+        </span>
         <DeleteGuard doc={d} table="engine" id={id} index={index} addresses={addresses} />
       </div>
       {liveEngines.value[id]?.last_error ? (
@@ -185,7 +187,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
           fix: <code>{liveEngines.value[id]?.fix}</code>
         </p>
       ) : null}
-      <div class="rowhead">
+      <div class="group">
         {(['logs', 'resources', 'spec'] as const).map((p) => (
           <button key={p} type="button" class="small" onClick={() => toggle(p)}>
             {p === 'spec' ? 'spec.toml' : p}

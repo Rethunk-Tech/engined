@@ -323,39 +323,43 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
   return (
     <div class={`route panel${route.disable === true ? ' off' : ''}`}>
       <div class="rowhead">
-        <code>{address ?? '(incomplete)'}</code>
-        {address === undefined ? null : <CopyButton text={address} />}
-        <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
+        <span class="group">
+          <code>{address ?? '(incomplete)'}</code>
+          {address === undefined ? null : <CopyButton text={address} />}
+          <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
+        </span>
         <span class="muted">{callsFor(address)} call(s) / 7 d</span>
         <span class="grow" />
-        {address === undefined ? null : (
-          <>
-            <TestBadge address={address} />
-            <button type="button" class="small" onClick={() => void testRoute(address)}>
-              Test
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          class="small"
-          onClick={() =>
-            void editDraft([
-              {
-                op: 'setKey',
-                path: [...base, 'disable'],
-                value: route.disable === true ? undefined : true,
-              },
-            ])
-          }
-        >
-          {route.disable === true ? 'Enable' : 'Disable'}
-        </button>
-        <button type="button" class="small" onClick={() => setOpen(!open)}>
-          {open ? 'Close' : 'Edit'}
-        </button>
+        <span class="group">
+          {address === undefined ? null : (
+            <>
+              <TestBadge address={address} />
+              <button type="button" class="small" onClick={() => void testRoute(address)}>
+                Test
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            class="small"
+            onClick={() =>
+              void editDraft([
+                {
+                  op: 'setKey',
+                  path: [...base, 'disable'],
+                  value: route.disable === true ? undefined : true,
+                },
+              ])
+            }
+          >
+            {route.disable === true ? 'Enable' : 'Disable'}
+          </button>
+          <button type="button" class="small" onClick={() => setOpen(!open)}>
+            {open ? 'Close' : 'Edit'}
+          </button>
+        </span>
         {confirm ? (
-          <>
+          <span class="group">
             <button
               type="button"
               class="small danger"
@@ -368,7 +372,7 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
             <button type="button" class="small" onClick={() => setConfirm(false)}>
               Keep
             </button>
-          </>
+          </span>
         ) : (
           <button type="button" class="small danger" onClick={() => setConfirm(true)}>
             Delete

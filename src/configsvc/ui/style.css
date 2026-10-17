@@ -147,6 +147,9 @@ code {
   padding: 2px 8px;
   border-radius: 10px;
   background: var(--panel-2);
+  color: var(--muted);
+}
+.pill.warn {
   color: var(--warn);
 }
 .layout {
@@ -207,23 +210,64 @@ details pre {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 16px;
+}
+/* Buttons that act on the same thing sit tight; separate groups get the row's wider gap. */
+.group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+/* One rhythm for every section stacked inside a card. */
+.panel > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.panel > * + * {
+  margin-top: 12px;
+}
+details:not(.panel) {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 12px;
+}
+details:not(.panel)[open] {
+  padding-bottom: 12px;
+}
+summary {
+  cursor: pointer;
+  padding: 7px 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+summary:hover {
+  color: var(--text);
+}
+details[open] > summary {
+  margin-bottom: 4px;
 }
 .rowhead h3 {
   margin: 0;
 }
 .engine {
-  margin: 12px 0;
+  margin: 16px 0;
 }
 .route {
-  margin: 8px 0;
+  padding: 10px 14px;
   background: var(--bg);
 }
 .off {
   opacity: 0.6;
 }
 .routes {
-  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.routes > button {
+  align-self: flex-start;
 }
 .form {
   display: grid;
@@ -247,12 +291,13 @@ details pre {
 .resolved {
   grid-column: 1 / -1;
 }
+/* A grid, not a flex row, so every value input starts at the same x whatever its key's length. */
 .argrow {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(200px, 360px) max-content;
   gap: 6px;
   align-items: center;
-  margin: 3px 0;
+  margin: 4px 0;
 }
 .small {
   padding: 1px 8px;
