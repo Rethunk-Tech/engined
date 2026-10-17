@@ -56,7 +56,8 @@ export function validateFilenameUnderModelsDir(
         originOf(r, 'filename'),
       )
     }
-    if (!existsSync(target)) {
+    // Disabling is how an operator parks a route whose weights are not on this box yet.
+    if (r.disabled !== true && !existsSync(target)) {
       throw new ParseError(
         `${label} "filename" does not exist at "${target}"`,
         originOf(r, 'filename'),

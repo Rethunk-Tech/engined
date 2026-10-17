@@ -99,6 +99,16 @@ describe('validateFilenameUnderModelsDir', () => {
     )
   })
 
+  test('a disabled route may name a filename that does not exist yet', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'engined-models-dir-'))
+    const e = engine({ id: 'llama', models_dir: dir })
+    const engines = new Map<string, EngineEntry>([['llama', e]])
+    const routes = [
+      route({ engine: 'llama', model: 'a', filename: 'missing.gguf', disabled: true }),
+    ]
+    expect(() => validateFilenameUnderModelsDir(routes, engines)).not.toThrow()
+  })
+
   test('a filename that exists under models_dir passes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'engined-models-dir-'))
     writeFileSync(join(dir, 'present.gguf'), 'weights')
