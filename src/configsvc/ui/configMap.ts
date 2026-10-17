@@ -27,6 +27,12 @@ const EGRESS_GROUPS = [
   ['remote', 'Internet'],
 ] as const
 
+/** One colour per kind of entry, shared by the chart's groups and the Map's legend. */
+export const MAP_COLOURS = { chain: '#b48cff', engine: '#5b9dff', upstream: '#3fb8af' } as const
+
+/** A group's tint: a translucent fill of its colour, outlined in it. */
+const tint = (id: string, colour: string) => `  style ${id} fill:${colour}26,stroke:${colour}`
+
 /** A subgraph of node lines, or nothing when it would be empty. */
 const group = (id: string, title: string, nodes: string[]): string[] =>
   nodes.length === 0
@@ -142,6 +148,13 @@ export function configMermaid(
     ...routes.edges,
     ...chains.missing,
     ...ungrouped,
+    ...doc.chain.slice(0, 1).map(() => tint('Chains', MAP_COLOURS.chain)),
+    ...engineGroups
+      .flatMap((l) => l.match(/^ {2}subgraph (\S+)/)?.slice(1) ?? [])
+      .map((id) => tint(id, MAP_COLOURS.engine)),
+    ...upstreamGroups
+      .flatMap((l) => l.match(/^ {2}subgraph (\S+)/)?.slice(1) ?? [])
+      .map((id) => tint(id, MAP_COLOURS.upstream)),
     '  classDef off stroke-dasharray: 4 3,opacity: 0.5',
     '  classDef bad stroke: #f0626b',
     ...(off.length === 0 ? [] : [`  class ${off.join(',')} off`]),

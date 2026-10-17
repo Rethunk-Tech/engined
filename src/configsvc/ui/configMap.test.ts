@@ -24,6 +24,9 @@ test('the map links chains to engines and engines to upstreams, dashing what is 
     'e0 -- "1 route" --> u0',
     'e1 -- "1 route" --> ambient',
     'class e1 off',
+    'style Chains fill:#b48cff26,stroke:#b48cff',
+    'style kind_tts fill:#5b9dff26,stroke:#5b9dff',
+    'style egress_none fill:#3fb8af26,stroke:#3fb8af',
   ]) {
     expect(map).toContain(line)
   }

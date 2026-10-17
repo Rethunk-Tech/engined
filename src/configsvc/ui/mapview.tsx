@@ -1,7 +1,7 @@
 /** The Map view: the pending config drawn as a Mermaid flowchart, with its source to copy. */
 import { computed, useSignalEffect } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { configMermaid } from './configMap.ts'
+import { configMermaid, MAP_COLOURS } from './configMap.ts'
 import { ensureSpec, specs, upstreamResolver } from './data.ts'
 import { engineKind, parseDoc } from './model.ts'
 import { draft } from './store.ts'
@@ -187,6 +187,24 @@ export function MapView() {
           <div ref={scratch} class="map-scratch" />
         </div>
         {/* A sibling, not a child: the frame captures the pointer to drag and would swallow these clicks. */}
+        <ul class="map-legend">
+          {(
+            [
+              ['Chain', MAP_COLOURS.chain],
+              ['Engine', MAP_COLOURS.engine],
+              ['Upstream', MAP_COLOURS.upstream],
+            ] as const
+          ).map(([name, colour]) => (
+            <li key={name}>
+              <span class="swatch" style={{ background: `${colour}26`, borderColor: colour }} />
+              {name}
+            </li>
+          ))}
+          <li>
+            <span class="swatch off" />
+            Disabled
+          </li>
+        </ul>
         <span class="group map-tools">
           <button type="button" class="small" onClick={() => zoomCentre(STEP)}>
             Zoom in
