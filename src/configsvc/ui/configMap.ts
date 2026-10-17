@@ -1,5 +1,5 @@
 /** The pending config as a Mermaid flowchart: chains reach engines through their hops, engines reach upstreams through their routes. */
-import { type EngineKind, KIND_LABELS } from '../../types.ts'
+import type { EngineKind } from '../../types.ts'
 import { candidates } from './addresses.ts'
 import type { Doc, Table } from './model.ts'
 
@@ -9,46 +9,39 @@ type UpstreamOf = (route: Table) => string | null
 const label = (text: string) => `"${text.replace(/"/g, '#quot;')}"`
 
 /** No upstream for a route means the engine runs on its own login (an agentic CLI's ambient account). */
-const AMBIENT = 'own login'
+const AMBIENT_NODE = `ambient([${label('own login')}])`
 
-export function configMermaid(
+/** Engines grouped by kind, so no one column holds every engine. */
+const KIND_GROUPS: Record<EngineKind, string> = {
+  'openai-http': 'Language models',
+  'agentic-cli': 'Agent CLIs',
+  tts: 'Text to speech',
+  stt: 'Speech to text',
+  comfy: 'Image generation',
+}
+
+/** Upstreams grouped by how far a call travels; an engine's own login reaches its vendor over the internet. */
+const EGRESS_GROUPS = [
+  ['none', 'This box'],
+  ['lan', 'Local network'],
+  ['remote', 'Internet'],
+] as const
+
+/** A subgraph of node lines, or nothing when it would be empty. */
+const group = (id: string, title: string, nodes: string[]): string[] =>
+  nodes.length === 0
+    ? []
+    : [`  subgraph ${id} [${label(title)}]`, ...nodes.map((n) => `    ${n}`), '  end']
+
+/** One edge per hop to every engine the hop can reach; an unresolvable hop points at a marked node. */
+function chainEdges(
   doc: Doc,
   upstreamOf: UpstreamOf,
-  kindOf: (engine: Table) => EngineKind | undefined,
-): string {
-  const lines = ['flowchart LR']
-  const off: string[] = []
-  const engineNode = new Map(doc.engine.map((e, i) => [String(e.id), `e${i}`]))
-  const upstreamNode = new Map(doc.upstream.map((u, i) => [String(u.id), `u${i}`]))
+  engineNode: Map<string, string>,
+): { edges: string[]; missing: string[] } {
   const chainNode = new Map(doc.chain.map((c, i) => [`@/${String(c.id)}`, `c${i}`]))
-  const extra: string[] = []
-
-  lines.push('  subgraph Chains')
-  doc.chain.forEach((c, i) => {
-    lines.push(`    c${i}([${label(`@/${String(c.id)}`)}])`)
-    if (c.disable === true) {
-      off.push(`c${i}`)
-    }
-  })
-  lines.push('  end', '  subgraph Engines')
-  doc.engine.forEach((e, i) => {
-    const kind = kindOf(e)
-    const sub = kind === undefined ? '' : `<br/><small>${KIND_LABELS[kind]}</small>`
-    lines.push(`    e${i}[${label(`${String(e.id)}${sub}`)}]`)
-    if (e.disable === true) {
-      off.push(`e${i}`)
-    }
-  })
-  lines.push('  end', '  subgraph Upstreams')
-  doc.upstream.forEach((u, i) => {
-    const egress = typeof u.egress === 'string' ? `<br/><small>egress ${u.egress}</small>` : ''
-    lines.push(`    u${i}[(${label(`${String(u.id)}${egress}`)})]`)
-    if (u.disable === true) {
-      off.push(`u${i}`)
-    }
-  })
-  lines.push('  end')
-
+  const edges: string[] = []
+  const missing: string[] = []
   doc.chain.forEach((c, i) => {
     const hops = Array.isArray(c.hops)
       ? c.hops.filter((h): h is string => typeof h === 'string')
@@ -56,21 +49,29 @@ export function configMermaid(
     hops.forEach((hop, n) => {
       const via = label(`${n + 1}. ${hop}`)
       const chained = chainNode.get(hop)
-      const engines = [...new Set(candidates(doc, hop, upstreamOf).map((r) => String(r.engine)))]
+      const engines = new Set(candidates(doc, hop, upstreamOf).map((r) => String(r.engine)))
       const targets =
-        chained === undefined ? engines.flatMap((e) => engineNode.get(e) ?? []) : [chained]
+        chained === undefined ? [...engines].flatMap((e) => engineNode.get(e) ?? []) : [chained]
       if (targets.length === 0) {
-        const missing = `x${extra.length}`
-        extra.push(`  ${missing}[${label(`${hop}<br/><small>unresolved</small>`)}]:::bad`)
-        lines.push(`  c${i} -. ${via} .-> ${missing}`)
+        const node = `x${missing.length}`
+        missing.push(`  ${node}[${label(`${hop}<br/><small>unresolved</small>`)}]:::bad`)
+        edges.push(`  c${i} -. ${via} .-> ${node}`)
       }
       for (const target of targets) {
-        lines.push(`  c${i} -- ${via} --> ${target}`)
+        edges.push(`  c${i} -- ${via} --> ${target}`)
       }
     })
   })
+  return { edges, missing }
+}
 
-  let ambient = false
+/** One edge per engine and upstream pair, labelled with its route count; dashed when every route on it is disabled. */
+function routeEdges(
+  doc: Doc,
+  upstreamOf: UpstreamOf,
+  engineNode: Map<string, string>,
+  upstreamNode: Map<string, string>,
+): { edges: string[]; ambient: boolean } {
   const pairs = new Map<string, { live: number; total: number }>()
   for (const route of doc.route) {
     const from = engineNode.get(String(route.engine))
@@ -78,27 +79,72 @@ export function configMermaid(
       continue
     }
     const up = upstreamOf(route)
-    const to = (up === null ? undefined : upstreamNode.get(up)) ?? 'ambient'
-    ambient ||= to === 'ambient'
-    const key = `${from} ${to}`
+    const key = `${from} ${(up === null ? undefined : upstreamNode.get(up)) ?? 'ambient'}`
     const pair = pairs.get(key) ?? { live: 0, total: 0 }
     pair.total += 1
     pair.live += route.disable === true ? 0 : 1
     pairs.set(key, pair)
   }
-  for (const [key, { live, total }] of pairs) {
+  const edges = [...pairs].map(([key, { live, total }]) => {
     const [from, to] = key.split(' ')
     const text = label(`${total} route${total === 1 ? '' : 's'}`)
-    lines.push(live === 0 ? `  ${from} -. ${text} .-> ${to}` : `  ${from} -- ${text} --> ${to}`)
-  }
+    return live === 0 ? `  ${from} -. ${text} .-> ${to}` : `  ${from} -- ${text} --> ${to}`
+  })
+  return { edges, ambient: [...pairs.keys()].some((key) => key.endsWith(' ambient')) }
+}
 
-  if (ambient) {
-    extra.push(`  ambient([${label(AMBIENT)}])`)
-  }
-  lines.push(...extra)
-  lines.push('  classDef off stroke-dasharray: 4 3,opacity: 0.5', '  classDef bad stroke: #f0626b')
-  if (off.length > 0) {
-    lines.push(`  class ${off.join(',')} off`)
-  }
+export function configMermaid(
+  doc: Doc,
+  upstreamOf: UpstreamOf,
+  kindOf: (engine: Table) => EngineKind | undefined,
+): string {
+  const engineNode = new Map(doc.engine.map((e, i) => [String(e.id), `e${i}`]))
+  const upstreamNode = new Map(doc.upstream.map((u, i) => [String(u.id), `u${i}`]))
+  const chains = chainEdges(doc, upstreamOf, engineNode)
+  const routes = routeEdges(doc, upstreamOf, engineNode, upstreamNode)
+
+  const kinds = doc.engine.map((e) => kindOf(e))
+  const engineGroups = [...(Object.keys(KIND_GROUPS) as EngineKind[]), undefined].flatMap((kind) =>
+    group(
+      `kind_${kind ?? 'unknown'}`,
+      kind === undefined ? 'Engines' : KIND_GROUPS[kind],
+      doc.engine.flatMap((e, i) => (kinds[i] === kind ? [`e${i}[${label(String(e.id))}]`] : [])),
+    ),
+  )
+  const upstreamGroups = EGRESS_GROUPS.flatMap(([egress, title]) =>
+    group(`egress_${egress}`, title, [
+      ...doc.upstream.flatMap((u, i) =>
+        u.egress === egress ? [`u${i}[(${label(String(u.id))})]`] : [],
+      ),
+      ...(egress === 'remote' && routes.ambient ? [AMBIENT_NODE] : []),
+    ]),
+  )
+  const ungrouped = doc.upstream.flatMap((u, i) =>
+    EGRESS_GROUPS.some(([egress]) => u.egress === egress)
+      ? []
+      : [`  u${i}[(${label(`${String(u.id)}<br/><small>egress unset</small>`)})]:::bad`],
+  )
+  const off = [
+    ...doc.chain.flatMap((c, i) => (c.disable === true ? [`c${i}`] : [])),
+    ...doc.engine.flatMap((e, i) => (e.disable === true ? [`e${i}`] : [])),
+    ...doc.upstream.flatMap((u, i) => (u.disable === true ? [`u${i}`] : [])),
+  ]
+  const lines = [
+    'flowchart LR',
+    ...group(
+      'Chains',
+      'Chains',
+      doc.chain.map((c, i) => `c${i}([${label(`@/${String(c.id)}`)}])`),
+    ),
+    ...engineGroups,
+    ...upstreamGroups,
+    ...chains.edges,
+    ...routes.edges,
+    ...chains.missing,
+    ...ungrouped,
+    '  classDef off stroke-dasharray: 4 3,opacity: 0.5',
+    '  classDef bad stroke: #f0626b',
+    ...(off.length === 0 ? [] : [`  class ${off.join(',')} off`]),
+  ]
   return `${lines.join('\n')}\n`
 }
