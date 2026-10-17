@@ -121,9 +121,28 @@ main section > details + .panel,
 main section > details + details {
   margin-top: 12px;
 }
+.map-wrap {
+  position: relative;
+}
+/* The Map fills the window down to the same gutter the page keeps at its top. */
+main:has(.map-wrap) {
+  padding-bottom: 16px;
+}
+/* Measurable but never seen: mermaid needs layout to size text while it draws. */
+.map-scratch {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.map-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
 .map {
   position: relative;
-  height: 70vh;
   overflow: hidden;
   padding: 0;
   cursor: grab;
