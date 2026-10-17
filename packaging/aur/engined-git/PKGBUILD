@@ -37,6 +37,13 @@ package() {
   install -Dm0644 deploy/Caddyfile.cursor "$pkgdir/usr/lib/engined/Caddyfile.cursor"
   cp -r --no-preserve=ownership engines "$pkgdir/usr/lib/engined/engines"
 
+  # The CLI modes (--configsvc-url, --doctor, --hash-password) the install
+  # message names run through this.
+  install -Dm0755 /dev/stdin "$pkgdir/usr/bin/engined" <<'LAUNCHER'
+#!/bin/sh
+exec /usr/bin/bun /usr/lib/engined/main.js "$@"
+LAUNCHER
+
   # install.sh's own renderer, so the packaged units cannot drift from the
   # templates; only the paths differ. %S is the user's state directory.
   (
