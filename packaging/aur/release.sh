@@ -89,7 +89,7 @@ tag_release() {
   sed -i "0,/^  \"version\": .*/s//  \"version\": \"$version\",/" package.json
   git add CHANGELOG.md package.json
   git commit -q -m "chore(release): engined $version"
-  { echo "engined $version"; echo; notes; } | git tag -a "$tag" -F -
+  { echo "engined $version"; echo; notes; } | git tag -a --cleanup=verbatim "$tag" -F -
 
   sed -i "s/^pkgver=.*/pkgver=$version/; s/^pkgrel=.*/pkgrel=1/" "$aur/engined/PKGBUILD"
   # A later source= wins, so the sum comes from the local tag, before it is pushed.
