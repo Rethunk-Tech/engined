@@ -108,7 +108,9 @@ const ENGINE_FIELDS: Fields = {
     'Overrides the shipped spec directory. A privilege decision: spec is trusted code.',
   ),
   models_dir: str('Host directory holding this engine’s model files.'),
-  models_max: positive('Llama occupancy floor; may not be below the number of distinct roles.'),
+  models_max: positive(
+    'Llama resident-model budget across roles; may not be below the number of keep_resident roles.',
+  ),
   idle_stop_seconds: seconds(
     'How long an engine may sit unheld before it stops.',
     DEFAULT_IDLE_STOP_SECONDS,

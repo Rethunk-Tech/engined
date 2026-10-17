@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- llama: `models_max` may be below the number of roles; roles then share that many resident models, a cold role evicting the least recently used idle one. It may not be below the number of `keep_resident` roles.
 - Config: a disabled route no longer counts toward the roles `models_max` must cover.
 - Config UI: chain hops offer every model in an enabled wildcard route's cached catalog, and a hop
   onto a catalog model reads as served rather than "matches no route".

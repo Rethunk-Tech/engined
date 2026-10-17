@@ -458,10 +458,11 @@ check.
 ## Occupancy
 
 One resident model per role (`chat`, `vision`, `embedding`, `rerank`), with explicit
-same-role unload rather than a GPU-wide semaphore. `models_max` is first-class
-config and fatal at parse if it drops below the number of distinct roles
-actually configured — below that floor, eviction silently reverts to
-llama.cpp's own cross-role LRU.
+same-role unload rather than a GPU-wide semaphore. Each role has its own lane; the lanes
+share a budget of `models_max` resident models. When fewer slots than roles are in use, a
+cold role evicts the least recently used idle role, never one with requests in flight, and
+waits in arrival order when every holder is busy. `models_max` is first-class config and
+fatal at parse if it drops below the number of distinct `keep_resident` roles.
 
 Measured on this box: one resident 35B GGUF costs ~27 GiB of the 133 GB
 shared pool, and idle-stop returns it.

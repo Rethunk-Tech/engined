@@ -73,10 +73,8 @@ export function validateFilenameUnderModelsDir(
  * llama has nothing resident on this box to hold a lease over.
  *
  * There is deliberately no check against `models_max`. Every pinned role has
- * a route, `validateModelsMax` already refuses a `models_max` below the
- * engine's distinct local role count, and the pinned roles are a subset of
- * those -- so a pinned set can never exceed it, and a guard here would be
- * unreachable.
+ * a route, and `validateModelsMax` already refuses a `models_max` below the
+ * engine's distinct pinned roles -- so a guard here would be unreachable.
  */
 export function validateKeepResident(
   engines: readonly EngineEntry[],
@@ -105,6 +103,10 @@ export function validateKeepResident(
   }
 }
 
+/**
+ * Pinned roles must be able to stay resident together; unpinned roles share
+ * whatever slots remain, so `models_max` may be below the total role count.
+ */
 export function validateModelsMax(
   engines: readonly EngineEntry[],
   routes: readonly ResolvedRoute[],
@@ -115,12 +117,12 @@ export function validateModelsMax(
     }
     const roles = new Set(
       localRoutesOf(routes, e.id)
-        .filter((r) => r.role && r.disabled !== true)
+        .filter((r) => r.role && r.keep_resident === true && r.disabled !== true)
         .map((r) => r.role),
     )
     if (e.models_max < roles.size) {
       throw new ParseError(
-        `engine "${e.id}" "models_max" ${e.models_max} is below its ${roles.size} distinct configured roles`,
+        `engine "${e.id}" "models_max" ${e.models_max} is below its ${roles.size} distinct keep_resident roles`,
         originOf(e, 'models_max'),
       )
     }

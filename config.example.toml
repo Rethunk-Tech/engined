@@ -151,10 +151,11 @@ id = "llama"
 # install directory from the repo, and a sync must never be able to reach
 # real model weights.
 models_dir = "~/.local/share/engined-models/llm"
-# One per occupied role (chat, vision, embedding, rerank below) -- first-class
-# because occupancy is engined's job, not llama.cpp's, and this is fatal at
-# parse if it drops below the number of distinct roles actually configured.
-# Below that floor, eviction silently reverts to llama's own cross-role LRU.
+# How many GGUFs may be resident at once across roles (chat, vision, embedding,
+# rerank below) -- first-class because occupancy is engined's job, not
+# llama.cpp's. Below the role count, roles share slots and a cold role evicts
+# the least recently used idle one. Fatal at parse if it drops below the number
+# of keep_resident roles.
 models_max = 4
 ready_timeout_s = 180
 idle_stop_seconds = 900
@@ -184,8 +185,8 @@ upstream = "local"
 model = "ornith"
 filename = "gbuzhf/Ornith-1.5-35B-A3B-Abliterated-MTPv2-25G-ICE.gguf"
 role = "chat"                                                         # chat | vision | embedding | rerank. Required: occupancy is one
-# resident GGUF per role, so without a role models_max is
-# just an arbitrary number with nothing to enforce.
+# resident GGUF per role, so without a role models_max has
+# nothing to share out.
 fim = true # Opts this route into POST /openai/v1/completions
 # (input_prefix/input_suffix mapped onto llama-server's own
 # /infill) alongside chat on the same GGUF -- every resident

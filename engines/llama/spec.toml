@@ -109,6 +109,8 @@ security_opt = ["label=disable"]
 # --models-max is the first-class models_max, substituted from config so an
 # operator who forgets to pin it gets a fatal "unresolved placeholder" at
 # spec load rather than a default that lets two 25 GB chat files stay resident.
+# engined's RoleScheduler enforces the same budget, so llama's own LRU never
+# unloads a model behind it.
 #
 # `parallel`, `ctx-size`, `cache-type-k/v` are config-level [engine.args] --
 # see config.example.toml, not this file -- but both `parallel` and

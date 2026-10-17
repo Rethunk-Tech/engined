@@ -30,6 +30,12 @@ interface RoleState {
   capacity: number
   queue: RoleWaiter[]
   pumping: boolean
+  /** Its resident model is being unloaded to make room for another role; no lease may be granted meanwhile. */
+  evicting: boolean
+  /** A slot-less load is in flight: the slot is spoken for before `activeModelId` names it. */
+  claiming: boolean
+  /** Monotonic tick of the last grant or release, for least-recently-used eviction. */
+  lastUsed: number
 }
 
 export interface RoleSchedulerDeps {
@@ -39,10 +45,23 @@ export interface RoleSchedulerDeps {
   capacityFor: (role: Role, modelId: string) => number
   /** The model `keep_resident` pins this role back to once it drains, if any. */
   pinnedModel: (role: Role) => string | undefined
+  /** How many models may be resident at once across all roles (`models_max`). */
+  slots: number
 }
 
+/**
+ * Each role runs its own lane (queue, pump, one resident GGUF); the lanes
+ * share a budget of `slots` resident models. A role holds a slot exactly while
+ * `activeModelId !== null`. A role with none takes a free slot, else evicts
+ * the least recently used idle role, else waits in `slotWaiters` (FIFO, so a
+ * starved role is never overtaken). A role never evicts one with leases in
+ * flight, and `rewarmPinned` never evicts. With `slots` at least the number of
+ * roles in use, a slot-less role always finds one free and lanes are independent.
+ */
 export class RoleScheduler {
   private readonly roleStates = new Map<Role, RoleState>()
+  private readonly slotWaiters: Role[] = []
+  private tick = 0
   private readonly deps: RoleSchedulerDeps
 
   constructor(deps: RoleSchedulerDeps) {
@@ -109,6 +128,54 @@ export class RoleScheduler {
       state.activeModelId = null
       state.capacity = Number.POSITIVE_INFINITY
     }
+    for (const role of [...this.slotWaiters]) {
+      this.runPump(role)
+    }
+  }
+
+  private occupied(): number {
+    let n = 0
+    for (const s of this.roleStates.values()) {
+      if (s.activeModelId !== null || s.claiming) {
+        n += 1
+      }
+    }
+    return n
+  }
+
+  /** The idle slot holder to unload, least recently used first; never one mid-request, mid-pump or already leaving. */
+  private pickVictim(except: Role): Role | undefined {
+    let best: Role | undefined
+    let bestTick = Number.POSITIVE_INFINITY
+    for (const [role, s] of this.roleStates) {
+      if (
+        role !== except &&
+        s.activeModelId !== null &&
+        s.activeCount === 0 &&
+        !s.pumping &&
+        !s.evicting &&
+        s.lastUsed < bestTick
+      ) {
+        best = role
+        bestTick = s.lastUsed
+      }
+    }
+    return best
+  }
+
+  private leaveSlotQueue(role: Role): void {
+    const i = this.slotWaiters.indexOf(role)
+    if (i !== -1) {
+      this.slotWaiters.splice(i, 1)
+    }
+  }
+
+  /** A slot may have freed: give the longest-waiting slot-less role its turn. */
+  private wakeSlotWaiter(): void {
+    const [head] = this.slotWaiters
+    if (head !== undefined) {
+      this.runPump(head)
+    }
   }
 
   private roleState(role: Role): RoleState {
@@ -120,6 +187,9 @@ export class RoleScheduler {
         capacity: Number.POSITIVE_INFINITY,
         queue: [],
         pumping: false,
+        evicting: false,
+        claiming: false,
+        lastUsed: 0,
       }
       this.roleStates.set(role, state)
     }
@@ -153,12 +223,13 @@ export class RoleScheduler {
     const state = this.roleState(role)
     return new Promise<boolean>((resolve, reject) => {
       if (
-        !state.pumping &&
+        !(state.pumping || state.evicting) &&
         state.queue.length === 0 &&
         state.activeModelId === modelId &&
         state.activeCount < state.capacity
       ) {
         state.activeCount += 1
+        state.lastUsed = ++this.tick
         resolve(false)
         return
       }
@@ -187,6 +258,10 @@ export class RoleScheduler {
             return
           }
           state.queue.splice(idx, 1)
+          if (state.queue.length === 0 && state.activeModelId === null) {
+            this.leaveSlotQueue(role)
+            this.wakeSlotWaiter()
+          }
           waiter.reject(signal.reason ?? new Error('lease request aborted while queued'))
         }
         if (signal.aborted) {
@@ -202,6 +277,7 @@ export class RoleScheduler {
   release(role: Role): void {
     const state = this.roleState(role)
     state.activeCount = Math.max(0, state.activeCount - 1)
+    state.lastUsed = ++this.tick
     this.runPump(role)
   }
 
@@ -216,10 +292,17 @@ export class RoleScheduler {
     if (pinned === undefined || state.activeCount > 0 || state.activeModelId === pinned) {
       return false
     }
+    const needsSlot = state.activeModelId === null
+    if (needsSlot && (this.occupied() >= this.deps.slots || this.slotWaiters.length > 0)) {
+      return false
+    }
+    state.claiming = needsSlot
     try {
       await this.deps.swap(state.activeModelId, pinned)
     } catch {
       return false
+    } finally {
+      state.claiming = false
     }
     state.activeModelId = pinned
     state.capacity = this.deps.capacityFor(role, pinned)
@@ -244,7 +327,7 @@ export class RoleScheduler {
    */
   private async pump(role: Role): Promise<void> {
     const state = this.roleState(role)
-    if (state.pumping) {
+    if (state.pumping || state.evicting) {
       return
     }
     state.pumping = true
@@ -258,6 +341,7 @@ export class RoleScheduler {
           if (await this.rewarmPinned(role, state)) {
             continue
           }
+          this.leaveSlotQueue(role)
           return
         }
         if (state.activeModelId === front.modelId) {
@@ -269,31 +353,91 @@ export class RoleScheduler {
           }
           state.queue.shift()
           state.activeCount += 1
+          state.lastUsed = ++this.tick
           front.resolve(false)
           continue
         }
         if (state.activeCount > 0) {
           return
         }
+        const grant = this.claimSlot(role, state)
+        if (grant === 'wait') {
+          return
+        }
+        const victimRole = grant.victim
         state.queue.shift()
-        await this.admitAfterSwap(role, state, front)
+        await this.admitAfterSwap(role, state, front, victimRole && this.roleState(victimRole))
+        if (victimRole !== undefined) {
+          this.runPump(victimRole)
+        }
       }
     } finally {
       state.pumping = false
+      // A drained role is only a victim once its pump has stopped, so the
+      // wake that matters comes here rather than at `release`.
+      if (state.activeCount === 0 && this.slotWaiters[0] !== role) {
+        this.wakeSlotWaiter()
+      }
     }
   }
 
-  /** Swaps the resident to `front`'s GGUF and grants it the first slot; a failed swap rejects only `front`. */
-  private async admitAfterSwap(role: Role, state: RoleState, front: RoleWaiter): Promise<void> {
+  /**
+   * Decides whether a role about to load may do so: a role already holding a
+   * slot always may, a slot-less one needs a free slot or an idle victim and
+   * must not overtake an earlier slot-waiter. `wait` has queued the role.
+   */
+  private claimSlot(role: Role, state: RoleState): 'wait' | { victim?: Role } {
+    if (state.activeModelId !== null) {
+      return {}
+    }
+    const [head] = this.slotWaiters
+    const full = this.occupied() >= this.deps.slots
+    const victim = full ? this.pickVictim(role) : undefined
+    if ((head !== undefined && head !== role) || (full && victim === undefined)) {
+      if (!this.slotWaiters.includes(role)) {
+        this.slotWaiters.push(role)
+      }
+      return 'wait'
+    }
+    this.leaveSlotQueue(role)
+    return { victim }
+  }
+
+  /**
+   * Swaps the resident to `front`'s GGUF and grants it the first slot; a failed
+   * swap rejects only `front`. With a `victim`, the swap unloads that idle
+   * role's model instead and the slot changes hands. The victim is forgotten
+   * even on failure: the unload may have happened, and a later request simply
+   * reloads it rather than trust a resident that may be gone.
+   */
+  private async admitAfterSwap(
+    role: Role,
+    state: RoleState,
+    front: RoleWaiter,
+    victim?: RoleState,
+  ): Promise<void> {
+    const from = victim ? victim.activeModelId : state.activeModelId
+    state.claiming = state.activeModelId === null
+    if (victim) {
+      victim.evicting = true
+    }
     try {
-      await this.deps.swap(state.activeModelId, front.modelId)
+      await this.deps.swap(from, front.modelId)
     } catch (err) {
       front.reject(err)
       return
+    } finally {
+      state.claiming = false
+      if (victim) {
+        victim.activeModelId = null
+        victim.capacity = Number.POSITIVE_INFINITY
+        victim.evicting = false
+      }
     }
     state.activeModelId = front.modelId
     state.capacity = this.deps.capacityFor(role, front.modelId)
     state.activeCount += 1
+    state.lastUsed = ++this.tick
     front.resolve(true)
   }
 }

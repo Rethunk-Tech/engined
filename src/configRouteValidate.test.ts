@@ -1,7 +1,7 @@
 /**
  * `config.test.ts` drives most of these checks end to end through
  * `loadConfig()`. This fills the branches nothing there reaches: a
- * `models_max` below the engine's real role count, two `keep_resident`
+ * `models_max` below the engine's keep_resident role count, two `keep_resident`
  * routes colliding on one role, a `filename` that escapes `models_dir`, and
  * a wildcard route naming no upstream at all.
  */
@@ -20,39 +20,20 @@ import { engine, route, upstream } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
 
 describe('validateModelsMax', () => {
-  test("a models_max below the engine's distinct local roles is refused", () => {
-    const e = engine({ id: 'llama', models_max: 1 })
-    const routes = [
-      route({ engine: 'llama', model: 'a', role: 'chat' }),
-      route({ engine: 'llama', model: 'b', role: 'vision' }),
-    ]
-    expect(() => validateModelsMax([e], routes)).toThrow(
-      /engine "llama" "models_max" 1 is below its 2 distinct configured roles/,
+  const routes = [
+    route({ engine: 'llama', model: 'a', role: 'chat', keep_resident: true }),
+    route({ engine: 'llama', model: 'b', role: 'vision', keep_resident: true }),
+    route({ engine: 'llama', model: 'c', role: 'embedding' }),
+  ]
+
+  test('a models_max below the distinct keep_resident roles is refused', () => {
+    expect(() => validateModelsMax([engine({ id: 'llama', models_max: 1 })], routes)).toThrow(
+      /engine "llama" "models_max" 1 is below its 2 distinct keep_resident roles/,
     )
   })
 
-  test('a models_max equal to the role count passes', () => {
-    const e = engine({ id: 'llama', models_max: 2 })
-    const routes = [
-      route({ engine: 'llama', model: 'a', role: 'chat' }),
-      route({ engine: 'llama', model: 'b', role: 'vision' }),
-    ]
-    expect(() => validateModelsMax([e], routes)).not.toThrow()
-  })
-
-  test('a disabled route holds no role, so it does not raise the floor', () => {
-    const e = engine({ id: 'llama', models_max: 1 })
-    const routes = [
-      route({ engine: 'llama', model: 'a', role: 'chat' }),
-      route({ engine: 'llama', model: 'b', role: 'vision', disabled: true }),
-    ]
-    expect(() => validateModelsMax([e], routes)).not.toThrow()
-  })
-
-  test('an engine with no models_max is never checked', () => {
-    const e = engine({ id: 'llama' })
-    const routes = [route({ engine: 'llama', model: 'a', role: 'chat' })]
-    expect(() => validateModelsMax([e], routes)).not.toThrow()
+  test('a models_max below the total role count but covering the pinned roles passes', () => {
+    expect(() => validateModelsMax([engine({ id: 'llama', models_max: 2 })], routes)).not.toThrow()
   })
 })
 

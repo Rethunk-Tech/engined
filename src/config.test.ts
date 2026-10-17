@@ -112,7 +112,7 @@ const RX_STREAMING_KEY = /"streaming"/
 const RX_UNRECOGNISED_ENGINE_KEY = /unrecognised key "models_dirs"/
 const RX_UNRECOGNISED_ROUTE_KEY = /unrecognised key "rolee"/
 const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/
-const RX_MODELS_MAX_ROLES = /below its 2 distinct configured roles/
+const RX_MODELS_MAX_ROLES = /below its 2 distinct keep_resident roles/
 const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/
 const RX_PREPENDED_FLAG = /duplicates a flag engined prepends/
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/
@@ -1391,7 +1391,7 @@ test('a filename not present on disk under models_dir is fatal', () => {
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MISSING_FILENAME_UNDER_DIR)
 })
 
-test('models_max below the distinct local roles is fatal', () => {
+test('models_max below the distinct keep_resident roles is fatal', () => {
   const dir = tempModelsDir('ornith.gguf', 'vis.gguf')
   const toml = `
 ${LOCAL_UPSTREAM}
@@ -1407,6 +1407,7 @@ upstream = "local"
 model = "ornith"
 filename = "ornith.gguf"
 role = "chat"
+keep_resident = true
 
 [[route]]
 engine = "local-llama"
@@ -1414,6 +1415,7 @@ upstream = "local"
 model = "vis"
 filename = "vis.gguf"
 role = "vision"
+keep_resident = true
 vision = "describe"
 `
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_MODELS_MAX_ROLES)

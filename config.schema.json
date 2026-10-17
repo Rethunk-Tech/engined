@@ -114,7 +114,7 @@
         "models_max": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Llama occupancy floor; may not be below the number of distinct roles."
+          "description": "Llama resident-model budget across roles; may not be below the number of keep_resident roles."
         },
         "idle_stop_seconds": {
           "type": "number",
