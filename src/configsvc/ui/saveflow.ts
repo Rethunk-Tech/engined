@@ -1,5 +1,5 @@
 /** The decisions around saving and reloading: what to default, when a reload counts as applied, which entry to revert to. */
-import type { RunningStatus } from './banner.ts'
+import { faultFor, type RunningStatus } from './banner.ts'
 import type { Doc } from './model.ts'
 
 const APPLY_WAIT_MS = 10_000
@@ -23,11 +23,18 @@ export function verdict(input: {
   if (running === undefined) {
     return { ok: false, problem: 'engined did not answer after the reload' }
   }
-  if (running.config_error !== undefined) {
-    return { ok: false, problem: `engined reports config_error: ${running.config_error}` }
+  const fault = faultFor(running, savedSha)
+  if (fault !== undefined) {
+    return { ok: false, problem: `engined reports config_error: ${fault}` }
   }
   if (running.config_sha256 !== savedSha) {
-    return { ok: false, problem: 'engined is still running an older config' }
+    return {
+      ok: false,
+      problem:
+        running.config_error === undefined
+          ? 'engined is still running an older config'
+          : `engined has not loaded the saved config; its last load failed: ${running.config_error}`,
+    }
   }
   if (routeTest !== undefined && (routeTest.status < 200 || routeTest.status >= 300)) {
     return {
@@ -48,7 +55,10 @@ export async function waitForApply(
   let last: RunningStatus | undefined
   for (let waited = 0; waited <= budgetMs; waited += APPLY_POLL_MS) {
     last = await read()
-    if (last?.config_error !== undefined || last?.config_sha256 === savedSha) {
+    if (
+      last !== undefined &&
+      (faultFor(last, savedSha) !== undefined || last.config_sha256 === savedSha)
+    ) {
       return last
     }
     await sleep(APPLY_POLL_MS)

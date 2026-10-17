@@ -238,11 +238,22 @@ test('safe apply waits for the saved hash, reports faults, and defaults configsv
     problem: 'engined is still running an older config',
   })
   expect(
-    verdict({ savedSha: sha, running: { config_error: 'bad', config_sha256: 'old' } }),
+    verdict({
+      savedSha: sha,
+      running: { config_error: 'bad', config_error_sha256: sha, config_sha256: 'old' },
+    }),
   ).toEqual({
     ok: false,
     problem: 'engined reports config_error: bad',
   })
+  // A first run's "cannot read config" predates the save: the wait goes on until the reload lands.
+  calls = 0
+  const firstRun = await waitForApply(
+    async () => (++calls < 3 ? { config_error: 'cannot read config' } : { config_sha256: sha }),
+    sha,
+    async () => undefined,
+  )
+  expect(verdict({ savedSha: sha, running: firstRun })).toEqual({ ok: true })
   expect(
     verdict({
       savedSha: sha,

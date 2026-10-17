@@ -9,8 +9,16 @@ test('banner distinguishes agreement, an unreloaded save, a stale daemon, a faul
     'saved but not reloaded',
   )
   expect(banner({ savedSha: saved, running: old }).text).toBe('engined is running an older config')
-  const faulty = banner({ savedSha: saved, running: { ...old, config_error: 'bad key' } })
+  const faulty = banner({
+    savedSha: saved,
+    running: { ...old, config_error: 'bad key', config_error_sha256: saved },
+  })
   expect(faulty).toEqual({ kind: 'error', text: 'engined reports config_error: bad key' })
+  const firstRun = { config_error: 'config.toml: cannot read config' }
+  expect(banner({ savedSha: '', running: firstRun }).kind).toBe('warn')
+  expect(banner({ savedSha: saved, running: firstRun, lastSavedSha: saved }).text).toBe(
+    'saved but not reloaded',
+  )
   expect(banner({ savedSha: saved, running: undefined, unreachable: 'refused' }).text).toContain(
     'refused',
   )
