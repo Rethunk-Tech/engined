@@ -256,6 +256,17 @@
       "linter": { "rules": { "correctness": { "noNodejsModules": "off" } } }
     },
     {
+      // The config UI is Preact: `class` and `for` are its attributes, handlers fire and forget a promise on purpose, and there is no refresh runtime to protect.
+      "includes": ["src/configsvc/ui/**"],
+      "linter": {
+        "rules": {
+          "complexity": { "noVoid": "off" },
+          "style": { "useComponentExportOnlyModules": "off" },
+          "suspicious": { "noUnknownAttribute": "off" }
+        }
+      }
+    },
+    {
       "includes": ["**/*.d.ts"],
       "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
     },

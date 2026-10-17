@@ -1,4 +1,6 @@
 /** The config UI's HTTP server: origin checks, login, sessions, and the JSON API behind them. */
+
+import page from './configsvc/ui/index.html'
 import { type ConfigsvcDeps, configApi } from './configsvcApi.ts'
 import { createAuth, SESSION_COOKIE, SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_URL_PREFIX } from './configsvcCli.ts'
@@ -11,7 +13,6 @@ import {
   STATUS_UNAUTHORIZED,
 } from './http.ts'
 
-const STATUS_FOUND = 302
 const LOOPBACK_BINDS = new Set(['127.0.0.1', 'localhost', '::1'])
 const SECURITY_HEADERS = {
   'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
@@ -90,20 +91,8 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
       : { cookie: sessionCookie(session) }
   }
 
-  /** The two unauthenticated routes: the token link and `POST /login`. */
+  /** The one unauthenticated API route: `POST /login`. The shell page and its assets are served by Bun's route table before this runs, and the page exchanges a `?token=` link through this route. */
   async function signIn(req: Request, url: URL, client: string): Promise<Response | undefined> {
-    const token = url.searchParams.get('token')
-    if (req.method === 'GET' && token !== null && auth.token !== undefined) {
-      const done = await exchange(token, client)
-      if (done.cookie === undefined) {
-        return done.refusal
-      }
-      url.searchParams.delete('token')
-      return new Response(null, {
-        status: STATUS_FOUND,
-        headers: { location: `${url.pathname}${url.search}`, 'set-cookie': done.cookie },
-      })
-    }
     if (req.method !== 'POST' || url.pathname !== '/login') {
       return undefined
     }
@@ -151,6 +140,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     hostname: opts.host,
     port: opts.port,
     idleTimeout: 0,
+    routes: { '/': page },
     async fetch(req, srv) {
       try {
         return withHeaders(await handle(req, srv.requestIP(req)?.address ?? 'unknown'))

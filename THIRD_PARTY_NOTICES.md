@@ -37,6 +37,7 @@ Raising llama.cpp's `MAX_REPETITION_THRESHOLD` for large tool schemas
 | Project | Licence | How engined uses it |
 | --- | --- | --- |
 | [@decimalturn/toml-patch](https://github.com/DecimalTurn/toml-patch) 3.3.0 | MIT | Comment-preserving `config.toml` edits, bundled into `dist/main.js`. `patches/` carries one fix, offered upstream in [DecimalTurn/toml-patch#321](https://github.com/DecimalTurn/toml-patch/pull/321): removing a `[[table]]` entry no longer drops the sub-tables of the entries after it |
+| [Preact](https://github.com/preactjs/preact) 11 and [@preact/signals](https://github.com/preactjs/signals) 2 | MIT | The config UI's components and state, bundled into `dist/` |
 
 ## Models
 

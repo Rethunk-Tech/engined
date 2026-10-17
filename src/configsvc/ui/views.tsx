@@ -1,0 +1,59 @@
+import { computed, signal } from '@preact/signals'
+import { draftDiff, problems, snapshot } from './store.ts'
+
+interface ViewDef {
+  id: string
+  title: string
+  render: () => preact.JSX.Element
+}
+
+function Overview() {
+  const saved = snapshot.value
+  return (
+    <section>
+      <h2>Overview</h2>
+      {saved !== undefined && (
+        <p class="muted">
+          {saved.path} · sha256 {saved.sha256.slice(0, 12)} · {saved.fragments.length} config.d
+          fragment(s)
+        </p>
+      )}
+      <h3>Pending changes</h3>
+      {draftDiff.value === '' ? (
+        <p class="muted">Nothing pending.</p>
+      ) : (
+        <pre class="diff">{draftDiff.value}</pre>
+      )}
+      {problems.value.map((p) => (
+        <p class="bad" key={p.message}>
+          {p.message}
+        </p>
+      ))}
+    </section>
+  )
+}
+
+const VIEWS: ViewDef[] = [{ id: 'overview', title: 'Overview', render: Overview }]
+
+const hash = signal(location.hash.slice(1))
+addEventListener('hashchange', () => {
+  hash.value = location.hash.slice(1)
+})
+
+const current = computed(() => VIEWS.find((v) => v.id === hash.value) ?? (VIEWS[0] as ViewDef))
+
+export function ViewNav() {
+  return (
+    <nav>
+      {VIEWS.map((v) => (
+        <a key={v.id} href={`#${v.id}`} class={current.value.id === v.id ? 'active' : ''}>
+          {v.title}
+        </a>
+      ))}
+    </nav>
+  )
+}
+
+export function View() {
+  return current.value.render()
+}

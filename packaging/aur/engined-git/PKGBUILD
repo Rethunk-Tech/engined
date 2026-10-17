@@ -33,7 +33,9 @@ build() {
 
 package() {
   cd "$pkgname"
-  install -Dm0644 dist/main.js "$pkgdir/usr/lib/engined/main.js"
+  # main.js and the config UI's assets beside it, which it finds by relative path.
+  install -d "$pkgdir/usr/lib/engined"
+  cp -r --no-preserve=ownership dist/. "$pkgdir/usr/lib/engined/"
   install -Dm0644 deploy/Caddyfile.cursor "$pkgdir/usr/lib/engined/Caddyfile.cursor"
   cp -r --no-preserve=ownership engines "$pkgdir/usr/lib/engined/engines"
 

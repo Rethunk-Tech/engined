@@ -29,11 +29,11 @@
   },
   "scripts": {
     "schema": "bun -e \"await Bun.write('config.schema.json', (await import('./src/configSchema.ts')).renderConfigSchema())\"",
-    "typecheck": "tsc -b --noEmit --pretty false",
+    "typecheck": "tsc -b --noEmit --pretty false && tsc -p src/configsvc/ui --noEmit --pretty false",
     "lint": "biome check . && knip",
     "format": "biome check --write .",
     "test": "bun test src --parallel=8 --randomize",
-    "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outfile=dist/main.js",
+    "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outdir=dist",
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} /usr/bin/flock -w 3600 /tmp/engined-local-tier.lock bun test test/local",
     "ci": "turbo run typecheck lint test build"
   },
@@ -46,7 +46,9 @@
   },
   "packageManager": "bun@1.4.3",
   "dependencies": {
-    "@decimalturn/toml-patch": "3.3.0"
+    "@decimalturn/toml-patch": "3.3.0",
+    "@preact/signals": "^2.11.3",
+    "preact": "^11.0.1"
   },
   "patchedDependencies": {
     "@decimalturn/toml-patch@3.3.0": "patches/@decimalturn%2Ftoml-patch@3.3.0.patch"

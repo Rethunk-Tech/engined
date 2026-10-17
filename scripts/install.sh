@@ -166,7 +166,9 @@ main() {
 
   mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$STATE_DIR/bun-install" "$STATE_DIR/tmp" "$CONFIG_HOME/engined"
 
-  # main.js is one file, fully overwritten every run; engines/ syncs with
+  # dist/ is main.js plus the config UI's hashed assets, overwritten every run;
+  # the previous build's hashed files are removed first so they do not pile up.
+  # engines/ syncs with
   # --delete because a spec directory removed from the repo has to disappear
   # from the install too, or the engine it backed stays configured against a
   # stale copy instead of reporting unavailable.
@@ -175,7 +177,9 @@ main() {
   # ($DATA_HOME/engined-models, not $INSTALL_DIR/models) and must stay one.
   # Nothing under here survives a sync it is not part of, and the model tree
   # is ~90 GB that no download step would replace.
-  cp "$REPO_ROOT/dist/main.js" "$INSTALL_DIR/main.js"
+  find "$INSTALL_DIR" -maxdepth 1 -type f \( -name 'index-*.js' -o -name 'index-*.css' \) -delete
+  rm -rf "${INSTALL_DIR:?}/configsvc"
+  cp -r "$REPO_ROOT/dist/." "$INSTALL_DIR/"
   rsync -a --delete "$REPO_ROOT/engines/" "$INSTALL_DIR/engines/"
 
   mkdir -p "$UNIT_DIR"

@@ -162,7 +162,9 @@ previous file in `~/.config/engined/.history/` (newest 20), writes atomically,
 and logs one audit line; it never restarts anything itself, it reports which
 engines would restart and whether the ports changed, and reloads engined by
 signal on request. With a broken config it still starts, so the file can be
-repaired through it.
+repaired through it. Open the logged URL (`engined --configsvc-url`) in a browser: the
+page trades the token in the link for a session cookie and drops it from the address bar.
+A banner shows whether engined runs the config on disk.
 
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 

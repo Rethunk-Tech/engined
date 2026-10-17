@@ -1,4 +1,4 @@
 {
-  "entry": ["test/local/*.test.ts"],
+  "entry": ["test/local/*.test.ts", "src/configsvc/ui/main.tsx"],
   "ignoreBinaries": ["secret-tool"]
 }

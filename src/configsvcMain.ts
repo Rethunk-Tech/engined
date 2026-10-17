@@ -87,6 +87,8 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
         },
       }),
   }
+  // Bun resolves a bundled page's asset paths against the working directory, and the assets sit beside this file.
+  process.chdir(import.meta.dir)
   let started: ReturnType<typeof startConfigsvc>
   try {
     started = startConfigsvc(settings, deps)

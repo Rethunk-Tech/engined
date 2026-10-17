@@ -68,7 +68,7 @@ async function harness(opts: { passwordHash?: string } = {}) {
       },
     })
   const signIn = async (): Promise<string> => {
-    const res = await call(`/?token=${svc.token}`)
+    const res = await call('/login', { method: 'POST', body: JSON.stringify({ token: svc.token }) })
     return (res.headers.get('set-cookie') as string).split(';')[0] as string
   }
   return { dir, configFile, svc, call, signIn, audit, reloads, clock, doorPort }
@@ -77,18 +77,24 @@ async function harness(opts: { passwordHash?: string } = {}) {
 test('a minted token signs in once, the session slides for 12 hours and logout ends it', async () => {
   const h = await harness()
   expect((await h.call('/api/config')).status).toBe(401)
-  expect((await h.call('/?token=00')).status).toBe(401)
+  const wrong = await h.call('/login', { method: 'POST', body: JSON.stringify({ token: '00' }) })
+  expect(wrong.status).toBe(401)
 
-  const exchanged = await h.call(`/?token=${h.svc.token}`)
-  expect(exchanged.status).toBe(302)
-  expect(exchanged.headers.get('location')).toBe('/')
+  const exchanged = await h.call('/login', {
+    method: 'POST',
+    body: JSON.stringify({ token: h.svc.token }),
+  })
+  expect(exchanged.status).toBe(200)
   const setCookie = exchanged.headers.get('set-cookie') as string
   expect(setCookie).toContain('HttpOnly')
   expect(setCookie).toContain('SameSite=Strict')
   expect(exchanged.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
   const cookie = setCookie.split(';')[0] as string
 
-  expect((await h.call('/', { cookie })).status).toBe(404)
+  expect((await h.call('/nothing', { cookie })).status).toBe(404)
+  const shell = await h.call('/')
+  expect(shell.status).toBe(200)
+  expect(await shell.text()).toContain('id="app"')
   h.clock.now += SESSION_IDLE_MS - 1000
   expect((await h.call('/api/config', { cookie })).status).toBe(200)
   h.clock.now += SESSION_IDLE_MS - 1000

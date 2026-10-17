@@ -14,11 +14,15 @@
 
 ### Door
 
-- `engined --configsvc` runs a config web UI (JSON API only for now; the page
-  comes later) for the `engined-configsvc` unit: read, validate, edit with
+- `engined --configsvc` runs a config web UI (Preact; shell with sign-in, a
+  saved-versus-running banner and a pending-changes diff so far) for the `engined-configsvc` unit: read, validate, edit with
   comments kept, diff and save `config.toml` with history and an audit line,
   reload engined, and see its status, models, secrets and host checks. Sign-in
   is a token logged at each start or `[configsvc] password_hash`.
+- The build is `bun build --outdir=dist`: `dist/main.js` plus the config UI's hashed assets
+  and `dist/configsvc/ui/index.html`. The installer, the release tarball and both AUR
+  packages ship all of `dist/`; `--configsvc` changes its working directory to the
+  bundle's, where Bun looks for those assets.
 - `scripts/install.sh` installs, enables and restarts `engined-configsvc.service` (also on a box with no config, where it prints `engined --configsvc-url` as the next step), sandboxed
   like the daemon with only `~/.config/engined` writable.
 - Releases attach a prebuilt `engined-<version>.tar.gz`; the AUR `engined` package

@@ -48,6 +48,7 @@ jobs:
           tar --sort=name --owner=0 --group=0 --numeric-owner \
             --mtime="@$(git log -1 --format=%ct)" -cf - "$stage" | gzip -n >"$stage.tar.gz"
           tar -tzf "$stage.tar.gz" | grep -q "^$stage/dist/main.js$"
+          tar -tzf "$stage.tar.gz" | grep -q "^$stage/dist/configsvc/ui/index.html$"
 
       - name: Create the GitHub release from the tag's annotation
         env:

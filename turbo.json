@@ -3,7 +3,14 @@
   "agentGuidance": false,
   "tasks": {
     "typecheck": {
-      "inputs": ["src/**/*.ts", "test/**/*.ts", "tsconfig.json", "package.json"],
+      "inputs": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "test/**/*.ts",
+        "tsconfig.json",
+        "src/configsvc/ui/tsconfig.json",
+        "package.json"
+      ],
       "outputs": ["*.tsbuildinfo"]
     },
     "lint": {
@@ -27,7 +34,15 @@
       "dependsOn": ["typecheck"],
       // bun.lock is already part of turbo's dependency hash; naming it here is
       // explicit, not load-bearing.
-      "inputs": ["src/**/*.ts", "tsconfig.json", "package.json", "bun.lock"],
+      "inputs": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.html",
+        "src/**/*.css",
+        "tsconfig.json",
+        "package.json",
+        "bun.lock"
+      ],
       "outputs": ["dist/**"],
       "env": ["ENGINED_COMMIT"]
     }

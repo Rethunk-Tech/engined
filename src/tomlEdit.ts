@@ -7,17 +7,11 @@
  */
 import { parse, patch } from '@decimalturn/toml-patch'
 import { ID_RE } from './config.ts'
+import type { EditOp, TomlPath } from './editOps.ts'
 import { isRecord } from './records.ts'
 import { qualifiedSegments } from './routeAddress.ts'
 
-/** Top-level keys, then a table key, or a `[[table]]` entry's index and key; `args` tables nest one deeper. */
-export type TomlPath = (string | number)[]
-
-export type EditOp =
-  | { op: 'setKey'; path: TomlPath; value: unknown }
-  | { op: 'addEntry'; table: string; entry: Record<string, unknown> }
-  | { op: 'removeEntry'; table: string; index: number }
-  | { op: 'renameId'; table: string; oldId: string; newId: string }
+export type { EditOp, TomlPath }
 
 type Doc = Record<string, unknown>
 
