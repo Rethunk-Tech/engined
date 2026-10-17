@@ -49,7 +49,9 @@ package() {
     done
   )
 
-  install -Dm0644 config.example.toml "$pkgdir/usr/share/doc/engined/config.example.toml"
+  # Not under /usr/share/doc, which NoExtract commonly strips: the install
+  # message tells every user to copy it.
+  install -Dm0644 config.example.toml "$pkgdir/usr/share/engined/config.example.toml"
   install -Dm0644 HUMANS.md "$pkgdir/usr/share/doc/engined/HUMANS.md"
   cp -r --no-preserve=ownership docs/. "$pkgdir/usr/share/doc/engined/"
   install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/engined/LICENSE"
