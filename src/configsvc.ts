@@ -16,7 +16,7 @@ import {
 
 const LOOPBACK = '127.0.0.1'
 const SECURITY_HEADERS = {
-  'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
+  'x-frame-options': 'DENY',
   'x-content-type-options': 'nosniff',
   'cache-control': 'no-store',
 }
@@ -149,6 +149,8 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     hostname: LOOPBACK,
     port: opts.port,
     idleTimeout: 0,
+    // Development mode bundles on every request and injects Bun's hot-reload client; a release serves a fixed bundle.
+    development: false,
     routes: { '/': page },
     async fetch(req, srv) {
       try {

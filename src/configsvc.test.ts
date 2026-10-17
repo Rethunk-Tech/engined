@@ -89,7 +89,7 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   const setCookie = exchanged.headers.get('set-cookie') as string
   expect(setCookie).toContain('HttpOnly')
   expect(setCookie).toContain('SameSite=Strict')
-  expect(exchanged.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+  expect(exchanged.headers.get('x-frame-options')).toBe('DENY')
   const cookie = setCookie.split(';')[0] as string
 
   expect((await h.call('/nothing', { cookie })).status).toBe(404)

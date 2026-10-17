@@ -181,8 +181,10 @@ UI is therefore gated like the privilege it holds:
 - **Loopback.** The listener always binds `127.0.0.1`, and a request whose
   `Host` is not a loopback name at its port, or whose `Origin` is not its own,
   is refused. A page on another origin cannot drive it.
-- **Page.** The page is served with `default-src 'self'`: no inline script or
-  style, nothing from a CDN.
+- **Page.** Everything the page loads is bundled and served by the configsvc,
+  nothing from a CDN. It refuses to be framed (`X-Frame-Options: DENY`). There is
+  no Content-Security-Policy, deliberately: it broke the editor's own styles and
+  guards nothing the session cookie, Origin check and framing refusal do not.
 - **Audit.** Each save logs one line with the client, what changed and the
   before and after hashes. The previous file is kept in `.history/`.
 - **Secrets.** A value typed into the UI goes to `secret-tool` on stdin and is

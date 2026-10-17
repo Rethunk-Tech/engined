@@ -24,7 +24,7 @@
   `engined --caddyfile TEMPLATE OUT` renders before Caddy starts. The UI accepts that bridged `Host`
   with an https `Origin`, marks its cookie `Secure`, and logs the https URL. `0.0.0.0` is refused.
 - `bun run test:e2e` (also `gate --e2e`) runs one Chromium smoke of the config UI: every view renders
-  without a script or CSP error, a route field edit shows its diff, saves one changed line and
+  without a script error, a route field edit shows its diff, saves one changed line and
   hot-reloads a scratch door.
 - `GET /api/shipped` lists the shipped engines with their default weights directory contents.
 - Editing a config that lacks a table no longer fails on the first `addEntry` to it.

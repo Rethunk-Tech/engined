@@ -22,7 +22,7 @@ test('edit a route field, see validate and the diff, save, and hot reload', asyn
   await page.goto(process.env.E2E_URL as string)
   await expect(page.locator('.banner')).toHaveText(/running the saved config/)
 
-  // Every view renders against the example config without a script or CSP error.
+  // Every view renders against the example config without a script error.
   for (const link of await page.locator('nav a').all()) {
     await link.click()
     await expect(page.locator('main h2').first()).toBeVisible()
