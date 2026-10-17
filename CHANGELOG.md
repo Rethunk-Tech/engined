@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Config: a disabled route, or any route on a disabled engine or upstream, may name a `filename`
+  that is not on disk yet. engined and the config UI no longer refuse the whole config over weights
+  nothing will load.
+
 ## 0.2.3 - 2026-10-17
 
 - Config UI: the Map tints chains, engines and upstreams in their own colours, with a legend that
