@@ -244,6 +244,11 @@ function renameId(doc: Doc, table: string, oldId: string, newId: string): void {
   if (newId !== oldId && entries.some((e) => e.id === newId)) {
     throw new Error(`${table} "${newId}" already exists`)
   }
+  if (table === 'engine' && entry.kind === undefined && entry.spec_dir === undefined) {
+    throw new Error(
+      `engine "${oldId}" takes its spec from engines/${oldId}/spec.toml, so its id names a directory; set "spec_dir" or "kind" first, or the renamed engine has no spec`,
+    )
+  }
   // References are computed before the id changes: a model reference is only one if a route still names the old id.
   for (const ref of referencesTo(doc, table, oldId)) {
     setAt(doc, ref.path, ref.rewrite(newId))

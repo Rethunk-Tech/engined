@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { loadConfig } from './config.ts'
 import { ENGINES_ROOT, makeTestRoot } from './test-support.ts'
@@ -62,14 +62,17 @@ test('renaming an engine rewrites every reference and the result still loads', (
   expect(refs.some((ref) => ref.startsWith('chain['))).toBe(true)
   expect(refs.some((ref) => ref.endsWith('wire_model'))).toBe(true)
 
-  const out = renameIdIn(EXAMPLE, 'engine', 'llama', 'llama2')
+  // An engine id names its spec directory, so a plain engine refuses; one with spec_dir renames freely.
+  expect(() => renameIdIn(EXAMPLE, 'engine', 'llama', 'llama2')).toThrow(
+    'takes its spec from engines/llama',
+  )
+  const engines = join(mkdtempSync(join(TEST_ROOT, 'engines-')), 'engines')
+  cpSync(ENGINES_ROOT, engines, { recursive: true })
+  const pinned = setKey(EXAMPLE, ['engine', 0, 'spec_dir'], join(engines, 'llama'))
+  const out = renameIdIn(pinned, 'engine', 'llama', 'llama2')
   expect(dependents(out, 'engine', 'llama')).toEqual([])
   expect(dependents(out, 'engine', 'llama2')).toEqual(refs)
 
-  // An engine id names its spec directory, so the scratch engines tree carries it under the new name.
-  const engines = join(mkdtempSync(join(TEST_ROOT, 'engines-')), 'engines')
-  cpSync(ENGINES_ROOT, engines, { recursive: true })
-  renameSync(join(engines, 'llama'), join(engines, 'llama2'))
   const cfg = loadConfig(loadable(out), engines)
   expect(cfg.engines.map((e) => e.id)).toContain('llama2')
   expect(cfg.engines.map((e) => e.id)).not.toContain('llama')
