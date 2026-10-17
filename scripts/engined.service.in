@@ -6,9 +6,10 @@ After=network.target
 Type=simple
 ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js
 
-# A held port or bad config must stop, not loop: Restart=on-failure alone
+# A held port must stop, not loop: Restart=on-failure alone
 # turns both into a restart loop whose reason lives only in journald.
-# engined exits 78 for anything a restart cannot fix.
+# engined exits 78 for anything a restart cannot fix (a held port); a bad or
+# missing config does not exit, the door answers 503 until a reload loads one.
 Restart=on-failure
 RestartPreventExitStatus=78
 

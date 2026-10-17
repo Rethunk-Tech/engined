@@ -42,9 +42,8 @@ run; [docs/engines.md](docs/engines.md) says what each image needs.
 Builds a bundle, syncs `engines/` into `~/.local/share/engined/`
 (`$XDG_DATA_HOME/engined/` when set), creates `~/.config/engined/` so a
 following `cp` has somewhere to land, and renders the `systemd --user` units.
-It restarts `engined` only when `config.toml` is already there — a first run
-on a fresh box would otherwise exit 78 and `RestartPreventExitStatus` would
-leave the unit failed. Running the script again **is** the update — nothing
+It restarts `engined` only when `config.toml` is already there; without one the
+daemon would start and answer 503 until a config is written and reloaded. Running the script again **is** the update — nothing
 over HTTP writes to the install directory.
 
 When Docker is on `PATH`, install also enables `engined-tls.service`: a
@@ -194,7 +193,8 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | Symptom | Cause |
 | --- | --- |
 | `ECONNREFUSED` on 29200 | unit not running — `systemctl --user status engined` |
-| exit 78 at startup | port already bound, or config missing/invalid; the error names which |
+| exit 78 at startup | port already bound; the error names it |
+| every route answers 503 | no valid config loaded; `config_error` on `GET /engined/v1/engines` says why. Fix the file, then `systemctl --user reload engined` |
 | engine stuck `unavailable` | read its `fix` field and run that command |
 | a 400 saying `unknown model` | bare model or engine id — every address needs `@/`, e.g. `@/<engine>/<model>` |
 | a 400 listing qualified upstream forms | `@/<engine>/<model>` names a model two upstreams share on that engine — use `@/<engine>/<upstream>/<model>` |

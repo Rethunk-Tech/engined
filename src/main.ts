@@ -1,7 +1,5 @@
 /** The door: dual-family `Bun.serve`, Origin/Host check, OpenAI-shaped routes. */
-import { mkdirSync } from 'node:fs'
 import process from 'node:process'
-import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { resetSpeechCache } from './audioSpeech.ts'
 import { enginesExit, probeExit } from './cliModes.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
@@ -20,9 +18,8 @@ import {
   handleStop,
   handleUnhold,
 } from './control.ts'
-import { serveCursorAgent } from './cursorAgent.ts'
-import { completeLocally } from './cursorChat.ts'
 import { handleCursor, isCursorPath } from './cursorDoor.ts'
+import { runDaemon } from './daemon.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
 import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
@@ -35,14 +32,13 @@ import {
   STATUS_FORBIDDEN,
   STATUS_INTERNAL_SERVER_ERROR,
   STATUS_NOT_FOUND,
+  STATUS_UNAVAILABLE,
 } from './http.ts'
 import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
 import { LAUNCH_NONCE_RE } from './launchNonce.ts'
-import { bindDualFamily, errorCode } from './listen.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
-import { configPath, installDir, voicesDir } from './paths.ts'
 import { DonorLedger } from './potluck.ts'
 import { writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
@@ -127,8 +123,19 @@ export interface Door {
     (req: Request): Response | Promise<Response>
     (req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   }
-  /** Re-reads `path`. Invalid TOML keeps the running config and records the error. */
-  reload: (path: string) => void
+  /**
+   * Re-reads `path`. Invalid TOML keeps the running config and records the
+   * error. A change to `listen_port` or `cursor_port` is refused unless
+   * `rebind` is given (hard reload); it runs before anything is swapped and
+   * moves the listeners, and a throw from it keeps the running config.
+   */
+  reload: (path: string, rebind?: (next: Config) => void) => void
+  /** False until a config has loaded: every route but the engines list answers 503. */
+  live: () => boolean
+  /** The ports actually bound, which a hot reload compares against; `cursor` is unset until that listener starts. */
+  served: { listen: number; cursor?: number }
+  /** Answers every pending request 503; a hard reload is about to stop their containers. */
+  interrupt: () => void
   registry: EngineRegistry
   /** The live door state, so a sibling listener reads the same config a reload swapped in. */
   ctx: DoorContext
@@ -325,20 +332,29 @@ export function createDoor(
   doorOpts: DoorOptions = {},
 ): Door {
   let config = initialConfig
-  let configErr: string | undefined
+  let configErr: string | undefined = doorOpts.awaitingConfigError
+  let live = configErr === undefined
+  const served: Door['served'] = { listen: initialConfig.listen_port }
+  const pending = new Set<(res: Response) => void>()
   const discovery = doorOpts.discovery ?? new ModelDiscovery()
   const ctx = createDoorContext(() => discovery.apply(config), registryOpts, doorOpts)
   const { registry } = ctx
 
-  function reload(path: string): void {
+  function reload(path: string, rebind?: (next: Config) => void): void {
     try {
       const next = loadConfig(path)
+      if (rebind === undefined) {
+        refuseMovedPorts(served, next)
+      } else {
+        rebind(next)
+      }
       // registry.reload can still throw (a spec-less engine, a capability
       // route nothing serves) even though `next` parsed clean. Applying it
       // to the registry before swapping `config` keeps a failed reload
       // serving the old config, with only `configErr` reporting the new one.
       registry.reload(next)
       config = next
+      live = true
       configErr = undefined
       resetSpeechCache()
       retireLlamaRouters(ctx, next)
@@ -351,9 +367,12 @@ export function createDoor(
   function fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   function fetch(req: Request, server?: EnginedServer): Response | Promise<Response> | undefined {
     try {
-      const refusal = checkOrigin(req, config.listen_port)
+      const refusal = checkOrigin(req, served.listen)
       if (refusal) {
         return refusal
+      }
+      if (!(live || isEnginesList(req))) {
+        return jsonError(STATUS_UNAVAILABLE, configErr ?? 'no valid config is loaded')
       }
       if (server !== undefined) {
         const wsMatch = matchComfyPath(new URL(req.url).pathname)
@@ -369,7 +388,7 @@ export function createDoor(
       }
       const routed = routeRequest(ctx, req, configErr)
       if (routed instanceof Promise) {
-        return routed.catch((err: unknown) =>
+        return interruptible(routed).catch((err: unknown) =>
           jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err)),
         )
       }
@@ -379,7 +398,56 @@ export function createDoor(
     }
   }
 
-  return { fetch, reload, registry, ctx, discovery, configError: () => configErr }
+  function interruptible(routed: Promise<Response>): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      pending.add(resolve)
+      routed.then(resolve, reject).finally(() => pending.delete(resolve))
+    })
+  }
+
+  function interrupt(): void {
+    for (const resolve of pending) {
+      resolve(jsonError(STATUS_UNAVAILABLE, 'engined is reloading; retry shortly'))
+    }
+    pending.clear()
+  }
+
+  return {
+    fetch,
+    reload,
+    live: () => live,
+    served,
+    interrupt,
+    registry,
+    ctx,
+    discovery,
+    configError: () => configErr,
+  }
+}
+
+function isEnginesList(req: Request): boolean {
+  return (
+    (req.method === 'GET' || req.method === 'HEAD') &&
+    new URL(req.url).pathname === ENGINED_ENGINES_PATH
+  )
+}
+
+const HARD_RELOAD_HINT = 'systemctl --user kill -s USR1 engined.service'
+
+/** A hot reload cannot move a bound listener; naming the signal that can is the fix the error offers. */
+function refuseMovedPorts(served: Door['served'], next: Config): void {
+  const moved: string[] = []
+  if (next.listen_port !== served.listen) {
+    moved.push(`listen_port ${served.listen} -> ${next.listen_port}`)
+  }
+  if (served.cursor !== undefined && next.cursor_port !== served.cursor) {
+    moved.push(`cursor_port ${served.cursor} -> ${next.cursor_port}`)
+  }
+  if (moved.length > 0) {
+    throw new Error(
+      `config changed ${moved.join(', ')}; still serving the old ports. A port change needs a hard reload (stops running engines): ${HARD_RELOAD_HINT}`,
+    )
+  }
 }
 
 /** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */
@@ -436,55 +504,5 @@ if (import.meta.main) {
   if (probe) {
     process.exit(await probeExit(json))
   }
-  let startupConfig: Config
-  let door: Door
-  try {
-    const bunx = resolveBunx()
-    startupConfig = loadConfig()
-    // The mount source a chatterbox spec names must exist before any
-    // container starts: docker creates a missing bind source itself, owned by
-    // root, and the door would then never be able to write an upload into it.
-    mkdirSync(voicesDir(), { recursive: true })
-    door = createDoor(startupConfig, {
-      enginesRoot: `${installDir()}/engines`,
-      bunx,
-      agenticProbeRunner: buildAgenticProbeRunner(bunx),
-    })
-  } catch (err) {
-    process.stderr.write(`${errMessage(err)}\n`)
-    process.exit(FatalError.EXIT_CODE)
-  }
-
-  let bound: ReturnType<typeof bindDualFamily>
-  try {
-    bound = bindDualFamily(door.fetch, startupConfig.listen_port)
-    door.registry.startInventoryRefresh()
-    door.discovery.start(door.ctx.getConfig())
-  } catch (err) {
-    const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
-    process.stderr.write(`port ${startupConfig.listen_port} ${what}: ${errMessage(err)}\n`)
-    process.exit(FatalError.EXIT_CODE)
-  }
-
-  const cursorAgent = serveCursorAgent(startupConfig.cursor_port, {
-    complete: (messages, on) => completeLocally(door.ctx, messages, on),
-  })
-
-  process.on('SIGHUP', () => {
-    door.reload(configPath())
-    door.discovery.start(door.ctx.getConfig())
-  })
-
-  process.on('SIGTERM', () => {
-    door.registry
-      .shutdown()
-      .catch(() => undefined)
-      .finally(() => {
-        door.ctx.usage.shutdown()
-        cursorAgent.stop()
-        bound.v4.stop()
-        bound.v6?.stop()
-        process.exit(0)
-      })
-  })
+  runDaemon()
 }

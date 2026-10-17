@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Door
+
+- A missing or invalid `config.toml` no longer exits 78 at startup. The door
+  binds `listen_port` (read from the file when it can be, else 29200), answers
+  503 with the error on every route, and reports it as `config_error` on
+  `GET /engined/v1/engines`. A reload loads the config and brings it live.
+  A port already in use still exits 78.
+
 ## 0.1.1 - 2026-10-17
 
 ### Door

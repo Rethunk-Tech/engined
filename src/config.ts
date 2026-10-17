@@ -63,17 +63,17 @@ import type {
 } from './types.ts'
 import { EGRESS_RANK, isEgress, KIND_TRAITS } from './types.ts'
 
-const DEFAULT_LISTEN_PORT = 29_200
+export const DEFAULT_LISTEN_PORT = 29_200
 /**
  * The Cursor turn stream is bidirectional and needs HTTP/2, which the main
  * cleartext door does not speak, so it gets its own h2c listener. A TLS
  * terminator in front routes `/agent.v1.AgentService/Run` here.
  */
-const DEFAULT_CURSOR_PORT = 29_201
-const DEFAULT_CHAT_TIMEOUT_SECONDS = 600
-const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
-const DEFAULT_STREAM_STALL_SECONDS = 60
-const DEFAULT_AGENTIC_CONCURRENCY = 4
+export const DEFAULT_CURSOR_PORT = 29_201
+export const DEFAULT_CHAT_TIMEOUT_SECONDS = 600
+export const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
+export const DEFAULT_STREAM_STALL_SECONDS = 60
+export const DEFAULT_AGENTIC_CONCURRENCY = 4
 
 function parseSecret(value: unknown, site: string, file: string): SecretRef {
   const v = requireTable(value, `${site} "secret"`, SECRET_KEYS, file)

@@ -41,10 +41,10 @@ async function runDaemon(env: Record<string, string>): Promise<{ code: number; s
   return { code: await proc.exited, stderr }
 }
 
-// A spec placeholder the config never supplies is a parse fault, and specs load
-// eagerly at construction -- so this must exit like a bad config, not like a
-// crash. It fails before any listener is bound, so no port is ever claimed.
-test('an unresolved spec placeholder exits 78 rather than crashing', async () => {
+// A spec placeholder the config never supplies is a config fault found at
+// construction. The daemon must not exit (an edit fixes it, a restart cannot):
+// it binds listen_port and reports the fault as 503 and `config_error`.
+test('an unresolved spec placeholder leaves the door up with config_error', async () => {
   const env = scratchHome(
     [
       'kind = "tts"',
@@ -64,9 +64,26 @@ test('an unresolved spec placeholder exits 78 rather than crashing', async () =>
     ].join('\n'),
     ['listen_port = 39218', '', '[[engine]]', 'id     = "probe"'].join('\n'),
   )
-  const { code, stderr } = await runDaemon(env)
-  expect(code).toBe(FatalError.EXIT_CODE)
-  expect(stderr).toContain('unresolved placeholder {models_dir}')
+  const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts')], {
+    env: { ...process.env, ...env },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
+  try {
+    const url = 'http://127.0.0.1:39218/engined/v1/engines'
+    let listed: { config_error?: string } | undefined
+    for (let i = 0; i < 40 && listed === undefined; i++) {
+      listed = await fetch(url)
+        .then((res) => res.json() as Promise<{ config_error?: string }>)
+        .catch(() => undefined)
+      await Bun.sleep(100)
+    }
+    expect(listed?.config_error).toContain('unresolved placeholder {models_dir}')
+    expect((await fetch('http://127.0.0.1:39218/openai/v1/models')).status).toBe(503)
+  } finally {
+    proc.kill()
+    await proc.exited
+  }
 })
 
 // A port already bound (by anything, not necessarily another engined) is
