@@ -38,7 +38,7 @@ import {
   validateVisionBridgeRoutes,
   validateWildcardRoutes,
 } from './configRouteValidate.ts'
-import { collectEntries, inEntry, readConfigSources } from './configSources.ts'
+import { collectEntries, configTextSha256, inEntry, readConfigSources } from './configSources.ts'
 import {
   parseConfigsvc,
   parsePotluckCallback,
@@ -340,6 +340,7 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
 
   return {
     ...parseTopLevelSettings(mainRaw, file),
+    source_sha256: configTextSha256(sources.map((source) => source.text)),
     engines,
     upstreams,
     routes,

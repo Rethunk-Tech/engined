@@ -68,13 +68,21 @@ export function engineWithLlamaRoles(ctx: DoorContext, status: EngineStatus): En
   return { ...status, roles: busy }
 }
 
+/** The outstanding failed config load: why, and the hash of the files it read. */
+export interface ConfigFault {
+  message: string
+  sha256?: string
+}
+
 export async function handleEngines(
   ctx: DoorContext,
-  configErr: string | undefined,
+  fault: ConfigFault | undefined,
 ): Promise<Response> {
   const listed = await ctx.registry.list()
   attachLlamaRoles(ctx, listed.engines)
-  listed.config_error = configErr
+  listed.config_error = fault?.message
+  listed.config_error_sha256 = fault?.sha256
+  listed.config_sha256 = ctx.getConfig().source_sha256
   listed.discovery = ctx.getConfig().model_discovery
   return Response.json(listed)
 }

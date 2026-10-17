@@ -25,6 +25,8 @@ import type { UsageTracker } from './usage.ts'
 export interface DoorOptions {
   /** Set when no config has loaded yet: the door answers 503 with this message until a reload succeeds. */
   awaitingConfigError?: string
+  /** `configFilesSha256` of the files that failed to load, reported with `awaitingConfigError`. */
+  awaitingConfigSha256?: string
   /** A test passes one with a fake provider and a scratch state root. */
   discovery?: ModelDiscovery
   agenticSpawn?: AgenticSpawn

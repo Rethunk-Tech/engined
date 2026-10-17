@@ -13,6 +13,31 @@ const FRAGMENT_TABLE_KEYS = new Set(['engine', 'upstream', 'model', 'route', 'ch
 interface ConfigSource {
   file: string
   raw: Record<string, unknown>
+  text: string
+}
+
+/**
+ * Identifies the exact config text a daemon loaded: SHA-256 (lowercase hex)
+ * over each file's UTF-8 text, followed by one NUL byte, in load order -- the
+ * main file, then `config.d/*.toml` sorted by filename.
+ */
+export function configTextSha256(texts: readonly string[]): string {
+  const hasher = new Bun.CryptoHasher('sha256')
+  for (const text of texts) {
+    hasher.update(text)
+    hasher.update('\0')
+  }
+  return hasher.digest('hex')
+}
+
+/** The same hash from what is on disk now, for a load that failed before it could hash; `undefined` when a file cannot be read. */
+export function configFilesSha256(mainFile: string): string | undefined {
+  try {
+    const files = [mainFile, ...fragmentFiles(mainFile)]
+    return configTextSha256(files.map((file) => readFileSync(file, 'utf8')))
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -48,19 +73,19 @@ export function fragmentFiles(mainFile: string): string[] {
  * silently shadow or fight the main file's depending on merge order.
  */
 export function readConfigSources(mainFile: string): ConfigSource[] {
-  const mainRaw = readConfigTable(mainFile)
-  assertKnownKeys(mainRaw, 'config', TOP_KEYS, mainFile)
-  const sources: ConfigSource[] = [{ file: mainFile, raw: mainRaw }]
+  const main = readConfigTable(mainFile)
+  assertKnownKeys(main.raw, 'config', TOP_KEYS, mainFile)
+  const sources: ConfigSource[] = [{ file: mainFile, ...main }]
   for (const fragFile of fragmentFiles(mainFile)) {
-    const fragRaw = readConfigTable(fragFile)
-    assertKnownKeys(fragRaw, 'config.d fragment', FRAGMENT_TABLE_KEYS, fragFile)
-    sources.push({ file: fragFile, raw: fragRaw })
+    const frag = readConfigTable(fragFile)
+    assertKnownKeys(frag.raw, 'config.d fragment', FRAGMENT_TABLE_KEYS, fragFile)
+    sources.push({ file: fragFile, ...frag })
   }
   return sources
 }
 
 /** The config file as a parsed TOML table; every read or parse failure is a ParseError naming the file. */
-function readConfigTable(file: string): Record<string, unknown> {
+function readConfigTable(file: string): { raw: Record<string, unknown>; text: string } {
   let text: string
   try {
     text = readFileSync(file, 'utf8')
@@ -77,7 +102,7 @@ function readConfigTable(file: string): Record<string, unknown> {
   if (!isRecord(raw)) {
     throw new ParseError('config must be a table', file)
   }
-  return raw
+  return { raw, text }
 }
 
 /**

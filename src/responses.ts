@@ -125,6 +125,16 @@ export interface EnginesResponse {
    * the only place an operator learns the edit did not take.
    */
   config_error?: string
+  /**
+   * SHA-256 (lowercase hex) of the text the running config was loaded from:
+   * for each file in load order -- `config.toml`, then `config.d/*.toml`
+   * sorted by filename -- its UTF-8 text followed by one NUL byte, all fed to
+   * one hash. Absent until a config has loaded. A reload that failed leaves it
+   * naming the config still serving.
+   */
+  config_sha256?: string
+  /** The same hash of the files the most recent failed attempt read; present with `config_error`, absent when a file could not be read. */
+  config_error_sha256?: string
   /** Per `claude`/`cursor` engine, when its provider's model list was last fetched, why the latest refresh failed, and which declared routes discovery makes redundant or stale (`modelDiscovery.ts`). */
   discovery?: Record<string, DiscoveryStatus>
 }

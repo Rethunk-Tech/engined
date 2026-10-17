@@ -7,8 +7,10 @@ import { COMFY_WS_SUFFIX, type EnginedServer, matchComfyPath } from './comfyProx
 import { handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
 import { loadConfig } from './config.ts'
 import { pruneCli } from './configPrune.ts'
+import { configFilesSha256 } from './configSources.ts'
 import { handleContent, handleEngineEvents, handleExtras } from './content.ts'
 import {
+  type ConfigFault,
   handleEngines,
   handleHold,
   handleLogs,
@@ -55,6 +57,7 @@ import {
   CONTENT_ENDPOINT_TRANSLATIONS,
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
+import { refuseMovedPorts, type ServedPorts } from './servedPorts.ts'
 import { handleTokenizeRoute, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH, handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
@@ -132,8 +135,8 @@ export interface Door {
   reload: (path: string, rebind?: (next: Config) => void) => void
   /** False until a config has loaded: every route but the engines list answers 503. */
   live: () => boolean
-  /** The ports actually bound, which a hot reload compares against; `cursor` is unset until that listener starts. */
-  served: { listen: number; cursor?: number }
+  /** The ports actually bound. */
+  served: ServedPorts
   /** Answers every pending request 503; a hard reload is about to stop their containers. */
   interrupt: () => void
   registry: EngineRegistry
@@ -147,7 +150,7 @@ export interface Door {
 function routeGet(
   ctx: DoorContext,
   url: URL,
-  configErr: string | undefined,
+  fault: ConfigFault | undefined,
   signal: AbortSignal,
 ): Response | Promise<Response> | undefined {
   const { pathname } = url
@@ -158,7 +161,7 @@ function routeGet(
     return modelById(ctx, decodeURIComponent(pathname.slice(OPENAI_MODELS_PATH.length + 1)))
   }
   if (pathname === ENGINED_ENGINES_PATH) {
-    return handleEngines(ctx, configErr)
+    return handleEngines(ctx, fault)
   }
   if (pathname === `${ENGINED_ENGINES_PATH}/events`) {
     return handleEngineEvents(ctx, signal)
@@ -267,7 +270,7 @@ function stripLaunchNonce(
 function routeRequest(
   ctx: DoorContext,
   req: Request,
-  configErr: string | undefined,
+  fault: ConfigFault | undefined,
 ): Response | Promise<Response> {
   const url = new URL(req.url)
   const stripped = stripLaunchNonce(ctx, url.pathname)
@@ -281,7 +284,7 @@ function routeRequest(
   }
   let matched: Response | Promise<Response> | undefined
   if (req.method === 'GET' || req.method === 'HEAD') {
-    matched = routeGet(ctx, new URL(pathname + url.search, url), configErr, req.signal)
+    matched = routeGet(ctx, new URL(pathname + url.search, url), fault, req.signal)
   } else if (req.method === 'POST') {
     matched = routePost(ctx, req, pathname, launchScoped)
   }
@@ -332,17 +335,22 @@ export function createDoor(
   doorOpts: DoorOptions = {},
 ): Door {
   let config = initialConfig
-  let configErr: string | undefined = doorOpts.awaitingConfigError
-  let live = configErr === undefined
-  const served: Door['served'] = { listen: initialConfig.listen_port }
+  let fault: ConfigFault | undefined =
+    doorOpts.awaitingConfigError === undefined
+      ? undefined
+      : { message: doorOpts.awaitingConfigError, sha256: doorOpts.awaitingConfigSha256 }
+  let live = fault === undefined
+  const served: ServedPorts = { listen: initialConfig.listen_port }
   const pending = new Set<(res: Response) => void>()
   const discovery = doorOpts.discovery ?? new ModelDiscovery()
   const ctx = createDoorContext(() => discovery.apply(config), registryOpts, doorOpts)
   const { registry } = ctx
 
   function reload(path: string, rebind?: (next: Config) => void): void {
+    let attempted: string | undefined
     try {
       const next = loadConfig(path)
+      attempted = next.source_sha256
       if (rebind === undefined) {
         refuseMovedPorts(served, next)
       } else {
@@ -351,15 +359,15 @@ export function createDoor(
       // registry.reload can still throw (a spec-less engine, a capability
       // route nothing serves) even though `next` parsed clean. Applying it
       // to the registry before swapping `config` keeps a failed reload
-      // serving the old config, with only `configErr` reporting the new one.
+      // serving the old config, with only `fault` reporting the new one.
       registry.reload(next)
       config = next
       live = true
-      configErr = undefined
+      fault = undefined
       resetSpeechCache()
       retireLlamaRouters(ctx, next)
     } catch (err) {
-      configErr = errMessage(err)
+      fault = { message: errMessage(err), sha256: attempted ?? configFilesSha256(path) }
     }
   }
 
@@ -372,7 +380,7 @@ export function createDoor(
         return refusal
       }
       if (!(live || isEnginesList(req))) {
-        return jsonError(STATUS_UNAVAILABLE, configErr ?? 'no valid config is loaded')
+        return jsonError(STATUS_UNAVAILABLE, fault?.message ?? 'no valid config is loaded')
       }
       if (server !== undefined) {
         const wsMatch = matchComfyPath(new URL(req.url).pathname)
@@ -386,7 +394,7 @@ export function createDoor(
           return upgraded
         }
       }
-      const routed = routeRequest(ctx, req, configErr)
+      const routed = routeRequest(ctx, req, fault)
       if (routed instanceof Promise) {
         return interruptible(routed).catch((err: unknown) =>
           jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err)),
@@ -421,7 +429,7 @@ export function createDoor(
     registry,
     ctx,
     discovery,
-    configError: () => configErr,
+    configError: () => fault?.message,
   }
 }
 
@@ -430,24 +438,6 @@ function isEnginesList(req: Request): boolean {
     (req.method === 'GET' || req.method === 'HEAD') &&
     new URL(req.url).pathname === ENGINED_ENGINES_PATH
   )
-}
-
-const HARD_RELOAD_HINT = 'systemctl --user kill -s USR1 engined.service'
-
-/** A hot reload cannot move a bound listener; naming the signal that can is the fix the error offers. */
-function refuseMovedPorts(served: Door['served'], next: Config): void {
-  const moved: string[] = []
-  if (next.listen_port !== served.listen) {
-    moved.push(`listen_port ${served.listen} -> ${next.listen_port}`)
-  }
-  if (served.cursor !== undefined && next.cursor_port !== served.cursor) {
-    moved.push(`cursor_port ${served.cursor} -> ${next.cursor_port}`)
-  }
-  if (moved.length > 0) {
-    throw new Error(
-      `config changed ${moved.join(', ')}; still serving the old ports. A port change needs a hard reload (stops running engines): ${HARD_RELOAD_HINT}`,
-    )
-  }
 }
 
 /** Absolute bunx from `ENGINED_BUNX` or PATH, resolved at startup so a miss is fatal immediately. */

@@ -13,6 +13,10 @@
 
 ### Door
 
+- `GET /engined/v1/engines` reports `config_sha256` (the config text the running
+  config was loaded from) and, beside `config_error`, `config_error_sha256` (the
+  text of the failed attempt).
+
 - A config parse failure carries the path of what is at fault (file, table,
   entry index, key) beside its unchanged message, for tools that point at the
   field.

@@ -152,7 +152,10 @@ Either reload also loads a config the daemon was waiting on.
 `systemctl --user reload` re-reads `config.toml` and `config.d/`; in-flight
 requests finish on the old engine list. A config the parser or the engine
 registry rejects is not applied at all: the old one keeps serving and
-`config_error` on `GET /engined/v1/engines` says why. An accepted reload tears
+`config_error` on `GET /engined/v1/engines` says why. The same response's
+`config_sha256` identifies the text the running config came from, and
+`config_error_sha256` the text of the failed attempt (recipe: `src/responses.ts`).
+An accepted reload tears
 down engines it no longer names (container, llama router, preset file) and
 clears the synthesized-speech cache. A running container keeps its old shape
 until next start (idle-stop or `POST /engined/v1/start`) — llama-server reads

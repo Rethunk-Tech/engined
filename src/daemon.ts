@@ -4,6 +4,7 @@ import process from 'node:process'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 import { loadConfig } from './config.ts'
 import { awaitingConfig, bestEffortListenPort } from './configAwaiting.ts'
+import { configFilesSha256 } from './configSources.ts'
 import { type CursorAgentServer, serveCursorAgent } from './cursorAgent.ts'
 import { completeLocally } from './cursorChat.ts'
 import { FatalError } from './errors/fatal.ts'
@@ -32,6 +33,7 @@ function buildDoor(): Door {
     process.stderr.write(`waiting for a valid config: ${errMessage(err)}\n`)
     return createDoor(awaitingConfig(bestEffortListenPort()), registryOpts, {
       awaitingConfigError: errMessage(err),
+      awaitingConfigSha256: configFilesSha256(configPath()),
     })
   }
 }

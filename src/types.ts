@@ -401,6 +401,8 @@ export interface Config {
   /** Absent unless this install reports donated-upstream liveness back to potluck. */
   potluck?: PotluckCallback
   configsvc: ConfigsvcSettings
+  /** Set by `loadConfig`: `configTextSha256` of the files this config was parsed from. */
+  source_sha256?: string
   engines: EngineEntry[]
   upstreams: Upstream[]
   /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */

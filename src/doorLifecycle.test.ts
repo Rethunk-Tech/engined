@@ -18,14 +18,23 @@ import type { Config } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-door-test-')
 
+interface EnginesList {
+  engines: { id: string }[]
+  config_error?: string
+  config_sha256?: string
+  config_error_sha256?: string
+}
+
+/** The recipe documented on `EnginesResponse.config_sha256`, spelled out independently of the code under test. */
+function sha256OfText(text: string): string {
+  return new Bun.CryptoHasher('sha256').update(`${text}\0`).digest('hex')
+}
+
 /** GET /engined/v1/engines, parsed -- `config_error` is only present mid-reload-failure. */
-async function listEngines(
-  door: Door,
-): Promise<{ engines: { id: string }[]; config_error?: string }> {
-  return (await (await door.fetch(new Request('http://engined/engined/v1/engines'))).json()) as {
-    engines: { id: string }[]
-    config_error?: string
-  }
+async function listEngines(door: Door): Promise<EnginesList> {
+  return (await (
+    await door.fetch(new Request('http://engined/engined/v1/engines'))
+  ).json()) as EnginesList
 }
 
 /**
@@ -132,11 +141,16 @@ upstream = "local"
     const before = await listEngines(door)
     expect(before.engines.map((e) => e.id)).toEqual(['claude'])
 
+    expect(before.config_sha256).toBe(sha256OfText(GoodConfig))
+    expect(before.config_error_sha256).toBeUndefined()
+
     writeFileSync(path, 'not valid toml {{{')
     door.reload(path)
 
     expect(door.configError()).toBeDefined()
     const after = await listEngines(door)
+    expect(after.config_sha256).toBe(sha256OfText(GoodConfig))
+    expect(after.config_error_sha256).toBe(sha256OfText('not valid toml {{{'))
     // Previous config still serving: the same engine, not an empty list.
     expect(after.engines.map((e) => e.id)).toEqual(['claude'])
     expect(after.config_error).toBeDefined()
