@@ -5,6 +5,8 @@
 - Config UI: each llama engine card shows estimated resident memory (GGUF size plus KV cache at the
   route's ctx-size and cache types), the largest on-demand model, and the box's total and
   available memory, with a warning when they do not fit; the route form shows the per-route estimate.
+- Release: `.deb` and `.rpm` packages for x64 and arm64 are attached to each GitHub release. They
+  ship a standalone binary, so they need no bun.
 
 ## 0.2.0 - 2026-10-17
 

@@ -1,8 +1,8 @@
 name: release
 
-# A tag is the release: its annotation is the notes. The one asset is the
-# prebuilt tarball the AUR `engined` package installs from, so a user never
-# builds anything; install.sh still builds from a clone checked out at the tag.
+# A tag is the release: its annotation is the notes. The assets are the
+# prebuilt tarball the AUR `engined` package installs from and the .deb/.rpm
+# packages for x64 and arm64, so a user never builds anything; install.sh still builds from a clone checked out at the tag.
 
 on:
   push:
@@ -50,6 +50,16 @@ jobs:
           tar -tzf "$stage.tar.gz" | grep -q "^$stage/dist/main.js$"
           tar -tzf "$stage.tar.gz" | grep -q "^$stage/dist/configsvc/ui/index.html$"
 
+      # Standalone compiled binaries (Debian and Fedora do not package bun); see packaging/deb-rpm/README.md.
+      - name: Build the deb and rpm packages
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          for arch in x64 arm64; do
+            ENGINED_COMMIT="$GITHUB_SHA" packaging/deb-rpm/build.sh "$arch" packages
+          done
+          [ "$(find packages \( -name '*.deb' -o -name '*.rpm' \) | wc -l)" -eq 4 ]
+
       - name: Create the GitHub release from the tag's annotation
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,4 +76,4 @@ jobs:
               --notes "${body:-$subject}" \
               --verify-tag
           fi
-          gh release upload "$TAG" "engined-${TAG#v}.tar.gz" --clobber
+          gh release upload "$TAG" "engined-${TAG#v}.tar.gz" packages/*.deb packages/*.rpm --clobber

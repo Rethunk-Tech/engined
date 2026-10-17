@@ -1,0 +1,29 @@
+# build.sh substitutes STAGE and HERE (nfpm expands env only in some fields) and exports ARCH (amd64|arm64) and VERSION.
+name: engined
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: Damon Blais <damon.blais@gmail.com>
+description: |
+  Local model door: one OpenAI-shaped endpoint that owns every inference container on the box.
+homepage: https://github.com/Rethunk-Tech/engined
+license: MIT
+recommends:
+  - docker
+suggests:
+  - bubblewrap
+overrides:
+  deb:
+    recommends:
+      - docker.io | docker-ce
+  rpm:
+    recommends:
+      - moby-engine
+contents:
+  - src: ${STAGE}
+    dst: /
+    type: tree
+scripts:
+  postinstall: ${HERE}/postinstall.sh

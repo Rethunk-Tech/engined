@@ -1,0 +1,28 @@
+#!/bin/sh
+# dpkg passes "configure" (and the old version on an upgrade); rpm passes 1 (install) or 2 (upgrade).
+upgrade=
+case "$1" in
+  configure) [ -n "$2" ] && upgrade=1 ;;
+  2) upgrade=1 ;;
+esac
+
+if [ -n "$upgrade" ]; then
+  echo '==> Restart them as each user running them: systemctl --user restart engined.service engined-configsvc.service'
+  exit 0
+fi
+
+cat <<'MSG'
+==> engined and engined-configsvc run as systemd --user services. As each
+    user that wants them:
+      systemctl --user enable --now engined.service engined-configsvc.service engined-probe.timer
+    Then configure it either way:
+      by hand: mkdir -p ~/.config/engined
+               cp /usr/share/engined/config.example.toml ~/.config/engined/config.toml
+               $EDITOR ~/.config/engined/config.toml
+               (schema for editors: /usr/share/engined/config.schema.json)
+      or in the Web UI: `engined --configsvc-url` prints its current URL with
+               the token (also in `journalctl --user -u engined-configsvc`).
+==> Engine images are built locally, not pulled; the first request to a
+    missing one names the `docker build` line. The shipped images target
+    AMD Strix Halo. See /usr/share/doc/engined/HUMANS.md.
+MSG
