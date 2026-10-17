@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { FatalError } from './errors/fatal.ts'
-import { makeTestRoot } from './test-support.ts'
+import { deadPort, makeTestRoot } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-startup-test-')
 const RX_RESTART_PREVENT_EXIT_STATUS = /^RestartPreventExitStatus=(\d+)$/m
@@ -41,10 +41,33 @@ async function runDaemon(env: Record<string, string>): Promise<{ code: number; s
   return { code: await proc.exited, stderr }
 }
 
+/** Polls `probe` until it answers something other than `undefined`; the daemon is a real process, so there is no event to await. */
+async function eventually<T>(probe: () => Promise<T | undefined>): Promise<T | undefined> {
+  for (let i = 0; i < 50; i++) {
+    const got = await probe().catch(() => undefined)
+    if (got !== undefined) {
+      return got
+    }
+    await Bun.sleep(100)
+  }
+  return undefined
+}
+
+async function listing(port: number): Promise<{ config_error?: string } | undefined> {
+  const res = await fetch(`http://127.0.0.1:${port}/engined/v1/engines`)
+  return (await res.json()) as { config_error?: string }
+}
+
+const modelsStatus = (port: number) =>
+  fetch(`http://127.0.0.1:${port}/openai/v1/models`).then((res) => res.status)
+
 // A spec placeholder the config never supplies is a config fault found at
 // construction. The daemon must not exit (an edit fixes it, a restart cannot):
-// it binds listen_port and reports the fault as 503 and `config_error`.
-test('an unresolved spec placeholder leaves the door up with config_error', async () => {
+// it binds listen_port and reports the fault as 503 and `config_error`. Then
+// the same process proves the reload signals: SIGHUP loads the fixed config,
+// refuses a moved listen_port naming SIGUSR1, and SIGUSR1 moves it.
+test('a bad config leaves the door up; SIGHUP loads it, SIGUSR1 moves the port', async () => {
+  const [first, second, cursor] = [deadPort(), deadPort(), deadPort()]
   const env = scratchHome(
     [
       'kind = "tts"',
@@ -62,24 +85,37 @@ test('an unresolved spec placeholder leaves the door up with config_error', asyn
       'path   = "/health"',
       'status = 200',
     ].join('\n'),
-    ['listen_port = 39218', '', '[[engine]]', 'id     = "probe"'].join('\n'),
+    [`listen_port = ${first}`, '', '[[engine]]', 'id     = "probe"'].join('\n'),
   )
+  const configFile = join(env.XDG_CONFIG_HOME, 'engined', 'config.toml')
   const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts')], {
     env: { ...process.env, ...env },
     stdout: 'ignore',
     stderr: 'ignore',
   })
   try {
-    const url = 'http://127.0.0.1:39218/engined/v1/engines'
-    let listed: { config_error?: string } | undefined
-    for (let i = 0; i < 40 && listed === undefined; i++) {
-      listed = await fetch(url)
-        .then((res) => res.json() as Promise<{ config_error?: string }>)
-        .catch(() => undefined)
-      await Bun.sleep(100)
-    }
-    expect(listed?.config_error).toContain('unresolved placeholder {models_dir}')
-    expect((await fetch('http://127.0.0.1:39218/openai/v1/models')).status).toBe(503)
+    const waiting = await eventually(() => listing(first))
+    expect(waiting?.config_error).toContain('unresolved placeholder {models_dir}')
+    expect(await modelsStatus(first)).toBe(503)
+
+    writeFileSync(configFile, `listen_port = ${first}\ncursor_port = ${cursor}\n`)
+    proc.kill('SIGHUP')
+    expect(
+      await eventually(async () => ((await modelsStatus(first)) === 200 ? true : undefined)),
+    ).toBe(true)
+
+    writeFileSync(configFile, `listen_port = ${second}\ncursor_port = ${cursor}\n`)
+    proc.kill('SIGHUP')
+    const refused = await eventually(async () => (await listing(first))?.config_error)
+    expect(refused).toContain('kill -s USR1 engined.service')
+    expect(await modelsStatus(first)).toBe(200)
+
+    proc.kill('SIGUSR1')
+    expect(
+      await eventually(async () => ((await modelsStatus(second)) === 200 ? true : undefined)),
+    ).toBe(true)
+    expect((await listing(second))?.config_error).toBeUndefined()
+    expect(await modelsStatus(first).catch(() => 'closed')).toBe('closed')
   } finally {
     proc.kill()
     await proc.exited
