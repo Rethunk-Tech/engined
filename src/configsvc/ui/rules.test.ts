@@ -294,7 +294,12 @@ test('the starter proposes only what the host can run and writes routes for chos
     'engine',
     'route',
   ])
+  expect(ops[1]).toMatchObject({ entry: { id: llama.id, models_max: 1 } })
   expect(ops[2]).toMatchObject({
     entry: { model: 'm', filename: 'q/m.gguf', role: 'chat', upstream: 'local' },
   })
+  // An engine that only serves named weights is no use with none picked, and would not validate.
+  expect(
+    starterOps([{ engine: llama, files: [] }]).map((o) => o.op === 'addEntry' && o.table),
+  ).toEqual(['upstream'])
 })

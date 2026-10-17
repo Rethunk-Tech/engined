@@ -97,10 +97,16 @@ label {
   display: block;
   margin: 8px 0;
 }
-label input {
+label input:not([type="checkbox"]):not([type="radio"]) {
   display: block;
   width: 100%;
   margin-top: 4px;
+}
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 pre,
 code {

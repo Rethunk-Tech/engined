@@ -2,7 +2,14 @@ import { useEffect, useState } from 'preact/hooks'
 import { setDraft } from './actions.ts'
 import { call } from './api.ts'
 import { report, runDoctor } from './doctor.tsx'
-import { blockers, type Candidate, type Pick, proposedByDefault, starterOps } from './starter.ts'
+import {
+  blockers,
+  type Candidate,
+  needsWeights,
+  type Pick,
+  proposedByDefault,
+  starterOps,
+} from './starter.ts'
 import { snapshot } from './store.ts'
 import { formatBytes } from './suggest.ts'
 import { DiffView } from './widgets.tsx'
@@ -41,48 +48,56 @@ function EngineChoice(props: {
       {on && engine.models_dir !== undefined ? (
         engine.files.length === 0 ? (
           <p class="muted small-text">
-            No weights in {engine.models_path} yet. The engine is added without routes; add them on
-            the Engines view once the files are there.
+            No weights in {engine.models_path} yet, so {engine.id} is left out of the proposal until
+            the files are there.
           </p>
         ) : (
-          engine.files.map((f) => (
-            <div class="argrow" key={f.path}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={f.path in files}
-                  onChange={(e) => {
-                    const next = { ...files }
-                    if (e.currentTarget.checked) {
-                      next[f.path] = rolePerFile ? 'chat' : ''
-                    } else {
-                      delete next[f.path]
+          <>
+            {needsWeights(engine) && Object.keys(files).length === 0 ? (
+              <p class="muted small-text">
+                Pick at least one weights file; without one, {engine.id} is left out of the
+                proposal.
+              </p>
+            ) : null}
+            {engine.files.map((f) => (
+              <div class="argrow" key={f.path}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={f.path in files}
+                    onChange={(e) => {
+                      const next = { ...files }
+                      if (e.currentTarget.checked) {
+                        next[f.path] = rolePerFile ? 'chat' : ''
+                      } else {
+                        delete next[f.path]
+                      }
+                      props.change({ on, files: next })
+                    }}
+                  />{' '}
+                  <code>{f.path}</code>
+                </label>
+                <span class="muted small-text">
+                  {formatBytes(f.bytes)}
+                  {f.gguf?.quantization === undefined ? '' : ` · ${f.gguf.quantization}`}
+                </span>
+                {rolePerFile && f.path in files ? (
+                  <select
+                    value={files[f.path]}
+                    onChange={(e) =>
+                      props.change({ on, files: { ...files, [f.path]: e.currentTarget.value } })
                     }
-                    props.change({ on, files: next })
-                  }}
-                />{' '}
-                <code>{f.path}</code>
-              </label>
-              <span class="muted small-text">
-                {formatBytes(f.bytes)}
-                {f.gguf?.quantization === undefined ? '' : ` · ${f.gguf.quantization}`}
-              </span>
-              {rolePerFile && f.path in files ? (
-                <select
-                  value={files[f.path]}
-                  onChange={(e) =>
-                    props.change({ on, files: { ...files, [f.path]: e.currentTarget.value } })
-                  }
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-          ))
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+            ))}
+          </>
         )
       ) : null}
     </div>

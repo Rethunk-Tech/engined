@@ -47,6 +47,11 @@ export function modelIdFromFile(path: string): string {
     .replace(/^[-.]+|[-.]+$/g, '')
 }
 
+/** An engine that serves nothing until a route names a weights file under its models_dir. */
+export function needsWeights(engine: ShippedEngine): boolean {
+  return engine.models_dir !== undefined && (engine.kind === 'openai-http' || engine.kind === 'stt')
+}
+
 export interface Pick {
   engine: Candidate
   /** Weights to route to: a role for a llama file, none for the single-role kinds. */
@@ -59,13 +64,20 @@ export function starterOps(picks: readonly Pick[]): EditOp[] {
     { op: 'addEntry', table: 'upstream', entry: { id: 'local', egress: 'none' } },
   ]
   for (const { engine, files } of picks) {
+    if (needsWeights(engine) && files.length === 0) {
+      continue
+    }
+    // The llama spec takes --models-max from config and has no default of its own.
+    const roles = new Set(files.map((f) => f.role ?? 'chat')).size
     ops.push({
       op: 'addEntry',
       table: 'engine',
       entry:
         engine.models_dir === undefined
           ? { id: engine.id }
-          : { id: engine.id, models_dir: engine.models_dir },
+          : engine.kind === 'openai-http'
+            ? { id: engine.id, models_dir: engine.models_dir, models_max: Math.max(1, roles) }
+            : { id: engine.id, models_dir: engine.models_dir },
     })
     if (engine.kind === 'agentic-cli') {
       ops.push({ op: 'addEntry', table: 'route', entry: { engine: engine.id } })
