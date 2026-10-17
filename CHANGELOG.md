@@ -11,9 +11,11 @@
   with many routes gets a filter, the logs panel follows new lines, and Usage covers 7 or 31 days.
 - Config UI: delete and rename open as modals instead of growing the card header; field help is shown
   in full; one route form is open at a time; the Overview counts disabled engines as disabled.
-- Config UI: a Map view draws the pending config as a Mermaid flowchart (chains to engines to
-  upstreams, disabled entries dashed) with zoom, pan, fit and Copy Mermaid. Mermaid loads only when
-  the Map opens: the build now splits chunks, so the other views load what they did before.
+- Config UI: a Map view draws the pending config as a Mermaid flowchart: chains, engines grouped by
+  kind, and upstreams grouped by how far a call travels (this box, local network, internet), with
+  disabled entries dashed. It fills the window and pans, zooms, fits and copies its Mermaid source.
+  Mermaid loads only when the Map opens: the build now splits chunks, so the other views load what
+  they did before.
 - Config UI: a route's Test sends the request that route serves (speech, transcription, embeddings,
   rerank, completions), not always a chat request; image routes say they have no cheap test.
 - Config UI: on a first run, the "cannot read config" error from before any save no longer marks the
