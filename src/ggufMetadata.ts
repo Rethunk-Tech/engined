@@ -48,6 +48,17 @@ export interface GgufMetadata {
   fileType?: number
   /** `fileType` as its quantization name, for example "Q4_K_M"; absent for a value this table does not name. */
   quantization?: string
+  /** `<architecture>.block_count`: transformer layers. */
+  blockCount?: number
+  /** `<architecture>.attention.head_count`. */
+  headCount?: number
+  /** `<architecture>.attention.head_count_kv`; grouped-query models carry fewer KV heads than heads. */
+  headCountKv?: number
+  /** `<architecture>.embedding_length`. */
+  embeddingLength?: number
+  /** `<architecture>.attention.key_length` and `value_length`, present when the head size is not embedding_length / head_count. */
+  keyLength?: number
+  valueLength?: number
   /** Whether the file ships a `tokenizer.chat_template`; its text is not read. */
   hasChatTemplate: boolean
   /** Bytes on disk, tensors included. */
@@ -100,7 +111,22 @@ const WANTED_KEYS = new Set([
   'general.file_type',
 ])
 const CHAT_TEMPLATE_KEY = 'tokenizer.chat_template'
-const CONTEXT_LENGTH_SUFFIX = '.context_length'
+/** Architecture-scoped integer keys, matched by suffix because the architecture key need not come first. A per-layer array (some hybrid models) is not a single number and is left unset. */
+const ARCH_KEYS = {
+  contextLength: '.context_length',
+  blockCount: '.block_count',
+  headCount: '.attention.head_count',
+  headCountKv: '.attention.head_count_kv',
+  embeddingLength: '.embedding_length',
+  keyLength: '.attention.key_length',
+  valueLength: '.attention.value_length',
+} as const
+const ARCH_SUFFIXES = new Set<string>(Object.values(ARCH_KEYS))
+const archSuffixOf = (key: string): string | undefined => {
+  const dot = key.indexOf('.')
+  const suffix = dot < 0 ? undefined : key.slice(dot)
+  return suffix !== undefined && ARCH_SUFFIXES.has(suffix) ? suffix : undefined
+}
 
 const FIXED_TYPE_SIZES: Partial<Record<GgufValueType, number>> = {
   [GgufValueType.Uint8]: 1,
@@ -230,13 +256,12 @@ function parse(buf: Buffer, sizeBytes: number): GgufMetadata {
   const kvCount = c.u64()
 
   const out: GgufMetadata = { hasChatTemplate: false, sizeBytes }
-  // The architecture key need not come first, so every window is kept and the right one picked after.
-  const windows = new Map<string, number>()
+  const archValues = new Map<string, number>()
   for (let i = 0; i < kvCount; i++) {
     const key = c.str()
     const type = c.u32() as GgufValueType
-    const isWindow = key.endsWith(CONTEXT_LENGTH_SUFFIX)
-    const want = WANTED_KEYS.has(key) || isWindow
+    const archSuffix = archSuffixOf(key)
+    const want = WANTED_KEYS.has(key) || archSuffix !== undefined
     const value = readValue(c, type, want)
     if (key === CHAT_TEMPLATE_KEY) {
       out.hasChatTemplate = true
@@ -244,8 +269,10 @@ function parse(buf: Buffer, sizeBytes: number): GgufMetadata {
     if (!want) {
       continue
     }
-    if (isWindow) {
-      windows.set(key, value as number)
+    if (archSuffix !== undefined) {
+      if (typeof value === 'number') {
+        archValues.set(key, value)
+      }
       continue
     }
     switch (key) {
@@ -272,7 +299,9 @@ function parse(buf: Buffer, sizeBytes: number): GgufMetadata {
         break
     }
   }
-  out.contextLength = windows.get(`${out.architecture}${CONTEXT_LENGTH_SUFFIX}`)
+  for (const [field, suffix] of Object.entries(ARCH_KEYS)) {
+    out[field as keyof typeof ARCH_KEYS] = archValues.get(`${out.architecture}${suffix}`)
+  }
   return out
 }
 

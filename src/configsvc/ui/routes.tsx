@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useState } from 'preact/hooks'
 import example from '../../../config.example.toml'
+import { estimateResidentBytes } from '../../memoryEstimate.ts'
 import type { EngineKind, UpstreamTrait } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { call } from './api.ts'
@@ -9,9 +10,15 @@ import { suggestArgKeys } from './argsRules.ts'
 import { callsFor, discovery, modelFiles, type SpecEntry } from './data.ts'
 import { type Doc, type IndexedRoute, routeAddress, type Table, upstreamChoices } from './model.ts'
 import { resolveRoute } from './resolved.ts'
-import { ctxSizeOf, ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
+import { cacheTypesOf, ctxSizeOf, ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
 import { entryToToml } from './snippet.ts'
-import { comfyChoices, formatBytes, modelSuggestions, trainedContext } from './suggest.ts'
+import {
+  comfyChoices,
+  findModelFile,
+  formatBytes,
+  modelSuggestions,
+  trainedContext,
+} from './suggest.ts'
 import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
 export interface EngineCtx {
@@ -233,9 +240,12 @@ function RouteForm(props: { ctx: EngineCtx; entry: IndexedRoute }) {
     .filter((r) => r.role === 'vision' && r.disable !== true)
     .flatMap((r) => routeAddress(doc, r) ?? [])
   const shown = (field: keyof typeof plan) => plan[field].disposition !== 'forbidden'
-  const file = files.find(
-    (f) => f.path === route.filename || f.path.endsWith(`/${String(route.filename)}`),
-  )
+  const file = findModelFile(files, route.filename)
+  const cache = cacheTypesOf(route, engine)
+  const est =
+    file?.gguf === undefined
+      ? undefined
+      : estimateResidentBytes(file, ctxSizeOf(route, engine), cache.k, cache.v)
   return (
     <div class="form">
       <Prop
@@ -279,7 +289,7 @@ function RouteForm(props: { ctx: EngineCtx; entry: IndexedRoute }) {
                   file.gguf === undefined
                     ? ''
                     : ` · ${file.gguf.architecture ?? '?'} · ${file.gguf.quantization ?? '?'} · trained context ${file.gguf.context_length ?? '?'}`
-                }`
+                }${est === undefined ? '' : ` · ~${formatBytes(est.bytes)} loaded at ctx ${est.ctx ?? '?'}`}`
           }
         />
       ) : null}

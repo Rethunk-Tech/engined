@@ -101,21 +101,33 @@ export function keepResidentHolder(routes: readonly Table[], route: Table): Tabl
   )
 }
 
-const CTX_SIZE_KEYS = ['ctx-size', 'ctx_size', 'c']
-
-/** The window a route asks for, from its args then its engine's. */
-export function ctxSizeOf(route: Table, engine: Table): number | undefined {
+/** The first of `keys` set in the route's args, then its engine's. */
+function argOf(route: Table, engine: Table, keys: readonly string[]): unknown {
   for (const args of [route.args, engine.args]) {
     if (typeof args === 'object' && args !== null) {
-      for (const key of CTX_SIZE_KEYS) {
+      for (const key of keys) {
         const v = (args as Table)[key]
-        if (typeof v === 'number') {
+        if (v !== undefined) {
           return v
         }
       }
     }
   }
   return undefined
+}
+
+/** The window a route asks for, from its args then its engine's. */
+export function ctxSizeOf(route: Table, engine: Table): number | undefined {
+  const v = argOf(route, engine, ['ctx-size', 'ctx_size', 'c'])
+  return typeof v === 'number' ? v : undefined
+}
+
+/** The route's KV cache types (`cache-type-k`, `cache-type-v`), route over engine. */
+export function cacheTypesOf(route: Table, engine: Table): { k: unknown; v: unknown } {
+  return {
+    k: argOf(route, engine, ['cache-type-k', 'cache_type_k', 'ctk']),
+    v: argOf(route, engine, ['cache-type-v', 'cache_type_v', 'ctv']),
+  }
 }
 
 /** A warning when the route's ctx-size exceeds what the GGUF was trained for; `parallel` slots share one pool, so it is compared whole. */

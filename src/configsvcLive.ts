@@ -53,6 +53,12 @@ interface ModelFile {
   gguf?: {
     architecture?: string
     context_length?: number
+    block_count?: number
+    head_count?: number
+    head_count_kv?: number
+    embedding_length?: number
+    key_length?: number
+    value_length?: number
     quantization?: string
     has_chat_template: boolean
   }
@@ -74,6 +80,12 @@ async function ggufDetails(file: string, mtimeMs: number): Promise<ModelFile['gg
     gguf = {
       architecture: meta.architecture,
       context_length: meta.contextLength,
+      block_count: meta.blockCount,
+      head_count: meta.headCount,
+      head_count_kv: meta.headCountKv,
+      embedding_length: meta.embeddingLength,
+      key_length: meta.keyLength,
+      value_length: meta.valueLength,
       quantization: meta.quantization,
       has_chat_template: meta.hasChatTemplate,
     }
@@ -138,7 +150,20 @@ async function models(deps: ConfigsvcDeps): Promise<Response> {
       })
     }
   }
-  return Response.json({ engines })
+  return Response.json({ engines, mem: memInfo() })
+}
+
+/** MemTotal and MemAvailable in bytes; undefined off Linux. */
+function memInfo(): { total: number; available: number } | undefined {
+  try {
+    const text = readFileSync('/proc/meminfo', 'utf8')
+    const kib = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+) kB`, 'm').exec(text)?.[1])
+    const total = kib('MemTotal') * 1024
+    const available = kib('MemAvailable') * 1024
+    return Number.isFinite(total) && Number.isFinite(available) ? { total, available } : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** Shipped engines with the files already sitting in each one's default weights directory. */

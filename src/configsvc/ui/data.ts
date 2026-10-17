@@ -34,6 +34,12 @@ export interface ModelFile {
   gguf?: {
     architecture?: string
     context_length?: number
+    block_count?: number
+    head_count?: number
+    head_count_kv?: number
+    embedding_length?: number
+    key_length?: number
+    value_length?: number
     quantization?: string
     has_chat_template: boolean
   }
@@ -49,6 +55,7 @@ export interface UsageRow {
 
 export const specs = signal<Record<string, SpecEntry | null>>({})
 export const modelFiles = signal<{ engine: string; dir: string; files: ModelFile[] }[]>([])
+export const boxMemory = signal<{ total: number; available: number } | undefined>(undefined)
 export const usage = signal<UsageRow[]>([])
 export const liveEngines = signal<Record<string, LiveEngine>>({})
 export const discovery = signal<{
@@ -88,7 +95,12 @@ export function forgetSpec(id: string): void {
 
 export async function loadModelFiles(): Promise<void> {
   try {
-    modelFiles.value = (await call<{ engines: typeof modelFiles.value }>('/api/models')).engines
+    const res = await call<{
+      engines: typeof modelFiles.value
+      mem?: { total: number; available: number }
+    }>('/api/models')
+    modelFiles.value = res.engines
+    boxMemory.value = res.mem
   } catch {
     modelFiles.value = []
   }

@@ -44,6 +44,15 @@ export function trainedContext(
         ?.context_length
 }
 
+export function findModelFile(
+  files: readonly ModelFile[],
+  filename: unknown,
+): ModelFile | undefined {
+  return typeof filename === 'string'
+    ? files.find((f) => f.path === filename || f.path.endsWith(`/${filename}`))
+    : undefined
+}
+
 const COMFY_DIRS: Record<string, string[]> = {
   unet: ['unet', 'diffusion_models', 'checkpoints'],
   clip: ['clip', 'text_encoders'],

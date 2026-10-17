@@ -1,6 +1,7 @@
 import { computed, effect } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import example from '../../../config.example.toml'
+import { engineMemory, estimateResidentBytes, memoryVerdict } from '../../memoryEstimate.ts'
 import type { EngineKind } from '../../types.ts'
 import { KIND_TRAITS } from '../../types.ts'
 import { editDraft } from './actions.ts'
@@ -8,6 +9,7 @@ import { call } from './api.ts'
 import { ArgsEditor } from './args.tsx'
 import { suggestArgKeys } from './argsRules.ts'
 import {
+  boxMemory,
   callsFor,
   ensureSpec,
   forgetSpec,
@@ -15,6 +17,7 @@ import {
   loadDiscovery,
   loadModelFiles,
   loadUsage,
+  modelFiles,
   specs,
   watchEngines,
 } from './data.ts'
@@ -29,12 +32,14 @@ import {
   type Table,
 } from './model.ts'
 import { viewParam } from './nav.ts'
+import { cacheTypesOf, ctxSizeOf } from './routeRules.ts'
 import { type EngineCtx, RouteCard } from './routes.tsx'
 import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { postStream } from './sse.ts'
 import { draft, status } from './store.ts'
+import { findModelFile, formatBytes } from './suggest.ts'
 import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
@@ -138,6 +143,36 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
   return <pre class="log">{panel === 'spec' ? (spec ?? 'no spec.toml') : text}</pre>
 }
 
+function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
+  const files = modelFiles.value.find((f) => f.engine === engine.id)?.files
+  const box = boxMemory.value
+  if (files === undefined || box === undefined) {
+    return null
+  }
+  const sized = routesOf(d, String(engine.id)).flatMap(({ route }) => {
+    const file = findModelFile(files, route.filename)
+    if (file?.gguf === undefined || route.disable === true) {
+      return []
+    }
+    const cache = cacheTypesOf(route, engine)
+    const { bytes } = estimateResidentBytes(file, ctxSizeOf(route, engine), cache.k, cache.v)
+    return [{ resident: route.keep_resident === true, bytes }]
+  })
+  if (sized.length === 0) {
+    return null
+  }
+  const mem = engineMemory(sized)
+  const verdict = memoryVerdict(mem.resident + mem.largestOnDemand, box)
+  return (
+    <p class={`small-text${verdict?.level === 'bad' ? ' bad' : ''}`}>
+      resident: {formatBytes(mem.resident)} (keep_resident routes) · largest on-demand:{' '}
+      {formatBytes(mem.largestOnDemand)} · box: {formatBytes(box.total)} total,{' '}
+      {formatBytes(box.available)} available now
+      {verdict === undefined ? null : ` · ${verdict.text}`}
+    </p>
+  )
+}
+
 function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number }) {
   const id = String(engine.id)
   const [panel, setPanel] = useState<Panel | undefined>()
@@ -181,6 +216,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
         </span>
         <DeleteGuard doc={d} table="engine" id={id} index={index} addresses={addresses} />
       </div>
+      <MemoryLine d={d} engine={engine} />
       {liveEngines.value[id]?.last_error ? (
         <p class="bad small-text">{liveEngines.value[id]?.last_error}</p>
       ) : null}

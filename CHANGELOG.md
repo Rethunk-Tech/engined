@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Config UI: each llama engine card shows estimated resident memory (GGUF size plus KV cache at the
+  route's ctx-size and cache types), the largest on-demand model, and the box's total and
+  available memory, with a warning when they do not fit; the route form shows the per-route estimate.
+
 ## 0.2.0 - 2026-10-17
 
 ### Config
