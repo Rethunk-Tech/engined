@@ -19,8 +19,6 @@ import { WILDCARD_MODEL } from './routeAddress.ts'
 import { engine, route, upstream } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
 
-const FILE_OF = () => 'config.toml'
-
 describe('validateModelsMax', () => {
   test("a models_max below the engine's distinct local roles is refused", () => {
     const e = engine({ id: 'llama', models_max: 1 })
@@ -28,7 +26,7 @@ describe('validateModelsMax', () => {
       route({ engine: 'llama', model: 'a', role: 'chat' }),
       route({ engine: 'llama', model: 'b', role: 'vision' }),
     ]
-    expect(() => validateModelsMax([e], routes, FILE_OF)).toThrow(
+    expect(() => validateModelsMax([e], routes)).toThrow(
       /engine "llama" "models_max" 1 is below its 2 distinct configured roles/,
     )
   })
@@ -39,13 +37,13 @@ describe('validateModelsMax', () => {
       route({ engine: 'llama', model: 'a', role: 'chat' }),
       route({ engine: 'llama', model: 'b', role: 'vision' }),
     ]
-    expect(() => validateModelsMax([e], routes, FILE_OF)).not.toThrow()
+    expect(() => validateModelsMax([e], routes)).not.toThrow()
   })
 
   test('an engine with no models_max is never checked', () => {
     const e = engine({ id: 'llama' })
     const routes = [route({ engine: 'llama', model: 'a', role: 'chat' })]
-    expect(() => validateModelsMax([e], routes, FILE_OF)).not.toThrow()
+    expect(() => validateModelsMax([e], routes)).not.toThrow()
   })
 })
 
@@ -56,7 +54,7 @@ describe('validateKeepResident', () => {
       route({ engine: 'llama', model: 'a', role: 'chat', keep_resident: true }),
       route({ engine: 'llama', model: 'b', role: 'chat', keep_resident: true }),
     ]
-    expect(() => validateKeepResident([e], routes, FILE_OF)).toThrow(
+    expect(() => validateKeepResident([e], routes)).toThrow(
       /engine "llama" role "chat" has 2 routes declaring "keep_resident"/,
     )
   })
@@ -67,7 +65,7 @@ describe('validateKeepResident', () => {
       route({ engine: 'llama', model: 'a', role: 'chat', keep_resident: true }),
       route({ engine: 'llama', model: 'b', role: 'vision', keep_resident: true }),
     ]
-    expect(() => validateKeepResident([e], routes, FILE_OF)).not.toThrow()
+    expect(() => validateKeepResident([e], routes)).not.toThrow()
   })
 
   test('a route proxied to a remote upstream holds nothing local to lease, and is not counted', () => {
@@ -76,7 +74,7 @@ describe('validateKeepResident', () => {
       route({ engine: 'llama', model: 'a', role: 'chat', keep_resident: true, upstream: 'remote' }),
       route({ engine: 'llama', model: 'b', role: 'chat', keep_resident: true, upstream: 'remote' }),
     ]
-    expect(() => validateKeepResident([e], routes, FILE_OF)).not.toThrow()
+    expect(() => validateKeepResident([e], routes)).not.toThrow()
   })
 })
 
@@ -86,7 +84,7 @@ describe('validateFilenameUnderModelsDir', () => {
     const e = engine({ id: 'llama', models_dir: dir })
     const engines = new Map<string, EngineEntry>([['llama', e]])
     const routes = [route({ engine: 'llama', model: 'a', filename: '../outside.gguf' })]
-    expect(() => validateFilenameUnderModelsDir(routes, engines, FILE_OF)).toThrow(
+    expect(() => validateFilenameUnderModelsDir(routes, engines)).toThrow(
       /filename" is not under engine's "models_dir"/,
     )
   })
@@ -96,7 +94,7 @@ describe('validateFilenameUnderModelsDir', () => {
     const e = engine({ id: 'llama', models_dir: dir })
     const engines = new Map<string, EngineEntry>([['llama', e]])
     const routes = [route({ engine: 'llama', model: 'a', filename: 'missing.gguf' })]
-    expect(() => validateFilenameUnderModelsDir(routes, engines, FILE_OF)).toThrow(
+    expect(() => validateFilenameUnderModelsDir(routes, engines)).toThrow(
       /filename" does not exist at/,
     )
   })
@@ -107,7 +105,7 @@ describe('validateFilenameUnderModelsDir', () => {
     const e = engine({ id: 'llama', models_dir: dir })
     const engines = new Map<string, EngineEntry>([['llama', e]])
     const routes = [route({ engine: 'llama', model: 'a', filename: 'present.gguf' })]
-    expect(() => validateFilenameUnderModelsDir(routes, engines, FILE_OF)).not.toThrow()
+    expect(() => validateFilenameUnderModelsDir(routes, engines)).not.toThrow()
   })
 })
 
@@ -122,8 +120,6 @@ describe('validateWildcardRoutes', () => {
         engines,
         upstreams: new Map(),
         traitFor: () => ({ trait: 'optional', kind: 'openai-http' }),
-        fileForRoute: FILE_OF,
-        fileForUpstream: FILE_OF,
       }),
     ).toThrow(/is a wildcard and must name an upstream/)
   })
@@ -139,8 +135,6 @@ describe('validateWildcardRoutes', () => {
         engines,
         upstreams: new Map([['openrouter', u]]),
         traitFor: () => ({ trait: 'optional', kind: 'openai-http' }),
-        fileForRoute: FILE_OF,
-        fileForUpstream: FILE_OF,
       }),
     ).toThrow(/upstream "openrouter" is named by a wildcard route and is missing required/)
   })
@@ -155,8 +149,6 @@ describe('validateWildcardRoutes', () => {
         engines,
         upstreams: new Map(),
         traitFor: () => ({ trait: 'optional', kind: 'llama' }),
-        fileForRoute: FILE_OF,
-        fileForUpstream: FILE_OF,
       }),
     ).toThrow(/only a remote openai-http engine may carry one/)
   })

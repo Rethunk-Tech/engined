@@ -7,7 +7,8 @@
 
 import { agentCli } from './agents.ts'
 import { buildComfySpec } from './comfy.ts'
-import { FatalError } from './errors/fatal.ts'
+import { originOf } from './configOrigin.ts'
+import { ParseError } from './errors/parse.ts'
 import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
 import type { EngineStatus } from './responses.ts'
@@ -67,8 +68,9 @@ const BUILTIN_READY_PROBE: ReadyProbe = { path: '/', status: STATUS_OK }
  */
 function builtInSpec(engine: EngineEntry, kind: EngineKind): Spec {
   if (kind === 'agentic-cli') {
-    throw new FatalError(
+    throw new ParseError(
       `engine "${engine.id}": a spec-less agentic-cli engine has no built-in launch -- ship engines/${engine.id}/spec.toml`,
+      { path: originOf(engine, 'kind') },
     )
   }
   return {
@@ -147,18 +149,23 @@ function loadEngineSpec(
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
 
-/** One field's disposition against whether the route actually declared it. `FatalError`, not `ParseError`: this is a startup failure, not a config-file one -- kind is not known until the spec driving this check has already loaded. */
+/** One field's disposition against whether the route actually declared it. The error carries the route's config path but no file prefix: kind is not known until the spec driving this check has already loaded, so this reads as a startup failure. */
 function assertFieldDisposition(
   disposition: Disposition,
   present: boolean,
   field: string,
+  route: ResolvedRoute,
   site: string,
 ): void {
   if (disposition === 'required' && !present) {
-    throw new FatalError(`${site} is missing required "${field}"`)
+    throw new ParseError(`${site} is missing required "${field}"`, {
+      path: originOf(route, field),
+    })
   }
   if (disposition === 'forbidden' && present) {
-    throw new FatalError(`${site} must not declare "${field}"`)
+    throw new ParseError(`${site} must not declare "${field}"`, {
+      path: originOf(route, field),
+    })
   }
 }
 
@@ -182,12 +189,12 @@ function checkLocalFileDisposition(
       continue
     }
     const site = `route on engine "${engine.id}" model "${r.model}"`
-    assertFieldDisposition(rules.filename, r.filename !== undefined, 'filename', site)
-    assertFieldDisposition(rules.role, r.role !== undefined, 'role', site)
-    assertFieldDisposition(rules.translate, r.translate !== undefined, 'translate', site)
-    assertFieldDisposition(rules.fim, r.fim !== undefined, 'fim', site)
+    assertFieldDisposition(rules.filename, r.filename !== undefined, 'filename', r, site)
+    assertFieldDisposition(rules.role, r.role !== undefined, 'role', r, site)
+    assertFieldDisposition(rules.translate, r.translate !== undefined, 'translate', r, site)
+    assertFieldDisposition(rules.fim, r.fim !== undefined, 'fim', r, site)
     if (rules.args === 'forbidden' && Object.keys(r.args).length > 0) {
-      throw new FatalError(`${site} must not declare "args"`)
+      throw new ParseError(`${site} must not declare "args"`, { path: originOf(r, 'args') })
     }
   }
 }
@@ -207,8 +214,9 @@ function checkWildcardRouteKind(
     }
     const site = `route on engine "${engine.id}" model "${WILDCARD_MODEL}"`
     if (kind !== 'openai-http' || engine.models_dir !== undefined) {
-      throw new FatalError(
+      throw new ParseError(
         `${site} is a wildcard and only a remote openai-http engine may carry one`,
+        { path: originOf(r, 'model') },
       )
     }
   }
@@ -243,8 +251,9 @@ function checkAgenticWire(
     }
     const upstreamWire = upstreams.find((u) => u.id === r.upstream)?.wire ?? 'openai'
     if (upstreamWire !== agentWire) {
-      throw new FatalError(
+      throw new ParseError(
         `route on engine "${engine.id}" names upstream "${r.upstream}" (wire "${upstreamWire}"), but agent "${spec.agent}" speaks "${agentWire}" -- the door forwards the agent's own wire unchanged, so a mismatched pairing can never actually work`,
+        { path: originOf(r, 'upstream') },
       )
     }
   }
@@ -278,8 +287,9 @@ function checkSelfUpstream(
     }
     const found = upstreams.find((u) => u.id === r.upstream)
     if (found?.wire !== undefined) {
-      throw new FatalError(
+      throw new ParseError(
         `route on engine "${engine.id}" is "self" and cannot be pointed at upstream "${r.upstream}", which speaks "${found.wire}" -- a self engine only ever proxies to a peer's own "local", never a wire-shaped provider`,
+        { path: originOf(r, 'upstream') },
       )
     }
   }
@@ -317,8 +327,9 @@ function checkCapabilityServed(
     if (r.engine !== engine.id || !routeHasCapability(r)) {
       continue
     }
-    throw new FatalError(
+    throw new ParseError(
       `route on engine "${engine.id}" model "${r.model ?? ''}" declares a capability, but engine "${engine.id}" (kind "${spec.kind}") serves no endpoint to ask it through`,
+      { path: originOf(r, 'model') },
     )
   }
 }

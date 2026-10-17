@@ -74,12 +74,15 @@ export function parseRouteRaw(
   const modelStr = optional(raw.model, 'string', `${posSite} "model"`, file)
   const site = `route[${index}] on engine "${engineId}"${modelStr === undefined ? '' : ` model "${modelStr}"`}`
   if (!engines.has(engineId)) {
-    throw new ParseError(`${site} names unknown engine "${engineId}"`, file)
+    throw new ParseError(`${site} names unknown engine "${engineId}"`, {
+      file,
+      key: 'engine',
+    })
   }
   if (modelStr?.includes('/')) {
     throw new ParseError(
       `${site} has a "model" containing "/", which an address segment cannot express; give it a slash-free "model" and put the id its upstream actually knows in "wire_model"`,
-      file,
+      { file, key: 'model' },
     )
   }
   if (modelStr === WILDCARD_MODEL) {
@@ -98,7 +101,10 @@ export function parseRouteRaw(
       'args',
     ] as const) {
       if (raw[key] !== undefined) {
-        throw new ParseError(`${site} is a wildcard route and must not declare "${key}"`, file)
+        throw new ParseError(`${site} is a wildcard route and must not declare "${key}"`, {
+          file,
+          key,
+        })
       }
     }
   }
@@ -111,20 +117,23 @@ export function parseRouteRaw(
   // Escape from models_dir is `validateFilenameUnderModelsDir`'s; a line break
   // is the one thing that check cannot see, and it would inject a preset line.
   if (rawFilename !== undefined && LINE_BREAK_RE.test(rawFilename)) {
-    throw new ParseError(`${site} has a "filename" containing a line break`, file)
+    throw new ParseError(`${site} has a "filename" containing a line break`, {
+      file,
+      key: 'filename',
+    })
   }
   const roleStr = optional(raw.role, 'string', `${site} "role"`, file)
   if (roleStr !== undefined && !ROLES.includes(roleStr as Role)) {
-    throw new ParseError(`${site} has invalid "role" "${roleStr}"`, file)
+    throw new ParseError(`${site} has invalid "role" "${roleStr}"`, { file, key: 'role' })
   }
   const visionStr = optional(raw.vision, 'string', `${site} "vision"`, file)
   if (visionStr !== undefined && !VISION_KINDS.includes(visionStr as VisionKind)) {
-    throw new ParseError(`${site} has invalid "vision" "${visionStr}"`, file)
+    throw new ParseError(`${site} has invalid "vision" "${visionStr}"`, { file, key: 'vision' })
   }
   // Fatal rather than ignored: a `vision` on a chat route is someone believing
   // it does something, and a silently dropped key never corrects them.
   if (visionStr !== undefined && roleStr !== 'vision') {
-    throw new ParseError(`${site} has "vision" but is not role = "vision"`, file)
+    throw new ParseError(`${site} has "vision" but is not role = "vision"`, { file, key: 'vision' })
   }
   // Required rather than defaulted, because the default was the wrong answer
   // for half the vision routes on this box. A reader model left undeclared is
@@ -134,7 +143,7 @@ export function parseRouteRaw(
   if (roleStr === 'vision' && visionStr === undefined) {
     throw new ParseError(
       `${site} is role = "vision" and must declare "vision" ("describe" for a model that reads a scene back, "read" for one that recognises the characters in an image)`,
-      file,
+      { file, key: 'vision' },
     )
   }
   const visionBridge = optional(raw.vision_bridge, 'string', `${site} "vision_bridge"`, file)
@@ -143,7 +152,10 @@ export function parseRouteRaw(
   // chat-route-only field silently doing nothing on any other role never
   // corrects the config that set it.
   if (visionBridge !== undefined && roleStr !== 'chat') {
-    throw new ParseError(`${site} has "vision_bridge" but is not role = "chat"`, file)
+    throw new ParseError(`${site} has "vision_bridge" but is not role = "chat"`, {
+      file,
+      key: 'vision_bridge',
+    })
   }
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
@@ -253,7 +265,7 @@ function defaultUpstreamFor({
     const names = [...distinct].join(', ') || 'none'
     throw new ParseError(
       `${site} names no "upstream" and engine "${engineId}" is "required" to have exactly one across its routes; found: ${names}`,
-      file,
+      { file, key: 'upstream' },
     )
   }
   return [...distinct][0] as string
@@ -312,17 +324,23 @@ export function resolveRoute({
         })
       : raw.declaredUpstream
   if (upstreamId !== null && !upstreams.has(upstreamId)) {
-    throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, file)
+    throw new ParseError(`${raw.site} names unknown upstream "${upstreamId}"`, {
+      file,
+      key: 'upstream',
+    })
   }
   const upstream = upstreamId === null ? undefined : upstreams.get(upstreamId)
 
   const reason = localFileForbiddenReason(raw.model, upstreamId, engine)
   if (reason !== undefined) {
     if (raw.filename !== undefined) {
-      throw new ParseError(`${raw.site} must not declare "filename": ${reason}`, file)
+      throw new ParseError(`${raw.site} must not declare "filename": ${reason}`, {
+        file,
+        key: 'filename',
+      })
     }
     if (raw.role !== undefined) {
-      throw new ParseError(`${raw.site} must not declare "role": ${reason}`, file)
+      throw new ParseError(`${raw.site} must not declare "role": ${reason}`, { file, key: 'role' })
     }
     // A comfy route is the exception, and only for args: it is modelless, so
     // there is no GGUF for these to describe, but `POST /openai/v1/images/
@@ -330,7 +348,10 @@ export function resolveRoute({
     // `filename` and `role` above stay forbidden -- those really are about a
     // local weights file, and comfy has none.
     if (Object.keys(raw.args).length > 0 && traitFor(engine).kind !== 'comfy') {
-      throw new ParseError(`${raw.site} declares "args" that nothing reads: ${reason}`, file)
+      throw new ParseError(`${raw.site} declares "args" that nothing reads: ${reason}`, {
+        file,
+        key: 'args',
+      })
     }
   }
 
@@ -346,7 +367,7 @@ export function resolveRoute({
   ) {
     throw new ParseError(
       `${raw.site} has a "model" containing "[", "]", "=", a line break, or a leading ";" or "#", which the llama preset INI cannot carry as a section name`,
-      file,
+      { file, key: 'model' },
     )
   }
 

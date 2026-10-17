@@ -120,20 +120,25 @@ export const CALLBACK_SECRET_KEYS = new Set(['service', 'username'])
 /** `setTimeout` takes a signed 32-bit millisecond count; seconds above this clamp to 1 ms. */
 const MAX_SETTIMEOUT_SECONDS = 2_147_483
 
+/** The key a diagnostic label ends in, for example `route[0] "role"` or `config "configsvc.port"`; absent when the label names only an entry. */
+function labelKey(label: string): string | undefined {
+  return /"([^"]+)"$/.exec(label)?.[1]
+}
+
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */
 export function asArray(v: unknown, key: string, file: string): unknown[] {
   if (v === undefined) {
     return []
   }
   if (!Array.isArray(v)) {
-    throw new ParseError(`"${key}" must be an array of tables`, file)
+    throw new ParseError(`"${key}" must be an array of tables`, { file, key })
   }
   return v
 }
 
 export function requireString(v: unknown, label: string, file: string): string {
   if (typeof v !== 'string' || v === '') {
-    throw new ParseError(`${label} is missing or empty`, file)
+    throw new ParseError(`${label} is missing or empty`, { file, key: labelKey(label) })
   }
   return v
 }
@@ -149,7 +154,7 @@ export function optional<T extends 'string' | 'number' | 'boolean'>(
     return
   }
   if (typeof v !== kind) {
-    throw new ParseError(`${label} must be a ${kind}`, file)
+    throw new ParseError(`${label} must be a ${kind}`, { file, key: labelKey(label) })
   }
   return v as T extends 'string' ? string : T extends 'number' ? number : boolean
 }
@@ -158,7 +163,7 @@ export function optional<T extends 'string' | 'number' | 'boolean'>(
 export function optionalPositive(v: unknown, label: string, file: string): number | undefined {
   const n = optional(v, 'number', label, file)
   if (n !== undefined && n <= 0) {
-    throw new ParseError(`${label} must be greater than 0`, file)
+    throw new ParseError(`${label} must be greater than 0`, { file, key: labelKey(label) })
   }
   return n
 }
@@ -176,7 +181,7 @@ export function optionalTimeoutSeconds(
   if (n !== undefined && n > MAX_SETTIMEOUT_SECONDS) {
     throw new ParseError(
       `${label} exceeds the setTimeout ceiling of ${MAX_SETTIMEOUT_SECONDS} seconds`,
-      file,
+      { file, key: labelKey(label) },
     )
   }
   return n
@@ -190,7 +195,10 @@ export function parsePort(v: unknown, label: string, file: string, fallback: num
     return fallback
   }
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > PORT_MAX) {
-    throw new ParseError(`${label} must be an integer between 1 and ${PORT_MAX}`, file)
+    throw new ParseError(`${label} must be an integer between 1 and ${PORT_MAX}`, {
+      file,
+      key: labelKey(label),
+    })
   }
   return v
 }
@@ -206,7 +214,7 @@ export function parsePositiveInteger(
     return fallback
   }
   if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
-    throw new ParseError(`${label} must be a positive integer`, file)
+    throw new ParseError(`${label} must be a positive integer`, { file, key: labelKey(label) })
   }
   return v
 }
@@ -235,22 +243,28 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
     return {}
   }
   if (!isRecord(v)) {
-    throw new ParseError(`${site} "args" must be a table`, file)
+    throw new ParseError(`${site} "args" must be a table`, { file, key: 'args' })
   }
   for (const [key, value] of Object.entries(v)) {
     const kind = typeof value
     if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') {
-      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, file)
+      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, {
+        file,
+        key: 'args',
+      })
     }
     // Each arg is one `key = value` line of the llama preset INI, under a
     // section whose own `model =` line the preset writes first.
     if (LINE_BREAK_RE.test(`${key}${String(value)}`)) {
-      throw new ParseError(`${site} "args" key ${JSON.stringify(key)} contains a line break`, file)
+      throw new ParseError(`${site} "args" key ${JSON.stringify(key)} contains a line break`, {
+        file,
+        key: 'args',
+      })
     }
     if (INI_KEY_BREAKER_RE.test(key) || key === 'model') {
       throw new ParseError(
         `${site} "args" key ${JSON.stringify(key)} is empty, "model", has leading or trailing whitespace, or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
-        file,
+        { file, key: 'args' },
       )
     }
   }
@@ -272,7 +286,7 @@ export function assertKnownKeys(
 ): void {
   for (const key of Object.keys(raw)) {
     if (!keys.has(key)) {
-      throw new ParseError(`${site} has unrecognised key "${key}"`, file)
+      throw new ParseError(`${site} has unrecognised key "${key}"`, { file, key })
     }
   }
 }
@@ -285,7 +299,7 @@ export function requireTable(
   file: string,
 ): Record<string, unknown> {
   if (!isRecord(raw)) {
-    throw new ParseError(`${site} must be a table`, file)
+    throw new ParseError(`${site} must be a table`, { file, key: labelKey(site) })
   }
   assertKnownKeys(raw, site, keys, file)
   return raw

@@ -10,11 +10,10 @@
  */
 import { join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
-import { chainHopRoutes, parseHop, routeForChainHop } from './chain.ts'
+import { buildChains, parseChainRaw } from './configChains.ts'
+import { recordOrigins } from './configOrigin.ts'
 import {
   asArgs,
-  asArray,
-  CHAIN_KEYS,
   ENGINE_KEYS,
   expandConfigPath,
   MODEL_KEYS,
@@ -33,14 +32,13 @@ import {
 import { parseRouteRaw, resolveRoute, type SpecFacts, specFactsFor } from './configRoutes.ts'
 import {
   checkModellessMixing,
-  engineHasWildcard,
   validateFilenameUnderModelsDir,
   validateKeepResident,
   validateModelsMax,
   validateVisionBridgeRoutes,
   validateWildcardRoutes,
 } from './configRouteValidate.ts'
-import { collectEntries, fileLookup, readConfigSources } from './configSources.ts'
+import { collectEntries, inEntry, readConfigSources } from './configSources.ts'
 import {
   parseConfigsvc,
   parsePotluckCallback,
@@ -51,13 +49,12 @@ import {
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { configPath, installDir } from './paths.ts'
-import { LOCAL_UPSTREAM, qualifiedSegments, WILDCARD_MODEL } from './routeAddress.ts'
+import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type {
   Config,
   EngineEntry,
   EngineKind,
   ModelEntry,
-  ResolvedRoute,
   SecretRef,
   Upstream,
   Wire,
@@ -97,7 +94,7 @@ function parseKind(
   // ones the table answers for, so a new kind is admitted here the moment it
   // is given traits, with no second list to keep in step.
   if (kindStr !== undefined && !Object.hasOwn(KIND_TRAITS, kindStr)) {
-    throw new ParseError(`${site} has invalid "kind" "${kindStr}"`, file)
+    throw new ParseError(`${site} has invalid "kind" "${kindStr}"`, { file, key: 'kind' })
   }
   return kindStr as EngineKind | undefined
 }
@@ -112,7 +109,7 @@ export const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 function requireId(value: unknown, posSite: string, file: string): string {
   const id = requireString(value, `${posSite} "id"`, file)
   if (!ID_RE.test(id)) {
-    throw new ParseError(`${posSite} "id" "${id}" must match ${ID_RE}`, file)
+    throw new ParseError(`${posSite} "id" "${id}" must match ${ID_RE}`, { file, key: 'id' })
   }
   return id
 }
@@ -168,12 +165,12 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   const site = `upstream "${id}"`
   const egress = optional(raw.egress, 'string', `${site} "egress"`, file)
   if (egress === undefined) {
-    throw new ParseError(`${site} is missing required "egress"`, file)
+    throw new ParseError(`${site} is missing required "egress"`, { file, key: 'egress' })
   }
   if (!isEgress(egress)) {
     throw new ParseError(
       `${site} "egress" must be one of: ${Object.keys(EGRESS_RANK).join(', ')}`,
-      file,
+      { file, key: 'egress' },
     )
   }
   // "local" always means this box, so a learned upstream name can never point it
@@ -181,12 +178,12 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   if (id === LOCAL_UPSTREAM && (raw.base_url !== undefined || raw.secret !== undefined)) {
     throw new ParseError(
       `${site} is reserved for this box and cannot carry "base_url" or "secret"`,
-      file,
+      { file, key: 'base_url' },
     )
   }
   const wireStr = optional(raw.wire, 'string', `${site} "wire"`, file)
   if (wireStr !== undefined && wireStr !== 'openai' && wireStr !== 'anthropic') {
-    throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, file)
+    throw new ParseError(`${site} has invalid "wire" "${wireStr}"`, { file, key: 'wire' })
   }
   const inventoryMaxAge = optionalTimeoutSeconds(
     raw.inventory_max_age_seconds,
@@ -205,7 +202,7 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
   ) {
     throw new ParseError(
       `${site} "inventory_refresh_seconds" must be less than "inventory_max_age_seconds"`,
-      file,
+      { file, key: 'inventory_refresh_seconds' },
     )
   }
   const secret = raw.secret === undefined ? undefined : parseSecret(raw.secret, site, file)
@@ -241,6 +238,7 @@ function parseModel(value: unknown, index: number, file: string): ModelEntry {
 function checkCollisions(
   items: readonly { id: string }[],
   files: readonly string[],
+  indexes: readonly number[],
   label: string,
 ): void {
   const seen = new Map<string, string>()
@@ -248,131 +246,15 @@ function checkCollisions(
     const file = files[i] as string
     const prior = seen.get(item.id)
     if (prior !== undefined) {
-      throw new ParseError(
-        `${label} "${item.id}" is declared twice: also declared in ${prior}`,
+      throw new ParseError(`${label} "${item.id}" is declared twice: also declared in ${prior}`, {
         file,
-      )
+        table: label,
+        index: indexes[i] as number,
+        key: 'id',
+      })
     }
     seen.set(item.id, file)
   }
-}
-
-/**
- * One chain's hops, minus any whose resolved (engine, upstream, model)
- * address is disabled -- through the engine, the upstream, or the route
- * itself. Split out of `parseChains` so each half is one job.
- */
-function parseChainHops({
-  name,
-  hops,
-  engines,
-  routes,
-  file,
-}: {
-  name: string
-  hops: readonly string[]
-  engines: readonly EngineEntry[]
-  routes: readonly ResolvedRoute[]
-  file: string
-}): string[] {
-  const kept: string[] = []
-  for (const [i, hop] of hops.entries()) {
-    // `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes.
-    const segs = qualifiedSegments(hop)
-    if (segs === undefined || segs.length === 1) {
-      throw new ParseError(
-        `chain "${name}"[${i}] "${hop}" is not a fully-qualified "@/<engine>/<model>" or "@/<engine>/<upstream>/<model>" hop`,
-        file,
-      )
-    }
-    // `local` is a real upstream id, never an engine one: a hop names an
-    // engine by its actual id, same as every other address form.
-    const { engine: engineId, model, upstream } = parseHop(hop)
-    if (!engines.some((e) => e.id === engineId)) {
-      throw new ParseError(`chain hop "${hop}": engine "${engineId}" does not exist`, file)
-    }
-    if (model === WILDCARD_MODEL) {
-      throw new ParseError(
-        `chain "${name}"[${i}] "${hop}": "${WILDCARD_MODEL}" is the wildcard sentinel, not a served address`,
-        file,
-      )
-    }
-    const { candidates: declared, modelless } = chainHopRoutes(routes, hop)
-    const route = routeForChainHop(routes, hop)
-    if (route === undefined) {
-      // A hop onto a disabled engine, upstream or route drops out rather than
-      // failing parse: the point of disabling one is that the chains naming it
-      // keep working on what is left. An address that names nothing at all,
-      // or resolves to nothing served for any other reason, is still a parse
-      // error.
-      if (declared.length > 0 && declared.every((r) => r.disabled === true)) {
-        continue
-      }
-      // Inventory is empty at boot: a hop onto a catalog id the operator has
-      // not declared still parses when this engine+upstream carries a wildcard.
-      // Dispatch refuses until the cache contains that wire id.
-      if (!modelless && engineHasWildcard(routes, engineId, upstream)) {
-        kept.push(hop)
-        continue
-      }
-      throw new ParseError(
-        modelless
-          ? `chain "${name}"[${i}] "${hop}": "${engineId}" is modelless and has no route with upstream "${model}"`
-          : `chain "${name}"[${i}] "${hop}": model "${model}" does not exist on "${engineId}"`,
-        file,
-      )
-    }
-    kept.push(hop)
-  }
-  return kept
-}
-
-interface RawChain {
-  id: string
-  hops: string[]
-  disabled: boolean
-}
-
-function parseChainRaw(value: unknown, index: number, file: string): RawChain {
-  const posSite = `chain[${index}]`
-  const raw = requireTable(value, posSite, CHAIN_KEYS, file)
-  const id = requireString(raw.id, `${posSite} "id"`, file)
-  const site = `chain "${id}"`
-  const hopsRaw = asArray(raw.hops, `${site} "hops"`, file)
-  if (hopsRaw.length === 0) {
-    throw new ParseError(`${site} has no hops`, file)
-  }
-  const hops = hopsRaw.map((h, i) => requireString(h, `${site} "hops[${i}]"`, file))
-  return { id, hops, disabled: parseDisable(raw, site, file) === true }
-}
-
-function buildChains(
-  rawChains: readonly RawChain[],
-  engines: readonly EngineEntry[],
-  routes: readonly ResolvedRoute[],
-  chainFiles: readonly string[],
-): Record<string, string[]> {
-  const chains: Record<string, string[]> = Object.create(null)
-  for (const [i, c] of rawChains.entries()) {
-    // A disabled chain is not served at all -- its own top-level flag, not a
-    // resolved-hop question the way an engine/upstream/route's is.
-    if (c.disabled) {
-      continue
-    }
-    const hops = parseChainHops({
-      name: c.id,
-      hops: c.hops,
-      engines,
-      routes,
-      file: chainFiles[i] as string,
-    })
-    // Nothing left to route to: the chain goes with its hops rather than
-    // resolving to an empty list a request would fall off the end of.
-    if (hops.length > 0) {
-      chains[c.id] = hops
-    }
-  }
-  return chains
 }
 
 /**
@@ -386,63 +268,75 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
   const sources = readConfigSources(file)
   const mainRaw = sources[0]?.raw as Record<string, unknown>
 
-  const { items: engines, files: engineFiles } = collectEntries(sources, 'engine', parseEngine)
-  checkCollisions(engines, engineFiles, 'engine')
+  const {
+    items: engines,
+    files: engineFiles,
+    indexes: engineIndexes,
+  } = collectEntries(sources, 'engine', parseEngine)
+  checkCollisions(engines, engineFiles, engineIndexes, 'engine')
+  recordOrigins(engines, 'engine', engineFiles, engineIndexes)
   const engineMap = new Map(engines.map((e) => [e.id, e]))
 
-  const { items: upstreams, files: upstreamFiles } = collectEntries(
-    sources,
-    'upstream',
-    parseUpstream,
-  )
-  checkCollisions(upstreams, upstreamFiles, 'upstream')
+  const {
+    items: upstreams,
+    files: upstreamFiles,
+    indexes: upstreamIndexes,
+  } = collectEntries(sources, 'upstream', parseUpstream)
+  checkCollisions(upstreams, upstreamFiles, upstreamIndexes, 'upstream')
+  recordOrigins(upstreams, 'upstream', upstreamFiles, upstreamIndexes)
   const upstreamMap = new Map(upstreams.map((u) => [u.id, u]))
 
-  const { items: models, files: modelFiles } = collectEntries(sources, 'model', parseModel)
-  checkCollisions(models, modelFiles, 'model')
+  const {
+    items: models,
+    files: modelFiles,
+    indexes: modelIndexes,
+  } = collectEntries(sources, 'model', parseModel)
+  checkCollisions(models, modelFiles, modelIndexes, 'model')
   const modelMap = new Map(models.map((m) => [m.id, m]))
 
-  const { items: rawRoutes, files: routeFiles } = collectEntries(sources, 'route', (v, i, f) =>
-    parseRouteRaw(v, i, f, engineMap),
-  )
+  const {
+    items: rawRoutes,
+    files: routeFiles,
+    indexes: routeIndexes,
+  } = collectEntries(sources, 'route', (v, i, f) => parseRouteRaw(v, i, f, engineMap))
 
   const traitFor = cachedTraitFor(root)
   const routes = rawRoutes.map((r, i) =>
-    resolveRoute({
-      raw: r,
-      allRaws: rawRoutes,
-      engines: engineMap,
-      upstreams: upstreamMap,
-      models: modelMap,
-      traitFor,
-      file: routeFiles[i] as string,
-    }),
+    inEntry('route', routeIndexes[i] as number, () =>
+      resolveRoute({
+        raw: r,
+        allRaws: rawRoutes,
+        engines: engineMap,
+        upstreams: upstreamMap,
+        models: modelMap,
+        traitFor,
+        file: routeFiles[i] as string,
+      }),
+    ),
   )
+  // The checks below name the file and entry the offender came from, so a bad
+  // route or engine in a config.d fragment is reported against that fragment.
+  recordOrigins(routes, 'route', routeFiles, routeIndexes)
 
-  // Each check names the file the offending entry actually came from, so a
-  // bad route or engine in a config.d fragment is reported against that
-  // fragment rather than the main file.
-  const fileForRoute = fileLookup(routes, routeFiles, (r) => r, file)
-  const fileForEngine = fileLookup(engines, engineFiles, (e) => e.id, file)
-  const fileForUpstream = fileLookup(upstreams, upstreamFiles, (u) => u.id, file)
-
-  checkModellessMixing(routes, fileForRoute)
+  checkModellessMixing(routes)
   validateWildcardRoutes({
     routes,
     engines: engineMap,
     upstreams: upstreamMap,
     traitFor,
-    fileForRoute,
-    fileForUpstream,
   })
-  validateFilenameUnderModelsDir(routes, engineMap, fileForRoute)
-  validateKeepResident(engines, routes, fileForEngine)
-  validateModelsMax(engines, routes, fileForEngine)
-  validateVisionBridgeRoutes(routes, fileForRoute)
+  validateFilenameUnderModelsDir(routes, engineMap)
+  validateKeepResident(engines, routes)
+  validateModelsMax(engines, routes)
+  validateVisionBridgeRoutes(routes)
 
-  const { items: rawChains, files: chainFiles } = collectEntries(sources, 'chain', parseChainRaw)
-  checkCollisions(rawChains, chainFiles, 'chain')
-  const chains = buildChains(rawChains, engines, routes, chainFiles)
+  const {
+    items: rawChains,
+    files: chainFiles,
+    indexes: chainIndexes,
+  } = collectEntries(sources, 'chain', parseChainRaw)
+  checkCollisions(rawChains, chainFiles, chainIndexes, 'chain')
+  const chains = buildChains(rawChains, engines, routes, chainFiles, chainIndexes)
 
   return {
     ...parseTopLevelSettings(mainRaw, file),
@@ -483,7 +377,10 @@ function parseTopLevelSettings(
   const listenPort = parsePort(raw.listen_port, 'config "listen_port"', file, DEFAULT_LISTEN_PORT)
   const cursorPort = parsePort(raw.cursor_port, 'config "cursor_port"', file, DEFAULT_CURSOR_PORT)
   if (listenPort === cursorPort) {
-    throw new ParseError('config "listen_port" and "cursor_port" must differ', file)
+    throw new ParseError('config "listen_port" and "cursor_port" must differ', {
+      file,
+      key: 'listen_port',
+    })
   }
   return {
     listen_port: listenPort,

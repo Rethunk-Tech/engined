@@ -22,7 +22,10 @@ const FINGERPRINT = /^[0-9a-f]{64}$/
 export function readFingerprint(value: unknown, site: string, file: string): string | undefined {
   const fingerprint = optional(value, 'string', `${site} "fingerprint"`, file)
   if (fingerprint !== undefined && !FINGERPRINT.test(fingerprint)) {
-    throw new ParseError(`${site} "fingerprint" must be 64 hex characters`, file)
+    throw new ParseError(`${site} "fingerprint" must be 64 hex characters`, {
+      file,
+      key: 'fingerprint',
+    })
   }
   return fingerprint
 }
@@ -81,16 +84,19 @@ export function parseConfigsvc(
   if (passwordHash !== undefined && !passwordHash.startsWith(ARGON2ID_PREFIX)) {
     throw new ParseError(
       `config "configsvc.password_hash" must be an argon2id hash (starts with "${ARGON2ID_PREFIX}")`,
-      file,
+      { file, key: 'configsvc.password_hash' },
     )
   }
   if (enable && passwordHash === undefined) {
-    throw new ParseError('config "configsvc" is enabled but has no "password_hash"', file)
+    throw new ParseError('config "configsvc" is enabled but has no "password_hash"', {
+      file,
+      key: 'configsvc',
+    })
   }
   if (enable && (port === ports.listen || port === ports.cursor)) {
     throw new ParseError(
       'config "configsvc.port" must differ from "listen_port" and "cursor_port"',
-      file,
+      { file, key: 'configsvc.port' },
     )
   }
   return {
@@ -111,21 +117,24 @@ export function parseUpstreamHeaders(
     return
   }
   if (!isRecord(v)) {
-    throw new ParseError(`${site} "headers" must be a table`, file)
+    throw new ParseError(`${site} "headers" must be a table`, { file, key: 'headers' })
   }
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(v)) {
     if (typeof value !== 'string') {
-      throw new ParseError(`${site} "headers" key "${key}" must be a string`, file)
+      throw new ParseError(`${site} "headers" key "${key}" must be a string`, {
+        file,
+        key: 'headers',
+      })
     }
     const lower = key.toLowerCase()
     if (lower === 'host') {
-      throw new ParseError(`${site} "headers" must not set "Host"`, file)
+      throw new ParseError(`${site} "headers" must not set "Host"`, { file, key: 'headers' })
     }
     if (secretHeader !== undefined && lower === secretHeader.toLowerCase()) {
       throw new ParseError(
         `${site} "headers" must not set "${key}": that header is set from "secret"`,
-        file,
+        { file, key: 'headers' },
       )
     }
     out[key] = value

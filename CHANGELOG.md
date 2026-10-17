@@ -13,6 +13,10 @@
 
 ### Door
 
+- A config parse failure carries the path of what is at fault (file, table,
+  entry index, key) beside its unchanged message, for tools that point at the
+  field.
+
 - A missing or invalid `config.toml` no longer exits 78 at startup. The door
   binds `listen_port` (read from the file when it can be, else 29200), answers
   503 with the error on every route, and reports it as `config_error` on

@@ -2083,3 +2083,27 @@ test('[configsvc] defaults off, carries an enabled table, and refuses what canno
   expect(parseMessage('[configsvc]\npassword_hash = "$2b$10$x"\n')).toContain('argon2id')
   expect(parseMessage('[configsvc]\nenabel = true\n')).toContain('unrecognised key "enabel"')
 })
+
+test('a field-level error carries the config path of the entry and key at fault', () => {
+  const thrown = (toml: string): ParseError => {
+    const file = writeConfig(toml)
+    try {
+      loadConfig(file)
+    } catch (err) {
+      expect(err).toBeInstanceOf(ParseError)
+      return err as ParseError
+    }
+    throw new Error('expected loadConfig to throw')
+  }
+  const route = '[[route]]\nengine = "e"\n'
+  const unknownKey = thrown(`[[engine]]\nid = "e"\n${route}${route}bogus = 1\n`)
+  expect(unknownKey.path).toEqual({
+    file: expect.stringContaining('config.toml'),
+    table: 'route',
+    index: 1,
+    key: 'bogus',
+  })
+  // A cross-entry check, raised after parse, still names its entry.
+  const twice = thrown('[[engine]]\nid = "e"\n[[engine]]\nid = "e"\n')
+  expect(twice.path).toMatchObject({ table: 'engine', index: 1, key: 'id' })
+})

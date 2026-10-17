@@ -113,10 +113,24 @@ function tomlReason(err: unknown): string {
   return errMessage(err).replace(BUN_TOML_PREFIX, '')
 }
 
+/** Runs `fn`, and names the `[[table]]` entry at `index` on a ParseError that did not already say which entry it is. */
+export function inEntry<T>(table: string, index: number, fn: () => T): T {
+  try {
+    return fn()
+  } catch (err) {
+    if (err instanceof ParseError && err.path !== undefined && err.path.table === undefined) {
+      err.path = { ...err.path, table, index }
+    }
+    throw err
+  }
+}
+
 /** One `[[table]]` array plus which file each of its parsed entries came from -- what a collision or a cross-entry check needs to name the right fragment. */
 interface Collected<T> {
   items: T[]
   files: string[]
+  /** Parallel to `items`: each entry's position within its own file's array, which is what a diagnostic names. */
+  indexes: number[]
 }
 
 /**
@@ -133,22 +147,13 @@ export function collectEntries<T>(
 ): Collected<T> {
   const items: T[] = []
   const files: string[] = []
+  const indexes: number[] = []
   for (const { file, raw } of sources) {
     for (const [i, value] of asArray(raw[key], key, file).entries()) {
-      items.push(parseOne(value, i, file))
+      items.push(inEntry(key, i, () => parseOne(value, i, file)))
       files.push(file)
+      indexes.push(i)
     }
   }
-  return { items, files }
-}
-
-/** Maps each collected entry's key to the file it came from, falling back to the main file. */
-export function fileLookup<T, K>(
-  items: readonly T[],
-  files: readonly string[],
-  keyOf: (item: T) => K,
-  fallback: string,
-): (key: K) => string {
-  const fileOf = new Map<K, string>(items.map((item, i) => [keyOf(item), files[i] as string]))
-  return (key) => fileOf.get(key) ?? fallback
+  return { items, files, indexes }
 }
