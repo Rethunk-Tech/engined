@@ -6,7 +6,17 @@ import { SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
 import { bindDualFamily } from './listen.ts'
 import { createDoor } from './main.ts'
-import { BUNX, config, deadPort, ENGINES_ROOT, makeTestRoot } from './test-support.ts'
+import {
+  BUNX,
+  config,
+  deadPort,
+  ENGINES_ROOT,
+  engine,
+  makeTestRoot,
+  route,
+  writeEngineSpec,
+} from './test-support.ts'
+import type { Config } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-configsvc-')
 const cleanups: (() => void)[] = []
@@ -17,19 +27,26 @@ afterEach(() => {
 })
 
 /** A real config dir, a real in-process door as engined, and the config UI over them; only the three host tools are fakes. */
-async function harness(opts: { passwordHash?: string; bridgeHost?: string } = {}) {
+async function harness(
+  opts: { passwordHash?: string; bridgeHost?: string; doorConfig?: Partial<Config> } = {},
+) {
   const dir = mkdtempSync(join(TEST_ROOT, 'cfg-'))
   const configFile = join(dir, 'config.toml')
   const doorPort = deadPort()
   writeFileSync(configFile, `listen_port = ${doorPort}\n`)
   const door = createDoor(
-    config({ listen_port: doorPort }),
-    { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+    config({ listen_port: doorPort, ...opts.doorConfig }),
+    {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+      exec: async () => ({ stdout: '', stderr: '', exitCode: 1 }),
+    },
     { usageStateRoot: join(dir, 'usage') },
   )
   const bound = bindDualFamily(door.fetch, doorPort)
   const audit: string[] = []
   const reloads: string[] = []
+  const doorPaths: string[] = []
   const clock = { now: 1_000_000 }
   const svc = startConfigsvc(
     { port: 0, passwordHash: opts.passwordHash, bridgeHost: opts.bridgeHost, now: () => clock.now },
@@ -48,7 +65,13 @@ async function harness(opts: { passwordHash?: string; bridgeHost?: string } = {}
         store: async () => ({ ok: true }),
       },
       audit: (line) => audit.push(line),
-      fetch,
+      fetch: Object.assign(
+        (input: string | Request | URL, init?: RequestInit) => {
+          doorPaths.push(new URL(String(input)).pathname)
+          return fetch(input, init)
+        },
+        { preconnect: fetch.preconnect },
+      ),
       doctor: async () => ({ ok: true, checks: [] }),
     },
   )
@@ -72,7 +95,7 @@ async function harness(opts: { passwordHash?: string; bridgeHost?: string } = {}
     const res = await call('/login', { method: 'POST', body: JSON.stringify({ token: svc.token }) })
     return (res.headers.get('set-cookie') as string).split(';')[0] as string
   }
-  return { dir, configFile, svc, call, signIn, audit, reloads, clock, doorPort }
+  return { dir, configFile, svc, call, signIn, audit, reloads, clock, doorPort, doorPaths }
 }
 
 test('a minted token signs in once, the session slides for 12 hours and logout ends it', async () => {
@@ -276,4 +299,49 @@ test('behind the TLS bridge the bridged Host and https Origin are accepted, cook
   ).toBe(403)
   expect((await refuse({ Host: `evil.example:${CONFIGSVC_TLS_PORT}` })).status).toBe(403)
   expect((await h.call('/api/history', { cookie })).status).toBe(200)
+})
+
+test('route Test calls the verb the route serves, never chat, and says so when the door lacks the address', async () => {
+  const specs = mkdtempSync(join(TEST_ROOT, 'specs-'))
+  writeEngineSpec(
+    specs,
+    'voice',
+    `kind = "tts"
+upstream = "self"
+image = "test-tts:local"
+obtain = "pull"
+serves = ["/openai/v1/audio/speech"]
+command = []
+
+[ready]
+path = "/health"
+status = 200
+`,
+  )
+  const h = await harness({
+    doorConfig: {
+      engines: [engine({ id: 'voice', spec_dir: join(specs, 'voice') })],
+      routes: [route({ engine: 'voice', model: undefined, upstream: 'local' })],
+    },
+  })
+  const cookie = await h.signIn()
+  const test = async (address: string) => {
+    const res = await h.call('/api/test-route', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ address }),
+    })
+    return (await res.json()) as { status: number; error?: string }
+  }
+
+  const tts = await test('@/voice/local')
+  expect(h.doorPaths).toContain('/openai/v1/audio/speech')
+  expect(h.doorPaths).not.toContain('/openai/v1/chat/completions')
+  expect(tts.error ?? '').not.toContain('does not serve')
+
+  const missing = await test('@/nothing/local')
+  expect(missing).toMatchObject({
+    status: 0,
+    error: 'not on the running door; save and reload first',
+  })
 })

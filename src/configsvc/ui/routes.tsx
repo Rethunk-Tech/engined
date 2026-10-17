@@ -33,6 +33,7 @@ interface TestResult {
   status: number
   ms: number
   error?: string
+  skipped?: string
 }
 
 const tests = signal<Record<string, TestResult | 'running'>>({})
@@ -54,6 +55,9 @@ function TestBadge({ address }: { address: string }) {
   }
   if (result === 'running') {
     return <span class="muted">testing…</span>
+  }
+  if (result.skipped !== undefined) {
+    return <span class="muted">{result.skipped}</span>
   }
   const ok = result.status >= 200 && result.status < 300
   return (

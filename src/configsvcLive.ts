@@ -8,6 +8,15 @@ import { readGgufMetadata } from './ggufMetadata.ts'
 import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from './http.ts'
 import { runProbes } from './probe.ts'
 import { errMessage, isRecord } from './records.ts'
+import {
+  CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_COMPLETIONS,
+  CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_RERANK,
+  CONTENT_ENDPOINT_SPEECH,
+  CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  OPENAI_MODELS_PATH,
+} from './routeServes.ts'
 import type { Config } from './types.ts'
 
 const STATUS_BAD_GATEWAY = 502
@@ -241,34 +250,121 @@ async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response>
   })
 }
 
+interface RouteCheck {
+  path: string
+  body: string | FormData
+  json: boolean
+}
+
+/** 0.5 s of 16 kHz mono 16-bit PCM silence: the smallest valid input a transcription verb accepts. */
+function silentWav(): Blob {
+  const samples = 8000
+  const header = new DataView(new ArrayBuffer(44))
+  const tag = (at: number, text: string) => {
+    for (let i = 0; i < 4; i++) {
+      header.setUint8(at + i, text.charCodeAt(i))
+    }
+  }
+  tag(0, 'RIFF')
+  header.setUint32(4, 36 + samples * 2, true)
+  tag(8, 'WAVE')
+  tag(12, 'fmt ')
+  header.setUint32(16, 16, true)
+  header.setUint16(20, 1, true)
+  header.setUint16(22, 1, true)
+  header.setUint32(24, 16_000, true)
+  header.setUint32(28, 32_000, true)
+  header.setUint16(32, 2, true)
+  header.setUint16(34, 16, true)
+  tag(36, 'data')
+  header.setUint32(40, samples * 2, true)
+  return new Blob([header, new Uint8Array(samples * 2)], { type: 'audio/wav' })
+}
+
+/** The cheapest request the route answers, or undefined when every verb it serves is too costly to probe. */
+function cheapCheck(model: string, serves: readonly string[]): RouteCheck | undefined {
+  const json = (path: string, payload: Record<string, unknown>): RouteCheck => ({
+    path,
+    body: JSON.stringify({ model, ...payload }),
+    json: true,
+  })
+  if (serves.includes(CONTENT_ENDPOINT_CHAT)) {
+    return json(CONTENT_ENDPOINT_CHAT, {
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 1,
+      stream: false,
+    })
+  }
+  if (serves.includes(CONTENT_ENDPOINT_COMPLETIONS)) {
+    return json(CONTENT_ENDPOINT_COMPLETIONS, { prompt: 'ping', max_tokens: 1 })
+  }
+  if (serves.includes(CONTENT_ENDPOINT_EMBEDDINGS)) {
+    return json(CONTENT_ENDPOINT_EMBEDDINGS, { input: 'ping' })
+  }
+  if (serves.includes(CONTENT_ENDPOINT_RERANK)) {
+    return json(CONTENT_ENDPOINT_RERANK, { query: 'ping', documents: ['ping'] })
+  }
+  if (serves.includes(CONTENT_ENDPOINT_SPEECH)) {
+    return { ...json(CONTENT_ENDPOINT_SPEECH, { input: 'ping' }), json: false }
+  }
+  if (serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS)) {
+    const form = new FormData()
+    form.set('model', model)
+    form.set('file', silentWav(), 'ping.wav')
+    return { path: CONTENT_ENDPOINT_TRANSCRIPTIONS, body: form, json: true }
+  }
+  return undefined
+}
+
+/** What the running door says the address serves, or undefined when it does not list it. */
+async function servedBy(deps: ConfigsvcDeps, address: string): Promise<string[] | undefined> {
+  const res = await deps.fetch(`${deps.doorUrl()}${OPENAI_MODELS_PATH}`, {
+    signal: AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS),
+  })
+  const listing: unknown = await res.json().catch(() => undefined)
+  const rows = isRecord(listing) && Array.isArray(listing.data) ? listing.data : []
+  const row = rows.find((r): r is Record<string, unknown> => isRecord(r) && r.id === address)
+  return row !== undefined && Array.isArray(row.serves)
+    ? row.serves.filter((p): p is string => typeof p === 'string')
+    : undefined
+}
+
 async function testRoute(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
   if (!(body && nonEmpty(body.address) && body.address.startsWith('@/'))) {
     return jsonError(STATUS_BAD_REQUEST, '"address" must be an "@/..." route address')
   }
   const started = performance.now()
+  const elapsed = () => Math.round(performance.now() - started)
   try {
-    const res = await deps.fetch(`${deps.doorUrl()}/openai/v1/chat/completions`, {
+    const serves = await servedBy(deps, body.address)
+    if (serves === undefined) {
+      return Response.json({
+        status: 0,
+        ms: elapsed(),
+        error: 'not on the running door; save and reload first',
+      })
+    }
+    const check = cheapCheck(body.address, serves)
+    if (check === undefined) {
+      return Response.json({
+        skipped: 'image routes have no cheap test: one would load the diffusion model',
+      })
+    }
+    const res = await deps.fetch(`${deps.doorUrl()}${check.path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: body.address,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-        stream: false,
-      }),
+      headers: typeof check.body === 'string' ? { 'content-type': 'application/json' } : {},
+      body: check.body,
       signal: AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS),
     })
-    const answer: unknown = await res.json().catch(() => undefined)
+    const isJson = res.headers.get('content-type')?.includes('json') === true
+    const answer: unknown =
+      check.json || isJson ? await res.json().catch(() => undefined) : undefined
     const error =
       isRecord(answer) && isRecord(answer.error) ? String(answer.error.message) : undefined
-    return Response.json({ status: res.status, ms: Math.round(performance.now() - started), error })
+    return Response.json({ status: res.status, ms: elapsed(), error })
   } catch (err) {
-    return Response.json({
-      status: 0,
-      ms: Math.round(performance.now() - started),
-      error: errMessage(err),
-    })
+    return Response.json({ status: 0, ms: elapsed(), error: errMessage(err) })
   }
 }
 
