@@ -115,7 +115,6 @@ const RX_FILENAME_ESCAPE = /not under engine's "models_dir"/
 const RX_MODELS_MAX_ROLES = /below its 2 distinct configured roles/
 const RX_FORBIDDEN_FLAG = /dissolves the read-only floor/
 const RX_PREPENDED_FLAG = /duplicates a flag engined prepends/
-const RX_INVALID_TOML = /invalid TOML/
 const RX_ABSOLUTE_MODELS_DIR = /does not exist at "\/.*llm-models/
 const RX_UNKNOWN_UPSTREAM = /names unknown upstream "nope"/
 const RX_DUP_DECLARED_TWICE = /"dup" is declared twice/
@@ -1480,16 +1479,16 @@ test('loadConfig throws ParseError, not a bare Error, on a fatal rule', () => {
   expect(() => loadConfig(writeConfig(toml))).toThrow(ParseError)
 })
 
-test('malformed TOML is a ParseError naming the file, with the syntax error as cause', () => {
-  const path = writeConfig('listen_port = ')
+test('malformed TOML is a ParseError naming the file, line, column and reason, with the syntax error as cause', () => {
+  const path = writeConfig('listen_port = 8080\nhost = ')
   try {
     loadConfig(path)
     throw new Error('expected loadConfig to throw')
   } catch (err) {
     expect(err).toBeInstanceOf(ParseError)
     const parseErr = err as ParseError
-    expect(parseErr.message).toContain(path)
-    expect(parseErr.message).toMatch(RX_INVALID_TOML)
+    expect(parseErr.message).toStartWith(`${path}:2:`)
+    expect(parseErr.message).toContain(": invalid TOML: Missing value after '='")
     expect(parseErr.cause).toBeDefined()
   }
 })

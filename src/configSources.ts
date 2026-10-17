@@ -2,7 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { asArray, assertKnownKeys, TOP_KEYS } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
-import { isRecord } from './records.ts'
+import { errMessage, isRecord } from './records.ts'
+
+const BUN_TOML_PREFIX = /^TOML Parse error: /
 
 /** Scalar keys that only the main config file may carry -- everything else in `TOP_KEYS` is one of the five arrays a fragment may also extend. */
 const FRAGMENT_TABLE_KEYS = new Set(['engine', 'upstream', 'model', 'route', 'chain'])
@@ -70,12 +72,45 @@ function readConfigTable(file: string): Record<string, unknown> {
   try {
     raw = Bun.TOML.parse(text)
   } catch (err) {
-    throw new ParseError(`${file}: invalid TOML`, { cause: err })
+    throw new ParseError(`${tomlLocation(file)}: invalid TOML: ${tomlReason(err)}`, { cause: err })
   }
   if (!isRecord(raw)) {
     throw new ParseError('config must be a table', file)
   }
   return raw
+}
+
+/**
+ * `file:line:column` for a file Bun.TOML.parse rejected. That parser reports no
+ * position, but Bun's TOML module loader runs the same parser and does. Only a
+ * `.toml` path loads as TOML; anything else would report a JavaScript position.
+ */
+function tomlLocation(file: string): string {
+  if (!file.endsWith('.toml')) {
+    return file
+  }
+  try {
+    import.meta.require(file)
+  } catch (err) {
+    const position = isRecord(err) ? err.position : undefined
+    if (
+      isRecord(position) &&
+      typeof position.line === 'number' &&
+      typeof position.column === 'number'
+    ) {
+      return `${file}:${position.line}:${position.column}`
+    }
+  } finally {
+    // The file can be fixed between the read and this load, and a load that
+    // succeeds is cached, which would leave every later failure unlocated.
+    delete require.cache[file]
+  }
+  return file
+}
+
+/** Bun's own reason, without the prefix every one of its TOML errors repeats. */
+function tomlReason(err: unknown): string {
+  return errMessage(err).replace(BUN_TOML_PREFIX, '')
 }
 
 /** One `[[table]]` array plus which file each of its parsed entries came from -- what a collision or a cross-entry check needs to name the right fragment. */
