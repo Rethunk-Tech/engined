@@ -14,6 +14,10 @@
 
 ### Door
 
+- `engined --doctor [--json]` checks the host (docker, `/dev/kfd` and `/dev/dri`,
+  bwrap, each agent's binary, the keyring, the listen, cursor and config UI
+  ports, each engine's `models_dir`) and prints one line per check with its fix.
+  It exits 1 when a check fails and works without a valid config.
 - `engined --configsvc-url` prints the URL the config UI unit last logged
   (`configsvc: <url>`), and says why when there is none. `engined --hash-password`
   reads one line from stdin and prints the argon2id hash for
