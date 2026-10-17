@@ -191,7 +191,12 @@ async function menuFor(cursorList: string) {
       ],
       routes: [],
     }),
-    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    {
+      enginesRoot: join(import.meta.dir, '..', 'engines'),
+      bunx: BUNX,
+      // Engine status asks the installed agent binary for its version; a test must not spawn it.
+      observeAgentVersion: () => Promise.resolve({ ok: true, version: '1' }),
+    },
     { discovery: d },
   )
   await d.refresh('claude')
@@ -279,7 +284,12 @@ test('declared routes discovery makes redundant or stale become findings with th
   const { d } = discovery({})
   const door = createDoor(
     DECLARED,
-    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    {
+      enginesRoot: join(import.meta.dir, '..', 'engines'),
+      bunx: BUNX,
+      // Engine status asks the installed agent binary for its version; a test must not spawn it.
+      observeAgentVersion: () => Promise.resolve({ ok: true, version: '1' }),
+    },
     { discovery: d },
   )
   await d.refresh('claude')
@@ -303,7 +313,12 @@ test('the engines list says when the list was fetched and why the last refresh f
   const failing = discovery({ stateRoot, status: 401 })
   const door = createDoor(
     CLAUDE,
-    { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX },
+    {
+      enginesRoot: join(import.meta.dir, '..', 'engines'),
+      bunx: BUNX,
+      // Engine status asks the installed agent binary for its version; a test must not spawn it.
+      observeAgentVersion: () => Promise.resolve({ ok: true, version: '1' }),
+    },
     { discovery: failing.d },
   )
   failing.d.start(CLAUDE)
