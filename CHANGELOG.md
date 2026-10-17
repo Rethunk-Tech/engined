@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.4 - 2026-10-17
 
 - Config: a disabled route, or any route on a disabled engine or upstream, may name a `filename`
   that is not on disk yet. engined and the config UI no longer refuse the whole config over weights
