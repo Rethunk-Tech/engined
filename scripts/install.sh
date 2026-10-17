@@ -179,8 +179,10 @@ main() {
 
   mkdir -p "$UNIT_DIR"
   render_unit_file engined.service.in "$UNIT_PATH"
-  # Writes config.toml for the operator; stays off until `[configsvc] enable = true`
-  # (the process then exits 0 at once), so enabling the unit is always safe.
+  # The config UI exists to configure a box that has no config yet, so it is
+  # enabled and restarted unconditionally below. It starts when config.toml is
+  # missing or invalid, and exits 0 by itself only when a valid config does not
+  # set `[configsvc] enable = true`.
   render_unit_file engined-configsvc.service.in "$CONFIGSVC_SERVICE_PATH"
   # The vision probe is the only thing that re-proves the one acceptance
   # criterion docs/engines.md records as unproven, and a wrong description is
@@ -209,11 +211,10 @@ main() {
     systemctl --user restart engined.service
   else
     echo "install.sh: no config.toml in $CONFIG_HOME/engined; copy config.example.toml there, then: systemctl --user restart engined.service" >&2
+    echo "install.sh: or configure it in the web UI; next step: engined --configsvc-url" >&2
   fi
   systemctl --user enable engined-configsvc.service
-  if [[ -f "$CONFIG_HOME/engined/config.toml" ]]; then
-    systemctl --user restart engined-configsvc.service
-  fi
+  systemctl --user restart engined-configsvc.service
   systemctl --user enable --now engined-probe.timer
   if [[ -n "$DOCKER_PATH" ]]; then
     systemctl --user enable engined-tls.service

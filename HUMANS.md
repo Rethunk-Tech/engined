@@ -47,7 +47,8 @@ daemon would start and answer 503 until a config is written and reloaded. Runnin
 over HTTP writes to the install directory.
 
 Install also enables `engined-configsvc.service` (the config UI, below); it
-exits at once unless `[configsvc] enable = true`.
+starts when `config.toml` is missing or invalid, and exits at once only when a
+valid config does not set `[configsvc] enable = true`.
 
 When Docker is on `PATH`, install also enables `engined-tls.service`: a
 `engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
@@ -151,7 +152,7 @@ names) for artifacts not on disk yet, in order, and streams SSE events `step`
 first failing command, kills the command if the client disconnects, answers 404
 for an engine whose spec declares no artifacts and 409 while one is running.
 
-The config UI is `main.js --configsvc` (the `engined-configsvc` unit, off until
+The config UI is `main.js --configsvc` (the `engined-configsvc` unit; with a valid config it exits unless
 `[configsvc] enable = true`). It binds `127.0.0.1:29202`, logs `configsvc: <url>`
 at each start (`engined --configsvc-url` finds it) and signs in with that URL's
 one-time token, or with `password_hash` when set (five wrong tries a minute lock
