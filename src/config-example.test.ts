@@ -2,8 +2,12 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { loadConfig } from './config.ts'
+import { buildEntries } from './engineEntries.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
+import { specForModel } from './modelResidency.ts'
+import { llamaPresetPath } from './paths.ts'
+import { isContainerSpec } from './specTypes.ts'
 import { BUNX, ENGINES_ROOT, makeTestRoot } from './test-support.ts'
 import type { Config } from './types.ts'
 
@@ -141,6 +145,28 @@ function loadExample(append = ''): { raw: string; config: Config; modelsDir: str
   const configPath = writePatchedExampleConfig(raw + append, modelsDir)
   return { raw, config: loadConfig(configPath, ENGINES_ROOT), modelsDir }
 }
+
+test('whisper requires only the weights its routes name, and a bare start loads one of them', () => {
+  const { config } = loadExample()
+  const routes = config.routes
+    .filter((r) => r.engine !== 'whisper' || r.model === 'small.en')
+    .map((r) => (r.engine === 'whisper' ? { ...r, filename: 'ggml-small.en-q5_1.bin' } : r))
+  const whisper = buildEntries(
+    { ...config, routes },
+    { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+    llamaPresetPath,
+  ).find((e) => e.engine.id === 'whisper')?.spec.spec
+  if (whisper === undefined || !isContainerSpec(whisper)) {
+    throw new Error('the example config carries a whisper container engine')
+  }
+  expect(whisper.artifacts.map((a) => a.path)).toEqual([
+    '/models/ggml-small.en-q5_1.bin',
+    '/models/ggml-silero-v6.2.0.bin',
+  ])
+  expect(specForModel(whisper, routes, 'whisper', undefined).command).toContain(
+    '/models/ggml-small.en-q5_1.bin',
+  )
+})
 
 test('config.example.toml parses through the real loadConfig()', () => {
   const { raw, config, modelsDir } = loadExample()

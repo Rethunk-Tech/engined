@@ -10,7 +10,7 @@ import { buildComfySpec } from './comfy.ts'
 import { originOf } from './configOrigin.ts'
 import { ParseError } from './errors/parse.ts'
 import { STATUS_OK } from './http.ts'
-import { buildLlamaSpec } from './llamaSpec.ts'
+import { buildLlamaSpec, MODELS_CONTAINER_PATH } from './llamaSpec.ts'
 import type { EngineStatus } from './responses.ts'
 import { LOCAL_UPSTREAM, localRoutesOf, WILDCARD_MODEL } from './routeAddress.ts'
 import {
@@ -147,6 +147,24 @@ function loadEngineSpec(
     return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPathFor(engine.id)) }
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
+}
+
+/** Drops the `route_file` weights no enabled route on `engineId` names, so a start never waits on a model nobody asked for. */
+function withRoutedArtifacts(
+  loaded: LoadedSpec,
+  engineId: string,
+  routes: readonly ResolvedRoute[],
+): LoadedSpec {
+  if (!isContainerSpec(loaded.spec)) {
+    return loaded
+  }
+  const named = new Set(
+    routes
+      .filter((r) => r.engine === engineId && r.disabled !== true && r.filename !== undefined)
+      .map((r) => `${MODELS_CONTAINER_PATH}/${r.filename}`),
+  )
+  const artifacts = loaded.spec.artifacts.filter((a) => a.route_file !== true || named.has(a.path))
+  return { ...loaded, spec: { ...loaded.spec, artifacts } }
 }
 
 /** One field's disposition against whether the route actually declared it. The error carries the route's config path but no file prefix: kind is not known until the spec driving this check has already loaded, so this reads as a startup failure. */
@@ -340,7 +358,11 @@ export function buildEntries(
   presetHostPathFor: (engineId: string) => string,
 ): Entry[] {
   return config.engines.map((engine) => {
-    const spec = loadEngineSpec(engine, specOptions, presetHostPathFor)
+    const spec = withRoutedArtifacts(
+      loadEngineSpec(engine, specOptions, presetHostPathFor),
+      engine.id,
+      config.routes,
+    )
     // `disable = true` is the operator's escape hatch, so it has to reach the
     // checks that would otherwise refuse the boot: an engine nothing may
     // start or route to cannot be the reason the daemon will not come up.

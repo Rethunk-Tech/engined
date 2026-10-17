@@ -575,6 +575,9 @@ ready_timeout_s = 300                                # whisper.cpp's own model l
 # so a consumer waiting on a transcript in a loop names small.en and one that
 # is not names medium.en. Both are English-only; q8_0's quantisation
 # reasoning is in engines/whisper/spec.toml.
+# "filename" may name any whisper.cpp ggml file in models_dir, such as
+# ggml-small.en-q5_1.bin; only the weights an enabled route names have to be
+# on disk, so delete or disable the routes for models this box will not keep.
 [[route]]
 engine = "whisper"
 upstream = "local"

@@ -66,11 +66,10 @@ command = [
   "--host",
   "0.0.0.0",
   "-m",
-  # medium.en by default; EngineRegistry.start rewrites this pair's second
-  # token to name whichever of the two artifacts below a route's own
-  # "filename" selects, and stops-and-restarts the container when the
-  # running model differs from the one just requested. See [[artifact]]
-  # below for both models' citation.
+  # A placeholder: every start rewrites this pair's second token to the
+  # weights a route's "filename" names (the first enabled route's when the
+  # start names no model), and stops-and-restarts the container when the
+  # running model differs from the one just requested.
   "/models/ggml-medium.en-q8_0.bin",
   # --vad/-vm flag support confirmed present in the pinned digest's
   # actual whisper-server binary (strings extracted via `docker
@@ -179,12 +178,14 @@ read_only = true
 # upstream notes q8_0's quality is about q5_0's.
 [[artifact]]
 path = "/models/ggml-medium.en-q8_0.bin"
+route_file = true
 obtain = "curl -fL -o {models_dir}/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin"
 
 # The fast end of the same frontier, above: a consumer waiting on a transcript in a loop
 # names "@/whisper/small.en", and one that is not names "@/whisper/medium.en".
 [[artifact]]
 path = "/models/ggml-small.en-q8_0.bin"
+route_file = true
 obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin"
 
 # The multilingual model, and the only one of the three that can translate.
@@ -196,7 +197,26 @@ obtain = "curl -fL -o {models_dir}/ggml-small.en-q8_0.bin https://huggingface.co
 # line rather than a default.
 [[artifact]]
 path = "/models/ggml-large-v3-turbo-q8_0.bin"
+route_file = true
 obtain = "curl -fL -o {models_dir}/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
+
+# The smaller quantisations of the same three models, for a box short on memory
+# or one that prefers them. upstream publishes small.en as q5_1 and medium.en
+# and large-v3-turbo as q5_0. Point a route's "filename" at one to use it.
+[[artifact]]
+path = "/models/ggml-small.en-q5_1.bin"
+route_file = true
+obtain = "curl -fL -o {models_dir}/ggml-small.en-q5_1.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin"
+
+[[artifact]]
+path = "/models/ggml-medium.en-q5_0.bin"
+route_file = true
+obtain = "curl -fL -o {models_dir}/ggml-medium.en-q5_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin"
+
+[[artifact]]
+path = "/models/ggml-large-v3-turbo-q5_0.bin"
+route_file = true
+obtain = "curl -fL -o {models_dir}/ggml-large-v3-turbo-q5_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
 
 # Silero VAD in ggml format, published at huggingface.co/ggml-org/whisper-vad.
 # Filename and URL confirmed against whisper.cpp's own

@@ -54,22 +54,19 @@ function loadShipped(overrides: Partial<EngineEntry> = {}): ReturnType<typeof lo
 }
 
 /** What whisper's shipped `[[artifact]]` rows resolve to with `models_dir = "/data/models"`. */
+const weights = (file: string) => ({
+  path: `/models/${file}`,
+  route_file: true as const,
+  obtain: `curl -fL -o /data/models/${file} https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${file}`,
+})
+
 const WHISPER_ARTIFACTS = [
-  {
-    path: '/models/ggml-medium.en-q8_0.bin',
-    obtain:
-      'curl -fL -o /data/models/ggml-medium.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q8_0.bin',
-  },
-  {
-    path: '/models/ggml-small.en-q8_0.bin',
-    obtain:
-      'curl -fL -o /data/models/ggml-small.en-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin',
-  },
-  {
-    path: '/models/ggml-large-v3-turbo-q8_0.bin',
-    obtain:
-      'curl -fL -o /data/models/ggml-large-v3-turbo-q8_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin',
-  },
+  weights('ggml-medium.en-q8_0.bin'),
+  weights('ggml-small.en-q8_0.bin'),
+  weights('ggml-large-v3-turbo-q8_0.bin'),
+  weights('ggml-small.en-q5_1.bin'),
+  weights('ggml-medium.en-q5_0.bin'),
+  weights('ggml-large-v3-turbo-q5_0.bin'),
   {
     path: '/models/ggml-silero-v6.2.0.bin',
     obtain:

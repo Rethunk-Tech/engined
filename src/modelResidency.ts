@@ -36,8 +36,10 @@ function withModelFile(spec: RunnableContainerSpec, filename: string): RunnableC
 
 /**
  * The spec a start for `model` on `id` runs: the engine's own, with a stt
- * engine's weights file swapped for the one the route names. Throws when a
- * model was asked for and no route on `id` serves it.
+ * engine's weights file swapped for the one the route names. A start naming
+ * no model takes the first enabled route's file, since the spec's own `-m`
+ * default may be weights this box never downloaded. Throws when a model was
+ * asked for and no route on `id` serves it.
  */
 export function specForModel(
   spec: RunnableContainerSpec,
@@ -46,7 +48,12 @@ export function specForModel(
   model: string | undefined,
 ): RunnableContainerSpec {
   if (model === undefined) {
-    return spec
+    const first = routes.find(
+      (r) => r.engine === id && r.disabled !== true && r.filename !== undefined,
+    )
+    return first?.filename !== undefined && spec.kind === 'stt'
+      ? withModelFile(spec, first.filename)
+      : spec
   }
   const route = routeForHop(routes, id, model)
   if (route === undefined) {

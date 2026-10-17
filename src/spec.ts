@@ -77,7 +77,7 @@ const CONTAINER_KEYS: ReadonlySet<string> = new Set([
 const READY_KEYS: ReadonlySet<string> = new Set(['path', 'status', 'method', 'accept'])
 const ACCEPT_KEYS: ReadonlySet<string> = new Set(['min', 'max'])
 const VOLUME_KEYS: ReadonlySet<string> = new Set(['name', 'path', 'read_only'])
-const ARTIFACT_KEYS: ReadonlySet<string> = new Set(['path', 'obtain'])
+const ARTIFACT_KEYS: ReadonlySet<string> = new Set(['path', 'obtain', 'route_file'])
 
 export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec {
   const overridden = engine.spec_dir !== undefined
@@ -347,6 +347,9 @@ function parseArtifacts(raw: unknown, file: string): Artifact[] {
     return {
       path: requireString(a.path, '[[artifact]] "path"', file),
       obtain: requireString(a.obtain, '[[artifact]] "obtain"', file),
+      ...(optional(a.route_file, 'boolean', '[[artifact]] "route_file"', file) === true
+        ? { route_file: true as const }
+        : {}),
     }
   })
 }

@@ -444,6 +444,8 @@ export interface Artifact {
   path: string
   /** The literal command that supplies it, surfaced verbatim in status. */
   obtain: string
+  /** Weights a route selects with `filename`: required only while an enabled route on the engine names it. */
+  route_file?: true
 }
 
 /** A TCP connect is not readiness, so each spec names its own probe. */
