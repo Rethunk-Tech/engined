@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds and installs engined as a systemd --user unit. Running this again
 # is the update: it re-bundles, re-syncs engines/, rewrites the unit, and
-# restarts. There is no other install or update path.
+# restarts. The AUR package (packaging/aur/) renders the same unit templates
+# through this file's functions; nothing else installs engined.
 set -euo pipefail
 
 : "${HOME:?HOME must be set}"

@@ -14,6 +14,19 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 
 ## Install
 
+On Arch, from the AUR:
+
+```sh
+paru -S engined       # built from the release tag
+paru -S engined-git   # built from main
+```
+
+The package installs to `/usr/lib/engined` and ships the units in
+`/usr/lib/systemd/user`; enable them per user, as the install message says.
+Everything below about `install.sh` is for a clone.
+
+Anywhere else, from a clone:
+
 ```sh
 git clone https://github.com/Rethunk-Tech/engined.git
 cd engined
@@ -192,6 +205,11 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 | `engined-probe` failed naming a reply | the vision role described the image wrongly — [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) |
 
 ## Uninstall
+
+From the AUR: `systemctl --user disable --now engined engined-probe.timer
+engined-tls.service`, then `pacman -Rns engined` (or `engined-git`).
+
+From a clone:
 
 ```sh
 systemctl --user disable --now engined engined-probe.timer engined-tls.service

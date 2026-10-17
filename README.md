@@ -28,6 +28,8 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 
 ## Quick start
 
+On Arch: `paru -S engined`, then follow the install message. Elsewhere:
+
 ```sh
 git clone https://github.com/Rethunk-Tech/engined.git
 cd engined

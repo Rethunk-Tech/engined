@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## Unreleased
 
 First public release.
 
@@ -35,6 +35,12 @@ First public release.
 - Shipped images for llama.cpp, whisper.cpp, ComfyUI, Chatterbox, Kokoro and
   Piper, optimised for AMD Strix Halo; any engine can point at another image
   through `spec_dir`.
+
+### Packaging
+
+- AUR packages `engined` (release tag) and `engined-git` (main). Both install
+  to `/usr/lib/engined` with the `systemd --user` units in
+  `/usr/lib/systemd/user`; `ENGINED_INSTALL_DIR` tells the daemon where.
 
 ### Licence
 
