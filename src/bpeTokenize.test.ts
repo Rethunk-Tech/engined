@@ -51,9 +51,11 @@ describe('bpeTokenIds', () => {
     expect(() => bpeTokenIds(v, 'a')).toThrow(UnsupportedVocabError)
   })
 
-  test('a 40_000-space word merges in under 200 ms', () => {
+  test('a run of spaces four times longer takes well under sixteen times as long', () => {
     // Each rank doubles a run of spaces, so a naive merge rescans the whole
-    // word once per merge: quadratic in the run length.
+    // word once per merge: quadratic in the run length, 16x for a 4x run.
+    // A ratio rather than a wall-clock ceiling, which a loaded CI runner
+    // misses; the fastest of three runs drops one-off stalls.
     const tokens = ['h', 'e', 'l', 'o', 'x', 'Ġ']
     const merges: string[] = []
     let run = 'Ġ'
@@ -63,9 +65,16 @@ describe('bpeTokenIds', () => {
       tokens.push(run)
     }
     const v = vocab('qwen2', tokens, merges)
-    const started = performance.now()
-    const ids = bpeTokenIds(v, `hello${' '.repeat(40_000)}x`)
-    expect(performance.now() - started).toBeLessThan(200)
-    expect(ids.length).toBeGreaterThan(0)
+    const fastest = (spaces: number): number => {
+      let best = Number.POSITIVE_INFINITY
+      for (let i = 0; i < 3; i++) {
+        const started = performance.now()
+        expect(bpeTokenIds(v, `hello${' '.repeat(spaces)}x`).length).toBeGreaterThan(0)
+        best = Math.min(best, performance.now() - started)
+      }
+      return best
+    }
+    const short = fastest(10_000)
+    expect(fastest(40_000) / short).toBeLessThan(8)
   })
 })
