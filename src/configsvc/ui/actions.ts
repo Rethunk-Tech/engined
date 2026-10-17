@@ -55,15 +55,20 @@ async function loadSnapshot(): Promise<Snapshot> {
   return loaded
 }
 
-async function loadAll(): Promise<void> {
+/** Replaces the draft with what is on disk now, and drops the pending diff and faults. */
+export async function reloadFromDisk(): Promise<void> {
   const loaded = await loadSnapshot()
   draft.value = loaded.text
   draftDiff.value = ''
   problems.value = []
+}
+
+async function loadAll(): Promise<void> {
+  await reloadFromDisk()
   await refreshStatus()
 }
 
-async function refreshStatus(): Promise<void> {
+export async function refreshStatus(): Promise<void> {
   try {
     status.value = await call<Status>('/api/status')
     statusFault.value = undefined

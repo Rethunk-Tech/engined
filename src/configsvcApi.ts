@@ -130,6 +130,17 @@ function edit(body: Record<string, unknown>, candidate: string): Response {
   }
 }
 
+function historyEntry(name: string, deps: ConfigsvcDeps): Response {
+  try {
+    const old = readHistory(deps.configFile, name)
+    return old === undefined
+      ? jsonError(STATUS_NOT_FOUND, 'no such history entry')
+      : Response.json({ name, text: old })
+  } catch {
+    return jsonError(STATUS_NOT_FOUND, 'no such history entry')
+  }
+}
+
 function listDependents(body: Record<string, unknown>, candidate: string): Response {
   const table = text(body, 'table')
   const id = text(body, 'id')
@@ -206,6 +217,10 @@ export function configApi(
   }
   if (path === '/api/history') {
     return Response.json({ entries: listHistory(deps.configFile) })
+  }
+  const entry = /^\/api\/history\/([^/]+)$/.exec(path)?.[1]
+  if (entry !== undefined) {
+    return historyEntry(decodeURIComponent(entry), deps)
   }
   if (path === '/api/schema') {
     return Response.json(configSchema())

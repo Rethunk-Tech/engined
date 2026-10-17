@@ -182,6 +182,15 @@ mark a hop that would be skipped because all its routes are disabled. The Addres
 `@/...` address a consumer can use, with a copy button and 7-day calls. Any entry can be copied as TOML, and a
 pasted `[[table]]` snippet is added only if the merged config validates.
 
+Review and save shows the diff against the file on disk and saves with the hash the page read: if the file
+changed meanwhile you see that change and choose between reloading from disk and saving yours over it. A
+save without a `[configsvc] enable` value writes `enable = true` (untick it on Settings to turn the UI off).
+After a save you choose a hot or hard reload (hard is preselected when a port moved), and may name a route
+to test afterwards. The page then waits up to about 10 seconds for engined to report the saved config; if it
+does not, or reports a `config_error`, or the route test fails, it asks Keep or Revert, and no answer keeps
+the change. Revert restores the file the save replaced and reloads the same way. History lists the kept
+files (newest 20), diffs one against the current file and restores it.
+
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):

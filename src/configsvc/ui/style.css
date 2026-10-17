@@ -313,3 +313,9 @@ table.grid th {
   padding-right: 20px;
   color: var(--muted);
 }
+.diff .add {
+  background: var(--add);
+}
+.diff .del {
+  background: var(--del);
+}

@@ -141,3 +141,28 @@ export function Prop(props: {
     </Labeled>
   )
 }
+
+/** Keys for lines of text, which may repeat: the line plus how many equal ones came before it. */
+export function lineKeys(lines: readonly string[]): string[] {
+  const seen = new Map<string, number>()
+  return lines.map((line) => {
+    const n = seen.get(line) ?? 0
+    seen.set(line, n + 1)
+    return `${line}#${n}`
+  })
+}
+
+/** A unified diff with added and removed lines tinted. */
+export function DiffView({ diff }: { diff: string }) {
+  const lines = diff.split('\n')
+  const keys = lineKeys(lines)
+  return (
+    <pre class="diff">
+      {lines.map((line, i) => (
+        <div key={keys[i]} class={line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}>
+          {line}
+        </div>
+      ))}
+    </pre>
+  )
+}

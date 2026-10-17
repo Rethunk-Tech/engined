@@ -165,6 +165,13 @@ test('save refuses a stale base, then writes atomically with history and one aud
     /^configsvc: audit \d{4}-.*client=127\.0\.0\.1 changed=top:chat_timeout_seconds before=[0-9a-f]{64} after=[0-9a-f]{64}$/,
   )
 
+  const entry = (await (await h.call(`/api/history/${history[0]}`, { cookie })).json()) as {
+    text: string
+  }
+  expect(entry.text).toBe(first.text)
+  expect((await h.call('/api/history/config-19990101T000000Z.toml', { cookie })).status).toBe(404)
+  expect((await h.call('/api/history/..%2Fconfig.toml', { cookie })).status).toBe(404)
+
   const stale = await save(`${edited}# lost\n`, first.sha256)
   expect(stale.status).toBe(409)
   expect(((await stale.json()) as { text: string }).text).toBe(edited)

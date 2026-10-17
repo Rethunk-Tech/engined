@@ -1,7 +1,7 @@
 /** Fetch wrappers for the configsvc JSON API. A 401 anywhere returns the app to the sign-in screen. */
 import { session } from './store.ts'
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number
   body: unknown
   constructor(message: string, status: number, body: unknown) {

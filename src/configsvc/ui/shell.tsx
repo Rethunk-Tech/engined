@@ -52,7 +52,9 @@ export function TopBar() {
       <span class="grow" />
       {dirty.value ? (
         <>
-          <span class="pill">unsaved changes</span>
+          <a class="pill" href="#save">
+            unsaved changes: review and save
+          </a>
           <button type="button" onClick={revertDraft}>
             Discard
           </button>

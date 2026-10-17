@@ -19,7 +19,7 @@
   comments kept, diff and save `config.toml` with history and an audit line,
   reload engined, and see its status, models, secrets and host checks. Sign-in
   is a token logged at each start or `[configsvc] password_hash`.
-- `GET /api/logs/:engine`, `GET /api/resources/:engine` and `POST /api/dependents` join the config UI's API.
+- `GET /api/history/:name` returns one kept file. `GET /api/logs/:engine`, `GET /api/resources/:engine` and `POST /api/dependents` join the config UI's API.
 - The build is `bun build --outdir=dist`: `dist/main.js` plus the config UI's hashed assets
   and `dist/configsvc/ui/index.html`. The installer, the release tarball and both AUR
   packages ship all of `dist/`; `--configsvc` changes its working directory to the

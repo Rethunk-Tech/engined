@@ -2,12 +2,15 @@ import { computed, signal } from '@preact/signals'
 import { AddressBookView } from './addressbook.tsx'
 import { ChainsView } from './chains.tsx'
 import { EnginesView } from './engines.tsx'
+import { HistoryView } from './history.tsx'
 import { ModelsView } from './models.tsx'
 import { RawView } from './raw.tsx'
+import { SaveView } from './savepanel.tsx'
 import { SettingsView } from './settings.tsx'
 import { draftDiff, problems, snapshot } from './store.ts'
 import { UpstreamsView } from './upstreams.tsx'
 import { UsageView } from './usage.tsx'
+import { DiffView } from './widgets.tsx'
 
 interface ViewDef {
   id: string
@@ -30,7 +33,7 @@ function Overview() {
       {draftDiff.value === '' ? (
         <p class="muted">Nothing pending.</p>
       ) : (
-        <pre class="diff">{draftDiff.value}</pre>
+        <DiffView diff={draftDiff.value} />
       )}
       {problems.value.map((p) => (
         <p class="bad" key={p.message}>
@@ -50,6 +53,8 @@ const VIEWS: ViewDef[] = [
   { id: 'addresses', title: 'Address book', render: AddressBookView },
   { id: 'usage', title: 'Usage', render: UsageView },
   { id: 'settings', title: 'Settings', render: SettingsView },
+  { id: 'save', title: 'Review & save', render: SaveView },
+  { id: 'history', title: 'History', render: HistoryView },
   { id: 'raw', title: 'Raw TOML', render: RawView },
 ]
 

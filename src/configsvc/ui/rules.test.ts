@@ -12,6 +12,7 @@ import {
 } from './model.ts'
 import { resolveRoute } from './resolved.ts'
 import { ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
+import { needsEnableDefault, revertTarget, verdict, waitForApply } from './saveflow.ts'
 import { entryToToml, snippetEntries } from './snippet.ts'
 import { comfyChoices, modelSuggestions, trainedContext } from './suggest.ts'
 
@@ -213,4 +214,42 @@ test('hops resolve or are flagged dropped; the address book lists routes and cha
   })
   expect(snippetEntries(text, 'engine')).toHaveProperty('error')
   expect(snippetEntries('x = = 1', 'route')).toHaveProperty('error')
+})
+
+test('safe apply waits for the saved hash, reports faults, and defaults configsvc.enable', async () => {
+  const sha = 'a'.repeat(64)
+  let calls = 0
+  const seen = await waitForApply(
+    async () => (++calls < 3 ? { config_sha256: 'old' } : { config_sha256: sha }),
+    sha,
+    async () => undefined,
+  )
+  expect(calls).toBe(3)
+  expect(verdict({ savedSha: sha, running: seen })).toEqual({ ok: true })
+  const stuck = await waitForApply(
+    async () => ({ config_sha256: 'old' }),
+    sha,
+    async () => undefined,
+    1000,
+  )
+  expect(verdict({ savedSha: sha, running: stuck })).toEqual({
+    ok: false,
+    problem: 'engined is still running an older config',
+  })
+  expect(
+    verdict({ savedSha: sha, running: { config_error: 'bad', config_sha256: 'old' } }),
+  ).toEqual({
+    ok: false,
+    problem: 'engined reports config_error: bad',
+  })
+  expect(
+    verdict({
+      savedSha: sha,
+      running: { config_sha256: sha },
+      routeTest: { status: 502, error: 'down' },
+    }).ok,
+  ).toBe(false)
+  expect(revertTarget([{ name: 'new' }, { name: 'old' }])).toBe('new')
+  expect(needsEnableDefault(parseDoc('a = 1\n') as never)).toBe(true)
+  expect(needsEnableDefault(parseDoc('[configsvc]\nenable = false\n') as never)).toBe(false)
 })
