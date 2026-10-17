@@ -1,4 +1,5 @@
 import { computed, signal } from '@preact/signals'
+import { EnginesView } from './engines.tsx'
 import { RawView } from './raw.tsx'
 import { draftDiff, problems, snapshot } from './store.ts'
 
@@ -36,6 +37,7 @@ function Overview() {
 
 const VIEWS: ViewDef[] = [
   { id: 'overview', title: 'Overview', render: Overview },
+  { id: 'engines', title: 'Engines', render: EnginesView },
   { id: 'raw', title: 'Raw TOML', render: RawView },
 ]
 

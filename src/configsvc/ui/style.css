@@ -203,3 +203,100 @@ details.panel {
 details pre {
   overflow: auto;
 }
+.rowhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.rowhead h3 {
+  margin: 0;
+}
+.engine {
+  margin: 12px 0;
+}
+.route {
+  margin: 8px 0;
+  background: var(--bg);
+}
+.off {
+  opacity: 0.6;
+}
+.routes {
+  margin-top: 8px;
+}
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 4px 16px;
+  margin-top: 8px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0;
+}
+.field input,
+.field select {
+  width: 100%;
+}
+.fieldname {
+  font-weight: 600;
+}
+.argsbox,
+.resolved {
+  grid-column: 1 / -1;
+}
+.argrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 3px 0;
+}
+.small {
+  padding: 1px 8px;
+  font-size: 12.5px;
+}
+.small-text {
+  font-size: 12px;
+}
+.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.pill.ok {
+  color: var(--ok);
+}
+.pill.bad {
+  color: var(--bad);
+}
+.log {
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 8px;
+}
+.inline {
+  display: inline-flex;
+  gap: 6px;
+}
+.guard {
+  background: var(--bg);
+}
+table.grid td {
+  padding: 1px 12px 1px 0;
+}
+.notice {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.notice.error {
+  color: var(--bad);
+  background: var(--del);
+}
+.notice.ok {
+  color: var(--ok);
+  background: var(--add);
+}

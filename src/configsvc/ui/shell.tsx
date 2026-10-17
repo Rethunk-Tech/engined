@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { login, logout, revertDraft } from './actions.ts'
 import { banner } from './banner.ts'
-import { dirty, lastSavedSha, snapshot, status, statusFault } from './store.ts'
+import { dirty, lastSavedSha, notice, snapshot, status, statusFault } from './store.ts'
 
 export function SignIn() {
   const [secret, setSecret] = useState('')
@@ -62,5 +62,23 @@ export function TopBar() {
         Sign out
       </button>
     </header>
+  )
+}
+
+export function Notice() {
+  const shown = notice.value
+  return shown === undefined ? null : (
+    <div class={`notice ${shown.kind}`}>
+      {shown.text}{' '}
+      <button
+        type="button"
+        class="small"
+        onClick={() => {
+          notice.value = undefined
+        }}
+      >
+        Dismiss
+      </button>
+    </div>
   )
 }

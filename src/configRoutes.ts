@@ -8,11 +8,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
+import { mergeCapabilities, roleCapabilities } from './capabilities.ts'
 import { ROLES, ROUTE_KEYS, VISION_KINDS, WILDCARD_FORBIDDEN_KEYS } from './configKeys.ts'
 import {
   asArgs,
   expandConfigPath,
-  mergeCapabilities,
   optional,
   optionalPositive,
   parseCapabilities,
@@ -381,20 +381,4 @@ export function resolveRoute({
     disabled,
     ...mergeCapabilities(baseCaps, roleCapabilities(raw.role), raw.capabilities),
   }
-}
-
-/**
- * What a role already says about a route's modalities, so a consumer reading
- * the door sees it without a hand-written `[[model]]` row: a `vision` route
- * takes images, a `chat` route takes text, both answer in text. An embedding
- * route says nothing here -- its output is not a modality a caller sends.
- */
-function roleCapabilities(role: Role | undefined): ModelCapabilities {
-  if (role === 'vision') {
-    return { input: ['text', 'image'], output: ['text'] }
-  }
-  if (role === 'chat') {
-    return { input: ['text'], output: ['text'] }
-  }
-  return {}
 }

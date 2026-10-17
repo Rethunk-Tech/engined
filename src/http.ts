@@ -341,7 +341,7 @@ async function readCappedBytes(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,
-): Promise<Uint8Array | Response> {
+): Promise<Uint8Array<ArrayBuffer> | Response> {
   const declared = declaredOverLimit(req, max)
   if (declared !== undefined) {
     return tooLarge(declared)

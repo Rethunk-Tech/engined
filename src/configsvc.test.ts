@@ -214,6 +214,13 @@ test('validate names the file, position and config path of a fault; edit, reload
   expect(edit.text).toBe('# keep\nlisten_port = 29201\n')
   expect(edit.diff).toContain('-listen_port = 29200')
 
+  const deps = (await post('/api/dependents', {
+    text: '[[engine]]\nid = "e"\n[[route]]\nengine = "e"\nmodel = "m"\n',
+    table: 'engine',
+    id: 'e',
+  })) as unknown as { dependents: string[] }
+  expect(deps.dependents).toEqual(['route[0].engine'])
+
   expect(await post('/api/reload', { mode: 'hard' })).toEqual({ ok: true })
   expect(h.reloads).toEqual(['USR1'])
   const refresh = await h.call('/api/inventory', {
@@ -222,6 +229,9 @@ test('validate names the file, position and config path of a fault; edit, reload
     body: JSON.stringify({ upstream: 'nobody' }),
   })
   expect(refresh.status).toBe(404)
+
+  expect((await h.call('/api/logs/nobody?tail=5', { cookie })).status).toBe(404)
+  expect((await h.call('/api/resources/nobody', { cookie })).status).toBe(404)
 
   const status = (await (await h.call('/api/status', { cookie })).json()) as { contract: number }
   expect(status.contract).toBeNumber()

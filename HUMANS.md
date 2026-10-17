@@ -166,7 +166,14 @@ repaired through it. Open the logged URL (`engined --configsvc-url`) in a browse
 page trades the token in the link for a session cookie and drops it from the address bar.
 A banner shows whether engined runs the config on disk. The Raw TOML view edits the pending text with
 TOML highlighting; every change is validated the way engined loads it (after a 300 ms pause), errors are
-marked in the margin and listed under the editor, and `config.d/` fragments are shown read-only.
+marked in the margin and listed under the editor, and `config.d/` fragments are shown read-only. The Engines view is one card per engine: live state,
+disable, rename (a spec-keyed engine id is refused, with the reason), a delete guard that lists what still
+points at it and its 7-day calls, container logs and resources, the read-only spec, Obtain when the spec
+has artifacts, and its routes. A route form shows only the fields its engine kind allows, offers the
+upstreams the engine can use, suggests models and files (with GGUF quantisation and context, and a warning
+when `ctx-size` exceeds it), checks each `args` entry as you type, and shows the resolved upstream,
+capabilities and args. Test sends one token through the route. Every form change edits the pending text
+(comments kept); nothing is written until it is saved.
 
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 

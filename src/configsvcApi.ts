@@ -13,13 +13,14 @@ import { checkConfigText, type ValidateEnv } from './configsvcValidate.ts'
 import type { DoctorReport } from './doctor.ts'
 import { jsonError, STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND } from './http.ts'
 import { errMessage, isRecord } from './records.ts'
-import { applyOps, type EditOp } from './tomlEdit.ts'
+import { applyOps, dependents, type EditOp } from './tomlEdit.ts'
 
 const STATUS_UNPROCESSABLE = 422
 const STATUS_BAD_GATEWAY = 502
 const CONFIG_POSTS = new Set([
   '/api/validate',
   '/api/edit',
+  '/api/dependents',
   '/api/diff',
   '/api/save',
   '/api/restore',
@@ -129,6 +130,19 @@ function edit(body: Record<string, unknown>, candidate: string): Response {
   }
 }
 
+function listDependents(body: Record<string, unknown>, candidate: string): Response {
+  const table = text(body, 'table')
+  const id = text(body, 'id')
+  if (table === undefined || id === undefined) {
+    return badRequest('"table" and "id" are required')
+  }
+  try {
+    return Response.json({ dependents: dependents(candidate, table, id) })
+  } catch (err) {
+    return problemResponse({ message: errMessage(err) })
+  }
+}
+
 function validate(candidate: string, deps: ConfigsvcDeps): Response {
   const checked = checkConfigText(candidate, deps)
   return Response.json({
@@ -165,6 +179,9 @@ async function configPost(
   }
   if (path === '/api/edit') {
     return edit(body, candidate)
+  }
+  if (path === '/api/dependents') {
+    return listDependents(body, candidate)
   }
   const base = text(body, 'base_sha256')
   return base === undefined

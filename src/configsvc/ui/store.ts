@@ -41,3 +41,6 @@ export const lastSavedSha = signal<string | undefined>()
 export const dirty = computed(
   () => snapshot.value !== undefined && draft.value !== snapshot.value.text,
 )
+
+/** The last refusal or confirmation to show the operator; cleared by the next edit. */
+export const notice = signal<{ kind: 'ok' | 'error'; text: string } | undefined>()

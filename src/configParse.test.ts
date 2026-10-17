@@ -7,7 +7,8 @@
  * layer order.
  */
 import { describe, expect, test } from 'bun:test'
-import { asArgs, mergeCapabilities } from './configParse.ts'
+import { mergeCapabilities } from './capabilities.ts'
+import { asArgs } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 
 describe('asArgs', () => {

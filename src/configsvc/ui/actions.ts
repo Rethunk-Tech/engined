@@ -1,8 +1,10 @@
 /** Operations on the shared state: sign-in, loading, the debounced validate and diff of the draft, structured edits. */
+import type { EditOp } from '../../editOps.ts'
 import { call } from './api.ts'
 import {
   draft,
   draftDiff,
+  notice,
   type Problem,
   problems,
   type Snapshot,
@@ -108,5 +110,18 @@ export function revertDraft(): void {
   const saved = snapshot.value
   if (saved !== undefined) {
     setDraft(saved.text)
+  }
+}
+
+/** A structured edit of the draft through the server's comment-preserving editor; a refusal lands in `notice`. */
+export async function editDraft(ops: EditOp[]): Promise<boolean> {
+  try {
+    const edited = await call<{ text: string }>('/api/edit', { text: draft.value, ops })
+    notice.value = undefined
+    setDraft(edited.text)
+    return true
+  } catch (err) {
+    notice.value = { kind: 'error', text: err instanceof Error ? err.message : String(err) }
+    return false
   }
 }

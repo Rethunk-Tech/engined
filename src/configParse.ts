@@ -6,7 +6,7 @@
  */
 
 import { join } from 'node:path'
-import { CAPABILITY_FIELDS } from './configKeys.ts'
+import { argProblem } from './argRules.ts'
 import { ParseError } from './errors/parse.ts'
 import { dataHome, expandTilde } from './paths.ts'
 import { isRecord } from './records.ts'
@@ -139,9 +139,6 @@ export function parseDisable(
   return optional(raw.disable, 'boolean', `${label} "disable"`, file) === true ? true : undefined
 }
 
-const LINE_BREAK_RE = /[\r\n]/
-const INI_KEY_BREAKER_RE = /^$|^\s|\s$|[=[\]]|^[;#]/
-
 /**
  * Values must be scalar because every consumer renders them with `String(v)` --
  * `argvFromArgs` onto a command line, `iniLines` into the llama preset. A
@@ -157,26 +154,9 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
     throw new ParseError(`${site} "args" must be a table`, { file, key: 'args' })
   }
   for (const [key, value] of Object.entries(v)) {
-    const kind = typeof value
-    if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') {
-      throw new ParseError(`${site} "args" key "${key}" must be a string, number or boolean`, {
-        file,
-        key: 'args',
-      })
-    }
-    // Each arg is one `key = value` line of the llama preset INI, under a
-    // section whose own `model =` line the preset writes first.
-    if (LINE_BREAK_RE.test(`${key}${String(value)}`)) {
-      throw new ParseError(`${site} "args" key ${JSON.stringify(key)} contains a line break`, {
-        file,
-        key: 'args',
-      })
-    }
-    if (INI_KEY_BREAKER_RE.test(key) || key === 'model') {
-      throw new ParseError(
-        `${site} "args" key ${JSON.stringify(key)} is empty, "model", has leading or trailing whitespace, or contains "=", "[", "]", or a leading ";" or "#", which the llama preset INI cannot carry as a key`,
-        { file, key: 'args' },
-      )
+    const problem = argProblem(key, value)
+    if (problem !== undefined) {
+      throw new ParseError(`${site} "args" ${problem}`, { file, key: 'args' })
     }
   }
   return v
@@ -234,18 +214,4 @@ export function parseCapabilities(
     context_out: optionalPositive(raw.context_out, `${site} "context_out"`, file),
     reasoning: stringArray('reasoning'),
   }
-}
-
-/** Later layers win field by field: the `[[model]]` row, then what the role implies, then the route's own declaration. */
-export function mergeCapabilities(...layers: readonly ModelCapabilities[]): ModelCapabilities {
-  const merged: ModelCapabilities = {}
-  for (const key of CAPABILITY_FIELDS) {
-    for (const layer of layers) {
-      const v = layer[key]
-      if (v !== undefined) {
-        ;(merged as Record<string, unknown>)[key] = v
-      }
-    }
-  }
-  return merged
 }

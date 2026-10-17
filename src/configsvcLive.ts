@@ -258,6 +258,8 @@ function specText(id: string, deps: ConfigsvcDeps): Response {
   }
 }
 
+const ENGINE_VERB_RE = /^\/api\/(logs|resources)\/([^/]+)$/
+
 const PROXIED_GET: Record<string, string> = {
   '/api/status': '/engined/v1/engines',
   '/api/events': '/engined/v1/engines/events',
@@ -273,6 +275,11 @@ export function liveApi(
     const target = PROXIED_GET[path]
     if (target !== undefined) {
       return proxy(deps, `${target}${new URL(req.url).search}`, { signal: req.signal })
+    }
+    const verb = ENGINE_VERB_RE.exec(path)
+    if (verb !== null) {
+      const id = encodeURIComponent(decodeURIComponent(verb[2] as string))
+      return proxy(deps, `/engined/v1/engines/${id}/${verb[1]}${new URL(req.url).search}`)
     }
     const spec = /^\/api\/spec\/([^/]+)$/.exec(path)?.[1]
     if (spec !== undefined) {
