@@ -1,0 +1,40 @@
+[Unit]
+Description=engined — config web UI
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@BUN_PATH@ @INSTALL_DIR@/main.js --configsvc
+
+# A held port, like a config that does not enable the UI, is not something a
+# restart fixes: the process exits 78 for the first and 0 for the second, and
+# Restart=on-failure with RestartPreventExitStatus keeps a held port from
+# looping.
+Restart=on-failure
+RestartPreventExitStatus=78
+
+# Specs live under the install dir and {bunx} in them resolves to this, the
+# same as for the daemon: a saved config is validated by loading them.
+Environment=ENGINED_BUNX=@BUNX_PATH@
+Environment=ENGINED_INSTALL_DIR=@INSTALL_DIR@
+
+# The same sandbox as engined.service, narrowed to what this process writes.
+# It is the only writer of config.toml, and the write is a temp file renamed
+# over it plus a .history/ directory beside it, so the whole directory has to
+# be writable, not config.toml alone (rename needs the directory). Everything
+# else, including the state directory it reads, stays read-only. It never
+# touches docker: engined does that.
+ProtectSystem=strict
+ReadWritePaths=@CONFIG_DIR@
+ProtectHome=read-only
+NoNewPrivileges=yes
+PrivateTmp=yes
+# AF_UNIX is the session bus: `systemctl --user kill` (reload) and
+# `secret-tool` (keyring) both talk D-Bus over a unix socket. AF_INET and
+# AF_INET6 serve the UI and reach engined on loopback.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

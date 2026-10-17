@@ -19,6 +19,8 @@
   comments kept, diff and save `config.toml` with history and an audit line,
   reload engined, and see its status, models, secrets and host checks. Sign-in
   is a token logged at each start or `[configsvc] password_hash`.
+- `scripts/install.sh` installs and enables `engined-configsvc.service`, sandboxed
+  like the daemon with only `~/.config/engined` writable.
 - `POST /engined/v1/upstreams/:id/refresh` fetches that upstream's model list
   now.
 

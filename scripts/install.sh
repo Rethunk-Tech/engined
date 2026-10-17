@@ -51,6 +51,7 @@ resolve_paths() {
   PROBE_SERVICE_PATH="$UNIT_DIR/engined-probe.service"
   PROBE_TIMER_PATH="$UNIT_DIR/engined-probe.timer"
   TLS_SERVICE_PATH="$UNIT_DIR/engined-tls.service"
+  CONFIGSVC_SERVICE_PATH="$UNIT_DIR/engined-configsvc.service"
 
   # The terminator runs the same way every engine does -- a container this
   # box already knows how to pull -- so it adds no host package.
@@ -59,6 +60,7 @@ resolve_paths() {
 
   UNIT_INSTALL_DIR="$(to_unit_path "$INSTALL_DIR")"
   UNIT_STATE_DIR="$(to_unit_path "$STATE_DIR")"
+  UNIT_CONFIG_DIR="$(to_unit_path "$CONFIG_HOME/engined")"
 }
 
 # True when $1 names $2 as a whole path segment. Unanchored substring match
@@ -118,6 +120,7 @@ render_unit_file() {
     -e "s|@CADDY_IMAGE@|$CADDY_IMAGE|g" \
     -e "s|@INSTALL_DIR@|$UNIT_INSTALL_DIR|g" \
     -e "s|@STATE_DIR@|$UNIT_STATE_DIR|g" \
+    -e "s|@CONFIG_DIR@|$UNIT_CONFIG_DIR|g" \
     "$REPO_ROOT/scripts/$template" >"$out"
 
   assert_unit_names_no_user "$out"
@@ -176,6 +179,9 @@ main() {
 
   mkdir -p "$UNIT_DIR"
   render_unit_file engined.service.in "$UNIT_PATH"
+  # Writes config.toml for the operator; stays off until `[configsvc] enable = true`
+  # (the process then exits 0 at once), so enabling the unit is always safe.
+  render_unit_file engined-configsvc.service.in "$CONFIGSVC_SERVICE_PATH"
   # The vision probe is the only thing that re-proves the one acceptance
   # criterion docs/engines.md records as unproven, and a wrong description is
   # invisible in the response, so these ship enabled rather than as something
@@ -203,6 +209,10 @@ main() {
     systemctl --user restart engined.service
   else
     echo "install.sh: no config.toml in $CONFIG_HOME/engined; copy config.example.toml there, then: systemctl --user restart engined.service" >&2
+  fi
+  systemctl --user enable engined-configsvc.service
+  if [[ -f "$CONFIG_HOME/engined/config.toml" ]]; then
+    systemctl --user restart engined-configsvc.service
   fi
   systemctl --user enable --now engined-probe.timer
   if [[ -n "$DOCKER_PATH" ]]; then

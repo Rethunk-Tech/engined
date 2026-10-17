@@ -46,6 +46,9 @@ It restarts `engined` only when `config.toml` is already there; without one the
 daemon would start and answer 503 until a config is written and reloaded. Running the script again **is** the update — nothing
 over HTTP writes to the install directory.
 
+Install also enables `engined-configsvc.service` (the config UI, below); it
+exits at once unless `[configsvc] enable = true`.
+
 When Docker is on `PATH`, install also enables `engined-tls.service`: a
 `engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
 can speak TLS. See [docs/security-model.md § The Cursor TLS bridge](docs/security-model.md#the-cursor-tls-bridge-is-a-network-listener).
