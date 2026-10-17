@@ -121,3 +121,23 @@ main section > details + .panel,
 main section > details + details {
   margin-top: 12px;
 }
+.map {
+  position: relative;
+  height: 70vh;
+  overflow: hidden;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.map:active {
+  cursor: grabbing;
+}
+.map-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.map-canvas svg {
+  display: block;
+}

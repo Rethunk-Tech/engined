@@ -40,7 +40,7 @@ echo "$sha  $work/$tarball" | sha256sum -c --quiet
 tar -xzf "$work/$tarball" -C "$work" nfpm
 
 # bun --compile embeds the config UI's page and hashed assets, so the one file is the whole program.
-bun build src/main.ts --compile --target="bun-linux-$arch" \
+bun build src/main.ts --compile --splitting --target="bun-linux-$arch" \
   --define "ENGINED_COMMIT=\"${ENGINED_COMMIT:-unknown}\"" --outfile "$work/engined"
 
 install -Dm0755 "$work/engined" "$STAGE/usr/bin/engined"

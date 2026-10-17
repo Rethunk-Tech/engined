@@ -33,7 +33,7 @@
     "lint": "biome check . && knip",
     "format": "biome check --write .",
     "test": "bun test src --parallel=8 --randomize",
-    "build": "bun build src/main.ts --target=bun --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outdir=dist",
+    "build": "rm -rf dist && bun build src/main.ts --target=bun --splitting --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outdir=dist",
     "test:local": "ENGINED_LOCAL=1 ENGINED_BUNX=${ENGINED_BUNX:-$(command -v bunx)} /usr/bin/flock -w 3600 /tmp/engined-local-tier.lock bun test test/local",
     "ci": "turbo run typecheck lint test build",
     "test:e2e": "playwright test"
@@ -57,6 +57,7 @@
     "@lezer/highlight": "^1.2.5",
     "@preact/signals": "^2.11.3",
     "codemirror": "^6.0.2",
+    "mermaid": "^12.2.0",
     "preact": "^11.0.1"
   },
   "patchedDependencies": {

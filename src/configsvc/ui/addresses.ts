@@ -18,7 +18,7 @@ function routeOff(doc: Doc, route: Table, upstreamOf: UpstreamOf): boolean {
 }
 
 /** The routes a hop's address can reach, by the segment count rules of `routeForHop`. */
-function candidates(doc: Doc, hop: string, upstreamOf: UpstreamOf): Table[] {
+export function candidates(doc: Doc, hop: string, upstreamOf: UpstreamOf): Table[] {
   const seg = qualifiedSegments(hop)
   if (seg === undefined) {
     return []

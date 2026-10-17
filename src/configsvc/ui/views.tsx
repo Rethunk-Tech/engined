@@ -17,6 +17,7 @@ import {
 import { DoctorView, report, runDoctor, summary } from './doctor.tsx'
 import { EnginesView } from './engines.tsx'
 import { HistoryView } from './history.tsx'
+import { MapView } from './mapview.tsx'
 import { parseDoc } from './model.ts'
 import { ModelsView } from './models.tsx'
 import { viewId } from './nav.ts'
@@ -250,6 +251,7 @@ const VIEWS: ViewDef[] = [
   { id: 'upstreams', title: 'Upstreams', render: UpstreamsView },
   { id: 'models', title: 'Models', render: ModelsView },
   { id: 'chains', title: 'Chains', render: ChainsView },
+  { id: 'map', title: 'Map', render: MapView },
   { id: 'addresses', title: 'Address book', render: AddressBookView },
   { id: 'usage', title: 'Usage', render: UsageView },
   { id: 'settings', title: 'Settings', render: SettingsView },
