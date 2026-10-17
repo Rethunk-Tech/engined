@@ -201,7 +201,7 @@ export function MapView() {
           >
             Fit
           </button>
-          <CopyButton text={text} label="Copy Mermaid" />
+          <CopyButton text={text} title="Copy the Mermaid source" />
         </span>
       </div>
     </section>

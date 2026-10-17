@@ -6,7 +6,7 @@ import { editDraft } from './actions.ts'
 import { propOf } from './schema.ts'
 
 /** Copies text and says so for a moment; the clipboard needs a secure context, which loopback is. */
-export function CopyButton(props: { text: string; label?: string }) {
+export function CopyButton(props: { text: string; label?: string; title?: string }) {
   const [done, setDone] = useState(false)
   const copy = async () => {
     try {
@@ -18,7 +18,7 @@ export function CopyButton(props: { text: string; label?: string }) {
     }
   }
   return (
-    <button type="button" class="small" onClick={copy}>
+    <button type="button" class="small" title={props.title} onClick={copy}>
       {done ? 'Copied' : (props.label ?? 'Copy')}
     </button>
   )
