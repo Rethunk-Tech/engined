@@ -5,6 +5,12 @@
 - Config UI: each llama engine card shows estimated resident memory (GGUF size plus KV cache at the
   route's ctx-size and cache types), the largest on-demand model, and the box's total and
   available memory, with a warning when they do not fit; the route form shows the per-route estimate.
+  On a hybrid model only the full-attention layers (and MTP layers) count toward the KV cache.
+- Config UI: the raw editor marks validation problems inline, the starter wizard's default
+  proposal always validates, and checkboxes sit beside their labels.
+- TLS bridge: Caddy's admin API is off. With the bridge on host networking it sat on the host's
+  127.0.0.1:2019, and nothing reloads Caddy through it.
+- `--prune-config` removes its scratch discovery directory when it finishes or refuses.
 - Release: `.deb` and `.rpm` packages for x64 and arm64 are attached to each GitHub release. They
   ship a standalone binary, so they need no bun.
 
