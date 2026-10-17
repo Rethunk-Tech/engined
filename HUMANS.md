@@ -148,6 +148,18 @@ names) for artifacts not on disk yet, in order, and streams SSE events `step`
 first failing command, kills the command if the client disconnects, answers 404
 for an engine whose spec declares no artifacts and 409 while one is running.
 
+The config UI is `main.js --configsvc` (the `engined-configsvc` unit, off until
+`[configsvc] enable = true`). It binds `127.0.0.1:29202`, logs `configsvc: <url>`
+at each start (`engined --configsvc-url` finds it) and signs in with that URL's
+one-time token, or with `password_hash` when set (five wrong tries a minute lock
+a client out; sessions end after 12 hours idle). It is the only writer of
+`config.toml`: a save validates the text the way engined loads it, keeps the
+previous file in `~/.config/engined/.history/` (newest 20), writes atomically,
+and logs one audit line; it never restarts anything itself, it reports which
+engines would restart and whether the ports changed, and reloads engined by
+signal on request. With a broken config it still starts, so the file can be
+repaired through it.
+
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 
 Signals to the unit (`systemctl --user kill -s <SIG> engined.service`; `reload` sends HUP):

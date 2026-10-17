@@ -14,6 +14,14 @@
 
 ### Door
 
+- `engined --configsvc` runs a config web UI (JSON API only for now; the page
+  comes later) for the `engined-configsvc` unit: read, validate, edit with
+  comments kept, diff and save `config.toml` with history and an audit line,
+  reload engined, and see its status, models, secrets and host checks. Sign-in
+  is a token logged at each start or `[configsvc] password_hash`.
+- `POST /engined/v1/upstreams/:id/refresh` fetches that upstream's model list
+  now.
+
 - `POST /engined/v1/engines/:id/obtain` runs the engine spec's missing `[[artifact]]`
   obtain commands and streams their output as SSE (`step`, `line`, then `exit`
   events). 404 when the spec declares none, 409 while one is already running.

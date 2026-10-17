@@ -300,7 +300,7 @@ function tableSchema(name: string): JsonObject {
   }
 }
 
-function configSchema(): JsonObject {
+export function configSchema(): JsonObject {
   const { top, ...defs } = Object.fromEntries(
     Object.keys(SCHEMA_TABLES).map((name) => [name, tableSchema(name)]),
   )

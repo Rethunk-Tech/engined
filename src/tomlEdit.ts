@@ -13,7 +13,7 @@ import { qualifiedSegments } from './routeAddress.ts'
 /** Top-level keys, then a table key, or a `[[table]]` entry's index and key; `args` tables nest one deeper. */
 export type TomlPath = (string | number)[]
 
-type EditOp =
+export type EditOp =
   | { op: 'setKey'; path: TomlPath; value: unknown }
   | { op: 'addEntry'; table: string; entry: Record<string, unknown> }
   | { op: 'removeEntry'; table: string; index: number }
@@ -101,7 +101,7 @@ function setAt(doc: Doc, path: TomlPath, value: unknown): void {
 }
 
 /** Runs `ops` in order against `src`; any op, or a result Bun reads differently, throws. */
-function applyOps(src: string, ops: readonly EditOp[]): string {
+export function applyOps(src: string, ops: readonly EditOp[]): string {
   const patched = parse(src) as Doc
   const expected = Bun.TOML.parse(src) as Doc
   for (const op of ops) {
