@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { addressBook, hopState } from './addresses.ts'
 import { argIssue, argValueFromText, suggestArgKeys } from './argsRules.ts'
 import { removalOps } from './guard.ts'
 import {
@@ -11,6 +12,7 @@ import {
 } from './model.ts'
 import { resolveRoute } from './resolved.ts'
 import { ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
+import { entryToToml, snippetEntries } from './snippet.ts'
 import { comfyChoices, modelSuggestions, trainedContext } from './suggest.ts'
 
 const TEXT = `# keep me
@@ -186,4 +188,29 @@ test('suggestions merge model rows, discovery and inventory; GGUF context and co
   expect(trainedContext(files, 'x.gguf')).toBe(8192)
   expect(comfyChoices(files, 'vae')).toEqual(['ae.safetensors'])
   expect(comfyChoices(files, 'unet')).toEqual(['u.safetensors'])
+})
+
+test('hops resolve or are flagged dropped; the address book lists routes and chains; snippets round-trip', () => {
+  const doc = parseDoc(
+    '[[engine]]\nid = "e"\n[[engine]]\nid = "off"\ndisable = true\n[[upstream]]\nid = "local"\n[[route]]\nengine = "e"\nmodel = "m"\n[[route]]\nengine = "off"\nmodel = "n"\n[[chain]]\nid = "c"\nhops = ["@/e/m"]\n',
+  )
+  if (doc === undefined) {
+    throw new Error('fixture must parse')
+  }
+  const up = () => 'local'
+  expect(hopState(doc, '@/e/m', up)).toBe('ok')
+  expect(hopState(doc, '@/off/n', up)).toBe('dropped')
+  expect(hopState(doc, '@/e/local/m', up)).toBe('ok')
+  expect(hopState(doc, '@/e/zzz', up)).toBe('unresolved')
+  expect(addressBook(doc, up).map((r) => [r.address, r.kind, r.disabled])).toEqual([
+    ['@/c', 'chain', false],
+    ['@/e/m', 'route', false],
+    ['@/off/n', 'route', true],
+  ])
+  const text = entryToToml('route', { engine: 'e', model: 'm', args: { 'ctx-size': 4096 } })
+  expect(snippetEntries(text, 'route')).toEqual({
+    entries: [{ engine: 'e', model: 'm', args: { 'ctx-size': 4096 } }],
+  })
+  expect(snippetEntries(text, 'engine')).toHaveProperty('error')
+  expect(snippetEntries('x = = 1', 'route')).toHaveProperty('error')
 })

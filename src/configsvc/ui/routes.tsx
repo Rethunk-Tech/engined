@@ -10,6 +10,7 @@ import { callsFor, discovery, modelFiles, type SpecEntry } from './data.ts'
 import { type Doc, type IndexedRoute, routeAddress, type Table, upstreamChoices } from './model.ts'
 import { resolveRoute } from './resolved.ts'
 import { ctxSizeOf, ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
+import { entryToToml } from './snippet.ts'
 import { comfyChoices, formatBytes, modelSuggestions, trainedContext } from './suggest.ts'
 import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
@@ -324,6 +325,7 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
       <div class="rowhead">
         <code>{address ?? '(incomplete)'}</code>
         {address === undefined ? null : <CopyButton text={address} />}
+        <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
         <span class="muted">{callsFor(address)} call(s) / 7 d</span>
         <span class="grow" />
         {address === undefined ? null : (

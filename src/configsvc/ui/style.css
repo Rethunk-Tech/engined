@@ -300,3 +300,16 @@ table.grid td {
   color: var(--ok);
   background: var(--add);
 }
+textarea.snippet {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  margin: 6px 0;
+}
+table.grid {
+  border-collapse: collapse;
+}
+table.grid th {
+  text-align: left;
+  padding-right: 20px;
+  color: var(--muted);
+}

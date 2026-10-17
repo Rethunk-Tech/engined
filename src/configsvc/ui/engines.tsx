@@ -29,9 +29,11 @@ import {
 } from './model.ts'
 import { type EngineCtx, RouteCard } from './routes.tsx'
 import { loadSchema } from './schema.ts'
+import { entryToToml } from './snippet.ts'
+import { SnippetBox } from './snippets.tsx'
 import { postStream } from './sse.ts'
 import { draft, status } from './store.ts'
-import { Labeled, Prop } from './widgets.tsx'
+import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -171,6 +173,7 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
         >
           {engine.disable === true ? 'Enable' : 'Disable'}
         </button>
+        <CopyButton text={entryToToml('engine', engine)} label="Copy TOML" />
         <Rename engine={engine} />
         <DeleteGuard doc={d} table="engine" id={id} index={index} addresses={addresses} />
       </div>
@@ -321,6 +324,8 @@ export function EnginesView() {
         <EngineCard key={String(engine.id)} d={parsed} engine={engine} index={index} />
       ))}
       <AddEngine />
+      <SnippetBox table="engine" />
+      <SnippetBox table="route" />
     </section>
   )
 }

@@ -174,6 +174,13 @@ upstreams the engine can use, suggests models and files (with GGUF quantisation 
 when `ctx-size` exceeds it), checks each `args` entry as you type, and shows the resolved upstream,
 capabilities and args. Test sends one token through the route. Every form change edits the pending text
 (comments kept); nothing is written until it is saved.
+Upstreams edit `base_url`, egress, wire, headers and the keyring reference (present or missing is shown; the
+store form writes the value to the desktop keyring and never shows it again), fetch a catalog, list the routes
+that use the upstream and show this month's reported spend against `monthly_cap_usd`. Models are the
+`[[model]]` capability rows and the routes that inherit them. Chains order hops from every route address and
+mark a hop that would be skipped because all its routes are disabled. The Address book lists every
+`@/...` address a consumer can use, with a copy button and 7-day calls. Any entry can be copied as TOML, and a
+pasted `[[table]]` snippet is added only if the merged config validates.
 
 `GET /engined/v1/engines` is the operator surface — no `/v1/health`, no web UI.
 

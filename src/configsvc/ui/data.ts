@@ -1,7 +1,15 @@
 /** Server data the views share: specs, schema help, model files, usage, secrets and live engine state. */
 import { signal } from '@preact/signals'
 import { call } from './api.ts'
-import { parseSpec, type SpecInfo } from './model.ts'
+import {
+  type Doc,
+  defaultUpstream,
+  engineTrait,
+  parseSpec,
+  routesOf,
+  type SpecInfo,
+  type Table,
+} from './model.ts'
 
 export interface SpecEntry {
   info: SpecInfo
@@ -31,7 +39,7 @@ export interface ModelFile {
   }
 }
 
-interface UsageRow {
+export interface UsageRow {
   date: string
   route: string
   requests: number
@@ -41,7 +49,7 @@ interface UsageRow {
 
 export const specs = signal<Record<string, SpecEntry | null>>({})
 export const modelFiles = signal<{ engine: string; dir: string; files: ModelFile[] }[]>([])
-const usage = signal<UsageRow[]>([])
+export const usage = signal<UsageRow[]>([])
 export const liveEngines = signal<Record<string, LiveEngine>>({})
 export const discovery = signal<{
   providers: Record<string, unknown>
@@ -88,7 +96,7 @@ export async function loadModelFiles(): Promise<void> {
 
 export async function loadUsage(): Promise<void> {
   try {
-    usage.value = (await call<{ data: UsageRow[] }>('/api/usage?days=7')).data
+    usage.value = (await call<{ data: UsageRow[] }>('/api/usage?days=31')).data
   } catch {
     usage.value = []
   }
@@ -102,11 +110,56 @@ export async function loadDiscovery(): Promise<void> {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 /** Seven-day call count of one address. */
 export function callsFor(address: string | undefined): number {
+  const since = new Date(Date.now() - 6 * DAY_MS).toISOString().slice(0, 10)
   return address === undefined
     ? 0
-    : usage.value.filter((row) => row.route === address).reduce((sum, row) => sum + row.requests, 0)
+    : usage.value
+        .filter((row) => row.route === address && row.date >= since)
+        .reduce((sum, row) => sum + row.requests, 0)
+}
+
+/** What the given addresses cost in the current UTC month, from the costs their upstreams reported. */
+export function monthSpend(addresses: readonly string[]): number {
+  const month = new Date().toISOString().slice(0, 7)
+  return usage.value
+    .filter((row) => addresses.includes(row.route) && row.date.startsWith(month))
+    .reduce((sum, row) => sum + (row.cost_usd ?? 0), 0)
+}
+
+/** The upstream a route resolves to: the one it names, else its engine's trait default. */
+export function upstreamResolver(doc: Doc): (route: Table) => string | null {
+  return (route) => {
+    if (typeof route.upstream === 'string') {
+      return route.upstream
+    }
+    const engine = doc.engine.find((e) => e.id === route.engine)
+    const siblings =
+      engine === undefined ? [] : routesOf(doc, String(engine.id)).map((r) => r.route)
+    const trait =
+      engine === undefined ? undefined : engineTrait(engine, specs.value[String(engine.id)]?.info)
+    return defaultUpstream(trait, siblings).value
+  }
+}
+
+export interface SecretRow {
+  upstream: string
+  service: string
+  username: string
+  present: boolean
+}
+
+export const secrets = signal<SecretRow[]>([])
+
+export async function loadSecrets(): Promise<void> {
+  try {
+    secrets.value = (await call<{ secrets: SecretRow[] }>('/api/secrets')).secrets
+  } catch {
+    secrets.value = []
+  }
 }
 
 /** Live engine state over SSE; returns the stop function. */

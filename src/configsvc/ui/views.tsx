@@ -1,7 +1,13 @@
 import { computed, signal } from '@preact/signals'
+import { AddressBookView } from './addressbook.tsx'
+import { ChainsView } from './chains.tsx'
 import { EnginesView } from './engines.tsx'
+import { ModelsView } from './models.tsx'
 import { RawView } from './raw.tsx'
+import { SettingsView } from './settings.tsx'
 import { draftDiff, problems, snapshot } from './store.ts'
+import { UpstreamsView } from './upstreams.tsx'
+import { UsageView } from './usage.tsx'
 
 interface ViewDef {
   id: string
@@ -38,6 +44,12 @@ function Overview() {
 const VIEWS: ViewDef[] = [
   { id: 'overview', title: 'Overview', render: Overview },
   { id: 'engines', title: 'Engines', render: EnginesView },
+  { id: 'upstreams', title: 'Upstreams', render: UpstreamsView },
+  { id: 'models', title: 'Models', render: ModelsView },
+  { id: 'chains', title: 'Chains', render: ChainsView },
+  { id: 'addresses', title: 'Address book', render: AddressBookView },
+  { id: 'usage', title: 'Usage', render: UsageView },
+  { id: 'settings', title: 'Settings', render: SettingsView },
   { id: 'raw', title: 'Raw TOML', render: RawView },
 ]
 
