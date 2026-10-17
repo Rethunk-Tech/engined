@@ -134,15 +134,6 @@ code {
 .warn {
   color: var(--warn);
 }
-.icon {
-  flex: none;
-  vertical-align: -3px;
-}
-.state {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 .grow {
   flex: 1;
 }
@@ -434,6 +425,11 @@ select {
 }
 .guard {
   background: var(--bg);
+  color: inherit;
+  max-width: min(520px, 90vw);
+}
+.guard::backdrop {
+  background: rgb(0 0 0 / 0.5);
 }
 table.grid td {
   padding: 1px 12px 1px 0;

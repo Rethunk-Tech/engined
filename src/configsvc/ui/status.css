@@ -1,0 +1,58 @@
+/* Engine and upstream state: icon glyphs, their motion, and the tile edge that repeats the state. */
+.ready {
+  color: color-mix(in srgb, var(--ok) 65%, var(--muted));
+}
+.icon {
+  flex: none;
+  vertical-align: -3px;
+}
+.icon-warming {
+  animation: spin 1.1s linear infinite;
+}
+.icon-running .pulse {
+  opacity: 0;
+  transform-origin: 8px 8px;
+  animation: pulse 2.4s ease-out infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes pulse {
+  from {
+    opacity: 0.7;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-warming,
+  .icon-running .pulse {
+    animation: none;
+  }
+  .icon-running .pulse {
+    opacity: 0.4;
+  }
+}
+/* A tile's left edge carries its engine's state, so the grid reads at a glance. */
+.tile.edge-running {
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+.tile.edge-installed {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.tile.edge-warming {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.tile.edge-unavailable {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

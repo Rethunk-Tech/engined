@@ -68,13 +68,14 @@ const ENGINE_FIELDS = [
   'spec_dir',
 ] as const
 
-const STATE_LOOK: Record<string, { icon: IconName; tone?: string }> = {
+const STATE_LOOK: Record<string, { icon: IconName; tone: string }> = {
   running: { icon: 'running', tone: 'ok' },
-  installed: { icon: 'installed' },
+  installed: { icon: 'installed', tone: 'ready' },
   warming: { icon: 'warming', tone: 'warn' },
   unavailable: { icon: 'unavailable', tone: 'bad' },
   disabled: { icon: 'disabled', tone: 'muted' },
 }
+const STATE_ICON_PX = 18
 
 function liveOf(id: string): LiveEngine | undefined {
   return (
@@ -83,14 +84,18 @@ function liveOf(id: string): LiveEngine | undefined {
   )
 }
 
+function stateOf(id: string, disabled: boolean): string {
+  const live = liveOf(id)
+  return disabled || live?.disabled === true ? 'disabled' : (live?.state ?? 'unknown')
+}
+
 /** The engine's state as an icon, with the word beside it when `word` is set. */
 function StateBadge({ id, disabled, word }: { id: string; disabled: boolean; word?: boolean }) {
-  const live = liveOf(id)
-  const state = disabled || live?.disabled === true ? 'disabled' : (live?.state ?? 'unknown')
+  const state = stateOf(id, disabled)
   const look = STATE_LOOK[state] ?? { icon: 'installed', tone: 'muted' }
-  const icon = <Icon name={look.icon} label={state} tone={look.tone} />
+  const icon = <Icon name={look.icon} label={state} tone={look.tone} size={STATE_ICON_PX} />
   return word === true ? (
-    <span class={`state ${look.tone ?? ''}`}>
+    <span class={`state ${look.tone}`}>
       {icon}
       {state}
     </span>
@@ -412,7 +417,7 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   const calls = addresses.reduce((sum, a) => sum + callsFor(a), 0)
   return (
     <a
-      class={`tile panel${disabled ? ' off' : ''}`}
+      class={`tile panel edge-${stateOf(id, disabled)}${disabled ? ' off' : ''}`}
       href={`#engines/${encodeURIComponent(id)}${weightsMissing ? OBTAIN_SUFFIX : ''}`}
     >
       <div class="rowhead">

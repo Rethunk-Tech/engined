@@ -211,16 +211,36 @@ export function KindPill({ kind }: { kind: string | undefined }) {
 }
 
 const ICONS = {
-  running: <circle cx="8" cy="8" r="5" fill="currentColor" />,
-  installed: <circle cx="8" cy="8" r="5" />,
-  warming: (
+  running: (
     <>
-      <circle cx="8" cy="8" r="5" />
-      <path d="M8 3a5 5 0 0 1 0 10z" fill="currentColor" />
+      <circle class="pulse" cx="8" cy="8" r="6" />
+      <circle cx="8" cy="8" r="3.5" fill="currentColor" stroke="none" />
     </>
   ),
-  unavailable: <path d="M8 2.5 14 13H2zM8 6.5v3M8 11.5v.01" />,
-  disabled: <path d="M6 4v8M10 4v8" />,
+  installed: (
+    <>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M5.3 8.2 7.2 10l3.5-3.8" />
+    </>
+  ),
+  warming: (
+    <>
+      <circle cx="8" cy="8" r="6" opacity="0.3" />
+      <path d="M8 2a6 6 0 0 1 6 6" />
+    </>
+  ),
+  unavailable: (
+    <>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 4.8v3.6M8 11v.01" />
+    </>
+  ),
+  disabled: (
+    <>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M3.6 3.6l8.8 8.8" />
+    </>
+  ),
   home: <path d="M2.5 7.5 8 3l5.5 4.5M4 6.5V13h8V6.5" />,
   lan: (
     <>
@@ -240,14 +260,15 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS
 
-/** A 16 px line icon; `label` is its accessible name and tooltip. */
-export function Icon({ name, label, tone }: { name: IconName; label: string; tone?: string }) {
+/** A line icon drawn on a 16-unit grid; `label` is its accessible name and tooltip. */
+export function Icon(props: { name: IconName; label: string; tone?: string; size?: number }) {
+  const { name, label, tone, size = 16 } = props
   return (
     <svg
-      class={tone === undefined ? 'icon' : `icon ${tone}`}
+      class={`icon icon-${name}${tone === undefined ? '' : ` ${tone}`}`}
       viewBox="0 0 16 16"
-      width="16"
-      height="16"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       stroke-width="1.5"
