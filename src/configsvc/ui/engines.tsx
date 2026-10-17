@@ -1,9 +1,10 @@
 import { computed, effect } from '@preact/signals'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import example from '../../../config.example.toml'
+import type { ShippedEngine } from '../../configsvcShipped.ts'
 import { engineMemory, estimateResidentBytes, memoryVerdict } from '../../memoryEstimate.ts'
 import type { EngineKind } from '../../types.ts'
-import { KIND_TRAITS } from '../../types.ts'
+import { KIND_LABELS, KIND_TRAITS } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { call } from './api.ts'
 import { ArgsEditor } from './args.tsx'
@@ -38,9 +39,10 @@ import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { postStream } from './sse.ts'
+import { engineOps, LOCAL_UPSTREAM_OP } from './starter.ts'
 import { draft, status } from './store.ts'
 import { findModelFile, formatBytes } from './suggest.ts'
-import { About, CopyButton, Labeled, Prop } from './widgets.tsx'
+import { About, CopyButton, KindPill, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -108,15 +110,32 @@ function Rename({ engine }: { engine: Table }) {
 
 type Panel = 'logs' | 'resources' | 'spec' | 'obtain'
 
+const LOG_POLL_MS = 2000
+/** Within this many pixels of the end counts as reading the end, so new lines keep it in view. */
+const LOG_STICK_PX = 24
+
 function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | undefined }) {
   const [text, setText] = useState('')
+  const pre = useRef<HTMLPreElement>(null)
+  const stick = useRef(true)
+  useEffect(() => {
+    if (stick.current && pre.current !== null) {
+      pre.current.scrollTop = pre.current.scrollHeight
+    }
+  })
   useEffect(() => {
     setText('')
+    stick.current = true
     if (panel === 'logs') {
-      void call<{ lines: string[] }>(`/api/logs/${encodeURIComponent(id)}?tail=200`)
-        .then((r) => setText(r.lines.join('\n')))
-        .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
-    } else if (panel === 'resources') {
+      const load = () =>
+        call<{ lines: string[] }>(`/api/logs/${encodeURIComponent(id)}?tail=200`)
+          .then((r) => setText(r.lines.join('\n')))
+          .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
+      void load()
+      const timer = setInterval(() => void load(), LOG_POLL_MS)
+      return () => clearInterval(timer)
+    }
+    if (panel === 'resources') {
       void call<unknown>(`/api/resources/${encodeURIComponent(id)}`)
         .then((r) => setText(JSON.stringify(r, null, 2)))
         .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
@@ -139,8 +158,20 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
         setText((t) => `${t}${line ?? ''}\n`)
       })
     }
+    return undefined
   }, [id, panel])
-  return <pre class="log">{panel === 'spec' ? (spec ?? 'no spec.toml') : text}</pre>
+  return (
+    <pre
+      ref={pre}
+      class="log"
+      onScroll={(e) => {
+        const el = e.currentTarget
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < LOG_STICK_PX
+      }}
+    >
+      {panel === 'spec' ? (spec ?? 'no spec.toml') : text}
+    </pre>
+  )
 }
 
 function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
@@ -173,6 +204,9 @@ function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
   )
 }
 
+/** Past this many routes an engine card gets a filter box. */
+const ROUTE_FILTER_MIN = 8
+
 function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number }) {
   const id = String(engine.id)
   const [panel, setPanel] = useState<Panel | undefined>()
@@ -187,12 +221,22 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
   }
   const routes = routesOf(d, id)
   const addresses = routes.flatMap((r) => routeAddress(d, r.route) ?? [])
+  const [query, setQuery] = useState('')
+  const needle = query.trim().toLowerCase()
+  const shown =
+    needle === ''
+      ? routes
+      : routes.filter((r) =>
+          [routeAddress(d, r.route), r.route.model, r.route.display_name].some(
+            (v) => typeof v === 'string' && v.toLowerCase().includes(needle),
+          ),
+        )
   const toggle = (p: Panel) => setPanel(panel === p ? undefined : p)
   return (
     <section class={`engine panel${engine.disable === true ? ' off' : ''}`}>
       <div class="rowhead">
         <h3>{id}</h3>
-        <span class="pill">{kind ?? 'unknown kind'}</span>
+        <KindPill kind={kind} />
         <StatePill id={id} />
         <span class="grow" />
         <span class="group">
@@ -287,7 +331,20 @@ function EngineCard({ d, engine, index }: { d: Doc; engine: Table; index: number
         </div>
       </details>
       <div class="routes" style={`--addr-w: ${Math.max(0, ...addresses.map((a) => a.length))}ch`}>
-        {routes.map((r) => (
+        {routes.length > ROUTE_FILTER_MIN ? (
+          <div class="rowhead">
+            <input
+              type="search"
+              placeholder="filter routes by address, model or name"
+              value={query}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+            />
+            <span class="muted small-text">
+              {shown.length} of {routes.length}
+            </span>
+          </div>
+        ) : null}
+        {shown.map((r) => (
           <RouteCard key={r.index} ctx={ctx} entry={r} />
         ))}
         <button
@@ -321,7 +378,7 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
     >
       <div class="rowhead">
         <h3>{id}</h3>
-        <span class="pill">{kind ?? 'unknown kind'}</span>
+        <KindPill kind={kind} />
         <StatePill id={id} />
       </div>
       {info?.description === undefined ? null : (
@@ -345,6 +402,46 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   )
 }
 
+/** The shipped engines this config does not run yet, each addable as the starter would add it. */
+function ShippedPicker({ d }: { d: Doc }) {
+  const [shipped, setShipped] = useState<ShippedEngine[]>([])
+  useEffect(() => {
+    void call<{ engines: ShippedEngine[] }>('/api/shipped')
+      .then((r) => setShipped(r.engines))
+      .catch(() => setShipped([]))
+  }, [])
+  const have = new Set(d.engine.map((e) => String(e.id)))
+  const missing = shipped.filter((e) => !have.has(e.id))
+  if (missing.length === 0) {
+    return null
+  }
+  const hasLocal = d.upstream.some((u) => u.id === 'local')
+  return (
+    <div class="panel">
+      <h3>Shipped engines not in this config</h3>
+      {missing.map((e) => (
+        <div key={e.id}>
+          <div class="rowhead">
+            <strong>{e.id}</strong>
+            <KindPill kind={e.kind} />
+            <span class="grow" />
+            <button
+              type="button"
+              class="small"
+              onClick={() =>
+                void editDraft([...(hasLocal ? [] : [LOCAL_UPSTREAM_OP]), ...engineOps(e)])
+              }
+            >
+              Add
+            </button>
+          </div>
+          <About info={e} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function AddEngine() {
   const [id, setId] = useState('')
   const [kind, setKind] = useState('')
@@ -355,7 +452,7 @@ function AddEngine() {
         <option value="">(spec in engines/{id || 'id'}/)</option>
         {(Object.keys(KIND_TRAITS) as EngineKind[]).map((k) => (
           <option key={k} value={k}>
-            kind {k}
+            {KIND_LABELS[k]} ({k})
           </option>
         ))}
       </select>
@@ -423,6 +520,7 @@ export function EnginesView() {
           <EngineTile key={String(engine.id)} d={parsed} engine={engine} />
         ))}
       </div>
+      <ShippedPicker d={parsed} />
       <AddEngine />
       <SnippetBox table="engine" />
       <SnippetBox table="route" />

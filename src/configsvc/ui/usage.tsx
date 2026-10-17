@@ -1,4 +1,4 @@
-import { useEffect } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { loadUsage, usage } from './data.ts'
 
 interface Total {
@@ -12,7 +12,8 @@ export function UsageView() {
   useEffect(() => {
     void loadUsage()
   }, [])
-  const since = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10)
+  const [days, setDays] = useState<7 | 31>(7)
+  const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10)
   const totals = new Map<string, Total>()
   for (const row of usage.value.filter((r) => r.date >= since)) {
     const t = totals.get(row.route) ?? { route: row.route, requests: 0, failed: 0, cost: 0 }
@@ -24,7 +25,19 @@ export function UsageView() {
   const rows = [...totals.values()].sort((a, b) => b.requests - a.requests)
   return (
     <section>
-      <p class="muted">Last 7 days.</p>
+      <fieldset class="seg">
+        {([7, 31] as const).map((n) => (
+          <button
+            key={n}
+            type="button"
+            class={days === n ? 'on' : ''}
+            aria-pressed={days === n}
+            onClick={() => setDays(n)}
+          >
+            Last {n} days
+          </button>
+        ))}
+      </fieldset>
       {rows.length === 0 ? (
         <p class="muted">No calls recorded.</p>
       ) : (

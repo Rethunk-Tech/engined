@@ -155,6 +155,15 @@ export const KIND_TRAITS: Record<
   },
 }
 
+/** What each kind does, in words for someone choosing an engine. */
+export const KIND_LABELS: Record<EngineKind, string> = {
+  'openai-http': 'language model',
+  'agentic-cli': 'agent CLI',
+  tts: 'text to speech',
+  stt: 'speech to text',
+  comfy: 'image generation',
+}
+
 /**
  * There is no `idle`: idle-stop leaves an engine `installed` with nothing
  * running, which reads identically to one that has never started because

@@ -12,7 +12,7 @@ import {
 } from './starter.ts'
 import { snapshot } from './store.ts'
 import { formatBytes } from './suggest.ts'
-import { About, DiffView } from './widgets.tsx'
+import { About, DiffView, KindPill } from './widgets.tsx'
 
 type Chosen = Record<string, { on: boolean; files: Record<string, string> }>
 
@@ -37,7 +37,7 @@ function EngineChoice(props: {
           onChange={(e) => props.change({ on: e.currentTarget.checked, files })}
         />
         <strong>{engine.id}</strong>
-        <span class="muted">{engine.kind}</span>
+        <KindPill kind={engine.kind} />
       </label>
       <About info={engine} />
       {blocked.map((c) => (

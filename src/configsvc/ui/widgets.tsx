@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact'
 import { useState } from 'preact/hooks'
 import type { TomlPath } from '../../editOps.ts'
+import { type EngineKind, KIND_LABELS } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { propOf } from './schema.ts'
 
@@ -193,5 +194,18 @@ export function About({ info }: { info: { description?: string; homepage?: strin
         </>
       )}
     </p>
+  )
+}
+
+/** An engine's kind in plain words; the raw kind is the tooltip. */
+export function KindPill({ kind }: { kind: string | undefined }) {
+  const label =
+    kind !== undefined && Object.hasOwn(KIND_LABELS, kind)
+      ? KIND_LABELS[kind as EngineKind]
+      : (kind ?? 'unknown kind')
+  return (
+    <span class="pill" title={kind}>
+      {label}
+    </span>
   )
 }

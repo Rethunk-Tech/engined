@@ -58,32 +58,43 @@ export interface Pick {
   files: { path: string; role?: string }[]
 }
 
-/** Edits that turn an empty config into the proposal: the local upstream, the chosen engines and their routes. */
-export function starterOps(picks: readonly Pick[]): EditOp[] {
+export const LOCAL_UPSTREAM_OP: EditOp = {
+  op: 'addEntry',
+  table: 'upstream',
+  entry: { id: 'local', egress: 'none' },
+}
+
+/** A shipped engine's `[[engine]]` entry and, for the kinds that need no weights file, its one route. */
+export function engineOps(engine: ShippedEngine, roles = 1): EditOp[] {
   const ops: EditOp[] = [
-    { op: 'addEntry', table: 'upstream', entry: { id: 'local', egress: 'none' } },
-  ]
-  for (const { engine, files } of picks) {
-    if (needsWeights(engine) && files.length === 0) {
-      continue
-    }
-    // The llama spec takes --models-max from config and has no default of its own.
-    const roles = new Set(files.map((f) => f.role ?? 'chat')).size
-    ops.push({
+    {
       op: 'addEntry',
       table: 'engine',
       entry:
         engine.models_dir === undefined
           ? { id: engine.id }
           : engine.kind === 'openai-http'
-            ? { id: engine.id, models_dir: engine.models_dir, models_max: Math.max(1, roles) }
+            ? // The llama spec takes --models-max from config and has no default of its own.
+              { id: engine.id, models_dir: engine.models_dir, models_max: Math.max(1, roles) }
             : { id: engine.id, models_dir: engine.models_dir },
-    })
-    if (engine.kind === 'agentic-cli') {
-      ops.push({ op: 'addEntry', table: 'route', entry: { engine: engine.id } })
-    } else if (engine.kind === 'tts' || engine.kind === 'comfy') {
-      ops.push({ op: 'addEntry', table: 'route', entry: { engine: engine.id, upstream: 'local' } })
+    },
+  ]
+  if (engine.kind === 'agentic-cli') {
+    ops.push({ op: 'addEntry', table: 'route', entry: { engine: engine.id } })
+  } else if (engine.kind === 'tts' || engine.kind === 'comfy') {
+    ops.push({ op: 'addEntry', table: 'route', entry: { engine: engine.id, upstream: 'local' } })
+  }
+  return ops
+}
+
+/** Edits that turn an empty config into the proposal: the local upstream, the chosen engines and their routes. */
+export function starterOps(picks: readonly Pick[]): EditOp[] {
+  const ops: EditOp[] = [LOCAL_UPSTREAM_OP]
+  for (const { engine, files } of picks) {
+    if (needsWeights(engine) && files.length === 0) {
+      continue
     }
+    ops.push(...engineOps(engine, new Set(files.map((f) => f.role ?? 'chat')).size))
     for (const file of files) {
       ops.push({
         op: 'addEntry',
