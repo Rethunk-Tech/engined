@@ -866,6 +866,9 @@ what the container did:
   `POST /prompt` waits for the container's queue to drain before it forwards,
   so nothing is ever queued behind the running job to inherit the GPU from it.
   An interrupt that arrives after the prompt finished stops nothing at all.
+- A caller aborting `POST /prompt` after the door has forwarded it fires this
+  same gated cancel, so the GPU prompt stops rather than running on with
+  nobody waiting.
 
 That gate is the one behaviour change a comfy consumer sees. The GPU was
 serial either way; what changes is where the caller waits, and that the door

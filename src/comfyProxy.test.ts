@@ -883,6 +883,42 @@ describe('comfy proxy: an aborted caller never reaches POST /prompt', () => {
     expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(0)
   })
 
+  test('an aborted POST /prompt after the job lands fires the gated cancel', async () => {
+    const ac = new AbortController()
+    let submitted = false
+    const { client, calls } = recordingComfyClient((url, init) => {
+      if (url.includes('/prompt')) {
+        submitted = true
+        ac.abort()
+        return Response.json({ prompt_id: 'job-1' })
+      }
+      if (url.includes('/interrupt')) {
+        return Response.json({})
+      }
+      if (isQueueRead(url, init)) {
+        return submitted
+          ? Response.json({
+              queue_running: [[0, 'job-1']],
+              queue_pending: [],
+            })
+          : idleQueue()
+      }
+      return idleQueue()
+    })
+    const door = await comfyDoor(client)
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/prompt`, {
+        method: 'POST',
+        body: '{}',
+        signal: ac.signal,
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { prompt_id: string }).prompt_id).toBe('job-1')
+    expect(calls.filter((c) => c.url.includes('/prompt'))).toHaveLength(1)
+    expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(1)
+  })
+
   test('a prompt that was POSTed is not reported as unsubmitted when the caller then hangs up', async () => {
     const ac = new AbortController()
     const { client, calls } = recordingComfyClient((url, init) => {

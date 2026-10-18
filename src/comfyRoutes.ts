@@ -11,6 +11,7 @@ import {
   type ComfyMatch,
   type ComfyProxy,
   type ComfyWsData,
+  comfyPromptId,
   type EnginedServer,
   forwardComfyGet,
   HTTP_SCHEME_RE,
@@ -87,9 +88,36 @@ function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> 
   return undefined
 }
 
+/**
+ * A caller hanging up after `/prompt` has already been forwarded still owns
+ * the prompt_id. The same gated cancel a deliberate `POST /cancel` would fire
+ * is what stops the GPU job: the submission gate keeps the pending queue
+ * empty, so the interrupt cannot stop a successor.
+ */
+async function proxyComfyPromptAndCancelOnAbort(
+  proxy: ComfyProxy,
+  req: Request,
+): Promise<Response> {
+  const answered = await proxyComfyPrompt(proxy, req)
+  if (req.signal.aborted !== true) {
+    return answered
+  }
+  const promptId = comfyPromptId(await answered.clone().text())
+  if (promptId !== undefined) {
+    await proxyComfyCancel(
+      proxy,
+      new Request(req.url, {
+        method: 'POST',
+        body: JSON.stringify({ prompt_id: promptId }),
+      }),
+    )
+  }
+  return answered
+}
+
 function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Response> | undefined {
   if (rest === 'prompt') {
-    return proxyComfyPrompt(proxy, req)
+    return proxyComfyPromptAndCancelOnAbort(proxy, req)
   }
   if (rest === 'upload/image') {
     return proxyComfyUpload(proxy.base, req, proxy.httpClient)
