@@ -31,6 +31,24 @@ bash scripts/install.sh
 
 engined is a Linux `systemd --user` daemon; there is no Windows or macOS build.
 
+Completions and a man page ship as `engined-completions-man.tar.gz`:
+
+```bash
+install -Dm644 engined.bash ~/.local/share/bash-completion/completions/engined
+```
+
+```zsh
+install -Dm644 _engined ~/.local/share/zsh/site-functions/_engined
+```
+
+```fish
+install -Dm644 engined.fish ~/.config/fish/completions/engined.fish
+```
+
+```powershell
+Add-Content $PROFILE ". $PWD/engined.ps1"
+```
+
 ## Requirements
 
 - git, [Bun](https://bun.sh) 1.4, Docker, and rsync.

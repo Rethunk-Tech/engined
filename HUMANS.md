@@ -69,6 +69,33 @@ When Docker is on `PATH`, install also enables `engined-tls.service`: a
 `engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
 can speak TLS. See [docs/security-model.md § The Cursor TLS bridge](docs/security-model.md#the-cursor-tls-bridge-is-a-network-listener).
 
+Completions (bash, zsh, fish, PowerShell) and a man page are
+`engined-completions-man.tar.gz`:
+
+```bash
+curl -fsSLO https://github.com/Rethunk-Tech/engined/releases/latest/download/engined-completions-man.tar.gz
+curl -fsSLO https://github.com/Rethunk-Tech/engined/releases/latest/download/engined-completions-man.tar.gz.sha256
+sha256sum -c engined-completions-man.tar.gz.sha256
+mkdir -p /tmp/engined-assets
+tar -xzf engined-completions-man.tar.gz -C /tmp/engined-assets
+```
+
+```bash
+install -Dm644 /tmp/engined-assets/engined.bash ~/.local/share/bash-completion/completions/engined
+```
+
+```zsh
+install -Dm644 /tmp/engined-assets/_engined ~/.local/share/zsh/site-functions/_engined
+```
+
+```fish
+install -Dm644 /tmp/engined-assets/engined.fish ~/.config/fish/completions/engined.fish
+```
+
+```powershell
+Add-Content $PROFILE '. /tmp/engined-assets/engined.ps1'
+```
+
 **Never run it under `sudo`.** Root-owned outputs break later user-level builds.
 
 The sync uses `rsync --delete`; the model tree is a sibling of the install
