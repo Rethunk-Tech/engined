@@ -190,7 +190,7 @@ What each view does:
 | Engines | One card per engine: live state, disable, rename (a spec-keyed engine id is refused, with the reason), a delete guard listing what still points at it and its 7-day calls, container logs and resources, the read-only `spec.toml`, Obtain when the spec has artifacts. Its routes sit under it: a form that shows only the fields the engine kind allows, offers the upstreams the engine can use, suggests models and weight files (GGUF quantisation and context, with a warning when `ctx-size` exceeds it), checks each `args` entry as you type, shows the resolved upstream, capabilities and args, and has a Test button that sends one token through the route. |
 | Upstreams | `base_url`, egress, wire, headers and the keyring reference. Present or missing is shown, the store form writes the value to the desktop keyring and never shows it again, a catalog fetch, the routes that use the upstream, and this month's reported spend against `monthly_cap_usd`. |
 | Models | The `[[model]]` capability rows and the routes that inherit them. |
-| Chains | Hops in order, chosen from every route address; a hop whose routes are all disabled is flagged as dropped. |
+| Chains | Hops in order. Add hops… opens a dialog to filter addresses and add several at once; hops already on the chain are not offered. The same dialog is on the Add wizard's chain path. A hop whose routes are all disabled is flagged as dropped. Hops can be reordered by drag or by the arrow buttons. |
 | Address book | Every `@/...` address a consumer can use, with a copy button and 7-day calls. |
 | Usage | Calls, failures and reported cost per route over 7 days. |
 | Settings | The door's ports and timeouts, and `[configsvc]`. |
@@ -198,6 +198,7 @@ What each view does:
 | History | The kept files (newest 20): diff one against the current file, or restore it. |
 | Host checks | The `--doctor` report with the fix beside each failure. |
 | Raw TOML | The pending text in an editor with TOML highlighting. Every change is validated the way engined loads it after a 300 ms pause; errors are marked at their line and column and listed under the editor. `config.d/` fragments are shown read-only. |
+| About | The engined version this UI was built with, and the door's commit and contract when the door answers. |
 
 Every form change edits the pending text through the same comment-preserving editor, so comments and layout
 survive; nothing is written until Save. Any entry can be copied as TOML, and a pasted `[[table]]` snippet is
