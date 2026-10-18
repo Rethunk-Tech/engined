@@ -38,7 +38,7 @@ interface RoleState {
   lastUsed: number
 }
 
-export interface RoleSchedulerDeps {
+interface RoleSchedulerDeps {
   /** Unloads `from` (when a model is resident) and loads `to`, resolving once `to` can serve. */
   swap: (from: string | null, to: string) => Promise<void>
   /** The admission ceiling while `modelId` is resident for `role`. */

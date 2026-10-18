@@ -76,7 +76,7 @@ type OpenAiErrorType =
   | 'insufficient_quota'
   | 'server_error'
 
-export interface OpenAiErrorBody {
+interface OpenAiErrorBody {
   error: {
     message: string
     type: OpenAiErrorType

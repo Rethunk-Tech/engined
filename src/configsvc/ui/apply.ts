@@ -14,7 +14,7 @@ export interface Applied {
   changed: string[]
 }
 
-export type Phase = 'idle' | 'saving' | 'reloading' | 'verifying'
+type Phase = 'idle' | 'saving' | 'reloading' | 'verifying'
 
 export const applied = signal<Applied | undefined>()
 export const phase = signal<Phase>('idle')

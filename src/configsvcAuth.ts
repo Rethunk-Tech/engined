@@ -6,7 +6,7 @@ export const SESSION_IDLE_MS = 12 * 60 * 60 * 1000
 const MAX_FAILURES = 5
 const FAILURE_WINDOW_MS = 60_000
 
-export interface Auth {
+interface Auth {
   /** The one-time token, when no password hash is configured. */
   token: string | undefined
   /** A session id for a correct secret, `'limited'` when this client has failed too often, else `undefined`. */
