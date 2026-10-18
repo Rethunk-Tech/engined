@@ -236,7 +236,8 @@ function skipReason(serves: readonly string[]): string {
   if (serves.some((p) => p === CONTENT_ENDPOINT_IMAGES || p === CONTENT_ENDPOINT_IMAGE_EDITS)) {
     return 'image routes have no cheap test: one would load the diffusion model'
   }
-  return `${serves.length === 0 ? 'nothing' : serves.join(', ')} ha${serves.length === 1 ? 's' : 've'} no cheap test`
+  const named = serves.length === 0 ? 'nothing' : serves.join(', ')
+  return `${named} ha${serves.length === 1 || serves.length === 0 ? 's' : 've'} no cheap test`
 }
 
 /** What the running door says the address serves, or undefined when it does not list it. */

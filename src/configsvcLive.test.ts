@@ -87,6 +87,8 @@ test('a skip names the served paths unless they are image verbs', async () => {
   const agentic = await probe('@/claude/local', ['/v1/agent'])
   expect(agentic.skipped).toContain('/v1/agent')
   expect(agentic.skipped).not.toContain('image')
+  const empty = await probe('@/none/local', [])
+  expect(empty.skipped).toBe('nothing has no cheap test')
   const images = await probe('@/comfy/local', [CONTENT_ENDPOINT_IMAGES])
   expect(images.skipped).toBe('image routes have no cheap test: one would load the diffusion model')
 })
