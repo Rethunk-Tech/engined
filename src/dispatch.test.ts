@@ -386,6 +386,29 @@ describe('chains', () => {
     const reg = registry(cfg)
     expect(resolveModel('chain-private', RERANK, { config: cfg, registry: reg }).ok).toBe(false)
   })
+
+  test('@/<chain-id> dispatches as the bare chain; a non-chain stays a route', () => {
+    const hops = ['@/claude/sonnet']
+    const cfg = config({
+      engines: [remoteOpenaiHttp('claude')],
+      routes: [
+        route({ engine: 'claude', model: 'ornith' }),
+        route({ engine: 'claude', model: 'chain-private' }),
+      ],
+      chains: { 'chain-private': hops },
+    })
+    const reg = registry(cfg)
+    const ctx = { config: cfg, registry: reg }
+    const chain = { ok: true as const, kind: 'chain' as const, chain: 'chain-private', hops }
+    expect(resolveModel('@/chain-private', CHAT, ctx)).toEqual(chain)
+    expect(resolveModel('chain-private', CHAT, ctx)).toEqual(chain)
+    expect(resolveModel('@/ornith', CHAT, ctx)).toEqual(
+      modelResolution('claude', 'ornith', 'local'),
+    )
+    const refused = resolveModel('chain-private', EMBEDDINGS, ctx)
+    expect(resolveModel('@/chain-private', EMBEDDINGS, ctx)).toEqual(refused)
+    expect(!refused.ok && refused.error).toContain('chain "chain-private" does not serve')
+  })
 })
 
 /**

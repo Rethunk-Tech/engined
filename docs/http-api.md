@@ -176,7 +176,7 @@ one of four spellings:
 | `@/engine/model` | `@/llama/ornith` | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one) |
 | `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit |
 | `@/engine/upstream` | `@/comfy/local` | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
-| chain name | `chain-private` | an ordered fallback list — chat, speech and transcription |
+| chain name | `chain-private`, `@/chain-private` | an ordered fallback list — chat, speech and transcription. `@/<chain-id>` is the same chain as the bare id |
 
 A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
 an unqualified string resolves only as a chain name, and anything else is a
@@ -185,7 +185,9 @@ an unqualified string resolves only as a chain name, and anything else is a
 A chain hop is `@/engine/model`, `@/engine/upstream/model`, `@/engine/upstream`
 for a modelless engine, or `@/<chain-id>`. The last inserts that chain's hops
 in order; a cycle is a parse error, and a disabled chain contributes nothing.
-A request still names the chain by its bare id (`chain-private`), not `@/chain-private`.
+A request names that chain by its bare id (`chain-private`) or `@/<chain-id>`
+(`@/chain-private`); both are the same chain. When that one segment is both a
+served chain id and a route model id, the chain wins.
 
 ### Cursor's reasoning ladder
 

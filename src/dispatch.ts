@@ -329,8 +329,11 @@ function resolveChain(model: string, endpoint: string, config: Config): Dispatch
  * `model` resolution for one door endpoint. A caller that has not said where
  * its prompt should run has not said whether it may leave the machine, so
  * absent or empty is fatal to the request rather than defaulted. A bare
- * (unqualified, no `@/`) string resolves only as a chain name -- a bare model
- * or engine id is 400, same as any other unrecognised string.
+ * (unqualified, no `@/`) string resolves only as a chain name. A one-segment
+ * `@/<chain-id>` is that same chain, and the chain wins when the segment is
+ * also a route model id; any other one-segment address stays the
+ * highest-preference route. A bare model or engine id is 400, same as any
+ * other unrecognised string.
  */
 export function resolveModel(
   model: string | undefined,
@@ -343,6 +346,13 @@ export function resolveModel(
 
   const segments = qualifiedSegments(model)
   if (segments !== undefined) {
+    const [only] = segments
+    if (segments.length === 1 && only !== undefined) {
+      const chain = resolveChain(only, endpoint, ctx.config)
+      if (chain !== undefined) {
+        return chain
+      }
+    }
     return resolveQualified(segments, { endpoint, ...ctx })
   }
 
