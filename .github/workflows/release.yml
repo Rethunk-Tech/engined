@@ -69,6 +69,25 @@ jobs:
           [ -f packages/engined-linux-amd64.tar.gz ]
           [ -f packages/engined-linux-arm64.tar.gz ]
 
+      # Completions and the man page are generated from this bundle's own
+      # --help, so they cannot drift from the flags that ship. They are
+      # arch-independent; one tarball is enough.
+      - name: Stage completions and the man page
+        run: |
+          set -euo pipefail
+          assets=$(mktemp -d)
+          bun dist/main.js completion bash >"$assets/engined.bash"
+          bun dist/main.js completion zsh >"$assets/_engined"
+          bun dist/main.js completion fish >"$assets/engined.fish"
+          bun dist/main.js completion pwsh >"$assets/engined.ps1"
+          bun dist/main.js man >"$assets/engined.1"
+          for f in engined.bash _engined engined.fish engined.ps1 engined.1; do
+            test -s "$assets/$f" || { echo "missing generated asset: $f"; exit 1; }
+          done
+          tar -czf engined-completions-man.tar.gz -C "$assets" \
+            engined.bash _engined engined.fish engined.ps1 engined.1
+          sha256sum engined-completions-man.tar.gz > engined-completions-man.tar.gz.sha256
+
       - name: Checksums
         env:
           TAG: ${{ github.ref_name }}
@@ -76,6 +95,7 @@ jobs:
           set -euo pipefail
           {
             sha256sum -- "engined-${TAG#v}.tar.gz"
+            sha256sum -- engined-completions-man.tar.gz
             (cd packages && sha256sum -- *)
           } >SHA256SUMS
 
@@ -95,6 +115,7 @@ jobs:
           name: release
           path: |
             engined-*.tar.gz
+            engined-completions-man.tar.gz.sha256
             packages/
             SHA256SUMS
             release-subject.txt
@@ -131,4 +152,5 @@ jobs:
               --verify-tag
           fi
           gh release upload "$TAG" "engined-${TAG#v}.tar.gz" \
+            engined-completions-man.tar.gz engined-completions-man.tar.gz.sha256 \
             packages/engined-linux-*.tar.gz packages/*.deb packages/*.rpm SHA256SUMS --clobber
