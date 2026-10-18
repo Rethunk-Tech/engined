@@ -557,6 +557,8 @@ id = "whisper"
 models_dir = "~/.local/share/engined-models/whisper"
 idle_stop_seconds = 1800
 ready_timeout_s = 300                                # whisper.cpp's own model load is slower than a container boot.
+# [engine.args]
+# threads = 8   # CPU threads for VAD and request handling; whisper.cpp's default when unset.
 
 # Two model-bearing routes on the one engine rather than two engines: same
 # image, same models_dir, differing only by which weights file starts the

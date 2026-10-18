@@ -83,13 +83,11 @@ command = [
   "--inference-path",
   "/v1/audio/transcriptions",
   "-fa",
-  # 16, the box's physical core count, not 32 (SMT2 total). Thread count
-  # makes no difference beyond noise at any clip length (figures:
-  # docs/engines.md). Encode now runs on the GPU (see devices/group_add above), so this
-  # governs only VAD and request handling. 16 is kept because it is the
-  # physical core count and nothing argues against it -- not because it wins.
-  "-t",
-  "16",
+  # No thread count: encode runs on the GPU (see devices/group_add above), so
+  # threads govern only VAD and request handling and make no difference beyond
+  # noise at any clip length (figures: docs/engines.md). whisper.cpp picks its
+  # own default; `threads` in [engine.args] sets it on both the server and the
+  # streaming path.
   "--no-timestamps",
 ]
 # --no-timestamps is not merely a print setting: it pushes <|notimestamps|>

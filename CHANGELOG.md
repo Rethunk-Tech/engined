@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- whisper: no hardcoded `-t 16`; `threads` in `[engine.args]` sets the thread count on both the server
+  and the streaming path, and whisper.cpp's own default applies when it is unset.
 - whisper: the model is the route's `filename` alone. Only the weights an enabled route names have to
   be on disk, a start that names no model loads the first route's file, and the spec lists the q5
   quantisations (`small.en-q5_1`, `medium.en-q5_0`, `large-v3-turbo-q5_0`) with their obtain

@@ -215,7 +215,7 @@ def _cli_argv(audio_path: str, params: dict[str, list[str]]) -> list[str]:
     model = _value(SERVER_ARGV, "-m")
     if model is not None:
         argv += ["-m", model]
-    threads = _value(SERVER_ARGV, "-t")
+    threads = _value(SERVER_ARGV, "--threads") or _value(SERVER_ARGV, "-t")
     if threads is not None:
         argv += ["-t", threads]
     if "-fa" in SERVER_ARGV:
