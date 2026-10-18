@@ -5,5 +5,5 @@ pre-commit:
 
 pre-push:
   jobs:
-    - name: ci
-      run: bun install --frozen-lockfile && bun run ci
+    - name: gate
+      run: bun install --frozen-lockfile && gate

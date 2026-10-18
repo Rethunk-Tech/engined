@@ -39,7 +39,7 @@ jobs:
       - name: bubblewrap
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap
+          sudo apt-get install -y --no-install-recommends bubblewrap shellcheck
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # Container-backed and agentic tests need images, a GPU and `claude` auth,
       # so they are local-only. This tier runs against a fake upstream.
@@ -53,9 +53,19 @@ jobs:
       - id: build
         run: bunx turbo run build
         continue-on-error: true
+      - id: actionlint
+        continue-on-error: true
+        run: |
+          bash <(curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/rhysd/actionlint/011a6d15e749bb3f2d771eed9c7aa0e7e3e10ee7/scripts/download-actionlint.bash) \
+            1.7.12 "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
+      - id: shellcheck
+        continue-on-error: true
+        run: shellcheck packaging/deb-rpm/build.sh packaging/deb-rpm/postinstall.sh scripts/install.sh packaging/aur/release.sh engines/whisper/quiet.sh
 
       - name: gate
-        if: steps.lint.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success' || steps.build.outcome != 'success'
+        if: steps.lint.outcome != 'success' || steps.typecheck.outcome != 'success' || steps.test.outcome != 'success' || steps.build.outcome != 'success' || steps.actionlint.outcome != 'success' || steps.shellcheck.outcome != 'success'
         run: |
-          echo "lint=${{ steps.lint.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }} build=${{ steps.build.outcome }}"
+          echo "lint=${{ steps.lint.outcome }} typecheck=${{ steps.typecheck.outcome }} test=${{ steps.test.outcome }} build=${{ steps.build.outcome }} actionlint=${{ steps.actionlint.outcome }} shellcheck=${{ steps.shellcheck.outcome }}"
           exit 1

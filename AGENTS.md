@@ -155,8 +155,8 @@ rather than working around it in each caller.
 
 When suggesting features for an engined consumer (e.g. engined-vscode), include ones engined does not support yet and pair each with the engine change it needs; a missing door capability is a reason to extend engined, not to drop the idea.
 
-Before committing: `gate` (build, typecheck, lint, test, actionlint).
-`bun run ci` runs the same four bun tasks through turbo, which keys each
+Before committing: `gate` (build, typecheck, lint, test, actionlint, shellcheck).
+`bun run ci` runs the four bun tasks through turbo, which keys each
 on its own inputs -- a docs-only change replays them from cache.
 
 maitre, earshot and bastion-client-discord already run on engined: check a change to a verb they use against them.
@@ -164,8 +164,9 @@ maitre, earshot and bastion-client-discord already run on engined: check a chang
 ## Gate budget
 
 Measured at load average 6 to 15 on 32 cores. `gate` auto-detects six steps (build, typecheck, lint
-with knip, actionlint, shellcheck, `bun test src`), the same set CI runs through turbo, and skips
-`test:local`; nothing slow is detected that CI omits, and nothing CI runs is missing, apart from
+with knip, actionlint, shellcheck, `bun test src`). CI runs the same six: the four bun tasks
+through turbo, then actionlint and shellcheck, and skips `test:local`; nothing slow is detected
+that CI omits, and nothing CI runs is missing, apart from
 the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize` (it was 9.7 s wall, 4.5
 CPU-s with files run in series: the suite is idle timer waits, so file-level parallelism overlaps
 them). Randomised order caught one order-dependent assertion in `cursorModels.test.ts`, now
