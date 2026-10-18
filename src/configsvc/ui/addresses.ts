@@ -164,10 +164,12 @@ export function addressBook(doc: Doc, upstreamOf: UpstreamOf): AddressRow[] {
 }
 
 /**
- * Every address a hop can be chosen from: each declared route, each other chain as
- * `@/<id>`, and each id in the cached catalog of an enabled wildcard route. The wildcard
- * itself is a catalog, not one model to try. `except` is the chain being edited, so it
- * is not offered to itself.
+ * Every address a hop can be chosen from: each declared route, each other enabled chain as
+ * `@/<id>`, and each id in the cached catalog of an enabled wildcard route. A disabled
+ * chain is omitted: parse drops a hop onto one, so offering it writes a line that vanishes
+ * on save. A disabled route stays listed; the card flags it dropped. The wildcard itself
+ * is a catalog, not one model to try. `except` is the chain being edited, so it is not
+ * offered to itself.
  */
 export function hopChoices(
   doc: Doc,
@@ -179,7 +181,7 @@ export function hopChoices(
     .filter(
       (row) =>
         (row.kind === 'route' && !row.address.endsWith('/*')) ||
-        (row.kind === 'chain' && row.address !== `@/${except}`),
+        (row.kind === 'chain' && !row.disabled && row.address !== `@/${except}`),
     )
     .map((row) => row.address)
   const catalog = doc.route.flatMap((r) => {

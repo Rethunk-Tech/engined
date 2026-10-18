@@ -241,7 +241,7 @@ test('a chain hop lists the leaf addresses it inserts, walking nested hops', () 
 
 test('hops resolve or are flagged dropped; the address book lists routes and chains; snippets round-trip', () => {
   const doc = parseDoc(
-    '[[engine]]\nid = "e"\n[[engine]]\nid = "off"\ndisable = true\n[[upstream]]\nid = "local"\n[[route]]\nengine = "e"\nmodel = "m"\n[[route]]\nengine = "off"\nmodel = "n"\n[[chain]]\nid = "c"\nhops = ["@/e/m"]\n',
+    '[[engine]]\nid = "e"\n[[engine]]\nid = "off"\ndisable = true\n[[upstream]]\nid = "local"\n[[route]]\nengine = "e"\nmodel = "m"\n[[route]]\nengine = "off"\nmodel = "n"\n[[chain]]\nid = "c"\nhops = ["@/e/m"]\n[[chain]]\nid = "gone"\ndisable = true\nhops = ["@/e/m"]\n',
   )
   if (doc === undefined) {
     throw new Error('fixture must parse')
@@ -252,12 +252,14 @@ test('hops resolve or are flagged dropped; the address book lists routes and cha
   expect(hopState(doc, '@/missing', up)).toBe('unresolved')
   expect(hopChoices(doc, up, {})).toEqual(['@/c', '@/e/m', '@/off/n'])
   expect(hopChoices(doc, up, {}, 'c')).toEqual(['@/e/m', '@/off/n'])
+  expect(hopState(doc, '@/gone', up)).toBe('dropped')
   expect(hopState(doc, '@/off/n', up)).toBe('dropped')
   expect(hopState(doc, '@/e/local/m', up)).toBe('ok')
   expect(hopState(doc, '@/e/zzz', up)).toBe('unresolved')
   expect(addressBook(doc, up).map((r) => [r.address, r.kind, r.disabled])).toEqual([
     ['@/c', 'chain', false],
     ['@/e/m', 'route', false],
+    ['@/gone', 'chain', true],
     ['@/off/n', 'route', true],
   ])
   const text = entryToToml('route', { engine: 'e', model: 'm', args: { 'ctx-size': 4096 } })
