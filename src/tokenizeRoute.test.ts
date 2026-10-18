@@ -12,7 +12,12 @@ import {
   writeEngineSpec,
   writeGgufFixture,
 } from './test-support.ts'
-import { MAX_TOKENIZE_CONTENT_CHARS, supportsVocabTokenize } from './tokenizeRoute.ts'
+import {
+  DETOKENIZE_PATH,
+  MAX_TOKENIZE_CONTENT_CHARS,
+  supportsVocabTokenize,
+  TOKENIZE_PATH,
+} from './tokenizeRoute.ts'
 
 const TEST_ROOT = makeTestRoot('engined-tokenize-route-test-')
 
@@ -99,12 +104,65 @@ describe('POST /engined/v1/tokenize', () => {
 })
 
 describe('GET /openai/v1/models advertises vocab-only tokenize', () => {
-  test('a route whose GGUF this door can read cold lists /engined/v1/tokenize in serves', async () => {
+  test('a route whose GGUF this door can read cold lists tokenize and detokenize in serves', async () => {
     const door = tokenizableDoorConfig()
     const res = await door.fetch(new Request('http://engined/openai/v1/models'))
     const { data } = (await res.json()) as { data: { id: string; serves: string[] }[] }
     const row = data.find((r) => r.id === '@/llama/tiny')
-    expect(row?.serves).toContain('/engined/v1/tokenize')
+    expect(row?.serves).toContain(TOKENIZE_PATH)
+    expect(row?.serves).toContain(DETOKENIZE_PATH)
+  })
+})
+
+describe('POST /engined/v1/detokenize', () => {
+  test('ids of a prior tokenize on the same model return the joined pieces as text', async () => {
+    const door = tokenizableDoorConfig()
+    const res = await door.fetch(
+      new Request(`http://engined${DETOKENIZE_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify({ model: '@/llama/tiny', tokens: [2] }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ content: 'ab' })
+  })
+
+  test('a route tokenize refuses still refuses detokenize', async () => {
+    const root = join(TEST_ROOT, `door-${Math.random().toString(36).slice(2)}`)
+    writeEngineSpec(root, 'remote', LOCAL_LLAMA_SPEC)
+    const cfg = config({
+      engines: [engine({ id: 'remote' })],
+      routes: [route({ engine: 'remote', model: 'x', upstream: 'openrouter' })],
+    })
+    const door = createDoor(cfg, {
+      enginesRoot: root,
+      bunx: BUNX,
+      exec: llamaExec(),
+      probe: READY_200,
+    })
+    const res = await door.fetch(
+      new Request(`http://engined${DETOKENIZE_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify({ model: '@/remote/x', tokens: [0] }),
+      }),
+    )
+    expect(res.status).toBe(400)
+    expect(errorMessageOf(await res.json())).toContain('no local GGUF')
+  })
+
+  test('an id count past the cap is 413', async () => {
+    const door = tokenizableDoorConfig()
+    const res = await door.fetch(
+      new Request(`http://engined${DETOKENIZE_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          model: '@/llama/tiny',
+          tokens: Array.from({ length: MAX_TOKENIZE_CONTENT_CHARS + 1 }, () => 0),
+        }),
+      }),
+    )
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual(jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'tokens too large'))
   })
 })
 

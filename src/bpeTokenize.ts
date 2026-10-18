@@ -75,6 +75,44 @@ const BYTE_TO_CHAR: readonly string[] = (() => {
   return table
 })()
 
+const CHAR_TO_BYTE: ReadonlyMap<string, number> = (() => {
+  const table = new Map<string, number>()
+  for (let b = 0; b < BYTE_COUNT; b++) {
+    const ch = BYTE_TO_CHAR[b]
+    if (ch !== undefined) {
+      table.set(ch, b)
+    }
+  }
+  return table
+})()
+
+function byteDecode(escaped: string): string {
+  const bytes = new Uint8Array(escaped.length)
+  let i = 0
+  for (const ch of escaped) {
+    const b = CHAR_TO_BYTE.get(ch)
+    if (b === undefined) {
+      throw new UnsupportedVocabError('escaped character is not in the GPT-2 byte alphabet')
+    }
+    bytes[i] = b
+    i += 1
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, i))
+}
+
+/** The join of the pieces `ids` name, byte-decoded. That text may not equal the `content` those ids came from. */
+export function bpeDetokenize(vocab: BpeVocab, ids: readonly number[]): string {
+  let escaped = ''
+  for (const id of ids) {
+    const piece = vocab.idToToken[id]
+    if (piece === undefined) {
+      throw new UnsupportedVocabError(`token id ${id} is not in this vocab`)
+    }
+    escaped += piece
+  }
+  return byteDecode(escaped)
+}
+
 /** Every byte of `word`'s UTF-8 encoding, escaped through `BYTE_TO_CHAR` -- the alphabet `tokenizer.ggml.tokens` and `.merges` are both written in. */
 function byteEncode(word: string): string {
   const bytes = new TextEncoder().encode(word)

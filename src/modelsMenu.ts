@@ -25,7 +25,7 @@ import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
-import { supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
+import { DETOKENIZE_PATH, supportsVocabTokenize, TOKENIZE_PATH } from './tokenizeRoute.ts'
 import type {
   Config,
   EngineEntry,
@@ -152,11 +152,11 @@ async function modelRow(
   const status = statuses.get(route.engine)
   const state = await remoteRouteState(ctx, route, status?.state ?? 'unavailable', remoteOk)
   const serves = routeServes(route, status?.serves ?? [])
-  // Vocab-only tokenize needs no engine `serves` entry of its own: a route
-  // advertises it whenever its GGUF's vocab is one this door can read cold,
-  // regardless of whether the engine is even running.
+  // Vocab-only tokenize/detokenize need no engine `serves` entry of their
+  // own: a route advertises both whenever its GGUF's vocab is one this door
+  // can read cold, regardless of whether the engine is even running.
   if (await supportsVocabTokenize(route, config)) {
-    serves.push(TOKENIZE_PATH)
+    serves.push(TOKENIZE_PATH, DETOKENIZE_PATH)
   }
   const capabilities = routeCapabilities(
     route,

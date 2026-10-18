@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { bpeTokenIds } from './bpeTokenize.ts'
+import { bpeDetokenize, bpeTokenIds } from './bpeTokenize.ts'
 import type { BpeVocab } from './bpeVocab.ts'
 import { UnsupportedVocabError } from './bpeVocab.ts'
 import './testtmp.ts'
@@ -9,6 +9,7 @@ function vocab(pre: string, tokens: string[], merges: string[]): BpeVocab {
   return {
     pre,
     tokenToId: new Map(tokens.map((t, i) => [t, i])),
+    idToToken: tokens,
     mergeRank: new Map(merges.map((m, i) => [m, i])),
   }
 }
@@ -77,5 +78,17 @@ describe('bpeTokenIds', () => {
       return mergeRank.lookups
     }
     expect(lookups(40_000) / lookups(10_000)).toBeLessThan(8)
+  })
+})
+
+describe('bpeDetokenize', () => {
+  test('the join of the pieces those ids name, byte-decoded, not a guaranteed round-trip of content', () => {
+    const v = vocab('gpt2', ['h', 'i', 'Ġ'], [])
+    expect(bpeDetokenize(v, [2, 0, 1])).toBe(' hi')
+  })
+
+  test('an id nobody in this vocab owns is refused rather than skipped', () => {
+    const v = vocab('qwen2', ['a'], [])
+    expect(() => bpeDetokenize(v, [1])).toThrow(UnsupportedVocabError)
   })
 })

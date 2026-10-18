@@ -32,6 +32,7 @@ treated as a caller.
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
 | `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
 | `/engined/v1/tokenize` | POST | `{model: "@/engine/model", content}` in, `{tokens: <count>}` out — a vocab-only token count for a local GGUF route, no engine started and no weights loaded. See [Vocab-only tokenize](#vocab-only-tokenize) |
+| `/engined/v1/detokenize` | POST | `{model: "@/engine/model", tokens}` in, `{content}` out — the inverse join of those ids against the same CPU vocab. See [Vocab-only tokenize](#vocab-only-tokenize) |
 | `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/engined/v1/engines/:id/hold` | POST | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands |
@@ -572,9 +573,17 @@ llama-server, which in router mode has to load the model just to answer.
 Only reachable for a local route whose GGUF uses byte-level BPE
 (`tokenizer.ggml.model = "gpt2"`) with a pretokenizer this door knows how to
 split — `qwen2`, `qwen35` and `gpt2` today, read off `tokenizer.ggml.pre`. A
-route that qualifies advertises `/engined/v1/tokenize` in its `GET
-/openai/v1/models` row's `serves`; naming a route that does not (a remote
-route, a non-BPE vocab, or an unrecognized pretokenizer) is a 400 naming why.
+route that qualifies advertises `/engined/v1/tokenize` and
+`/engined/v1/detokenize` in its `GET /openai/v1/models` row's `serves`; naming
+a route that does not (a remote route, a non-BPE vocab, or an unrecognized
+pretokenizer) is a 400 naming why.
+
+`POST /engined/v1/detokenize` takes `{ "model": "@/engine/model", "tokens": [<id>, ...] }`
+— the `tokens` array, not a second id field name — and answers
+`{ "content": "<text>" }`. The text is the join of the pieces those ids name,
+byte-decoded; it may not equal the original `content` (leading spaces, special
+tokens). The same 4 MiChar-class cap applies as an id count. Neither verb
+starts an engine or loads weights.
 
 The count does not add a BOS/EOS token (matching llama-server's own
 `/tokenize`, which defaults `add_special` to `false`), and it does not run

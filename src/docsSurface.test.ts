@@ -59,6 +59,7 @@ const DOOR_PATHS = [
   `${ENGINED_ENGINES_PATH}/:id/apply-template`,
   '/engined/v1/start',
   '/engined/v1/tokenize',
+  '/engined/v1/detokenize',
   '/engined/v1/audio/voices',
   '/engined/v1/images/:id',
   '/engined/v1/comfy/:engine/:upstream/...',

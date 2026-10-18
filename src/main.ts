@@ -53,7 +53,12 @@ import {
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
 import { refuseMovedPorts, type ServedPorts } from './servedPorts.ts'
-import { handleTokenizeRoute, TOKENIZE_PATH } from './tokenizeRoute.ts'
+import {
+  DETOKENIZE_PATH,
+  handleDetokenizeRoute,
+  handleTokenizeRoute,
+  TOKENIZE_PATH,
+} from './tokenizeRoute.ts'
 import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH, handleUsage, USAGE_PATH, UsageTracker } from './usage.ts'
 import { handleVoiceUpload, VOICE_UPLOAD_PATH } from './voices.ts'
@@ -161,6 +166,9 @@ function routePost(
   if (pathname === TOKENIZE_PATH) {
     return handleTokenizeRoute(ctx, req)
   }
+  if (pathname === DETOKENIZE_PATH) {
+    return handleDetokenizeRoute(ctx, req)
+  }
   const verb = routeEngineVerb(ctx, req, pathname)
   if (verb !== undefined) {
     return verb
@@ -192,6 +200,7 @@ function allowFor(pathname: string): string[] {
     isCursorPath(pathname) ||
     pathname === START_PATH ||
     pathname === TOKENIZE_PATH ||
+    pathname === DETOKENIZE_PATH ||
     pathname === VOICE_UPLOAD_PATH ||
     CONTENT_ENDPOINTS.has(pathname) ||
     isEngineVerbPath(pathname) ||

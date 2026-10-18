@@ -418,7 +418,7 @@ export async function readJsonBody(req: Request): Promise<Record<string, unknown
 
 /**
  * `readJsonBody`, plus the "model is required" check every model-taking verb
- * (`/engined/v1/start`, `/engined/v1/tokenize`) repeats. Returns the parsed
+ * (`/engined/v1/start`, `/engined/v1/tokenize`, `/engined/v1/detokenize`) repeats. Returns the parsed
  * body alongside the model so a caller with other fields to read (tokenize's
  * `content`) still has it.
  */

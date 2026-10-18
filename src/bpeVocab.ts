@@ -16,6 +16,8 @@ export interface BpeVocab {
   /** `tokenizer.ggml.pre`, kept for the pretokenizer registry lookup in `bpeTokenize.ts`. */
   pre: string
   tokenToId: ReadonlyMap<string, number>
+  /** Piece named by each id, the inverse of `tokenToId`; index is the id tokenize emitted. */
+  idToToken: readonly string[]
   /** Rank by `"<left> <right>"`; lower merges first. Ties never occur -- each pair appears at most once in `tokenizer.ggml.merges`. */
   mergeRank: ReadonlyMap<string, number>
 }
@@ -40,7 +42,7 @@ async function buildBpeVocab(path: string): Promise<BpeVocab> {
   }
   const tokenToId = new Map(meta.tokens.map((tok, id) => [tok, id] as const))
   const mergeRank = new Map(meta.merges.map((pair, rank) => [pair, rank] as const))
-  return { pre: meta.tokenizerPre, tokenToId, mergeRank }
+  return { pre: meta.tokenizerPre, tokenToId, idToToken: meta.tokens, mergeRank }
 }
 
 /** Keyed on path alone: a replaced GGUF at the same path is caught by the mtime check below rather than leaking its old vocab under a second key. */
