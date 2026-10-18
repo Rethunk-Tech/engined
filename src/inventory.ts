@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
+import { excludeMatcher } from './modelExclude.ts'
 import { upstreamInventoryDir } from './paths.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { encodeAddressSegment } from './routeAddress.ts'
@@ -73,6 +74,15 @@ function parseModelsBody(raw: unknown): string[] | undefined {
   return ids
 }
 
+/** The ids this upstream's `exclude_models` leaves served; the cache keeps the full catalog. */
+function kept(upstream: Upstream, ids: string[]): string[] {
+  if (upstream.exclude_models === undefined) {
+    return ids
+  }
+  const excluded = excludeMatcher(upstream.exclude_models)
+  return ids.filter((id) => !excluded(id))
+}
+
 /** Live catalog cache, one in-memory entry per upstream, mirrored under `upstreams/<id>/`. */
 export class Inventory {
   private readonly mem = new Map<string, CachedInventory>()
@@ -98,7 +108,7 @@ export class Inventory {
    * the file is past max age (and then the file is removed).
    */
   peek(upstream: Upstream): string[] {
-    return this.loadFresh(upstream)?.ids ?? []
+    return kept(upstream, this.loadFresh(upstream)?.ids ?? [])
   }
 
   async refresh(upstream: Upstream): Promise<InventoryLookup> {
@@ -111,11 +121,11 @@ export class Inventory {
       const cached: CachedInventory = { fetchedAt: this.now(), ids: live.ids }
       this.mem.set(upstream.id, cached)
       this.writeFile(upstream.id, cached)
-      return { ids: live.ids }
+      return { ids: kept(upstream, live.ids) }
     }
     const cached = this.loadFresh(upstream)
     if (cached !== undefined) {
-      return { ids: cached.ids, fetchError: live.error }
+      return { ids: kept(upstream, cached.ids), fetchError: live.error }
     }
     return { ids: [], fetchError: live.error }
   }

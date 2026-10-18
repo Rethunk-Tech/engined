@@ -511,7 +511,10 @@ const foundSecret: SecretExec = async () => ({
   exitCode: 0,
 })
 
-async function catalogInventory(ids: string[]): Promise<{
+async function catalogInventory(
+  ids: string[],
+  exclude?: string[],
+): Promise<{
   inv: Inventory
   cfg: Config
 }> {
@@ -521,10 +524,11 @@ async function catalogInventory(ids: string[]): Promise<{
     secret: { service: 's', username: 'u', header: 'authorization', scheme: 'Bearer' },
     egress: 'remote',
     inventory_max_age_seconds: 86_400,
+    exclude_models: exclude,
   })
   const inv = new Inventory({
     secretExec: foundSecret,
-    stateRoot: join(DISPATCH_ROOT, `inv-${ids.join(',') || 'empty'}`),
+    stateRoot: join(DISPATCH_ROOT, `inv-${ids.join(',') || 'empty'}-${exclude?.join(',') ?? ''}`),
     fetch: async () =>
       Response.json({ object: 'list', data: ids.map((id) => ({ id, object: 'model' })) }),
   })
@@ -594,6 +598,20 @@ describe('wildcard catalog dispatch', () => {
     expect(result.route.wire_model).toBe('cohere/north-mini-code:free')
     const expanded = expandWildcardRoutes(cfg, inv).map((r) => r.wire_model)
     expect(expanded).toEqual(['org/model:free'])
+  })
+
+  test('an excluded catalog id is absent from expansion and resolves as unknown', async () => {
+    const { inv, cfg } = await catalogInventory(
+      ['openai/gpt', 'org/model:free', 'plain'],
+      ['openai/*', '/:free$/'],
+    )
+    expect(expandWildcardRoutes(cfg, inv).map((r) => r.wire_model)).toEqual(['plain'])
+    const result = resolveModel('@/openrouter/openai%2Fgpt', CHAT, {
+      config: cfg,
+      registry: registryWith(cfg, inv),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.error).toMatch(/does not exist/)
   })
 
   test('a three-segment hop onto an inventoried id also resolves', async () => {
