@@ -75,6 +75,15 @@ describe('parseExposedPort', () => {
     expect('error' in result && result.error).toContain('6379/tcp')
     expect('error' in result && result.error).toContain('16379/tcp')
   })
+
+  test('subprocess output that is not JSON is an error, not a throw', () => {
+    expect(parseExposedPort('', 'redis:alpine')).toEqual({
+      error: 'redis:alpine: image inspect was not JSON',
+    })
+    expect(parseExposedPort('not-json', 'redis:alpine')).toEqual({
+      error: 'redis:alpine: image inspect was not JSON',
+    })
+  })
 })
 
 const RECORDED_HOST_PORT = 32_768

@@ -54,7 +54,12 @@ export function hostPathFor(artifact: Artifact, volumes: readonly Volume[]): str
 /** The container side comes from the image: exposing zero or several ports leaves no field to disambiguate with. */
 export function parseExposedPort(inspectJson: string, image: string): PortResult {
   // Docker's keys are PascalCase; reading them off a checked record keeps that casing out of our types.
-  const parsed: unknown = JSON.parse(inspectJson)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(inspectJson)
+  } catch {
+    return { error: `${image}: image inspect was not JSON` }
+  }
   const first = Array.isArray(parsed) ? parsed[0] : undefined
   const config = isRecord(first) ? first.Config : undefined
   const exposed = isRecord(config) ? config.ExposedPorts : undefined
