@@ -174,13 +174,18 @@ one of four spellings:
 | --- | --- | --- |
 | `@/model` | `@/ornith` | the highest-preference route offering that model, ordered local → `lan` → `remote` → declaration. Does not walk on failure — a caller wanting fallback writes a chain |
 | `@/engine/model` | `@/llama/ornith` | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one) |
-| `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit — the only form a chain hop may use |
+| `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit |
 | `@/engine/upstream` | `@/comfy/local` | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
 | chain name | `chain-private` | an ordered fallback list — chat, speech and transcription |
 
 A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
 an unqualified string resolves only as a chain name, and anything else is a
 400 naming it unknown.
+
+A chain hop is `@/engine/model`, `@/engine/upstream/model`, `@/engine/upstream`
+for a modelless engine, or `@/<chain-id>`. The last inserts that chain's hops
+in order; a cycle is a parse error, and a disabled chain contributes nothing.
+A request still names the chain by its bare id (`chain-private`), not `@/chain-private`.
 
 ### Cursor's reasoning ladder
 

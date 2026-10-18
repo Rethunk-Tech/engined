@@ -723,6 +723,40 @@ describe('chain hops', () => {
     },
   )
 
+  test('a chain hop inserts that chain in order, whatever order the tables are written', () => {
+    const inner = `[[chain]]\nid = "inner"\nhops = ["@/local-llama/ornith"]\n`
+    const outer = `[[chain]]\nid = "outer"\nhops = ["@/inner", "@/local-llama/ornith"]\n`
+    for (const toml of [`${inner}${outer}`, `${outer}${inner}`]) {
+      const cfg = loadConfig(writeConfig(`${llamaEngineAndRoute()}\n${toml}`))
+      expect(cfg.chains.inner).toEqual(['@/local-llama/ornith'])
+      expect(cfg.chains.outer).toEqual(['@/local-llama/ornith', '@/local-llama/ornith'])
+    }
+  })
+
+  test('a chain that includes itself is a parse error naming the cycle', () => {
+    const self = parseMessage(`${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/c"]\n`)
+    expect(self).toContain('chain "c" includes itself (c -> c)')
+    const mutual = parseMessage(
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "a"\nhops = ["@/b"]\n[[chain]]\nid = "b"\nhops = ["@/local-llama/ornith", "@/a"]\n`,
+    )
+    expect(mutual).toContain('chain "a" includes itself (a -> b -> a)')
+  })
+
+  test('a hop onto an unknown chain fails, and a disabled chain drops out', () => {
+    const missing = parseMessage(
+      `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/nope"]\n`,
+    )
+    expect(missing).toContain('"nope" is not a chain')
+    const cfg = loadConfig(
+      writeConfig(
+        `${llamaEngineAndRoute()}\n[[chain]]\nid = "inner"\ndisable = true\nhops = ["@/local-llama/ornith"]\n[[chain]]\nid = "outer"\nhops = ["@/inner", "@/local-llama/ornith"]\n[[chain]]\nid = "empty"\nhops = ["@/inner"]\n`,
+      ),
+    )
+    expect(cfg.chains.outer).toEqual(['@/local-llama/ornith'])
+    expect(cfg.chains.inner).toBeUndefined()
+    expect(cfg.chains.empty).toBeUndefined()
+  })
+
   test('a qualified hop naming an unknown engine fails, naming the engine half and the hop', () => {
     const message = parseMessage(
       `${llamaEngineAndRoute()}\n[[chain]]\nid = "c"\nhops = ["@/nope/ornith"]\n`,

@@ -217,6 +217,10 @@ test('hops resolve or are flagged dropped; the address book lists routes and cha
   }
   const up = () => 'local'
   expect(hopState(doc, '@/e/m', up)).toBe('ok')
+  expect(hopState(doc, '@/c', up)).toBe('ok')
+  expect(hopState(doc, '@/missing', up)).toBe('unresolved')
+  expect(hopChoices(doc, up, {})).toEqual(['@/c', '@/e/m', '@/off/n'])
+  expect(hopChoices(doc, up, {}, 'c')).toEqual(['@/e/m', '@/off/n'])
   expect(hopState(doc, '@/off/n', up)).toBe('dropped')
   expect(hopState(doc, '@/e/local/m', up)).toBe('ok')
   expect(hopState(doc, '@/e/zzz', up)).toBe('unresolved')

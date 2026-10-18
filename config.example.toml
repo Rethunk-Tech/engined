@@ -778,6 +778,7 @@ model = "*"
 
 # ---------------------------------------------------------------------------
 # Chains: an ordered fallback list a consumer names instead of one model.
+# A hop may be @/<chain-id>, which inserts that chain's hops in order.
 # ---------------------------------------------------------------------------
 
 # Private is one hop on purpose -- not a degenerate chain, but the name a

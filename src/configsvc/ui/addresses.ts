@@ -47,8 +47,16 @@ export function candidates(doc: Doc, hop: string, upstreamOf: UpstreamOf): Table
   )
 }
 
-/** `dropped` is a hop whose every candidate route is disabled: the chain skips it silently. */
+/** `dropped` is a hop whose every candidate route is disabled, or a hop onto a disabled chain. */
 export function hopState(doc: Doc, hop: string, upstreamOf: UpstreamOf): HopState {
+  const seg = qualifiedSegments(hop)
+  if (seg?.length === 1) {
+    const chain = doc.chain.find((c) => c.id === seg[0])
+    if (chain === undefined) {
+      return 'unresolved'
+    }
+    return chain.disable === true ? 'dropped' : 'ok'
+  }
   const found = candidates(doc, hop, upstreamOf)
   if (found.length === 0) {
     return 'unresolved'
@@ -79,16 +87,23 @@ export function addressBook(doc: Doc, upstreamOf: UpstreamOf): AddressRow[] {
 }
 
 /**
- * Every address a hop can be chosen from: each declared route, and each id in the cached
- * catalog of an enabled wildcard route. The wildcard itself is a catalog, not one model to try.
+ * Every address a hop can be chosen from: each declared route, each other chain as
+ * `@/<id>`, and each id in the cached catalog of an enabled wildcard route. The wildcard
+ * itself is a catalog, not one model to try. `except` is the chain being edited, so it
+ * is not offered to itself.
  */
 export function hopChoices(
   doc: Doc,
   upstreamOf: UpstreamOf,
   inventories: Record<string, unknown>,
+  except?: string,
 ): string[] {
   const declared = addressBook(doc, upstreamOf)
-    .filter((row) => row.kind === 'route' && !row.address.endsWith('/*'))
+    .filter(
+      (row) =>
+        (row.kind === 'route' && !row.address.endsWith('/*')) ||
+        (row.kind === 'chain' && row.address !== `@/${except}`),
+    )
     .map((row) => row.address)
   const catalog = doc.route.flatMap((r) => {
     const up = upstreamOf(r)

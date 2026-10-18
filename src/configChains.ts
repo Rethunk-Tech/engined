@@ -18,18 +18,24 @@ function parseChainHops({
   engines,
   routes,
   at,
+  include,
 }: {
   name: string
   hops: readonly string[]
   engines: readonly EngineEntry[]
   routes: readonly ResolvedRoute[]
   at: ConfigPath
+  include: (id: string, hop: string, index: number) => string[]
 }): string[] {
   const kept: string[] = []
   for (const [i, hop] of hops.entries()) {
-    // `@/<engine>/<model>` and `@/<engine>/<upstream>/<model>` are the only hop shapes.
+    // A hop is a route address, or `@/<chain-id>`, which expands to that chain's hops.
     const segs = qualifiedSegments(hop)
-    if (segs === undefined || segs.length === 1) {
+    if (segs?.length === 1) {
+      kept.push(...include(segs[0] as string, hop, i))
+      continue
+    }
+    if (segs === undefined) {
       throw new ParseError(
         `chain "${name}"[${i}] "${hop}" is not a fully-qualified "@/<engine>/<model>" or "@/<engine>/<upstream>/<model>" hop`,
         { ...at, key: 'hops' },
@@ -106,20 +112,68 @@ export function buildChains(
   chainFiles: readonly string[],
   chainIndexes: readonly number[],
 ): Record<string, string[]> {
+  const located = new Map(rawChains.map((chain, n) => [chain.id, n]))
+  const done = new Map<string, string[]>()
+  const stack: string[] = []
+
+  const expand = (name: string): string[] => {
+    const hit = done.get(name)
+    if (hit !== undefined) {
+      return hit
+    }
+    const n = located.get(name)
+    const chain = n === undefined ? undefined : rawChains[n]
+    // A disabled chain contributes nothing, same as a disabled route hop.
+    if (n === undefined || chain === undefined || chain.disabled) {
+      done.set(name, [])
+      return []
+    }
+    const at = {
+      file: chainFiles[n] as string,
+      table: 'chain',
+      index: chainIndexes[n] as number,
+    }
+    stack.push(name)
+    const hops = parseChainHops({
+      name,
+      hops: chain.hops,
+      engines,
+      routes,
+      at,
+      include: (id, hop, i) => {
+        if (!located.has(id)) {
+          throw new ParseError(`chain "${name}"[${i}] "${hop}": "${id}" is not a chain`, {
+            ...at,
+            key: 'hops',
+          })
+        }
+        const cycleAt = stack.indexOf(id)
+        if (cycleAt !== -1) {
+          const via = [...stack.slice(cycleAt), id].join(' -> ')
+          throw new ParseError(
+            `chain "${name}"[${i}] "${hop}": chain "${id}" includes itself (${via})`,
+            {
+              ...at,
+              key: 'hops',
+            },
+          )
+        }
+        return expand(id)
+      },
+    })
+    stack.pop()
+    done.set(name, hops)
+    return hops
+  }
+
   const chains: Record<string, string[]> = Object.create(null)
-  for (const [i, c] of rawChains.entries()) {
+  for (const c of rawChains) {
     // A disabled chain is not served at all -- its own top-level flag, not a
     // resolved-hop question the way an engine/upstream/route's is.
     if (c.disabled) {
       continue
     }
-    const hops = parseChainHops({
-      name: c.id,
-      hops: c.hops,
-      engines,
-      routes,
-      at: { file: chainFiles[i] as string, table: 'chain', index: chainIndexes[i] as number },
-    })
+    const hops = expand(c.id)
     // Nothing left to route to: the chain goes with its hops rather than
     // resolving to an empty list a request would fall off the end of.
     if (hops.length > 0) {

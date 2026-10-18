@@ -1,5 +1,6 @@
 import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
+import { qualifiedSegments } from '../../routeAddress.ts'
 import { editDraft } from './actions.ts'
 import { type HopState, hopChoices, hopState } from './addresses.ts'
 import { discovery, ensureSpec, loadDiscovery, upstreamResolver } from './data.ts'
@@ -17,6 +18,17 @@ const NOTE: Record<HopState, string> = {
   ok: '',
   dropped: 'dropped: its routes are disabled',
   unresolved: 'matches no route',
+}
+
+function hopNote(d: Doc, hop: string, state: HopState): string {
+  const chain = qualifiedSegments(hop)?.length === 1
+  if (state === 'dropped' && chain && d.chain.some((c) => `@/${String(c.id)}` === hop)) {
+    return 'dropped: the chain is disabled'
+  }
+  if (state === 'unresolved' && chain) {
+    return 'is not a chain'
+  }
+  return NOTE[state]
 }
 
 function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
@@ -98,7 +110,9 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
               <span class="muted">{i + 1}.</span>
               <span class="hopaddr">
                 <code>{hop}</code>
-                {state === 'ok' ? null : <span class="bad small-text">{NOTE[state]}</span>}
+                {state === 'ok' ? null : (
+                  <span class="bad small-text">{hopNote(d, hop, state)}</span>
+                )}
               </span>
               <span class="group">
                 <button
@@ -137,7 +151,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
       </ol>
       <div class="addrow">
         <HopPicker
-          choices={hopChoices(d, upstreamOf, discovery.value.inventories)}
+          choices={hopChoices(d, upstreamOf, discovery.value.inventories, id)}
           taken={hops}
           onAdd={(added) => set([...hops, ...added])}
         />

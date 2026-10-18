@@ -92,7 +92,7 @@ parse error naming the key.
 | `fim` | `[[route]]`, a local llama route only — opts the route into `POST /openai/v1/completions`, llama-server's fill-in-the-middle over `/infill`. Answers alongside chat on the same route rather than claiming a role of its own — see [http-api.md § Fill-in-the-middle](http-api.md#fill-in-the-middle) |
 | `slot_long_threshold` | `[[route]]`, a local llama route whose merged `parallel` is `>= 2` — the vocab-only token count at or above which a request is placed on a LONG slot rather than a SHORT one. Default 4096 — see [tuning.md § Cache-aware slot placement](tuning.md#cache-aware-slot-placement) |
 | `vision_bridge` | `[[route]]`, a `role = "chat"` route only — the address of a `role = "vision"` route on the same box that bridges an image attachment into a caption before dispatch, parse error on a route that is not `role = "chat"` and fatal at load if it does not resolve to a served `role = "vision"` route — see [http-api.md § Vision bridge](http-api.md#vision-bridge) |
-| `hops` | `[[chain]]` — an ordered list of route addresses |
+| `hops` | `[[chain]]` — an ordered list of route addresses, or `@/<chain-id>` to insert that chain's hops in order. A cycle is a parse error. A disabled chain contributes nothing |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its
 role returns to. `filename`, `role` and `keep_resident` all live on the route,
@@ -164,7 +164,8 @@ route naming *it*; a disabled route drops just that one pairing, its siblings
 survive; a disabled chain is not served at all. A chain hop whose engine,
 upstream or route is disabled drops silently out of that chain rather than
 failing it — the rule is over the resolved hop address, not the engine
-segment alone — and a chain left with no hops drops too. `chain-public`,
+segment alone — and a hop onto a disabled chain drops the same way. A chain
+left with no hops drops too. `chain-public`,
 written with one local hop and three remote ones, serves the local hop alone
 while `claude` and `openai` stay disabled.
 
