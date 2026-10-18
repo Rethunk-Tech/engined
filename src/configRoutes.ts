@@ -178,6 +178,8 @@ export interface SpecFacts {
   trait: UpstreamTrait
   /** A spec-full engine's kind, which config does not restate. `undefined` only when the config's own `kind` already answered. */
   kind?: string
+  /** Set on an agentic spec. Host checks use it to skip an agent whose engines are all disabled. */
+  agent?: string
 }
 
 /**
@@ -210,7 +212,11 @@ export function specFactsFor(engine: EngineEntry, enginesRoot: string): SpecFact
       specFile,
     )
   }
-  return { trait, kind: isRecord(raw) && typeof raw.kind === 'string' ? raw.kind : undefined }
+  return {
+    trait,
+    kind: isRecord(raw) && typeof raw.kind === 'string' ? raw.kind : undefined,
+    agent: isRecord(raw) && typeof raw.agent === 'string' ? raw.agent : undefined,
+  }
 }
 
 /** Every upstream some OTHER route on this engine already names explicitly -- the basis a `required`-trait engine's own default is drawn from. */

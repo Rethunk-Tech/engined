@@ -5,11 +5,14 @@
  * HTTP later. Nothing here reads or prints a secret.
  */
 import { accessSync, constants, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { AGENT_IDS, agentCli } from './agents.ts'
 import { type ObservedVersion, observeAgentVersion } from './agentVersion.ts'
 import { loadConfig } from './config.ts'
+import { specFactsFor } from './configRoutes.ts'
 import { ambientEnv } from './env.ts'
 import { binExec, type ExecResult } from './exec.ts'
+import { installDir } from './paths.ts'
 import { errMessage } from './records.ts'
 import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
@@ -39,6 +42,8 @@ export interface DoctorDeps {
   enginedOn: (port: number) => Promise<boolean>
   readable: (path: string) => boolean
   loadConfig: () => Config
+  /** Where `engines/<id>/spec.toml` lives, so a disabled agentic engine can be told from one that is absent. */
+  enginesRoot: string
 }
 
 const DEFAULT_DEPS: DoctorDeps = {
@@ -73,6 +78,7 @@ const DEFAULT_DEPS: DoctorDeps = {
     }
   },
   loadConfig: () => loadConfig(),
+  enginesRoot: join(installDir(), 'engines'),
 }
 
 const DOCTOR_TIMEOUT_MS = 10_000
@@ -109,17 +115,64 @@ function deviceChecks(deps: DoctorDeps): DoctorCheck[] {
   )
 }
 
-function bwrapCheck(deps: DoctorDeps): DoctorCheck {
+/** Which agents an enabled engine still launches, and which appear only on disabled engines. */
+interface AgentUse {
+  demanded: Set<string>
+  retired: Set<string>
+}
+
+/**
+ * A spec that cannot be read demands every agent: a missing file must not hide
+ * a real failure. An agent no engine names is neither demanded nor retired, so
+ * the host check still runs.
+ */
+function agentUse(deps: DoctorDeps, config: Config): AgentUse {
+  const enabled = new Map<string, boolean>()
+  for (const engine of config.engines) {
+    let agent: string | undefined
+    try {
+      agent = specFactsFor(engine, deps.enginesRoot).agent
+    } catch {
+      return { demanded: new Set(AGENT_IDS), retired: new Set() }
+    }
+    if (agent === undefined) {
+      continue
+    }
+    enabled.set(agent, (enabled.get(agent) ?? false) || engine.disabled !== true)
+  }
+  const demanded = new Set<string>()
+  const retired = new Set<string>()
+  for (const [agent, on] of enabled) {
+    ;(on ? demanded : retired).add(agent)
+  }
+  return { demanded, retired }
+}
+
+function agentRetired(use: AgentUse | undefined, id: string): boolean {
+  if (use === undefined) {
+    return false
+  }
+  return use.retired.has(id) && !use.demanded.has(id)
+}
+
+function bwrapCheck(deps: DoctorDeps, use?: AgentUse): DoctorCheck {
+  if (agentRetired(use, 'opencode')) {
+    return skip('bwrap', 'opencode is disabled')
+  }
   const path = deps.which('bwrap')
   return path === null
     ? fail('bwrap', 'not on PATH', 'install bubblewrap (opencode runs only inside its sandbox)')
     : pass('bwrap', path)
 }
 
-async function agentChecks(deps: DoctorDeps): Promise<DoctorCheck[]> {
+async function agentChecks(deps: DoctorDeps, use?: AgentUse): Promise<DoctorCheck[]> {
   const bunx = ambientEnv.ENGINED_BUNX || deps.which('bunx')
   const checks: DoctorCheck[] = []
   for (const id of AGENT_IDS) {
+    if (agentRetired(use, id)) {
+      checks.push(skip(`agent ${id}`, 'its engine is disabled'))
+      continue
+    }
     const cli = agentCli(id)
     if (cli?.pkg !== undefined) {
       checks.push(
@@ -208,15 +261,21 @@ export async function runDoctor(overrides: Partial<DoctorDeps> = {}): Promise<Do
   const checks: DoctorCheck[] = [
     await dockerCheck(deps),
     ...deviceChecks(deps),
-    bwrapCheck(deps),
-    ...(await agentChecks(deps)),
     await keyringCheck(deps),
   ]
   try {
     const config = deps.loadConfig()
-    checks.push(...(await portChecks(deps, config)), ...modelsDirChecks(deps, config))
+    const use = agentUse(deps, config)
+    checks.push(
+      bwrapCheck(deps, use),
+      ...(await agentChecks(deps, use)),
+      ...(await portChecks(deps, config)),
+      ...modelsDirChecks(deps, config),
+    )
   } catch (err) {
     checks.push(
+      bwrapCheck(deps),
+      ...(await agentChecks(deps)),
       skip('config', `ports and models_dir not checked, no valid config: ${errMessage(err)}`),
     )
   }

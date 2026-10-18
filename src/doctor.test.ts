@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { formatDoctor, runDoctor } from './doctor.ts'
-import { config, engine } from './test-support.ts'
+import { config, ENGINES_ROOT, engine } from './test-support.ts'
 
 const OK = { stdout: '27.0.1\n', stderr: '', exitCode: 0 }
 const healthy = {
@@ -72,4 +72,51 @@ test('failures name their fix; a held port is fine only when an engined holds it
   })
   expect(noConfig.ok).toBe(true)
   expect(noConfig.checks.at(-1)).toMatchObject({ id: 'config', skipped: true })
+})
+
+test('a disabled agentic engine skips its agent check, and an enabled one still fails', async () => {
+  const base = {
+    ...healthy,
+    enginesRoot: ENGINES_ROOT,
+    which: (cmd: string) => (cmd === 'bwrap' ? null : `/usr/bin/${cmd}`),
+    agentVersion: async (agent: string) =>
+      agent === 'cursor' || agent === 'opencode'
+        ? { ok: false as const, error: 'not found' }
+        : { ok: true as const, version: '1' },
+  }
+  const disabled = await runDoctor({
+    ...base,
+    loadConfig: () =>
+      config({
+        engines: [
+          engine({ id: 'llama', models_dir: '/models' }),
+          engine({ id: 'cursor', disabled: true }),
+          engine({ id: 'opencode', disabled: true }),
+        ],
+      }),
+  })
+  expect(disabled.checks.find((c) => c.id === 'agent cursor')).toMatchObject({
+    ok: true,
+    skipped: true,
+    detail: 'its engine is disabled',
+  })
+  expect(disabled.checks.find((c) => c.id === 'bwrap')).toMatchObject({
+    ok: true,
+    skipped: true,
+  })
+  expect(disabled.checks.find((c) => c.id === 'agent claude')?.ok).toBe(true)
+  expect(disabled.ok).toBe(true)
+
+  const enabled = await runDoctor({
+    ...base,
+    loadConfig: () =>
+      config({
+        engines: [engine({ id: 'cursor' })],
+      }),
+  })
+  expect(enabled.checks.find((c) => c.id === 'agent cursor')).toMatchObject({
+    ok: false,
+    detail: 'not found',
+  })
+  expect(enabled.checks.find((c) => c.id === 'bwrap')?.ok).toBe(false)
 })
