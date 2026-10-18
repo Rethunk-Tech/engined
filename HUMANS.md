@@ -196,7 +196,7 @@ What each view does:
 | Settings | The door's ports and timeouts, and `[configsvc]`. |
 | Review & save | The diff against the file on disk, then Save. |
 | History | The kept files (newest 20): diff one against the current file, or restore it. |
-| Host checks | The `--doctor` report with the fix beside each failure. |
+| Host checks | The `--doctor` report with the fix beside each failure. An agent whose engines are all disabled is skipped, as is bubblewrap when opencode is. |
 | Raw TOML | The pending text in an editor with TOML highlighting. Every change is validated the way engined loads it after a 300 ms pause; errors are marked at their line and column and listed under the editor. `config.d/` fragments are shown read-only. |
 | About | The engined version this UI was built with, and the door's commit and contract when the door answers. |
 
