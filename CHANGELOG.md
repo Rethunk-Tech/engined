@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.6 - 2026-10-18
 
 - piper: the image builds again (Python 3.14 base; onnxruntime has no 3.15 wheel), and word timings
   come back for sentences with function words such as "on" or "the" instead of being dropped.
