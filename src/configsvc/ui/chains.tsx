@@ -4,8 +4,8 @@ import { qualifiedSegments } from '../../routeAddress.ts'
 import { editDraft } from './actions.ts'
 import {
   blockedChainHops,
-  type ChainPreview,
   chainExpansion,
+  expansionText,
   type HopState,
   hopChoices,
   hopState,
@@ -25,15 +25,6 @@ const NOTE: Record<HopState, string> = {
   ok: '',
   dropped: 'dropped: its routes are disabled',
   unresolved: 'matches no route',
-}
-
-function expansionText(preview: ChainPreview): string {
-  if (preview.kind === 'cycle') {
-    return preview.text
-  }
-  return preview.addresses.length === 0
-    ? 'inserts nothing'
-    : `inserts ${preview.addresses.join(', ')}`
 }
 
 function hopNote(d: Doc, hop: string, state: HopState): string {

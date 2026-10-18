@@ -4,6 +4,7 @@ import {
   blockedChainHops,
   chainExpansion,
   closingCycle,
+  expansionText,
   hopChoices,
   hopState,
 } from './addresses.ts'
@@ -223,7 +224,10 @@ test('a chain hop lists the leaf addresses it inserts, walking nested hops', () 
     throw new Error('fixture must parse')
   }
   const up = () => 'local'
-  expect(chainExpansion(doc, '@/inner', up)).toEqual({ kind: 'leaves', addresses: ['@/e/m'] })
+  const inner = chainExpansion(doc, '@/inner', up)
+  expect(inner).toEqual({ kind: 'leaves', addresses: ['@/e/m'] })
+  // The Add wizard has no chain id yet; the same hop still shows the leaves it inserts.
+  expect(inner === undefined ? undefined : expansionText(inner)).toBe('inserts @/e/m')
   expect(chainExpansion(doc, '@/mid', up)).toEqual({
     kind: 'leaves',
     addresses: ['@/e/m', '@/e/m'],

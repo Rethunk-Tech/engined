@@ -3,7 +3,7 @@ import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import type { Wire } from '../../types.ts'
 import { editDraft } from './actions.ts'
-import { hopChoices } from './addresses.ts'
+import { chainExpansion, expansionText, hopChoices } from './addresses.ts'
 import { call } from './api.ts'
 import { discovery, loadDiscovery, loadSecrets, upstreamResolver } from './data.ts'
 import { ShippedPicker } from './engines.tsx'
@@ -271,6 +271,7 @@ function ChainPath() {
     return null
   }
   const clash = d.chain.some((c) => c.id === id)
+  const upstreamOf = upstreamResolver(d)
   return (
     <section class="panel form">
       <Labeled
@@ -283,23 +284,37 @@ function ChainPath() {
       <div>
         <span class="section-title">hops, tried in this order</span>
         <ol>
-          {hops.map((h, i) => (
-            <li key={h}>
-              <code>{h}</code>{' '}
-              <button
-                type="button"
-                class="small"
-                aria-label={`Remove ${h}`}
-                onClick={() => setHops(hops.filter((_, j) => j !== i))}
-              >
-                ✕
-              </button>
-            </li>
-          ))}
+          {hops.map((h, i) => {
+            const expansion = chainExpansion(d, h, upstreamOf)
+            return (
+              <li key={h}>
+                <span class="hopaddr">
+                  <span>
+                    <code>{h}</code>{' '}
+                    <button
+                      type="button"
+                      class="small"
+                      aria-label={`Remove ${h}`}
+                      onClick={() => setHops(hops.filter((_, j) => j !== i))}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                  {expansion === undefined ? null : (
+                    <span
+                      class={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
+                    >
+                      {expansionText(expansion)}
+                    </span>
+                  )}
+                </span>
+              </li>
+            )
+          })}
         </ol>
         <div class="addrow">
           <HopPicker
-            choices={hopChoices(d, upstreamResolver(d), discovery.value.inventories)}
+            choices={hopChoices(d, upstreamOf, discovery.value.inventories)}
             taken={hops}
             onAdd={(added) => setHops([...hops, ...added])}
           />

@@ -195,6 +195,16 @@ export function chainExpansion(
   return expandChain(doc, id, upstreamOf, [])
 }
 
+/** The line under a chain hop: the leaves it inserts, or the cycle text. */
+export function expansionText(preview: ChainPreview): string {
+  if (preview.kind === 'cycle') {
+    return preview.text
+  }
+  return preview.addresses.length === 0
+    ? 'inserts nothing'
+    : `inserts ${preview.addresses.join(', ')}`
+}
+
 export interface AddressRow {
   address: string
   kind: 'route' | 'chain'

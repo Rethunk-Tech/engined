@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Config UI: the Add wizard's chain path shows what a `@/<chain-id>` hop inserts, the same line the Chains card shows. A route hop has no extra line.
 - A request may name a chain as `@/<chain-id>` as well as its bare id. When that one segment is also a route model id, the chain wins.
 - Config UI: a chain hop lists the leaf addresses it inserts, walking nested chains. A cycle shows `includes itself` instead of looping.
 - Config UI: Add hops… omits a disabled chain, so a hop that parse would drop is not offered. A disabled chain already on the draft stays, marked dropped.
