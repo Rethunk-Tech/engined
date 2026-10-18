@@ -12,9 +12,7 @@ export interface ConfigPath {
 export class ParseError extends FatalError {
   /** Set where the throw site knows the entry or key; message text never depends on it. */
   path?: ConfigPath
-
-  constructor(message: string, file: string, options?: ErrorOptions)
-  constructor(message: string, path: ConfigPath | undefined, options?: ErrorOptions)
+  constructor(message: string, path: ConfigPath | undefined | string, options?: ErrorOptions)
   constructor(message: string, options?: ErrorOptions & { path?: ConfigPath })
   constructor(
     message: string,
