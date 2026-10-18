@@ -7,9 +7,10 @@
  * layer order.
  */
 import { describe, expect, test } from 'bun:test'
-import { mergeCapabilities } from './capabilities.ts'
+import { mergeCapabilities, roleCapabilities } from './capabilities.ts'
 import { asArgs } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
+import type { ModelCapabilities, Role } from './types.ts'
 
 describe('asArgs', () => {
   test('a table of scalars passes through unchanged', () => {
@@ -45,5 +46,17 @@ describe('mergeCapabilities', () => {
 
   test('a field absent from every layer stays absent', () => {
     expect(mergeCapabilities({ input: ['text'] }, {})).toEqual({ input: ['text'] })
+  })
+})
+
+describe('roleCapabilities', () => {
+  test.each<[Role | undefined, ModelCapabilities]>([
+    ['vision', { input: ['text', 'image'], output: ['text'] }],
+    ['chat', { input: ['text'], output: ['text'] }],
+    ['embedding', {}],
+    ['rerank', {}],
+    [undefined, {}],
+  ])('%s', (role, want) => {
+    expect(roleCapabilities(role)).toEqual(want)
   })
 })

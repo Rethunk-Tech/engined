@@ -9,7 +9,7 @@ import { HeldError } from './errors/held.ts'
 import type { Exec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter, reportedModelFrom } from './llama.ts'
-import { buildLlamaSpec, renderPresetIni } from './llamaSpec.ts'
+import { buildLlamaSpec, explicitParallel, renderPresetIni } from './llamaSpec.ts'
 import {
   LLAMA_CHAT_PATH as CHAT_PATH,
   llamaChatHop as chatHop,
@@ -271,6 +271,21 @@ describe('renderPresetIni', () => {
     expect(sections.get('[embed]')).toContain('rope-freq-base = 0')
     expect(sections.get('[chat-a]')).not.toContain('pooling')
     expect(sections.get('[chat-a]')).not.toContain('rope-freq')
+  })
+})
+
+describe('explicitParallel', () => {
+  test.each([
+    ['unset is auto', {}, {}, undefined],
+    ['engine -1 is auto', { parallel: -1 }, {}, undefined],
+    ['engine positive integer is that count', { parallel: 8 }, {}, 8],
+    ['route beats engine', { parallel: 8 }, { parallel: 2 }, 2],
+    ['a non-integer is auto', { parallel: 1.5 }, {}, undefined],
+    ['zero is auto', { parallel: 0 }, {}, undefined],
+  ] as const)('%s', (_name, engineArgs, routeArgs, want) => {
+    expect(explicitParallel(engine({ args: { ...engineArgs } }), { args: { ...routeArgs } })).toBe(
+      want,
+    )
   })
 })
 

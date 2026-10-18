@@ -10,7 +10,13 @@ import {
   renderEmptyMcpConfig,
   runAgentic,
 } from './agentic.ts'
-import { AGENTIC_FLOOR, assertNoForbiddenFlags, FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
+import {
+  AGENTIC_FLOOR,
+  argKeysAsFlags,
+  argvFromArgs,
+  assertNoForbiddenFlags,
+  FORBIDDEN_AGENTIC_FLAGS,
+} from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
@@ -91,6 +97,22 @@ test('researchMode: accepts true, false and absence, but rejects non-boolean val
     ok: false,
     error: 'research must be a boolean when present',
   })
+})
+
+test.each([
+  [{ verbose: true }, ['--verbose']],
+  [{ ngl: 99 }, ['--ngl', '99']],
+  [{ name: 'x' }, ['--name', 'x']],
+  [{ verbose: false }, []],
+  [{ gone: null }, []],
+  [{ gone: undefined }, []],
+  [{ verbose: true, ngl: 1, skip: false }, ['--verbose', '--ngl', '1']],
+])('argvFromArgs: %j', (args, want) => {
+  expect(argvFromArgs(args)).toEqual(want)
+})
+
+test('argKeysAsFlags names every key, including a false that argvFromArgs would drop', () => {
+  expect(argKeysAsFlags({ force: false, verbose: true })).toEqual(['--force', '--verbose'])
 })
 
 // buildArgv itself stays a dumb assembler: it does not reject anything.
