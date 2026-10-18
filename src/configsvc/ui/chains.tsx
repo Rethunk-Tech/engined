@@ -4,6 +4,7 @@ import { editDraft } from './actions.ts'
 import { type HopState, hopChoices, hopState } from './addresses.ts'
 import { discovery, ensureSpec, loadDiscovery, upstreamResolver } from './data.ts'
 import { DeleteGuard } from './guardPanel.tsx'
+import { HopPicker } from './hopPicker.tsx'
 import { type Doc, parseDoc, type Table } from './model.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
@@ -22,7 +23,8 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
   const id = String(chain.id)
   const upstreamOf = upstreamResolver(d)
   const hops = Array.isArray(chain.hops) ? (chain.hops as string[]) : []
-  const [pick, setPick] = useState('')
+  const [dragFrom, setDragFrom] = useState<number | undefined>()
+  const [dropAt, setDropAt] = useState<number | undefined>()
   const set = (next: string[]) =>
     void editDraft([{ op: 'setKey', path: ['chain', index, 'hops'], value: next }])
   const move = (from: number, to: number) => {
@@ -58,12 +60,41 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         </span>
       </div>
       {/* A chain may name the same hop twice, so keys come from position among equal hops. */}
-      <div class="hops">
+      <ol class="hops">
         {hops.map((hop, i) => {
           const key = lineKeys(hops)[i]
           const state = hopState(d, hop, upstreamOf)
           return (
-            <div class="hop" key={key}>
+            <li
+              class={`hop${
+                dropAt !== i || dragFrom === undefined || dragFrom === i
+                  ? ''
+                  : dragFrom < i
+                    ? ' drop-after'
+                    : ' drop-before'
+              }`}
+              key={key}
+              draggable
+              onDragStart={(e) => {
+                setDragFrom(i)
+                // Firefox starts a drag only when the transfer carries data.
+                e.dataTransfer?.setData('text/plain', hop)
+              }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDropAt(i)
+              }}
+              onDragEnd={() => {
+                setDragFrom(undefined)
+                setDropAt(undefined)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragFrom !== undefined && dragFrom !== i) {
+                  move(dragFrom, i)
+                }
+              }}
+            >
               <span class="muted">{i + 1}.</span>
               <span class="hopaddr">
                 <code>{hop}</code>
@@ -100,30 +131,16 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                   ✕
                 </button>
               </span>
-            </div>
+            </li>
           )
         })}
-      </div>
+      </ol>
       <div class="addrow">
-        <select value={pick} onChange={(e) => setPick(e.currentTarget.value)}>
-          <option value="">add a hop…</option>
-          {hopChoices(d, upstreamOf, discovery.value.inventories).map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          class="small"
-          disabled={pick === ''}
-          onClick={() => {
-            set([...hops, pick])
-            setPick('')
-          }}
-        >
-          Add hop
-        </button>
+        <HopPicker
+          choices={hopChoices(d, upstreamOf, discovery.value.inventories)}
+          taken={hops}
+          onAdd={(added) => set([...hops, ...added])}
+        />
       </div>
     </section>
   )

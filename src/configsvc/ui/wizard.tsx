@@ -7,6 +7,7 @@ import { hopChoices } from './addresses.ts'
 import { call } from './api.ts'
 import { discovery, loadDiscovery, loadSecrets, upstreamResolver } from './data.ts'
 import { ShippedPicker } from './engines.tsx'
+import { HopPicker } from './hopPicker.tsx'
 import { parseDoc } from './model.ts'
 import { viewParam } from './nav.ts'
 import { draft } from './store.ts'
@@ -263,7 +264,6 @@ function ChainPath() {
   const d = doc.value
   const [id, setId] = useState('')
   const [hops, setHops] = useState<string[]>([])
-  const [pick, setPick] = useState('')
   useEffect(() => {
     void loadDiscovery()
   }, [])
@@ -298,27 +298,11 @@ function ChainPath() {
           ))}
         </ol>
         <div class="addrow">
-          <select value={pick} onChange={(e) => setPick(e.currentTarget.value)}>
-            <option value="">add a hop…</option>
-            {hopChoices(d, upstreamResolver(d), discovery.value.inventories)
-              .filter((a) => !hops.includes(a))
-              .map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-          </select>
-          <button
-            type="button"
-            class="small"
-            disabled={pick === ''}
-            onClick={() => {
-              setHops([...hops, pick])
-              setPick('')
-            }}
-          >
-            Add hop
-          </button>
+          <HopPicker
+            choices={hopChoices(d, upstreamResolver(d), discovery.value.inventories)}
+            taken={hops}
+            onAdd={(added) => setHops([...hops, ...added])}
+          />
         </div>
       </div>
       <button
