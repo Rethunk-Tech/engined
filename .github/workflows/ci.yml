@@ -14,6 +14,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: Rethunk-Tech/gh-actions/setup-bun@bc5fa5b1004205c9c9399fc941d79d5ada53c59b # v1.16
         with:
           # Turbo keys each task on its own inputs, so a docs-only push replays

@@ -30,6 +30,7 @@ jobs:
       # notes are read from.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: Rethunk-Tech/gh-actions/setup-bun@bc5fa5b1004205c9c9399fc941d79d5ada53c59b # v1.16
