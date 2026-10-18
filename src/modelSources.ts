@@ -35,9 +35,7 @@ export interface DiscoveredModel {
   capabilities: ModelCapabilities
 }
 
-export interface ModelSource {
-  fetch(): Promise<DiscoveredModel[]>
-}
+export type ModelSource = () => Promise<DiscoveredModel[]>
 
 export interface DiscoveryOptions {
   fetch?: HttpClient
@@ -130,36 +128,34 @@ function claudeAuthHeaders(opts: DiscoveryOptions, now: number): Record<string, 
 }
 
 function claudeSource(opts: DiscoveryOptions): ModelSource {
-  return {
-    async fetch() {
-      const http = opts.fetch ?? fetch
-      const headers = claudeAuthHeaders(opts, opts.now?.() ?? Date.now())
-      const models: DiscoveredModel[] = []
-      let after: string | undefined
-      for (let page = 0; page < MAX_PAGES; page += 1) {
-        const url = new URL(MODELS_URL)
-        url.searchParams.set('limit', String(MODELS_PAGE_SIZE))
-        if (after !== undefined) {
-          url.searchParams.set('after_id', after)
-        }
-        const res = await http(url.toString(), {
-          method: 'GET',
-          headers,
-          redirect: 'error',
-          signal: AbortSignal.timeout(opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
-        })
-        if (!res.ok) {
-          throw new Error(`GET /v1/models returned HTTP ${res.status}`)
-        }
-        const parsed = parseClaudePage(await res.json())
-        models.push(...parsed.models)
-        after = parsed.next
-        if (after === undefined) {
-          return models
-        }
+  return async () => {
+    const http = opts.fetch ?? fetch
+    const headers = claudeAuthHeaders(opts, opts.now?.() ?? Date.now())
+    const models: DiscoveredModel[] = []
+    let after: string | undefined
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const url = new URL(MODELS_URL)
+      url.searchParams.set('limit', String(MODELS_PAGE_SIZE))
+      if (after !== undefined) {
+        url.searchParams.set('after_id', after)
       }
-      throw new Error(`GET /v1/models paged past ${MAX_PAGES} pages`)
-    },
+      const res = await http(url.toString(), {
+        method: 'GET',
+        headers,
+        redirect: 'error',
+        signal: AbortSignal.timeout(opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
+      })
+      if (!res.ok) {
+        throw new Error(`GET /v1/models returned HTTP ${res.status}`)
+      }
+      const parsed = parseClaudePage(await res.json())
+      models.push(...parsed.models)
+      after = parsed.next
+      if (after === undefined) {
+        return models
+      }
+    }
+    throw new Error(`GET /v1/models paged past ${MAX_PAGES} pages`)
   }
 }
 
@@ -184,21 +180,19 @@ export function parseCursorModels(stdout: string): DiscoveredModel[] {
 }
 
 function cursorSource(opts: DiscoveryOptions): ModelSource {
-  return {
-    async fetch() {
-      const exec =
-        opts.cursorExec ??
-        binExec(resolveCursorBinary(), opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS)
-      const result = await exec(['--list-models'])
-      if (result.exitCode !== 0) {
-        throw new Error(`cursor --list-models exited ${result.exitCode}: ${result.stderr.trim()}`)
-      }
-      const models = parseCursorModels(result.stdout)
-      if (models.length === 0) {
-        throw new Error('cursor --list-models listed no models')
-      }
-      return models
-    },
+  return async () => {
+    const exec =
+      opts.cursorExec ??
+      binExec(resolveCursorBinary(), opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS)
+    const result = await exec(['--list-models'])
+    if (result.exitCode !== 0) {
+      throw new Error(`cursor --list-models exited ${result.exitCode}: ${result.stderr.trim()}`)
+    }
+    const models = parseCursorModels(result.stdout)
+    if (models.length === 0) {
+      throw new Error('cursor --list-models listed no models')
+    }
+    return models
   }
 }
 

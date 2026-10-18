@@ -383,7 +383,7 @@ export interface EngineEntry {
   agent_version?: string
   /** The route `model` segment `ModelRow.default` marks on this engine; absent means the discovered newest of the engine's preferred family (`modelDiscovery.ts`). */
   default_model?: string
-  /** How often this engine's provider is asked what it serves; `DEFAULT_MODEL_REFRESH_SECONDS` when absent. */
+  /** How often this engine's provider is asked what it serves; `DEFAULT_INVENTORY_REFRESH_SECONDS` when absent. */
   model_refresh_seconds?: number
   /** An engine has no address of its own; every dialect it speaks comes from `kind` or a real shipped spec. */
   kind?: EngineKind

@@ -23,8 +23,6 @@ import { stateDir } from './paths.ts'
 import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import type { Config, EngineEntry, ModelCapabilities, ResolvedRoute } from './types.ts'
 
-const DEFAULT_MODEL_REFRESH_SECONDS = DEFAULT_INVENTORY_REFRESH_SECONDS
-
 const CACHE_VERSION = 1
 const MS_PER_MINUTE = 60_000
 
@@ -118,7 +116,7 @@ export class ModelDiscovery {
     this.stop()
     for (const engine of this.served(config)) {
       this.loadCache(engine.id)
-      const seconds = engine.model_refresh_seconds ?? DEFAULT_MODEL_REFRESH_SECONDS
+      const seconds = engine.model_refresh_seconds ?? DEFAULT_INVENTORY_REFRESH_SECONDS
       this.timers.push(
         setInterval(() => {
           this.refresh(engine.id).catch(() => undefined)
@@ -156,10 +154,7 @@ export class ModelDiscovery {
     const previous = this.cache.get(engineId)?.models ?? []
     let found: DiscoveredModel[]
     try {
-      found = await withTimeout(
-        source.fetch(),
-        this.opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
-      )
+      found = await withTimeout(source(), this.opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS)
     } catch (err) {
       this.errors.set(engineId, errMessage(err))
       this.generation += 1
