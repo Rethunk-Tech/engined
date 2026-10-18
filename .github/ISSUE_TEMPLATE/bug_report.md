@@ -6,31 +6,23 @@ labels: bug
 assignees: ''
 ---
 
-## Describe the bug
+## Bug
 
-What went wrong? Include which engine, route (chat, embeddings, speech,
-transcription, images), or config key was involved.
+Engine, route (chat, embeddings, speech, transcription, images), or config key.
 
-## To reproduce
+## Reproduce
 
-1. The `[[engine]]`, `[[upstream]]`, and `[[route]]` entries involved
-   (`config.toml`, redacted of secrets)
-2. The request sent (curl command or client call)
-3. Observed output or error, including the HTTP status and any provenance
-   line engined logged
+1. Involved `[[engine]]` / `[[upstream]]` / `[[route]]` from `config.toml` (redact secrets)
+2. Request (curl or client)
+3. Observed status, output, and any provenance line
 
-## Expected behaviour
-
-What should have happened?
+## Expected
 
 ## Environment
 
 - OS / GPU:
-- Docker version:
-- Bun version:
-- engined version/commit:
+- Docker:
+- Bun:
+- engined commit:
 
-## Additional context
-
-Anything else relevant. Do not paste prompt or response content — engined
-never logs it, and this report should not either.
+Do not paste prompt or response body. engined never logs those; the report must not either.

@@ -6,18 +6,12 @@ labels: enhancement
 assignees: ''
 ---
 
-## Problem
+## Gap
 
-What workflow gap or limitation are you hitting?
+Workflow limitation (route, config key, engine, CLI).
 
-## Proposed solution
+## Wanted behaviour
 
-Describe the behaviour you want (route, config key, engine, CLI, etc.).
+## Links
 
-## Alternatives considered
-
-Other approaches you evaluated.
-
-## Additional context
-
-Links to related engines, upstream projects, or API docs, if relevant.
+Related engines, upstreams, or API docs.

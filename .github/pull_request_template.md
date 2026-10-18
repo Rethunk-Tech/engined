@@ -1,22 +1,13 @@
-## Summary
+## Why
 
-<!-- What changed and why? Link related issues when applicable. -->
+<!-- Linked issues. -->
 
-## Type of change
+## Check
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Documentation
-- [ ] Refactor (no behaviour change)
-- [ ] Chore / tooling
+- [ ] `gate` (or `bun run ci`)
+- [ ] Docs in the right tier ([CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] `test/local/*.test.ts` if this changes engine behaviour (real containers; never CI)
 
-## Checklist
+## Proof
 
-- [ ] `gate` (or `bun run ci`) passes locally
-- [ ] Documentation updated in the correct tier (see [CONTRIBUTING.md](../CONTRIBUTING.md))
-- [ ] Local-tier tests (`test/local/*.test.ts`) exercised if this touches engine
-      behaviour — they run only against real containers, never in CI
-
-## Test plan
-
-<!-- How did you verify this change? -->
+<!-- How you verified. -->
