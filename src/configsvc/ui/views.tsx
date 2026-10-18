@@ -272,11 +272,22 @@ const current = computed(
 )
 
 export function ViewNav() {
+  useEffect(() => {
+    if (report.value === undefined) {
+      void runDoctor()
+    }
+  }, [])
+  const failed = (report.value?.checks ?? []).some((c) => !(c.ok || c.skipped))
   return (
     <nav>
       {visible.value.map((v) => (
         <a key={v.id} href={`#${v.id}`} class={current.value.id === v.id ? 'active' : ''}>
           {v.title}
+          {v.id === 'doctor' && failed ? (
+            <span class="bad" title="Host checks failed">
+              !
+            </span>
+          ) : null}
         </a>
       ))}
     </nav>

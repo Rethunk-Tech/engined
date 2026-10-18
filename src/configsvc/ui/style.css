@@ -188,6 +188,9 @@ nav {
   gap: 2px;
 }
 nav a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 10px;
   border-radius: 4px;
   color: var(--text);
