@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5 - 2026-10-18
 
 - whisper: no hardcoded `-t 16`; `threads` in `[engine.args]` sets the thread count on both the server
   and the streaming path, and whisper.cpp's own default applies when it is unset.
