@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { version as ENGINED_VERSION } from '../../../package.json' with { type: 'json' }
 import { login, logout, revertDraft } from './actions.ts'
 import { banner } from './banner.ts'
 import { dirty, lastSavedSha, notice, snapshot, status, statusFault } from './store.ts'
@@ -48,6 +49,9 @@ export function TopBar() {
   return (
     <header class="topbar">
       <strong>engined config</strong>
+      <a class="muted" href="#about">
+        {ENGINED_VERSION}
+      </a>
       {shown === undefined ? null : <span class={`banner ${shown.kind}`}>{shown.text}</span>}
       <span class="grow" />
       {dirty.value ? (

@@ -1,5 +1,6 @@
 import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
+import { AboutView } from './about.tsx'
 import { AddressBookView } from './addressbook.tsx'
 import { hopState } from './addresses.ts'
 import { call } from './api.ts'
@@ -262,6 +263,7 @@ const VIEWS: ViewDef[] = [
   { id: 'raw', title: 'Raw TOML', render: RawView },
   // Reached from the Use the Add wizard links beside each Add box, not from the nav.
   { id: 'add', title: 'Add', render: AddView, when: () => false },
+  { id: 'about', title: 'About', render: AboutView },
 ]
 
 const visible = computed(() => VIEWS.filter((v) => v.when === undefined || v.when()))

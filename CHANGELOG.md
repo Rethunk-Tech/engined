@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8 - 2026-10-18
+
+- Config UI: an About view, and the version beside the title, show the engined version this UI was built with. The door's commit and contract are shown when the door answers.
+- Host checks skip an agent whose engines are all disabled, and skip bubblewrap when opencode is. A disabled cursor engine no longer fails the report because its binary is absent.
+
 ## 0.2.7 - 2026-10-18
 
 - Config UI: "Add hops…" on the Chains view and in the Add wizard opens a dialog to filter the
