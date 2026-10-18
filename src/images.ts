@@ -287,7 +287,9 @@ function openImageEventStream(ctx: DoorContext, job: ImageJob): Response {
  * other request is that JSON response itself.
  */
 export function renderWith(ctx: DoorContext, job: ImageJob): Promise<Response> {
-  return wantsImageEvents(job.request) ? openImageEventStream(ctx, job) : renderImage(ctx, job)
+  return wantsImageEvents(job.request)
+    ? Promise.resolve(openImageEventStream(ctx, job))
+    : renderImage(ctx, job)
 }
 
 async function renderImage(ctx: DoorContext, job: ImageJob, emit?: ImageEmit): Promise<Response> {

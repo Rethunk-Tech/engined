@@ -22,7 +22,7 @@ const PREVIEW_INLINE_KIB = 32
  */
 const PREVIEW_INLINE_MAX_BYTES = PREVIEW_INLINE_KIB * KIBIBYTE
 
-export type ImageEvent = 'progress' | 'preview' | 'image' | 'error'
+type ImageEvent = 'progress' | 'preview' | 'image' | 'error'
 export type ImageEmit = (event: ImageEvent, data: unknown) => void
 
 function u32be(bytes: Uint8Array, offset: number): number | undefined {

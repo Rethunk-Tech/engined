@@ -114,7 +114,7 @@ export function declaredHops(hops: readonly string[]): readonly string[] {
   if (!Object.hasOwn(hops, 'declared_hops')) {
     return hops
   }
-  const value: unknown = (hops as { declared_hops: unknown }).declared_hops
+  const value: unknown = (hops as unknown as { declared_hops: unknown }).declared_hops
   return Array.isArray(value) && value.every((hop) => typeof hop === 'string') ? value : hops
 }
 
