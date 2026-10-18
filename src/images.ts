@@ -27,10 +27,12 @@ import {
   type HttpClient,
   jsonError,
   jsonErrorBody,
+  SSE_CONTENT_TYPE,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_OK,
 } from './http.ts'
+import { type ImageEmit, imageEventResponse, watchComfyProgress } from './imageProgress.ts'
 import {
   collectRenderedImages,
   type ImageResponseFormat,
@@ -186,6 +188,7 @@ async function submitAll({
   n,
   values,
   signal,
+  clientId,
 }: {
   ctx: DoorContext
   route: ResolvedRoute
@@ -195,6 +198,8 @@ async function submitAll({
   n: number
   values: (index: number) => Record<string, unknown>
   signal?: AbortSignal
+  /** Set only while a caller is listening for progress, so comfy addresses frames to that socket. */
+  clientId?: string
 }): Promise<string[] | Refusal> {
   const ids: string[] = []
   for (let index = 0; index < n; index++) {
@@ -208,7 +213,9 @@ async function submitAll({
       engineId: route.engine,
       base,
       httpClient,
-      body: JSON.stringify({ prompt: filled }),
+      body: JSON.stringify(
+        clientId === undefined ? { prompt: filled } : { prompt: filled, client_id: clientId },
+      ),
       signal,
       onAnswered: (res, text) => {
         const id = comfyPromptId(text)
@@ -229,6 +236,40 @@ async function submitAll({
   return ids
 }
 
+interface ImageJob {
+  route: ResolvedRoute
+  rawModel: string | undefined
+  workflowPath: string
+  n: number
+  plan: (
+    base: string,
+    httpClient: HttpClient,
+  ) => Promise<((index: number) => Record<string, unknown>) | Refusal>
+  signal?: AbortSignal
+  format: ImageResponseFormat
+  request: Request
+}
+
+/** `Accept: text/event-stream` is the only request that leaves the single JSON body. */
+function wantsImageEvents(req: Request): boolean {
+  return req.headers.get('accept')?.toLowerCase().includes(SSE_CONTENT_TYPE) === true
+}
+
+function imageAnswerHeaders(ctx: DoorContext, route: ResolvedRoute): Headers {
+  return answeringHeaders({
+    route: routeAddress(route, ctx.getConfig().routes),
+    upstreamUsed: route.upstream ?? null,
+    egress: routeEgress(route, ctx.getConfig()),
+    chain: null,
+  })
+}
+
+function openImageEventStream(ctx: DoorContext, job: ImageJob): Response {
+  return imageEventResponse(imageAnswerHeaders(ctx, job.route), job.request, (emit, signal) =>
+    renderImage(ctx, { ...job, signal }, emit),
+  )
+}
+
 /**
  * One render, whichever verb asked for it: lease the engine, submit `n`
  * prompts, wait for each, and write the one provenance line. A comfy engine
@@ -240,27 +281,21 @@ async function submitAll({
  * edit has to upload its image to that container before it can name it in a
  * graph. It answers with the per-image values, or the refusal that ends the
  * call.
+ *
+ * `Accept: text/event-stream` answers with progress while that wait runs, then
+ * one `image` event carrying the same JSON a buffered call returns. Every
+ * other request is that JSON response itself.
  */
-export async function renderWith(
-  ctx: DoorContext,
-  job: {
-    route: ResolvedRoute
-    rawModel: string | undefined
-    workflowPath: string
-    n: number
-    plan: (
-      base: string,
-      httpClient: HttpClient,
-    ) => Promise<((index: number) => Record<string, unknown>) | Refusal>
-    signal?: AbortSignal
-    format: ImageResponseFormat
-    request: Request
-  },
-): Promise<Response> {
+export function renderWith(ctx: DoorContext, job: ImageJob): Promise<Response> {
+  return wantsImageEvents(job.request) ? openImageEventStream(ctx, job) : renderImage(ctx, job)
+}
+
+async function renderImage(ctx: DoorContext, job: ImageJob, emit?: ImageEmit): Promise<Response> {
   const { route, rawModel, workflowPath, n, plan, signal, format, request } = job
   const entry = ctx.registry.entry(route.engine)
   const startedAt = Date.now()
   let leased = false
+  let stopProgress: (() => void) | undefined
   /**
    * Every failure return goes through `refuse`, so the line written below names
    * the same words the caller was given rather than reporting a render that
@@ -269,6 +304,11 @@ export async function renderWith(
   let refusal: Refusal | undefined
   const refuse = (r: Refusal): Response => {
     refusal = r
+    try {
+      emit?.('error', jsonErrorBody(r.status, r.error))
+    } catch {
+      // The caller already hung up; the provenance line below still records it.
+    }
     return jsonError(r.status, r.error)
   }
   try {
@@ -289,7 +329,21 @@ export async function renderWith(
     if (typeof values !== 'function') {
       return refuse(values)
     }
-    const ids = await submitAll({ ctx, route, base, httpClient, workflow, n, values, signal })
+    const clientId = emit === undefined ? undefined : crypto.randomUUID().replace(/-/g, '')
+    if (clientId !== undefined && emit !== undefined) {
+      stopProgress = watchComfyProgress(base, clientId, emit, signal)
+    }
+    const ids = await submitAll({
+      ctx,
+      route,
+      base,
+      httpClient,
+      workflow,
+      n,
+      values,
+      signal,
+      clientId,
+    })
     if (!Array.isArray(ids)) {
       return refuse(ids)
     }
@@ -308,24 +362,23 @@ export async function renderWith(
       }
       rendered.push(...images)
     }
-    const data = replyImageData(rendered, format, request)
-    return Response.json(
-      { created: Math.floor(startedAt / MS_PER_SECOND), data },
-      {
-        headers: answeringHeaders({
-          route: routeAddress(route, ctx.getConfig().routes),
-          upstreamUsed: route.upstream ?? null,
-          egress: routeEgress(route, ctx.getConfig()),
-          chain: null,
-        }),
-      },
-    )
+    const body = {
+      created: Math.floor(startedAt / MS_PER_SECOND),
+      data: replyImageData(rendered, format, request),
+    }
+    try {
+      emit?.('image', body)
+    } catch {
+      // The caller already hung up; the body below is discarded with the stream.
+    }
+    return Response.json(body, { headers: imageAnswerHeaders(ctx, route) })
   } catch (err) {
     return refuse({
       status: engineErrorStatus(err),
       error: errMessage(err),
     })
   } finally {
+    stopProgress?.()
     if (leased) {
       // An engine dropped by a config reload mid-request still holds this lease.
       ctx.lifecycle.endLease(route.engine, entry?.idle_stop_seconds ?? DEFAULT_IDLE_STOP_SECONDS)

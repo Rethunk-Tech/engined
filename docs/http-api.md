@@ -727,6 +727,21 @@ curl -s localhost:29200/openai/v1/images/generations \
 
 The reply is `b64_json` unless the caller asked for `url`. There is no address into the container's shared output directory: a URL this door hands out is one it stored and will serve itself.
 
+A client that sends `Accept: text/event-stream` receives server-sent events while the picture renders, on this path and on `POST /openai/v1/images/edits`. Any other request is the single JSON body above. A request refused before rendering (an empty prompt, a bad size, a missing checkpoint) is still that JSON error. Once the stream has started, a failure is an `error` event whose `data` is the same error object, and the response status is 200 because the headers have already gone out. Hanging up still cancels the wait.
+
+| event | data |
+| --- | --- |
+| `progress` | a sampler step the container already reported: `value`, `max`, and when present `node` and `prompt_id` |
+| `preview` | one preview frame already in hand: `bytes`, and `format` (`jpeg` or `png`) when the frame says which. `image` is the base64 of that frame only when it is at most 32 KiB; a larger frame stays metadata, because the final event carries the rendered image |
+| `image` | the same JSON body this endpoint returns without the stream |
+| `error` | the same error object a JSON failure would have returned |
+
+```sh
+curl -N localhost:29200/openai/v1/images/generations \
+  -H 'accept: text/event-stream' -H 'content-type: application/json' \
+  -d '{"model":"@/comfy/local","prompt":"a red cube on a white table","size":"512x512"}'
+```
+
 **It does not replace the mediated proxy below, and is not meant to.** A node
 graph, a custom sampler, an upscale chain, a video job — none of those is
 expressible as an OpenAI image request. A consumer that needs them speaks comfy

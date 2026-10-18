@@ -110,7 +110,7 @@ const PIXEL = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
 async function imagesDoor(
   comfyHttpClient: HttpClient,
   routeArgs: Record<string, unknown> = CHECKPOINTS,
-  opts: { write?: (line: string) => void; chatTimeoutSeconds?: number } = {},
+  opts: { write?: (line: string) => void; chatTimeoutSeconds?: number; port?: number } = {},
 ) {
   restoreStateHome?.()
   restoreStateHome = redirectStateHome(TEST_ROOT)
@@ -131,7 +131,7 @@ async function imagesDoor(
     {
       enginesRoot: root,
       bunx: BUNX,
-      exec: buildExec({ port: 41_100, containerPort: COMFY_CONTAINER_PORT }),
+      exec: buildExec({ port: opts.port ?? 41_100, containerPort: COMFY_CONTAINER_PORT }),
       probe: () => Promise.resolve({ status: 200 }),
     },
     { comfyHttpClient, write: opts.write },
@@ -169,11 +169,15 @@ function rendersInstantly(submitted: string[] = [], uploads: FormData[] = []) {
   return client
 }
 
-function generate(door: Awaited<ReturnType<typeof imagesDoor>>, body: Record<string, unknown>) {
+function generate(
+  door: Awaited<ReturnType<typeof imagesDoor>>,
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {},
+) {
   return door.fetch(
     new Request(`http://engined${IMAGES_PATH}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
     }),
   )
@@ -342,6 +346,178 @@ describe('POST /openai/v1/images/generations', () => {
   })
 })
 
+const SSE = 'text/event-stream'
+const PREVIEW_INLINE_MAX_BYTES = 32 * 1024
+
+interface SseEvent {
+  event: string
+  data: Record<string, unknown>
+}
+
+function parseSse(body: string): SseEvent[] {
+  const events: SseEvent[] = []
+  for (const block of body.split('\n\n')) {
+    if (block.trim() === '') {
+      continue
+    }
+    const event = block
+      .split('\n')
+      .find((line) => line.startsWith('event: '))
+      ?.slice('event: '.length)
+    const data = block
+      .split('\n')
+      .find((line) => line.startsWith('data: '))
+      ?.slice('data: '.length)
+    events.push({ event: event ?? '', data: JSON.parse(data ?? '{}') as Record<string, unknown> })
+  }
+  return events
+}
+
+/** Comfy's big-endian preview frame: event type, then a JPEG/PNG body or a metadata prefix. */
+function previewFrame(image: Uint8Array, meta?: Record<string, unknown>): Uint8Array {
+  if (meta === undefined) {
+    const out = new Uint8Array(8 + image.byteLength)
+    const view = new DataView(out.buffer)
+    view.setUint32(0, 1, false)
+    view.setUint32(4, 1, false)
+    out.set(image, 8)
+    return out
+  }
+  const metaBytes = new TextEncoder().encode(JSON.stringify(meta))
+  const out = new Uint8Array(8 + metaBytes.byteLength + image.byteLength)
+  const view = new DataView(out.buffer)
+  view.setUint32(0, 4, false)
+  view.setUint32(4, metaBytes.byteLength, false)
+  out.set(metaBytes, 8)
+  out.set(image, 8 + metaBytes.byteLength)
+  return out
+}
+
+describe('Accept: text/event-stream', () => {
+  test('progress and preview frames arrive, then the same JSON a buffered call returns', async () => {
+    let framesSent = false
+    let polls = 0
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    const large = new Uint8Array(PREVIEW_INLINE_MAX_BYTES + 1)
+    const server = Bun.serve({
+      port: 0,
+      fetch(req, srv) {
+        if (new URL(req.url).pathname === '/ws' && srv.upgrade(req)) {
+          return
+        }
+        return new Response('not a socket', { status: 404 })
+      },
+      websocket: {
+        open(ws) {
+          ws.send(
+            JSON.stringify({
+              type: 'progress',
+              data: { value: 2, max: 8, node: '4', prompt_id: 'job-1' },
+            }),
+          )
+          ws.send(JSON.stringify({ type: 'executing', data: { node: '5', prompt_id: 'job-1' } }))
+          ws.send(previewFrame(jpeg))
+          ws.send(
+            previewFrame(large, { node_id: '4', prompt_id: 'job-1', image_type: 'image/png' }),
+          )
+          framesSent = true
+        },
+        message() {
+          // The door only reads frames this socket sends.
+        },
+      },
+    })
+    const client: HttpClient = (url, init) => {
+      const target = String(url)
+      if (target.includes('/history/')) {
+        polls += 1
+        if (!framesSent || polls < 2) {
+          return Promise.resolve(Response.json({}))
+        }
+      }
+      return rendersInstantly()(url, init)
+    }
+    try {
+      const door = await imagesDoor(client, CHECKPOINTS, {
+        port: server.port ?? 0,
+        chatTimeoutSeconds: 5,
+      })
+      const res = await generate(
+        door,
+        { model: '@/comfy/local', prompt: 'a red cube' },
+        { accept: SSE },
+      )
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe(SSE)
+      const events = parseSse(await res.text())
+      expect(
+        events.filter((event) => event.event === 'progress').map((event) => event.data),
+      ).toEqual([
+        { value: 2, max: 8, node: '4', prompt_id: 'job-1' },
+        { node: '5', prompt_id: 'job-1' },
+      ])
+      const previews = events.filter((event) => event.event === 'preview')
+      expect(previews[0]?.data).toEqual({
+        format: 'jpeg',
+        bytes: jpeg.byteLength,
+        image: Buffer.from(jpeg).toString('base64'),
+      })
+      expect(previews[1]?.data).toEqual({
+        format: 'png',
+        bytes: large.byteLength,
+        node: '4',
+        prompt_id: 'job-1',
+      })
+      const image = events.at(-1)
+      expect(image?.event).toBe('image')
+      expect(image?.data).toMatchObject({
+        data: [{ b64_json: Buffer.from(PIXEL).toString('base64') }],
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test('a caller that hangs up cancels the wait', async () => {
+    const client: HttpClient = (url, init) => {
+      if (String(url).includes('/history/')) {
+        return Promise.resolve(Response.json({}))
+      }
+      return rendersInstantly()(url, init)
+    }
+    const door = await imagesDoor(client, CHECKPOINTS, { chatTimeoutSeconds: 5 })
+    const ac = new AbortController()
+    const pending = door.fetch(
+      new Request(`http://engined${IMAGES_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: SSE },
+        body: JSON.stringify({ model: '@/comfy/local', prompt: 'a red cube' }),
+        signal: ac.signal,
+      }),
+    )
+    await Bun.sleep(50)
+    ac.abort()
+    const res = await pending
+    expect(res.headers.get('content-type')).toBe(SSE)
+    const events = parseSse(await res.text())
+    expect(events.some((event) => event.event === 'image')).toBe(false)
+    expect(JSON.stringify(events.at(-1)?.data)).toContain('hung up')
+    expect(events.at(-1)?.event).toBe('error')
+  })
+
+  test('an edit that asks for events ends on the same image object', async () => {
+    const door = await imagesDoor(rendersInstantly())
+    const res = await edit(door, {}, { headers: { accept: SSE } })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe(SSE)
+    const events = parseSse(await res.text())
+    expect(events.at(-1)?.event).toBe('image')
+    expect(events.at(-1)?.data).toMatchObject({
+      data: [{ b64_json: Buffer.from(PIXEL).toString('base64') }],
+    })
+  })
+})
+
 // The fixture above is not the artifact that ships. It said `images_workflow`
 // before its `[ready]` table and the real spec said it after, where TOML reads
 // a bare key as belonging to the table above it -- so the shipped engine
@@ -462,7 +638,7 @@ describe('collect asks before it gives up', () => {
 function edit(
   door: Awaited<ReturnType<typeof imagesDoor>>,
   fields: Record<string, string | Blob> = {},
-  { omitImage = false } = {},
+  { omitImage = false, headers }: { omitImage?: boolean; headers?: Record<string, string> } = {},
 ) {
   const form = new FormData()
   if (!omitImage) {
@@ -473,7 +649,9 @@ function edit(
   for (const [key, value] of Object.entries(fields)) {
     form.set(key, value)
   }
-  return door.fetch(new Request(`http://engined${EDITS_PATH}`, { method: 'POST', body: form }))
+  return door.fetch(
+    new Request(`http://engined${EDITS_PATH}`, { method: 'POST', body: form, headers }),
+  )
 }
 
 describe('POST /openai/v1/images/edits', () => {
