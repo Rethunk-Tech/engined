@@ -8,6 +8,7 @@
 - Config UI: Add hops… still lists a chain that would loop back to the one being edited, and that row cannot be selected. The reason is the cycle path.
 - A chain row on `/openai/v1/models` includes `declared_hops`, the hop strings as written, including `@/<chain-id>`. `hops` stays the expanded leaves dispatch walks.
 - Config UI: the sign-in page reloads once when the served module script is not the bundle still in memory, so a restart that keeps the same package version still loads the new UI.
+- `POST /openai/v1/images/generations` and `/images/edits` stream `progress`, `preview`, then `image` (or `error`) when the request sends `Accept: text/event-stream`. Every other request stays one JSON body.
 
 ## 0.2.8 - 2026-10-18
 
