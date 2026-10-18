@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.9 - 2026-10-18
 
 - Config UI: the Add wizard's chain path shows what a `@/<chain-id>` hop inserts, the same line the Chains card shows. A route hop has no extra line.
 - A request may name a chain as `@/<chain-id>` as well as its bare id. When that one segment is also a route model id, the chain wins.
@@ -10,6 +10,13 @@
 - A chain row on `/openai/v1/models` includes `declared_hops`, the hop strings as written, including `@/<chain-id>`. `hops` stays the expanded leaves dispatch walks.
 - Config UI: the sign-in page reloads once when the served module script is not the bundle still in memory, so a restart that keeps the same package version still loads the new UI.
 - `POST /openai/v1/images/generations` and `/images/edits` stream `progress`, `preview`, then `image` (or `error`) when the request sends `Accept: text/event-stream`. Every other request stays one JSON body.
+- `POST /openai/v1/audio/translations` streams the same way as transcriptions when the request sends `Accept: text/event-stream`. A JSON request is unchanged.
+- Config UI: Host checks probe the translation verb; a stored secret can be cleared; a lockout response carries `Retry-After`.
+- Config UI: a History load that fails shows an empty line. Copy failed flashes when the clipboard write refuses.
+- Config UI: a route-test skip says why; browser callers send Origin/Referer; idle auth sessions are swept.
+- The door trusts `X-Forwarded-For` only when Caddy set the hop header. JSON bodies are capped; internal errors stay off the wire.
+- Shutdown refuses when a container stop fails. A non-JSON image inspect is an error.
+- CLI: one argv parser; `--json` and the exit codes match the fleet. Calls that hang `secret-tool`, journal, systemctl, release, or engines-list are bounded.
 
 ## 0.2.8 - 2026-10-18
 
