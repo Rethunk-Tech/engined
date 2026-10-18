@@ -74,7 +74,10 @@ class TtsRequest(BaseModel):
 
 
 # Piper's phoneme string marks a word gap with a space and a sentence with ^ and $.
-_GAPS = {" ", "^", "$"}
+# Stress marks are counted out too: espeak stresses a function word phonemized
+# alone ("on" is ˈɔn) but not inside a sentence, so the per-word counts would
+# never add up to the sentence's phonemes.
+_GAPS = {" ", "^", "$", "ˈ", "ˌ"}
 
 
 def _phoneme_counts(texts: list[str]) -> list[int]:

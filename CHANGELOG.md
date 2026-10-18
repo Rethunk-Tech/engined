@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- piper: the image builds again (Python 3.14 base; onnxruntime has no 3.15 wheel), and word timings
+  come back for sentences with function words such as "on" or "the" instead of being dropped.
 - piper: a route's `filename` picks the voice from `models_dir` (spec `route_file_env`, optional
   `[[volume]]`); any published Piper voice works, patched at start for word timings. The baked
   voice stays the default. A request for a voice route switches the container to that route's file.
