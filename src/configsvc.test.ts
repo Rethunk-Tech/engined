@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { loadConfig } from './config.ts'
 import { startConfigsvc } from './configsvc.ts'
 import { readJson } from './configsvcApi.ts'
 import { SESSION_IDLE_MS } from './configsvcAuth.ts'
@@ -220,6 +221,79 @@ test('an upstream Enable/Disable header writes true and Enable drops the key', a
   expect(disabled.text).toContain('disable = true')
   const enabled = await post(disabled.text, undefined)
   expect(enabled.text).not.toContain('disable')
+})
+
+test('settings potluck writes a loadable table only when every required field is set', async () => {
+  const h = await harness()
+  const cookie = await h.signIn()
+  const html = await (await h.call('/')).text()
+  const script = [...html.matchAll(/src="([^"]+)"/g)]
+    .map((m) => m[1] as string)
+    .find((s) => s.endsWith('.js'))
+  expect(script).toBeDefined()
+  const js = await (
+    await h.call(
+      script?.startsWith('/') ? (script as string) : `/${(script as string).replace(/^\.\//, '')}`,
+    )
+  ).text()
+  expect(js).toContain('Potluck')
+
+  const post = async (path: string, body: unknown) =>
+    (await h.call(path, { method: 'POST', cookie, body: JSON.stringify(body) })).json() as Promise<{
+      ok?: boolean
+      text?: string
+    }>
+  const read = (await (await h.call('/api/config', { cookie })).json()) as {
+    text: string
+    sha256: string
+  }
+  const saved = await h.call('/api/save', {
+    method: 'POST',
+    cookie,
+    body: JSON.stringify({ text: read.text, base_sha256: read.sha256 }),
+  })
+  expect(saved.status).toBe(200)
+  expect(readFileSync(h.configFile, 'utf8')).not.toContain('[potluck]')
+
+  const incomplete = await post('/api/validate', {
+    text: `listen_port = ${h.doorPort}\n[potluck]\ncallback_url = "https://potluck.example/c"\n`,
+  })
+  expect(incomplete.ok).toBe(false)
+
+  const written = await post('/api/edit', {
+    text: `listen_port = ${h.doorPort}\n`,
+    ops: [
+      {
+        op: 'setKey',
+        path: ['potluck'],
+        value: {
+          callback_url: 'https://potluck.example/c',
+          callback_secret: { service: 'potluck', username: 'callback' },
+        },
+      },
+    ],
+  })
+  writeFileSync(h.configFile, written.text as string)
+  expect(loadConfig(h.configFile, ENGINES_ROOT).potluck).toEqual({
+    url: 'https://potluck.example/c',
+    secret: { service: 'potluck', username: 'callback' },
+  })
+  const listed = (await (await h.call('/api/secrets', { cookie })).json()) as {
+    secrets: { service: string }[]
+  }
+  expect(listed.secrets).toEqual([])
+  const stored = await h.call('/api/secret', {
+    method: 'POST',
+    cookie,
+    body: JSON.stringify({ service: 'potluck', username: 'callback', value: 'tok' }),
+  })
+  expect(stored.status).toBe(200)
+  const cleared = await h.call('/api/secret/clear', {
+    method: 'POST',
+    cookie,
+    body: JSON.stringify({ service: 'potluck', username: 'callback' }),
+  })
+  expect(cleared.status).toBe(200)
 })
 
 test('with a password hash, login works until five failures a minute lock the client out', async () => {

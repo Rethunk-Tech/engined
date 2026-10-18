@@ -85,10 +85,14 @@ export function Prop(props: {
   warn?: string
   note?: string
   label?: string
+  /** When set, the control does not write `path` itself. */
+  commit?: (value: unknown) => void
 }) {
   const prop = propOf(props.table, props.name)
   const type = Array.isArray(prop.type) ? prop.type[0] : prop.type
-  const commit = (value: unknown) => fork(editDraft([{ op: 'setKey', path: props.path, value }]))
+  const commit =
+    props.commit ??
+    ((value: unknown) => fork(editDraft([{ op: 'setKey', path: props.path, value }])))
   const listId =
     props.options === undefined
       ? undefined
