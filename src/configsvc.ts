@@ -5,7 +5,12 @@ import page from './configsvc/ui/index.html'
 import { type ConfigsvcDeps, configApi, readJson } from './configsvcApi.ts'
 import { createAuth, SESSION_COOKIE, SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_URL_PREFIX } from './configsvcCli.ts'
-import { bridgeAuthority, CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
+import {
+  BRIDGE_HOP_HEADER,
+  bridgeAuthority,
+  CONFIGSVC_TLS_PORT,
+  hopMatches,
+} from './configsvcHost.ts'
 import { liveApi } from './configsvcLive.ts'
 import {
   jsonError,
@@ -34,6 +39,8 @@ export interface ConfigsvcOptions {
   now?: () => number
   /** The name the TLS bridge serves this listener on; its requests arrive over HTTPS with that `Host`. */
   bridgeHost?: string
+  /** Shared with Caddy's `header_up`; X-Forwarded-For is ignored unless this matches. */
+  bridgeHop?: string
 }
 
 export interface StartedConfigsvc {
@@ -46,10 +53,10 @@ export interface StartedConfigsvc {
 }
 
 /**
- * Host and Origin, as the door checks them: a page on another origin, or a
- * request addressed to a name that is not this listener's, is refused. The
- * listener is loopback, so the Host is a loopback name at its port, or the
- * bridge's own authority, which then must come with an https Origin of that name.
+ * A page on another origin, or a request addressed to a name that is not this
+ * listener's, is refused. The listener is loopback, so the Host is a loopback
+ * name at its port, or the bridge's own authority, which then must come with
+ * an https Origin of that name. A matching Origin of this listener is allowed.
  */
 function refuseForeign(
   req: Request,
@@ -162,11 +169,12 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     routes: { '/': page },
     async fetch(req, srv) {
       try {
-        // Behind the bridge every request comes from Caddy; its forwarded address keeps the failure limit per client.
+        // Behind the bridge, Caddy's hop header is what authenticates X-Forwarded-For.
         const peer = srv.requestIP(req)?.address ?? 'unknown'
-        const forwarded = viaBridge(req)
-          ? req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
-          : undefined
+        const forwarded =
+          viaBridge(req) && hopMatches(opts.bridgeHop, req.headers.get(BRIDGE_HOP_HEADER))
+            ? req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
+            : undefined
         return withHeaders(await handle(req, forwarded || peer))
       } catch (err) {
         process.stderr.write(`configsvc: ${errMessage(err)}\n`)

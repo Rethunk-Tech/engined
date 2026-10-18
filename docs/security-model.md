@@ -196,7 +196,9 @@ than loopback, the UI still listens on loopback only. The `engined-tls` Caddy
 renders a site for `https://<host>:29444` that proxies to it, the page logs the
 https URL, and the UI accepts that one `Host` (with an https `Origin` of the
 same name), sets `Secure` on its cookie and rate-limits by the forwarded
-client address. `host` is a name or address clients dial, never `0.0.0.0`.
+client address only when Caddy's hop header is present. A loopback caller
+that spoofs the bridged `Host` does not get to pick the lockout key.
+`host` is a name or address clients dial, never `0.0.0.0`.
 Restart `engined-tls` after changing it: the Caddyfile is rendered when the
 unit starts (`engined --caddyfile`). Caddy's internal CA signs the site, so a
 browser needs that root once, as for the Cursor door.

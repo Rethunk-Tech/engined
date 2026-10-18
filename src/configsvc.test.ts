@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { startConfigsvc } from './configsvc.ts'
 import { readJson } from './configsvcApi.ts'
 import { SESSION_IDLE_MS } from './configsvcAuth.ts'
-import { CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
+import { BRIDGE_HOP_HEADER, CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
 import type { DoctorReport } from './doctor.ts'
 import {
   MAX_JSON_BODY_BYTES,
@@ -38,6 +38,7 @@ async function harness(
   opts: {
     passwordHash?: string
     bridgeHost?: string
+    bridgeHop?: string
     doorConfig?: Partial<Config>
     doctor?: () => Promise<DoctorReport>
   } = {},
@@ -61,7 +62,13 @@ async function harness(
   const doorPaths: string[] = []
   const clock = { now: 1_000_000 }
   const svc = startConfigsvc(
-    { port: 0, passwordHash: opts.passwordHash, bridgeHost: opts.bridgeHost, now: () => clock.now },
+    {
+      port: 0,
+      passwordHash: opts.passwordHash,
+      bridgeHost: opts.bridgeHost,
+      bridgeHop: opts.bridgeHop,
+      now: () => clock.now,
+    },
     {
       configFile,
       enginesRoot: ENGINES_ROOT,
@@ -343,6 +350,32 @@ test('behind the TLS bridge the bridged Host and https Origin are accepted, cook
   ).toBe(403)
   expect((await refuse({ Host: `evil.example:${CONFIGSVC_TLS_PORT}` })).status).toBe(403)
   expect((await h.call('/api/history', { cookie })).status).toBe(200)
+})
+
+test('X-Forwarded-For keys lockout only when Caddy set the hop header', async () => {
+  const hop = 'bridge-hop-secret'
+  const h = await harness({ bridgeHost: 'engined.lan', bridgeHop: hop })
+  const origin = `https://engined.lan:${CONFIGSVC_TLS_PORT}`
+  const host = `engined.lan:${CONFIGSVC_TLS_PORT}`
+  const attempt = (xff: string, hopHeader?: string) =>
+    h.call('/login', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'wrong' }),
+      headers: {
+        Host: host,
+        Origin: origin,
+        'X-Forwarded-For': xff,
+        ...(hopHeader === undefined ? {} : { [BRIDGE_HOP_HEADER]: hopHeader }),
+      },
+    })
+  for (let i = 0; i < 5; i++) {
+    expect((await attempt(`10.0.0.${i + 1}`)).status).toBe(401)
+  }
+  expect((await attempt('10.0.0.9')).status).toBe(429)
+  for (let i = 0; i < 5; i++) {
+    expect((await attempt(`11.0.0.${i + 1}`, hop)).status).toBe(401)
+  }
+  expect((await attempt('11.0.0.9', hop)).status).toBe(401)
 })
 
 test('route Test calls the verb the route serves, never chat, and says so when the door lacks the address', async () => {

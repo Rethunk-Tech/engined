@@ -6,7 +6,7 @@ import { loadConfig } from './config.ts'
 import { bestEffortListenPort } from './configAwaiting.ts'
 import { startConfigsvc } from './configsvc.ts'
 import type { ConfigsvcDeps } from './configsvcApi.ts'
-import { isLoopbackHost } from './configsvcHost.ts'
+import { ensureBridgeHop, isLoopbackHost } from './configsvcHost.ts'
 import { secretTool } from './configsvcSecrets.ts'
 import { runDoctor } from './doctor.ts'
 import { FatalError } from './errors/fatal.ts'
@@ -104,6 +104,7 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
         port: settings.port,
         passwordHash: settings.passwordHash,
         bridgeHost: isLoopbackHost(settings.host) ? undefined : settings.host,
+        bridgeHop: isLoopbackHost(settings.host) ? undefined : ensureBridgeHop(),
       },
       deps,
     )
