@@ -554,10 +554,21 @@ upstream = "local"
 [[engine]]
 id = "piper"
 idle_stop_seconds = 1800
+# The image's baked voice needs nothing here. To pick another, give the engine a
+# models_dir and name the voice's .onnx on a route below; any Piper voice from
+# huggingface.co/rhasspy/piper-voices works, with its .onnx and .onnx.json side
+# by side in models_dir.
+# models_dir = "~/.local/share/engined-models/piper"
 
 [[route]]
 engine = "piper"
 upstream = "local"
+
+# [[route]]
+# engine = "piper"
+# upstream = "local"
+# model = "lessac-medium"
+# filename = "en_US-lessac-medium.onnx"
 
 [[engine]]
 id = "whisper"

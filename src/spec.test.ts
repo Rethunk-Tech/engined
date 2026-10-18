@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { shippedEngines } from './configsvcShipped.ts'
 import { buildLlamaSpec, MODELS_CONTAINER_PATH, PRESET_CONTAINER_PATH } from './llamaSpec.ts'
+import { specForModel } from './modelResidency.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
 import {
@@ -10,6 +11,7 @@ import {
   engine as baseEngine,
   ENGINES_ROOT,
   makeTestRoot,
+  route,
   writeEngineSpec,
 } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
@@ -408,4 +410,35 @@ test('a homepage that is not https is fatal', () => {
   expect(() =>
     loadSpec(engine({ id: 'x', agent_version: '1.0.0' }), { enginesRoot: root, bunx: BUNX }),
   ).toThrow('"homepage" must be an https:// URL')
+})
+
+describe('piper voice from models_dir', () => {
+  const piper = (overrides: Partial<EngineEntry> = {}) =>
+    loadSpec(baseEngine({ id: 'piper', ...overrides }), { enginesRoot: ENGINES_ROOT, bunx: BUNX })
+      .spec
+
+  test('the optional mount and route_file artifact drop without a models_dir and stay with one', () => {
+    const bare = piper()
+    const mounted = piper({ models_dir: '/m' })
+    if (!(isContainerSpec(bare) && isContainerSpec(mounted))) {
+      throw new Error('piper is a container engine')
+    }
+    expect(bare.volumes.map((v) => v.path)).toEqual([])
+    expect(bare.artifacts).toEqual([])
+    expect(mounted.volumes.map((v) => v.name)).toEqual(['/m'])
+    expect(mounted.artifacts[0]?.obtain).toContain('/m/en_US-lessac-medium.onnx.json')
+  })
+
+  test("a route's filename sets route_file_env, and a start naming no model takes the first route", () => {
+    const spec = piper({ models_dir: '/m' })
+    if (!isContainerSpec(spec)) {
+      throw new Error('piper is a container engine')
+    }
+    const routes = [route({ engine: 'piper', model: 'amy', filename: 'en_US-amy-medium.onnx' })]
+    for (const model of ['amy', undefined]) {
+      expect(specForModel(spec, routes, 'piper', model).env).toContain(
+        'PIPER_VOICE_PATH=/models/en_US-amy-medium.onnx',
+      )
+    }
+  })
 })

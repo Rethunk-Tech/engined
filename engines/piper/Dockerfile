@@ -60,8 +60,9 @@ RUN mkdir -p /app/voices \
     && echo "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0  /app/voices/${PIPER_VOICE}.onnx.json" | sha256sum -c \
     # Published voices export audio only. Marking the model's phoneme-duration
     # tensor as a second output is what lets synthesize() report per-phoneme
-    # sample counts, which /v1/tts turns into word timings. onnx is here for this
-    # one step; the runtime never imports it.
+    # sample counts, which /v1/tts turns into word timings. The venv is copied
+    # whole into the runtime stage, so onnx is there too: app.py runs the same
+    # patch on a voice a route mounts from models_dir.
     && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
 FROM python:3.15.0-slim@sha256:f48fda6d59b2b3437781d1c3ccf4aa0e26ae871de3cdd758b49ab45ee7291619

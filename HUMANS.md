@@ -148,7 +148,10 @@ says which absence is which.
 it runs the spec's `[[artifact]]` obtain commands (the ones its `fix` field
 names) for artifacts not on disk yet, in order. An artifact marked
 `route_file = true` is a weights file a route picks with `filename`, so it is
-fetched, and required at start, only while an enabled route names it. It streams SSE events `step`
+fetched, and required at start, only while an enabled route names it. A spec's
+`route_file_env = "NAME"` makes a start set that env var to `/models/<filename>` (piper's
+`PIPER_VOICE_PATH`), and a `[[volume]]` marked `optional = true` is dropped when its
+`{models_dir}` placeholder has no value. It streams SSE events `step`
 (`{step, command}`), `line` (`{step, stream, line}`) and a final `exit`
 (`{exitCode, steps}`; `steps` is 0 when nothing was missing). It stops at the
 first failing command, kills the command if the client disconnects, answers 404

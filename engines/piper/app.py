@@ -9,7 +9,8 @@ the same reason. A caller asking for `chunks` additionally gets one `chunk` fram
 sentence as it lands, carrying that sentence's PCM and the voice's own sample rate: the door
 has no other channel to learn the rate on, because raw PCM has no container to put it in.
 
-The voice is baked into the image and loaded once at import, before uvicorn binds its
+The voice is the image's baked one, or the file PIPER_VOICE_PATH names when a route
+chose another from the models mount. It is loaded once at import, before uvicorn binds its
 listening socket. A load failure therefore kills the process rather than leaving a port
 open that answers /health and fails every real request.
 """
@@ -19,6 +20,10 @@ import io
 import json
 import logging
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 import wave
 
@@ -31,7 +36,25 @@ app = FastAPI()
 logger = logging.getLogger(__name__)
 
 VOICE_PATH = os.environ.get("PIPER_VOICE_PATH", "/app/voices/en_US-lessac-medium.onnx")
-voice = PiperVoice.load(VOICE_PATH)
+BAKED_VOICES_DIR = "/app/voices"
+
+
+def _load_voice(path: str) -> PiperVoice:
+    """The baked voice is already patched with the alignment output. A published voice
+    from the models mount is stock, and that mount is read-only, so the patch runs on a
+    copy."""
+    if os.path.realpath(path).startswith(BAKED_VOICES_DIR + os.sep):
+        return PiperVoice.load(path)
+    copy = os.path.join(tempfile.mkdtemp(prefix="piper-voice-"), os.path.basename(path))
+    shutil.copy(path, copy)
+    shutil.copy(path + ".json", copy + ".json")
+    subprocess.run(
+        [sys.executable, "-m", "piper.patch_voice_with_alignment", copy], check=True
+    )
+    return PiperVoice.load(copy)
+
+
+voice = _load_voice(VOICE_PATH)
 print(f"Piper voice loaded: {VOICE_PATH}")
 # One lock per process serializes concurrent TTS on this container. Correct for a single
 # GPU with no multi-lease concept upstream; the lock guards only the blocking synthesis

@@ -8,6 +8,7 @@ import type { DockerLifecycle } from './docker.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
 import { routeForHop } from './routeAddress.ts'
+import { mergeEnv } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import type { ResolvedRoute } from './types.ts'
 
@@ -35,8 +36,24 @@ function withModelFile(spec: RunnableContainerSpec, filename: string): RunnableC
 }
 
 /**
- * The spec a start for `model` on `id` runs: the engine's own, with a stt
- * engine's weights file swapped for the one the route names. A start naming
+ * How a route's weights file reaches the container: through the env var the
+ * spec names in `route_file_env`, else the `-m` argument a stt engine takes.
+ * Any other spec has no such mechanism and is returned unchanged -- config
+ * refuses a route `filename` on one at startup.
+ */
+function withRouteFile(spec: RunnableContainerSpec, filename: string): RunnableContainerSpec {
+  if (spec.route_file_env !== undefined) {
+    return {
+      ...spec,
+      env: mergeEnv(spec.env, { [spec.route_file_env]: `${MODEL_MOUNT_PATH}/${filename}` }),
+    }
+  }
+  return spec.kind === 'stt' ? withModelFile(spec, filename) : spec
+}
+
+/**
+ * The spec a start for `model` on `id` runs: the engine's own, with the
+ * weights file swapped for the one the route names. A start naming
  * no model takes the first enabled route's file, since the spec's own `-m`
  * default may be weights this box never downloaded. Throws when a model was
  * asked for and no route on `id` serves it.
@@ -51,17 +68,13 @@ export function specForModel(
     const first = routes.find(
       (r) => r.engine === id && r.disabled !== true && r.filename !== undefined,
     )
-    return first?.filename !== undefined && spec.kind === 'stt'
-      ? withModelFile(spec, first.filename)
-      : spec
+    return first?.filename === undefined ? spec : withRouteFile(spec, first.filename)
   }
   const route = routeForHop(routes, id, model)
   if (route === undefined) {
     throw new Error(`model "${model}" not found on "${id}"`)
   }
-  return route.filename !== undefined && spec.kind === 'stt'
-    ? withModelFile(spec, route.filename)
-    : spec
+  return route.filename === undefined ? spec : withRouteFile(spec, route.filename)
 }
 
 export class ModelResidency {

@@ -23,7 +23,7 @@ import {
   routeServes,
 } from './routeServes.ts'
 import type { RuntimeStatus } from './runtimeTable.ts'
-import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
+import { applyEngineArgs, loadSpec, mergeEnv, type SpecLoadOptions } from './spec.ts'
 import { isContainerSpec, type LoadedSpec, type Spec } from './specTypes.ts'
 import {
   type Config,
@@ -147,22 +147,6 @@ function loadEngineSpec(
     return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPathFor(engine.id)) }
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
-}
-
-/** A config key replaces the spec's entry of the same name in place; the rest append. */
-export function mergeEnv(
-  specEnv: readonly string[],
-  overrides: Record<string, string> | undefined,
-): string[] {
-  const rest = new Map(Object.entries(overrides ?? {}))
-  const merged = specEnv.map((entry) => {
-    const eq = entry.indexOf('=')
-    const key = eq === -1 ? entry : entry.slice(0, eq)
-    const replacement = rest.get(key)
-    rest.delete(key)
-    return replacement === undefined ? entry : `${key}=${replacement}`
-  })
-  return [...merged, ...[...rest].map(([k, v]) => `${k}=${v}`)]
 }
 
 /**
@@ -396,6 +380,33 @@ function checkCapabilityServed(
   }
 }
 
+/**
+ * A route `filename` is only read by an engine whose spec says how: a stt
+ * `-m <path>` argument or a `route_file_env`. Anything else would carry a
+ * weights file nothing loads, so it is refused here, where `command` is known.
+ */
+function checkRouteFileTaken(
+  engine: EngineEntry,
+  spec: Spec,
+  routes: readonly ResolvedRoute[],
+): void {
+  if (
+    !isContainerSpec(spec) ||
+    (spec.kind !== 'stt' && spec.kind !== 'tts') ||
+    spec.route_file_env !== undefined ||
+    spec.command.includes('-m')
+  ) {
+    return
+  }
+  for (const r of routes) {
+    if (r.engine === engine.id && r.filename !== undefined) {
+      throw new ParseError(`engine "${engine.id}" does not take a weights file from its routes`, {
+        path: originOf(r, 'filename'),
+      })
+    }
+  }
+}
+
 export function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
@@ -412,6 +423,7 @@ export function buildEntries(
     // start or route to cannot be the reason the daemon will not come up.
     if (!engine.disabled) {
       checkLocalFileDisposition(engine, spec.spec.kind, config.routes)
+      checkRouteFileTaken(engine, spec.spec, config.routes)
       checkWildcardRouteKind(engine, spec.spec.kind, config.routes)
       checkAgenticWire(engine, spec.spec, config.routes, config.upstreams)
       checkSelfUpstream(engine, spec.spec, config.routes, config.upstreams)

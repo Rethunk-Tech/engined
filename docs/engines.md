@@ -264,8 +264,11 @@ what keeps "after" from reaching the warm floor exactly.
 
 `engines/piper/`. The one engine with no GPU flags at all: an ONNX voice small
 enough that onnxruntime's CPU provider is the right answer, which is what makes
-it the voice to reach for while a large GGUF stays resident. ~0.5 GB. Voice
-baked at build time.
+it the voice to reach for while a large GGUF stays resident. ~0.5 GB. The
+default voice is baked at build time. With a `models_dir`, a route's `filename`
+names another Piper voice there (the `.onnx` with its `.onnx.json` beside it; any
+voice from huggingface.co/rhasspy/piper-voices works) and the start loads it
+instead, patching a copy for word timings as the build does for the baked one.
 
 Faster than realtime by a wide margin, and by more than the GPU engines above:
 measured through the door, median of three runs, warm, on a three-sentence

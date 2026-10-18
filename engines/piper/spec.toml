@@ -18,8 +18,26 @@ command = []
 devices = []
 group_add = []
 security_opt = []
-# The voice is baked into the image at build time -- no [[artifact]] and no
-# model volume, same posture as the chatterbox engines and kokoro.
+# The image's own voice is baked in, so a box with no `models_dir` needs no
+# artifact and no mount. With one, a route's `filename` names another Piper
+# voice (the .onnx, its .onnx.json beside it) and the start sets this env var
+# to it; app.py patches a copy of it for word timings.
+route_file_env = "PIPER_VOICE_PATH"
+
+# Dropped when the engine has no `models_dir`.
+[[volume]]
+name = "{models_dir}"
+path = "/models"
+read_only = true
+optional = true
+
+# The baked voice, from the same pinned revision as the Dockerfile's, as a worked
+# example of a route's `filename`. Any voice from huggingface.co/rhasspy/piper-voices
+# works: put both files in `models_dir` and name the .onnx.
+[[artifact]]
+path = "/models/en_US-lessac-medium.onnx"
+route_file = true
+obtain = "curl -fL -o {models_dir}/en_US-lessac-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx && curl -fL -o {models_dir}/en_US-lessac-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
 
 # app.py's /health is a static {"status": "ok"} that never inspects the loaded
 # voice -- but PiperVoice.load runs at module import, before uvicorn creates

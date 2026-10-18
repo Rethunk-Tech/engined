@@ -72,6 +72,8 @@ export interface ContainerSpec extends SpecCommon {
   images_edit_workflow?: string
   volumes: Volume[]
   artifacts: Artifact[]
+  /** Env var a start sets to `/models/<filename>` of the route it serves, for an engine that loads its weights from the environment rather than a `-m` argument. */
+  route_file_env?: string
   ready: ReadyProbe
 }
 

@@ -146,7 +146,7 @@ upstream = "self"
 image = "engined/fakestt:local"
 obtain = "build"
 serves = ["/openai/v1/audio/transcriptions"]
-command = ["--host", "0.0.0.0"]
+command = ["--host", "0.0.0.0", "-m", "/models/default.bin"]
 
 [ready]
 path = "/health"

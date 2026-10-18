@@ -123,7 +123,7 @@ export const KIND_TRAITS: Record<
     container: true,
     upstream: 'self',
     localFile: {
-      filename: 'forbidden',
+      filename: 'allowed',
       role: 'forbidden',
       args: 'forbidden',
       translate: 'forbidden',
@@ -443,6 +443,8 @@ export interface Volume {
    * case this exists to prevent.
    */
   read_only?: boolean
+  /** Dropped, rather than fatal, when its `name` carries a placeholder this engine's config cannot resolve (`{models_dir}` on an engine with no `models_dir`). */
+  optional?: boolean
 }
 
 /** Declared so `installed` can be honest about what a pulled image still lacks. */

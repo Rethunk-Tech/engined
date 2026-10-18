@@ -73,10 +73,11 @@ const CONTAINER_KEYS: ReadonlySet<string> = new Set([
   'command',
   'images_workflow',
   'images_edit_workflow',
+  'route_file_env',
 ])
 const READY_KEYS: ReadonlySet<string> = new Set(['path', 'status', 'method', 'accept'])
 const ACCEPT_KEYS: ReadonlySet<string> = new Set(['min', 'max'])
-const VOLUME_KEYS: ReadonlySet<string> = new Set(['name', 'path', 'read_only'])
+const VOLUME_KEYS: ReadonlySet<string> = new Set(['name', 'path', 'read_only', 'optional'])
 const ARTIFACT_KEYS: ReadonlySet<string> = new Set(['path', 'obtain', 'route_file'])
 
 export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec {
@@ -100,6 +101,9 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
     kind === 'agentic-cli' ? parseAgentic(raw, file) : parseContainer(raw, file, kind)
 
   const subs = buildSubs(engine, opts, specDir)
+  if (spec.kind !== 'agentic-cli') {
+    spec = dropUnresolvable(spec, subs)
+  }
   spec = substituteDeep(spec, subs, file)
 
   if (isContainerSpec(spec)) {
@@ -111,6 +115,8 @@ export function loadSpec(engine: EngineEntry, opts: SpecLoadOptions): LoadedSpec
 
   return { spec, source: specDir }
 }
+
+const PLACEHOLDER_RE = /\{([a-z_]+)\}/g
 
 function buildSubs(
   engine: EngineEntry,
@@ -141,8 +147,29 @@ function buildSubs(
   return subs
 }
 
+function hasUnresolved(s: string, subs: Record<string, string>): boolean {
+  return [...s.matchAll(PLACEHOLDER_RE)].some((m) => subs[m[1] as string] === undefined)
+}
+
+/**
+ * An optional volume, and a `route_file` artifact, that name a placeholder
+ * this engine cannot supply are dropped rather than fatal: with no
+ * `models_dir` there is no model store to mount and no route may name a file
+ * in it (the parse tier refuses `filename` there), so neither could be used.
+ */
+function dropUnresolvable(spec: ContainerSpec, subs: Record<string, string>): ContainerSpec {
+  return {
+    ...spec,
+    volumes: spec.volumes.filter((v) => !(v.optional === true && hasUnresolved(v.name, subs))),
+    artifacts: spec.artifacts.filter(
+      (a) =>
+        !(a.route_file === true && (hasUnresolved(a.path, subs) || hasUnresolved(a.obtain, subs))),
+    ),
+  }
+}
+
 function substitute(s: string, subs: Record<string, string>, file: string): string {
-  return s.replace(/\{([a-z_]+)\}/g, (whole, key: string) => {
+  return s.replace(PLACEHOLDER_RE, (whole, key: string) => {
     const v = subs[key]
     if (v === undefined) {
       throw new ParseError(`unresolved placeholder ${whole}`, file)
@@ -285,6 +312,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
       raw.images_edit_workflow === undefined
         ? undefined
         : requireString(raw.images_edit_workflow, '"images_edit_workflow"', file),
+    route_file_env: optional(raw.route_file_env, 'string', '"route_file_env"', file),
     volumes: parseVolumes(raw.volume, file),
     artifacts: parseArtifacts(raw.artifact, file),
     ready: parseReady(raw.ready, file),
@@ -334,6 +362,7 @@ function parseVolumes(raw: unknown, file: string): Volume[] {
       name: requireString(v.name, '[[volume]] "name"', file),
       path: requireString(v.path, '[[volume]] "path"', file),
       read_only: optional(v.read_only, 'boolean', '[[volume]] "read_only"', file),
+      optional: optional(v.optional, 'boolean', '[[volume]] "optional"', file),
     }
   })
 }
@@ -378,4 +407,20 @@ export function applyEngineArgs(engine: EngineEntry, spec: ContainerSpec): Conta
     )
   }
   return { ...spec, command: [...spec.command, ...argv] }
+}
+
+/** A config key replaces the spec's entry of the same name in place; the rest append. */
+export function mergeEnv(
+  specEnv: readonly string[],
+  overrides: Record<string, string> | undefined,
+): string[] {
+  const rest = new Map(Object.entries(overrides ?? {}))
+  const merged = specEnv.map((entry) => {
+    const eq = entry.indexOf('=')
+    const key = eq === -1 ? entry : entry.slice(0, eq)
+    const replacement = rest.get(key)
+    rest.delete(key)
+    return replacement === undefined ? entry : `${key}=${replacement}`
+  })
+  return [...merged, ...[...rest].map(([k, v]) => `${k}=${v}`)]
 }
