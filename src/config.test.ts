@@ -1310,6 +1310,17 @@ kind = "stt"
     expect(engine?.args.model_id).toBe('scribe_v1')
   })
 
+  test('[engine.env] parses, and refuses a non-string value or a bad name', () => {
+    const base = '[[engine]]\nid = "kokoro"\n[engine.env]\n'
+    expect(loadConfig(writeConfig(`${base}KOKORO_VOICE = "bf_emma"\n`)).engines[0]?.env).toEqual({
+      KOKORO_VOICE: 'bf_emma',
+    })
+    expect(() => loadConfig(writeConfig(`${base}THREADS = 8\n`))).toThrow(
+      '"THREADS" must be a string',
+    )
+    expect(() => loadConfig(writeConfig(`${base}"A-B" = "x"\n`))).toThrow('"A-B" must match')
+  })
+
   test('an unrecognised top-level engine key is fatal', () => {
     const toml = `[[engine]]\nid = "local-llama"\nkind = "openai-http"\nmodels_dirs = "~/x"\n`
     expect(() => loadConfig(writeConfig(toml))).toThrow(RX_UNRECOGNISED_ENGINE_KEY)

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Config: `[engine.env]` sets a container engine's environment, merged over the spec's `env`. kokoro
+  reads `KOKORO_VOICE` and `KOKORO_LANG_CODE` (`a` or `b`) from it and fails fast on an unknown value.
 - Config: `devices` and `group_add` on an `[[engine]]` replace the spec's GPU devices and groups for
   that container (empty means none), so a box without ROCm needs no spec edit. The comfy, kokoro and
   chatterbox Dockerfiles take `--build-arg TORCH_INDEX=` to build against the CPU torch wheels.

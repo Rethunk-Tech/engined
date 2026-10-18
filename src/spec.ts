@@ -374,7 +374,7 @@ export function applyEngineArgs(engine: EngineEntry, spec: ContainerSpec): Conta
   }
   if (spec.command.length === 0) {
     throw new Error(
-      `engine "${engine.id}": [engine.args] is set, but this engine's command is image-defined (empty) -- appending flags would replace the image's own CMD, not extend it`,
+      `engine "${engine.id}": [engine.args] is set, but this engine's command is image-defined (empty) -- appending flags would replace the image's own CMD, not extend it; use [engine.env] for an image that reads its settings from the environment`,
     )
   }
   return { ...spec, command: [...spec.command, ...argv] }

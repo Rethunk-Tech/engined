@@ -137,6 +137,11 @@ const ENGINE_FIELDS: Fields = {
   devices: strings(
     'Container engines: host devices passed through, replacing the spec’s list. An empty list means none (CPU-only).',
   ),
+  env: {
+    description:
+      'Container engines: environment variables merged over the spec’s; a key replaces the spec’s entry of the same name.',
+    schema: { type: 'object', additionalProperties: { type: 'string' } },
+  },
   group_add: strings(
     'Container engines: groups added to the container, replacing the spec’s list. An empty list means none.',
   ),

@@ -536,6 +536,12 @@ ready_timeout_s = 120
 # `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu`).
 # devices = []
 # group_add = []
+# Container environment, merged over the spec's. kokoro reads these two: a
+# British English voice (voices are listed in engines/kokoro/app.py; only lang
+# codes "a" and "b" are installed).
+# [engine.env]
+# KOKORO_VOICE = "bf_emma"
+# KOKORO_LANG_CODE = "b"
 
 [[route]]
 engine = "kokoro"

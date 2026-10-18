@@ -185,6 +185,13 @@
             "type": "string"
           },
           "description": "Container engines: groups added to the container, replacing the spec’s list. An empty list means none."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Container engines: environment variables merged over the spec’s; a key replaces the spec’s entry of the same name."
         }
       },
       "required": [

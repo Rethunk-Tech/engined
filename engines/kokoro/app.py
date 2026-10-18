@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import logging
+import os
 import threading
 import time
 import types
@@ -233,7 +234,7 @@ def _warm_decoder_buckets(pipeline: KPipeline) -> None:
         "This next one is longer still, closer to a full paragraph of spoken reply text.",
         "And this final warm-up sentence pushes further out toward the longest replies this engine is likely to ever synthesize in one turn.",
     ]
-    voice = "af_heart"
+    voice = DEFAULT_VOICE
     t0 = time.perf_counter()
     with torch.no_grad():
         for text in warmup_texts:
@@ -246,22 +247,6 @@ def _warm_decoder_buckets(pipeline: KPipeline) -> None:
         f"kokoro decoder warm-up: {len(warmup_texts)} texts in {time.perf_counter() - t0:.1f}s"
     )
 
-
-pipeline = KPipeline(lang_code="a")
-print(f"Kokoro pipeline resolved device: {pipeline.model.device}")
-pipeline.model.decoder = _BucketedDecoder(pipeline.model.decoder)
-pipeline.model.forward_with_tokens = types.MethodType(
-    _padded_forward_with_tokens, pipeline.model
-)
-# The warm-up loop below drives every call through the patched
-# forward_with_tokens too, so it pre-pays both the decoder's frame buckets and
-# the input-id buckets in the same pass -- no separate sweep needed.
-_warm_decoder_buckets(pipeline)
-SAMPLE_RATE = 24_000
-# One lock per process serializes concurrent TTS on this container. Correct for a single
-# GPU with no multi-lease concept upstream; the lock guards only the blocking pipeline
-# call, not the NDJSON streaming.
-_model_lock = threading.Lock()
 
 # hexgrad/kokoro's own American + British English voice-pack catalog. misaki's G2P doesn't
 # validate the voice id itself, so an unknown one must be rejected here rather than silently
@@ -296,6 +281,36 @@ KNOWN_VOICES = {
     "bm_george",
     "bm_lewis",
 }
+
+# Only "a" (American) and "b" (British) G2P are installed in this image; the other
+# Kokoro language codes need extra misaki dependencies that are not.
+SUPPORTED_LANG_CODES = {"a", "b"}
+LANG_CODE = os.environ.get("KOKORO_LANG_CODE", "a")
+DEFAULT_VOICE = os.environ.get("KOKORO_VOICE", "af_heart")
+if LANG_CODE not in SUPPORTED_LANG_CODES:
+    raise SystemExit(
+        f'KOKORO_LANG_CODE "{LANG_CODE}" is not supported: this image only has "a" and "b"'
+    )
+if DEFAULT_VOICE not in KNOWN_VOICES:
+    raise SystemExit(
+        f'KOKORO_VOICE "{DEFAULT_VOICE}" is not a known Kokoro voice: {", ".join(sorted(KNOWN_VOICES))}'
+    )
+
+pipeline = KPipeline(lang_code=LANG_CODE)
+print(f"Kokoro pipeline resolved device: {pipeline.model.device}")
+pipeline.model.decoder = _BucketedDecoder(pipeline.model.decoder)
+pipeline.model.forward_with_tokens = types.MethodType(
+    _padded_forward_with_tokens, pipeline.model
+)
+# The warm-up loop below drives every call through the patched
+# forward_with_tokens too, so it pre-pays both the decoder's frame buckets and
+# the input-id buckets in the same pass -- no separate sweep needed.
+_warm_decoder_buckets(pipeline)
+SAMPLE_RATE = 24_000
+# One lock per process serializes concurrent TTS on this container. Correct for a single
+# GPU with no multi-lease concept upstream; the lock guards only the blocking pipeline
+# call, not the NDJSON streaming.
+_model_lock = threading.Lock()
 
 
 class TtsRequest(BaseModel):
@@ -340,7 +355,7 @@ def health():
 
 @app.post("/v1/tts")
 def synthesize(req: TtsRequest):
-    voice = req.voice or "af_heart"
+    voice = req.voice or DEFAULT_VOICE
 
     def events():
         if voice not in KNOWN_VOICES:

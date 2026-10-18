@@ -15,6 +15,7 @@ import { ENGINE_KEYS, MODEL_KEYS, SECRET_KEYS, UPSTREAM_KEYS } from './configKey
 import { recordOrigins } from './configOrigin.ts'
 import {
   asArgs,
+  asEnv,
   expandConfigPath,
   optional,
   optionalPositive,
@@ -117,10 +118,12 @@ function configuredDevices(
   raw: Record<string, unknown>,
   site: string,
   file: string,
-): Pick<EngineEntry, 'devices' | 'group_add'> {
+): Pick<EngineEntry, 'devices' | 'group_add' | 'env'> {
   const devices = optionalStringArray(raw.devices, `${site} "devices"`, file)
   const groupAdd = optionalStringArray(raw.group_add, `${site} "group_add"`, file)
+  const env = asEnv(raw.env, site, file)
   return {
+    ...(env === undefined ? {} : { env }),
     ...(devices === undefined ? {} : { devices }),
     ...(groupAdd === undefined ? {} : { group_add: groupAdd }),
   }

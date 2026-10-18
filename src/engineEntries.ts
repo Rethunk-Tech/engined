@@ -149,13 +149,29 @@ function loadEngineSpec(
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
 
+/** A config key replaces the spec's entry of the same name in place; the rest append. */
+export function mergeEnv(
+  specEnv: readonly string[],
+  overrides: Record<string, string> | undefined,
+): string[] {
+  const rest = new Map(Object.entries(overrides ?? {}))
+  const merged = specEnv.map((entry) => {
+    const eq = entry.indexOf('=')
+    const key = eq === -1 ? entry : entry.slice(0, eq)
+    const replacement = rest.get(key)
+    rest.delete(key)
+    return replacement === undefined ? entry : `${key}=${replacement}`
+  })
+  return [...merged, ...[...rest].map(([k, v]) => `${k}=${v}`)]
+}
+
 /**
  * The config-settable container fields, applied after whichever builder
  * produced the spec so llama and comfy get them too. A key naming a field a
  * non-container engine has nowhere to put is refused rather than ignored.
  */
 function withContainerOverrides(engine: EngineEntry, loaded: LoadedSpec): LoadedSpec {
-  const set = (['devices', 'group_add'] as const).filter((k) => engine[k] !== undefined)
+  const set = (['devices', 'group_add', 'env'] as const).filter((k) => engine[k] !== undefined)
   if (!isContainerSpec(loaded.spec)) {
     const first = set[0]
     if (first !== undefined && !engine.disabled) {
@@ -172,6 +188,7 @@ function withContainerOverrides(engine: EngineEntry, loaded: LoadedSpec): Loaded
       ...loaded.spec,
       devices: engine.devices ?? loaded.spec.devices,
       group_add: engine.group_add ?? loaded.spec.group_add,
+      env: mergeEnv(loaded.spec.env, engine.env),
     },
   }
 }

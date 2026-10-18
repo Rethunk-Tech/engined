@@ -162,6 +162,32 @@ export function asArgs(v: unknown, site: string, file: string): Record<string, u
   return v
 }
 
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/** `[engine.env]`: string values only, because the container receives `KEY=VALUE` text and a TOML number or boolean would silently render in TOML's spelling rather than the operator's. */
+export function asEnv(v: unknown, site: string, file: string): Record<string, string> | undefined {
+  if (v === undefined) {
+    return undefined
+  }
+  if (!isRecord(v)) {
+    throw new ParseError(`${site} "env" must be a table`, { file, key: 'env' })
+  }
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(v)) {
+    if (!ENV_KEY_RE.test(key)) {
+      throw new ParseError(`${site} "env" key "${key}" must match ${ENV_KEY_RE}`, {
+        file,
+        key: 'env',
+      })
+    }
+    if (typeof value !== 'string') {
+      throw new ParseError(`${site} "env" "${key}" must be a string`, { file, key: 'env' })
+    }
+    out[key] = value
+  }
+  return out
+}
+
 /**
  * Every closed table is checked the same way, config and spec alike: a key
  * engined does not read is a typo, and dropping it silently defers the failure

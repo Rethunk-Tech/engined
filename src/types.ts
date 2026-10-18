@@ -393,6 +393,8 @@ export interface EngineEntry {
   devices?: string[]
   /** Replaces the spec's `group_add` for this engine's container; empty means none. */
   group_add?: string[]
+  /** Merged over the spec's `env`: a key replaces the spec entry of the same name, others append. */
+  env?: Record<string, string>
 }
 
 /** The `[configsvc]` table. engined only carries it; `engined --configsvc` reads it. */

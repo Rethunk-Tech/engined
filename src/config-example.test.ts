@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { loadConfig } from './config.ts'
-import { buildEntries } from './engineEntries.ts'
+import { buildEntries, mergeEnv } from './engineEntries.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
 import { ParseError } from './errors/parse.ts'
@@ -192,6 +192,10 @@ test("an engine's devices and group_add replace the spec's, llama's builder incl
       llamaPresetPath,
     ),
   ).toThrow(ParseError)
+})
+
+test("an engine's env replaces the spec entry of the same name and appends the rest", () => {
+  expect(mergeEnv(['A=1', 'B=2'], { B: '3', C: '4' })).toEqual(['A=1', 'B=3', 'C=4'])
 })
 
 test('config.example.toml parses through the real loadConfig()', () => {
