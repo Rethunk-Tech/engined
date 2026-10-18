@@ -39,7 +39,9 @@ RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # torch only -- no torchvision/torchaudio, kokoro doesn't need them.
-RUN pip install --no-cache-dir torch==2.14.1 --index-url https://download.pytorch.org/whl/rocm7.2
+# `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
+ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
+RUN pip install --no-cache-dir torch==2.14.1 --index-url ${TORCH_INDEX}
 
 # Pinned here rather than via an unversioned requirements.txt (the source
 # ships one with no version on any of these four, and no CI to catch

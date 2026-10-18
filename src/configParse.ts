@@ -196,6 +196,13 @@ export function requireTable(
   return raw
 }
 
+/** Absent stays absent; present must be an array of strings (empty is a real value). */
+export function optionalStringArray(v: unknown, label: string, file: string): string[] | undefined {
+  return v === undefined
+    ? undefined
+    : asArray(v, label, file).map((item, i) => requireString(item, `${label}[${i}]`, file))
+}
+
 export function parseCapabilities(
   raw: Record<string, unknown>,
   site: string,

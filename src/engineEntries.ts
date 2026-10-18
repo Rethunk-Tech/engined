@@ -149,6 +149,33 @@ function loadEngineSpec(
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
 
+/**
+ * The config-settable container fields, applied after whichever builder
+ * produced the spec so llama and comfy get them too. A key naming a field a
+ * non-container engine has nowhere to put is refused rather than ignored.
+ */
+function withContainerOverrides(engine: EngineEntry, loaded: LoadedSpec): LoadedSpec {
+  const set = (['devices', 'group_add'] as const).filter((k) => engine[k] !== undefined)
+  if (!isContainerSpec(loaded.spec)) {
+    const first = set[0]
+    if (first !== undefined && !engine.disabled) {
+      throw new ParseError(
+        `engine "${engine.id}" sets "${first}", but it does not run a container`,
+        { path: originOf(engine, first) },
+      )
+    }
+    return loaded
+  }
+  return {
+    ...loaded,
+    spec: {
+      ...loaded.spec,
+      devices: engine.devices ?? loaded.spec.devices,
+      group_add: engine.group_add ?? loaded.spec.group_add,
+    },
+  }
+}
+
 /** Drops the `route_file` weights no enabled route on `engineId` names, so a start never waits on a model nobody asked for. */
 function withRoutedArtifacts(
   loaded: LoadedSpec,
@@ -359,7 +386,7 @@ export function buildEntries(
 ): Entry[] {
   return config.engines.map((engine) => {
     const spec = withRoutedArtifacts(
-      loadEngineSpec(engine, specOptions, presetHostPathFor),
+      withContainerOverrides(engine, loadEngineSpec(engine, specOptions, presetHostPathFor)),
       engine.id,
       config.routes,
     )

@@ -41,8 +41,10 @@ ENV PATH="/opt/venv/bin:${PATH}"
 COPY --from=shared requirements.txt /tmp/requirements.txt
 # requirements.txt pins the PyTorch packages to their ROCm 7.2 builds (uv.toml),
 # which only this index carries.
+# `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
+ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
-      --extra-index-url https://download.pytorch.org/whl/rocm7.2
+      --extra-index-url ${TORCH_INDEX}
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
 # and torch==2.5.1, both older than what this build actually installs above.
 # requirements.txt installs the real runtime deps at versions confirmed to

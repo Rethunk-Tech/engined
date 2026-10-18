@@ -18,6 +18,7 @@ import {
   expandConfigPath,
   optional,
   optionalPositive,
+  optionalStringArray,
   optionalTimeoutSeconds,
   parseCapabilities,
   parseDisable,
@@ -111,6 +112,20 @@ function requireId(value: unknown, posSite: string, file: string): string {
   return id
 }
 
+/** Only the keys the operator wrote: an absent key leaves the spec's value standing, an empty array replaces it with none. */
+function configuredDevices(
+  raw: Record<string, unknown>,
+  site: string,
+  file: string,
+): Pick<EngineEntry, 'devices' | 'group_add'> {
+  const devices = optionalStringArray(raw.devices, `${site} "devices"`, file)
+  const groupAdd = optionalStringArray(raw.group_add, `${site} "group_add"`, file)
+  return {
+    ...(devices === undefined ? {} : { devices }),
+    ...(groupAdd === undefined ? {} : { group_add: groupAdd }),
+  }
+}
+
 function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`
   const raw = requireTable(value, posSite, ENGINE_KEYS, file)
@@ -152,6 +167,7 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
     ),
     kind: parseKind(raw, site, file),
     args,
+    ...configuredDevices(raw, site, file),
   }
 }
 

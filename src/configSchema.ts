@@ -134,6 +134,12 @@ const ENGINE_FIELDS: Fields = {
     Object.keys(KIND_TRAITS),
   ),
   args: args('Launch parameters for this engine; a route’s own args override them.'),
+  devices: strings(
+    'Container engines: host devices passed through, replacing the spec’s list. An empty list means none (CPU-only).',
+  ),
+  group_add: strings(
+    'Container engines: groups added to the container, replacing the spec’s list. An empty list means none.',
+  ),
 }
 
 const UPSTREAM_FIELDS: Fields = {

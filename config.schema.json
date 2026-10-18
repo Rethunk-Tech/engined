@@ -171,6 +171,20 @@
             ]
           },
           "description": "Launch parameters for this engine; a route’s own args override them."
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Container engines: host devices passed through, replacing the spec’s list. An empty list means none (CPU-only)."
+        },
+        "group_add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Container engines: groups added to the container, replacing the spec’s list. An empty list means none."
         }
       },
       "required": [

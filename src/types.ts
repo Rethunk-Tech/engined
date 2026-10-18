@@ -389,6 +389,10 @@ export interface EngineEntry {
   kind?: EngineKind
   /** The engine's own process flags. A model's args win over the same key. */
   args: Record<string, unknown>
+  /** Replaces the spec's `devices` for this engine's container; empty means none. */
+  devices?: string[]
+  /** Replaces the spec's `group_add` for this engine's container; empty means none. */
+  group_add?: string[]
 }
 
 /** The `[configsvc]` table. engined only carries it; `engined --configsvc` reads it. */

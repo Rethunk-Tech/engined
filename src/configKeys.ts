@@ -20,6 +20,8 @@ export const ENGINE_KEYS = new Set([
   'model_refresh_seconds',
   'kind',
   'args',
+  'devices',
+  'group_add',
 ])
 export const UPSTREAM_KEYS = new Set([
   'id',

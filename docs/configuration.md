@@ -76,6 +76,7 @@ parse error naming the key.
 | `spec_dir` | override the shipped spec directory (a privilege decision — see [security-model.md](security-model.md)) |
 | `models_dir` | engines with a host model tree |
 | `models_max` | llama resident-model budget across roles; fatal below the number of distinct `keep_resident` roles on enabled local routes |
+| `devices`, `group_add` | `[[engine]]`, container engines only (a parse error elsewhere) — string arrays that replace the spec's `devices` / `group_add` for this engine's container, llama and comfy included. An empty array means none, for a box without a ROCm GPU; absent leaves the spec's value. Torch-based images (comfy, kokoro, the chatterbox pair) take `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` for a CPU build |
 | `idle_stop_seconds` | how long an engine may sit unheld before it stops |
 | `ready_timeout_s` | how long a start may take to pass its readiness probe |
 | `drain_timeout_seconds` | how long a submission waits for the engine to be free before it is refused. Only the comfy proxy holds submissions, which is what makes an unscoped `/interrupt` safe — see [http-api.md](http-api.md#comfy). Not a render-length estimate: it is the ceiling that stops a wedged container parking every later submission forever, so it is the key to raise when a real render legitimately runs past it. Must be greater than zero — `0` is refused at load rather than read as "never try". Default 15 minutes |

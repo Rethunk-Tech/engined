@@ -531,6 +531,11 @@ idle_stop_seconds = 1800
 # /health can answer (see engines.md), and a cold MIOpen cache (first boot,
 # or the named volume not yet populated) pays real JIT-compile time for it.
 ready_timeout_s = 120
+# GPU access comes from the spec; set these to replace it. Empty lists mean none,
+# for a box with no ROCm GPU (also build the image with
+# `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu`).
+# devices = []
+# group_add = []
 
 [[route]]
 engine = "kokoro"

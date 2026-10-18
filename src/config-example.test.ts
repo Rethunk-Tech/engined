@@ -5,10 +5,11 @@ import { loadConfig } from './config.ts'
 import { buildEntries } from './engineEntries.ts'
 import { EngineRegistry } from './engines.ts'
 import { FatalError } from './errors/fatal.ts'
+import { ParseError } from './errors/parse.ts'
 import { specForModel } from './modelResidency.ts'
 import { llamaPresetPath } from './paths.ts'
 import { isContainerSpec } from './specTypes.ts'
-import { BUNX, ENGINES_ROOT, makeTestRoot } from './test-support.ts'
+import { BUNX, ENGINES_ROOT, engine, makeTestRoot } from './test-support.ts'
 import type { Config } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-example-')
@@ -166,6 +167,31 @@ test('whisper requires only the weights its routes name, and a bare start loads 
   expect(specForModel(whisper, routes, 'whisper', undefined).command).toContain(
     '/models/ggml-small.en-q5_1.bin',
   )
+})
+
+test("an engine's devices and group_add replace the spec's, llama's builder included", () => {
+  const { config } = loadExample()
+  const engines = config.engines.map((e) =>
+    e.id === 'kokoro' || e.id === 'llama' ? { ...e, devices: [], group_add: ['render'] } : e,
+  )
+  const entries = buildEntries(
+    { ...config, engines },
+    { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+    llamaPresetPath,
+  )
+  for (const id of ['kokoro', 'llama']) {
+    const spec = entries.find((e) => e.engine.id === id)?.spec.spec
+    expect(spec !== undefined && isContainerSpec(spec) && spec.devices).toEqual([])
+    expect(spec !== undefined && isContainerSpec(spec) && spec.group_add).toEqual(['render'])
+  }
+  const remote = engine({ id: 'hosted', kind: 'stt', devices: [] })
+  expect(() =>
+    buildEntries(
+      { ...config, engines: [remote] },
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+      llamaPresetPath,
+    ),
+  ).toThrow(ParseError)
 })
 
 test('config.example.toml parses through the real loadConfig()', () => {

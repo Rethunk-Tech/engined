@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Config: `devices` and `group_add` on an `[[engine]]` replace the spec's GPU devices and groups for
+  that container (empty means none), so a box without ROCm needs no spec edit. The comfy, kokoro and
+  chatterbox Dockerfiles take `--build-arg TORCH_INDEX=` to build against the CPU torch wheels.
+
 ## 0.2.5 - 2026-10-18
 
 - whisper: no hardcoded `-t 16`; `threads` in `[engine.args]` sets the thread count on both the server

@@ -21,9 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
+# `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
+ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
 RUN pip install --no-cache-dir \
       torch==2.14.1 torchvision==0.29.1 torchaudio==2.11.0 \
-      --index-url https://download.pytorch.org/whl/rocm7.2
+      --index-url ${TORCH_INDEX}
 
 ARG COMFYUI_COMMIT=b0b743566f65daafc423b4fea8a2fbda94b3384a
 WORKDIR /opt/comfyui
