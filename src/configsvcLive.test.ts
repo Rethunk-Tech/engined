@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test'
 import type { ConfigsvcDeps } from './configsvcApi.ts'
 import { liveApi } from './configsvcLive.ts'
-import { CONTENT_ENDPOINT_CHAT, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
+import {
+  CONTENT_ENDPOINT_CHAT,
+  CONTENT_ENDPOINT_IMAGES,
+  CONTENT_ENDPOINT_TRANSLATIONS,
+} from './routeServes.ts'
 
 const asFetch = (
   fn: (input: string | Request | URL, init?: RequestInit) => Promise<Response>,
@@ -54,6 +58,37 @@ test('a translations-only route is probed with the translations verb, never chat
   expect((await (res as Response).json()) as { status: number }).toMatchObject({ status: 200 })
   expect(posted).toEqual([CONTENT_ENDPOINT_TRANSLATIONS])
   expect(posted).not.toContain(CONTENT_ENDPOINT_CHAT)
+})
+
+test('a skip names the served paths unless they are image verbs', async () => {
+  const probe = async (id: string, serves: string[]) => {
+    const env = deps({
+      fetch: asFetch(async (input, init) => {
+        if (
+          new URL(String(input)).pathname.endsWith('/openai/v1/models') &&
+          (init?.method ?? 'GET') === 'GET'
+        ) {
+          return Response.json({ data: [{ id, serves }] })
+        }
+        return Response.json({ ok: true })
+      }),
+    })
+    const res = await liveApi(
+      new Request('http://ui/api/test-route', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address: id }),
+      }),
+      '/api/test-route',
+      env,
+    )
+    return (await (res as Response).json()) as { skipped?: string }
+  }
+  const agentic = await probe('@/claude/local', ['/v1/agent'])
+  expect(agentic.skipped).toContain('/v1/agent')
+  expect(agentic.skipped).not.toContain('image')
+  const images = await probe('@/comfy/local', [CONTENT_ENDPOINT_IMAGES])
+  expect(images.skipped).toBe('image routes have no cheap test: one would load the diffusion model')
 })
 
 test('POST /api/secret/clear drops the named item and refuses a body without both names', async () => {

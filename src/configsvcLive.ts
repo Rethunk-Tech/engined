@@ -1,8 +1,9 @@
 /** The half of the config UI's API that looks at the running system: engined's own endpoints, model files, the keyring. */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { loadConfig } from './config.ts'
 import { type ConfigsvcDeps, readJson } from './configsvcApi.ts'
+import type { ModelFile } from './configsvcModelFile.ts'
 import { shippedEngines } from './configsvcShipped.ts'
 import { readGgufMetadata } from './ggufMetadata.ts'
 import {
@@ -18,6 +19,8 @@ import {
   CONTENT_ENDPOINT_CHAT,
   CONTENT_ENDPOINT_COMPLETIONS,
   CONTENT_ENDPOINT_EMBEDDINGS,
+  CONTENT_ENDPOINT_IMAGE_EDITS,
+  CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
@@ -61,29 +64,17 @@ function savedConfig(deps: ConfigsvcDeps): Config | Response {
   }
 }
 
-interface ModelFile {
-  path: string
-  bytes: number
-  gguf?: {
-    architecture?: string
-    context_length?: number
-    block_count?: number
-    head_count?: number
-    head_count_kv?: number
-    embedding_length?: number
-    key_length?: number
-    full_attention_interval?: number
-    nextn_predict_layers?: number
-    value_length?: number
-    quantization?: string
-    has_chat_template: boolean
-  }
-}
-
 const ggufCache = new Map<
   string,
   { mtimeMs: number; gguf: NonNullable<ModelFile['gguf']> | null }
 >()
+
+function cacheSet<V>(map: Map<string, V>, key: string, value: V, cap: number): void {
+  map.delete(key)
+  map.set(key, value)
+  const oldest = map.keys().next().value
+  if (map.size > cap && oldest !== undefined) map.delete(oldest)
+}
 
 async function ggufDetails(file: string, mtimeMs: number): Promise<ModelFile['gguf']> {
   const cached = ggufCache.get(file)
@@ -110,12 +101,13 @@ async function ggufDetails(file: string, mtimeMs: number): Promise<ModelFile['gg
   } catch {
     // Not a readable GGUF: listed without details.
   }
-  ggufCache.set(file, { mtimeMs, gguf })
+  cacheSet(ggufCache, file, { mtimeMs, gguf }, MAX_MODEL_FILES)
   return gguf ?? undefined
 }
 
 async function modelFiles(root: string): Promise<ModelFile[]> {
   const found: ModelFile[] = []
+  const seen = new Set<string>()
   const walk = async (dir: string, depth: number): Promise<void> => {
     let entries: import('node:fs').Dirent[]
     try {
@@ -143,6 +135,7 @@ async function modelFiles(root: string): Promise<ModelFile[]> {
       ) {
         const file: ModelFile = { path: relative(root, full), bytes: stat.size }
         if (entry.name.endsWith('.gguf')) {
+          seen.add(full)
           file.gguf = await ggufDetails(full, stat.mtimeMs)
         }
         found.push(file)
@@ -150,6 +143,10 @@ async function modelFiles(root: string): Promise<ModelFile[]> {
     }
   }
   await walk(root, 0)
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  for (const key of ggufCache.keys()) {
+    if ((key === root || key.startsWith(prefix)) && !seen.has(key)) ggufCache.delete(key)
+  }
   return found
 }
 
@@ -339,6 +336,13 @@ function cheapCheck(model: string, serves: readonly string[]): RouteCheck | unde
   return undefined
 }
 
+function skipReason(serves: readonly string[]): string {
+  if (serves.some((p) => p === CONTENT_ENDPOINT_IMAGES || p === CONTENT_ENDPOINT_IMAGE_EDITS)) {
+    return 'image routes have no cheap test: one would load the diffusion model'
+  }
+  return `${serves.length === 0 ? 'nothing' : serves.join(', ')} ha${serves.length === 1 ? 's' : 've'} no cheap test`
+}
+
 /** What the running door says the address serves, or undefined when it does not list it. */
 async function servedBy(deps: ConfigsvcDeps, address: string): Promise<string[] | undefined> {
   const res = await deps.fetch(`${deps.doorUrl()}${OPENAI_MODELS_PATH}`, {
@@ -371,9 +375,7 @@ async function testRoute(req: Request, deps: ConfigsvcDeps): Promise<Response> {
     }
     const check = cheapCheck(body.address, serves)
     if (check === undefined) {
-      return Response.json({
-        skipped: 'image routes have no cheap test: one would load the diffusion model',
-      })
+      return Response.json({ skipped: skipReason(serves) })
     }
     const res = await deps.fetch(`${deps.doorUrl()}${check.path}`, {
       method: 'POST',

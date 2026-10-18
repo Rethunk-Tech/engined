@@ -1,5 +1,6 @@
 /** Server data the views share: specs, schema help, model files, usage, secrets and live engine state. */
 import { signal } from '@preact/signals'
+import type { ModelFile } from '../../configsvcModelFile.ts'
 import { call } from './api.ts'
 import {
   type Doc,
@@ -28,24 +29,7 @@ export interface LiveEngine {
   serves: string[]
 }
 
-export interface ModelFile {
-  path: string
-  bytes: number
-  gguf?: {
-    architecture?: string
-    context_length?: number
-    block_count?: number
-    head_count?: number
-    head_count_kv?: number
-    embedding_length?: number
-    key_length?: number
-    full_attention_interval?: number
-    nextn_predict_layers?: number
-    value_length?: number
-    quantization?: string
-    has_chat_template: boolean
-  }
-}
+export type { ModelFile }
 
 export interface UsageRow {
   date: string
