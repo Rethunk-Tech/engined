@@ -5,6 +5,7 @@
 - Config UI: an About view, and the version beside the title, show the engined version this UI was built with. The door's commit and contract are shown when the door answers.
 - Host checks skip an agent whose engines are all disabled, and skip bubblewrap when opencode is. A disabled cursor engine no longer fails the report because its binary is absent.
 - Config UI: a failed host check puts a red exclamation mark on the Host checks link in the sidebar.
+- Config UI: Add hops… has Select all visible, which ticks the hops on screen in the order listed. A filter longer than the 200 shown leaves the rest unticked.
 
 ## 0.2.7 - 2026-10-18
 

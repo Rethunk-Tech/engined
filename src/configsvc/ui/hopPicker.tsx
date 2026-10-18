@@ -24,8 +24,18 @@ export function HopPicker(props: {
     const lower = a.toLowerCase()
     return !taken.has(a) && words.every((w) => lower.includes(w))
   })
+  const visible = matches.slice(0, SHOWN)
   const toggle = (a: string) =>
     setPicked(picked.includes(a) ? picked.filter((p) => p !== a) : [...picked, a])
+  const selectVisible = () => {
+    const next = [...picked]
+    for (const a of visible) {
+      if (!next.includes(a)) {
+        next.push(a)
+      }
+    }
+    setPicked(next)
+  }
   return (
     <>
       <button type="button" class="small" onClick={() => dialog.current?.showModal()}>
@@ -46,7 +56,7 @@ export function HopPicker(props: {
           onInput={(e) => setFilter(e.currentTarget.value)}
         />
         <div class="picklist">
-          {matches.slice(0, SHOWN).map((a) => {
+          {visible.map((a) => {
             const n = picked.indexOf(a) + 1
             return (
               <label key={a} class="pick">
@@ -63,6 +73,13 @@ export function HopPicker(props: {
             : `${matches.length} available.`}{' '}
           Hops are added in the order you tick them.
         </p>
+        <button
+          type="button"
+          disabled={visible.length === 0 || visible.every((a) => picked.includes(a))}
+          onClick={selectVisible}
+        >
+          Select all visible
+        </button>{' '}
         <button
           type="button"
           class="primary"
