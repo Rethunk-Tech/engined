@@ -105,7 +105,7 @@ export function runDaemon(): void {
     hardReloading = true
     try {
       door.interrupt()
-      await door.registry.shutdown().catch(() => undefined)
+      await door.registry.shutdown()
       door.reload(path, rebind)
       afterReload()
     } finally {
@@ -127,13 +127,15 @@ export function runDaemon(): void {
   process.on('SIGTERM', () => {
     door.registry
       .shutdown()
-      .catch(() => undefined)
-      .finally(() => {
+      .then(() => {
         door.ctx.usage.shutdown()
         cursorAgent?.stop()
         bound.v4.stop()
         bound.v6?.stop()
         process.exit(0)
+      })
+      .catch((err: unknown) => {
+        process.stderr.write(`shutdown failed: ${errMessage(err)}\n`)
       })
   })
 }

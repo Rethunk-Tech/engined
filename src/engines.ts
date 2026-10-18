@@ -469,9 +469,10 @@ export class EngineRegistry {
 
   /**
    * A reload's teardown, in the background because `reload` is synchronous.
-   * A teardown that fails is reported rather than swallowed: whatever it did
-   * not stop is no longer in the lifecycle's map, so `shutdown` will not
-   * reach it either and this line is the only trace it outlived the reload.
+   * A teardown that fails is reported rather than swallowed: `removeEngine`
+   * keeps the runtime when stop fails and rejects, so a later `shutdown` can
+   * still reach the container; this line is the trace that reload did not
+   * finish tearing it down.
    */
   private teardown(id: string): void {
     this.launchedShape.delete(id)

@@ -1003,8 +1003,18 @@ test('removeEngine keeps a container it could not stop, so shutdown still reache
   expect(after.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`)
   expect(after.last_error).toBe(STOP_REFUSED)
 
-  await lifecycle.shutdown()
+  await expect(lifecycle.shutdown()).rejects.toThrow(STOP_REFUSED)
   expect(stopLog.length).toBe(2)
+})
+
+test('shutdown does not resolve when a stop failed', async () => {
+  const stopLog: string[][] = []
+  const lifecycle = new DockerLifecycle(failingStopExec(stopLog, STUB_HOST_PORT_A), readyProbe)
+
+  await lifecycle.start('stuck', SPEC, START_OPTS)
+  await expect(lifecycle.shutdown()).rejects.toThrow(STOP_REFUSED)
+  expect(stopLog.length).toBe(1)
+  expect(lifecycle.getStatus('stuck').state).toBe('running')
 })
 
 describe("a spec dir's declared build flags", () => {

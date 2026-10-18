@@ -567,10 +567,9 @@ export class DockerLifecycle {
    */
   async resources(id: string): Promise<Result<{ resources: EngineResources }>> {
     const rt = this.table.get(id)
-    if (rt?.state !== 'running') {
-      return { ok: false, error: `"${id}" is not running` }
-    }
-    return await readResources(this.exec, rt.containerName)
+    return rt?.state === 'running'
+      ? await readResources(this.exec, rt.containerName)
+      : { ok: false, error: `"${id}" is not running` }
   }
 
   /**
@@ -580,19 +579,13 @@ export class DockerLifecycle {
    */
   async stop(id: string): Promise<RuntimeStatus> {
     const rt = this.table.get(id)
-    if (rt && (rt.state === 'running' || rt.state === 'warming')) {
-      await this.stopContainer(rt)
-    }
+    await (rt?.state === 'running' || rt?.state === 'warming' ? this.stopContainer(rt) : undefined)
     return this.table.status(id)
   }
 
   /**
-   * An engine that has been running is stopped, never left orphaned. A stop
-   * that fails keeps the runtime and rejects: a container dropped from this
-   * map is beyond `shutdown`'s reach too, so forgetting one this process could
-   * not kill is how it comes to outlive the daemon still holding its GPU. The
-   * record `stopContainer` hands back on failure is the true one -- it
-   * restores the state and port it cleared -- so keeping it costs nothing.
+   * A stop that fails keeps the runtime and rejects, so `shutdown` can still
+   * reach a container this process could not kill.
    */
   async removeEngine(id: string): Promise<void> {
     const rt = this.table.get(id)
@@ -605,13 +598,15 @@ export class DockerLifecycle {
     this.table.delete(id)
   }
 
-  /** Stops every container this process started. Called at SIGTERM by the door, not from here. */
+  /** Stops every container this process started. Rejects if any stop failed. */
   async shutdown(): Promise<void> {
-    await Promise.all(
-      this.table
-        .all()
-        .filter((rt) => rt.state === 'running' || rt.state === 'warming')
-        .map((rt) => this.stopContainer(rt)),
+    const live = this.table.all().filter((rt) => rt.state === 'running' || rt.state === 'warming')
+    const ok = await Promise.all(live.map((rt) => this.stopContainer(rt)))
+    const errors = live.flatMap((rt, i) =>
+      ok[i] ? [] : [rt.lastError ?? `docker stop failed for ${rt.containerName}`],
     )
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '))
+    }
   }
 }
