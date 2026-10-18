@@ -9,6 +9,7 @@ import type { DoctorReport } from './doctor.ts'
 import {
   MAX_JSON_BODY_BYTES,
   STATUS_INTERNAL_SERVER_ERROR,
+  STATUS_METHOD_NOT_ALLOWED,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
 import { bindDualFamily } from './listen.ts'
@@ -183,6 +184,18 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   expect(foreign.status).toBe(403)
   h.clock.now += SESSION_IDLE_MS + 1000
   expect((await h.call('/api/config', { cookie: again })).status).toBe(401)
+})
+
+test('a known configsvc path asked with the wrong method is 405', async () => {
+  const h = await harness()
+  const cookie = await h.signIn()
+  const postConfig = await h.call('/api/config', { method: 'POST', cookie, body: '{}' })
+  expect(postConfig.status).toBe(STATUS_METHOD_NOT_ALLOWED)
+  expect(postConfig.headers.get('allow')).toContain('GET')
+  const getSave = await h.call('/api/save', { cookie })
+  expect(getSave.status).toBe(STATUS_METHOD_NOT_ALLOWED)
+  expect(getSave.headers.get('allow')).toContain('POST')
+  expect((await h.call('/api/no-such-route', { cookie })).status).toBe(404)
 })
 
 test('with a password hash, login works until five failures a minute lock the client out', async () => {

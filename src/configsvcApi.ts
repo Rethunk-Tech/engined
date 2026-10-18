@@ -13,6 +13,7 @@ import { checkConfigText, type ValidateEnv } from './configsvcValidate.ts'
 import type { DoctorReport } from './doctor.ts'
 import {
   jsonError,
+  methodNotAllowed,
   readCappedText,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
@@ -34,6 +35,18 @@ const CONFIG_POSTS = new Set([
   '/api/restore',
   '/api/reload',
 ])
+const CONFIG_GETS = new Set(['/api/config', '/api/history', '/api/schema'])
+
+function configAllow(path: string): string[] {
+  if (CONFIG_POSTS.has(path)) {
+    return ['POST']
+  }
+  if (CONFIG_GETS.has(path) || HISTORY_ENTRY_RE.test(path)) {
+    return ['GET']
+  }
+  return []
+}
+
 const EDIT_OPS = new Set(['setKey', 'addEntry', 'removeEntry', 'renameId'])
 
 export interface ConfigsvcDeps extends ValidateEnv {
@@ -213,6 +226,10 @@ export function configApi(
   deps: ConfigsvcDeps,
   info: RequestInfo,
 ): Response | Promise<Response> | undefined {
+  const allow = configAllow(path)
+  if (allow.length > 0 && !allow.includes(req.method)) {
+    return methodNotAllowed(allow)
+  }
   if (req.method === 'POST') {
     return CONFIG_POSTS.has(path) ? configPost(path, req, deps, info) : undefined
   }

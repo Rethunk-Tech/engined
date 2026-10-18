@@ -7,6 +7,7 @@ import { listModelFiles, type ModelFile, memInfo } from './configsvcModelFile.ts
 import { shippedEngines } from './configsvcShipped.ts'
 import {
   jsonError,
+  methodNotAllowed,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_NOT_FOUND,
@@ -327,12 +328,41 @@ const PROXIED_GET: Record<string, string> = {
   '/api/events': '/engined/v1/engines/events',
   '/api/usage': '/engined/v1/usage',
 }
+const LIVE_GET = new Set([
+  ...Object.keys(PROXIED_GET),
+  '/api/doctor',
+  '/api/models',
+  '/api/shipped',
+  '/api/discovery',
+  '/api/secrets',
+])
+const LIVE_POST = new Set([
+  '/api/secret',
+  '/api/secret/clear',
+  '/api/test-route',
+  '/api/inventory',
+  '/api/probe',
+])
+
+function liveAllow(path: string): string[] {
+  if (LIVE_POST.has(path) || OBTAIN_RE.test(path)) {
+    return ['POST']
+  }
+  if (LIVE_GET.has(path) || ENGINE_VERB_RE.test(path) || SPEC_RE.test(path)) {
+    return ['GET']
+  }
+  return []
+}
 
 export function liveApi(
   req: Request,
   path: string,
   deps: ConfigsvcDeps,
 ): Response | Promise<Response> | undefined {
+  const allow = liveAllow(path)
+  if (allow.length > 0 && !allow.includes(req.method)) {
+    return methodNotAllowed(allow)
+  }
   if (req.method === 'GET') {
     const target = PROXIED_GET[path]
     if (target !== undefined) {

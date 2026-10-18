@@ -69,48 +69,6 @@ The schema and the door's potluck post stay as they are.
   error.
 - `gate` stays green.
 
-## A known configsvc path asked with the wrong method is 404
-
-The door names every method a path serves (`src/main.ts` `allowFor`,
-`methodNotAllowed` in `src/http.ts:146`) and answers 405 with `Allow`. The
-config UI does not: `configApi` (`src/configsvcApi.ts:209`) returns
-undefined for a non-POST/GET, `liveApi` (`src/configsvcLive.ts`) only
-handles GET then POST, and `handle` at `src/configsvc.ts:149` maps a miss
-to 404 "not found". `POST /api/config` and `GET /api/save` therefore look
-like unknown URLs.
-
-Per path, the methods that already exist, then 405 with `Allow` listing
-them, using `methodNotAllowed`. Unknown paths stay 404.
-
-Rejected: treating every `/api/*` miss as 405. A typo must stay 404.
-
-This is a status-code change. Callers that branch on 404 for a wrong-method
-probe will see 405 instead.
-
-### Read
-
-1. `src/configsvc.ts:149` — the 404 fallback after `configApi` and `liveApi`.
-2. `src/configsvcApi.ts:209` `configApi` and `src/configsvcLive.ts` `liveApi`
-   — today's GET/POST split.
-3. `src/http.ts:146` `methodNotAllowed` — the door's 405 + `Allow`.
-4. `src/configsvc.test.ts:123` — asserts `/nothing` is 404; keep that. Add a
-   wrong-method case on `/api/config` and `/api/save`.
-
-### Traps
-
-- **HEAD is GET-with-no-body on the door** (`headOf`). Configsvc does not
-  advertise HEAD today. Adding it is a separate change; 405 for HEAD on
-  `/api/config` is correct until HEAD is implemented.
-- **`/login` and `/logout` are not `configApi`.** Their methods stay as
-  they are; a GET `/login` is still whatever it is today.
-
-### Acceptance
-
-- `POST /api/config` (signed in) is 405 with `Allow` containing `GET`.
-- `GET /api/save` is 405 with `Allow` containing `POST`.
-- `GET /api/no-such-route` is still 404.
-- `gate` stays green.
-
 ## History with no snapshots renders an empty table
 
 `UsageView` (`src/configsvc/ui/usage.tsx:41`) shows "No calls recorded." when
