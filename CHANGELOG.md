@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A request may name a chain as `@/<chain-id>` as well as its bare id. When that one segment is also a route model id, the chain wins.
+- Config UI: a chain hop lists the leaf addresses it inserts, walking nested chains. A cycle shows `includes itself` instead of looping.
+- Config UI: Add hops… omits a disabled chain, so a hop that parse would drop is not offered. A disabled chain already on the draft stays, marked dropped.
+
 ## 0.2.8 - 2026-10-18
 
 - Config UI: an About view, and the version beside the title, show the engined version this UI was built with. The door's commit and contract are shown when the door answers.
