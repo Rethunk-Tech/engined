@@ -425,7 +425,12 @@ export interface Config {
   upstreams: Upstream[]
   /** The route table. A `[[model]]` row is not carried here: parse folds its capabilities into every route that names it, and that fold is the only form anything reads. */
   routes: ResolvedRoute[]
-  /** Every hop is a fully-qualified `@/<engine>/<model>`. */
+  /**
+   * Expanded leaf addresses, one array per served chain. A nested
+   * `@/<chain-id>` is already replaced here. The strings the operator wrote
+   * ride on each array as `declared_hops` (`declaredHops` in
+   * `configChains.ts`) so this stays a plain list for dispatch.
+   */
   chains: Record<string, string[]>
   /** Engine id -> the route `model` its menu row marks `default`. Set only on the view `ModelDiscovery.apply` returns, never by parse. */
   default_models?: Record<string, string>

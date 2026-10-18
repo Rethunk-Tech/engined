@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
 import { loadConfig } from './config.ts'
+import { declaredHops } from './configChains.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
 import { errMessage } from './records.ts'
@@ -730,6 +731,8 @@ describe('chain hops', () => {
       const cfg = loadConfig(writeConfig(`${llamaEngineAndRoute()}\n${toml}`))
       expect(cfg.chains.inner).toEqual(['@/local-llama/ornith'])
       expect(cfg.chains.outer).toEqual(['@/local-llama/ornith', '@/local-llama/ornith'])
+      expect(declaredHops(cfg.chains.inner ?? [])).toEqual(['@/local-llama/ornith'])
+      expect(declaredHops(cfg.chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
     }
   })
 
@@ -753,6 +756,7 @@ describe('chain hops', () => {
       ),
     )
     expect(cfg.chains.outer).toEqual(['@/local-llama/ornith'])
+    expect(declaredHops(cfg.chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
     expect(cfg.chains.inner).toBeUndefined()
     expect(cfg.chains.empty).toBeUndefined()
   })

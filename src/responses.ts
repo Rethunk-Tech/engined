@@ -237,6 +237,13 @@ export interface ModelRow {
    */
   hops?: string[]
   /**
+   * The hop strings as written, in order, including `@/<chain-id>`. Present
+   * on every chain row, including one where it equals `hops` because every
+   * hop was already a route. Absent on every non-chain row. `hops` stays the
+   * expanded leaves dispatch walks.
+   */
+  declared_hops?: string[]
+  /**
    * The hops of a chain that cannot answer -- an engine that is not
    * installed, or an upstream whose address or secret does not resolve.
    * A subset of `hops`. Absent when every hop can answer, and on every

@@ -5,6 +5,7 @@
  */
 
 import { parseHop, routeForChainHop } from './chain.ts'
+import { declaredHops } from './configChains.ts'
 import {
   cursorBaseDisplayName,
   groupCursorModels,
@@ -338,8 +339,10 @@ export function chainContext(
 /**
  * A chain is not any one engine's route, so it omits engine/upstream/model/
  * egress entirely, and `hops` is what stands in for them: the ordered
- * addresses this id actually resolves to, present here and on no route row.
- * Without it a healthy chain is the least informative row in the address
+ * leaf addresses this id actually resolves to, present here and on no route
+ * row. `declared_hops` is that list as the operator wrote it, including
+ * `@/<chain-id>`, and is present on every chain row.
+ * Without `hops` a healthy chain is the least informative row in the address
  * book -- every field naming a destination absent, and `unavailable_hops`
  * absent too precisely because nothing is broken -- so a caller cannot tell
  * a chain from a bare model id, nor that `ornith` and `@/llama/ornith` are
@@ -394,6 +397,7 @@ async function chainRow({
       ...chainContext(walked, config),
     },
     hops: walked.map((h) => h.hop),
+    declared_hops: [...declaredHops(hops)],
     unavailable_hops: dead.length === 0 ? undefined : dead,
   }
 }

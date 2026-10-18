@@ -8,7 +8,9 @@
  * runs.
  */
 import { expect, test } from 'bun:test'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { loadConfig } from './config.ts'
 import { LOCAL_LLAMA_SPEC, llamaExec, READY_200 } from './doorFixtures.ts'
 import { createDoor } from './main.ts'
 import { type ChainHop, chainContext, collapseCursorRoutes, routeContextIn } from './modelsMenu.ts'
@@ -103,6 +105,71 @@ test('a chain reports the minimum context_in/context_out across the hops that de
     context_in: 32_768,
     context_out: 4096,
   })
+})
+
+test('a chain row reports the hops the operator wrote beside the expanded leaves', async () => {
+  const root = join(TEST_ROOT, `door-${Math.random().toString(36).slice(2)}`)
+  writeEngineSpec(root, 'local-llama', LOCAL_LLAMA_SPEC)
+  const models = join(root, 'models')
+  mkdirSync(models)
+  writeFileSync(join(models, 'ornith.gguf'), '')
+  const configPath = join(root, 'config.toml')
+  writeFileSync(
+    configPath,
+    `
+[[upstream]]
+id = "local"
+egress = "none"
+
+[[engine]]
+id = "local-llama"
+kind = "openai-http"
+models_dir = "${models}"
+
+[[route]]
+engine = "local-llama"
+upstream = "local"
+model = "ornith"
+filename = "ornith.gguf"
+role = "chat"
+
+[[chain]]
+id = "inner"
+hops = ["@/local-llama/ornith"]
+
+[[chain]]
+id = "outer"
+hops = ["@/inner", "@/local-llama/ornith"]
+
+[[chain]]
+id = "off"
+disable = true
+hops = ["@/local-llama/ornith"]
+`,
+  )
+  const door = createDoor(loadConfig(configPath), {
+    enginesRoot: root,
+    bunx: BUNX,
+    exec: llamaExec(),
+    probe: READY_200,
+  })
+  const res = await door.fetch(new Request('http://engined/openai/v1/models'))
+  expect(res.status).toBe(200)
+  const { data } = (await res.json()) as {
+    data: { id: string; hops?: string[]; declared_hops?: string[] }[]
+  }
+  const outer = data.find((row) => row.id === 'outer')
+  expect(outer?.declared_hops).toEqual(['@/inner', '@/local-llama/ornith'])
+  expect(outer?.hops).toEqual(['@/local-llama/ornith', '@/local-llama/ornith'])
+  const inner = data.find((row) => row.id === 'inner')
+  expect(inner?.declared_hops).toEqual(['@/local-llama/ornith'])
+  expect(inner?.hops).toEqual(inner?.declared_hops)
+  expect(data.find((row) => row.id === 'off')).toBeUndefined()
+  for (const row of data) {
+    if (row.hops === undefined) {
+      expect(row.declared_hops).toBeUndefined()
+    }
+  }
 })
 
 test('a chain with no hop reporting a context leaves both absent', () => {

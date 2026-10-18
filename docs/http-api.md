@@ -235,7 +235,7 @@ lives only on this menu.
 `GET /openai/v1/models` reports one row per address inside the surviving
 OpenAI `{"object":"list","data":[...]}` envelope — never a bare id. Each row
 is `{id, engine, upstream, model, display_name, egress, streaming, tools, serves, role, vision, state,
-capabilities}`, plus `hops` on every chain and `unavailable_hops` on a chain
+capabilities}`, plus `hops` and `declared_hops` on every chain and `unavailable_hops` on a chain
 that has any. `display_name` is present only when the route declared one; a
 row without it omits the field, and a chain never carries it.
 `default: true` marks the one route per `claude` or `cursor` engine a client should preselect (the engine's `default_model`, else the newest Sonnet or Cursor's own default); every other row omits it. Those engines' routes come from the provider's own model list as well as from config.
@@ -257,6 +257,11 @@ healthy chain is the least informative row in the menu, since
 `unavailable_hops` is absent precisely when nothing is broken; with it, a
 caller can see that `chain-private` and `@/llama/ornith` are one destination
 listed twice rather than two models.
+
+`declared_hops` is the hop list as the operator wrote it: the hop strings
+in order, including a nested `@/<chain-id>`. `hops` stays the expanded leaf
+addresses. The field is present on every served chain, and equals `hops`
+when every hop was already a route. A non-chain row omits it.
 
 `capabilities.context_in`/`context_out` on a chain row are the **minimum**
 across its hops, never the first hop's own: a caller planning a prompt size
@@ -366,6 +371,13 @@ the same as a chat chain.
 `chain-private` is one hop on purpose: it is the name a consumer points at to
 say *this prompt does not leave the box*, and keeping it a chain means adding
 a second local engine later is a config edit rather than a consumer change.
+
+`GET /openai/v1/models` reports both hop lists on a chain row. `hops` is the
+expanded leaf addresses, in order. `declared_hops` is the hop strings as
+written, in that same order, including `@/<chain-id>`. It is present on every
+served chain, including one whose hops were already routes, where the two
+lists match. A disabled chain is omitted entirely, and a non-chain row omits
+`declared_hops`.
 
 A chain hop may leave the machine, and provenance is why that is allowed at
 all. A hop that cannot say which engine answered is not auditable, and an

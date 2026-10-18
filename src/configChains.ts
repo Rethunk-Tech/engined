@@ -105,6 +105,19 @@ export function parseChainRaw(value: unknown, index: number, file: string): RawC
   return { id, hops, disabled: parseDisable(raw, site, file) === true }
 }
 
+/**
+ * Hop strings as written on a served chain, in order, including
+ * `@/<chain-id>`. A list that was never parsed (a hand-built config) has
+ * no separate writing, so the leaves are what was written.
+ */
+export function declaredHops(hops: readonly string[]): readonly string[] {
+  if (!Object.hasOwn(hops, 'declared_hops')) {
+    return hops
+  }
+  const value: unknown = (hops as { declared_hops: unknown }).declared_hops
+  return Array.isArray(value) && value.every((hop) => typeof hop === 'string') ? value : hops
+}
+
 export function buildChains(
   rawChains: readonly RawChain[],
   engines: readonly EngineEntry[],
@@ -162,6 +175,15 @@ export function buildChains(
       },
     })
     stack.pop()
+    // The array is the expanded leaves dispatch walks. The strings the
+    // operator wrote, including `@/<chain-id>`, stay on it so the models
+    // menu can show a nested hop without making runtime walk one again.
+    // Non-enumerable: equality and any key walk of the array still see
+    // only the leaves.
+    Object.defineProperty(hops, 'declared_hops', {
+      value: [...chain.hops],
+      enumerable: false,
+    })
     done.set(name, hops)
     return hops
   }
