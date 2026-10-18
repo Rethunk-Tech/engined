@@ -3,6 +3,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { qualifiedSegments } from '../../routeAddress.ts'
 import { editDraft } from './actions.ts'
 import {
+  blockedChainHops,
   type ChainPreview,
   chainExpansion,
   type HopState,
@@ -174,6 +175,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         <HopPicker
           choices={hopChoices(d, upstreamOf, discovery.value.inventories, id)}
           taken={hops}
+          blocked={blockedChainHops(d, id)}
           onAdd={(added) => set([...hops, ...added])}
         />
       </div>

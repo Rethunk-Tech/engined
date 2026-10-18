@@ -122,6 +122,60 @@ function expandChain(
 }
 
 /**
+ * Path `editing -> … -> editing` when chain `id` reaches `editing`, so adding it
+ * as a hop would close a cycle. A disabled chain is not walked: parse drops it
+ * and it cannot close one. A loop that never returns to `editing` is not this
+ * path. Absent when the hop is safe.
+ */
+export function closingCycle(doc: Doc, editing: string, id: string): string | undefined {
+  const walk = (at: string, stack: readonly string[]): string | undefined => {
+    if (at === editing) {
+      return [...stack, at].join(' -> ')
+    }
+    // Already on this path through some other loop. Stop, and keep searching.
+    if (stack.includes(at)) {
+      return undefined
+    }
+    const chain = chainNamed(doc, at)
+    if (chain === undefined || chain.disable === true) {
+      return undefined
+    }
+    const next = [...stack, at]
+    const hops = Array.isArray(chain.hops) ? chain.hops : []
+    for (const hop of hops) {
+      if (typeof hop !== 'string') {
+        continue
+      }
+      const nested = chainIdOf(hop)
+      if (nested === undefined || chainNamed(doc, nested) === undefined) {
+        continue
+      }
+      const hit = walk(nested, next)
+      if (hit !== undefined) {
+        return hit
+      }
+    }
+    return undefined
+  }
+  return walk(id, [editing])
+}
+
+/** Chain addresses the picker must show but not offer, with the cycle path as the reason. */
+export function blockedChainHops(doc: Doc, editing: string): ReadonlyMap<string, string> {
+  const blocked = new Map<string, string>()
+  for (const chain of doc.chain) {
+    if (typeof chain.id !== 'string' || chain.id === editing) {
+      continue
+    }
+    const path = closingCycle(doc, editing, chain.id)
+    if (path !== undefined) {
+      blocked.set(`@/${chain.id}`, path)
+    }
+  }
+  return blocked
+}
+
+/**
  * What a `@/<chain-id>` hop inserts. Absent for a route hop, an unknown id, or
  * a disabled chain: those keep the hop note. The draft text is not rewritten.
  */
@@ -169,7 +223,8 @@ export function addressBook(doc: Doc, upstreamOf: UpstreamOf): AddressRow[] {
  * chain is omitted: parse drops a hop onto one, so offering it writes a line that vanishes
  * on save. A disabled route stays listed; the card flags it dropped. The wildcard itself
  * is a catalog, not one model to try. `except` is the chain being edited, so it is not
- * offered to itself.
+ * offered to itself. A chain that would close a cycle stays listed; the picker refuses
+ * it (`blockedChainHops`).
  */
 export function hopChoices(
   doc: Doc,

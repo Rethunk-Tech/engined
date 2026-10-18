@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { addressBook, chainExpansion, hopChoices, hopState } from './addresses.ts'
+import {
+  addressBook,
+  blockedChainHops,
+  chainExpansion,
+  closingCycle,
+  hopChoices,
+  hopState,
+} from './addresses.ts'
 import { argIssue, argValueFromText, suggestArgKeys } from './argsRules.ts'
 import { removalOps } from './guard.ts'
 import {
@@ -237,6 +244,27 @@ test('a chain hop lists the leaf addresses it inserts, walking nested hops', () 
     kind: 'cycle',
     text: 'chain "a" includes itself (a -> b -> a)',
   })
+})
+
+test('a chain hop that would close a cycle back to the one being edited is named, not hidden', () => {
+  const doc = parseDoc(
+    '[[chain]]\nid = "a"\nhops = ["@/b"]\n[[chain]]\nid = "b"\nhops = ["@/c"]\n[[chain]]\nid = "c"\nhops = ["@/a"]\n[[chain]]\nid = "off"\ndisable = true\nhops = ["@/a"]\n[[chain]]\nid = "side"\nhops = ["@/loop"]\n[[chain]]\nid = "loop"\nhops = ["@/side", "@/missing"]\n[[chain]]\nid = "leaf"\nhops = ["@/e/m"]\n',
+  )
+  if (doc === undefined) {
+    throw new Error('fixture must parse')
+  }
+  const up = () => 'local'
+  // b reaches a through c. off is disabled, so parse never walks it. side loops with loop
+  // and never returns to a. leaf is a route hop.
+  expect(closingCycle(doc, 'a', 'b')).toBe('a -> b -> c -> a')
+  expect(closingCycle(doc, 'a', 'c')).toBe('a -> c -> a')
+  expect(closingCycle(doc, 'a', 'off')).toBeUndefined()
+  expect(closingCycle(doc, 'a', 'side')).toBeUndefined()
+  expect(closingCycle(doc, 'a', 'leaf')).toBeUndefined()
+  expect(closingCycle(doc, 'a', 'gone')).toBeUndefined()
+  expect(blockedChainHops(doc, 'a').get('@/b')).toBe('a -> b -> c -> a')
+  expect(hopChoices(doc, up, {}, 'a')).toContain('@/b')
+  expect(hopChoices(doc, up, {}, 'a')).not.toContain('@/a')
 })
 
 test('hops resolve or are flagged dropped; the address book lists routes and chains; snippets round-trip', () => {
