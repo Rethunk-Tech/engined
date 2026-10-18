@@ -1,5 +1,6 @@
 /** `engined --caddyfile TEMPLATE OUT`: the Cursor bridge's Caddyfile, plus a site for the config UI when `[configsvc] host` is not loopback. */
 import { readFileSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
 import { loadConfig } from './config.ts'
 import {
   BRIDGE_HOP_HEADER,
@@ -7,6 +8,7 @@ import {
   ensureBridgeHop,
   isLoopbackHost,
 } from './configsvcHost.ts'
+import { FatalError } from './errors/fatal.ts'
 import { errMessage } from './records.ts'
 
 const CONFIGSVC_SITE_MARKER = '# @CONFIGSVC_SITE@'
@@ -51,8 +53,8 @@ function configsvcSite(
 export function caddyfileExit(args: readonly string[], write: (line: string) => void): number {
   const [template, out] = args
   if (template === undefined || out === undefined) {
-    write('usage: engined --caddyfile TEMPLATE OUT')
-    return 2
+    process.stderr.write('engined: --caddyfile needs TEMPLATE and OUT\n')
+    return FatalError.USAGE_EXIT_CODE
   }
   writeFileSync(out, renderCaddyfile(readFileSync(template, 'utf8'), configsvcSite(write)))
   return 0

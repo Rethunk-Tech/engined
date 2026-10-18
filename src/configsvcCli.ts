@@ -46,7 +46,7 @@ export async function configsvcUrlExit(
   try {
     journal = await readJournal()
   } catch (err) {
-    process.stderr.write(`could not read the journal: ${errMessage(err)}\n`)
+    process.stderr.write(`engined: could not read the journal: ${errMessage(err)}\n`)
     return 1
   }
   const url = journal.stdout
@@ -60,8 +60,8 @@ export async function configsvcUrlExit(
   }
   process.stderr.write(
     enabled() === false
-      ? '[configsvc] is not enabled in config.toml: set enable = true, reload, then start engined-configsvc.service\n'
-      : `no ${CONFIGSVC_UNIT} URL in the journal: the unit never started or has exited; see systemctl --user status ${CONFIGSVC_UNIT}\n`,
+      ? 'engined: [configsvc] is not enabled in config.toml: set enable = true, reload, then start engined-configsvc.service\n'
+      : `engined: no ${CONFIGSVC_UNIT} URL in the journal: the unit never started or has exited; see systemctl --user status ${CONFIGSVC_UNIT}\n`,
   )
   return 1
 }
@@ -85,7 +85,7 @@ export async function hashPasswordExit(
   const password = (await readLine()).replace(CR_RE, '')
   if (password === '') {
     process.stderr.write(
-      'no password on stdin: pipe one line, for example `read -rs p; echo $p | engined --hash-password`\n',
+      'engined: no password on stdin: pipe one line, for example `read -rs p; echo $p | engined --hash-password`\n',
     )
     return 1
   }

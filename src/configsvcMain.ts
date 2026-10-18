@@ -110,7 +110,7 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
     )
   } catch (err) {
     const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
-    process.stderr.write(`configsvc port ${settings.port} ${what}: ${errMessage(err)}\n`)
+    process.stderr.write(`engined: configsvc port ${settings.port} ${what}: ${errMessage(err)}\n`)
     return FatalError.EXIT_CODE
   }
   write(started.logLine)

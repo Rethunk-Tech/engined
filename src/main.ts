@@ -1,12 +1,10 @@
 /** The door: dual-family `Bun.serve`, Origin/Host check, OpenAI-shaped routes. */
 import process from 'node:process'
 import { resetSpeechCache } from './audioSpeech.ts'
-import { enginesExit, probeExit } from './cliModes.ts'
 import { loadComfyBindings } from './comfyBindings.ts'
 import { COMFY_WS_SUFFIX, type EnginedServer, matchComfyPath } from './comfyProxy.ts'
 import { handleComfyProxy, handleComfyWsUpgrade } from './comfyRoutes.ts'
 import { loadConfig } from './config.ts'
-import { pruneCli } from './configPrune.ts'
 import { configFilesSha256 } from './configSources.ts'
 import { handleContent, handleEngineEvents, handleExtras } from './content.ts'
 import {
@@ -40,7 +38,6 @@ import { LAUNCH_NONCE_RE } from './launchNonce.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { DonorLedger } from './potluck.ts'
-import { writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import {
@@ -413,35 +410,9 @@ export function resolveBunx(
 }
 
 if (import.meta.main) {
-  const probe = process.argv.includes('--probe')
-  const engines = process.argv.includes('--engines')
-  const json = process.argv.includes('--json')
   const extra = await extraModeExit(process.argv)
   if (extra !== undefined) {
     process.exit(extra)
-  }
-  if (process.argv.includes('--prune-config')) {
-    process.exit(await pruneCli(process.argv, writeToStdout))
-  }
-  if (engines && probe) {
-    process.stderr.write('--engines and --probe are mutually exclusive\n')
-    process.exit(FatalError.EXIT_CODE)
-  }
-  if (json && !probe && !engines) {
-    process.stderr.write('--json requires --engines or --probe\n')
-    process.exit(FatalError.EXIT_CODE)
-  }
-  if (engines && !json) {
-    process.stderr.write('--engines requires --json\n')
-    process.exit(FatalError.EXIT_CODE)
-  }
-  // Before anything that binds or starts: these modes talk to the door that is
-  // already running, so creating one here would take the port from it.
-  if (engines) {
-    process.exit(await enginesExit())
-  }
-  if (probe) {
-    process.exit(await probeExit(json))
   }
   runDaemon({ createDoor, resolveBunx })
 }

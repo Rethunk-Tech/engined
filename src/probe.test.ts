@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
+import { version } from '../package.json' with { type: 'json' }
 import { FatalError } from './errors/fatal.ts'
 import { runProbes } from './probe.ts'
 import {
@@ -243,19 +244,19 @@ test('a door that cannot be reached at all fails', async () => {
 // The flag is one fact split across a unit template and an argv check, the
 // same shape as RestartPreventExitStatus. Renaming it in one place leaves
 // every other test green while the timer silently starts a second daemon.
-test("the probe unit's ExecStart names the flag main.ts branches on", () => {
+test("the probe unit's ExecStart names the flag extraModes.ts branches on", () => {
   const here = import.meta.dir
   const unit = readFileSync(join(here, '../scripts/engined-probe.service.in'), 'utf8')
-  const main = readFileSync(join(here, 'main.ts'), 'utf8')
+  const extra = readFileSync(join(here, 'extraModes.ts'), 'utf8')
   const flag = unit.match(RX_EXEC_START_FLAG)?.[1]
   expect(flag).toBe('--probe')
-  expect(main).toContain(`process.argv.includes('${flag}')`)
+  expect(extra).toContain(`'${flag}'`)
 })
 
 test('--help and -h print usage and exit 0 without starting the door', async () => {
   const modes = readFileSync(join(import.meta.dir, 'extraModes.ts'), 'utf8')
-  expect(modes).toContain("argv.includes('--help')")
-  expect(modes).toContain("argv.includes('-h')")
+  expect(modes).toContain('--help')
+  expect(modes).toContain("'-h'")
   const proc = Bun.spawn(['bun', join(import.meta.dir, 'main.ts'), '--help'], {
     stdout: 'pipe',
     stderr: 'pipe',
@@ -266,9 +267,12 @@ test('--help and -h print usage and exit 0 without starting the door', async () 
     proc.exited,
   ])
   expect(code).toBe(0)
-  expect(stdout).toContain('Usage:')
+  expect(stdout).toContain('usage: engined')
+  expect(stdout).toContain('commands:')
+  expect(stdout).toContain('flags:')
   expect(stdout).toContain('--engines --json')
   expect(stdout).toContain('no text listing')
+  expect(stdout).toContain('--version')
   expect(stderr).toBe('')
 })
 
@@ -545,7 +549,13 @@ test('--probe --json prints the probe report as one JSON document', async () => 
     expect(text.stdout).toBe(`ok http://127.0.0.1:${port}: no reachable address to prove\n`)
     expect(json.code).toBe(text.code)
     expect(json.stderr).toBe('')
-    const parsed = JSON.parse(json.stdout) as { ok: boolean; lines: ReportedLine[] }
+    const parsed = JSON.parse(json.stdout) as {
+      schema: number
+      ok: boolean
+      lines: ReportedLine[]
+    }
+    expect(Object.keys(parsed)[0]).toBe('schema')
+    expect(parsed.schema).toBe(1)
     expect(parsed.ok).toBe(true)
     expect(parsed.lines).toEqual(reportedLines(text.stdout))
     expect(json.stdout.trim().split('\n')).toHaveLength(1)
@@ -562,7 +572,8 @@ test('--probe --json keeps text mode failing exit and lines', async () => {
       `FAIL http://127.0.0.1:${port}: the door answered http 503 for its own model menu\n`,
     )
     expect(json.code).toBe(text.code)
-    const parsed = JSON.parse(json.stdout) as { ok: boolean; lines: ReportedLine[] }
+    const parsed = JSON.parse(json.stdout) as { schema: number; ok: boolean; lines: ReportedLine[] }
+    expect(parsed.schema).toBe(1)
     expect(parsed.ok).toBe(false)
     expect(parsed.lines).toEqual(reportedLines(text.stdout))
   })
@@ -581,8 +592,10 @@ test('--probe --json includes discovery.claude.last_error when refresh fails', a
       expect(text.stdout).not.toContain(lastError)
       expect(json.code).toBe(0)
       const parsed = JSON.parse(json.stdout) as {
+        schema: number
         discovery: { claude: { last_error?: string; models: number; findings: unknown[] } }
       }
+      expect(parsed.schema).toBe(1)
       expect(parsed.discovery.claude.last_error).toBe(lastError)
       expect(parsed.discovery.claude.models).toBe(4)
       expect(parsed.discovery.claude.findings).toEqual([])
@@ -602,12 +615,32 @@ test('--probe --json includes discovery.claude.last_error when refresh fails', a
   )
 })
 
-test('--json without --engines or --probe is refused', async () => {
+test('--json without --engines, --probe, or --doctor is a usage error', async () => {
   const configHome = join(mkdtempSync(join(PROBE_ROOT, 'bare-')), 'config')
   mkdirSync(configHome, { recursive: true })
   const run = await runCli(['--json'], { XDG_CONFIG_HOME: configHome })
-  expect(run.code).toBe(FatalError.EXIT_CODE)
-  expect(run.stderr).toBe('--json requires --engines or --probe\n')
+  expect(run.code).toBe(FatalError.USAGE_EXIT_CODE)
+  expect(run.stderr.startsWith('engined: --json requires --engines, --probe, or --doctor\n')).toBe(
+    true,
+  )
+  expect(run.stderr).toContain('usage: engined')
+  expect(run.stdout).toBe('')
+})
+
+test('--version prints engined semver and exits 0', async () => {
+  const run = await runCli(['--version'], {})
+  expect(run.code).toBe(0)
+  expect(run.stdout).toBe(`engined ${version}\n`)
+  expect(run.stderr).toBe('')
+})
+
+test('an unknown flag is a usage error', async () => {
+  const configHome = join(mkdtempSync(join(PROBE_ROOT, 'unknown-')), 'config')
+  mkdirSync(configHome, { recursive: true })
+  const run = await runCli(['--bogus'], { XDG_CONFIG_HOME: configHome })
+  expect(run.code).toBe(FatalError.USAGE_EXIT_CODE)
+  expect(run.stderr.startsWith('engined: unknown flag --bogus\n')).toBe(true)
+  expect(run.stderr).toContain('usage: engined')
   expect(run.stdout).toBe('')
 })
 
@@ -665,7 +698,7 @@ test('--engines --json warns on stderr when the served config failed to reload',
     const run = await runCli(['--engines', '--json'], { XDG_CONFIG_HOME: configHomeFor(port) })
     expect(run.code).toBe(0)
     expect(run.stderr).toContain(configError)
-    expect(run.stderr).toBe(`${configError}\n`)
+    expect(run.stderr).toBe(`engined: ${configError}\n`)
     const parsed = JSON.parse(run.stdout) as { config_error?: string; engines: unknown }
     expect(parsed.config_error).toBe(configError)
     expect(Array.isArray(parsed.engines)).toBe(true)
@@ -679,11 +712,15 @@ test('--engines without --json is refused, and so is combining it with --probe',
   mkdirSync(configHome, { recursive: true })
   const env = { XDG_CONFIG_HOME: configHome }
   const bare = await runCli(['--engines'], env)
-  expect(bare.code).toBe(FatalError.EXIT_CODE)
-  expect(bare.stderr).toBe('--engines requires --json\n')
+  expect(bare.code).toBe(FatalError.USAGE_EXIT_CODE)
+  expect(bare.stderr.startsWith('engined: --engines requires --json\n')).toBe(true)
+  expect(bare.stderr).toContain('usage: engined')
   expect(bare.stdout).toBe('')
   const both = await runCli(['--engines', '--probe'], env)
-  expect(both.code).toBe(FatalError.EXIT_CODE)
-  expect(both.stderr).toBe('--engines and --probe are mutually exclusive\n')
+  expect(both.code).toBe(FatalError.USAGE_EXIT_CODE)
+  expect(both.stderr.startsWith('engined: --engines and --probe are mutually exclusive\n')).toBe(
+    true,
+  )
+  expect(both.stderr).toContain('usage: engined')
   expect(both.stdout).toBe('')
 })

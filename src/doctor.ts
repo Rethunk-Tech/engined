@@ -305,6 +305,6 @@ export async function doctorExit(
   overrides: Partial<DoctorDeps> = {},
 ): Promise<number> {
   const report = await runDoctor(overrides)
-  write(json ? JSON.stringify(report) : formatDoctor(report))
+  write(json ? JSON.stringify({ schema: 1, ...report }) : formatDoctor(report))
   return report.ok ? 0 : 1
 }

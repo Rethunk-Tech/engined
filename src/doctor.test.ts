@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { formatDoctor, runDoctor } from './doctor.ts'
+import { doctorExit, formatDoctor, runDoctor } from './doctor.ts'
 import { config, ENGINES_ROOT, engine } from './test-support.ts'
 
 const OK = { stdout: '27.0.1\n', stderr: '', exitCode: 0 }
@@ -119,4 +119,15 @@ test('a disabled agentic engine skips its agent check, and an enabled one still 
     detail: 'not found',
   })
   expect(enabled.checks.find((c) => c.id === 'bwrap')?.ok).toBe(false)
+})
+
+test('--doctor --json prints schema first and keeps the report fields', async () => {
+  const lines: string[] = []
+  const code = await doctorExit(true, (line) => lines.push(line), healthy)
+  expect(code).toBe(0)
+  const parsed = JSON.parse(lines[0] ?? '') as { schema: number; ok: boolean; checks: unknown[] }
+  expect(Object.keys(parsed)[0]).toBe('schema')
+  expect(parsed.schema).toBe(1)
+  expect(parsed.ok).toBe(true)
+  expect(Array.isArray(parsed.checks)).toBe(true)
 })

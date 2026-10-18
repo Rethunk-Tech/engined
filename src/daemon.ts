@@ -50,7 +50,7 @@ export function runDaemon(make: {
       return bindDualFamily(boundDoor.fetch, port)
     } catch (err) {
       const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
-      process.stderr.write(`port ${port} ${what}: ${errMessage(err)}\n`)
+      process.stderr.write(`engined: port ${port} ${what}: ${errMessage(err)}\n`)
       process.exit(FatalError.EXIT_CODE)
     }
   }
@@ -59,7 +59,7 @@ export function runDaemon(make: {
   try {
     door = buildDoor()
   } catch (err) {
-    process.stderr.write(`${errMessage(err)}\n`)
+    process.stderr.write(`engined: ${errMessage(err)}\n`)
     process.exit(FatalError.EXIT_CODE)
   }
   let bound = bindOrExit(door, door.served.listen)

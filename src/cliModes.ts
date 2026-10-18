@@ -18,7 +18,7 @@ function configuredPort(): number | undefined {
   try {
     return loadConfig().listen_port
   } catch (err) {
-    process.stderr.write(`${errMessage(err)}\n`)
+    process.stderr.write(`engined: ${errMessage(err)}\n`)
     return undefined
   }
 }
@@ -38,12 +38,12 @@ export async function enginesExit(): Promise<number> {
       signal: AbortSignal.timeout(ENGINES_LIST_TIMEOUT_MS),
     })
   } catch (err) {
-    process.stderr.write(`the door could not be reached: ${errMessage(err)}\n`)
+    process.stderr.write(`engined: the door could not be reached: ${errMessage(err)}\n`)
     return 1
   }
   if (!res.ok) {
     await discardBody(res)
-    process.stderr.write(`the door answered http ${res.status} for its own engine list\n`)
+    process.stderr.write(`engined: the door answered http ${res.status} for its own engine list\n`)
     return 1
   }
   const body = await res.text()
@@ -53,7 +53,7 @@ export async function enginesExit(): Promise<number> {
   // parsing that body.
   const configError = servedConfigError(body)
   if (configError !== undefined) {
-    process.stderr.write(`${configError}\n`)
+    process.stderr.write(`engined: ${configError}\n`)
   }
   return 0
 }
@@ -75,7 +75,7 @@ export async function probeExit(json: boolean): Promise<number> {
   }
   const report = await runProbes(`http://127.0.0.1:${port}`)
   if (json) {
-    writeToStdout(JSON.stringify(report))
+    writeToStdout(JSON.stringify({ schema: 1, ...report }))
   } else {
     for (const line of report.lines) {
       writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)

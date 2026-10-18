@@ -16,6 +16,7 @@ import process from 'node:process'
 
 import { loadConfig } from './config.ts'
 import { fragmentFiles } from './configSources.ts'
+import { FatalError } from './errors/fatal.ts'
 import { dropRanges, tableBlocks } from './localConfigPrune.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { SOURCES } from './modelSources.ts'
@@ -198,8 +199,8 @@ export async function pruneCli(
   const file = flagValue(argv, '--prune-config')
   const out = flagValue(argv, '--out')
   if (file === undefined || out === undefined || file === out) {
-    process.stderr.write('Usage: engined --prune-config CONFIG --out OUTPUT (never in place)\n')
-    return 2
+    process.stderr.write('engined: --prune-config and --out must name different files\n')
+    return FatalError.USAGE_EXIT_CODE
   }
   try {
     const { removals, written } = await pruneConfig({ file, out })
@@ -215,7 +216,7 @@ export async function pruneCli(
     )
     return 0
   } catch (err) {
-    process.stderr.write(`${errMessage(err)}\n`)
+    process.stderr.write(`engined: ${errMessage(err)}\n`)
     return 1
   }
 }

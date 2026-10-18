@@ -128,6 +128,7 @@ journalctl --user -u engined -f             # one JSON line per call
 systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
 engined --help                              # every mode below; does not start the door
+engined --version                           # tool version
 engined --doctor [--json]                   # host checks, one line each with its fix
 engined --probe [--json]                    # call the already-serving door; never bind a second one
 engined --engines --json                    # print GET /engined/v1/engines ( --json is required; no text listing)
