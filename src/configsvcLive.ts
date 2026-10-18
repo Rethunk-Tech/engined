@@ -5,7 +5,13 @@ import { loadConfig } from './config.ts'
 import { type ConfigsvcDeps, readJson } from './configsvcApi.ts'
 import { shippedEngines } from './configsvcShipped.ts'
 import { readGgufMetadata } from './ggufMetadata.ts'
-import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from './http.ts'
+import {
+  jsonError,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_NOT_FOUND,
+  STATUS_UNPROCESSABLE,
+} from './http.ts'
 import { runProbes } from './probe.ts'
 import { errMessage, isRecord } from './records.ts'
 import {
@@ -19,8 +25,6 @@ import {
 } from './routeServes.ts'
 import type { Config } from './types.ts'
 
-const STATUS_BAD_GATEWAY = 502
-const STATUS_UNPROCESSABLE = 422
 const MODEL_EXTENSIONS = new Set([
   '.gguf',
   '.bin',

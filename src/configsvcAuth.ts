@@ -38,15 +38,37 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
   const lastSeen = new Map<string, number>()
   const failures = new Map<string, number[]>()
 
+  const sweep = (): void => {
+    const t = now()
+    for (const [id, seen] of lastSeen) {
+      if (t - seen > SESSION_IDLE_MS) {
+        lastSeen.delete(id)
+      }
+    }
+    for (const [client, at] of failures) {
+      const recent = at.filter((when) => t - when < FAILURE_WINDOW_MS)
+      if (recent.length === 0) {
+        failures.delete(client)
+      } else {
+        failures.set(client, recent)
+      }
+    }
+  }
+
   const limited = (client: string): boolean => {
     const recent = (failures.get(client) ?? []).filter((at) => now() - at < FAILURE_WINDOW_MS)
-    failures.set(client, recent)
+    if (recent.length === 0) {
+      failures.delete(client)
+    } else {
+      failures.set(client, recent)
+    }
     return recent.length >= MAX_FAILURES
   }
 
   return {
     token,
     async login(secret, client) {
+      sweep()
       if (limited(client)) {
         return 'limited'
       }
@@ -63,6 +85,7 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       return id
     },
     authorize(cookieHeader) {
+      sweep()
       const id = sessionIdOf(cookieHeader)
       const seen = id === undefined ? undefined : lastSeen.get(id)
       if (id === undefined || seen === undefined) {

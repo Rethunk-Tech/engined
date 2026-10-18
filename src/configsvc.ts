@@ -9,6 +9,7 @@ import { liveApi } from './configsvcLive.ts'
 import {
   jsonError,
   STATUS_FORBIDDEN,
+  STATUS_INTERNAL_SERVER_ERROR,
   STATUS_NOT_FOUND,
   STATUS_TOO_MANY_REQUESTS,
   STATUS_UNAUTHORIZED,
@@ -19,6 +20,9 @@ const SECURITY_HEADERS = {
   'x-frame-options': 'DENY',
   'x-content-type-options': 'nosniff',
   'cache-control': 'no-store',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'cross-origin-opener-policy': 'same-origin',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=()',
 }
 
 export interface ConfigsvcOptions {
@@ -161,7 +165,9 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
           : undefined
         return withHeaders(await handle(req, forwarded || peer))
       } catch (err) {
-        return withHeaders(jsonError(500, err instanceof Error ? err.message : String(err)))
+        return withHeaders(
+          jsonError(STATUS_INTERNAL_SERVER_ERROR, err instanceof Error ? err.message : String(err)),
+        )
       }
     },
   })

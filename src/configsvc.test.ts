@@ -113,6 +113,11 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   expect(setCookie).toContain('HttpOnly')
   expect(setCookie).toContain('SameSite=Strict')
   expect(exchanged.headers.get('x-frame-options')).toBe('DENY')
+  expect(exchanged.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
+  expect(exchanged.headers.get('cross-origin-opener-policy')).toBe('same-origin')
+  expect(exchanged.headers.get('permissions-policy')).toBe(
+    'camera=(), microphone=(), geolocation=()',
+  )
   const cookie = setCookie.split(';')[0] as string
 
   expect((await h.call('/nothing', { cookie })).status).toBe(404)

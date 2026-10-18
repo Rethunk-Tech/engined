@@ -11,12 +11,17 @@ import {
 } from './configsvcStore.ts'
 import { checkConfigText, type ValidateEnv } from './configsvcValidate.ts'
 import type { DoctorReport } from './doctor.ts'
-import { jsonError, STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND } from './http.ts'
+import {
+  jsonError,
+  STATUS_BAD_GATEWAY,
+  STATUS_BAD_REQUEST,
+  STATUS_CONFLICT,
+  STATUS_NOT_FOUND,
+  STATUS_UNPROCESSABLE,
+} from './http.ts'
 import { errMessage, isRecord } from './records.ts'
 import { applyOps, dependents, type EditOp } from './tomlEdit.ts'
 
-const STATUS_UNPROCESSABLE = 422
-const STATUS_BAD_GATEWAY = 502
 const CONFIG_POSTS = new Set([
   '/api/validate',
   '/api/edit',
