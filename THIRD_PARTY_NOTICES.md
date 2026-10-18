@@ -36,7 +36,7 @@ Raising llama.cpp's `MAX_REPETITION_THRESHOLD` for large tool schemas
 
 | Project | Licence | How engined uses it |
 | --- | --- | --- |
-| [@decimalturn/toml-patch](https://github.com/DecimalTurn/toml-patch) 3.3.0 | MIT | Comment-preserving `config.toml` edits, bundled into `dist/main.js`. `patches/` carries one fix, offered upstream in [DecimalTurn/toml-patch#321](https://github.com/DecimalTurn/toml-patch/pull/321): removing a `[[table]]` entry no longer drops the sub-tables of the entries after it |
+| [@decimalturn/toml-patch](https://github.com/DecimalTurn/toml-patch) 3.3.1 | MIT | Comment-preserving `config.toml` edits, bundled into `dist/main.js` |
 | [Preact](https://github.com/preactjs/preact) 11 and [@preact/signals](https://github.com/preactjs/signals) 2 | MIT | The config UI's components and state, bundled into `dist/` |
 | [CodeMirror 6](https://codemirror.net) (`codemirror`, `@codemirror/lint`, `@codemirror/language`, `@codemirror/legacy-modes`, `@codemirror/state`, `@codemirror/view`) and [@lezer/highlight](https://github.com/lezer-parser/highlight) | MIT | The config UI's raw `config.toml` editor, bundled into `dist/` |
 | [Mermaid](https://github.com/mermaid-js/mermaid) 12 | MIT | The config UI's Map view, bundled into `dist/` as chunks loaded only when that view opens. Its dependencies are MIT and ISC, plus Apache-2.0 (Chevrotain), BSD-3-Clause (d3-ease, d3-sankey, rw), Unlicense (robust-predicates), MPL-2.0 or Apache-2.0 (DOMPurify, taken under Apache-2.0) and EPL-2.0: [elkjs](https://github.com/kieler/elkjs), Mermaid's default layout engine and the one the Map view draws with, ships unmodified as its own chunk; its source is at that link |
