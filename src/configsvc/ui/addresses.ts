@@ -64,6 +64,83 @@ export function hopState(doc: Doc, hop: string, upstreamOf: UpstreamOf): HopStat
   return found.every((r) => routeOff(doc, r, upstreamOf)) ? 'dropped' : 'ok'
 }
 
+export type ChainPreview = { kind: 'leaves'; addresses: string[] } | { kind: 'cycle'; text: string }
+
+const chainIdOf = (hop: string): string | undefined => {
+  const seg = qualifiedSegments(hop)
+  return seg?.length === 1 ? seg[0] : undefined
+}
+
+const chainNamed = (doc: Doc, id: string): Table | undefined => doc.chain.find((c) => c.id === id)
+
+/**
+ * Leaf addresses one chain inserts, in hop order. A disabled chain contributes
+ * nothing. A hop back onto a chain already being walked is the same cycle text
+ * parse raises (`includes itself`), so a loop in the draft stays one line.
+ */
+function expandChain(
+  doc: Doc,
+  id: string,
+  upstreamOf: UpstreamOf,
+  stack: readonly string[],
+): ChainPreview {
+  const cycleAt = stack.indexOf(id)
+  if (cycleAt !== -1) {
+    const via = [...stack.slice(cycleAt), id].join(' -> ')
+    return { kind: 'cycle', text: `chain "${id}" includes itself (${via})` }
+  }
+  const chain = chainNamed(doc, id)
+  if (chain === undefined || chain.disable === true) {
+    return { kind: 'leaves', addresses: [] }
+  }
+  const next = [...stack, id]
+  const addresses: string[] = []
+  const hops = Array.isArray(chain.hops) ? chain.hops : []
+  for (const hop of hops) {
+    if (typeof hop !== 'string') {
+      continue
+    }
+    const nested = chainIdOf(hop)
+    if (nested !== undefined) {
+      if (chainNamed(doc, nested) === undefined) {
+        addresses.push(hop)
+        continue
+      }
+      const inner = expandChain(doc, nested, upstreamOf, next)
+      if (inner.kind === 'cycle') {
+        return inner
+      }
+      addresses.push(...inner.addresses)
+      continue
+    }
+    if (hopState(doc, hop, upstreamOf) === 'dropped') {
+      continue
+    }
+    addresses.push(hop)
+  }
+  return { kind: 'leaves', addresses }
+}
+
+/**
+ * What a `@/<chain-id>` hop inserts. Absent for a route hop, an unknown id, or
+ * a disabled chain: those keep the hop note. The draft text is not rewritten.
+ */
+export function chainExpansion(
+  doc: Doc,
+  hop: string,
+  upstreamOf: UpstreamOf,
+): ChainPreview | undefined {
+  const id = chainIdOf(hop)
+  if (id === undefined) {
+    return undefined
+  }
+  const chain = chainNamed(doc, id)
+  if (chain === undefined || chain.disable === true) {
+    return undefined
+  }
+  return expandChain(doc, id, upstreamOf, [])
+}
+
 export interface AddressRow {
   address: string
   kind: 'route' | 'chain'

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { addressBook, hopChoices, hopState } from './addresses.ts'
+import { addressBook, chainExpansion, hopChoices, hopState } from './addresses.ts'
 import { argIssue, argValueFromText, suggestArgKeys } from './argsRules.ts'
 import { removalOps } from './guard.ts'
 import {
@@ -206,6 +206,37 @@ test('a wildcard route offers its cached catalog as hops, which resolve through 
   ])
   expect(hopState(doc, '@/e/or/org%2Fx:free', up)).toBe('ok')
   expect(hopState(doc, '@/e/elsewhere/x', up)).toBe('unresolved')
+})
+
+test('a chain hop lists the leaf addresses it inserts, walking nested hops', () => {
+  const doc = parseDoc(
+    '[[engine]]\nid = "e"\n[[route]]\nengine = "e"\nmodel = "m"\n[[route]]\nengine = "e"\nmodel = "n"\ndisable = true\n[[chain]]\nid = "inner"\nhops = ["@/e/m", "@/e/n"]\n[[chain]]\nid = "mid"\nhops = ["@/inner", "@/e/m"]\n[[chain]]\nid = "off"\ndisable = true\nhops = ["@/e/m"]\n[[chain]]\nid = "outer"\nhops = ["@/mid", "@/off"]\n[[chain]]\nid = "loop"\nhops = ["@/e/m", "@/loop"]\n[[chain]]\nid = "a"\nhops = ["@/b"]\n[[chain]]\nid = "b"\nhops = ["@/a"]\n[[chain]]\nid = "empty"\nhops = ["@/e/n"]\n',
+  )
+  if (doc === undefined) {
+    throw new Error('fixture must parse')
+  }
+  const up = () => 'local'
+  expect(chainExpansion(doc, '@/inner', up)).toEqual({ kind: 'leaves', addresses: ['@/e/m'] })
+  expect(chainExpansion(doc, '@/mid', up)).toEqual({
+    kind: 'leaves',
+    addresses: ['@/e/m', '@/e/m'],
+  })
+  expect(chainExpansion(doc, '@/outer', up)).toEqual({
+    kind: 'leaves',
+    addresses: ['@/e/m', '@/e/m'],
+  })
+  expect(chainExpansion(doc, '@/off', up)).toBeUndefined()
+  expect(chainExpansion(doc, '@/missing', up)).toBeUndefined()
+  expect(chainExpansion(doc, '@/e/m', up)).toBeUndefined()
+  expect(chainExpansion(doc, '@/empty', up)).toEqual({ kind: 'leaves', addresses: [] })
+  expect(chainExpansion(doc, '@/loop', up)).toEqual({
+    kind: 'cycle',
+    text: 'chain "loop" includes itself (loop -> loop)',
+  })
+  expect(chainExpansion(doc, '@/a', up)).toEqual({
+    kind: 'cycle',
+    text: 'chain "a" includes itself (a -> b -> a)',
+  })
 })
 
 test('hops resolve or are flagged dropped; the address book lists routes and chains; snippets round-trip', () => {

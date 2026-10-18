@@ -2,7 +2,13 @@ import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { qualifiedSegments } from '../../routeAddress.ts'
 import { editDraft } from './actions.ts'
-import { type HopState, hopChoices, hopState } from './addresses.ts'
+import {
+  type ChainPreview,
+  chainExpansion,
+  type HopState,
+  hopChoices,
+  hopState,
+} from './addresses.ts'
 import { discovery, ensureSpec, loadDiscovery, upstreamResolver } from './data.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { HopPicker } from './hopPicker.tsx'
@@ -18,6 +24,15 @@ const NOTE: Record<HopState, string> = {
   ok: '',
   dropped: 'dropped: its routes are disabled',
   unresolved: 'matches no route',
+}
+
+function expansionText(preview: ChainPreview): string {
+  if (preview.kind === 'cycle') {
+    return preview.text
+  }
+  return preview.addresses.length === 0
+    ? 'inserts nothing'
+    : `inserts ${preview.addresses.join(', ')}`
 }
 
 function hopNote(d: Doc, hop: string, state: HopState): string {
@@ -76,6 +91,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         {hops.map((hop, i) => {
           const key = lineKeys(hops)[i]
           const state = hopState(d, hop, upstreamOf)
+          const expansion = chainExpansion(d, hop, upstreamOf)
           return (
             <li
               class={`hop${
@@ -110,6 +126,11 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
               <span class="muted">{i + 1}.</span>
               <span class="hopaddr">
                 <code>{hop}</code>
+                {expansion === undefined ? null : (
+                  <span class={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}>
+                    {expansionText(expansion)}
+                  </span>
+                )}
                 {state === 'ok' ? null : (
                   <span class="bad small-text">{hopNote(d, hop, state)}</span>
                 )}
