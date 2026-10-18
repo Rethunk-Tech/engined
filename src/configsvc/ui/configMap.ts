@@ -1,4 +1,5 @@
 /** The pending config as a Mermaid flowchart: chains reach engines through the models their hops name, engines reach upstreams through their routes. */
+import { excludeMatcher } from '../../modelExclude.ts'
 import type { EngineKind } from '../../types.ts'
 import { candidates } from './addresses.ts'
 import type { Doc, Table } from './model.ts'
@@ -118,10 +119,40 @@ function routeEdges(
   return { edges, ambient: [...pairs.keys()].some((key) => key.endsWith(' ambient')) }
 }
 
+/** Each cached catalog id the pending doc's `exclude_models` matches, dashed from its upstream. */
+function excludedNodes(
+  doc: Doc,
+  upstreamNode: Map<string, string>,
+  inventories: Record<string, unknown>,
+): { nodes: string[]; edges: string[]; ids: string[] } {
+  const out = { nodes: [] as string[], edges: [] as string[], ids: [] as string[] }
+  for (const u of doc.upstream) {
+    const from = upstreamNode.get(String(u.id))
+    const patterns = Array.isArray(u.exclude_models)
+      ? u.exclude_models.filter((p): p is string => typeof p === 'string')
+      : []
+    const cached = inventories[String(u.id)] as { ids?: unknown } | null | undefined
+    if (from === undefined || patterns.length === 0 || !Array.isArray(cached?.ids)) {
+      continue
+    }
+    const matches = excludeMatcher(patterns)
+    for (const wire of cached.ids) {
+      if (typeof wire === 'string' && matches(wire)) {
+        const id = `x${out.ids.length}`
+        out.ids.push(id)
+        out.nodes.push(`${id}[${label(wire)}]`)
+        out.edges.push(`  ${from} -.-> ${id}`)
+      }
+    }
+  }
+  return out
+}
+
 export function configMermaid(
   doc: Doc,
   upstreamOf: UpstreamOf,
   kindOf: (engine: Table) => EngineKind | undefined,
+  inventories: Record<string, unknown> = {},
 ): string {
   const engineNode = new Map(doc.engine.map((e, i) => [String(e.id), `e${i}`]))
   const upstreamNode = new Map(doc.upstream.map((u, i) => [String(u.id), `u${i}`]))
@@ -154,8 +185,12 @@ export function configMermaid(
     ...doc.engine.flatMap((e, i) => (e.disable === true ? [`e${i}`] : [])),
     ...doc.upstream.flatMap((u, i) => (u.disable === true ? [`u${i}`] : [])),
   ]
+  const excluded = excludedNodes(doc, upstreamNode, inventories)
   const lines = [
     'flowchart LR',
+    ...group('Excluded', 'Excluded', excluded.nodes),
+    ...excluded.edges,
+    ...excluded.nodes.slice(0, 1).map(() => tint('Excluded', MAP_COLOURS.upstream)),
     ...group(
       'Chains',
       'Chains',
@@ -177,7 +212,9 @@ export function configMermaid(
       .map((id) => tint(id, MAP_COLOURS.upstream)),
     '  classDef off stroke-dasharray: 4 3,opacity: 0.5',
     '  classDef bad stroke: #f0626b',
-    ...(off.length === 0 ? [] : [`  class ${off.join(',')} off`]),
+    ...(off.length + excluded.ids.length === 0
+      ? []
+      : [`  class ${[...off, ...excluded.ids].join(',')} off`]),
   ]
   return `${lines.join('\n')}\n`
 }

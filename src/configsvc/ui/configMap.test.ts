@@ -57,3 +57,31 @@ test('chains naming the same models in any order share one node per model, unnum
   }
   expect(map).not.toMatch(/"\d+\. /)
 })
+
+test('the map lists cached ids the pending exclude_models matches under Excluded, dashed from the upstream', () => {
+  const doc = parseDoc(
+    '[[upstream]]\nid = "or"\negress = "remote"\nexclude_models = ["openai/*"]\n',
+  )
+  if (doc === undefined) {
+    throw new Error('fixture must parse')
+  }
+  const inv = { or: { ids: ['openai/gpt', 'plain'] } }
+  const map = configMermaid(
+    doc,
+    () => null,
+    () => undefined,
+    inv,
+  )
+  expect(map).toContain('subgraph Excluded ["Excluded"]')
+  expect(map).toContain('x0["openai/gpt"]')
+  expect(map).toContain('u0 -.-> x0')
+  expect(map).toContain('class x0 off')
+  expect(map).not.toContain('"plain"')
+  expect(
+    configMermaid(
+      doc,
+      () => null,
+      () => undefined,
+    ),
+  ).not.toContain('Excluded')
+})

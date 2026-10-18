@@ -3,7 +3,7 @@ import { computed, useSignalEffect } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { fork } from './api.ts'
 import { configMermaid, MAP_COLOURS } from './configMap.ts'
-import { ensureSpec, specs, upstreamResolver } from './data.ts'
+import { discovery, ensureSpec, specs, upstreamResolver } from './data.ts'
 import { engineKind, parseDoc } from './model.ts'
 import { draft } from './store.ts'
 import { CopyButton } from './widgets.tsx'
@@ -13,7 +13,12 @@ const source = computed(() => {
   const d = doc.value
   return d === undefined
     ? undefined
-    : configMermaid(d, upstreamResolver(d), (e) => engineKind(e, specs.value[String(e.id)]?.info))
+    : configMermaid(
+        d,
+        upstreamResolver(d),
+        (e) => engineKind(e, specs.value[String(e.id)]?.info),
+        discovery.value.inventories,
+      )
 })
 
 /** mermaid.render wants an element id no earlier render used. */
