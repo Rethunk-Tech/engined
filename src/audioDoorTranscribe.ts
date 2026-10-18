@@ -168,14 +168,6 @@ async function readAudioUpload(
   if (parsed instanceof Response) {
     return parsed
   }
-  // The wrapper's streaming route carries language and prompt and nothing
-  // else, so a streamed translation would arrive as a plain transcription.
-  if (translating && parsed.stream) {
-    return jsonError(
-      STATUS_BAD_REQUEST,
-      'a translation cannot be streamed; send it as a buffered request',
-    )
-  }
   return uploadRefusal(parsed.file) ?? (translating ? { ...parsed, translate: true } : parsed)
 }
 

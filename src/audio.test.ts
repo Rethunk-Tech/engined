@@ -1125,6 +1125,7 @@ test('a streamed transcription forwards each segment as it lands, ahead of the t
   expect(asJson.pathname).toBe('/v1/audio/transcriptions/stream')
   expect(asJson.searchParams.get('language')).toBe('en')
   expect(asJson.searchParams.get('prompt')).toBe('Priya')
+  expect(asJson.searchParams.has('translate')).toBe(false)
   expect(asked?.body).toBe(SAMPLE_AUDIO_BYTES)
   expect(res.contentType).toBe('application/x-ndjson')
 
@@ -1183,6 +1184,30 @@ test("a caller who hangs up mid-transcript cancels the engine's own decode", asy
   await Bun.sleep(1)
 
   expect(cancelled).toBe(true)
+})
+
+test('a streamed translation forwards translate on the wrapper query and does not 400', async () => {
+  let asked: string | undefined
+  const res = await handleTranscription(
+    {
+      engine: 'whisper',
+      file: SAMPLE_AUDIO_BYTES,
+      stream: true,
+      translate: true,
+    },
+    async () => ({ private_url: '127.0.0.1:1' }),
+    (url) => {
+      asked = url
+      return Promise.resolve(
+        new Response(`${JSON.stringify({ phase: 'done', text: 'the black cat' })}\n`),
+      )
+    },
+  )
+
+  const asJson = new URL(asked ?? '')
+  expect(res.status).toBe(200)
+  expect(asJson.pathname).toBe('/v1/audio/transcriptions/stream')
+  expect(asJson.searchParams.get('translate')).toBe('true')
 })
 
 test('a streamed transcription refuses a whole-body response_format instead of ignoring it', async () => {

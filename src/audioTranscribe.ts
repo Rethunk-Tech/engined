@@ -176,8 +176,8 @@ function vettedTranscriptFrame(frame: Frame): Record<string, unknown> | undefine
 
 /**
  * The upload goes up as its own body rather than inside a multipart form: this
- * route is the door's, not OpenAI's, and the two per-request levers whisper
- * takes ride in the query string instead of earning a parser on the far side.
+ * route is the door's, not OpenAI's, and the per-request levers whisper takes
+ * ride in the query string instead of earning a parser on the far side.
  */
 async function transcribeStreamed(
   req: AnyTranscriptionRequestBody,
@@ -191,6 +191,9 @@ async function transcribeStreamed(
   const prompt = cappedBiasPrompt(req.prompt)
   if (prompt !== undefined) {
     query.set('prompt', prompt)
+  }
+  if (req.translate === true) {
+    query.set('translate', 'true')
   }
   const suffix = query.size > 0 ? `?${query}` : ''
   const res = await fetchImpl(`http://${privateUrl}${TRANSCRIPTION_STREAM_PATH}${suffix}`, {
@@ -236,16 +239,6 @@ function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResp
     return errorResponse(
       STATUS_BAD_REQUEST,
       `a streamed transcription answers in NDJSON frames, so response_format "${req.response_format}" does not apply`,
-    )
-  }
-  // The streamed path is the door's own route on the whisper wrapper, whose
-  // two query levers are language and prompt -- it has no channel for this
-  // one. Refused rather than dropped: a translation request answered with an
-  // untranslated transcript is the failure this whole flag guards against.
-  if (req.stream === true && req.translate === true) {
-    return errorResponse(
-      STATUS_BAD_REQUEST,
-      'a translation cannot be streamed; send it as a buffered request',
     )
   }
   return undefined

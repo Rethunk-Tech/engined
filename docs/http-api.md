@@ -652,10 +652,9 @@ reads as "upload this file". Only `file=@clip.wav` wants that.
 endpoint — it is English-only, and the config says so.
 
 No `language` field: translation targets English, and the source language is
-whisper's own to detect. No streaming either — the wrapper's streaming route
-carries `language` and `prompt` and has no channel for this field, so a
-streamed translation would arrive as a plain transcript. `stream=true` here is
-a 400 rather than a silently untranslated answer.
+whisper's own to detect. `stream=true` is the same NDJSON as transcriptions:
+the wrapper receives `translate` on the provisional decode and on the terminal
+multipart. A 200 from that path is still not a claim the English is right.
 
 ## Rerank
 

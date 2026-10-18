@@ -37,7 +37,7 @@ frames and the same terminal frame.
 
 The request body is the raw audio bytes -- no multipart -- because the door in
 front of this is the only caller and multipart would buy nothing but a parser.
-`language` and `prompt` ride in the query string.
+`language`, `prompt` and `translate` ride in the query string.
 
 A caller that hangs up mid-transcript closes the socket, the next frame write
 raises, and whisper-cli is killed. While the terminal decode runs there is no
@@ -121,6 +121,7 @@ READ_BYTES = 65536
 # the abandonment; long enough not to be a spin loop.
 POLL_SECONDS = 0.25
 
+
 class Wav(NamedTuple):
     """One WAV header's fields, and where its samples begin."""
 
@@ -145,6 +146,7 @@ class Cancelled(Exception):
 
 class DecodeFailed(Exception):
     """Carries the detail of the one terminal error frame."""
+
 
 SERVER_ARGV: list[str] = []
 
@@ -229,6 +231,8 @@ def _cli_argv(audio_path: str, params: dict[str, list[str]]) -> list[str]:
     prompt = params.get("prompt", [None])[0]
     if prompt:
         argv += ["--prompt", prompt]
+    if params.get("translate", [None])[0] == "true":
+        argv.append("-tr")
     return argv
 
 
@@ -302,7 +306,7 @@ def _multipart(audio: bytes, params: dict[str, list[str]]) -> tuple[bytes, str]:
     per-request fields the door sends on the buffered verb."""
     boundary = f"engined{secrets.token_hex(8)}"
     body = bytearray()
-    for field in ("language", "prompt"):
+    for field in ("language", "prompt", "translate"):
         value = params.get(field, [None])[0]
         if value:
             body += (
@@ -447,7 +451,9 @@ class Handler(BaseHTTPRequestHandler):
                     for chunk in chunks:
                         audio += chunk
                     self._decode(_spill(work, "upload", bytes(audio)), params, 0.0)
-                self._frame({"phase": "done", "text": self._buffered(bytes(audio), params)})
+                self._frame(
+                    {"phase": "done", "text": self._buffered(bytes(audio), params)}
+                )
             except (BrokenPipeError, ConnectionResetError, Cancelled):
                 # The caller hung up. Killing the decode is the whole point:
                 # a dropped body does not by itself stop the work behind it.
@@ -483,7 +489,9 @@ class Handler(BaseHTTPRequestHandler):
                 committed = wav.data_at
             if len(audio) - committed < WINDOW_SECONDS * wav.per_second:
                 continue
-            committed += self._window(bytes(audio[committed:]), wav, committed, work, params)
+            committed += self._window(
+                bytes(audio[committed:]), wav, committed, work, params
+            )
 
     def _window(
         self,
@@ -553,7 +561,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise DecodeFailed(detail or f"whisper-cli exited {code}")
             return last
 
-    def _forward(self, segments: IO[str], offset: float, keep_last: bool) -> float | None:
+    def _forward(
+        self, segments: IO[str], offset: float, keep_last: bool
+    ) -> float | None:
         """One frame per segment line, each written as the next one lands so
         that nothing waits on the pass finishing. The one segment held back
         under `keep_last=False` is the one the window cut short."""
@@ -597,7 +607,10 @@ class Handler(BaseHTTPRequestHandler):
                 "POST",
                 _inference_path(),
                 body=body,
-                headers={"content-type": content_type, "content-length": str(len(body))},
+                headers={
+                    "content-type": content_type,
+                    "content-length": str(len(body)),
+                },
             )
             self._await(conn)
             res = conn.getresponse()
