@@ -70,8 +70,10 @@ export function speakableText(input: string): string {
 }
 
 export interface SpeechRequestBody {
-  /** The engine to dispatch through. Every TTS route stays modelless (voices are a request field, not an address segment), so there is no separate model to carry. */
+  /** The engine to dispatch through. */
   engine: string
+  /** The route's model, set only on an engine whose routes pick a weights file (piper's voice): the start loads that file. */
+  model?: string
   input: string
   response_format?: string
   /**

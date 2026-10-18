@@ -112,6 +112,21 @@ test('handleSpeech returns an OpenAI audio body, not the chatterbox-multi NDJSON
   expect(() => JSON.parse(Buffer.from(bytes).toString('utf8'))).toThrow()
 })
 
+test('a speech route that picks a voice file starts its engine for that model', async () => {
+  const fake = startFakeChatterboxMulti()
+  const started: (string | undefined)[] = []
+  await handleSpeech(
+    { engine: 'piper', model: 'voice-b', input: 'hello there' },
+    async (_id, model) => {
+      started.push(model)
+      return { private_url: fake.base }
+    },
+  )
+  fake.stop()
+
+  expect(started).toEqual(['voice-b'])
+})
+
 test('response_format: wav returns bytes with a binary content type, not a JSON envelope', async () => {
   const fake = startFakeChatterboxMulti()
 

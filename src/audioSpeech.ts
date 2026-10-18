@@ -106,7 +106,15 @@ let speechCacheBytes = 0
 function speechCacheKey(req: SpeechRequestBody, text: string): string {
   return createHash('sha256')
     .update(
-      JSON.stringify([req.engine, text, req.voice, req.speed, req.instructions, req.extra ?? null]),
+      JSON.stringify([
+        req.engine,
+        req.model ?? null,
+        text,
+        req.voice,
+        req.speed,
+        req.instructions,
+        req.extra ?? null,
+      ]),
     )
     .digest('hex')
 }
@@ -173,7 +181,7 @@ export async function handleSpeech(
 
   let engine: StartedEngine
   try {
-    engine = await start(req.engine)
+    engine = await start(req.engine, req.model)
   } catch (err) {
     return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
   }

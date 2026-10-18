@@ -4,7 +4,7 @@
 
 - piper: a route's `filename` picks the voice from `models_dir` (spec `route_file_env`, optional
   `[[volume]]`); any published Piper voice works, patched at start for word timings. The baked
-  voice stays the default.
+  voice stays the default. A request for a voice route switches the container to that route's file.
 - Config: `[engine.env]` sets a container engine's environment, merged over the spec's `env`. kokoro
   reads `KOKORO_VOICE` and `KOKORO_LANG_CODE` (`a` or `b`) from it and fails fast on an unknown value.
 - Config: `devices` and `group_add` on an `[[engine]]` replace the spec's GPU devices and groups for

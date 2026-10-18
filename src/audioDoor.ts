@@ -432,11 +432,12 @@ export async function handleAudioSpeech(
   const extra = Object.fromEntries(
     Object.entries(body).filter(([key]) => !SPEECH_DOOR_KEYS.has(key)),
   )
-  // A speech request carries no model of its own -- every TTS route is
-  // modelless -- so the only thing a hop changes is which engine it names.
-  const attempt: AudioAttempt = (hopEngine, _model, start) => {
+  // A hop's model is a voice file on an engine whose routes pick one (piper);
+  // most TTS routes are modelless and the hop changes only the engine.
+  const attempt: AudioAttempt = (hopEngine, model, start) => {
     const speechReq: SpeechRequestBody = {
       engine: hopEngine,
+      ...(model === undefined ? {} : { model }),
       input: typeof body.input === 'string' ? body.input : '',
       response_format: typeof body.response_format === 'string' ? body.response_format : undefined,
       stream: body.stream === 'ndjson' ? 'ndjson' : body.stream === true,
@@ -459,10 +460,13 @@ export async function handleAudioSpeech(
     })
   }
 
-  const { engineId, upstream, address, egress } = singleAudioRoute(resolved.route, ctx.getConfig())
+  const { engineId, model, upstream, address, egress } = singleAudioRoute(
+    resolved.route,
+    ctx.getConfig(),
+  )
   const leased: AudioLease = { held: false }
   const startedAt = Date.now()
-  const result = await attempt(engineId, undefined, audioStart(ctx, leased))
+  const result = await attempt(engineId, model, audioStart(ctx, leased))
   return finishAudioCall(ctx, leased, {
     engineId,
     upstream,
