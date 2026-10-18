@@ -125,6 +125,9 @@ wire = "openai"
 # fetch otherwise has no bound at which to drop the cached /models list.
 inventory_max_age_seconds = 86400
 inventory_refresh_seconds = 3600
+# Make catalog models unavailable: a glob over the full wire id (* spans /),
+# or a /regex/ (unanchored).
+# exclude_models = ["openai/*", "/:free$/"]
 
 # No trailing /v1 -- the claude CLI appends /v1/messages itself.
 [[upstream]]

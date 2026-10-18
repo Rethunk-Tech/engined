@@ -228,7 +228,7 @@ deliberately different strings so one plain segment separator can serve both.
 either side.
 
 A remote `openai-http` route with `model = "*"` expands from that provider's
-`/models` list. Each provider id becomes an address segment by replacing
+`/models` list, minus any id the upstream's `exclude_models` matches (those 404 like unknown models). Each provider id becomes an address segment by replacing
 `/` with `%2F` and nothing else; the reverse is what the hop sends as
 `wire_model`. `@/engine/*` is a 400 — the sentinel is not a served id. A
 declared alias that already claims the same `wire_model` is listed once, as
