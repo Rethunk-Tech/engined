@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.7 - 2026-10-18
 
 - Config UI: "Add hops…" on the Chains view and in the Add wizard opens a dialog to filter the
   choices, tick any number and add them at once, in the order ticked. Hops the chain already has are
