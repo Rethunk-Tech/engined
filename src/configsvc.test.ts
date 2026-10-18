@@ -198,6 +198,30 @@ test('a known configsvc path asked with the wrong method is 405', async () => {
   expect((await h.call('/api/no-such-route', { cookie })).status).toBe(404)
 })
 
+test('an upstream Enable/Disable header writes true and Enable drops the key', async () => {
+  const src = readFileSync(join(import.meta.dir, 'configsvc/ui/upstreams.tsx'), 'utf8')
+  expect(src).toContain("path: ['upstream', index, 'disable']")
+  expect(src).toContain('value: upstream.disable === true ? undefined : true')
+  const h = await harness()
+  const cookie = await h.signIn()
+  const post = async (text: string, value: unknown) =>
+    (
+      await h.call('/api/edit', {
+        method: 'POST',
+        cookie,
+        body: JSON.stringify({
+          text,
+          ops: [{ op: 'setKey', path: ['upstream', 0, 'disable'], value }],
+        }),
+      })
+    ).json() as Promise<{ text: string }>
+  const base = 'listen_port = 1\n\n[[upstream]]\nid = "u"\negress = "none"\n'
+  const disabled = await post(base, true)
+  expect(disabled.text).toContain('disable = true')
+  const enabled = await post(disabled.text, undefined)
+  expect(enabled.text).not.toContain('disable')
+})
+
 test('with a password hash, login works until five failures a minute lock the client out', async () => {
   const hash = await Bun.password.hash('hunter2', { algorithm: 'argon2id' })
   const h = await harness({ passwordHash: hash })

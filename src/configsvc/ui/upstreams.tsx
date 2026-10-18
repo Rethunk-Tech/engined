@@ -200,6 +200,23 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
         <h3>{id}</h3>
         <EgressIcon egress={upstream.egress} word={true} />
         <span className="grow" />
+        <button
+          type="button"
+          className="small"
+          onClick={() =>
+            fork(
+              editDraft([
+                {
+                  op: 'setKey',
+                  path: ['upstream', index, 'disable'],
+                  value: upstream.disable === true ? undefined : true,
+                },
+              ]),
+            )
+          }
+        >
+          {upstream.disable === true ? 'Enable' : 'Disable'}
+        </button>
         <CopyButton text={entryToToml('upstream', upstream)} label="Copy TOML" />
         <DeleteGuard doc={d} table="upstream" id={id} index={index} addresses={addresses} />
       </div>

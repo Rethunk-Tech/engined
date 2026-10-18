@@ -143,43 +143,6 @@ skip exists (`AGENTS.md` comfy memory).
   sentence that does not say "image".
 - `gate` stays green.
 
-## Upstream disable is only a buried field
-
-Engines (`src/configsvc/ui/engines.tsx` Enable/Disable in the row head),
-routes, and chains expose disable as a header button. Upstreams
-(`src/configsvc/ui/upstreams.tsx:187` `UpstreamCard`) put `disable` in the
-State `Prop` section (`SECTIONS` at the top of that file) and have no
-header button. An operator scanning cards can disable an engine in one
-click and has to open State to disable an upstream.
-
-A header Enable/Disable button identical to `EngineCard`'s, writing
-`['upstream', index, 'disable']` as `true` or `undefined`. Keep the State
-`Prop` so the three-state absent/true/false control remains available.
-
-Rejected: removing the State `Prop`. Absent versus `false` is a real
-distinction the button's two-state cannot show.
-
-### Read
-
-1. `src/configsvc/ui/engines.tsx` the Enable/Disable `editDraft` — copy it.
-2. `src/configsvc/ui/upstreams.tsx:25` `SECTIONS` State `disable`.
-3. `src/configsvc/ui/upstreams.tsx:187` `UpstreamCard` row head.
-
-### Traps
-
-- **Two controls on one key.** The button should match the Prop: `true`
-  means Disable shown as Enable, anything else means Enable shown as
-  Disable. Do not write `false` from the button; engines write `undefined`.
-- **`off` CSS class already keys on `upstream.disable === true`.** Keep that.
-
-### Acceptance
-
-- An enabled upstream card has a Disable button in the row head; clicking
-  it sets `disable = true` and the card gets `off`.
-- Enable clears the key (does not write `false`).
-- The State Prop still edits the same key.
-- `gate` stays green.
-
 ## Tokenize has no detokenize
 
 `POST /engined/v1/tokenize` (`src/tokenizeRoute.ts:28`) turns `content` into
