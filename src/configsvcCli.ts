@@ -7,6 +7,7 @@ import { errMessage } from './records.ts'
 export const CONFIGSVC_URL_PREFIX = 'configsvc: '
 const CONFIGSVC_UNIT = 'engined-configsvc'
 const JOURNAL_TIMEOUT_MS = 10_000
+const CR_RE = /\r$/
 
 export interface JournalRead {
   stdout: string
@@ -81,7 +82,7 @@ export async function hashPasswordExit(
   write: (line: string) => void,
   readLine: () => Promise<string> = firstStdinLine,
 ): Promise<number> {
-  const password = (await readLine()).replace(/\r$/, '')
+  const password = (await readLine()).replace(CR_RE, '')
   if (password === '') {
     process.stderr.write(
       'no password on stdin: pipe one line, for example `read -rs p; echo $p | engined --hash-password`\n',

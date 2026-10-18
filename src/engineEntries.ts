@@ -199,18 +199,17 @@ function withRoutedArtifacts(
 function assertFieldDisposition(
   disposition: Disposition,
   present: boolean,
-  field: string,
   route: ResolvedRoute,
-  site: string,
+  loc: { field: string; site: string },
 ): void {
   if (disposition === 'required' && !present) {
-    throw new ParseError(`${site} is missing required "${field}"`, {
-      path: originOf(route, field),
+    throw new ParseError(`${loc.site} is missing required "${loc.field}"`, {
+      path: originOf(route, loc.field),
     })
   }
   if (disposition === 'forbidden' && present) {
-    throw new ParseError(`${site} must not declare "${field}"`, {
-      path: originOf(route, field),
+    throw new ParseError(`${loc.site} must not declare "${loc.field}"`, {
+      path: originOf(route, loc.field),
     })
   }
 }
@@ -235,10 +234,16 @@ function checkLocalFileDisposition(
       continue
     }
     const site = `route on engine "${engine.id}" model "${r.model}"`
-    assertFieldDisposition(rules.filename, r.filename !== undefined, 'filename', r, site)
-    assertFieldDisposition(rules.role, r.role !== undefined, 'role', r, site)
-    assertFieldDisposition(rules.translate, r.translate !== undefined, 'translate', r, site)
-    assertFieldDisposition(rules.fim, r.fim !== undefined, 'fim', r, site)
+    assertFieldDisposition(rules.filename, r.filename !== undefined, r, {
+      field: 'filename',
+      site,
+    })
+    assertFieldDisposition(rules.role, r.role !== undefined, r, { field: 'role', site })
+    assertFieldDisposition(rules.translate, r.translate !== undefined, r, {
+      field: 'translate',
+      site,
+    })
+    assertFieldDisposition(rules.fim, r.fim !== undefined, r, { field: 'fim', site })
     if (rules.args === 'forbidden' && Object.keys(r.args).length > 0) {
       throw new ParseError(`${site} must not declare "args"`, { path: originOf(r, 'args') })
     }

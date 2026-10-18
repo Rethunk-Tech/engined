@@ -9,6 +9,8 @@ type UpstreamOf = (route: Table) => string | null
 const label = (text: string) => `"${text.replace(/"/g, '#quot;')}"`
 
 /** No upstream for a route means the engine runs on its own login (an agentic CLI's ambient account). */
+const SUBGRAPH_ID_RE = /^ {2}subgraph (\S+)/
+
 const AMBIENT_NODE = `ambient([${label('own login')}])`
 
 /** Engines grouped by kind, so no one column holds every engine. */
@@ -150,10 +152,10 @@ export function configMermaid(
     ...ungrouped,
     ...doc.chain.slice(0, 1).map(() => tint('Chains', MAP_COLOURS.chain)),
     ...engineGroups
-      .flatMap((l) => l.match(/^ {2}subgraph (\S+)/)?.slice(1) ?? [])
+      .flatMap((l) => l.match(SUBGRAPH_ID_RE)?.slice(1) ?? [])
       .map((id) => tint(id, MAP_COLOURS.engine)),
     ...upstreamGroups
-      .flatMap((l) => l.match(/^ {2}subgraph (\S+)/)?.slice(1) ?? [])
+      .flatMap((l) => l.match(SUBGRAPH_ID_RE)?.slice(1) ?? [])
       .map((id) => tint(id, MAP_COLOURS.upstream)),
     '  classDef off stroke-dasharray: 4 3,opacity: 0.5',
     '  classDef bad stroke: #f0626b',

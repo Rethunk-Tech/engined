@@ -1,13 +1,14 @@
 import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { editDraft } from './actions.ts'
-import { call } from './api.ts'
+import { call, fork } from './api.ts'
 import {
   discovery,
   loadDiscovery,
   loadSecrets,
   loadUsage,
   monthSpend,
+  plural,
   secrets,
   upstreamResolver,
 } from './data.ts'
@@ -18,7 +19,7 @@ import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton, Icon, type IconName, Labeled, Prop, plural } from './widgets.tsx'
+import { CopyButton, Icon, type IconName, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -35,31 +36,33 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
   const rows =
     typeof headers === 'object' && headers !== null ? Object.entries(headers as Table) : []
   return (
-    <div class="argsbox">
-      <span class="section-title">headers</span>
+    <div className="argsbox">
+      <span className="section-title">headers</span>
       {rows.map(([k, v]) => (
-        <div class="kvrow" key={k}>
+        <div className="kvrow" key={k}>
           <code>{k}</code>
           <code>{String(v)}</code>
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() =>
-              void editDraft([
-                { op: 'setKey', path: ['upstream', index, 'headers', k], value: undefined },
-              ])
+              fork(
+                editDraft([
+                  { op: 'setKey', path: ['upstream', index, 'headers', k], value: undefined },
+                ]),
+              )
             }
           >
             Remove
           </button>
         </div>
       ))}
-      <div class="kvrow">
+      <div className="kvrow">
         <input placeholder="name" value={name} onInput={(e) => setName(e.currentTarget.value)} />
         <input placeholder="value" value={value} onInput={(e) => setValue(e.currentTarget.value)} />
         <button
           type="button"
-          class="small"
+          className="small"
           disabled={name === ''}
           onClick={async () => {
             if (
@@ -104,14 +107,14 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
     }
   }
   return (
-    <div class="argsbox">
-      <span class="section-title">secret</span>{' '}
+    <div className="argsbox">
+      <span className="section-title">secret</span>{' '}
       {row === undefined ? null : (
-        <span class={row.present ? 'ok' : 'bad'}>
+        <span className={row.present ? 'ok' : 'bad'}>
           {row.present ? 'present in the keyring' : 'missing from the keyring'}
         </span>
       )}
-      <div class="form">
+      <div className="form">
         {(['service', 'username', 'header', 'scheme'] as const).map((k) => (
           <Prop
             key={k}
@@ -123,24 +126,24 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
         ))}
       </div>
       {ref.service === undefined || ref.username === undefined ? null : (
-        <div class="argrow">
+        <div className="argrow">
           <input
             type="password"
-            autocomplete="off"
-            class="secretvalue"
+            autoComplete="off"
+            className="secretvalue"
             placeholder="secret value (written to the keyring, never shown again)"
             value={value}
             onInput={(e) => setValue(e.currentTarget.value)}
           />
-          <button type="button" class="small" disabled={value === ''} onClick={store}>
+          <button type="button" className="small" disabled={value === ''} onClick={store}>
             Store
           </button>
           {row?.present === true ? (
-            <button type="button" class="small" onClick={() => void clear()}>
+            <button type="button" className="small" onClick={() => fork(clear())}>
               Clear
             </button>
           ) : null}
-          {result === undefined ? null : <span class="muted small-text">{result}</span>}
+          {result === undefined ? null : <span className="muted small-text">{result}</span>}
         </div>
       )}
     </div>
@@ -154,10 +157,10 @@ function Inventory({ id }: { id: string }) {
     | { ids?: string[]; fetchedAt?: number }
     | undefined
   return (
-    <div class="argrow">
+    <div className="argrow">
       <button
         type="button"
-        class="small"
+        className="small"
         disabled={busy}
         onClick={async () => {
           setBusy(true)
@@ -174,12 +177,12 @@ function Inventory({ id }: { id: string }) {
       >
         Fetch inventory
       </button>
-      <span class="muted small-text">
+      <span className="muted small-text">
         {cached?.ids === undefined
           ? 'no cached catalog'
           : `${plural(cached.ids.length, 'model id')} cached`}
       </span>
-      {msg === undefined ? null : <span class="bad small-text">{msg}</span>}
+      {msg === undefined ? null : <span className="bad small-text">{msg}</span>}
     </div>
   )
 }
@@ -192,18 +195,18 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
   const spend = monthSpend(addresses)
   const cap = typeof upstream.monthly_cap_usd === 'number' ? upstream.monthly_cap_usd : undefined
   return (
-    <section class={`panel${upstream.disable === true ? ' off' : ''}`}>
-      <div class="rowhead">
+    <section className={`panel${upstream.disable === true ? ' off' : ''}`}>
+      <div className="rowhead">
         <h3>{id}</h3>
         <EgressIcon egress={upstream.egress} word={true} />
-        <span class="grow" />
+        <span className="grow" />
         <CopyButton text={entryToToml('upstream', upstream)} label="Copy TOML" />
         <DeleteGuard doc={d} table="upstream" id={id} index={index} addresses={addresses} />
       </div>
       {SECTIONS.map(([title, fields]) => (
-        <div class="fsect" key={title}>
-          <span class="section-title">{title}</span>
-          <div class="form">
+        <div className="fsect" key={title}>
+          <span className="section-title">{title}</span>
+          <div className="form">
             {fields.map((f) => (
               <Prop
                 key={f}
@@ -218,9 +221,9 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
                 label="spend this month"
                 help="From the cost the upstream reported on calls through the routes below."
               >
-                <span class="readout">
+                <span className="readout">
                   ${spend.toFixed(2)}
-                  {cap === undefined ? null : <span class="muted"> of ${cap}</span>}
+                  {cap === undefined ? null : <span className="muted"> of ${cap}</span>}
                 </span>
               </Labeled>
             ) : null}
@@ -231,12 +234,12 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
       <SecretBox index={index} upstream={upstream} />
       <Inventory id={id} />
       {used.length === 0 ? (
-        <p class="bad small-text">
+        <p className="bad small-text">
           No route uses this upstream, so it serves no models. Give it an engine of kind openai-http
           and a route naming both; <code>model = "*"</code> lists the provider's whole catalog.
         </p>
       ) : (
-        <p class="muted small-text">Used by {addresses.join(', ')}</p>
+        <p className="muted small-text">Used by {addresses.join(', ')}</p>
       )}
     </section>
   )
@@ -263,11 +266,11 @@ const EGRESS_LOOK: Record<string, { icon: IconName; label: string }> = {
 function EgressIcon({ egress, word }: { egress: unknown; word?: boolean }) {
   const look = typeof egress === 'string' ? EGRESS_LOOK[egress] : undefined
   if (look === undefined) {
-    return <span class="pill bad">egress unset</span>
+    return <span className="pill bad">egress unset</span>
   }
   const icon = <Icon name={look.icon} label={look.label} tone="muted" />
   return word === true ? (
-    <span class="state muted">
+    <span className="state muted">
       {icon}
       {String(egress)}
     </span>
@@ -287,25 +290,25 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
   const cap = typeof upstream.monthly_cap_usd === 'number' ? upstream.monthly_cap_usd : undefined
   return (
     <a
-      class={`tile panel${upstream.disable === true ? ' off' : ''}`}
+      className={`tile panel${upstream.disable === true ? ' off' : ''}`}
       href={`#upstreams/${encodeURIComponent(id)}`}
     >
-      <div class="rowhead">
+      <div className="rowhead">
         <h3>{id}</h3>
-        {upstream.wire === undefined ? null : <span class="pill">{String(upstream.wire)}</span>}
-        <span class="grow" />
+        {upstream.wire === undefined ? null : <span className="pill">{String(upstream.wire)}</span>}
+        <span className="grow" />
         <EgressIcon egress={upstream.egress} />
       </div>
-      <code class="muted small-text">{hostOf(upstream.base_url) ?? 'this box'}</code>
+      <code className="muted small-text">{hostOf(upstream.base_url) ?? 'this box'}</code>
       {secret === undefined ? null : (
-        <span class={`small-text ${secret.present ? 'ok' : 'bad'}`}>
+        <span className={`small-text ${secret.present ? 'ok' : 'bad'}`}>
           {secret.present ? 'secret in the keyring' : 'secret missing from the keyring'}
         </span>
       )}
       {addresses.length === 0 ? (
-        <span class="bad small-text">No route uses it, so it serves no models</span>
+        <span className="bad small-text">No route uses it, so it serves no models</span>
       ) : null}
-      <span class="muted small-text">
+      <span className="muted small-text">
         {plural(addresses.length, 'route')} · ${monthSpend(addresses).toFixed(2)}
         {cap === undefined ? '' : ` of $${cap}`} this month
       </span>
@@ -315,15 +318,17 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
 
 export function UpstreamsView() {
   useEffect(() => {
-    void loadSchema()
-    void loadSecrets()
-    void loadUsage()
-    void loadDiscovery()
+    fork(loadSchema())
+    fork(loadSecrets())
+    fork(loadUsage())
+    fork(loadDiscovery())
   }, [])
   const [id, setId] = useState('')
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   const open = viewParam.value
   if (open !== undefined) {
@@ -331,11 +336,11 @@ export function UpstreamsView() {
     const upstream = parsed.upstream[index]
     return (
       <section>
-        <a class="back" href="#upstreams">
+        <a className="back" href="#upstreams">
           ← Upstreams
         </a>
         {upstream === undefined ? (
-          <p class="bad">No upstream "{open}" in the pending config.</p>
+          <p className="bad">No upstream "{open}" in the pending config.</p>
         ) : (
           <UpstreamCard d={parsed} upstream={upstream} index={index} />
         )}
@@ -344,12 +349,12 @@ export function UpstreamsView() {
   }
   return (
     <section>
-      <div class="tiles">
+      <div className="tiles">
         {parsed.upstream.map((u) => (
           <UpstreamTile key={String(u.id)} d={parsed} upstream={u} />
         ))}
       </div>
-      <div class="panel rowhead">
+      <div className="panel rowhead">
         <input
           placeholder="new upstream id"
           value={id}

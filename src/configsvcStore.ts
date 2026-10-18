@@ -23,6 +23,7 @@ import { isRecord } from './records.ts'
 
 const HISTORY_KEEP = 20
 const HISTORY_NAME_RE = /^config-\d{8}T\d{6}Z(?:-\d+)?\.toml$/
+const ISO_FRAC_RE = /\.\d+/
 
 export interface ConfigSnapshot {
   path: string
@@ -172,7 +173,7 @@ export function readHistory(configFile: string, name: string): string | undefine
 function keepHistory(configFile: string, now: Date): void {
   const dir = historyDir(configFile)
   mkdirSync(dir, { recursive: true })
-  const stamp = now.toISOString().replaceAll(/[-:]/g, '').replace(/\.\d+/, '')
+  const stamp = now.toISOString().replaceAll(/[-:]/g, '').replace(ISO_FRAC_RE, '')
   let name = `config-${stamp}.toml`
   for (let n = 1; existsSync(join(dir, name)); n++) {
     name = `config-${stamp}-${n}.toml`

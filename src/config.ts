@@ -352,7 +352,10 @@ export function loadConfig(path?: string, enginesRoot?: string): Config {
     indexes: chainIndexes,
   } = collectEntries(sources, 'chain', parseChainRaw)
   checkCollisions(rawChains, chainFiles, chainIndexes, 'chain')
-  const chains = buildChains(rawChains, engines, routes, chainFiles, chainIndexes)
+  const chains = buildChains(rawChains, engines, routes, {
+    files: chainFiles,
+    indexes: chainIndexes,
+  })
 
   return {
     ...parseTopLevelSettings(mainRaw, file),

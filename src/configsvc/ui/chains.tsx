@@ -10,14 +10,15 @@ import {
   hopChoices,
   hopState,
 } from './addresses.ts'
-import { discovery, ensureSpec, loadDiscovery, upstreamResolver } from './data.ts'
+import { fork } from './api.ts'
+import { discovery, ensureSpec, lineKeys, loadDiscovery, upstreamResolver } from './data.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { HopPicker } from './hopPicker.tsx'
 import { type Doc, parseDoc, type Table } from './model.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton, lineKeys } from './widgets.tsx'
+import { CopyButton } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -45,7 +46,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
   const [dragFrom, setDragFrom] = useState<number | undefined>()
   const [dropAt, setDropAt] = useState<number | undefined>()
   const set = (next: string[]) =>
-    void editDraft([{ op: 'setKey', path: ['chain', index, 'hops'], value: next }])
+    fork(editDraft([{ op: 'setKey', path: ['chain', index, 'hops'], value: next }]))
   const move = (from: number, to: number) => {
     const next = [...hops]
     const [item] = next.splice(from, 1)
@@ -53,23 +54,25 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
     set(next)
   }
   return (
-    <section class={`panel${chain.disable === true ? ' off' : ''}`}>
-      <div class="rowhead">
+    <section className={`panel${chain.disable === true ? ' off' : ''}`}>
+      <div className="rowhead">
         <h3>{id}</h3>
         <code>@/{id}</code>
-        <span class="grow" />
-        <span class="group">
+        <span className="grow" />
+        <span className="group">
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() =>
-              void editDraft([
-                {
-                  op: 'setKey',
-                  path: ['chain', index, 'disable'],
-                  value: chain.disable === true ? undefined : true,
-                },
-              ])
+              fork(
+                editDraft([
+                  {
+                    op: 'setKey',
+                    path: ['chain', index, 'disable'],
+                    value: chain.disable === true ? undefined : true,
+                  },
+                ]),
+              )
             }
           >
             {chain.disable === true ? 'Enable' : 'Disable'}
@@ -79,14 +82,14 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
         </span>
       </div>
       {/* A chain may name the same hop twice, so keys come from position among equal hops. */}
-      <ol class="hops">
+      <ol className="hops">
         {hops.map((hop, i) => {
           const key = lineKeys(hops)[i]
           const state = hopState(d, hop, upstreamOf)
           const expansion = chainExpansion(d, hop, upstreamOf)
           return (
             <li
-              class={`hop${
+              className={`hop${
                 dropAt !== i || dragFrom === undefined || dragFrom === i
                   ? ''
                   : dragFrom < i
@@ -94,7 +97,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                     : ' drop-before'
               }`}
               key={key}
-              draggable
+              draggable={true}
               onDragStart={(e) => {
                 setDragFrom(i)
                 // Firefox starts a drag only when the transfer carries data.
@@ -115,22 +118,24 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                 }
               }}
             >
-              <span class="muted">{i + 1}.</span>
-              <span class="hopaddr">
+              <span className="muted">{i + 1}.</span>
+              <span className="hopaddr">
                 <code>{hop}</code>
                 {expansion === undefined ? null : (
-                  <span class={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}>
+                  <span
+                    className={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
+                  >
                     {expansionText(expansion)}
                   </span>
                 )}
                 {state === 'ok' ? null : (
-                  <span class="bad small-text">{hopNote(d, hop, state)}</span>
+                  <span className="bad small-text">{hopNote(d, hop, state)}</span>
                 )}
               </span>
-              <span class="group">
+              <span className="group">
                 <button
                   type="button"
-                  class="icon"
+                  className="icon"
                   title="Move up"
                   aria-label={`Move ${hop} up`}
                   disabled={i === 0}
@@ -140,7 +145,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                 </button>
                 <button
                   type="button"
-                  class="icon"
+                  className="icon"
                   title="Move down"
                   aria-label={`Move ${hop} down`}
                   disabled={i === hops.length - 1}
@@ -150,7 +155,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                 </button>
                 <button
                   type="button"
-                  class="icon"
+                  className="icon"
                   title="Remove"
                   aria-label={`Remove ${hop}`}
                   onClick={() => set(hops.filter((_, j) => j !== i))}
@@ -162,7 +167,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
           )
         })}
       </ol>
-      <div class="addrow">
+      <div className="addrow">
         <HopPicker
           choices={hopChoices(d, upstreamOf, discovery.value.inventories, id)}
           taken={hops}
@@ -177,24 +182,26 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
 export function ChainsView() {
   const [id, setId] = useState('')
   useEffect(() => {
-    void loadDiscovery()
+    fork(loadDiscovery())
     for (const e of doc.value?.engine ?? []) {
-      void ensureSpec(String(e.id))
+      fork(ensureSpec(String(e.id)))
     }
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   return (
     <section>
-      <p class="muted">A chain tries its hops in order and moves to the next when one fails.</p>
-      <div class="chain-grid">
+      <p className="muted">A chain tries its hops in order and moves to the next when one fails.</p>
+      <div className="chain-grid">
         {parsed.chain.map((c, i) => (
           <Chain key={String(c.id)} d={parsed} chain={c} index={i} />
         ))}
       </div>
-      <div class="panel rowhead">
+      <div className="panel rowhead">
         <input
           placeholder="new chain id"
           value={id}

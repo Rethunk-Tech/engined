@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks'
 import type { TomlPath } from '../../editOps.ts'
 import type { EngineKind } from '../../types.ts'
 import { editDraft } from './actions.ts'
+import { fork } from './api.ts'
 import { argIssue, argValueFromText } from './argsRules.ts'
 import type { Table } from './model.ts'
 
@@ -21,7 +22,7 @@ function ArgRow(props: {
   const issue = argIssue(props.name, argValueFromText(text), props.scope)
   const listId = `arg-${props.path.join('-')}-${props.name}`
   return (
-    <div class="kvrow">
+    <div className="kvrow">
       <code>{props.name}</code>
       <input
         list={props.options.length > 0 ? listId : undefined}
@@ -29,9 +30,11 @@ function ArgRow(props: {
         onInput={(e) => setText(e.currentTarget.value)}
         onChange={() => {
           if (issue === undefined) {
-            void editDraft([
-              { op: 'setKey', path: [...props.path, props.name], value: argValueFromText(text) },
-            ])
+            fork(
+              editDraft([
+                { op: 'setKey', path: [...props.path, props.name], value: argValueFromText(text) },
+              ]),
+            )
           }
         }}
       />
@@ -44,14 +47,14 @@ function ArgRow(props: {
       ) : null}
       <button
         type="button"
-        class="small"
+        className="small"
         onClick={() =>
-          void editDraft([{ op: 'setKey', path: [...props.path, props.name], value: undefined }])
+          fork(editDraft([{ op: 'setKey', path: [...props.path, props.name], value: undefined }]))
         }
       >
         Remove
       </button>
-      {issue === undefined ? null : <span class="bad small-text">{issue}</span>}
+      {issue === undefined ? null : <span className="bad small-text">{issue}</span>}
     </div>
   )
 }
@@ -84,7 +87,7 @@ export function ArgsEditor(props: {
     }
   }
   return (
-    <div class="args">
+    <div className="args">
       {entries.map(([name, v]) => (
         <ArgRow
           key={name}
@@ -95,7 +98,7 @@ export function ArgsEditor(props: {
           options={props.valueOptions?.(name) ?? []}
         />
       ))}
-      <div class="kvrow">
+      <div className="kvrow">
         <input
           list={keysId}
           placeholder="key"
@@ -120,13 +123,13 @@ export function ArgsEditor(props: {
         </datalist>
         <button
           type="button"
-          class="small"
+          className="small"
           disabled={key === '' || issue !== undefined}
           onClick={add}
         >
           Add
         </button>
-        {issue === undefined ? null : <span class="bad small-text">{issue}</span>}
+        {issue === undefined ? null : <span className="bad small-text">{issue}</span>}
       </div>
     </div>
   )

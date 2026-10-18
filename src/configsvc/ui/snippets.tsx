@@ -37,20 +37,20 @@ export function SnippetBox(props: { table: string }) {
     }
   }
   return (
-    <details class="panel">
+    <details className="panel">
       <summary>Paste a [[{props.table}]] snippet</summary>
       <textarea
         rows={6}
-        class="snippet"
+        className="snippet"
         value={text}
         placeholder={`[[${props.table}]]\nid = "..."`}
         onInput={(e) => setText(e.currentTarget.value)}
       />
-      <div class="rowhead">
+      <div className="rowhead">
         <button type="button" disabled={text.trim() === ''} onClick={merge}>
           Validate and add
         </button>
-        {error === undefined ? null : <span class="bad small-text">{error}</span>}
+        {error === undefined ? null : <span className="bad small-text">{error}</span>}
       </div>
     </details>
   )

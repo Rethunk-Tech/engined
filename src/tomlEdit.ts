@@ -50,6 +50,11 @@ function applyOne(doc: Doc, op: EditOp): void {
     }
     case 'renameId':
       renameId(doc, op.table, op.oldId, op.newId)
+      return
+    default: {
+      const _never: never = op
+      throw new Error(`unhandled edit op: ${JSON.stringify(_never)}`)
+    }
   }
 }
 

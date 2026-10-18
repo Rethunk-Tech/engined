@@ -1,6 +1,7 @@
 import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { editDraft } from './actions.ts'
+import { fork } from './api.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { type Doc, parseDoc, routeAddress, type Table } from './model.ts'
 import { loadSchema } from './schema.ts'
@@ -16,19 +17,19 @@ function ModelCard({ d, model, index }: { d: Doc; model: Table; index: number })
   const inheriting = d.route.filter((r) => r.model === id)
   const addresses = inheriting.flatMap((r) => routeAddress(d, r) ?? [])
   return (
-    <section class="panel">
-      <div class="rowhead">
+    <section className="panel">
+      <div className="rowhead">
         <h3>{id}</h3>
-        <span class="grow" />
+        <span className="grow" />
         <CopyButton text={entryToToml('model', model)} label="Copy TOML" />
         <DeleteGuard doc={d} table="model" id={id} index={index} addresses={addresses} />
       </div>
-      <div class="form">
+      <div className="form">
         {(['input', 'output', 'context_in', 'context_out', 'reasoning'] as const).map((k) => (
           <Prop key={k} table="model" name={k} value={model[k]} path={['model', index, k]} />
         ))}
       </div>
-      <p class="muted small-text">
+      <p className="muted small-text">
         Inherited by {addresses.length === 0 ? 'no routes' : addresses.join(', ')}
       </p>
     </section>
@@ -37,22 +38,24 @@ function ModelCard({ d, model, index }: { d: Doc; model: Table; index: number })
 
 export function ModelsView() {
   useEffect(() => {
-    void loadSchema()
+    fork(loadSchema())
   }, [])
   const [id, setId] = useState('')
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   return (
     <section>
-      <p class="muted">
+      <p className="muted">
         Capability rows a route can inherit by naming the model; a route's own fields win.
       </p>
       {parsed.model.map((m, i) => (
         <ModelCard key={String(m.id)} d={parsed} model={m} index={i} />
       ))}
-      <div class="panel rowhead">
+      <div className="panel rowhead">
         <input
           placeholder="new model id"
           value={id}

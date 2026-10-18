@@ -229,8 +229,10 @@ test('save refuses a stale base, then writes atomically with history and one aud
   expect(result.hard_reload_needed).toBe(false)
   expect(readFileSync(h.configFile, 'utf8')).toBe(edited)
   expect((await read()).sha256).toBe(result.sha256)
-  expect(readdirSync(h.dir).sort()).toEqual(
-    ['.history', 'config.toml', 'usage'].filter((n) => existsSync(join(h.dir, n))).sort(),
+  expect(readdirSync(h.dir).sort((a, b) => a.localeCompare(b))).toEqual(
+    ['.history', 'config.toml', 'usage']
+      .filter((n) => existsSync(join(h.dir, n)))
+      .sort((a, b) => a.localeCompare(b)),
   )
   const history = readdirSync(join(h.dir, '.history'))
   expect(history).toHaveLength(1)
@@ -278,12 +280,12 @@ test('validate names the file, position and config path of a fault; edit, reload
       await h.call(path, { method: 'POST', cookie, body: JSON.stringify(body) })
     ).json() as Promise<Reply>
 
-  const route = await post('/api/validate', {
+  const validated = await post('/api/validate', {
     text: '[[engine]]\nid = "e"\n[[route]]\nengine = "e"\nbogus = 1\n',
   })
-  expect(route.ok).toBe(false)
-  expect(route.errors?.[0]?.path).toMatchObject({ table: 'route', index: 0, key: 'bogus' })
-  expect(route.errors?.[0]?.message).toContain('config.toml')
+  expect(validated.ok).toBe(false)
+  expect(validated.errors?.[0]?.path).toMatchObject({ table: 'route', index: 0, key: 'bogus' })
+  expect(validated.errors?.[0]?.message).toContain('config.toml')
 
   const syntax = await post('/api/validate', { text: 'a = 1\nb = = 2\n' })
   expect(syntax.errors?.[0]).toMatchObject({ line: 2 })
@@ -402,7 +404,7 @@ status = 200
     },
   })
   const cookie = await h.signIn()
-  const test = async (address: string) => {
+  const probeRoute = async (address: string) => {
     const res = await h.call('/api/test-route', {
       method: 'POST',
       cookie,
@@ -411,12 +413,12 @@ status = 200
     return (await res.json()) as { status: number; error?: string }
   }
 
-  const tts = await test('@/voice/local')
+  const tts = await probeRoute('@/voice/local')
   expect(h.doorPaths).toContain('/openai/v1/audio/speech')
   expect(h.doorPaths).not.toContain('/openai/v1/chat/completions')
   expect(tts.error ?? '').not.toContain('does not serve')
 
-  const missing = await test('@/nothing/local')
+  const missing = await probeRoute('@/nothing/local')
   expect(missing).toMatchObject({
     status: 0,
     error: 'not on the running door; save and reload first',

@@ -8,6 +8,7 @@
 
 import process from 'node:process'
 import type { AgenticSpawn } from './agentic.ts'
+import type { EnginedServer } from './comfyProxy.ts'
 import type { DockerLifecycle } from './docker.ts'
 import type { EngineRegistry } from './engines.ts'
 import type { Exec as SecretExec } from './exec.ts'
@@ -19,8 +20,36 @@ import { type CallRecord, recordCall } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import { localRoutesOf } from './routeAddress.ts'
+import type { ServedPorts } from './servedPorts.ts'
 import type { Config, EngineEntry } from './types.ts'
 import type { UsageTracker } from './usage.ts'
+
+export interface Door {
+  /** One-arg callers always get a `Response`; `server` is only for the comfy websocket upgrade. */
+  fetch: {
+    (req: Request): Response | Promise<Response>
+    (req: Request, server: EnginedServer): Response | Promise<Response> | undefined
+  }
+  /**
+   * Re-reads `path`. Invalid TOML keeps the running config and records the
+   * error. A change to `listen_port` or `cursor_port` is refused unless
+   * `rebind` is given (hard reload); it runs before anything is swapped and
+   * moves the listeners, and a throw from it keeps the running config.
+   */
+  reload: (path: string, rebind?: (next: Config) => void) => void
+  /** False until a config has loaded: every route but the engines list answers 503. */
+  live: () => boolean
+  /** The ports actually bound. */
+  served: ServedPorts
+  /** Answers every pending request 503; a hard reload is about to stop their containers. */
+  interrupt: () => void
+  registry: EngineRegistry
+  /** The live door state, so a sibling listener reads the same config a reload swapped in. */
+  ctx: DoorContext
+  /** Provider model lists behind `ctx.getConfig()`; production arms its timers, tests leave it cold. */
+  discovery: ModelDiscovery
+  configError: () => string | undefined
+}
 
 export interface DoorOptions {
   /** Set when no config has loaded yet: the door answers 503 with this message until a reload succeeds. */

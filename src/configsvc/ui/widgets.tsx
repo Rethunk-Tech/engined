@@ -3,10 +3,13 @@ import { useState } from 'preact/hooks'
 import type { TomlPath } from '../../editOps.ts'
 import { type EngineKind, KIND_LABELS } from '../../types.ts'
 import { editDraft } from './actions.ts'
+import { fork } from './api.ts'
 import { clipboardFlash } from './clipboard.ts'
+import { lineKeys } from './data.ts'
 import { propOf } from './schema.ts'
 
 const COPY_FLASH_MS = 1200
+const HTTPS_PREFIX_RE = /^https:\/\//
 
 /** Copies text and says so for a moment; the clipboard needs a secure context, which loopback is. */
 export function CopyButton(props: {
@@ -23,7 +26,7 @@ export function CopyButton(props: {
     setTimeout(() => setFlash(undefined), COPY_FLASH_MS)
   }
   return (
-    <button type="button" class="small" title={props.title} onClick={copy}>
+    <button type="button" className="small" title={props.title} onClick={copy}>
       {flash ?? props.label ?? 'Copy'}
     </button>
   )
@@ -38,12 +41,12 @@ export function Labeled(props: {
   children: ComponentChildren
 }) {
   return (
-    <div class="field" title={props.help}>
-      <span class="fieldname">{props.label}</span>
+    <div className="field" title={props.help}>
+      <span className="fieldname">{props.label}</span>
       {props.children}
-      {props.warn === undefined ? null : <span class="bad small-text">{props.warn}</span>}
-      {props.note === undefined ? null : <span class="small-text">{props.note}</span>}
-      {props.help === undefined ? null : <span class="muted small-text">{props.help}</span>}
+      {props.warn === undefined ? null : <span className="bad small-text">{props.warn}</span>}
+      {props.note === undefined ? null : <span className="small-text">{props.note}</span>}
+      {props.help === undefined ? null : <span className="muted small-text">{props.help}</span>}
     </div>
   )
 }
@@ -85,7 +88,7 @@ export function Prop(props: {
 }) {
   const prop = propOf(props.table, props.name)
   const type = Array.isArray(prop.type) ? prop.type[0] : prop.type
-  const commit = (value: unknown) => void editDraft([{ op: 'setKey', path: props.path, value }])
+  const commit = (value: unknown) => fork(editDraft([{ op: 'setKey', path: props.path, value }]))
   const listId =
     props.options === undefined
       ? undefined
@@ -97,16 +100,16 @@ export function Prop(props: {
     const current = props.value === undefined ? '' : String(props.value)
     // Three states, not a checkbox: an absent key takes the default, which is not the same as false.
     control = (
-      <fieldset class="seg">
+      <fieldset className="seg">
         {(['', 'true', 'false'] as const).map((v) => (
           <button
             key={v}
             type="button"
-            class={current === v ? 'on' : ''}
+            className={current === v ? 'on' : undefined}
             aria-pressed={current === v}
             onClick={() => commit(v === '' ? undefined : v === 'true')}
           >
-            {v === '' ? 'default' : v}
+            {v === '' ? 'default' : v === 'true' ? 'true' : 'false'}
           </button>
         ))}
       </fieldset>
@@ -157,24 +160,17 @@ export function Prop(props: {
   )
 }
 
-/** Keys for lines of text, which may repeat: the line plus how many equal ones came before it. */
-export function lineKeys(lines: readonly string[]): string[] {
-  const seen = new Map<string, number>()
-  return lines.map((line) => {
-    const n = seen.get(line) ?? 0
-    seen.set(line, n + 1)
-    return `${line}#${n}`
-  })
-}
-
 /** A unified diff with added and removed lines tinted. */
 export function DiffView({ diff }: { diff: string }) {
   const lines = diff.split('\n')
   const keys = lineKeys(lines)
   return (
-    <pre class="diff">
+    <pre className="diff">
       {lines.map((line, i) => (
-        <div key={keys[i]} class={line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}>
+        <div
+          key={keys[i]}
+          className={line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}
+        >
           {line}
         </div>
       ))}
@@ -188,13 +184,13 @@ export function About({ info }: { info: { description?: string; homepage?: strin
     return null
   }
   return (
-    <p class="small-text">
+    <p className="small-text">
       {info.description}
       {info.homepage === undefined ? null : (
         <>
           {' '}
           <a href={info.homepage} target="_blank" rel="noreferrer">
-            {info.homepage.replace(/^https:\/\//, '')}
+            {info.homepage.replace(HTTPS_PREFIX_RE, '')}
           </a>
         </>
       )}
@@ -209,7 +205,7 @@ export function KindPill({ kind }: { kind: string | undefined }) {
       ? KIND_LABELS[kind as EngineKind]
       : (kind ?? 'unknown kind')
   return (
-    <span class="pill" title={kind}>
+    <span className="pill" title={kind}>
       {label}
     </span>
   )
@@ -218,7 +214,7 @@ export function KindPill({ kind }: { kind: string | undefined }) {
 const ICONS = {
   running: (
     <>
-      <circle class="pulse" cx="8" cy="8" r="6" />
+      <circle className="pulse" cx="8" cy="8" r="6" />
       <circle cx="8" cy="8" r="3.5" fill="currentColor" stroke="none" />
     </>
   ),
@@ -270,15 +266,15 @@ export function Icon(props: { name: IconName; label: string; tone?: string; size
   const { name, label, tone, size = 16 } = props
   return (
     <svg
-      class={`icon icon-${name}${tone === undefined ? '' : ` ${tone}`}`}
+      className={`icon icon-${name}${tone === undefined ? '' : ` ${tone}`}`}
       viewBox="0 0 16 16"
       width={size}
       height={size}
       fill="none"
       stroke="currentColor"
-      stroke-width="1.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       role="img"
       aria-label={label}
     >
@@ -286,8 +282,4 @@ export function Icon(props: { name: IconName; label: string; tone?: string; size
       {ICONS[name]}
     </svg>
   )
-}
-
-export function plural(n: number, word: string, many = `${word}s`): string {
-  return `${n} ${n === 1 ? word : many}`
 }

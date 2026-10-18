@@ -4,10 +4,10 @@ import example from '../../../config.example.toml'
 import { estimateResidentBytes } from '../../memoryEstimate.ts'
 import type { EngineKind, UpstreamTrait } from '../../types.ts'
 import { editDraft } from './actions.ts'
-import { call } from './api.ts'
+import { call, fork } from './api.ts'
 import { ArgsEditor } from './args.tsx'
 import { suggestArgKeys } from './argsRules.ts'
-import { callsFor, discovery, modelFiles, type SpecEntry } from './data.ts'
+import { callsFor, discovery, modelFiles, plural, type SpecEntry } from './data.ts'
 import { type Doc, type IndexedRoute, routeAddress, type Table, upstreamChoices } from './model.ts'
 import { resolveRoute } from './resolved.ts'
 import { cacheTypesOf, ctxSizeOf, ctxWarning, keepResidentHolder, routePlan } from './routeRules.ts'
@@ -19,7 +19,7 @@ import {
   modelSuggestions,
   trainedContext,
 } from './suggest.ts'
-import { CopyButton, Labeled, Prop, plural } from './widgets.tsx'
+import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
 export interface EngineCtx {
   doc: Doc
@@ -54,14 +54,14 @@ function TestBadge({ address }: { address: string }) {
     return null
   }
   if (result === 'running') {
-    return <span class="muted">testing…</span>
+    return <span className="muted">testing…</span>
   }
   if (result.skipped !== undefined) {
-    return <span class="muted">{result.skipped}</span>
+    return <span className="muted">{result.skipped}</span>
   }
   const ok = result.status >= 200 && result.status < 300
   return (
-    <span class={ok ? 'ok' : 'bad'} title={result.error}>
+    <span className={ok ? 'ok' : 'bad'} title={result.error}>
       {result.status === 0 ? 'unreachable' : result.status} · {result.ms} ms {result.error ?? ''}
     </span>
   )
@@ -89,13 +89,15 @@ function UpstreamSelect(props: {
       <select
         value={current}
         onChange={(e) =>
-          void editDraft([
-            {
-              op: 'setKey',
-              path: props.path,
-              value: e.currentTarget.value === '' ? undefined : e.currentTarget.value,
-            },
-          ])
+          fork(
+            editDraft([
+              {
+                op: 'setKey',
+                path: props.path,
+                value: e.currentTarget.value === '' ? undefined : e.currentTarget.value,
+              },
+            ]),
+          )
         }
       >
         <option value="">(default: {props.fallback})</option>
@@ -113,23 +115,23 @@ function UpstreamSelect(props: {
 function Resolved(props: { ctx: EngineCtx; route: Table }) {
   const done = resolveRoute(props.ctx.doc, props.route, props.ctx.engine, props.ctx.spec?.info)
   return (
-    <details class="resolved">
+    <details className="resolved">
       <summary>Resolved route</summary>
       <p>
         upstream <code>{done.upstream.value ?? 'ambient'}</code>{' '}
-        <span class="muted">({done.upstream.note})</span>
+        <span className="muted">({done.upstream.note})</span>
       </p>
       <p>
         capabilities <code>{JSON.stringify(done.capabilities)}</code>
       </p>
-      <table class="grid">
+      <table className="grid">
         <tbody>
           {done.floor.length === 0 ? null : (
             <tr>
-              <td class="muted">floor</td>
+              <td className="muted">floor</td>
               <td colSpan={2}>
                 <code>{done.floor.join(' ')}</code>{' '}
-                <span class="muted">(engined's own; a config cannot change it)</span>
+                <span className="muted">(engined's own; a config cannot change it)</span>
               </td>
             </tr>
           )}
@@ -141,7 +143,7 @@ function Resolved(props: { ctx: EngineCtx; route: Table }) {
               <td>
                 <code>{String(row.value)}</code>
               </td>
-              <td class="muted">
+              <td className="muted">
                 {row.source}
                 {row.overrides === undefined ? '' : ` (over ${String(row.overrides)})`}
               </td>
@@ -211,8 +213,8 @@ function RouteArgs(props: { ctx: EngineCtx; entry: IndexedRoute; plan: Plan }) {
   return (
     <>
       {plan.args.disposition === 'forbidden' ? null : (
-        <div class="argsbox">
-          <span class="section-title">args</span>
+        <div className="argsbox">
+          <span className="section-title">args</span>
           <ArgsEditor
             args={route.args}
             path={[...base, 'args']}
@@ -251,7 +253,7 @@ function RouteForm(props: { ctx: EngineCtx; entry: IndexedRoute }) {
       ? undefined
       : estimateResidentBytes(file, ctxSizeOf(route, engine), cache.k, cache.v)
   return (
-    <div class="form">
+    <div className="form">
       <Prop
         table="route"
         name="model"
@@ -345,42 +347,44 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
     (c) => Array.isArray(c.hops) && address !== undefined && c.hops.includes(address),
   )
   return (
-    <div ref={card} class={`route panel${route.disable === true ? ' off' : ''}`}>
-      <div class="rowhead">
-        <span class="group">
-          <code class="addr">{address ?? '(incomplete)'}</code>
+    <div ref={card} className={`route panel${route.disable === true ? ' off' : ''}`}>
+      <div className="rowhead">
+        <span className="group">
+          <code className="addr">{address ?? '(incomplete)'}</code>
           {address === undefined ? null : <CopyButton text={address} />}
           <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
         </span>
-        <span class="muted calls">{plural(callsFor(address), 'call')} / 7 d</span>
-        <span class="grow" />
-        <span class="group">
+        <span className="muted calls">{plural(callsFor(address), 'call')} / 7 d</span>
+        <span className="grow" />
+        <span className="group">
           {address === undefined ? null : (
             <>
               <TestBadge address={address} />
-              <button type="button" class="small" onClick={() => void testRoute(address)}>
+              <button type="button" className="small" onClick={() => fork(testRoute(address))}>
                 Test
               </button>
             </>
           )}
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() =>
-              void editDraft([
-                {
-                  op: 'setKey',
-                  path: [...base, 'disable'],
-                  value: route.disable === true ? undefined : true,
-                },
-              ])
+              fork(
+                editDraft([
+                  {
+                    op: 'setKey',
+                    path: [...base, 'disable'],
+                    value: route.disable === true ? undefined : true,
+                  },
+                ]),
+              )
             }
           >
             {route.disable === true ? 'Enable' : 'Disable'}
           </button>
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() => {
               editing.value = open ? undefined : entry.index
             }}
@@ -389,33 +393,33 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
           </button>
         </span>
         {confirm ? (
-          <span class="group">
+          <span className="group">
             <button
               type="button"
-              class="small danger"
+              className="small danger"
               onClick={() =>
-                void editDraft([{ op: 'removeEntry', table: 'route', index: entry.index }])
+                fork(editDraft([{ op: 'removeEntry', table: 'route', index: entry.index }]))
               }
             >
               Confirm delete
             </button>
-            <button type="button" class="small" onClick={() => setConfirm(false)}>
+            <button type="button" className="small" onClick={() => setConfirm(false)}>
               Keep
             </button>
           </span>
         ) : (
-          <button type="button" class="small danger" onClick={() => setConfirm(true)}>
+          <button type="button" className="small danger" onClick={() => setConfirm(true)}>
             Delete
           </button>
         )}
       </div>
       {confirm && chains.length > 0 ? (
-        <p class="bad small-text">
+        <p className="bad small-text">
           {chains.length === 1 ? 'Chain' : 'Chains'} {chains.map((c) => String(c.id)).join(', ')}{' '}
           {chains.length === 1 ? 'lists' : 'list'} this address as a hop.
         </p>
       ) : null}
-      {warn === undefined ? null : <p class="bad small-text">{warn}</p>}
+      {warn === undefined ? null : <p className="bad small-text">{warn}</p>}
       {open ? <RouteForm ctx={ctx} entry={entry} /> : null}
     </div>
   )

@@ -1,6 +1,7 @@
 import { computed } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { addressBook } from './addresses.ts'
+import { fork } from './api.ts'
 import { callsFor, ensureSpec, loadUsage, upstreamResolver } from './data.ts'
 import { parseDoc } from './model.ts'
 import { draft } from './store.ts'
@@ -10,22 +11,24 @@ const doc = computed(() => parseDoc(draft.value))
 
 export function AddressBookView() {
   useEffect(() => {
-    void loadUsage()
+    fork(loadUsage())
     for (const e of doc.value?.engine ?? []) {
-      void ensureSpec(String(e.id))
+      fork(ensureSpec(String(e.id)))
     }
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   const rows = addressBook(parsed, upstreamResolver(parsed))
   return (
     <section>
-      <p class="muted">
+      <p className="muted">
         What a consumer puts in <code>model</code>. Calls are the last 7 days.
       </p>
-      <table class="grid">
+      <table className="grid">
         <thead>
           <tr>
             <th>address</th>
@@ -36,11 +39,11 @@ export function AddressBookView() {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.address} class={row.disabled ? 'off' : ''}>
+            <tr key={row.address} className={row.disabled ? 'off' : ''}>
               <td>
                 <code>{row.address}</code>
               </td>
-              <td class="muted">{row.disabled ? `${row.kind} (disabled)` : row.kind}</td>
+              <td className="muted">{row.disabled ? `${row.kind} (disabled)` : row.kind}</td>
               <td>{callsFor(row.address)}</td>
               <td>
                 <CopyButton text={row.address} />

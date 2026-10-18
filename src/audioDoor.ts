@@ -434,10 +434,10 @@ export async function handleAudioSpeech(
   )
   // A hop's model is a voice file on an engine whose routes pick one (piper);
   // most TTS routes are modelless and the hop changes only the engine.
-  const attempt: AudioAttempt = (hopEngine, model, start) => {
+  const attempt: AudioAttempt = (hopEngine, hopModel, start) => {
     const speechReq: SpeechRequestBody = {
       engine: hopEngine,
-      ...(model === undefined ? {} : { model }),
+      ...(hopModel === undefined ? {} : { model: hopModel }),
       input: typeof body.input === 'string' ? body.input : '',
       response_format: typeof body.response_format === 'string' ? body.response_format : undefined,
       stream: body.stream === 'ndjson' ? 'ndjson' : body.stream === true,

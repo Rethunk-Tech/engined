@@ -4,14 +4,14 @@ import { useEffect, useState } from 'preact/hooks'
 import type { Wire } from '../../types.ts'
 import { editDraft } from './actions.ts'
 import { chainExpansion, expansionText, hopChoices } from './addresses.ts'
-import { call } from './api.ts'
-import { discovery, loadDiscovery, loadSecrets, upstreamResolver } from './data.ts'
+import { call, fork } from './api.ts'
+import { discovery, loadDiscovery, loadSecrets, plural, upstreamResolver } from './data.ts'
 import { ShippedPicker } from './engines.tsx'
 import { HopPicker } from './hopPicker.tsx'
 import { parseDoc } from './model.ts'
 import { viewParam } from './nav.ts'
 import { draft } from './store.ts'
-import { DiffView, Labeled, plural } from './widgets.tsx'
+import { DiffView, Labeled } from './widgets.tsx'
 import { engineFor, freeId, PRESETS, type ProviderPlan, providerOps } from './wizard.ts'
 
 const doc = computed(() => parseDoc(draft.value))
@@ -35,6 +35,7 @@ const PATHS = [
 ] as const
 
 const CUSTOM = 'custom'
+const MODEL_LIST_SPLIT_RE = /[\s,]+/
 
 /** The provider plan as the form edits it; the model list is free text until it becomes the plan. */
 type Form = Omit<ProviderPlan, 'models'> & {
@@ -64,7 +65,7 @@ function presetForm(presetId: string, taken: readonly unknown[]): Form {
 
 function planOf(f: Form): ProviderPlan | undefined {
   const list = f.list
-    .split(/[\s,]+/)
+    .split(MODEL_LIST_SPLIT_RE)
     .map((m) => m.trim())
     .filter((m) => m !== '')
   const models = f.all && f.wire === 'openai' ? '*' : list
@@ -103,15 +104,17 @@ function ProviderPath() {
       setPreview(undefined)
       return
     }
-    void call<{ text: string; diff: string }>('/api/edit', {
-      text: draft.value,
-      ops: providerOps(current, planned),
-    })
-      .then((r) => {
-        setPreview(r)
-        setError(undefined)
+    fork(
+      call<{ text: string; diff: string }>('/api/edit', {
+        text: draft.value,
+        ops: providerOps(current, planned),
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+        .then((r) => {
+          setPreview(r)
+          setError(undefined)
+        })
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e))),
+    )
   }, [f])
   const apply = async () => {
     if (d === undefined || plan === undefined) {
@@ -132,8 +135,8 @@ function ProviderPath() {
   }
   return (
     <section>
-      <div class="panel form">
-        <span class="section-title">1. Provider</span>
+      <div className="panel form">
+        <span className="section-title">1. Provider</span>
         <Labeled label="provider">
           <select value={f.preset} onChange={(e) => setF(presetForm(e.currentTarget.value, taken))}>
             {PRESETS.map((p) => (
@@ -173,15 +176,15 @@ function ProviderPath() {
           </select>
         </Labeled>
       </div>
-      <div class="panel form">
-        <span class="section-title">2. Key</span>
+      <div className="panel form">
+        <span className="section-title">2. Key</span>
         <Labeled
           label="API key"
           help="Stored in this machine's keyring when you add the provider; never written to config.toml. Leave empty if the keyring already holds it."
         >
           <input
             type="password"
-            autocomplete="off"
+            autoComplete="off"
             value={f.key}
             onInput={(e) => set({ key: e.currentTarget.value })}
           />
@@ -202,10 +205,10 @@ function ProviderPath() {
           <input value={f.scheme ?? ''} onInput={(e) => set({ scheme: e.currentTarget.value })} />
         </Labeled>
       </div>
-      <div class="panel form">
-        <span class="section-title">3. Models</span>
+      <div className="panel form">
+        <span className="section-title">3. Models</span>
         {f.wire === 'openai' ? (
-          <fieldset class="seg">
+          <fieldset className="seg">
             {(
               [
                 [true, 'All its models'],
@@ -215,7 +218,7 @@ function ProviderPath() {
               <button
                 key={text}
                 type="button"
-                class={f.all === all ? 'on' : ''}
+                className={f.all === all ? 'on' : ''}
                 aria-pressed={f.all === all}
                 onClick={() => set({ all })}
               >
@@ -225,7 +228,7 @@ function ProviderPath() {
           </fieldset>
         ) : null}
         {f.all && f.wire === 'openai' ? (
-          <p class="muted small-text">
+          <p className="muted small-text">
             Every model the provider lists becomes an address, refreshed hourly from its /models.
           </p>
         ) : (
@@ -241,18 +244,18 @@ function ProviderPath() {
           </Labeled>
         )}
       </div>
-      <div class="panel">
-        <span class="section-title">4. Review</span>
-        <p class="small-text">
+      <div className="panel">
+        <span className="section-title">4. Review</span>
+        <p className="small-text">
           {plan === undefined
             ? 'Fill in the provider, key name and at least one model.'
             : `This adds the upstream "${plan.id}", serves it through the engine "${engineFor(plan)}"${
                 d?.engine.some((e) => e.id === engineFor(plan)) ? ' (already configured)' : ''
               }, and adds ${plan.models === '*' ? 'one route for all its models' : plural(plan.models.length, 'route')}.`}
         </p>
-        {error === undefined ? null : <p class="bad">{error}</p>}
+        {error === undefined ? null : <p className="bad">{error}</p>}
         {preview === undefined ? null : <DiffView diff={preview.diff} />}
-        <button type="button" class="primary" disabled={preview === undefined} onClick={apply}>
+        <button type="button" className="primary" disabled={preview === undefined} onClick={apply}>
           Add to the pending config
         </button>
       </div>
@@ -265,7 +268,7 @@ function ChainPath() {
   const [id, setId] = useState('')
   const [hops, setHops] = useState<string[]>([])
   useEffect(() => {
-    void loadDiscovery()
+    fork(loadDiscovery())
   }, [])
   if (d === undefined) {
     return null
@@ -273,7 +276,7 @@ function ChainPath() {
   const clash = d.chain.some((c) => c.id === id)
   const upstreamOf = upstreamResolver(d)
   return (
-    <section class="panel form">
+    <section className="panel form">
       <Labeled
         label="id"
         help="Callers name the chain as @/id."
@@ -282,18 +285,18 @@ function ChainPath() {
         <input value={id} onInput={(e) => setId(e.currentTarget.value)} />
       </Labeled>
       <div>
-        <span class="section-title">hops, tried in this order</span>
+        <span className="section-title">hops, tried in this order</span>
         <ol>
           {hops.map((h, i) => {
             const expansion = chainExpansion(d, h, upstreamOf)
             return (
               <li key={h}>
-                <span class="hopaddr">
+                <span className="hopaddr">
                   <span>
                     <code>{h}</code>{' '}
                     <button
                       type="button"
-                      class="small"
+                      className="small"
                       aria-label={`Remove ${h}`}
                       onClick={() => setHops(hops.filter((_, j) => j !== i))}
                     >
@@ -302,7 +305,7 @@ function ChainPath() {
                   </span>
                   {expansion === undefined ? null : (
                     <span
-                      class={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
+                      className={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
                     >
                       {expansionText(expansion)}
                     </span>
@@ -312,7 +315,7 @@ function ChainPath() {
             )
           })}
         </ol>
-        <div class="addrow">
+        <div className="addrow">
           <HopPicker
             choices={hopChoices(d, upstreamOf, discovery.value.inventories)}
             taken={hops}
@@ -322,7 +325,7 @@ function ChainPath() {
       </div>
       <button
         type="button"
-        class="primary"
+        className="primary"
         disabled={id === '' || clash || hops.length === 0}
         onClick={async () => {
           if (await editDraft([{ op: 'addEntry', table: 'chain', entry: { id, hops } }])) {
@@ -339,16 +342,22 @@ function ChainPath() {
 export function AddView() {
   const d = doc.value
   if (d === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   const path = viewParam.value
   return (
     <section>
-      <div class="tiles">
+      <div className="tiles">
         {PATHS.map((p) => (
-          <a key={p.id} class={`tile panel${path === p.id ? ' picked' : ''}`} href={`#add/${p.id}`}>
+          <a
+            key={p.id}
+            className={`tile panel${path === p.id ? ' picked' : ''}`}
+            href={`#add/${p.id}`}
+          >
             <h3>{p.title}</h3>
-            <span class="small-text">{p.text}</span>
+            <span className="small-text">{p.text}</span>
           </a>
         ))}
       </div>
@@ -356,7 +365,7 @@ export function AddView() {
       {path === 'engine' ? (
         <>
           <ShippedPicker d={d} />
-          <p class="muted small-text">
+          <p className="muted small-text">
             Every engine engined ships is listed until it is in the config. For one it does not
             ship, use Add engine on the Engines view.
           </p>

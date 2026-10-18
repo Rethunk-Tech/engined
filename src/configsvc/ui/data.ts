@@ -31,6 +31,14 @@ export interface LiveEngine {
 
 export type { ModelFile }
 
+export interface DoctorCheck {
+  id: string
+  ok: boolean
+  detail: string
+  fix?: string
+  skipped?: boolean
+}
+
 export interface UsageRow {
   date: string
   route: string
@@ -174,4 +182,35 @@ export function watchEngines(): () => void {
     merge([JSON.parse((e as MessageEvent<string>).data) as LiveEngine]),
   )
   return () => source.close()
+}
+
+export const report = signal<{ ok: boolean; checks: DoctorCheck[] } | undefined>()
+
+export async function runDoctor(): Promise<void> {
+  report.value = undefined
+  report.value = await call<{ ok: boolean; checks: DoctorCheck[] }>('/api/doctor').catch(() => ({
+    ok: false,
+    checks: [{ id: 'doctor', ok: false, detail: 'the host report could not be produced' }],
+  }))
+}
+
+export function summary(checks: readonly DoctorCheck[]): string {
+  const failed = checks.filter((c) => !(c.ok || c.skipped)).length
+  const skipped = checks.filter((c) => c.skipped).length
+  const passed = checks.length - failed - skipped
+  return `${passed} passed · ${failed} failed · ${skipped} skipped`
+}
+
+/** Keys for lines of text, which may repeat: the line plus how many equal ones came before it. */
+export function lineKeys(lines: readonly string[]): string[] {
+  const seen = new Map<string, number>()
+  return lines.map((line) => {
+    const n = seen.get(line) ?? 0
+    seen.set(line, n + 1)
+    return `${line}#${n}`
+  })
+}
+
+export function plural(n: number, word: string, many = `${word}s`): string {
+  return `${n} ${n === 1 ? word : many}`
 }

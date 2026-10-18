@@ -1,55 +1,37 @@
-import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
-import { call } from './api.ts'
-import type { DoctorCheck } from './starter.ts'
+import { fork } from './api.ts'
+import { report, runDoctor, summary } from './data.ts'
 import { CopyButton } from './widgets.tsx'
 
-export const report = signal<{ ok: boolean; checks: DoctorCheck[] } | undefined>()
-
-export async function runDoctor(): Promise<void> {
-  report.value = undefined
-  report.value = await call<{ ok: boolean; checks: DoctorCheck[] }>('/api/doctor').catch(() => ({
-    ok: false,
-    checks: [{ id: 'doctor', ok: false, detail: 'the host report could not be produced' }],
-  }))
-}
-
-export function summary(checks: readonly DoctorCheck[]): string {
-  const failed = checks.filter((c) => !(c.ok || c.skipped)).length
-  const skipped = checks.filter((c) => c.skipped).length
-  const passed = checks.length - failed - skipped
-  return `${passed} passed · ${failed} failed · ${skipped} skipped`
-}
-
-function summaryTone(checks: readonly DoctorCheck[]): string {
+function summaryTone(checks: readonly { ok?: boolean; skipped?: boolean }[]): string {
   return checks.some((c) => !(c.ok || c.skipped)) ? 'bad' : 'ok'
 }
 
 export function DoctorView() {
   useEffect(() => {
-    void runDoctor()
+    fork(runDoctor())
   }, [])
   const current = report.value
   return (
     <section>
-      <div class="rowhead">
+      <div className="rowhead">
         {current === undefined ? null : (
-          <span class={summaryTone(current.checks)}>{summary(current.checks)}</span>
+          <span className={summaryTone(current.checks)}>{summary(current.checks)}</span>
         )}
-        <button type="button" class="small" onClick={() => void runDoctor()}>
+        <button type="button" className="small" onClick={() => fork(runDoctor())}>
           Run again
         </button>
       </div>
       {current === undefined ? (
-        <p class="muted">Checking…</p>
+        <p className="muted">Checking…</p>
       ) : current.checks.length === 0 ? (
-        <p class="muted">The host report came back with no checks.</p>
+        <p className="muted">The host report came back with no checks.</p>
       ) : (
-        <table class="grid">
+        <table className="grid">
           <tbody>
             {current.checks.map((c) => (
               <tr key={c.id}>
-                <td class={c.skipped ? 'muted' : c.ok ? 'ok' : 'bad'}>
+                <td className={c.skipped ? 'muted' : c.ok ? 'ok' : 'bad'}>
                   {c.skipped ? 'skipped' : c.ok ? 'pass' : 'fail'}
                 </td>
                 <td>
@@ -59,7 +41,7 @@ export function DoctorView() {
                 <td>
                   {c.fix === undefined ? null : (
                     <>
-                      <span class="muted">{c.fix}</span> <CopyButton text={c.fix} />
+                      <span className="muted">{c.fix}</span> <CopyButton text={c.fix} />
                     </>
                   )}
                 </td>

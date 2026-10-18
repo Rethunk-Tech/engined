@@ -3,19 +3,23 @@ import { useEffect, useState } from 'preact/hooks'
 import { AboutView } from './about.tsx'
 import { AddressBookView } from './addressbook.tsx'
 import { hopState } from './addresses.ts'
-import { call } from './api.ts'
+import { call, fork } from './api.ts'
 import { ChainsView } from './chains.tsx'
 import {
   ensureSpec,
   liveEngines,
   loadSecrets,
   loadUsage,
+  plural,
+  report,
+  runDoctor,
   secrets,
+  summary,
   upstreamResolver,
   usage,
   watchEngines,
 } from './data.ts'
-import { DoctorView, report, runDoctor, summary } from './doctor.tsx'
+import { DoctorView } from './doctor.tsx'
 import { EnginesView } from './engines.tsx'
 import { HistoryView } from './history.tsx'
 import { MapView } from './mapview.tsx'
@@ -29,7 +33,7 @@ import { StarterView } from './starterview.tsx'
 import { draft, draftDiff, problems, snapshot } from './store.ts'
 import { UpstreamsView } from './upstreams.tsx'
 import { UsageView } from './usage.tsx'
-import { DiffView, plural } from './widgets.tsx'
+import { DiffView } from './widgets.tsx'
 import { AddView } from './wizard.tsx'
 
 interface ViewDef {
@@ -50,11 +54,11 @@ function Stat(props: {
   tone?: 'ok' | 'bad'
 }) {
   return (
-    <a class="stat panel" href={props.href}>
-      <span class="section-title">{props.label}</span>
-      <span class="stat-value">{props.value}</span>
+    <a className="stat panel" href={props.href}>
+      <span className="section-title">{props.label}</span>
+      <span className="stat-value">{props.value}</span>
       {props.detail === undefined ? null : (
-        <span class={`small-text ${props.tone ?? 'muted'}`}>{props.detail}</span>
+        <span className={`small-text ${props.tone ?? 'muted'}`}>{props.detail}</span>
       )}
     </a>
   )
@@ -76,13 +80,13 @@ function SidePanels(props: {
 }) {
   const { busiest, saves } = props
   return (
-    <div class="cols">
-      <div class="panel">
+    <div className="cols">
+      <div className="panel">
         <h3>Busiest routes, 7 days</h3>
         {busiest.length === 0 ? (
-          <p class="muted">No calls recorded.</p>
+          <p className="muted">No calls recorded.</p>
         ) : (
-          <table class="grid">
+          <table className="grid">
             <tbody>
               {busiest.map(([route, n]) => (
                 <tr key={route}>
@@ -96,12 +100,12 @@ function SidePanels(props: {
           </table>
         )}
       </div>
-      <div class="panel">
+      <div className="panel">
         <h3>Recent saves</h3>
         {saves.length === 0 ? (
-          <p class="muted">No saves through this UI yet.</p>
+          <p className="muted">No saves through this UI yet.</p>
         ) : (
-          <table class="grid">
+          <table className="grid">
             <tbody>
               {saves.slice(0, 6).map((s) => (
                 <tr key={s.name}>
@@ -123,17 +127,19 @@ function Overview() {
   const [saves, setSaves] = useState<{ name: string; modified: string }[]>([])
   useEffect(() => {
     const stop = watchEngines()
-    void loadUsage()
-    void loadSecrets()
+    fork(loadUsage())
+    fork(loadSecrets())
     if (report.value === undefined) {
-      void runDoctor()
+      fork(runDoctor())
     }
     for (const e of parseDoc(draft.value)?.engine ?? []) {
-      void ensureSpec(String(e.id))
+      fork(ensureSpec(String(e.id)))
     }
-    void call<{ entries: { name: string; modified: string }[] }>('/api/history')
-      .then((r) => setSaves([...r.entries].sort((a, b) => b.modified.localeCompare(a.modified))))
-      .catch(() => setSaves([]))
+    fork(
+      call<{ entries: { name: string; modified: string }[] }>('/api/history')
+        .then((r) => setSaves([...r.entries].sort((a, b) => b.modified.localeCompare(a.modified))))
+        .catch(() => setSaves([])),
+    )
     return stop
   }, [])
   const saved = snapshot.value
@@ -167,12 +173,12 @@ function Overview() {
   return (
     <section>
       {saved !== undefined && (
-        <p class="muted small-text">
+        <p className="muted small-text">
           {saved.path} · sha256 {saved.sha256.slice(0, 12)} ·{' '}
           {plural(saved.fragments.length, 'config.d fragment')}
         </p>
       )}
-      <div class="stats">
+      <div className="stats">
         <Stat
           label="Engines"
           value={d?.engine.length ?? 0}
@@ -235,7 +241,7 @@ function Overview() {
       </div>
       <SidePanels busiest={busiest} saves={saves} />
       {draftDiff.value === '' ? null : (
-        <div class="panel">
+        <div className="panel">
           <h3>Pending changes</h3>
           <DiffView diff={draftDiff.value} />
         </div>
@@ -274,17 +280,17 @@ const current = computed(
 export function ViewNav() {
   useEffect(() => {
     if (report.value === undefined) {
-      void runDoctor()
+      fork(runDoctor())
     }
   }, [])
   const failed = (report.value?.checks ?? []).some((c) => !(c.ok || c.skipped))
   return (
     <nav>
       {visible.value.map((v) => (
-        <a key={v.id} href={`#${v.id}`} class={current.value.id === v.id ? 'active' : ''}>
+        <a key={v.id} href={`#${v.id}`} className={current.value.id === v.id ? 'active' : ''}>
           {v.title}
           {v.id === 'doctor' && failed ? (
-            <span class="bad" title="Host checks failed">
+            <span className="bad" title="Host checks failed">
               !
             </span>
           ) : null}

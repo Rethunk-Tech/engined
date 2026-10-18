@@ -212,7 +212,7 @@ async function menuFor(cursorList: string) {
 test('engines with no declared routes are served from discovery, one default each', async () => {
   const rows = await menuFor(CURSOR_LIST)
   const defaults = rows.filter((r) => r.default).map((r) => `${r.engine}/${r.model}`)
-  expect(defaults.sort()).toEqual(['claude/sonnet-5-5', 'cursor/auto'])
+  expect(defaults.sort((a, b) => a.localeCompare(b))).toEqual(['claude/sonnet-5-5', 'cursor/auto'])
   expect(rows.filter((r) => r.engine === 'claude')).toHaveLength(4)
 })
 

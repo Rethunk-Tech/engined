@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { editDraft } from './actions.ts'
 import { call } from './api.ts'
-import { callsFor } from './data.ts'
+import { callsFor, plural } from './data.ts'
 import { removalOps } from './guard.ts'
 import type { Doc } from './model.ts'
 import { draft } from './store.ts'
-import { plural } from './widgets.tsx'
 
 /**
  * Delete with a guard: lists what still points at the entry and what it served in the last
@@ -45,21 +44,21 @@ export function DeleteGuard(props: {
   }
   return (
     <>
-      <button type="button" class="small danger" onClick={start}>
+      <button type="button" className="small danger" onClick={start}>
         Delete
       </button>
       {deps === undefined ? null : (
         // Esc and Cancel both close the dialog; its close event is the one place the guard resets.
-        <dialog ref={dialog} class="guard panel" onClose={() => setDeps(undefined)}>
+        <dialog ref={dialog} className="guard panel" onClose={() => setDeps(undefined)}>
           <strong>
             Delete {props.table} "{props.id}"?
           </strong>
-          <p class="muted">
+          <p className="muted">
             {plural(calls, 'call')} in the last 7 days across{' '}
             {plural(props.addresses.length, 'address', 'addresses')}.
           </p>
           {deps.length === 0 ? (
-            <p class="ok">Nothing else points at it.</p>
+            <p className="ok">Nothing else points at it.</p>
           ) : (
             <>
               <p>Still referenced by:</p>
@@ -72,7 +71,7 @@ export function DeleteGuard(props: {
               </ul>
             </>
           )}
-          <button type="button" class="danger" onClick={remove}>
+          <button type="button" className="danger" onClick={remove}>
             {deps.length === 0 ? 'Delete' : 'Remove it and its dependents'}
           </button>{' '}
           <button type="button" onClick={() => dialog.current?.close()}>

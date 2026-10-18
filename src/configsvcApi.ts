@@ -23,6 +23,8 @@ import {
 import { errMessage, isRecord, parseRecord } from './records.ts'
 import { applyOps, dependents, type EditOp } from './tomlEdit.ts'
 
+const HISTORY_ENTRY_RE = /^\/api\/history\/([^/]+)$/
+
 const CONFIG_POSTS = new Set([
   '/api/validate',
   '/api/edit',
@@ -83,12 +85,7 @@ function auditLine(info: RequestInfo, changed: string[], before: string, after: 
   return `configsvc: audit ${new Date().toISOString()} client=${info.client} changed=${changed.join(',') || '-'} before=${before || '-'} after=${after}`
 }
 
-async function save(
-  deps: ConfigsvcDeps,
-  info: RequestInfo,
-  newText: string,
-  base: string,
-): Promise<Response> {
+function save(deps: ConfigsvcDeps, info: RequestInfo, newText: string, base: string): Response {
   const outcome = saveConfig(deps, newText, base)
   if (outcome.ok) {
     deps.audit(auditLine(info, outcome.result.changed, outcome.before, outcome.result.sha256))
@@ -176,7 +173,9 @@ async function configPost(
   info: RequestInfo,
 ): Promise<Response> {
   const body = await readJson(req)
-  if (body instanceof Response) return body
+  if (body instanceof Response) {
+    return body
+  }
   if (body === undefined) {
     return badRequest('the body must be a JSON object')
   }
@@ -226,7 +225,7 @@ export function configApi(
   if (path === '/api/history') {
     return Response.json({ entries: listHistory(deps.configFile) })
   }
-  const entry = /^\/api\/history\/([^/]+)$/.exec(path)?.[1]
+  const entry = HISTORY_ENTRY_RE.exec(path)?.[1]
   if (entry !== undefined) {
     return historyEntry(decodeURIComponent(entry), deps)
   }

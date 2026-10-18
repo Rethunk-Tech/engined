@@ -1,6 +1,7 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "agentGuidance": false,
+  "globalEnv": ["E2E", "E2E_CONFIG", "E2E_URL"],
   "tasks": {
     "typecheck": {
       "inputs": [

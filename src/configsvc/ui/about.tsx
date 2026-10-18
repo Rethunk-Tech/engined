@@ -6,12 +6,12 @@ export function AboutView() {
   const fault = statusFault.value
   return (
     <section>
-      <div class="panel">
+      <div className="panel">
         <h3>engined</h3>
         <p>{ENGINED_VERSION}</p>
-        {door?.commit === undefined ? null : <p class="muted">commit {door.commit}</p>}
-        {door?.contract === undefined ? null : <p class="muted">contract {door.contract}</p>}
-        {fault === undefined ? null : <p class="muted">The door did not answer: {fault}</p>}
+        {door?.commit === undefined ? null : <p className="muted">commit {door.commit}</p>}
+        {door?.contract === undefined ? null : <p className="muted">contract {door.contract}</p>}
+        {fault === undefined ? null : <p className="muted">The door did not answer: {fault}</p>}
         <p>
           <a href="https://github.com/Rethunk-Tech/engined">
             https://github.com/Rethunk-Tech/engined

@@ -6,7 +6,7 @@ import { engineMemory, estimateResidentBytes, memoryVerdict } from '../../memory
 import type { EngineKind } from '../../types.ts'
 import { ARTIFACT_MISSING, KIND_LABELS, KIND_TRAITS } from '../../types.ts'
 import { editDraft } from './actions.ts'
-import { call } from './api.ts'
+import { call, fork } from './api.ts'
 import { ArgsEditor } from './args.tsx'
 import { suggestArgKeys } from './argsRules.ts'
 import {
@@ -20,6 +20,7 @@ import {
   loadModelFiles,
   loadUsage,
   modelFiles,
+  plural,
   specs,
   watchEngines,
 } from './data.ts'
@@ -43,16 +44,7 @@ import { postStream } from './sse.ts'
 import { engineOps, LOCAL_UPSTREAM_OP } from './starter.ts'
 import { draft, status } from './store.ts'
 import { findModelFile, formatBytes } from './suggest.ts'
-import {
-  About,
-  CopyButton,
-  Icon,
-  type IconName,
-  KindPill,
-  Labeled,
-  Prop,
-  plural,
-} from './widgets.tsx'
+import { About, CopyButton, Icon, type IconName, KindPill, Labeled, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -95,7 +87,7 @@ function StateBadge({ id, disabled, word }: { id: string; disabled: boolean; wor
   const look = STATE_LOOK[state] ?? { icon: 'installed', tone: 'muted' }
   const icon = <Icon name={look.icon} label={state} tone={look.tone} size={STATE_ICON_PX} />
   return word === true ? (
-    <span class={`state ${look.tone}`}>
+    <span className={`state ${look.tone}`}>
       {icon}
       {state}
     </span>
@@ -123,7 +115,7 @@ function Rename({ engine }: { engine: Table }) {
     <>
       <button
         type="button"
-        class="small"
+        className="small"
         onClick={() => {
           setName(id)
           dialog.current?.showModal()
@@ -131,14 +123,14 @@ function Rename({ engine }: { engine: Table }) {
       >
         Rename
       </button>
-      <dialog ref={dialog} class="guard panel">
+      <dialog ref={dialog} className="guard panel">
         <form onSubmit={apply}>
-          <label class="field">
-            <span class="fieldname">Rename engine "{id}"</span>
+          <label className="field">
+            <span className="fieldname">Rename engine "{id}"</span>
             <input value={name} onInput={(e) => setName(e.currentTarget.value)} />
           </label>
-          <p class="muted small-text">Routes and chains that name it are updated with it.</p>
-          <button type="submit" class="primary" disabled={name === '' || name === id}>
+          <p className="muted small-text">Routes and chains that name it are updated with it.</p>
+          <button type="submit" className="primary" disabled={name === '' || name === id}>
             Rename
           </button>{' '}
           <button type="button" onClick={() => dialog.current?.close()}>
@@ -173,45 +165,49 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
         call<{ lines: string[] }>(`/api/logs/${encodeURIComponent(id)}?tail=200`)
           .then((r) => setText(r.lines.join('\n')))
           .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
-      void load()
-      const timer = setInterval(() => void load(), LOG_POLL_MS)
+      fork(load())
+      const timer = setInterval(() => fork(load()), LOG_POLL_MS)
       return () => clearInterval(timer)
     }
     if (panel === 'resources') {
-      void call<unknown>(`/api/resources/${encodeURIComponent(id)}`)
-        .then((r) => setText(JSON.stringify(r, null, 2)))
-        .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e)))
+      fork(
+        call<unknown>(`/api/resources/${encodeURIComponent(id)}`)
+          .then((r) => setText(JSON.stringify(r, null, 2)))
+          .catch((e: unknown) => setText(e instanceof Error ? e.message : String(e))),
+      )
     } else if (panel === 'obtain') {
-      void postStream(`/api/obtain/${encodeURIComponent(id)}`, (frame) => {
-        const d = frame.data as {
-          line?: string
-          command?: string
-          exitCode?: number
-          error?: { message?: string }
-        }
-        const line =
-          frame.event === 'line'
-            ? d.line
-            : frame.event === 'step'
-              ? `$ ${d.command}`
-              : frame.event === 'exit'
-                ? `exit ${d.exitCode}`
-                : d.error?.message
-        setText((t) => `${t}${line ?? ''}\n`)
-      })
+      fork(
+        postStream(`/api/obtain/${encodeURIComponent(id)}`, (frame) => {
+          const d = frame.data as {
+            line?: string
+            command?: string
+            exitCode?: number
+            error?: { message?: string }
+          }
+          const line =
+            frame.event === 'line'
+              ? d.line
+              : frame.event === 'step'
+                ? `$ ${d.command}`
+                : frame.event === 'exit'
+                  ? `exit ${d.exitCode}`
+                  : d.error?.message
+          setText((t) => `${t}${line ?? ''}\n`)
+        }),
+      )
     }
     return
   }, [id, panel])
   return (
     <pre
       ref={pre}
-      class="log"
+      className="log"
       onScroll={(e) => {
         const el = e.currentTarget
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < LOG_STICK_PX
       }}
     >
-      {panel === 'spec' ? (spec ?? 'no spec.toml') : text}
+      {`${panel === 'spec' ? (spec === undefined || spec === '' ? 'no spec.toml' : spec) : text}`}
     </pre>
   )
 }
@@ -237,7 +233,7 @@ function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
   const mem = engineMemory(sized)
   const verdict = memoryVerdict(mem.resident + mem.largestOnDemand, box)
   return (
-    <p class={`small-text${verdict?.level === 'bad' ? ' bad' : ''}`}>
+    <p className={`small-text${verdict?.level === 'bad' ? ' bad' : ''}`}>
       resident: {formatBytes(mem.resident)} (keep_resident routes) · largest on-demand:{' '}
       {formatBytes(mem.largestOnDemand)} · box: {formatBytes(box.total)} total,{' '}
       {formatBytes(box.available)} available now
@@ -276,24 +272,26 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
         )
   const toggle = (p: Panel) => setPanel(panel === p ? undefined : p)
   return (
-    <section class={`engine panel${engine.disable === true ? ' off' : ''}`}>
-      <div class="rowhead">
+    <section className={`engine panel${engine.disable === true ? ' off' : ''}`}>
+      <div className="rowhead">
         <h3>{id}</h3>
         <KindPill kind={kind} />
         <StateBadge id={id} disabled={engine.disable === true} word={true} />
-        <span class="grow" />
-        <span class="group">
+        <span className="grow" />
+        <span className="group">
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() =>
-              void editDraft([
-                {
-                  op: 'setKey',
-                  path: ['engine', index, 'disable'],
-                  value: engine.disable === true ? undefined : true,
-                },
-              ])
+              fork(
+                editDraft([
+                  {
+                    op: 'setKey',
+                    path: ['engine', index, 'disable'],
+                    value: engine.disable === true ? undefined : true,
+                  },
+                ]),
+              )
             }
           >
             {engine.disable === true ? 'Enable' : 'Disable'}
@@ -306,22 +304,22 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
       <About info={entry?.info} />
       <MemoryLine d={d} engine={engine} />
       {liveEngines.value[id]?.last_error ? (
-        <p class="bad small-text">{liveEngines.value[id]?.last_error}</p>
+        <p className="bad small-text">{liveEngines.value[id]?.last_error}</p>
       ) : null}
       {liveEngines.value[id]?.fix &&
       !(engine.disable === true || liveEngines.value[id]?.disabled) ? (
-        <p class="muted small-text">
+        <p className="muted small-text">
           fix: <code>{liveEngines.value[id]?.fix}</code>
         </p>
       ) : null}
-      <div class="group">
+      <div className="group">
         {(['logs', 'resources', 'spec'] as const).map((p) => (
-          <button key={p} type="button" class="small" onClick={() => toggle(p)}>
-            {p === 'spec' ? 'spec.toml' : p}
+          <button key={p} type="button" className="small" onClick={() => toggle(p)}>
+            {p === 'spec' ? 'spec.toml' : p === 'logs' ? 'logs' : 'resources'}
           </button>
         ))}
         {entry?.info.artifacts ? (
-          <button type="button" class="small" onClick={() => toggle('obtain')}>
+          <button type="button" className="small" onClick={() => toggle('obtain')}>
             Obtain
           </button>
         ) : null}
@@ -329,7 +327,7 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
       {panel === undefined ? null : <Extras id={id} panel={panel} spec={entry?.text} />}
       <details>
         <summary>Engine settings</summary>
-        <div class="form">
+        <div className="form">
           {entry === null || entry === undefined ? (
             <Labeled
               label="kind"
@@ -338,13 +336,15 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
               <select
                 value={String(engine.kind ?? '')}
                 onChange={(e) =>
-                  void editDraft([
-                    {
-                      op: 'setKey',
-                      path: ['engine', index, 'kind'],
-                      value: e.currentTarget.value || undefined,
-                    },
-                  ])
+                  fork(
+                    editDraft([
+                      {
+                        op: 'setKey',
+                        path: ['engine', index, 'kind'],
+                        value: e.currentTarget.value || undefined,
+                      },
+                    ]),
+                  )
                 }
               >
                 <option value="">(none)</option>
@@ -359,8 +359,8 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
           {ENGINE_FIELDS.filter((f) => f !== 'agent_version' || kind === 'agentic-cli').map((f) => (
             <Prop key={f} table="engine" name={f} value={engine[f]} path={['engine', index, f]} />
           ))}
-          <div class="argsbox">
-            <span class="section-title">args</span>
+          <div className="argsbox">
+            <span className="section-title">args</span>
             <ArgsEditor
               args={engine.args}
               path={['engine', index, 'args']}
@@ -374,16 +374,19 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
           </div>
         </div>
       </details>
-      <div class="routes" style={`--addr-w: ${Math.max(0, ...addresses.map((a) => a.length))}ch`}>
+      <div
+        className="routes"
+        style={`--addr-w: ${Math.max(0, ...addresses.map((a) => a.length))}ch`}
+      >
         {routes.length > ROUTE_FILTER_MIN ? (
-          <div class="rowhead">
+          <div className="rowhead">
             <input
               type="search"
               placeholder="filter routes by address, model or name"
               value={query}
               onInput={(e) => setQuery(e.currentTarget.value)}
             />
-            <span class="muted small-text">
+            <span className="muted small-text">
               {shown.length} of {routes.length}
             </span>
           </div>
@@ -393,9 +396,9 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
         ))}
         <button
           type="button"
-          class="small"
+          className="small"
           onClick={() =>
-            void editDraft([{ op: 'addEntry', table: 'route', entry: { engine: id } }])
+            fork(editDraft([{ op: 'addEntry', table: 'route', entry: { engine: id } }]))
           }
         >
           Add route
@@ -422,31 +425,31 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   const calls = addresses.reduce((sum, a) => sum + callsFor(a), 0)
   return (
     <a
-      class={`tile panel edge-${stateOf(id, disabled)}${disabled ? ' off' : ''}`}
+      className={`tile panel edge-${stateOf(id, disabled)}${disabled ? ' off' : ''}`}
       href={`#engines/${encodeURIComponent(id)}${weightsMissing ? OBTAIN_SUFFIX : ''}`}
     >
-      <div class="rowhead">
+      <div className="rowhead">
         <h3>{id}</h3>
         <KindPill kind={kind} />
-        <span class="grow" />
+        <span className="grow" />
         <StateBadge id={id} disabled={disabled} />
       </div>
       {info?.description === undefined ? null : (
-        <span class="small-text clamp">{info.description}</span>
+        <span className="small-text clamp">{info.description}</span>
       )}
-      {weightsMissing ? <span class="bad small-text">weights missing · Obtain</span> : null}
-      {fix === undefined ? null : <span class="muted small-text clamp">{fix}</span>}
-      <ul class="tile-list">
+      {weightsMissing ? <span className="bad small-text">weights missing · Obtain</span> : null}
+      {fix === undefined ? null : <span className="muted small-text clamp">{fix}</span>}
+      <ul className="tile-list">
         {addresses.slice(0, TILE_ROUTES).map((a) => (
           <li key={a}>
             <code>{a}</code>
           </li>
         ))}
         {addresses.length > TILE_ROUTES ? (
-          <li class="muted small-text">+{addresses.length - TILE_ROUTES} more</li>
+          <li className="muted small-text">+{addresses.length - TILE_ROUTES} more</li>
         ) : null}
       </ul>
-      <span class="muted small-text">
+      <span className="muted small-text">
         {plural(addresses.length, 'route')} · {calls === 0 ? 'no calls' : plural(calls, 'call')} in
         7 days
       </span>
@@ -458,9 +461,11 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
 export function ShippedPicker({ d }: { d: Doc }) {
   const [shipped, setShipped] = useState<ShippedEngine[]>([])
   useEffect(() => {
-    void call<{ engines: ShippedEngine[] }>('/api/shipped')
-      .then((r) => setShipped(r.engines))
-      .catch(() => setShipped([]))
+    fork(
+      call<{ engines: ShippedEngine[] }>('/api/shipped')
+        .then((r) => setShipped(r.engines))
+        .catch(() => setShipped([])),
+    )
   }, [])
   const have = new Set(d.engine.map((e) => String(e.id)))
   const missing = shipped.filter((e) => !have.has(e.id))
@@ -469,19 +474,19 @@ export function ShippedPicker({ d }: { d: Doc }) {
   }
   const hasLocal = d.upstream.some((u) => u.id === 'local')
   return (
-    <div class="panel">
+    <div className="panel">
       <h3>Shipped engines not in this config</h3>
       {missing.map((e) => (
         <div key={e.id}>
-          <div class="rowhead">
+          <div className="rowhead">
             <strong>{e.id}</strong>
             <KindPill kind={e.kind} />
-            <span class="grow" />
+            <span className="grow" />
             <button
               type="button"
-              class="small"
+              className="small"
               onClick={() =>
-                void editDraft([...(hasLocal ? [] : [LOCAL_UPSTREAM_OP]), ...engineOps(e)])
+                fork(editDraft([...(hasLocal ? [] : [LOCAL_UPSTREAM_OP]), ...engineOps(e)]))
               }
             >
               Add
@@ -498,7 +503,7 @@ function AddEngine() {
   const [id, setId] = useState('')
   const [kind, setKind] = useState('')
   return (
-    <div class="panel rowhead">
+    <div className="panel rowhead">
       <input placeholder="new engine id" value={id} onInput={(e) => setId(e.currentTarget.value)} />
       <select value={kind} onChange={(e) => setKind(e.currentTarget.value)}>
         <option value="">(spec in engines/{id || 'id'}/)</option>
@@ -537,14 +542,14 @@ function AddEngine() {
 
 export function EnginesView() {
   useEffect(() => {
-    void loadSchema()
-    void loadModelFiles()
-    void loadUsage()
-    void loadDiscovery()
+    fork(loadSchema())
+    fork(loadModelFiles())
+    fork(loadUsage())
+    fork(loadDiscovery())
     const stopWatching = watchEngines()
     const stopSpecs = effect(() => {
       for (const e of doc.value?.engine ?? []) {
-        void ensureSpec(String(e.id))
+        fork(ensureSpec(String(e.id)))
       }
     })
     return () => {
@@ -554,7 +559,9 @@ export function EnginesView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   const param = viewParam.value
   if (param !== undefined) {
@@ -564,11 +571,11 @@ export function EnginesView() {
     const engine = parsed.engine[index]
     return (
       <section>
-        <a class="back" href="#engines">
+        <a className="back" href="#engines">
           ← Engines
         </a>
         {engine === undefined ? (
-          <p class="bad">No engine "{open}" in the pending config.</p>
+          <p className="bad">No engine "{open}" in the pending config.</p>
         ) : (
           <EngineCard
             d={parsed}
@@ -582,7 +589,7 @@ export function EnginesView() {
   }
   return (
     <section>
-      <div class="tiles">
+      <div className="tiles">
         {parsed.engine.map((engine) => (
           <EngineTile key={String(engine.id)} d={parsed} engine={engine} />
         ))}

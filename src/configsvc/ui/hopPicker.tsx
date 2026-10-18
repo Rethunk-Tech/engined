@@ -2,6 +2,7 @@ import { useRef, useState } from 'preact/hooks'
 
 /** Catalogs run to thousands of ids; rendering them all as checkboxes stalls the dialog. */
 const SHOWN = 200
+const FILTER_WS_RE = /\s+/
 
 /**
  * Adds hops to a chain: filter the choices, tick any number, add them in the order ticked.
@@ -21,7 +22,7 @@ export function HopPicker(props: {
   const blocked = props.blocked ?? new Map<string, string>()
   const words = filter
     .toLowerCase()
-    .split(/\s+/)
+    .split(FILTER_WS_RE)
     .filter((w) => w !== '')
   const matches = props.choices.filter((a) => {
     const lower = a.toLowerCase()
@@ -47,12 +48,12 @@ export function HopPicker(props: {
   }
   return (
     <>
-      <button type="button" class="small" onClick={() => dialog.current?.showModal()}>
+      <button type="button" className="small" onClick={() => dialog.current?.showModal()}>
         Add hops…
       </button>
       <dialog
         ref={dialog}
-        class="guard panel picker"
+        className="guard panel picker"
         onClose={() => {
           setFilter('')
           setPicked([])
@@ -61,15 +62,15 @@ export function HopPicker(props: {
         <input
           placeholder="filter, e.g. claude sonnet"
           value={filter}
-          autofocus
+          autoFocus={true}
           onInput={(e) => setFilter(e.currentTarget.value)}
         />
-        <div class="picklist">
+        <div className="picklist">
           {visible.map((a) => {
             const n = picked.indexOf(a) + 1
             const reason = blocked.get(a)
             return (
-              <label key={a} class="pick">
+              <label key={a} className="pick">
                 <input
                   type="checkbox"
                   checked={n > 0}
@@ -78,14 +79,14 @@ export function HopPicker(props: {
                 />
                 <span>
                   <code>{a}</code>
-                  {reason === undefined ? null : <span class="bad small-text"> {reason}</span>}
+                  {reason === undefined ? null : <span className="bad small-text"> {reason}</span>}
                 </span>
-                <span class="muted">{n > 0 ? `${n}.` : ''}</span>
+                <span className="muted">{n > 0 ? `${n}.` : ''}</span>
               </label>
             )
           })}
         </div>
-        <p class="muted small-text">
+        <p className="muted small-text">
           {matches.length > SHOWN
             ? `Showing ${SHOWN} of ${matches.length}; narrow the filter to see the rest.`
             : `${offered} available.`}{' '}
@@ -100,7 +101,7 @@ export function HopPicker(props: {
         </button>{' '}
         <button
           type="button"
-          class="primary"
+          className="primary"
           disabled={picked.length === 0}
           onClick={() => {
             props.onAdd(picked)

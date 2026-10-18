@@ -96,12 +96,9 @@ test('removes redundant and retired routes, keeps a differing one, and keeps eve
     enginesRoot: ENGINES,
     discovery: discovery(),
   })
-  expect(result.removals.map((r) => `${r.kind}:${r.name}`).sort()).toEqual([
-    'duplicate:sonnet-5-5',
-    'model:pinned',
-    'model:sonnet-5-5',
-    'retired:pinned',
-  ])
+  expect(
+    result.removals.map((r) => `${r.kind}:${r.name}`).sort((a, b) => a.localeCompare(b)),
+  ).toEqual(['duplicate:sonnet-5-5', 'model:pinned', 'model:sonnet-5-5', 'retired:pinned'])
   const text = readFileSync(out, 'utf8')
   expect(text).toContain('# top comment')
   expect(text).toContain('# keep: a real pin')

@@ -119,10 +119,10 @@ a.tile:hover,
   padding-top: 3px;
 }
 /* Full-width cards stacked in a view; grid tiles space themselves with gap. */
-main section > .panel + .panel,
+main section > details + details,
 main section > .panel + details,
 main section > details + .panel,
-main section > details + details {
+main section > .panel + .panel {
   margin-top: 12px;
 }
 .map-wrap {

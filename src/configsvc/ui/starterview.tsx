@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { setDraft } from './actions.ts'
-import { call } from './api.ts'
-import { report, runDoctor } from './doctor.tsx'
+import { call, fork } from './api.ts'
+import { report, runDoctor } from './data.ts'
 import {
   blockers,
   type Candidate,
@@ -29,8 +29,8 @@ function EngineChoice(props: {
   const files = chosen?.files ?? {}
   const rolePerFile = engine.kind === 'openai-http'
   return (
-    <div class="panel">
-      <label class="rowhead">
+    <div className="panel">
+      <label className="rowhead">
         <input
           type="checkbox"
           checked={on}
@@ -41,27 +41,27 @@ function EngineChoice(props: {
       </label>
       <About info={engine} />
       {blocked.map((c) => (
-        <p class="bad small-text" key={c.id}>
+        <p className="bad small-text" key={c.id}>
           {c.id}: {c.detail}
           {c.fix === undefined ? '' : ` (${c.fix})`}
         </p>
       ))}
       {on && engine.models_dir !== undefined ? (
         engine.files.length === 0 ? (
-          <p class="muted small-text">
+          <p className="muted small-text">
             No weights in {engine.models_path} yet, so {engine.id} is left out of the proposal until
             the files are there.
           </p>
         ) : (
           <>
             {needsWeights(engine) && Object.keys(files).length === 0 ? (
-              <p class="muted small-text">
+              <p className="muted small-text">
                 Pick at least one weights file; without one, {engine.id} is left out of the
                 proposal.
               </p>
             ) : null}
             {engine.files.map((f) => (
-              <div class="argrow" key={f.path}>
+              <div className="argrow" key={f.path}>
                 <label>
                   <input
                     type="checkbox"
@@ -78,7 +78,7 @@ function EngineChoice(props: {
                   />{' '}
                   <code>{f.path}</code>
                 </label>
-                <span class="muted small-text">
+                <span className="muted small-text">
                   {formatBytes(f.bytes)}
                   {f.gguf?.quantization === undefined ? '' : ` · ${f.gguf.quantization}`}
                 </span>
@@ -111,8 +111,8 @@ export function StarterView() {
   const [preview, setPreview] = useState<{ text: string; diff: string }>()
   const [error, setError] = useState<string>()
   useEffect(() => {
-    void runDoctor()
-    void call<{ engines: Candidate[] }>('/api/shipped').then((r) => setEngines(r.engines))
+    fork(runDoctor())
+    fork(call<{ engines: Candidate[] }>('/api/shipped').then((r) => setEngines(r.engines)))
   }, [])
   const checks = report.value?.checks
   useEffect(() => {
@@ -143,16 +143,18 @@ export function StarterView() {
         : []
     })
     const base = snapshot.value?.text ?? ''
-    void call<{ text: string; diff: string }>('/api/edit', { text: base, ops: starterOps(picks) })
-      .then((r) => {
-        setPreview(r)
-        setError(undefined)
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+    fork(
+      call<{ text: string; diff: string }>('/api/edit', { text: base, ops: starterOps(picks) })
+        .then((r) => {
+          setPreview(r)
+          setError(undefined)
+        })
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e))),
+    )
   }, [engines, chosen])
   return (
     <section>
-      <p class="muted">
+      <p className="muted">
         There is no config yet. Pick what to run; the proposal below becomes the pending text, which
         you review and save.
       </p>
@@ -165,11 +167,11 @@ export function StarterView() {
         />
       ))}
       <h3>Proposal</h3>
-      {error === undefined ? null : <p class="bad">{error}</p>}
+      {error === undefined ? null : <p className="bad">{error}</p>}
       {preview === undefined ? null : <DiffView diff={preview.diff} />}
       <button
         type="button"
-        class="primary"
+        className="primary"
         disabled={preview === undefined}
         onClick={() => {
           if (preview !== undefined) {

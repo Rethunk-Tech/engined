@@ -19,7 +19,7 @@ import {
 import { handleCursor, isCursorPath } from './cursorDoor.ts'
 import { runDaemon } from './daemon.ts'
 import { DockerLifecycle, dockerExec } from './docker.ts'
-import { type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
+import { type Door, type DoorContext, type DoorOptions, retireLlamaRouters } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import { isEngineVerbPath, routeEngineVerb } from './engineVerbs.ts'
 import { ambientEnv } from './env.ts'
@@ -114,32 +114,7 @@ function checkOrigin(req: Request, port: number): Response | null {
 /** The llama.cpp routes proxied straight through: always the one local llama engine. */
 const EXTRAS_RE = engineVerbRe('(tokenize|apply-template)')
 
-export interface Door {
-  /** One-arg callers always get a `Response`; `server` is only for the comfy websocket upgrade. */
-  fetch: {
-    (req: Request): Response | Promise<Response>
-    (req: Request, server: EnginedServer): Response | Promise<Response> | undefined
-  }
-  /**
-   * Re-reads `path`. Invalid TOML keeps the running config and records the
-   * error. A change to `listen_port` or `cursor_port` is refused unless
-   * `rebind` is given (hard reload); it runs before anything is swapped and
-   * moves the listeners, and a throw from it keeps the running config.
-   */
-  reload: (path: string, rebind?: (next: Config) => void) => void
-  /** False until a config has loaded: every route but the engines list answers 503. */
-  live: () => boolean
-  /** The ports actually bound. */
-  served: ServedPorts
-  /** Answers every pending request 503; a hard reload is about to stop their containers. */
-  interrupt: () => void
-  registry: EngineRegistry
-  /** The live door state, so a sibling listener reads the same config a reload swapped in. */
-  ctx: DoorContext
-  /** Provider model lists behind `ctx.getConfig()`; production arms its timers, tests leave it cold. */
-  discovery: ModelDiscovery
-  configError: () => string | undefined
-}
+export type { Door }
 
 function routeGet(
   ctx: DoorContext,
@@ -468,5 +443,5 @@ if (import.meta.main) {
   if (probe) {
     process.exit(await probeExit(json))
   }
-  runDaemon()
+  runDaemon({ createDoor, resolveBunx })
 }

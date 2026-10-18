@@ -85,9 +85,9 @@ const svc = startConfigsvc(
     bunx: Bun.which('bunx') ?? 'bunx',
     stateRoot: join(root, 'state', 'engined'),
     doorUrl: () => `http://127.0.0.1:${doorPort}`,
-    reload: async (signal) => {
+    reload: (signal) => {
       door.kill(signal === 'HUP' ? 'SIGHUP' : 'SIGUSR1')
-      return { ok: true }
+      return Promise.resolve({ ok: true })
     },
     secrets: secretTool,
     audit: () => undefined,

@@ -1,6 +1,6 @@
 /** Operations on the shared state: sign-in, loading, the debounced validate and diff of the draft, structured edits. */
 import type { EditOp } from '../../editOps.ts'
-import { call } from './api.ts'
+import { call, fork } from './api.ts'
 import {
   draft,
   draftDiff,
@@ -81,7 +81,7 @@ export async function refreshStatus(): Promise<void> {
 export function startStatusPolling(): () => void {
   const id = setInterval(() => {
     if (session.value === 'in') {
-      void refreshStatus()
+      fork(refreshStatus())
     }
   }, STATUS_POLL_MS)
   return () => clearInterval(id)
@@ -108,7 +108,7 @@ export function setDraft(text: string): void {
   generation++
   const mine = generation
   clearTimeout(timer)
-  timer = setTimeout(() => void checkDraft(text, mine), VALIDATE_DELAY_MS)
+  timer = setTimeout(() => fork(checkDraft(text, mine)), VALIDATE_DELAY_MS)
 }
 
 export function revertDraft(): void {

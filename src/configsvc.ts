@@ -114,15 +114,25 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
   }
 
   /** The one unauthenticated API route: `POST /login`. The shell page and its assets are served by Bun's route table before this runs, and the page exchanges a `?token=` link through this route. */
-  async function signIn(req: Request, url: URL, client: string): Promise<Response | undefined> {
-    if (req.method !== 'POST' || url.pathname !== '/login') {
+  async function signIn(
+    loginReq: Request,
+    loginUrl: URL,
+    peerAddr: string,
+  ): Promise<Response | undefined> {
+    if (loginReq.method !== 'POST' || loginUrl.pathname !== '/login') {
       return undefined
     }
-    const parsed = await readJson(req)
-    if (parsed instanceof Response) return parsed
+    const parsed = await readJson(loginReq)
+    if (parsed instanceof Response) {
+      return parsed
+    }
     const body = parsed ?? {}
     const secret = auth.token === undefined ? body.password : body.token
-    const done = await exchange(typeof secret === 'string' ? secret : '', client, viaBridge(req))
+    const done = await exchange(
+      typeof secret === 'string' ? secret : '',
+      peerAddr,
+      viaBridge(loginReq),
+    )
     return (
       done.refusal ??
       new Response(JSON.stringify({ ok: true }), {

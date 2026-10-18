@@ -41,3 +41,11 @@ export async function call<T>(path: string, body?: unknown): Promise<T> {
   }
   return parsed as T
 }
+
+/** Detach a promise without `void` (noVoid) and without leaving it unhandled. */
+export function fork(promise: Promise<unknown>): void {
+  promise.then(
+    () => undefined,
+    () => undefined,
+  )
+}

@@ -1,6 +1,7 @@
 /** The Map view: the pending config drawn as a Mermaid flowchart, with its source to copy. */
 import { computed, useSignalEffect } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { fork } from './api.ts'
 import { configMermaid, MAP_COLOURS } from './configMap.ts'
 import { ensureSpec, specs, upstreamResolver } from './data.ts'
 import { engineKind, parseDoc } from './model.ts'
@@ -38,12 +39,28 @@ function applyPan(box: HTMLElement | null, p: Pan): void {
   }
 }
 
-function zoomAt(box: HTMLElement | null, p: Pan, factor: number, px: number, py: number): void {
+function zoomAt(
+  box: HTMLElement | null,
+  p: Pan,
+  factor: number,
+  at: { x: number; y: number },
+): void {
   const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, p.k * factor))
-  p.x = px - (px - p.x) * (k / p.k)
-  p.y = py - (py - p.y) * (k / p.k)
+  p.x = at.x - (at.x - p.x) * (k / p.k)
+  p.y = at.y - (at.y - p.y) * (k / p.k)
   p.k = k
   applyPan(box, p)
+}
+
+function zoomCentre(
+  frame: HTMLElement | null,
+  box: HTMLElement | null,
+  p: Pan,
+  factor: number,
+): void {
+  if (frame !== null) {
+    zoomAt(box, p, factor, { x: frame.clientWidth / 2, y: frame.clientHeight / 2 })
+  }
 }
 
 function fitPan(frame: HTMLElement | null, box: HTMLElement | null, p: Pan): void {
@@ -64,6 +81,59 @@ function fillHeight(frame: HTMLElement): void {
   frame.style.height = `${Math.max(MIN_MAP_PX, height)}px`
 }
 
+function paintMermaid(job: {
+  text: string | undefined
+  box: { current: HTMLDivElement | null }
+  scratch: { current: HTMLDivElement | null }
+  frame: { current: HTMLDivElement | null }
+  pan: { current: Pan }
+  setError: (v: string | undefined) => void
+  setDrawn: (v: boolean) => void
+}): (() => void) | undefined {
+  const { text, box, scratch, frame, pan, setError, setDrawn } = job
+  if (text === undefined) {
+    return
+  }
+  let current = true
+  // Loaded on first use: the library is most of the UI's weight and only this view draws with it.
+  import('mermaid')
+    .then(async ({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+      })
+      renders += 1
+      // Mermaid lays the chart out in a temporary element; without a container it appends one to the page body.
+      const { svg } = await mermaid.render(
+        `config-map-${renders}`,
+        text,
+        scratch.current ?? undefined,
+      )
+      if (current && box.current !== null) {
+        box.current.innerHTML = svg
+        // Mermaid sizes its svg to the container; the pan/zoom transform needs its natural size.
+        const chart = box.current.querySelector('svg')
+        if (chart !== null) {
+          chart.setAttribute('width', String(chart.viewBox.baseVal.width))
+          chart.setAttribute('height', String(chart.viewBox.baseVal.height))
+          chart.style.maxWidth = 'none'
+        }
+        fitPan(frame.current, box.current, pan.current)
+        setError(undefined)
+        setDrawn(true)
+      }
+    })
+    .catch((e: unknown) => {
+      if (current) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    })
+  return () => {
+    current = false
+  }
+}
+
 export function MapView() {
   const frame = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
@@ -72,12 +142,6 @@ export function MapView() {
   const pan = useRef<Pan>({ k: 1, x: 0, y: 0 })
   const drag = useRef<{ x: number; y: number } | undefined>(undefined)
   const [error, setError] = useState<string>()
-  const zoomCentre = (factor: number) => {
-    const f = frame.current
-    if (f !== null) {
-      zoomAt(box.current, pan.current, factor, f.clientWidth / 2, f.clientHeight / 2)
-    }
-  }
   useEffect(() => {
     const f = frame.current
     if (f === null) {
@@ -91,13 +155,10 @@ export function MapView() {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const r = f.getBoundingClientRect()
-      zoomAt(
-        box.current,
-        pan.current,
-        STEP ** (-e.deltaY / WHEEL_PER_STEP),
-        e.clientX - r.left,
-        e.clientY - r.top,
-      )
+      zoomAt(box.current, pan.current, STEP ** (-e.deltaY / WHEEL_PER_STEP), {
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+      })
     }
     fillHeight(f)
     f.addEventListener('wheel', onWheel, { passive: false })
@@ -109,64 +170,25 @@ export function MapView() {
   }, [])
   useEffect(() => {
     for (const e of doc.value?.engine ?? []) {
-      void ensureSpec(String(e.id))
+      fork(ensureSpec(String(e.id)))
     }
   }, [])
-  useSignalEffect(() => {
-    const text = source.value
-    if (text === undefined) {
-      return
-    }
-    let current = true
-    // Loaded on first use: the library is most of the UI's weight and only this view draws with it.
-    import('mermaid')
-      .then(async ({ default: mermaid }) => {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-        })
-        renders += 1
-        // Mermaid lays the chart out in a temporary element; without a container it appends one to the page body.
-        const { svg } = await mermaid.render(
-          `config-map-${renders}`,
-          text,
-          scratch.current ?? undefined,
-        )
-        if (current && box.current !== null) {
-          box.current.innerHTML = svg
-          // Mermaid sizes its svg to the container; the pan/zoom transform needs its natural size.
-          const drawn = box.current.querySelector('svg')
-          if (drawn !== null) {
-            drawn.setAttribute('width', String(drawn.viewBox.baseVal.width))
-            drawn.setAttribute('height', String(drawn.viewBox.baseVal.height))
-            drawn.style.maxWidth = 'none'
-          }
-          fitPan(frame.current, box.current, pan.current)
-          setError(undefined)
-          setDrawn(true)
-        }
-      })
-      .catch((e: unknown) => {
-        if (current) {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      })
-    return () => {
-      current = false
-    }
-  })
+  useSignalEffect(() =>
+    paintMermaid({ text: source.value, box, scratch, frame, pan, setError, setDrawn }),
+  )
   const text = source.value
   if (text === undefined) {
-    return <p class="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    return (
+      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+    )
   }
   return (
     <section>
-      {error === undefined ? null : <p class="bad">{error}</p>}
-      <div class="map-wrap">
+      {error === undefined ? null : <p className="bad">{error}</p>}
+      <div className="map-wrap">
         <div
           ref={frame}
-          class="panel map"
+          className="panel map"
           onPointerDown={(e) => {
             drag.current = { x: e.clientX - pan.current.x, y: e.clientY - pan.current.y }
             e.currentTarget.setPointerCapture(e.pointerId)
@@ -182,12 +204,12 @@ export function MapView() {
             drag.current = undefined
           }}
         >
-          {drawn || error !== undefined ? null : <p class="muted pad">Drawing…</p>}
-          <div ref={box} class="map-canvas" />
-          <div ref={scratch} class="map-scratch" />
+          {drawn || error !== undefined ? null : <p className="muted pad">Drawing…</p>}
+          <div ref={box} className="map-canvas" />
+          <div ref={scratch} className="map-scratch" />
         </div>
         {/* A sibling, not a child: the frame captures the pointer to drag and would swallow these clicks. */}
-        <ul class="map-legend">
+        <ul className="map-legend">
           {(
             [
               ['Chain', MAP_COLOURS.chain],
@@ -196,25 +218,33 @@ export function MapView() {
             ] as const
           ).map(([name, colour]) => (
             <li key={name}>
-              <span class="swatch" style={{ background: `${colour}26`, borderColor: colour }} />
+              <span className="swatch" style={{ background: `${colour}26`, borderColor: colour }} />
               {name}
             </li>
           ))}
           <li>
-            <span class="swatch off" />
+            <span className="swatch off" />
             Disabled
           </li>
         </ul>
-        <span class="group map-tools">
-          <button type="button" class="small" onClick={() => zoomCentre(STEP)}>
+        <span className="group map-tools">
+          <button
+            type="button"
+            className="small"
+            onClick={() => zoomCentre(frame.current, box.current, pan.current, STEP)}
+          >
             Zoom in
           </button>
-          <button type="button" class="small" onClick={() => zoomCentre(1 / STEP)}>
+          <button
+            type="button"
+            className="small"
+            onClick={() => zoomCentre(frame.current, box.current, pan.current, 1 / STEP)}
+          >
             Zoom out
           </button>
           <button
             type="button"
-            class="small"
+            className="small"
             onClick={() => fitPan(frame.current, box.current, pan.current)}
           >
             Fit

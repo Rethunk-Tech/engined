@@ -32,8 +32,10 @@ export function expandConfigPath(p: string): string {
 const MAX_SETTIMEOUT_SECONDS = 2_147_483
 
 /** The key a diagnostic label ends in, for example `route[0] "role"` or `config "configsvc.port"`; absent when the label names only an entry. */
+const LABEL_KEY_RE = /"([^"]+)"$/
+
 function labelKey(label: string): string | undefined {
-  return /"([^"]+)"$/.exec(label)?.[1]
+  return LABEL_KEY_RE.exec(label)?.[1]
 }
 
 /** Absent is empty; present-but-not-an-array is a fatal shape error, never a silent zero entries. */

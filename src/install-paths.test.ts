@@ -13,7 +13,7 @@ const XDG = 'XDG_DATA_HOME'
  * real install gets rather than a re-derivation of it.
  */
 async function runInstallScript(
-  dataHome: string | undefined,
+  xdgData: string | undefined,
 ): Promise<{ code: number; out: string; err: string }> {
   const env: Record<string, string> = {}
   for (const [name, value] of Object.entries(process.env)) {
@@ -21,8 +21,8 @@ async function runInstallScript(
       env[name] = value
     }
   }
-  if (dataHome !== undefined) {
-    env[XDG] = dataHome
+  if (xdgData !== undefined) {
+    env[XDG] = xdgData
   }
 
   const proc = Bun.spawn(
@@ -42,14 +42,14 @@ async function runInstallScript(
   return { code: await proc.exited, out: out.trimEnd(), err: err.trimEnd() }
 }
 
-function fromPathsModule(dataHome: string | undefined): string[] {
+function fromPathsModule(xdgData: string | undefined): string[] {
   // Assigning `undefined` to a process.env key stores the string "undefined";
   // only removing the key reproduces the unset case paths.ts branches on.
   const previous = process.env[XDG]
-  if (dataHome === undefined) {
+  if (xdgData === undefined) {
     delete process.env[XDG]
   } else {
-    process.env[XDG] = dataHome
+    process.env[XDG] = xdgData
   }
   try {
     return [installDir(), stateDir(), join(configHome(), 'systemd', 'user')]
@@ -66,11 +66,11 @@ test.each([
   ['unset', undefined],
   ['set', '/tmp/engined-xdg-data'],
   ['relative, so ignored', 'relative/xdg-data'],
-])('install.sh installs where src/paths.ts says, XDG_DATA_HOME %s', async (_label, dataHome) => {
-  const { code, out, err } = await runInstallScript(dataHome)
+])('install.sh installs where src/paths.ts says, XDG_DATA_HOME %s', async (_label, xdgData) => {
+  const { code, out, err } = await runInstallScript(xdgData)
   expect(err).toBe('')
   expect(code).toBe(0)
-  expect(out.split('\n')).toEqual(fromPathsModule(dataHome))
+  expect(out.split('\n')).toEqual(fromPathsModule(xdgData))
 })
 
 test.each([

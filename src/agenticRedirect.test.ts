@@ -14,34 +14,55 @@ describe('resolveUpstreamModelId', () => {
   const cfg = config({ routes: [wired, plain] })
 
   test.each([
-    ['empty segment', cfg, 'or', '', undefined, undefined],
-    ['wildcard sentinel', cfg, 'or', '*', undefined, undefined],
-    [
-      'a route with wire_model yields the wire id',
-      cfg,
-      'or',
-      'org%2Fmodel',
-      'openrouter',
-      'org/model',
-    ],
-    ['a route without wire_model yields the model', cfg, 'or', 'haiku', 'openrouter', 'haiku'],
-    [
-      'no matching route decodes the address segment',
-      cfg,
-      'or',
-      'acme%2Fslug',
-      'openrouter',
-      'acme/slug',
-    ],
-    [
-      'a disabled-only match still decodes rather than serving it',
-      config({ routes: [disabled] }),
-      'or',
-      'org%2Fmodel',
-      'openrouter',
-      'org/model',
-    ],
-  ] as const)('%s', (_name, conf, engine, seg, upstream, want) => {
+    {
+      name: 'empty segment',
+      conf: cfg,
+      engine: 'or',
+      seg: '',
+      upstream: undefined,
+      want: undefined,
+    },
+    {
+      name: 'wildcard sentinel',
+      conf: cfg,
+      engine: 'or',
+      seg: '*',
+      upstream: undefined,
+      want: undefined,
+    },
+    {
+      name: 'a route with wire_model yields the wire id',
+      conf: cfg,
+      engine: 'or',
+      seg: 'org%2Fmodel',
+      upstream: 'openrouter',
+      want: 'org/model',
+    },
+    {
+      name: 'a route without wire_model yields the model',
+      conf: cfg,
+      engine: 'or',
+      seg: 'haiku',
+      upstream: 'openrouter',
+      want: 'haiku',
+    },
+    {
+      name: 'no matching route decodes the address segment',
+      conf: cfg,
+      engine: 'or',
+      seg: 'acme%2Fslug',
+      upstream: 'openrouter',
+      want: 'acme/slug',
+    },
+    {
+      name: 'a disabled-only match still decodes rather than serving it',
+      conf: config({ routes: [disabled] }),
+      engine: 'or',
+      seg: 'org%2Fmodel',
+      upstream: 'openrouter',
+      want: 'org/model',
+    },
+  ])('$name', ({ conf, engine, seg, upstream, want }) => {
     expect(resolveUpstreamModelId(conf, engine, seg, upstream)).toBe(want)
   })
 })

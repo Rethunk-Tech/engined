@@ -2,17 +2,15 @@
 
 import type { ShippedEngine } from '../../configsvcShipped.ts'
 import type { EditOp } from '../../editOps.ts'
-import type { ModelFile } from './data.ts'
+import type { DoctorCheck, ModelFile } from './data.ts'
 
-export interface DoctorCheck {
-  id: string
-  ok: boolean
-  detail: string
-  fix?: string
-  skipped?: boolean
-}
+export type { DoctorCheck }
 
 export type Candidate = ShippedEngine & { files: ModelFile[] }
+
+const FILE_EXT_RE = /\.[^.]+$/
+const NON_ID_RE = /[^A-Za-z0-9._-]+/g
+const TRIM_DOT_RE = /^[-.]+|[-.]+$/g
 
 /** The failed doctor checks that would stop this engine from running. */
 export function blockers(engine: ShippedEngine, checks: readonly DoctorCheck[]): DoctorCheck[] {
@@ -41,10 +39,7 @@ export function proposedByDefault(engine: ShippedEngine, blocked: readonly Docto
 /** A model id (no slash, no INI breakers) from a weights file name. */
 export function modelIdFromFile(path: string): string {
   const base = path.split('/').pop() ?? path
-  return base
-    .replace(/\.[^.]+$/, '')
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
+  return base.replace(FILE_EXT_RE, '').replace(NON_ID_RE, '-').replace(TRIM_DOT_RE, '')
 }
 
 /** An engine that serves nothing until a route names a weights file under its models_dir. */

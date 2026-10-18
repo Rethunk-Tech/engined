@@ -122,9 +122,9 @@ export function buildChains(
   rawChains: readonly RawChain[],
   engines: readonly EngineEntry[],
   routes: readonly ResolvedRoute[],
-  chainFiles: readonly string[],
-  chainIndexes: readonly number[],
+  origins: { files: readonly string[]; indexes: readonly number[] },
 ): Record<string, string[]> {
+  const { files: chainFiles, indexes: chainIndexes } = origins
   const located = new Map(rawChains.map((chain, n) => [chain.id, n]))
   const done = new Map<string, string[]>()
   const stack: string[] = []

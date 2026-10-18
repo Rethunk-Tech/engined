@@ -51,12 +51,20 @@ const DEFAULT_DEPS: DoctorDeps = {
   exists: existsSync,
   which: (cmd) => Bun.which(cmd),
   agentVersion: (agent) => observeAgentVersion(agent, 'unpinned'),
-  portFree: async (port) => {
+  portFree: (port) => {
     try {
-      Bun.listen({ hostname: '127.0.0.1', port, socket: { data() {} } }).stop(true)
-      return true
+      Bun.listen({
+        hostname: '127.0.0.1',
+        port,
+        socket: {
+          data() {
+            return
+          },
+        },
+      }).stop(true)
+      return Promise.resolve(true)
     } catch {
-      return false
+      return Promise.resolve(false)
     }
   },
   enginedOn: async (port) => {

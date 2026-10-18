@@ -66,6 +66,10 @@ button {
   border-radius: 4px;
   padding: 4px 8px;
 }
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  height: 32px;
+}
 button {
   cursor: pointer;
   min-height: 32px;
@@ -246,14 +250,6 @@ details pre {
   align-items: center;
   gap: 4px;
 }
-/* One rhythm for every section stacked inside a card. */
-.panel > * {
-  margin-top: 0;
-  margin-bottom: 0;
-}
-.panel > * + * {
-  margin-top: 12px;
-}
 details:not(.panel) {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -311,10 +307,6 @@ details[open] > summary {
 }
 .field > .muted.small-text {
   line-height: 1.35;
-}
-input:not([type="checkbox"]):not([type="radio"]),
-select {
-  height: 32px;
 }
 .seg {
   display: inline-flex;
@@ -492,4 +484,11 @@ table.grid th {
 }
 .diff .del {
   background: var(--del);
+}
+.layout .panel > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.layout .panel > :not(:first-child) {
+  margin-top: 12px;
 }

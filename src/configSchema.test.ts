@@ -4,7 +4,10 @@ import { renderConfigSchema, SCHEMA_TABLES } from './configSchema.ts'
 
 test('every config key has a schema field with a description, and no field names an absent key', () => {
   for (const [name, { keys, fields }] of Object.entries(SCHEMA_TABLES)) {
-    expect([name, Object.keys(fields).sort()]).toEqual([name, [...keys].sort()])
+    expect([name, Object.keys(fields).sort((a, b) => a.localeCompare(b))]).toEqual([
+      name,
+      [...keys].sort((a, b) => a.localeCompare(b)),
+    ])
     for (const [key, field] of Object.entries(fields)) {
       expect([name, key, field.description.length > 0]).toEqual([name, key, true])
     }

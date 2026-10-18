@@ -111,16 +111,16 @@ export function RawView() {
   const saved = snapshot.value
   return (
     <section>
-      <div ref={host} class="editor" />
+      <div ref={host} className="editor" />
       {shown.length === 0 ? (
-        <p class="ok">The pending text loads cleanly.</p>
+        <p className="ok">The pending text loads cleanly.</p>
       ) : (
-        <ul class="errors">
+        <ul className="errors">
           {shown.map((p) => {
             const at = own.indexOf(p)
             return (
               <li key={`${p.file}:${p.line}:${p.message}`}>
-                <button type="button" class="link" disabled={at < 0} onClick={() => jumpTo(at)}>
+                <button type="button" className="link" disabled={at < 0} onClick={() => jumpTo(at)}>
                   {p.file === undefined ? 'config' : (p.file.split('/').pop() ?? p.file)}
                   {p.line === undefined
                     ? ''
@@ -133,9 +133,9 @@ export function RawView() {
         </ul>
       )}
       {saved?.fragments.map((f) => (
-        <details key={f.file} class="panel">
+        <details key={f.file} className="panel">
           <summary>
-            {f.file} <span class="muted">(read-only; edit it on disk)</span>
+            {f.file} <span className="muted">(read-only; edit it on disk)</span>
           </summary>
           <pre>{f.text}</pre>
         </details>
