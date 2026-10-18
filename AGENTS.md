@@ -3,10 +3,10 @@
 Contributor map. `README.md` orients; `HUMANS.md` is the runbook. This file
 covers test tiers, the config/spec split, and invariants.
 
-Outstanding work is tracked in the task list, not in a file. Only one thing
-is worth writing down here: an acceptance criterion nobody has actually
-proven stays recorded even when the feature looks done, because deleting it
-erases the only record that it is unproven.
+Decided-but-unbuilt work lives in `TODO.md`. The task list tracks the rest.
+An acceptance criterion nobody has actually proven stays recorded here even
+when the feature looks done, because deleting it erases the only record that
+it is unproven.
 
 This checkout is often worked by several sessions at once: `rules/fleet.md` (shared checkouts).
 
@@ -30,8 +30,9 @@ Three tiers, and one opt-in browser smoke:
 - `e2e/` — one Playwright (Chromium) smoke of the config UI against a scratch door and a copy of
   `config.example.toml`. Opt-in: `gate --e2e` or `bun run test:e2e`; a bare `gate` and CI skip it.
   It needs `bunx playwright install chromium` once.
-- No mocks — traps are tool behaviour; substitutes are injected functions with
-  real defaults and recorded output.
+
+No mocks — traps are tool behaviour; substitutes are injected functions with
+real defaults and recorded output.
 
 Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
