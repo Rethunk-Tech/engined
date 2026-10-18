@@ -7,11 +7,9 @@
 import { existsSync } from 'node:fs'
 import { hostPathFor } from './dockerArgs.ts'
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, STATUS_CONFLICT, STATUS_NOT_FOUND } from './http.ts'
+import { jsonError, SSE_CONTENT_TYPE, STATUS_CONFLICT, STATUS_NOT_FOUND } from './http.ts'
 import { isContainerSpec } from './specTypes.ts'
 import type { Artifact } from './types.ts'
-
-const SSE_CONTENT_TYPE = 'text/event-stream'
 
 /** Runs one shell command, reporting each output line; resolves with its exit code. Killed when `signal` aborts. */
 export type ObtainRunner = (
