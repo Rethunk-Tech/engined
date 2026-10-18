@@ -3,23 +3,28 @@ import { useState } from 'preact/hooks'
 import type { TomlPath } from '../../editOps.ts'
 import { type EngineKind, KIND_LABELS } from '../../types.ts'
 import { editDraft } from './actions.ts'
+import { clipboardFlash } from './clipboard.ts'
 import { propOf } from './schema.ts'
 
+const COPY_FLASH_MS = 1200
+
 /** Copies text and says so for a moment; the clipboard needs a secure context, which loopback is. */
-export function CopyButton(props: { text: string; label?: string; title?: string }) {
-  const [done, setDone] = useState(false)
+export function CopyButton(props: {
+  text: string
+  label?: string
+  title?: string
+  writeText?: (value: string) => Promise<void>
+}) {
+  const [flash, setFlash] = useState<'Copied' | 'Copy failed'>()
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(props.text)
-      setDone(true)
-      setTimeout(() => setDone(false), 1200)
-    } catch {
-      setDone(false)
-    }
+    const writeText = props.writeText ?? ((value: string) => navigator.clipboard.writeText(value))
+    const next = await clipboardFlash(props.text, writeText)
+    setFlash(next)
+    setTimeout(() => setFlash(undefined), COPY_FLASH_MS)
   }
   return (
     <button type="button" class="small" title={props.title} onClick={copy}>
-      {done ? 'Copied' : (props.label ?? 'Copy')}
+      {flash ?? props.label ?? 'Copy'}
     </button>
   )
 }
