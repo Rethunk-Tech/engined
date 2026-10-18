@@ -1,7 +1,8 @@
 /** The config UI's HTTP server: origin checks, login, sessions, and the JSON API behind them. */
 
+import process from 'node:process'
 import page from './configsvc/ui/index.html'
-import { type ConfigsvcDeps, configApi } from './configsvcApi.ts'
+import { type ConfigsvcDeps, configApi, readJson } from './configsvcApi.ts'
 import { createAuth, SESSION_COOKIE, SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_URL_PREFIX } from './configsvcCli.ts'
 import { bridgeAuthority, CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
@@ -14,6 +15,7 @@ import {
   STATUS_TOO_MANY_REQUESTS,
   STATUS_UNAUTHORIZED,
 } from './http.ts'
+import { errMessage } from './records.ts'
 
 const LOOPBACK = '127.0.0.1'
 const SECURITY_HEADERS = {
@@ -109,7 +111,9 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     if (req.method !== 'POST' || url.pathname !== '/login') {
       return undefined
     }
-    const body = (await req.json().catch(() => ({}))) as { password?: unknown; token?: unknown }
+    const parsed = await readJson(req)
+    if (parsed instanceof Response) return parsed
+    const body = parsed ?? {}
     const secret = auth.token === undefined ? body.password : body.token
     const done = await exchange(typeof secret === 'string' ? secret : '', client, viaBridge(req))
     return (
@@ -165,9 +169,8 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
           : undefined
         return withHeaders(await handle(req, forwarded || peer))
       } catch (err) {
-        return withHeaders(
-          jsonError(STATUS_INTERNAL_SERVER_ERROR, err instanceof Error ? err.message : String(err)),
-        )
+        process.stderr.write(`configsvc: ${errMessage(err)}\n`)
+        return withHeaders(jsonError(STATUS_INTERNAL_SERVER_ERROR, 'internal error'))
       }
     },
   })

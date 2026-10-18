@@ -2,8 +2,15 @@ import { afterEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { startConfigsvc } from './configsvc.ts'
+import { readJson } from './configsvcApi.ts'
 import { SESSION_IDLE_MS } from './configsvcAuth.ts'
 import { CONFIGSVC_TLS_PORT } from './configsvcHost.ts'
+import type { DoctorReport } from './doctor.ts'
+import {
+  MAX_JSON_BODY_BYTES,
+  STATUS_INTERNAL_SERVER_ERROR,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { bindDualFamily } from './listen.ts'
 import { createDoor } from './main.ts'
 import {
@@ -28,7 +35,12 @@ afterEach(() => {
 
 /** A real config dir, a real in-process door as engined, and the config UI over them; only the three host tools are fakes. */
 async function harness(
-  opts: { passwordHash?: string; bridgeHost?: string; doorConfig?: Partial<Config> } = {},
+  opts: {
+    passwordHash?: string
+    bridgeHost?: string
+    doorConfig?: Partial<Config>
+    doctor?: () => Promise<DoctorReport>
+  } = {},
 ) {
   const dir = mkdtempSync(join(TEST_ROOT, 'cfg-'))
   const configFile = join(dir, 'config.toml')
@@ -73,7 +85,7 @@ async function harness(
         },
         { preconnect: fetch.preconnect },
       ),
-      doctor: async () => ({ ok: true, checks: [] }),
+      doctor: opts.doctor ?? (async () => ({ ok: true, checks: [] })),
     },
   )
   cleanups.push(() => {
@@ -98,6 +110,30 @@ async function harness(
   }
   return { dir, configFile, svc, call, signIn, audit, reloads, clock, doorPort, doorPaths }
 }
+
+test('a JSON body past the door cap is 413 before it is parsed', async () => {
+  const req = new Request('http://configsvc.local/', {
+    method: 'POST',
+    headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
+  })
+  const result = await readJson(req)
+  expect(result).toBeInstanceOf(Response)
+  expect((result as Response).status).toBe(STATUS_PAYLOAD_TOO_LARGE)
+})
+
+test('an unhandled throw answers 500 without the error text', async () => {
+  const h = await harness({
+    doctor: async () => {
+      throw new Error('secret token xyz')
+    },
+  })
+  const cookie = await h.signIn()
+  const res = await h.call('/api/doctor', { cookie })
+  expect(res.status).toBe(STATUS_INTERNAL_SERVER_ERROR)
+  const body = await res.text()
+  expect(body).toContain('internal error')
+  expect(body).not.toContain('secret token xyz')
+})
 
 test('a minted token signs in once, the session slides for 12 hours and logout ends it', async () => {
   const h = await harness()

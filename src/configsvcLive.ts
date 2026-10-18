@@ -246,6 +246,7 @@ const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== ''
 
 async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
+  if (body instanceof Response) return body
   if (!(body && nonEmpty(body.service) && nonEmpty(body.username) && nonEmpty(body.value))) {
     return jsonError(STATUS_BAD_REQUEST, '"service", "username" and "value" are required strings')
   }
@@ -257,6 +258,7 @@ async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response>
 
 async function clearSecret(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
+  if (body instanceof Response) return body
   if (!(body && nonEmpty(body.service) && nonEmpty(body.username))) {
     return jsonError(STATUS_BAD_REQUEST, '"service" and "username" are required strings')
   }
@@ -352,6 +354,7 @@ async function servedBy(deps: ConfigsvcDeps, address: string): Promise<string[] 
 
 async function testRoute(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
+  if (body instanceof Response) return body
   if (!(body && nonEmpty(body.address) && body.address.startsWith('@/'))) {
     return jsonError(STATUS_BAD_REQUEST, '"address" must be an "@/..." route address')
   }
@@ -391,11 +394,13 @@ async function testRoute(req: Request, deps: ConfigsvcDeps): Promise<Response> {
 
 async function inventory(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
+  if (body instanceof Response) return body
   if (!(body && nonEmpty(body.upstream))) {
     return jsonError(STATUS_BAD_REQUEST, '"upstream" is required')
   }
   return proxy(deps, `/engined/v1/upstreams/${encodeURIComponent(body.upstream)}/refresh`, {
     method: 'POST',
+    signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]),
   })
 }
 
@@ -437,7 +442,9 @@ export function liveApi(
     const verb = ENGINE_VERB_RE.exec(path)
     if (verb !== null) {
       const id = encodeURIComponent(decodeURIComponent(verb[2] as string))
-      return proxy(deps, `/engined/v1/engines/${id}/${verb[1]}${new URL(req.url).search}`)
+      return proxy(deps, `/engined/v1/engines/${id}/${verb[1]}${new URL(req.url).search}`, {
+        signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]),
+      })
     }
     const spec = /^\/api\/spec\/([^/]+)$/.exec(path)?.[1]
     if (spec !== undefined) {

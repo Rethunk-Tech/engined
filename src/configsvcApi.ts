@@ -13,13 +13,14 @@ import { checkConfigText, type ValidateEnv } from './configsvcValidate.ts'
 import type { DoctorReport } from './doctor.ts'
 import {
   jsonError,
+  readCappedText,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
   STATUS_UNPROCESSABLE,
 } from './http.ts'
-import { errMessage, isRecord } from './records.ts'
+import { errMessage, isRecord, parseRecord } from './records.ts'
 import { applyOps, dependents, type EditOp } from './tomlEdit.ts'
 
 const CONFIG_POSTS = new Set([
@@ -48,13 +49,14 @@ export interface RequestInfo {
   client: string
 }
 
-export async function readJson(req: Request): Promise<Record<string, unknown> | undefined> {
-  try {
-    const body: unknown = await req.json()
-    return isRecord(body) ? body : undefined
-  } catch {
-    return undefined
+export async function readJson(
+  req: Request,
+): Promise<Record<string, unknown> | Response | undefined> {
+  const raw = await readCappedText(req)
+  if (raw instanceof Response) {
+    return raw
   }
+  return parseRecord(raw) ?? undefined
 }
 
 const text = (body: Record<string, unknown>, key: string): string | undefined =>
@@ -174,6 +176,7 @@ async function configPost(
   info: RequestInfo,
 ): Promise<Response> {
   const body = await readJson(req)
+  if (body instanceof Response) return body
   if (body === undefined) {
     return badRequest('the body must be a JSON object')
   }
