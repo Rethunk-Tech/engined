@@ -28,6 +28,9 @@ export type QueueFetch = (url: string) => Promise<QueueSnapshot>
 /** Overridable for tests; the release POST is the only other call engined makes into a running container. */
 export type ReleaseFetch = (url: string, body: unknown) => Promise<{ ok: boolean; status: number }>
 
+/** Under the poll interval, so a comfy that stops answering fails a poll rather than stacking them. */
+const QUEUE_FETCH_TIMEOUT_MS = 10_000
+
 export async function defaultReleaseFetch(
   url: string,
   body: unknown,
@@ -36,6 +39,7 @@ export async function defaultReleaseFetch(
     method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(QUEUE_FETCH_TIMEOUT_MS),
   })
   // The status is the whole answer here; the body is never read, so release it.
   await discardBody(res)
@@ -62,9 +66,6 @@ export async function readComfyQueue(
   }
   return parseRecord(await res.text()) ?? undefined
 }
-
-/** Under the poll interval, so a comfy that stops answering fails a poll rather than stacking them. */
-const QUEUE_FETCH_TIMEOUT_MS = 10_000
 
 export async function defaultQueueFetch(url: string): Promise<QueueSnapshot> {
   const queue = await readComfyQueue(new URL(url).origin, (u) =>

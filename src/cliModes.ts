@@ -12,6 +12,8 @@ import { writeToStdout } from './provenance.ts'
 import { errMessage, parseRecord } from './records.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
 
+const ENGINES_LIST_TIMEOUT_MS = 10_000
+
 function configuredPort(): number | undefined {
   try {
     return loadConfig().listen_port
@@ -32,7 +34,9 @@ export async function enginesExit(): Promise<number> {
   }
   let res: Response
   try {
-    res = await fetch(`http://127.0.0.1:${port}${ENGINED_ENGINES_PATH}`)
+    res = await fetch(`http://127.0.0.1:${port}${ENGINED_ENGINES_PATH}`, {
+      signal: AbortSignal.timeout(ENGINES_LIST_TIMEOUT_MS),
+    })
   } catch (err) {
     process.stderr.write(`the door could not be reached: ${errMessage(err)}\n`)
     return 1

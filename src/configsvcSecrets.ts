@@ -1,6 +1,9 @@
 /** The desktop keyring as the config UI uses it: presence checks and stores, never a read of the value. */
 import { errMessage } from './records.ts'
 
+/** Same ceiling `binExec` uses: a wedged Secret Service must not hang the UI. */
+const SECRET_TOOL_TIMEOUT_MS = 120_000
+
 export interface SecretTool {
   /** Whether an item exists: `secret-tool lookup` exits 0 with non-empty output. The output itself is dropped. */
   present: (service: string, username: string) => Promise<boolean>
@@ -19,6 +22,8 @@ export const secretTool: SecretTool = {
       const proc = Bun.spawn(['secret-tool', 'lookup', 'service', service, 'username', username], {
         stdout: 'pipe',
         stderr: 'ignore',
+        timeout: SECRET_TOOL_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
       })
       const out = await new Response(proc.stdout).arrayBuffer()
       return (await proc.exited) === 0 && out.byteLength > 0
@@ -31,7 +36,13 @@ export const secretTool: SecretTool = {
       // The value goes on stdin, never argv: argv is world-readable in /proc.
       const proc = Bun.spawn(
         ['secret-tool', 'store', `--label=${service}`, 'service', service, 'username', username],
-        { stdin: 'pipe', stdout: 'ignore', stderr: 'pipe' },
+        {
+          stdin: 'pipe',
+          stdout: 'ignore',
+          stderr: 'pipe',
+          timeout: SECRET_TOOL_TIMEOUT_MS,
+          killSignal: 'SIGKILL',
+        },
       )
       proc.stdin.write(value)
       await proc.stdin.end()
@@ -46,6 +57,8 @@ export const secretTool: SecretTool = {
       const proc = Bun.spawn(['secret-tool', 'clear', 'service', service, 'username', username], {
         stdout: 'ignore',
         stderr: 'pipe',
+        timeout: SECRET_TOOL_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
       })
       const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
       if (code === 0 || stderr.trim().length === 0) {

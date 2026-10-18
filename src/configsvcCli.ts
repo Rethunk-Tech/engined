@@ -6,6 +6,7 @@ import { errMessage } from './records.ts'
 /** The config UI logs exactly `configsvc: <url>` once it is listening; `--configsvc-url` finds that line. */
 export const CONFIGSVC_URL_PREFIX = 'configsvc: '
 const CONFIGSVC_UNIT = 'engined-configsvc'
+const JOURNAL_TIMEOUT_MS = 10_000
 
 export interface JournalRead {
   stdout: string
@@ -18,6 +19,8 @@ async function readConfigsvcJournal(): Promise<JournalRead> {
     {
       stdout: 'pipe',
       stderr: 'ignore',
+      timeout: JOURNAL_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     },
   )
   const stdout = await new Response(proc.stdout).text()

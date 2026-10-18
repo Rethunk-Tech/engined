@@ -16,6 +16,8 @@ import { errMessage, isRecord } from './records.ts'
 
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 29_202
+/** Matches `binExec`: a wedged `systemctl` must not hang the reload button. */
+const SYSTEMCTL_TIMEOUT_MS = 120_000
 
 interface Settings {
   host: string
@@ -44,6 +46,8 @@ async function systemctlKill(signal: 'HUP' | 'USR1'): Promise<{ ok: boolean; err
   const proc = Bun.spawn(['systemctl', '--user', 'kill', '-s', signal, 'engined.service'], {
     stdout: 'ignore',
     stderr: 'pipe',
+    timeout: SYSTEMCTL_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
   })
   const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
   return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || `exit ${code}` }
