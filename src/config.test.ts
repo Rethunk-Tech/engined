@@ -2160,3 +2160,25 @@ test('a field-level error carries the config path of the entry and key at fault'
   const twice = thrown('[[engine]]\nid = "e"\n[[engine]]\nid = "e"\n')
   expect(twice.path).toMatchObject({ table: 'engine', index: 1, key: 'id' })
 })
+
+const EXCLUDE_BASE = `
+listen_port = 29200
+[[engine]]
+id = "remote"
+kind = "openai-http"
+[[upstream]]
+id = "up"
+base_url = "https://example.invalid/v1"
+egress = "remote"
+`
+
+test('exclude_models refuses a bad entry and a declared route it matches', () => {
+  expect(parseMessage(`${EXCLUDE_BASE}exclude_models = ["/(/"]\n`)).toContain(
+    'upstream "up" exclude_models[0]',
+  )
+  const msg = parseMessage(
+    `${EXCLUDE_BASE}exclude_models = ["org/*"]\n[[route]]\nengine = "remote"\nupstream = "up"\nmodel = "m"\nwire_model = "org/m"\n`,
+  )
+  expect(msg).toContain('org/m')
+  expect(msg).toContain('exclude_models "org/*"')
+})

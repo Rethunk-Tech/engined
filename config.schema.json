@@ -265,6 +265,14 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "Cost ceiling per UTC month, from the cost the upstream itself reports."
+        },
+        "exclude_models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Provider model ids made unavailable: globs (* ? ) over the full wire id, or /regex/."
         }
       },
       "required": [

@@ -47,6 +47,7 @@ import {
 } from './configUpstream.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
+import { compileExclude } from './modelExclude.ts'
 import { configPath, installDir } from './paths.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type {
@@ -234,7 +235,30 @@ function parseUpstream(value: unknown, index: number, file: string): Upstream {
     headers: parseUpstreamHeaders(raw.headers, site, file, secret?.header),
     fingerprint: readFingerprint(raw.fingerprint, site, file),
     monthly_cap_usd: readMonthlyCap(raw.monthly_cap_usd, site, file),
+    exclude_models: parseExcludeModels(raw.exclude_models, site, file),
   }
+}
+
+function parseExcludeModels(value: unknown, site: string, file: string): string[] | undefined {
+  if (value === undefined) {
+    return
+  }
+  if (!(Array.isArray(value) && value.every((e) => typeof e === 'string'))) {
+    throw new ParseError(`${site} "exclude_models" must be an array of strings`, {
+      file,
+      key: 'exclude_models',
+    })
+  }
+  value.forEach((entry: string, n) => {
+    const compiled = compileExclude(entry)
+    if (typeof compiled !== 'function') {
+      throw new ParseError(`${site} exclude_models[${n}] ${compiled.error}`, {
+        file,
+        key: 'exclude_models',
+      })
+    }
+  })
+  return value
 }
 
 function parseModel(value: unknown, index: number, file: string): ModelEntry {

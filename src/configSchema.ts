@@ -176,6 +176,11 @@ const UPSTREAM_FIELDS: Fields = {
   monthly_cap_usd: positive(
     'Cost ceiling per UTC month, from the cost the upstream itself reports.',
   ),
+  exclude_models: {
+    description:
+      'Provider model ids made unavailable: globs (* ? ) over the full wire id, or /regex/.',
+    schema: { type: 'array', items: { type: 'string', minLength: 1 } },
+  },
 }
 
 const SECRET_FIELDS: Fields = {

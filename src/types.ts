@@ -228,6 +228,8 @@ export interface Upstream {
    * to drop the file.
    */
   inventory_max_age_seconds?: number
+  /** Globs (or `/regex/`) over the provider's wire ids; matches are dropped from the catalog. */
+  exclude_models?: string[]
   /**
    * How often to re-fetch the catalog. Absent means 3600 seconds. Must be
    * less than max age when both are set.

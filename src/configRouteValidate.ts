@@ -6,12 +6,12 @@
 
 import { existsSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-
 import { parseHop } from './chain.ts'
 import { DEFAULT_INVENTORY_REFRESH_SECONDS } from './configKeys.ts'
 import { originOf } from './configOrigin.ts'
 import type { SpecFacts } from './configRoutes.ts'
 import { ParseError } from './errors/parse.ts'
+import { excludeMatcher } from './modelExclude.ts'
 import { isUnder } from './paths.ts'
 import { localRoutesOf, qualifiedSegments, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import type { EngineEntry, ResolvedRoute, Upstream } from './types.ts'
@@ -144,6 +144,22 @@ export function engineHasWildcard(
   )
 }
 
+/** A declared (non-wildcard) route whose wire id its own upstream excludes contradicts itself. */
+function refuseExcludedRoute(r: ResolvedRoute, upstreams: Map<string, Upstream>): void {
+  const patterns = r.upstream === null ? undefined : upstreams.get(r.upstream)?.exclude_models
+  const wire = r.wire_model ?? r.model
+  if (patterns === undefined || wire === undefined || r.model === WILDCARD_MODEL) {
+    return
+  }
+  const hit = patterns.find((p) => excludeMatcher([p])(wire))
+  if (hit !== undefined) {
+    throw new ParseError(
+      `route on engine "${r.engine}" model "${wire}" matches upstream "${r.upstream}" exclude_models "${hit}"`,
+      originOf(r, 'model'),
+    )
+  }
+}
+
 /**
  * A wildcard is a remote openai-http catalog, not a local store or another
  * kind: llama, media and agentic have no provider `/models` list to expand.
@@ -163,6 +179,7 @@ export function validateWildcardRoutes({
 }): void {
   const named = new Set<string>()
   for (const r of routes) {
+    refuseExcludedRoute(r, upstreams)
     if (r.model !== WILDCARD_MODEL) {
       continue
     }
