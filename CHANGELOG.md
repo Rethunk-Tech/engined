@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Config UI: "Add hops…" on the Chains view and in the Add wizard opens a dialog to filter the
+  choices, tick any number and add them at once, in the order ticked. Hops the chain already has are
+  not offered again (the Chains view offered them before), and a catalog of thousands of ids lists
+  the first 200 matches. Hops on the Chains view can be dragged to reorder, beside ↑/↓.
+
 ## 0.2.6 - 2026-10-18
 
 - piper: the image builds again (Python 3.14 base; onnxruntime has no 3.15 wheel), and word timings
