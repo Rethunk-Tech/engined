@@ -1,8 +1,9 @@
 name: release
 
 # A tag is the release: its annotation is the notes. The assets are the
-# prebuilt tarball the AUR `engined` package installs from and the .deb/.rpm
-# packages for x64 and arm64, so a user never builds anything; install.sh still builds from a clone checked out at the tag.
+# prebuilt tarball the AUR `engined` package installs from, linux amd64/arm64
+# archives, SHA256SUMS, and the .deb/.rpm packages, so a user never builds
+# anything; install.sh still builds from a clone checked out at the tag.
 
 on:
   push:
@@ -65,6 +66,18 @@ jobs:
             ENGINED_COMMIT="$GITHUB_SHA" packaging/deb-rpm/build.sh "$arch" packages
           done
           [ "$(find packages \( -name '*.deb' -o -name '*.rpm' \) | wc -l)" -eq 4 ]
+          [ -f packages/engined-linux-amd64.tar.gz ]
+          [ -f packages/engined-linux-arm64.tar.gz ]
+
+      - name: Checksums
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          {
+            sha256sum -- "engined-${TAG#v}.tar.gz"
+            (cd packages && sha256sum -- *)
+          } >SHA256SUMS
 
       - name: Record the tag annotation for the publish job
         env:
@@ -83,6 +96,7 @@ jobs:
           path: |
             engined-*.tar.gz
             packages/
+            SHA256SUMS
             release-subject.txt
             release-notes.md
           if-no-files-found: error
@@ -116,4 +130,5 @@ jobs:
               --notes "$notes" \
               --verify-tag
           fi
-          gh release upload "$TAG" "engined-${TAG#v}.tar.gz" packages/*.deb packages/*.rpm --clobber
+          gh release upload "$TAG" "engined-${TAG#v}.tar.gz" \
+            packages/engined-linux-*.tar.gz packages/*.deb packages/*.rpm SHA256SUMS --clobber

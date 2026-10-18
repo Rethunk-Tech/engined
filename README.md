@@ -15,6 +15,22 @@ One local engine broker for the whole workstation.
 
 engined is a `systemd --user` daemon that owns every inference engine on a box and serves them behind a single OpenAI-shaped door on loopback. Consumers send a `model` string; engined picks the engine, starts its container on demand, keeps one model resident per role, and stops it when idle.
 
+## Installation
+
+```sh
+brew install rethunk-tech/tap/engined
+```
+
+On Arch: `paru -S engined`, then follow the install message. From a clone:
+
+```sh
+git clone https://github.com/Rethunk-Tech/engined.git
+cd engined
+bash scripts/install.sh
+```
+
+engined is a Linux `systemd --user` daemon; there is no Windows or macOS build.
+
 ## Requirements
 
 - git, [Bun](https://bun.sh) 1.4, Docker, and rsync.
@@ -28,12 +44,9 @@ engined is a `systemd --user` daemon that owns every inference engine on a box a
 
 ## Quick start
 
-On Arch: `paru -S engined`, then follow the install message. Elsewhere:
+Install as above, then:
 
 ```sh
-git clone https://github.com/Rethunk-Tech/engined.git
-cd engined
-bash scripts/install.sh
 mkdir -p ~/.config/engined
 cp config.example.toml ~/.config/engined/config.toml
 $EDITOR ~/.config/engined/config.toml

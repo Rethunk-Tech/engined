@@ -25,6 +25,10 @@ Operator environment (the `--user` unit sets the first two):
 
 ## Install
 
+```sh
+brew install rethunk-tech/tap/engined
+```
+
 On Arch, from the AUR:
 
 ```sh

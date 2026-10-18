@@ -13,13 +13,19 @@ out="$(mkdir -p "${2:?usage: build.sh <x64|arm64> <outdir>}" && cd "$2" && pwd)"
 case "$arch" in
   x64) export ARCH=amd64 ;;
   arm64) export ARCH=arm64 ;;
-  *) echo "build.sh: arch must be x64 or arm64" >&2; exit 2 ;;
+  *)
+    echo "build.sh: arch must be x64 or arm64" >&2
+    exit 2
+    ;;
 esac
 # nfpm runs on this machine, whatever architecture it packages for.
 case "$(uname -m)" in
   x86_64) nfpm_os_arch=x86_64 sha="$NFPM_SHA256_x64" ;;
   aarch64 | arm64) nfpm_os_arch=arm64 sha="$NFPM_SHA256_arm64" ;;
-  *) echo "build.sh: no pinned nfpm for $(uname -m)" >&2; exit 2 ;;
+  *)
+    echo "build.sh: no pinned nfpm for $(uname -m)" >&2
+    exit 2
+    ;;
 esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +48,11 @@ tar -xzf "$work/$tarball" -C "$work" nfpm
 # bun --compile embeds the config UI's page and hashed assets, so the one file is the whole program.
 bun build src/main.ts --compile --splitting --target="bun-linux-$arch" \
   --define "ENGINED_COMMIT=\"${ENGINED_COMMIT:-unknown}\"" --outfile "$work/engined"
+
+# Prebuilt archive for GitHub releases (engined-linux-{amd64,arm64}.tar.gz).
+mtime="$(git -C "$REPO_ROOT" log -1 --format=%ct)"
+tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$mtime" \
+  -C "$work" -cf - engined | gzip -n >"$out/engined-linux-${ARCH}.tar.gz"
 
 install -Dm0755 "$work/engined" "$STAGE/usr/bin/engined"
 # A compiled bun binary acts as bun when BUN_BE_BUN=1, so `x` is bunx.
