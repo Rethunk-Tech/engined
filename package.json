@@ -30,7 +30,7 @@
   "scripts": {
     "schema": "bun -e \"await Bun.write('config.schema.json', (await import('./src/configSchema.ts')).renderConfigSchema())\"",
     "typecheck": "tsc -b --noEmit --pretty false && tsc -p src/configsvc/ui --noEmit --pretty false",
-    "lint": "biome check . && knip",
+    "lint": "biome check --error-on-warnings . && knip",
     "format": "biome check --write .",
     "test": "bun test src --parallel=8 --randomize",
     "build": "rm -rf dist && bun build src/main.ts --target=bun --splitting --define ENGINED_COMMIT=\"\\\"${ENGINED_COMMIT:-unknown}\\\"\" --outdir=dist",
