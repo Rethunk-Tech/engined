@@ -1,31 +1,61 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["ESNext"],
     "module": "Preserve",
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "types": ["bun"],
+    // canon ts-typescript-00001
     "strict": true,
+
+    // canon ts-typescript-00002
     "noUncheckedIndexedAccess": true,
-    "noFallthroughCasesInSwitch": true,
-    "noEmit": true,
-    "incremental": true,
-    "skipLibCheck": true,
-    "verbatimModuleSyntax": true,
-    "resolveJsonModule": true,
-    "noUncheckedSideEffectImports": true,
-    "esModuleInterop": true,
+
+    // canon ts-typescript-00003
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
+
+    // canon ts-typescript-00004
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // canon ts-typescript-00005
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+
+    // canon ts-typescript-00006
     "erasableSyntaxOnly": true,
     "useDefineForClassFields": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noImplicitOverride": true,
-    "noImplicitReturns": true
+
+    // canon ts-typescript-00007
+    "noUncheckedSideEffectImports": true,
+
+    // canon ts-typescript-00008
+    "skipLibCheck": true,
+
+    // canon ts-typescript-00009
+    "noEmit": true,
+
+    // canon ts-typescript-00010
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+
+    // canon ts-typescript-00011
+    "resolveJsonModule": true,
+
+    // canon ts-typescript-00012
+    "esModuleInterop": true,
+
+    // canon ts-typescript-00013
+    "allowJs": false,
+
+    // canon ts-bun-typescript-00002
+    "types": ["bun"],
+
+    "incremental": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"],
   "exclude": ["src/configsvc/ui"]

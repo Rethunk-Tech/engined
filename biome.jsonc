@@ -21,6 +21,14 @@
     ]
   },
 
+  // canon ts-biome-00003
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100
+  },
+
   // canon ts-biome-00024
   // canon ts-bun-biome-00002 — Bun's runtime global is ambient, supplied by @types/bun rather than an import.
   "javascript": {
@@ -30,14 +38,6 @@
       "semicolons": "asNeeded",
       "trailingCommas": "all"
     }
-  },
-
-  // canon ts-biome-00003
-  "formatter": {
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineEnding": "lf",
-    "lineWidth": 100
   },
 
   // canon ts-biome-00004
@@ -61,12 +61,6 @@
         "noTernary": "off",
         // canon ts-biome-00035
         "useExportsLast": "off",
-        // The only JSX is the config UI; it is single-language by design, with no i18n library.
-        "noJsxLiterals": "off",
-        "useBlockStatements": "off",
-        "useComponentExportOnlyModules": "off",
-        "noDescendingSpecificity": "off",
-        "useDefaultSwitchClause": "off",
 
         // canon ts-biome-00007
         "noExcessiveLinesPerFile": {
@@ -113,10 +107,6 @@
       },
 
       "complexity": {
-        // void foo() is how this tree marks an ignored promise; noFloatingPromises is the gate.
-        "noVoid": "off",
-        // Remaining warning-level preset:all hits; off so --error-on-warnings gates errors.
-        "useMaxParams": "off",
         // canon ts-biome-00011
         "noExcessiveLinesPerFunction": {
           "level": "error",
@@ -154,18 +144,7 @@
         "noExplicitAny": "error",
         // canon ts-biome-00005
         "noReactSpecificProps": "off",
-        "noUnnecessaryConditions": "off",
-        // Preact uses DOM names (`class`, SVG presentation attrs), not React's camelCase.
-        "noUnknownAttribute": "off",
-        // Warning-level remainder; re-enable per rule when the tree is clean.
-        "noShadow": "off",
-        "useArraySortCompare": "off",
-        "noUndeclaredEnvVars": "off",
-        "useAwait": "off",
-        "noLeakedRender": "off",
-        "noImportCycles": "off",
-        "noEvolvingTypes": "off",
-        "noEmptyBlockStatements": "off"
+        "noUnnecessaryConditions": "off"
       },
 
       // canon ts-biome-00013 — an unhandled promise is a silent failure, not a style issue.
@@ -186,8 +165,7 @@
         "noImgElement": "off",
         // canon ts-biome-00005
         "noJsxPropsBind": "off",
-        "useSolidForComponent": "off",
-        "useTopLevelRegex": "off"
+        "useSolidForComponent": "off"
       }
     }
   },
@@ -320,7 +298,8 @@
         "**/lib/server/**",
         "**/pages/api/**",
         "**/src/app/api/**",
-        "**/src/server/**"
+        "**/src/server/**",
+        "src/**"
       ],
       "linter": {
         "rules": {
@@ -330,11 +309,6 @@
           }
         }
       }
-    },
-    // A Bun daemon: tsconfig.json states lib ESNext, so none of this reaches a browser.
-    {
-      "includes": ["src/**"],
-      "linter": { "rules": { "correctness": { "noNodejsModules": "off" } } }
     },
     // canon ts-biome-00027 — ambient declarations
     {
