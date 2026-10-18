@@ -109,11 +109,12 @@ Loopback is reachable from any page the operator has open, and a cross-origin
 remote-bearing chain and ship repository content off-machine without ever
 reading the response.
 
-So every request is origin-checked first, on every endpoint including reads. A
-foreign `Origin`, an `Origin: null` (refused rather than treated as absent), or
-a `Host` outside `{127.0.0.1, localhost, [::1]}` at the configured port is
-refused. One middleware. A request carrying no `Origin` is served normally,
-which covers every CLI and server consumer.
+So every request is origin-checked first, on every endpoint including reads. Any
+`Origin` (including `"null"`, refused rather than treated as absent), a
+`Sec-Fetch-Site` other than `none` or `same-origin` (a no-cors GET carries no
+`Origin`), or a `Host` outside `{127.0.0.1, localhost, [::1]}` at the configured
+port is refused. One middleware. A request carrying no `Origin` and no
+`Sec-Fetch-Site` is served normally, which covers every CLI and server consumer.
 
 This is not authentication. It keeps the accepted risk at *reachable only by a
 local process*, which is the case the argument above covers.

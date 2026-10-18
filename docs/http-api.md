@@ -4,10 +4,11 @@ Loopback TCP on **`29200`**, bound on both loopback families. No
 authentication, no tenancy, no TLS — it is local-only. `listen_port`
 overrides the port.
 
-Every request is origin-checked first, on every endpoint including reads: a
-foreign `Origin`, an `Origin: null`, or a `Host` outside
-`{127.0.0.1, localhost, [::1]}` at the configured port is refused. A request
-carrying no `Origin` is served normally, which covers every CLI and server
+Every request is origin-checked first, on every endpoint including reads: any
+`Origin` (including `"null"`), a `Sec-Fetch-Site` other than `none` or
+`same-origin`, or a `Host` outside `{127.0.0.1, localhost, [::1]}` at the
+configured port is refused. A request carrying no `Origin` and no
+`Sec-Fetch-Site` is served normally, which covers every CLI and server
 consumer. See [security-model.md](security-model.md) for why a browser is
 treated as a caller.
 
@@ -25,6 +26,7 @@ treated as a caller.
 | `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed, response_format}` in, `{created, data:[{b64_json}]}` or `{created, data:[{url}]}` out — see [Images](#images) |
 | `/openai/v1/images/edits` | POST | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image) |
 | `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
+| `/openai/v1/models/{id}` | GET | the same row the list would have carried for that address, or 404. The `{id}` is URL-encoded (`@%2Fllama%2Fornith`) |
 | `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
 | `/engined/v1/images/:id` | GET | a render stored for `response_format: "url"` — see [Images](#images) |
 | `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
@@ -34,9 +36,12 @@ treated as a caller.
 | `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
 | `/engined/v1/engines/:id/hold` | POST | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands |
 | `/engined/v1/engines/:id/unhold` | POST | ends a hold early rather than waiting out its TTL |
+| `/engined/v1/engines/:id/obtain` | POST | fetches missing spec `[[artifact]]` files for that engine; SSE `step` / `line` / `exit`. 404 when the spec declares no artifacts, 409 while one is already running |
 | `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
 | `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
 | `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens — snapshot and live frames carry the same `roles[]` as `GET /engined/v1/engines` |
+| `/engined/v1/upstreams/:id/refresh` | POST | fetches that upstream's provider `/models` list now and caches it |
+| `/engined/v1/comfy/:engine/:upstream/...` | GET, POST | mediated Comfy proxy — see [Comfy](#comfy) |
 | `/engined/v1/usage?days=N` | GET | per-day, per-route call totals for the last `N` days (default 7, max 90) — see [Usage](#usage) |
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`

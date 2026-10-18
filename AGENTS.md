@@ -98,7 +98,7 @@ Spec-shipped details that fail silently when dropped (Comfy preview method,
 kokoro entrypoint, whisper `--inference-path`, an agent's `agent` id) belong
 in spec, not operator config. Tunables go in `[engine.args]` / `[route.args]`;
 engined's closed key sets are `ENGINE_KEYS`/`UPSTREAM_KEYS`/`MODEL_KEYS`/
-`ROUTE_KEYS`/`CHAIN_KEYS` in `src/configParse.ts`. Precedence: **route beats
+`ROUTE_KEYS`/`CHAIN_KEYS`/`POTLUCK_KEYS`/`CONFIGSVC_KEYS` in `src/configKeys.ts`. Precedence: **route beats
 engine, config beats spec, floor beats everything.** On remotes,
 `[engine.args]` are wire parameters — see `src/upstream.ts`.
 
@@ -167,8 +167,4 @@ Measured at load average 6 to 15 on 32 cores. `gate` auto-detects six steps (bui
 with knip, actionlint, shellcheck, `bun test src`). CI runs the same six: the four bun tasks
 through turbo, then actionlint and shellcheck, and skips `test:local`; nothing slow is detected
 that CI omits, and nothing CI runs is missing, apart from
-the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize` (it was 9.7 s wall, 4.5
-CPU-s with files run in series: the suite is idle timer waits, so file-level parallelism overlaps
-them). Randomised order caught one order-dependent assertion in `cursorModels.test.ts`, now
-self-contained; three runs after that fix, two of them concurrent, were green with no port, dir or env
-collisions.
+the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize`. The suite is idle timer waits, so file-level parallelism overlaps them. `cursorModels.test.ts` is self-contained so randomised order does not collide on ports, dirs or env.

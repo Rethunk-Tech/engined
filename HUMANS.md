@@ -12,6 +12,17 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 - `secret-tool` (libsecret) for any engine that needs a key
 - For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+
 
+Operator environment (the `--user` unit sets the first two):
+
+| Variable | What it does |
+| --- | --- |
+| `ENGINED_BUNX` | Absolute `bunx`. Unset, a working-tree run uses `bunx` on `PATH`; missing both is fatal at start |
+| `ENGINED_INSTALL_DIR` | Directory holding `main.js` and `engines/`. Packages set `/usr/lib/engined`; `install.sh` uses `$XDG_DATA_HOME/engined`. A relative value is ignored |
+| `ENGINED_BWRAP` | Absolute `bwrap` for opencode's read-only floor. Unset uses `PATH`. A sandbox agent with none found refuses the call |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` | Config (`…/engined/config.toml`), install/models sibling, and writable state. Relative values are ignored |
+| `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` | Claude model discovery: the API key, else the Claude CLI login under `CLAUDE_CONFIG_DIR` or `~/.claude` |
+| `ENGINED_LOCAL` | Set to `1` to run `bun run test:local` against real containers |
+
 ## Install
 
 On Arch, from the AUR:
@@ -116,9 +127,15 @@ curl -s localhost:29200/engined/v1/engines | jq     # state and fix for unavaila
 journalctl --user -u engined -f             # one JSON line per call
 systemctl --user reload engined             # re-read config.toml
 systemctl --user restart engined            # full restart
-engined --doctor                            # host checks, one line each with its fix (--json for tools)
+engined --help                              # every mode below; does not start the door
+engined --doctor [--json]                   # host checks, one line each with its fix
+engined --probe [--json]                    # call the already-serving door; never bind a second one
+engined --engines --json                    # print GET /engined/v1/engines ( --json is required; no text listing)
+engined --prune-config CONFIG --out OUTPUT  # drop duplicate/retired discovery routes; never writes in place
+engined --configsvc                         # config web UI (the engined-configsvc unit)
 engined --configsvc-url                     # URL the config UI logged at its last start
 engined --hash-password                     # one line on stdin -> argon2id hash for [configsvc] password_hash
+engined --caddyfile TEMPLATE OUT            # render the TLS-bridge Caddyfile (the engined-tls unit runs it)
 ```
 
 For a quick per-day, per-route total without folding journald yourself:
@@ -298,13 +315,13 @@ curl -s -X POST localhost:29200/engined/v1/start -H 'content-type: application/j
 ## Uninstall
 
 From the AUR: `systemctl --user disable --now engined engined-probe.timer
-engined-tls.service`, then `pacman -Rns engined` (or `engined-git`).
+engined-tls.service engined-configsvc.service`, then `pacman -Rns engined` (or `engined-git`).
 
 From a clone:
 
 ```sh
-systemctl --user disable --now engined engined-probe.timer engined-tls.service
-rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-probe.* ~/.config/systemd/user/engined-tls.service
+systemctl --user disable --now engined engined-probe.timer engined-tls.service engined-configsvc.service
+rm ~/.config/systemd/user/engined.service ~/.config/systemd/user/engined-probe.* ~/.config/systemd/user/engined-tls.service ~/.config/systemd/user/engined-configsvc.service
 systemctl --user daemon-reload
 rm -rf ~/.local/share/engined
 docker rm -f engined-tls

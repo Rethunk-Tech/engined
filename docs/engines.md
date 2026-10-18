@@ -317,7 +317,7 @@ back its own load.
 **Both routes are English-only.** Neither pins `-l` (language stays a
 per-request field), but a request naming another language is still decoded by
 English-trained weights. Non-English work belongs on the remote STT engine,
-or on a multilingual model that is not currently configured.
+or on a multilingual model this config does not name.
 
 Both routes mount the same `models_dir`, so the Silero VAD model both load
 is one file on disk, not two.

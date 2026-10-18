@@ -28,10 +28,10 @@ arrays. A missing `config.d` directory is normal and silent — most installs
 have no fragments. A name starting with `.` is never read, so an editor's lock
 or swap file (`.#foo.toml`) cannot break a reload.
 
-A fragment may declare only those five arrays; `listen_port` and every other
-file-root scalar key is a parse error naming the fragment, since a fragment
-scalar would otherwise silently shadow or fight the main file's depending on
-merge order. Every other rule — unknown keys, a duplicate `id`, a route that
+A fragment may declare only those five arrays; `listen_port`, `[potluck]`,
+`[configsvc]`, and every other file-root key is a parse error naming the
+fragment, since a fragment scalar or table would otherwise silently shadow or
+fight the main file's depending on merge order. Every other rule — unknown keys, a duplicate `id`, a route that
 does not resolve, a `filename` outside `models_dir` — runs on the merged
 result exactly as if everything had been declared in one file, and still
 names the file the offending entry actually came from.
@@ -57,38 +57,43 @@ engine.
 ## The closed key set
 
 Only keys engined's own logic reads stay first-class, and that list is closed
-per table and at the file root — `src/configParse.ts`'s `TOP_KEYS`,
-`ENGINE_KEYS`, `UPSTREAM_KEYS`, `MODEL_KEYS`, `ROUTE_KEYS` and `CHAIN_KEYS`
-each enforce their own. A typo'd key (`listen_prot`, `[[routes]]`,
-`[[engines]]`) is a parse error by design rather than a silent no-op.
-`listen_port` and `cursor_port` are integers 1–65535 and must differ.
-Second-valued keys that would overflow `setTimeout` (above 2147483) are a
-parse error naming the key.
+per table and at the file root — `src/configKeys.ts`'s `TOP_KEYS`,
+`ENGINE_KEYS`, `UPSTREAM_KEYS`, `MODEL_KEYS`, `ROUTE_KEYS`, `CHAIN_KEYS`,
+`POTLUCK_KEYS` and `CONFIGSVC_KEYS` each enforce their own. A typo'd key
+(`listen_prot`, `[[routes]]`, `[[engines]]`) is a parse error by design rather
+than a silent no-op. `listen_port` and `cursor_port` are integers 1–65535 and
+must differ. Second-valued keys that would overflow `setTimeout` (above
+2147483) are a parse error naming the key.
 
 | Key | Applies to |
 | --- | --- |
 | `listen_port`, `cursor_port` | file root — integers 1–65535, must differ. Defaults 29200 and 29201. `deploy/Caddyfile.cursor` proxies those same two backends; a changed port is a changed Caddyfile, or the TLS bridge aims at a listener that is not there |
-| `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling) |
+| `chat_timeout_seconds`, `agent_timeout_seconds` | file root — must be greater than 0 and at most 2147483 (`setTimeout`'s signed-32-bit millisecond ceiling). Defaults 600 and 3600 |
 | `stream_stall_seconds` | file root — same bounds, default 60. A streamed llama answer whose client holds the socket open but has read nothing for this long while a chunk waits is aborted: the upstream is cancelled, the lease released, and provenance records the attempt as a client stall |
 | `agentic_concurrency` | file root — positive integer, default 4. Live dispatch-path agentic launches; a further call is 429 with `Retry-After` |
-| `id` | every `[[engine]]`, `[[upstream]]` and `[[chain]]` — a `[[route]]` has no id. An engine or upstream id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`: it becomes a state path (`llama/<id>/preset.ini`, `upstreams/<id>/inventory.json`), so `/`, `..` or a leading dot is a parse error |
+| `[potluck]` (`callback_url`, `callback_secret`) | file root — where a donated upstream's liveness is posted. Both keys are required when the table is present; `callback_secret` names `service` and `username` (no `header`: the callback bearer is not an upstream secret) |
+| `[configsvc]` (`enable`, `host`, `port`, `password_hash`) | file root — the config web UI. Defaults: `enable` false, `host` `127.0.0.1`, `port` 29202. `password_hash` is an argon2id hash from `engined --hash-password`; absent, the unit mints a one-time token at start. `port` must differ from `listen_port` and `cursor_port`. `host` is the name clients dial, not a bind address: the UI always listens on loopback |
+| `id` | every `[[engine]]`, `[[upstream]]`, `[[model]]` and `[[chain]]` — a `[[route]]` has no id. An engine or upstream id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`: it becomes a state path (`llama/<id>/preset.ini`, `upstreams/<id>/inventory.json`), so `/`, `..` or a leading dot is a parse error |
 | `disable` | every `[[engine]]`, `[[upstream]]`, `[[route]]` and `[[chain]]` |
 | `spec_dir` | override the shipped spec directory (a privilege decision — see [security-model.md](security-model.md)) |
 | `models_dir` | engines with a host model tree |
 | `models_max` | llama resident-model budget across roles; fatal below the number of distinct `keep_resident` roles on enabled local routes |
 | `devices`, `group_add` | `[[engine]]`, container engines only (a parse error elsewhere) — string arrays that replace the spec's `devices` / `group_add` for this engine's container, llama and comfy included. An empty array means none, for a box without a ROCm GPU; absent leaves the spec's value. Torch-based images (comfy, kokoro, the chatterbox pair) take `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` for a CPU build |
 | `env` | `[[engine]]` as an `[engine.env]` table, container engines only (a parse error elsewhere) — string keys matching `[A-Za-z_][A-Za-z0-9_]*` to string values (a number or boolean is a parse error naming the key). Merged over the spec's `env`: a key replaces the spec entry of the same name, the rest append. Engines whose `command` is image-defined (kokoro, piper) refuse `[engine.args]`; this is how they are tuned: kokoro reads `KOKORO_VOICE` (default `af_heart`) and `KOKORO_LANG_CODE` (`a` or `b`, default `a`) and refuses to start on anything else |
-| `idle_stop_seconds` | how long an engine may sit unheld before it stops |
+| `args` | `[[engine]]` as `[engine.args]`, and `[[route]]` as `[route.args]` — see [Args](#args) |
+| `idle_stop_seconds` | how long an engine may sit unheld before it stops. Default 900 |
 | `ready_timeout_s` | how long a start may take to pass its readiness probe |
 | `drain_timeout_seconds` | how long a submission waits for the engine to be free before it is refused. Only the comfy proxy holds submissions, which is what makes an unscoped `/interrupt` safe — see [http-api.md](http-api.md#comfy). Not a render-length estimate: it is the ceiling that stops a wedged container parking every later submission forever, so it is the key to raise when a real render legitimately runs past it. Must be greater than zero — `0` is refused at load rather than read as "never try". Default 15 minutes |
 | `agent_version` | agentic engines; substituted as `{agent_version}`, never `@latest` |
 | `kind` | an engine that ships no spec directory and takes a built-in spec |
 | `base_url`, `secret`, `egress`, `wire` | `[[upstream]]` only — where the bytes come from and what wire shape it speaks (`"openai"` or `"anthropic"`). The id `local` is reserved for this box: declaring it with a `base_url` or `secret` is a parse error, so no config or learned name can point it off-machine |
-| `default_model`, `model_refresh_seconds` | `[[engine]]` for `claude` and `cursor` only, the engines whose provider can be asked what it serves. Discovery lays the provider's models under the declared `[[route]]`s (a declared route for the same model wins; `disable = true` hides it), caches the list in the state dir, and refreshes it every `model_refresh_seconds` (default 3600), logging `models: <engine>: found N, added A, removed R` or `unchanged`. A failed refresh (no network, a rejected or expired Claude login) keeps the previous list and logs `models: <engine>: refresh failed (<reason>); keeping N cached, fetched M min ago`; that age, or a failure line repeating every interval, is how to tell the list is stale. An engine with no `[[route]]` at all is served entirely from discovery. `opencode` has no discovery: `opencode models` lists opencode's own cloud providers (measured 2026-10-11, 0.9 s, 1.19.0), but an engined opencode route is a brain engined dials back through its own door (`wire_model = "@/llama/ornith"`), so a provider model opencode lists would bypass the door's egress and accounting; its routes stay declared. `default_model` is the route `model` the menu marks `default`; absent, it is the newest Sonnet (claude) or the model Cursor itself marks default |
+| `default_model`, `model_refresh_seconds` | `[[engine]]` for `claude` and `cursor` only, the engines whose provider can be asked what it serves. Discovery lays the provider's models under the declared `[[route]]`s (a declared route for the same model wins; `disable = true` hides it), caches the list in the state dir, and refreshes it every `model_refresh_seconds` (default 3600), using `ANTHROPIC_API_KEY` or the Claude CLI login under `CLAUDE_CONFIG_DIR` (else `~/.claude`) for claude, logging `models: <engine>: found N, added A, removed R` or `unchanged`. A failed refresh (no network, a rejected or expired Claude login) keeps the previous list and logs `models: <engine>: refresh failed (<reason>); keeping N cached, fetched M min ago`; that age, or a failure line repeating every interval, is how to tell the list is stale. An engine with no `[[route]]` at all is served entirely from discovery. `opencode` has no discovery: `opencode models` lists opencode's own cloud providers (measured 2026-10-11, 0.9 s, 1.19.0), but an engined opencode route is a brain engined dials back through its own door (`wire_model = "@/llama/ornith"`), so a provider model opencode lists would bypass the door's egress and accounting; its routes stay declared. `default_model` is the route `model` the menu marks `default`; absent, it is the newest Sonnet (claude) or the model Cursor itself marks default |
 | `inventory_max_age_seconds`, `inventory_refresh_seconds` | `[[upstream]]` only — how long a cached provider `/models` list stays usable, and how often to re-fetch it (default 3600). Max age is required when a wildcard route names this upstream, must be greater than zero, and refresh must be less than max age |
 | `headers` | `[[upstream]]` only — extra string headers sent on every remote hop. The motivating case is `anthropic-version`. Keys that would override the auth header `secret` names, and `Host`, are refused at parse (case-insensitive) |
-| `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value |
-| `engine`, `upstream`, `model`, `wire_model`, `display_name`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming`, `input`, `output`, `context_in`, `context_out`, `reasoning` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `display_name` is a human label a client may show; it is not an address and is omitted from `/openai/v1/models` when unset. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can. `input` / `output` are modality lists, `context_in` / `context_out` are token windows, and `reasoning` is the effort words this route accepts — the same capability fields a `[[model]]` row may declare, overridden here when a provider tier genuinely differs |
+| `fingerprint` | `[[upstream]]` only — a potluck donation's identity, 64 lowercase hex characters. Present only on an upstream this box did not declare as its own |
+| `monthly_cap_usd` | `[[upstream]]` only — cost ceiling per UTC month, from the cost the upstream itself reports. A hop that would exceed it is skipped |
+| `scheme` on `secret` | the auth prefix (e.g. `"Bearer"`) a provider expects before the resolved credential; absent means the header carries the raw value. `secret` itself is `service`, `username`, and `header` |
+| `engine`, `upstream`, `model`, `wire_model`, `display_name`, `filename`, `role`, `vision`, `translate`, `keep_resident`, `streaming`, `input`, `output`, `context_in`, `context_out`, `reasoning` | `[[route]]` — the pairing itself, and everything specific to it. `model = "*"` is the catalog wildcard: legal only on a remote `openai-http` engine (no `models_dir`), and it forbids `filename`, `role`, `vision`, `translate`, `fim`, `keep_resident`, `wire_model`, `slot_long_threshold`, `vision_bridge` and `[route.args]`. `@/engine/*` is not a served address. `wire_model` is the id the upstream actually knows, sent on the wire in `model`'s place, for when that real id contains a `/` the address grammar cannot carry. `display_name` is a human label a client may show; it is not an address and is omitted from `/openai/v1/models` when unset. `streaming` overrides the engine spec's own answer for this one route, for a provider tier that cannot chunk what its siblings can. `input` / `output` are modality lists, `context_in` / `context_out` are token windows, and `reasoning` is the effort words this route accepts — the same capability fields a `[[model]]` row may declare, overridden here when a provider tier genuinely differs |
 | `fim` | `[[route]]`, a local llama route only — opts the route into `POST /openai/v1/completions`, llama-server's fill-in-the-middle over `/infill`. Answers alongside chat on the same route rather than claiming a role of its own — see [http-api.md § Fill-in-the-middle](http-api.md#fill-in-the-middle) |
 | `slot_long_threshold` | `[[route]]`, a local llama route whose merged `parallel` is `>= 2` — the vocab-only token count at or above which a request is placed on a LONG slot rather than a SHORT one. Default 4096 — see [tuning.md § Cache-aware slot placement](tuning.md#cache-aware-slot-placement) |
 | `vision_bridge` | `[[route]]`, a `role = "chat"` route only — the address of a `role = "vision"` route on the same box that bridges an image attachment into a caption before dispatch, parse error on a route that is not `role = "chat"` and fatal at load if it does not resolve to a served `role = "vision"` route — see [http-api.md § Vision bridge](http-api.md#vision-bridge) |
@@ -187,9 +192,9 @@ with no `[[model]]` row at all.
 | --- | --- | --- |
 | `[[route]]` on a llama engine | `engine`, `upstream`, `model`, `filename`, `role` | — |
 | `[[route]]` on an agentic engine | `engine` | `filename`, `role` |
-| `[[route]]` wildcard (`model = "*"`) | `engine`, `upstream`, `model` | `filename`, `role`, `vision`, `translate`, `keep_resident`, `wire_model`, `[route.args]` |
+| `[[route]]` wildcard (`model = "*"`) | `engine`, `upstream`, `model` | `filename`, `role`, `vision`, `translate`, `fim`, `keep_resident`, `wire_model`, `slot_long_threshold`, `vision_bridge`, `[route.args]` |
 | `[[engine]]`, every kind | `id` | — |
-| `[[upstream]]`, an address only | `id`, `egress`, `base_url`, `secret` | — |
+| `[[upstream]]`, an address only | `id`, `egress`; a missing `base_url` parses and refuses at dispatch | — |
 | `[[upstream]]` named by a wildcard | `inventory_max_age_seconds` | — |
 
 `filename` and `role` are absent from an agentic route because both exist to
