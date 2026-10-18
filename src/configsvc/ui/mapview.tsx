@@ -213,6 +213,7 @@ export function MapView() {
           {(
             [
               ['Chain', MAP_COLOURS.chain],
+              ['Model', MAP_COLOURS.model],
               ['Engine', MAP_COLOURS.engine],
               ['Upstream', MAP_COLOURS.upstream],
             ] as const

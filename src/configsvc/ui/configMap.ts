@@ -1,4 +1,4 @@
-/** The pending config as a Mermaid flowchart: chains reach engines through their hops, engines reach upstreams through their routes. */
+/** The pending config as a Mermaid flowchart: chains reach engines through the models their hops name, engines reach upstreams through their routes. */
 import type { EngineKind } from '../../types.ts'
 import { candidates } from './addresses.ts'
 import type { Doc, Table } from './model.ts'
@@ -30,7 +30,12 @@ const EGRESS_GROUPS = [
 ] as const
 
 /** One colour per kind of entry, shared by the chart's groups and the Map's legend. */
-export const MAP_COLOURS = { chain: '#b48cff', engine: '#5b9dff', upstream: '#3fb8af' } as const
+export const MAP_COLOURS = {
+  chain: '#b48cff',
+  model: '#f0b44c',
+  engine: '#5b9dff',
+  upstream: '#3fb8af',
+} as const
 
 /** A group's tint: a translucent fill of its colour, outlined in it. */
 const tint = (id: string, colour: string) => `  style ${id} fill:${colour}26,stroke:${colour}`
@@ -41,36 +46,48 @@ const group = (id: string, title: string, nodes: string[]): string[] =>
     ? []
     : [`  subgraph ${id} [${label(title)}]`, ...nodes.map((n) => `    ${n}`), '  end']
 
-/** One edge per hop to every engine the hop can reach; an unresolvable hop points at a marked node. */
+/**
+ * One node per model a hop names, shared by every chain that names it: the map shows which
+ * chains reach which models, not hop order. A hop naming another chain links the two chains.
+ */
 function chainEdges(
   doc: Doc,
   upstreamOf: UpstreamOf,
   engineNode: Map<string, string>,
-): { edges: string[]; missing: string[] } {
+): { edges: string[]; models: string[] } {
   const chainNode = new Map(doc.chain.map((c, i) => [`@/${String(c.id)}`, `c${i}`]))
-  const edges: string[] = []
-  const missing: string[] = []
+  const modelNode = new Map<string, { id: string; resolved: boolean }>()
+  const models: string[] = []
+  const edges = new Set<string>()
   doc.chain.forEach((c, i) => {
     const hops = Array.isArray(c.hops)
       ? c.hops.filter((h): h is string => typeof h === 'string')
       : []
-    hops.forEach((hop, n) => {
-      const via = label(`${n + 1}. ${hop}`)
+    for (const hop of hops) {
       const chained = chainNode.get(hop)
-      const engines = new Set(candidates(doc, hop, upstreamOf).map((r) => String(r.engine)))
-      const targets =
-        chained === undefined ? [...engines].flatMap((e) => engineNode.get(e) ?? []) : [chained]
-      if (targets.length === 0) {
-        const node = `x${missing.length}`
-        missing.push(`  ${node}[${label(`${hop}<br/><small>unresolved</small>`)}]:::bad`)
-        edges.push(`  c${i} -. ${via} .-> ${node}`)
+      if (chained !== undefined) {
+        edges.add(`  c${i} --> ${chained}`)
+        continue
       }
-      for (const target of targets) {
-        edges.push(`  c${i} -- ${via} --> ${target}`)
+      let model = modelNode.get(hop)
+      if (model === undefined) {
+        const engines = new Set(candidates(doc, hop, upstreamOf).map((r) => String(r.engine)))
+        const targets = [...engines].flatMap((e) => engineNode.get(e) ?? [])
+        model = { id: `m${modelNode.size}`, resolved: targets.length > 0 }
+        modelNode.set(hop, model)
+        models.push(
+          model.resolved
+            ? `${model.id}[${label(hop)}]`
+            : `${model.id}[${label(`${hop}<br/><small>unresolved</small>`)}]:::bad`,
+        )
+        for (const target of targets) {
+          edges.add(`  ${model.id} --> ${target}`)
+        }
       }
-    })
+      edges.add(model.resolved ? `  c${i} --> ${model.id}` : `  c${i} -.-> ${model.id}`)
+    }
   })
-  return { edges, missing }
+  return { edges: [...edges], models }
 }
 
 /** One edge per engine and upstream pair, labelled with its route count; dashed when every route on it is disabled. */
@@ -144,13 +161,14 @@ export function configMermaid(
       'Chains',
       doc.chain.map((c, i) => `c${i}([${label(`@/${String(c.id)}`)}])`),
     ),
+    ...group('Models', 'Models', chains.models),
     ...engineGroups,
     ...upstreamGroups,
     ...chains.edges,
     ...routes.edges,
-    ...chains.missing,
     ...ungrouped,
     ...doc.chain.slice(0, 1).map(() => tint('Chains', MAP_COLOURS.chain)),
+    ...chains.models.slice(0, 1).map(() => tint('Models', MAP_COLOURS.model)),
     ...engineGroups
       .flatMap((l) => l.match(SUBGRAPH_ID_RE)?.slice(1) ?? [])
       .map((id) => tint(id, MAP_COLOURS.engine)),
