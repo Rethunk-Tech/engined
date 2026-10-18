@@ -95,9 +95,9 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
   ): Promise<{ cookie?: string; refusal?: Response }> => {
     const session = await auth.login(secret, client)
     if (session === 'limited') {
-      return {
-        refusal: jsonError(STATUS_TOO_MANY_REQUESTS, 'too many failed attempts; wait a minute'),
-      }
+      const refusal = jsonError(STATUS_TOO_MANY_REQUESTS, 'too many failed attempts; wait a minute')
+      refusal.headers.set('Retry-After', '60')
+      return { refusal }
     }
     return session === undefined
       ? { refusal: jsonError(STATUS_UNAUTHORIZED, 'wrong credentials') }

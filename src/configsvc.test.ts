@@ -63,6 +63,7 @@ async function harness(
       secrets: {
         present: async (service) => service === 'have',
         store: async () => ({ ok: true }),
+        clear: async () => ({ ok: true }),
       },
       audit: (line) => audit.push(line),
       fetch: Object.assign(
@@ -151,7 +152,9 @@ test('with a password hash, login works until five failures a minute lock the cl
   for (let i = 0; i < 5; i++) {
     expect((await login('wrong')).status).toBe(401)
   }
-  expect((await login('hunter2')).status).toBe(429)
+  const locked = await login('hunter2')
+  expect(locked.status).toBe(429)
+  expect(locked.headers.get('Retry-After')).toBe('60')
   h.clock.now += 61_000
   const ok = await login('hunter2')
   expect(ok.status).toBe(200)

@@ -94,6 +94,15 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
       setResult(err instanceof Error ? err.message : String(err))
     }
   }
+  const clear = async () => {
+    try {
+      await call('/api/secret/clear', { service: ref.service, username: ref.username })
+      setResult('cleared')
+      await loadSecrets()
+    } catch (err) {
+      setResult(err instanceof Error ? err.message : String(err))
+    }
+  }
   return (
     <div class="argsbox">
       <span class="section-title">secret</span>{' '}
@@ -126,6 +135,11 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
           <button type="button" class="small" disabled={value === ''} onClick={store}>
             Store
           </button>
+          {row?.present === true ? (
+            <button type="button" class="small" onClick={() => void clear()}>
+              Clear
+            </button>
+          ) : null}
           {result === undefined ? null : <span class="muted small-text">{result}</span>}
         </div>
       )}

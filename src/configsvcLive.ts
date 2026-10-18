@@ -21,6 +21,7 @@ import {
   CONTENT_ENDPOINT_RERANK,
   CONTENT_ENDPOINT_SPEECH,
   CONTENT_ENDPOINT_TRANSCRIPTIONS,
+  CONTENT_ENDPOINT_TRANSLATIONS,
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
 import type { Config } from './types.ts'
@@ -254,6 +255,17 @@ async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response>
   })
 }
 
+async function clearSecret(req: Request, deps: ConfigsvcDeps): Promise<Response> {
+  const body = await readJson(req)
+  if (!(body && nonEmpty(body.service) && nonEmpty(body.username))) {
+    return jsonError(STATUS_BAD_REQUEST, '"service" and "username" are required strings')
+  }
+  const cleared = await deps.secrets.clear(body.service, body.username)
+  return Response.json(cleared.ok ? { ok: true } : { ok: false, error: cleared.error }, {
+    status: cleared.ok ? 200 : STATUS_BAD_GATEWAY,
+  })
+}
+
 interface RouteCheck {
   path: string
   body: string | FormData
@@ -311,11 +323,16 @@ function cheapCheck(model: string, serves: readonly string[]): RouteCheck | unde
   if (serves.includes(CONTENT_ENDPOINT_SPEECH)) {
     return { ...json(CONTENT_ENDPOINT_SPEECH, { input: 'ping' }), json: false }
   }
-  if (serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS)) {
+  const stt = serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS)
+    ? CONTENT_ENDPOINT_TRANSCRIPTIONS
+    : serves.includes(CONTENT_ENDPOINT_TRANSLATIONS)
+      ? CONTENT_ENDPOINT_TRANSLATIONS
+      : undefined
+  if (stt !== undefined) {
     const form = new FormData()
     form.set('model', model)
     form.set('file', silentWav(), 'ping.wav')
-    return { path: CONTENT_ENDPOINT_TRANSCRIPTIONS, body: form, json: true }
+    return { path: stt, body: form, json: true }
   }
   return undefined
 }
@@ -458,6 +475,8 @@ export function liveApi(
   switch (path) {
     case '/api/secret':
       return storeSecret(req, deps)
+    case '/api/secret/clear':
+      return clearSecret(req, deps)
     case '/api/test-route':
       return testRoute(req, deps)
     case '/api/inventory':

@@ -9,6 +9,8 @@ export interface SecretTool {
     username: string,
     value: string,
   ) => Promise<{ ok: boolean; error?: string }>
+  /** Drops the item. Already-absent is success: `secret-tool clear` exits 1 with empty stderr when there is nothing to delete. */
+  clear: (service: string, username: string) => Promise<{ ok: boolean; error?: string }>
 }
 
 export const secretTool: SecretTool = {
@@ -35,6 +37,21 @@ export const secretTool: SecretTool = {
       await proc.stdin.end()
       const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
       return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || `exit ${code}` }
+    } catch (err) {
+      return { ok: false, error: errMessage(err) }
+    }
+  },
+  async clear(service, username) {
+    try {
+      const proc = Bun.spawn(['secret-tool', 'clear', 'service', service, 'username', username], {
+        stdout: 'ignore',
+        stderr: 'pipe',
+      })
+      const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+      if (code === 0 || stderr.trim().length === 0) {
+        return { ok: true }
+      }
+      return { ok: false, error: stderr.trim() || `exit ${code}` }
     } catch (err) {
       return { ok: false, error: errMessage(err) }
     }
