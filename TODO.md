@@ -69,44 +69,6 @@ The schema and the door's potluck post stay as they are.
   error.
 - `gate` stays green.
 
-## CopyButton swallows a clipboard failure
-
-`CopyButton` (`src/configsvc/ui/widgets.tsx:9`) sets `done` on a successful
-`writeText` and shows "Copied". The `catch` at `:16` only clears `done`. A
-non-secure context, or a browser that refused clipboard permission, leaves
-the button labeled Copy with no reason. Loopback is a secure context, so this
-is rare, but the failure path has no message.
-
-One extra state, the same 1200 ms flash: on catch, show "Copy failed" (or
-keep the existing label and set `title` to the error). Do not invent a toast.
-
-Rejected: a fallback `textarea` + `execCommand('copy')`. The button already
-documents that loopback is enough.
-
-### Read
-
-1. `src/configsvc/ui/widgets.tsx:9` `CopyButton` — the only clipboard writer
-   in the UI.
-2. Call sites (`chains.tsx`, `engines.tsx`, `upstreams.tsx`, `routes.tsx`,
-   `addressbook.tsx`, `models.tsx`, `doctor.tsx`, `mapview.tsx`) — they pass
-   `label`/`title` and must keep working when copy succeeds.
-
-### Traps
-
-- **`done` is overloaded.** A boolean cannot say Copied versus failed. A
-  third value, or a separate `failed` flag, is required or success and
-  failure flash the same word.
-- **Secure-context is the common case.** A test that always fails copy is
-  lying about loopback. Inject `writeText`, do not depend on the real
-  clipboard.
-
-### Acceptance
-
-- A rejected `writeText` shows a failure label (or title) for ~1200 ms, then
-  returns to `label ?? 'Copy'`.
-- A successful copy still shows "Copied" and does not show the failure word.
-- `gate` stays green.
-
 ## A known configsvc path asked with the wrong method is 404
 
 The door names every method a path serves (`src/main.ts` `allowFor`,
