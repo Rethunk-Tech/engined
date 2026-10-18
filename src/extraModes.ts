@@ -4,6 +4,7 @@ import process from 'node:process'
 import { version } from '../package.json' with { type: 'json' }
 import { caddyfileExit } from './caddyfile.ts'
 import { enginesExit, probeExit } from './cliModes.ts'
+import { completionExit, manExit } from './completion.ts'
 import { pruneCli } from './configPrune.ts'
 import { configsvcUrlExit, hashPasswordExit } from './configsvcCli.ts'
 import { configsvcMain } from './configsvcMain.ts'
@@ -11,7 +12,7 @@ import { doctorExit } from './doctor.ts'
 import { FatalError } from './errors/fatal.ts'
 import { writeToStdout } from './provenance.ts'
 
-const HELP = [
+export const HELP = [
   'usage: engined [flags] <command>',
   'commands:',
   '  --probe [--json]          call the already-serving door; never bind a second one',
@@ -139,8 +140,24 @@ function parseArgv(argv: readonly string[]): ParsedCli {
   }
 }
 
+/** argv after the runtime and the entry script (`bun src/main.ts …` or a compiled binary). */
+function userArgs(argv: readonly string[]): string[] {
+  const [, second, ...rest] = argv
+  if (second !== undefined && (second.endsWith('.ts') || second.endsWith('.js'))) {
+    return rest
+  }
+  return second === undefined ? [] : [second, ...rest]
+}
+
 /** The exit code of a mode that ran, or `undefined` when `argv` names none of them. */
 export async function extraModeExit(argv: readonly string[]): Promise<number | undefined> {
+  const [head, ...tail] = userArgs(argv)
+  if (head === 'completion') {
+    return completionExit(tail, HELP, writeToStdout)
+  }
+  if (head === 'man') {
+    return manExit(tail, HELP, writeToStdout)
+  }
   const parsed = parseArgv(argv)
   if (parsed.help) {
     writeToStdout(HELP)
