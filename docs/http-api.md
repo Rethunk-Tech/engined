@@ -141,7 +141,7 @@ and splits the two backends. Caddy mints an internal CA; point
 `NODE_EXTRA_CA_CERTS` at the root the container writes under the state
 directory (`…/caddy/caddy/pki/authorities/local/root.crt`). The Caddyfile
 backend ports must match `listen_port` and `cursor_port`. See
-[security-model.md § The Cursor TLS bridge](security-model.md#the-cursor-tls-bridge-is-a-network-listener).
+[security-model.md § Anyone who reaches the door](security-model.md#anyone-who-reaches-the-door-has-all-of-it).
 
 ## Error bodies
 

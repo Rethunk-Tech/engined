@@ -67,7 +67,7 @@ valid config does not set `[configsvc] enable = true`.
 
 When Docker is on `PATH`, install also enables `engined-tls.service`: a
 `engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
-can speak TLS. See [docs/security-model.md § The Cursor TLS bridge](docs/security-model.md#the-cursor-tls-bridge-is-a-network-listener).
+can speak TLS. See [docs/security-model.md § Anyone who reaches the door](docs/security-model.md#anyone-who-reaches-the-door-has-all-of-it).
 
 Completions (bash, zsh, fish, PowerShell) and a man page are
 `engined-completions-man.tar.gz`:

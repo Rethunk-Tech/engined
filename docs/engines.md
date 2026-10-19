@@ -62,76 +62,26 @@ neither usable here. ~29 GB. Runs `ChatterboxMultilingualTTS`, whose
 
 ### Chatterbox Turbo (`chatterbox-en`)
 
-`engines/chatterbox-en/`. The same base and ROCm posture as Chatterbox
-Multilingual, but a different checkpoint -- `ResembleAI/chatterbox-turbo`,
-whose diffusion decoder runs one step where the multilingual model runs ten.
-Runs `ChatterboxTurboTTS`, whose `generate()` takes no language parameter at
-all -- English-only by construction, not by convention: a Japanese sentence
-fed to it produces 15.76s of degenerate babble against 2.76s of correct audio
-from the multilingual model on the same input. Kept alongside Chatterbox
-Multilingual rather than replacing it; both images ship.
+`engines/chatterbox-en/`. The same base and ROCm posture as Chatterbox Multilingual with the
+`ResembleAI/chatterbox-turbo` checkpoint, whose diffusion decoder runs one step where the
+multilingual model runs ten. `ChatterboxTurboTTS.generate()` takes no language, so it is
+English only by construction (other languages come out as babble), and both images ship.
 
-It is the faster of the two chatterbox engines, and the only chatterbox that
-runs faster than realtime here. It is not the fastest TTS engine on this box:
-kokoro is an order of magnitude ahead of it (see the cross-engine table below),
-and piper further still.
+It is the only chatterbox faster than realtime here. `MIOPEN_FIND_MODE=FAST`
+(`engines/chatterbox-shared/Dockerfile`) roughly halves synthesis time: MIOpen's default search
+falls back to `GemmFwdRest` for the vocoder's convolutions, and FAST skips that search; the other
+modes match the default. Float16 or bfloat16 autocast is slower on this box, and fewer
+`n_cfm_timesteps` clips the output.
 
-`MIOPEN_FIND_MODE` measured, median of three runs after warm-up, same input:
+Turbo's output is markedly quieter than the multilingual model's (peak about 0.4 against 0.9), so
+a consumer switching between them hears a level change.
 
-| engine | `MIOPEN_FIND_MODE` | RTF | realtime |
-| ------ | ------ | ------ | ------ |
-| chatterbox-multi | default | 2.48 | 0.40x |
-| chatterbox-multi | FAST | 1.06 | 0.94x |
-| chatterbox-en | default | 1.29 | 0.78x |
-| chatterbox-en | FAST | 0.62 | 1.52-1.60x |
+### Relative TTS speed
 
-### Every TTS engine, same input, measured in isolation
-
-One 123-character phrase, warm, with every other engine container stopped so
-nothing shares the GPU:
-
-| engine | x realtime | reps |
-| ------ | ------ | ------ |
-| piper | 26.7-34.9x | 4 |
-| kokoro | 21.1x (+/-0.5%) | 8 |
-| chatterbox-en | 1.5-1.6x | 4 |
-| chatterbox-multi | 0.8-0.9x | 4 |
-
-**kokoro is the second-fastest engine here, not a slow one.** Its reputation
-for latency came from a 1.24s time to first byte that was per-shape kernel
-compilation, not throughput -- see `engines/kokoro/app.py`. Nothing recorded
-its actual rate until this table.
-
-**These are isolated-engine ceilings.** Idle co-residency is free -- kokoro
-measures 21x alone and 20-21x with chatterbox resident -- but a second engine
-actively synthesizing costs 10-30%. A ratio quoted without saying what else was
-running is not reproducible.
-
-Piper's ~46x elsewhere in this document is its long-input figure; the 123-char
-phrase above puts it near 32x, and a one-line reply lower again.
-
-**These ratios are a ceiling, not a budget.** They were taken on input long
-enough to amortize a fixed per-request cost; on a short reply the same engine
-measures well below them -- chatterbox-en lands at 0.86-1.20x on a 12-char
-input and 1.11-1.16x on 41 chars. Still realtime or better, but do not size a
-short-reply latency budget from the headline figure.
-
-Roughly half the gain is the model and half is `MIOPEN_FIND_MODE=FAST`, set in
-this image's Dockerfile. MIOpen's default search picks a `GemmFwdRest`
-fallback for the vocoder's convolutions and warns that it was handed no
-workspace; FAST skips that search. `NORMAL`, `HYBRID` and `DYNAMIC_HYBRID` all
-measured indistinguishable from the default, so this is one specific mode
-rather than a tuning dial.
-
-Two things that were measured and did **not** help, recorded so they are not
-retried: autocast to float16 or bfloat16 made synthesis ~1.5x *slower* (and
-bfloat16 tripped a token-repetition warning), despite gfx1151's known float32
-throughput gap; and cutting `n_cfm_timesteps` to 1 moved RTF only ~6% while
-driving peak amplitude to 1.40, which clips.
-
-Turbo's output is markedly quieter than the multilingual model's -- peak
-around 0.33-0.45 against 0.83-1.00 -- so a consumer switching between them
-hears a level change.
+Piper and kokoro run tens of times faster than realtime, chatterbox-en a little faster than
+realtime and chatterbox-multi a little slower. These are ceilings for long input with nothing else
+on the GPU: a short reply pays a fixed per-request cost, and a second engine synthesizing at the
+same time costs 10-30% (an idle resident engine costs nothing).
 
 ### Kokoro
 
@@ -149,116 +99,12 @@ Being a ROCm engine, it contends for the box's single GPU like ComfyUI and
 llama.cpp do. Piper is the CPU voice, and that is the reason to reach for it
 instead when speech has to run while a large GGUF stays resident.
 
-#### Time-to-first-audio: the floor was MIOpen, not FLOPs
+#### Time to first audio
 
-Kokoro's own vocoder (`KModel.decoder`, an ISTFTNet-style HiFi-GAN) yields one
-array per sentence, so with `chunks: true` any RTF win lands directly on
-TTFB. Profiling on this box (gfx1151/ROCm 7.2) found the ~1.2-3.7s TTFB was
-not FLOPs at all: it is MIOpen JIT-compiling a fresh kernel the first time
-the decoder sees a given exact frame count.
-
-A repeat call at an
-already-compiled shape runs the same decoder in ~0.15s; a never-before-seen
-one costs ~1.1-3s regardless of how short the text is (measured: a
-14-phoneme "Hi there friend" cost as much as a 71-phoneme sentence, and two
-inputs differing by a single character both paid the full cost). Since
-duration is predicted per phoneme rather than quantized, almost every
-distinct sentence produces a distinct frame count, so production traffic
-hit a cold shape on nearly every request — fp16 and `torch.compile` were
-never going to fix this, because the cost was never in the matrix multiplies.
-
-`app.py` wraps `model.decoder` in `_BucketedDecoder`: it rounds the frame
-count up to a 32-frame bucket with zero-padding, runs the real decoder once,
-and trims the output back to the true sample count (output samples are
-exactly linear in frame count, confirmed empirically, so the trim point is
-exact). This collapses the practical shape space to a small enumerable set,
-and a startup warm-up (before `/health`, same invariant `KPipeline()`
-already relies on) pre-pays the compile for that whole set. `spec.toml`
-persists MIOpen's on-disk kernel cache in a docker-managed named volume so a
-container recreated by idle-stop does not re-pay it from zero; `config.toml`
-gives kokoro `ready_timeout_s = 120` (default 60) so the warm-up has room.
-
-Measured through the door (`POST /openai/v1/audio/speech`, `stream: true`,
-warm engine, distinct texts, median of runs), before vs. after:
-
-| input length | before | after |
-| ------ | ------ | ------ |
-| ~15 ch | 1.24-1.60s | 0.29-0.58s |
-| ~40 ch | 1.22-1.27s | 0.34-0.66s |
-| ~55 ch | 1.24-1.86s | 0.36-1.48s |
-| ~135 ch | 3.73s (op's baseline) | 1.75s |
-
-Correctness: verified numerically against the unpadded decoder on real
-kokoro output — the trimmed region matches to ~1e-8, and the padding-induced
-difference elsewhere is the same order of magnitude as the run-to-run noise
-this ROCm/MIOpen backend already exhibits between two calls of *identical*
-input with no padding involved at all (up to ~0.07 absolute on a few
-samples — this backend is not bit-deterministic call to call, independent of
-this change).
-
-Padding is silence in the frame-rate features, not the
-waveform, so it adds no content of its own; only the compiled kernel choice
-changes. Flagged for an operator A/B listen regardless — if anything is
-audible, it would be a faint texture change in the last ~25ms of a sentence's
-tail, not a click or a dropout.
-
-**Measured and rejected: clause-splitting at commas** to shorten the first
-synthesis unit. The TTFB floor is ~1.24s even for a 12-character input, so a
-shorter first chunk buys almost nothing — the floor was never about how much
-text the first chunk holds.
-
-**`input_ids` bucketing, closing part of the gap above.** `app.py` also
-replaces `KModel.forward_with_tokens` (`_padded_forward_with_tokens`) so
-`KModel.bert`'s self-attention and `KModel.text_encoder`'s CNN stack see a
-padded, `_INPUT_ID_BUCKET`-rounded (16 tokens) shape with a correctly-sized
-`text_mask`, instead of one shape per exact phoneme count. Padding is exact
-for these two (standard transformer attention-masking plus zero-padding
-ahead of small-receptive-field convs), not an approximation the way the
-decoder's zero-pad-and-trim is: `pred_aln_trg` is built by forcing every
-padded position's predicted duration to exactly 0 (never the original's
-`clamp(min=1)`), so a padded token can never draw a real frame.
-
-`predictor.lstm` and `F0Ntrain` are NOT bucketed, on purpose: both run a bidirectional LSTM directly on
-the un-packed sequence (`predictor.lstm`, and `F0Ntrain`'s own `self.shared`),
-so its backward pass would start at the padded tail and run across it before
-reaching real content, changing real positions' predicted durations by how
-much padding follows them — a correctness break, not a speed tradeoff.
-`predictor.lstm` is packed to the true length here to avoid that, so it
-gains nothing from the bucket.
-`F0Ntrain` is untouched entirely: bucketing it safely means reimplementing
-it with the same packing fix, a separate change with its own correctness
-pass, same as this one needed.
-
-Correctness: `engines/kokoro/verify_padding.py` compares three pipelines per
-text — two unpatched instances against each other (this box's own
-call-to-call ROCm/MIOpen noise floor, which itself grows with input length:
-measured 0.066/0.078/0.15 absolute across short/medium/long) and an
-unpatched instance against a patched one. Sample counts matched exactly on
-all three lengths tested (`sample_diff=0`); the patched/unpatched max-abs
-diff (0.07/0.08/0.14) stayed within the same run's own control noise, in one
-case below it.
-
-Measured in-process (`pipeline(text)`, `torch.cuda.synchronize()` around the
-call, avoiding HTTP/docker overhead) on 8 distinct novel medium/long inputs,
-each container warm from its own startup sweep: **GPU was at 87-90%
-utilization throughout from a concurrent llama session** (a colleague's
-in-flight decode), so absolute numbers include some of that contention — but
-the gap below is 1-1.8s, an order of magnitude larger than the ~0.1-0.3s
-contention swings seen elsewhere, so the direction and rough size of the win
-are trustworthy despite the noisy floor:
-
-| input | before (1st call, novel length) | after (1st call, novel length) | warm floor (both) |
-| ------ | ------ | ------ | ------ |
-| 8 texts, 90-115 chars | 1.37-2.21s | 0.42-0.59s | 0.35-0.46s |
-
-Before this patch, a novel input length paid nearly the same cost as a truly
-cold container on every request (matching the ~0.1-0.3s each that `bert`,
-`text_encoder`, `lstm` and `F0Ntrain` are estimated to cost, combined). After
-it, the first call to a novel length already lands close to the warm floor,
-because its `_INPUT_ID_BUCKET` was pre-compiled by the startup warm-up sweep
-along with the decoder's frame buckets. `predictor.lstm` and `F0Ntrain`'s own
-share of that cost is still real and still unbucketed (see above) — it is
-what keeps "after" from reaching the warm floor exactly.
+Kokoro yields one array per sentence, so with `chunks: true` its first audio waits on the first
+sentence. MIOpen JIT-compiles a kernel the first time the decoder sees an exact frame count, so the
+startup warm-up sweeps the practical range of shapes and the text encoder pads input to
+`_INPUT_ID_BUCKET` buckets (`engines/kokoro/app.py`): a novel length lands near the warm floor.
 
 ### Piper
 
@@ -321,36 +167,6 @@ or on a multilingual model this config does not name.
 
 Both routes mount the same `models_dir`, so the Silero VAD model both load
 is one file on disk, not two.
-
-### Other measurements behind spec and source comments
-
-Measured 2026-10 on this box unless stated.
-
-- **Whisper on GPU against CPU.** The Vulkan backend is 3.9-7.2x faster at every
-  clip length/model pair (181-846 ms against 625-5098 ms on CPU at `-t 16`).
-  Transcripts match byte-for-byte on 5 of 6 probes; the sixth (medium.en, the
-  33.8 s clip) differed by one filler word. Across ~500 words of an 8-sentence
-  corpus plus four 26 s concatenations, one word diverges (~0.2%). Thread count
-  does not matter on the GPU: 2.1 / 5.7 / 34.1 s clips took 70/113/483 ms at
-  `-t 4`, 69/114/475 ms at `-t 8` and 68/112/473 ms at `-t 16`. On the CPU
-  backend `-t 4` lost badly (1.9-10.0 s). Through the door, a 35.2 s clip of ten
-  sentences and a 72.6 s clip of twenty-five came back complete.
-- **Speech cache hit.** One short phrase warm: chatterbox-multi 3.6-3.9 s (N=3,
-  after a 16.6 s model-load first call), piper ~80 ms (N=5, median); a hit is
-  a Map lookup.
-- **Markup in TTS input.** `**bold**` synthesizes 3.5x slower than `bold` and a
-  bare URL 2.2x on piper; backticks and list hyphens cost nothing.
-- **`init = true`.** Without docker's init the comfy engine ignores SIGTERM:
-  10.19 s and exit 137. With it, 0.128 s and exit 143.
-- **ComfyUI base image.** `rocm/pytorch` is 40 GB; the dev base plus the PyTorch
-  wheel is 19 GB, both detecting gfx1151.
-- **Kokoro frame buckets.** Warm repeat at a seen shape ~0.15 s; a new shape
-  costs ~1.1-3 s regardless of text length. Ahead-of-vocoder modules cost ~1.1 s
-  on a new input length (0.61 s against 0.20 s at 36 chars, 1.61 s against
-  0.52 s at 185). Control-run noise across the three padding-check lengths is
-  0.066 / 0.078 / 0.15 absolute.
-- **Resident sizes.** comfy ~42 GiB of checkpoints, llama ~30 GiB with its
-  262k-token KV cache; piper 0.3, kokoro ~1, chatterbox ~3.3 GiB.
 
 ## `streaming`, a spec key on every kind
 
