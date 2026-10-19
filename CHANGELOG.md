@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.12 - 2026-10-19
 
 - Config UI: the bundle check also runs on page load and on sign-in. A tab left on the sign-in form across a restart now reloads onto the new UI when it signs in, instead of running the old bundle against the new backend.
 
