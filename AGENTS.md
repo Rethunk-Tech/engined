@@ -38,7 +38,7 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
-**Measured, and poor: translation quality on large-v3-turbo-q8_0.** The
+**Translation quality on large-v3-turbo-q8_0 is poor.** The
 `/openai/v1/audio/translations` verb works end to end, but the English it returns can be
 confidently wrong ("gato" became "man", "mesa de madera" became "bed") while the same
 audio transcribes perfectly, so the loss is in the model's translation head. The route
