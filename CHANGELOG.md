@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Config UI: the bundle check also runs on page load and on sign-in. A tab left on the sign-in form across a restart now reloads onto the new UI when it signs in, instead of running the old bundle against the new backend.
+
 ## 0.2.11 - 2026-10-19
 
 - The door and the Cursor listener serve on every interface, so other machines reach `http://<host>:29200` directly; the door no longer refuses a non-loopback `Host`. The config UI stays on loopback by default. Restricting who reaches the door is the operator's call.
