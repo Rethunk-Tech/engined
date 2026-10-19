@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.10 - 2026-10-19
 
 - A route can rewrite the request on its hop: `strip_params` drops named fields and `[route.set_params]` sets them, applied just before the request is posted upstream, after the engine-args merge.
 - Config UI: the shell page is served only to same-origin GETs and carries `X-Frame-Options: DENY`.
