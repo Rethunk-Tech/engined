@@ -23,17 +23,10 @@
 engined.localhost:29443 {
 	tls internal
 
-	# engined origin-checks Host against loopback at its own port and answers
-	# 403 to anything else, so the proxy must present the backend's own Host
-	# rather than the name the client dialled.
 	@run path /agent.v1.AgentService/Run
-	reverse_proxy @run h2c://127.0.0.1:29201 {
-		header_up Host 127.0.0.1:29201
-	}
+	reverse_proxy @run h2c://127.0.0.1:29201
 
-	reverse_proxy 127.0.0.1:29200 {
-		header_up Host 127.0.0.1:29200
-	}
+	reverse_proxy 127.0.0.1:29200
 }
 
 # @CONFIGSVC_SITE@

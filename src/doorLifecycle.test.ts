@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { speechCacheByteCount, storeSpeech } from './audioSpeech.ts'
 import { loadConfig } from './config.ts'
@@ -11,7 +12,7 @@ import {
   makeLlamaHttpClient,
 } from './doorFixtures.ts'
 import type { HttpClient } from './http.ts'
-import { bindDualFamily } from './listen.ts'
+import { bindDoor } from './listen.ts'
 import { createDoor, type Door, resolveBunx } from './main.ts'
 import { BUNX, config, deadPort, makeTestRoot, writeEngineSpec } from './test-support.ts'
 import type { Config } from './types.ts'
@@ -38,21 +39,23 @@ async function listEngines(door: Door): Promise<EnginesList> {
 }
 
 /**
- * Binds the door on both loopback families on `port`, through `main.ts`'s
- * own `bindDualFamily` rather than a hand-rolled `Bun.serve` pair — a
- * substitute here would pass even with the real `::1` listener deleted. The
- * check needs `config.listen_port` to equal it, so the caller picks the port
- * first via `deadPort()` and builds both the config and this bind from it.
+ * Binds the door through `listen.ts`'s own `bindDoor` rather than a
+ * hand-rolled `Bun.serve`, which would pass even with a family dropped there.
  */
-function startDualBind(fetch: Door['fetch'], port: number): { stop: () => void } {
-  const { v4, v6 } = bindDualFamily(fetch, port)
+function startBind(fetch: Door['fetch'], port: number): { stop: () => void } {
+  const bound = bindDoor(fetch, port)
   return {
     stop: () => {
-      v4.stop()
-      v6?.stop()
+      for (const s of bound) {
+        s.stop()
+      }
     },
   }
 }
+
+const lanAddress = Object.values(networkInterfaces())
+  .flat()
+  .find((a) => a !== undefined && !a.internal && a.family === 'IPv4')?.address
 
 /** `Host` is a forbidden header for the Fetch API; `node:http` allows the override the test needs. */
 function rawRequest(
@@ -74,10 +77,10 @@ function rawRequest(
   })
 }
 
-/** Every Origin/Host/dual-bind check binds a real door on an ephemeral port for `fn`'s duration, then tears it down; only the config and the request/assertion differ. */
+/** Every Host and bind check binds a real door on an ephemeral port for `fn`'s duration, then tears it down; only the config and the request/assertion differ. */
 async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): Promise<T> {
   const door = createDoor(cfg, { enginesRoot: '/nonexistent', bunx: BUNX })
-  const bound = startDualBind(door.fetch, cfg.listen_port)
+  const bound = startBind(door.fetch, cfg.listen_port)
   try {
     return await fn(cfg.listen_port)
   } finally {
@@ -85,27 +88,18 @@ async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): 
   }
 }
 
-describe('the door: Origin/Host check', () => {
-  // The foreign-Origin, Origin:null and clean-request cases are covered by
-  // integration.test.ts's own Origin guard test; `Host` is Fetch-forbidden,
-  // so only this real-socket, raw `node:http` request can exercise it.
-  test('a Host outside the loopback set is refused, on a GET', async () => {
+describe('the door: bind', () => {
+  // `Host` is Fetch-forbidden, so only a raw `node:http` request can send a LAN name.
+  test('both families and a LAN address answer, under any Host name', async () => {
     const port = deadPort()
     await withBoundDoor(config({ listen_port: port }), async () => {
-      const res = await rawRequest(port, '/openai/v1/models', { Host: `evil.example:${port}` })
-      expect(res.status).toBe(403)
-    })
-  })
-})
-
-describe('the door: dual-family bind', () => {
-  test('both 127.0.0.1 and [::1] answer on the same configured port', async () => {
-    const port = deadPort()
-    await withBoundDoor(config({ listen_port: port }), async () => {
-      const v4 = await rawRequest(port, '/openai/v1/models', {})
+      const v4 = await rawRequest(port, '/openai/v1/models', { Host: `gpu-box:${port}` })
       const v6 = await rawRequest(port, '/openai/v1/models', {}, '::1')
       expect(v4.status).toBe(200)
       expect(v6.status).toBe(200)
+      if (lanAddress !== undefined) {
+        expect((await rawRequest(port, '/openai/v1/models', {}, lanAddress)).status).toBe(200)
+      }
     })
   })
 })

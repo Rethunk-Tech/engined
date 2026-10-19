@@ -1,13 +1,12 @@
 # HTTP API
 
-Loopback TCP on **`29200`**, bound on both loopback families. No
-authentication, no tenancy, no TLS — it is local-only. `listen_port`
-overrides the port.
+TCP on **`29200`** on every interface, both families. No authentication, no
+tenancy, no TLS: put a proxy with its own auth in front of it to restrict who
+reaches it. `listen_port` overrides the port.
 
 Every request is origin-checked first, on every endpoint including reads: any
-`Origin` (including `"null"`), a `Sec-Fetch-Site` other than `none` or
-`same-origin`, or a `Host` outside `{127.0.0.1, localhost, [::1]}` at the
-configured port is refused. A request carrying no `Origin` and no
+`Origin` (including `"null"`) or a `Sec-Fetch-Site` other than `none` or
+`same-origin` is refused. A request carrying no `Origin` and no
 `Sec-Fetch-Site` is served normally, which covers every CLI and server
 consumer. See [security-model.md](security-model.md) for why a browser is
 treated as a caller.

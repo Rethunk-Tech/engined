@@ -402,7 +402,7 @@ test('GET /engined/v1/engines answers 200 even when every engine is unavailable'
   })
 })
 
-test('the Origin guard applies to a GET: foreign Origin, Origin: null, and a non-loopback Host are refused; no Origin is served normally', async () => {
+test('the Origin guard applies to a GET: foreign Origin and Origin: null are refused; no Origin is served normally', async () => {
   const door = createDoor(baseConfig(), {
     ...REGISTRY_OPTS,
   })
@@ -415,9 +415,6 @@ test('the Origin guard applies to a GET: foreign Origin, Origin: null, and a non
 
     const nullOrigin = await door.fetch(req('GET', '/openai/v1/models', { origin: 'null' }))
     expect(nullOrigin.status).toBe(403)
-
-    const badHost = await door.fetch(req('GET', '/openai/v1/models', { host: 'evil.example' }))
-    expect(badHost.status).toBe(403)
 
     const clean = await door.fetch(req('GET', '/openai/v1/models'))
     expect(clean.status).toBe(200)

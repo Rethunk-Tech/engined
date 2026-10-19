@@ -13,7 +13,7 @@ import {
   STATUS_METHOD_NOT_ALLOWED,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
-import { bindDualFamily } from './listen.ts'
+import { bindDoor } from './listen.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
@@ -58,7 +58,7 @@ async function harness(
     },
     { usageStateRoot: join(dir, 'usage') },
   )
-  const bound = bindDualFamily(door.fetch, doorPort)
+  const bound = bindDoor(door.fetch, doorPort)
   const audit: string[] = []
   const reloads: string[] = []
   const doorPaths: string[] = []
@@ -99,8 +99,9 @@ async function harness(
   )
   cleanups.push(() => {
     svc.stop()
-    bound.v4.stop(true)
-    bound.v6?.stop(true)
+    for (const s of bound) {
+      s.stop(true)
+    }
   })
   const base = `http://127.0.0.1:${svc.port}`
   const call = (path: string, init: RequestInit & { cookie?: string } = {}) =>

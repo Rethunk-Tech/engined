@@ -515,6 +515,6 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
     process.stderr.write(`port ${port} already in use: ${detail}\n`)
     process.exit(FatalError.EXIT_CODE)
   })
-  server.listen(port, '127.0.0.1')
+  server.listen(port)
   return { stop: () => server.close(), port }
 }

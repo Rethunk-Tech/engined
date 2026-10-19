@@ -31,8 +31,8 @@ one model tree.
 A consumer that keeps its own runner has not been cut over, only pointed
 twice.
 
-The door is loopback-only, so a consumer deployed elsewhere is outside it and
-brings its own provider, or runs without the capability.
+A consumer that cannot reach a door brings its own provider, or runs without
+the capability.
 
 One deliberate exception: a consumer that runs its own tool-executing agent,
 with its own key, keeps that agent because it executes tools and writes to its

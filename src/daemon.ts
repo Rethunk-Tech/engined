@@ -9,7 +9,7 @@ import { type CursorAgentServer, serveCursorAgent } from './cursorAgent.ts'
 import { completeLocally } from './cursorChat.ts'
 import type { Door, DoorOptions } from './doorContext.ts'
 import { FatalError } from './errors/fatal.ts'
-import { bindDualFamily, errorCode } from './listen.ts'
+import { bindDoor, errorCode } from './listen.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
@@ -45,9 +45,9 @@ export function runDaemon(make: {
     }
   }
 
-  function bindOrExit(boundDoor: Door, port: number): ReturnType<typeof bindDualFamily> {
+  function bindOrExit(boundDoor: Door, port: number): ReturnType<typeof bindDoor> {
     try {
-      return bindDualFamily(boundDoor.fetch, port)
+      return bindDoor(boundDoor.fetch, port)
     } catch (err) {
       const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
       process.stderr.write(`engined: port ${port} ${what}: ${errMessage(err)}\n`)
@@ -89,9 +89,10 @@ export function runDaemon(make: {
 
   function rebind(next: Config): void {
     if (next.listen_port !== door.served.listen) {
-      const fresh = bindDualFamily(door.fetch, next.listen_port)
-      bound.v4.stop()
-      bound.v6?.stop()
+      const fresh = bindDoor(door.fetch, next.listen_port)
+      for (const s of bound) {
+        s.stop()
+      }
       bound = fresh
       door.served.listen = next.listen_port
     }
@@ -135,8 +136,9 @@ export function runDaemon(make: {
       .then(() => {
         door.ctx.usage.shutdown()
         cursorAgent?.stop()
-        bound.v4.stop()
-        bound.v6?.stop()
+        for (const s of bound) {
+          s.stop()
+        }
         process.exit(0)
       })
       .catch((err: unknown) => {

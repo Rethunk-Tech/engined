@@ -1,7 +1,9 @@
 # Security model
 
-engined is local-only: loopback TCP, no authentication, no tenancy, no TLS.
-Everything below describes what that does and does not buy you.
+engined's door listens on every interface with no authentication, no tenancy
+and no TLS. Who can reach it is the operator's call: a firewall rule, a tunnel
+that authenticates, or a reverse proxy with its own auth. Everything below
+describes what the door itself does and does not guard.
 
 ## Agentic engines: integrity, not confidentiality
 
@@ -103,7 +105,7 @@ its contents under either floor.
 
 ## The browser is a caller too
 
-Loopback is reachable from any page the operator has open, and a cross-origin
+The door is reachable from any page the operator has open, and a cross-origin
 `POST` carrying `Content-Type: text/plain` is not preflighted while
 `req.json()` parses it anyway — so a page could name a `workdir` and a
 remote-bearing chain and ship repository content off-machine without ever
@@ -112,12 +114,11 @@ reading the response.
 So every request is origin-checked first, on every endpoint including reads. Any
 `Origin` (including `"null"`, refused rather than treated as absent), a
 `Sec-Fetch-Site` other than `none` or `same-origin` (a no-cors GET carries no
-`Origin`), or a `Host` outside `{127.0.0.1, localhost, [::1]}` at the configured
-port is refused. One middleware. A request carrying no `Origin` and no
+`Origin`) is refused. One middleware. A request carrying no `Origin` and no
 `Sec-Fetch-Site` is served normally, which covers every CLI and server consumer.
 
-This is not authentication. It keeps the accepted risk at *reachable only by a
-local process*, which is the case the argument above covers.
+This is not authentication. It keeps a browser page from driving the door; a
+process that can reach the port has the whole door.
 
 ## What the Origin check does not guard
 
@@ -152,19 +153,13 @@ directory is trusted code, on the same footing as `main.js`.
 See `scripts/engined.service.in`'s own comment for the measurement this rests
 on.
 
-## The Cursor TLS bridge is a network listener
+## Anyone who reaches the door has all of it
 
-`engined-tls` (Caddy, `deploy/Caddyfile.cursor`) listens on every interface at
-port 29443 by design, so the Cursor door can be reached from other machines on
-the LAN or through a tunnel. It rewrites `Host` to the loopback door's own, so
-the door's Host and Origin checks pass for anything that reaches it: a client
-of the bridge has the whole door, including agentic calls that can read any
-file this uid can open and remote routes that spend provider credit.
-
-Authenticating the bridge is the operator's responsibility. Put it behind a
-firewall rule, a tunnel that authenticates, or a reverse proxy with its own
-auth before exposing it beyond machines you trust. The loopback door itself is
-unchanged: without `engined-tls` running, nothing listens off-box.
+A client of the door, directly or through the `engined-tls` Caddy bridge
+(`deploy/Caddyfile.cursor`, port 29443, for clients such as Cursor that need
+HTTPS), has the whole door, including agentic calls that can read any file
+this uid can open and remote routes that spend provider credit. Restricting
+who reaches it is the operator's responsibility.
 
 ## The config UI is a root-equivalent writer
 

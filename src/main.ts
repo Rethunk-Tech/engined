@@ -80,35 +80,18 @@ function engineVerbRe(verb: string): RegExp {
 }
 const LOGS_RE = engineVerbRe('logs')
 const RESOURCES_RE = engineVerbRe('resources')
-/** As `URL#hostname` reports them: no port; an IPv6 literal keeps its brackets. */
-const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
-
-/** Origin/Host refusals are 403 and carry no engine detail: the caller failed the door, not an engine. */
+/** Origin refusals are 403 and carry no engine detail: the caller failed the door, not an engine. */
 function refuse(message: string): Response {
   return jsonError(STATUS_FORBIDDEN, message)
 }
-function isLoopbackHost(hostHeader: string, port: number): boolean {
-  try {
-    const url = new URL(`http://${hostHeader}`)
-    const effectivePort = url.port === '' ? '80' : url.port
-    return LOOPBACK_HOSTNAMES.has(url.hostname) && effectivePort === String(port)
-  } catch {
-    return false
-  }
-}
-
 /** Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none`/`same-origin` is refused the same way: a no-cors GET carries no Origin. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
-function checkOrigin(req: Request, port: number): Response | null {
+function checkOrigin(req: Request): Response | null {
   const site = req.headers.get('Sec-Fetch-Site')
   if (
     req.headers.get('Origin') !== null ||
     (site !== null && site !== 'none' && site !== 'same-origin')
   ) {
     return refuse('cross-origin requests are refused')
-  }
-  const host = req.headers.get('Host')
-  if (host !== null && !isLoopbackHost(host, port)) {
-    return refuse(`Host "${host}" is outside the loopback set`)
   }
   return null
 }
@@ -335,7 +318,7 @@ export function createDoor(
   function fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   function fetch(req: Request, server?: EnginedServer): Response | Promise<Response> | undefined {
     try {
-      const refusal = checkOrigin(req, served.listen)
+      const refusal = checkOrigin(req)
       if (refusal) {
         return refusal
       }

@@ -13,7 +13,7 @@
 
 One local engine broker for the whole workstation.
 
-engined is a `systemd --user` daemon that owns every inference engine on a box and serves them behind a single OpenAI-shaped door on loopback. Consumers send a `model` string; engined picks the engine, starts its container on demand, keeps one model resident per role, and stops it when idle.
+engined is a `systemd --user` daemon that owns every inference engine on a box and serves them behind a single OpenAI-shaped door, reachable from the LAN. Consumers send a `model` string; engined picks the engine, starts its container on demand, keeps one model resident per role, and stops it when idle.
 
 ## Installation
 

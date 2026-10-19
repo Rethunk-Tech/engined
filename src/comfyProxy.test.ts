@@ -29,7 +29,7 @@ import {
   STATUS_CLIENT_CLOSED,
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
-import { bindDualFamily } from './listen.ts'
+import { bindDoor } from './listen.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
@@ -644,13 +644,14 @@ async function startWsDoor(): Promise<{
     probe: () => Promise.resolve({ status: 200 }),
   })
   await door.registry.start('comfy')
-  const bound = bindDualFamily(door.fetch, doorPort)
+  const bound = bindDoor(door.fetch, doorPort)
   return {
     fakeComfy,
     doorPort,
     stop: () => {
-      bound.v4.stop(true)
-      bound.v6?.stop(true)
+      for (const s of bound) {
+        s.stop(true)
+      }
       fakeComfy.stop()
     },
   }

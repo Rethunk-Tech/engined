@@ -67,7 +67,7 @@ export interface ComfyWsData {
   upstream?: WebSocket
 }
 
-/** `Bun.serve`'s own return type, parameterized on the one websocket payload this door ever mounts -- `bindDualFamily`'s real listeners and `Door.fetch`'s optional second argument must agree on it, or `server.upgrade`'s `data` stops typechecking. */
+/** `Bun.serve`'s own return type, parameterized on the one websocket payload this door ever mounts -- `bindDoor`'s real listeners and `Door.fetch`'s optional second argument must agree on it, or `server.upgrade`'s `data` stops typechecking. */
 export type EnginedServer = ReturnType<typeof Bun.serve<ComfyWsData>>
 
 /** Every caller reaching this door reached it directly, so far; a federated hop will supply its own origin instead of this constant. */

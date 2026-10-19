@@ -114,11 +114,16 @@ upstream and, where one applies, a model.
 | `[[engine]]`, every kind | `id` | — |
 | `[[upstream]]`, remote address | `id`, `egress`; a missing `base_url` parses and refuses at dispatch | — |
 
-Origin/Host check, browser callers, and why `cursor-agent` ships disabled —
+Origin check, browser callers, and why `cursor-agent` ships disabled —
 nothing can thread a door URL into its launch:
 [docs/security-model.md](docs/security-model.md).
 
 ## Invariants
+
+**The door and the Cursor listener serve every interface.** Only the config UI
+is loopback by default (`[configsvc] host`). Restricting who reaches the door is
+the operator's job, with a firewall, tunnel or authenticating proxy; never bind
+it to loopback or refuse a LAN `Host` (NOMAD 2026-10-19).
 
 **No port is written down for anything engined starts** except the door and a
 remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.
