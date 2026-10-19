@@ -8,8 +8,6 @@ An acceptance criterion nobody has actually proven stays recorded here even
 when the feature looks done, because deleting it erases the only record that
 it is unproven.
 
-This checkout is often worked by several sessions at once: `rules/fleet.md` (shared checkouts).
-
 Implementation: `src/`, Bun and TypeScript. Acceptance criteria and engine
 traps live beside the code they govern.
 
@@ -123,7 +121,7 @@ nothing can thread a door URL into its launch:
 **The door and the Cursor listener serve every interface.** Only the config UI
 is loopback by default (`[configsvc] host`). Restricting who reaches the door is
 the operator's job, with a firewall, tunnel or authenticating proxy; never bind
-it to loopback or refuse a LAN `Host` (NOMAD 2026-10-19).
+it to loopback or refuse a LAN `Host`.
 
 **No port is written down for anything engined starts** except the door and a
 remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.
