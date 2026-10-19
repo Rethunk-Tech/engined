@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A route can rewrite the request on its hop: `strip_params` drops named fields and `[route.set_params]` sets them, applied just before the request is posted upstream, after the engine-args merge.
+- Config UI: the shell page is served only to same-origin GETs and carries `X-Frame-Options: DENY`.
+
 ## 0.2.9 - 2026-10-18
 
 - Config UI: the Add wizard's chain path shows what a `@/<chain-id>` hop inserts, the same line the Chains card shows. A route hop has no extra line.
