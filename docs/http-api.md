@@ -518,9 +518,9 @@ Agentic calls require `"workdir": "<existing directory>"`. They may set
 when absent, and agents without that floor refuse it.
 
 **How much this buys depends on the text.** Kokoro's pipeline splits on
-newlines, not sentences: measured here, four newline-separated lines produced
-four chunks of 1.7–2.0s each, while a single five-sentence paragraph produced
-one chunk of 18.68s and therefore streams no earlier than buffering would. A
+newlines, not sentences: newline-separated lines stream as separate chunks,
+while a single multi-sentence paragraph is one chunk and streams no earlier than
+buffering would. A
 caller that wants early audio should send its text newline-separated. Making
 the engine split on sentences instead would change how it reads across
 sentence boundaries, so it is not done here. Piper splits on sentences itself,
@@ -543,8 +543,7 @@ running -- the field a caller polling for "is it warming" can read once
 instead of hitting `/openai/v1/models` on a loop.
 
 On a llama route this loads the named
-GGUF, so the first real request does not pay the cold load -- measured at
-13.84s cold against 2.09s warm for a TTS round trip on this box. The warm goes
+GGUF, so the first real request does not pay the cold load. The warm goes
 through the ordinary lease, so it cannot jump the queue or hold a role against
 anyone; it is released immediately and idle-stop is armed as usual. It is a
 head start, not a pin. `keep_resident` in [configuration.md](configuration.md)
@@ -633,11 +632,8 @@ speech as English. Same multipart upload, same `prompt` and `response_format`.
 
 The route default is to omit `translate`. An omitted key, and
 `translate = false`, do not serve this path. `translate = true` is the explicit opt-in, and opting
-in does not mean the English is right. Measured on large-v3-turbo-q8_0:
-Spanish for "the black cat sleeps on the wooden table in the kitchen"
-transcribed character for character, and translated as "The black man sleeps
-on the bed in the kitchen" — the same recording, heard perfectly, rendered
-wrong. A consumer must not treat this path as safe without that opt-in, and
+in does not mean the English is right: large-v3-turbo-q8_0 can transcribe
+speech perfectly and still translate it confidently wrong. A consumer must not treat this path as safe without that opt-in, and
 the opt-in accepts the failure rather than fixing it. Check the verb against
 speech you understand before wiring a consumer to it. The weekly probe only
 checks that a route which did not opt in refuses the path; it cannot tell a
