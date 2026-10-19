@@ -71,6 +71,25 @@ function stripField(body: Record<string, unknown>, field: string): Record<string
 }
 
 /**
+ * Per-route filters, applied after engine-args merge and caller-null unsets:
+ * `strip_params` drops keys, then `set_params` forces values over whatever
+ * the caller (or the engine default) sent.
+ */
+function applyRouteFilters(
+  body: Record<string, unknown>,
+  route: ResolvedRoute | undefined,
+): Record<string, unknown> {
+  if (route === undefined) {
+    return body
+  }
+  const out = { ...body }
+  for (const key of route.strip_params ?? []) {
+    delete out[key]
+  }
+  return route.set_params === undefined ? out : { ...out, ...route.set_params }
+}
+
+/**
  * `rawBody.model` is whatever the caller's own request named -- a chain
  * name, an alias, anything -- never necessarily this hop's resolved model
  * id, so it is overwritten rather than forwarded verbatim. `workdir` and
@@ -158,7 +177,11 @@ async function execLlama(
   const router = getLlamaRouter(ctx, engineEntry)
   // Both fetchBuffered and fetchStreamed take this same `init`, so
   // rewriting `model` once here fixes both proxy paths.
-  const init = openAiRequestInit(req.rawBody, route.model ?? modelSeg, req.signal)
+  const init = openAiRequestInit(
+    applyRouteFilters(req.rawBody, route),
+    route.model ?? modelSeg,
+    req.signal,
+  )
   // `modelResident` comes back with the hop, read under the same lease: from
   // the engine's own /v1/models — never the router's cached command
   // bookkeeping, and never model_reported: the two answer different questions
@@ -321,7 +344,10 @@ async function execRemoteHttp(
   // whatever else this upstream takes) -- the caller's own body wins, the same
   // way a [model.args] key wins over [engine.args] one layer down.
   const callerBody = stripField(req.rawBody, 'max_egress')
-  const body = withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody)
+  const body = applyRouteFilters(
+    withoutCallerNulls({ ...engineEntry.args, ...callerBody }, callerBody),
+    route,
+  )
   const init = openAiRequestInit(body, modelId, req.signal)
   let response: Response
   try {

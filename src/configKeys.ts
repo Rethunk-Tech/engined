@@ -65,6 +65,8 @@ export const ROUTE_KEYS = new Set([
   'slot_long_threshold',
   'vision_bridge',
   'args',
+  'strip_params',
+  'set_params',
   'disable',
   'input',
   'output',

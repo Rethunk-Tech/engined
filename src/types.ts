@@ -348,6 +348,17 @@ export interface ResolvedRoute extends ModelCapabilities {
   /** Rendered into this model's section of the presets INI, verbatim. */
   args: Record<string, unknown>
   /**
+   * Caller JSON keys dropped from the body just before the hop is posted
+   * upstream, after engine-args merge. Absent means nothing is stripped.
+   */
+  strip_params?: string[]
+  /**
+   * JSON fields forced onto the body just before the hop is posted upstream,
+   * overriding the caller and engine-args defaults. Absent means nothing is
+   * forced. A key also listed in `strip_params` is a parse error.
+   */
+  set_params?: Record<string, unknown>
+  /**
    * Configured but not served: this route, its engine, or its upstream
    * carries `disable = true`. Kept on the entry rather than dropped from
    * `Config` so a caller asking why a route is unreachable gets a real

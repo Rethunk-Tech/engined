@@ -15,6 +15,7 @@ import {
   expandConfigPath,
   optional,
   optionalPositive,
+  optionalStringArray,
   parseCapabilities,
   parseDisable,
   requireString,
@@ -52,6 +53,8 @@ export interface RawRoute {
   slot_long_threshold?: number
   vision_bridge?: string
   args: Record<string, unknown>
+  strip_params?: string[]
+  set_params?: Record<string, unknown>
   disabledOwn: boolean
   capabilities: ModelCapabilities
   site: string
@@ -59,6 +62,45 @@ export interface RawRoute {
 
 const LINE_BREAK_RE = /[\r\n]/
 const INI_SECTION_BREAKER_RE = /[[\]=\r\n]|^[;#]/
+
+/** Wire fields forced onto a hop body. Scalars only: a nested table would JSON as an object the operator did not type as one JSON value. */
+function asSetParams(v: unknown, site: string, file: string): Record<string, unknown> | undefined {
+  if (v === undefined) {
+    return undefined
+  }
+  if (!isRecord(v)) {
+    throw new ParseError(`${site} "set_params" must be a table`, { file, key: 'set_params' })
+  }
+  for (const [key, value] of Object.entries(v)) {
+    const kind = typeof value
+    if (kind !== 'string' && kind !== 'number' && kind !== 'boolean') {
+      throw new ParseError(
+        `${site} "set_params" key "${key}" must be a string, number or boolean`,
+        { file, key: 'set_params' },
+      )
+    }
+  }
+  return v
+}
+
+function parseRouteFilters(
+  raw: Record<string, unknown>,
+  site: string,
+  file: string,
+): { strip_params?: string[]; set_params?: Record<string, unknown> } {
+  const strip_params = optionalStringArray(raw.strip_params, `${site} "strip_params"`, file)
+  const set_params = asSetParams(raw.set_params, site, file)
+  if (strip_params !== undefined && set_params !== undefined) {
+    const overlap = strip_params.find((key) => Object.hasOwn(set_params, key))
+    if (overlap !== undefined) {
+      throw new ParseError(`${site} "strip_params" and "set_params" both name "${overlap}"`, {
+        file,
+        key: 'strip_params',
+      })
+    }
+  }
+  return { strip_params, set_params }
+}
 
 export function parseRouteRaw(
   value: unknown,
@@ -146,6 +188,7 @@ export function parseRouteRaw(
   }
   const args = asArgs(raw.args, site, file)
   assertNoForbiddenFlags(argKeysAsFlags(args), file)
+  const { strip_params, set_params } = parseRouteFilters(raw, site, file)
   const slotLongThreshold = optionalPositive(
     raw.slot_long_threshold,
     `${site} "slot_long_threshold"`,
@@ -167,6 +210,8 @@ export function parseRouteRaw(
     slot_long_threshold: slotLongThreshold,
     vision_bridge: visionBridge,
     args,
+    strip_params,
+    set_params,
     disabledOwn: parseDisable(raw, site, file) === true,
     capabilities: parseCapabilities(raw, site, file),
     site,
@@ -384,6 +429,8 @@ export function resolveRoute({
     slot_long_threshold: raw.slot_long_threshold,
     vision_bridge: raw.vision_bridge,
     args: raw.args,
+    strip_params: raw.strip_params,
+    set_params: raw.set_params,
     disabled,
     ...mergeCapabilities(baseCaps, roleCapabilities(raw.role), raw.capabilities),
   }

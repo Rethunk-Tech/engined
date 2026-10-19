@@ -16,7 +16,8 @@ execute a request. `[[model]]` is optional, declared only where there is a
 capability worth recording. `[[route]]` pairs an engine with an upstream and,
 where one applies, a model, and carries everything specific to that pairing:
 `filename`, `role`, `vision`, `translate`, `fim`, `keep_resident`, `wire_model`,
-`display_name`, `streaming`, `slot_long_threshold`, `vision_bridge`, `args`.
+`display_name`, `streaming`, `slot_long_threshold`, `vision_bridge`, `args`,
+`strip_params`, `set_params`.
 `[[chain]]` is an ordered fallback list of route addresses.
 
 ## config.d fragments
@@ -98,6 +99,7 @@ must differ. Second-valued keys that would overflow `setTimeout` (above
 | `fim` | `[[route]]`, a local llama route only — opts the route into `POST /openai/v1/completions`, llama-server's fill-in-the-middle over `/infill`. Answers alongside chat on the same route rather than claiming a role of its own — see [http-api.md § Fill-in-the-middle](http-api.md#fill-in-the-middle) |
 | `slot_long_threshold` | `[[route]]`, a local llama route whose merged `parallel` is `>= 2` — the vocab-only token count at or above which a request is placed on a LONG slot rather than a SHORT one. Default 4096 — see [tuning.md § Cache-aware slot placement](tuning.md#cache-aware-slot-placement) |
 | `vision_bridge` | `[[route]]`, a `role = "chat"` route only — the address of a `role = "vision"` route on the same box that bridges an image attachment into a caption before dispatch, parse error on a route that is not `role = "chat"` and fatal at load if it does not resolve to a served `role = "vision"` route — see [http-api.md § Vision bridge](http-api.md#vision-bridge) |
+| `strip_params`, `set_params` | `[[route]]` — applied on the hop just before the request is posted upstream, after engine-args merge (caller still beats `[engine.args]`; `set_params` then beats the caller). `strip_params` is an array of JSON keys dropped from the body; `set_params` is a table of scalar values forced onto it. Naming the same key in both is a parse error that names `strip_params` and `set_params` |
 | `hops` | `[[chain]]` — an ordered list of route addresses, or `@/<chain-id>` to insert that chain's hops in order. A cycle is a parse error. A disabled chain contributes nothing |
 
 On a `[[route]]`, `keep_resident = true` asks for that GGUF to be the one its

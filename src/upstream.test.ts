@@ -281,9 +281,15 @@ function startFakeOpenAiUpstream(recorded: RecordedChat[]): { base: string; stop
   })
 }
 
-function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}): Config {
+function remoteChatConfig(
+  base: string,
+  engineArgs: Record<string, unknown> = {},
+  routeOverrides: Partial<Config['routes'][number]> = {},
+): Config {
   return baseConfig({
-    routes: [route({ engine: 'hosted', model: 'upstream-model-7', upstream: 'hosted' })],
+    routes: [
+      route({ engine: 'hosted', model: 'upstream-model-7', upstream: 'hosted', ...routeOverrides }),
+    ],
     engines: [engine({ id: 'hosted', kind: 'openai-http', args: engineArgs })],
     upstreams: [
       {
@@ -301,11 +307,12 @@ function remoteChatConfig(base: string, engineArgs: Record<string, unknown> = {}
 async function withRemoteDoor(
   fn: (door: Door, recorded: RecordedChat[]) => Promise<void>,
   engineArgs: Record<string, unknown> = {},
+  routeOverrides: Partial<Config['routes'][number]> = {},
 ): Promise<void> {
   const recorded: RecordedChat[] = []
   const fake = startFakeOpenAiUpstream(recorded)
   const door = createDoor(
-    remoteChatConfig(fake.base, engineArgs),
+    remoteChatConfig(fake.base, engineArgs, routeOverrides),
     { enginesRoot: '/nonexistent/engines', bunx: '/opt/test/bunx' },
     { secretExec: foundSecret },
   )
@@ -386,5 +393,27 @@ test('an [engine.args] default still fills a key the caller left out', async () 
       expect(recorded[0]?.body.reasoning_effort).toBe('medium')
     },
     { reasoning_effort: 'medium' },
+  )
+})
+
+test('strip_params drops a caller field and set_params forces one over the caller before the fake upstream', async () => {
+  await withRemoteDoor(
+    async (door, recorded) => {
+      const res = await door.fetch(
+        chatRequest({
+          model: '@/hosted/upstream-model-7',
+          messages: [{ role: 'user', content: 'hi' }],
+          temperature: 0.9,
+          top_k: 99,
+        }),
+      )
+      expect(res.status).toBe(200)
+      expect(recorded).toHaveLength(1)
+      expect(recorded[0]?.body).not.toHaveProperty('temperature')
+      expect(recorded[0]?.body.top_k).toBe(40)
+      expect(recorded[0]?.body.messages).toEqual([{ role: 'user', content: 'hi' }])
+    },
+    { temperature: 0.2 },
+    { strip_params: ['temperature'], set_params: { top_k: 40 } },
   )
 })

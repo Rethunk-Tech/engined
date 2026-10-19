@@ -216,6 +216,12 @@ const ROUTE_FIELDS: Fields = {
     'Address of a vision route that captions image attachments for this chat route.',
   ),
   args: args('Launch parameters for this route; they override the engine’s.'),
+  strip_params: strings(
+    'Caller JSON keys removed from the request body just before this hop is posted upstream.',
+  ),
+  set_params: args(
+    'JSON fields forced onto the request body just before this hop is posted upstream, overriding the caller.',
+  ),
   disable: DISABLE,
   ...CAPABILITIES,
 }

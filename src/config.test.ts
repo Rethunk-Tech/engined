@@ -1370,6 +1370,46 @@ kind = "stt"
   })
 })
 
+describe('strip_params / set_params', () => {
+  const remoteRoute = (extra: string) => `
+[[upstream]]
+id = "hosted"
+base_url = "https://x"
+egress = "remote"
+
+[[engine]]
+id = "hosted"
+kind = "openai-http"
+
+[[route]]
+engine = "hosted"
+upstream = "hosted"
+model = "m"
+${extra}
+`
+
+  test('parses onto the route and is absent when not configured', () => {
+    const [withFilters] = loadConfig(
+      writeConfig(remoteRoute(`strip_params = ["temperature"]\n[route.set_params]\ntop_k = 40\n`)),
+    ).routes
+    expect(withFilters?.strip_params).toEqual(['temperature'])
+    expect(withFilters?.set_params).toEqual({ top_k: 40 })
+    const [plain] = loadConfig(writeConfig(remoteRoute(''))).routes
+    expect(plain?.strip_params).toBeUndefined()
+    expect(plain?.set_params).toBeUndefined()
+  })
+
+  test('the same key in both is a parse error naming strip_params and set_params', () => {
+    expect(() =>
+      loadConfig(
+        writeConfig(
+          remoteRoute(`strip_params = ["temperature"]\n[route.set_params]\ntemperature = 0.2\n`),
+        ),
+      ),
+    ).toThrow(/"strip_params" and "set_params" both name "temperature"/)
+  })
+})
+
 test("a filename escaping the engine's models_dir is fatal", () => {
   const toml = `${LLAMA_ENGINE}\n[[route]]\nengine = "local-llama"\nupstream = "local"\nmodel = "x"\nfilename = "../../etc/passwd"\nrole = "chat"\n`
   expect(() => loadConfig(writeConfig(toml))).toThrow(RX_FILENAME_ESCAPE)

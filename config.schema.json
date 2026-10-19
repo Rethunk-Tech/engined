@@ -433,6 +433,24 @@
           },
           "description": "Launch parameters for this route; they override the engine’s."
         },
+        "strip_params": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Caller JSON keys removed from the request body just before this hop is posted upstream."
+        },
+        "set_params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "JSON fields forced onto the request body just before this hop is posted upstream, overriding the caller."
+        },
         "disable": {
           "type": "boolean",
           "description": "Turns this entry off without deleting it."

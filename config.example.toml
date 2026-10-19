@@ -746,6 +746,11 @@ reasoning_effort = "medium"
 engine = "openai"
 upstream = "openai"
 model = "gpt-5.4-mini"
+# Per-route request filters, applied just before this hop is posted
+# upstream — after [engine.args] fill gaps and the caller overrides them.
+# strip_params = ["temperature"]   # drop these caller (and engine-default) fields
+# [route.set_params]
+# top_k = 40                       # force these values over the caller
 
 # A second hosted id on the same engine: a consumer that needs vision through
 # this door names it the way it names any other model.
