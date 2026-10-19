@@ -1,5 +1,9 @@
 /** The config UI's HTTP server: origin checks, login, sessions, and the JSON API behind them. */
 
+import { randomBytes } from 'node:crypto'
+import { unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import process from 'node:process'
 import page from './configsvc/ui/index.html'
 import { type ConfigsvcDeps, configApi, readJson } from './configsvcApi.ts'
@@ -113,7 +117,7 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
       : { cookie: sessionCookie(session, secure) }
   }
 
-  /** The one unauthenticated API route: `POST /login`. The shell page and its assets are served by Bun's route table before this runs, and the page exchanges a `?token=` link through this route. */
+  /** The one unauthenticated API route: `POST /login`. The shell and its bundled assets are origin-gated GETs, and the page exchanges a `?token=` link through this route. */
   async function signIn(
     loginReq: Request,
     loginUrl: URL,
@@ -147,6 +151,12 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     if (refusal !== undefined) {
       return refusal
     }
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      const bundled = await fetch(`http://127.0.0.1${url.pathname}`, { unix: uiSock })
+      if (bundled.status !== 404) {
+        return bundled
+      }
+    }
     const signedIn = await signIn(req, url, client)
     if (signedIn !== undefined) {
       return signedIn
@@ -170,13 +180,20 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     return routed ?? jsonError(STATUS_NOT_FOUND, 'not found')
   }
 
+  // HTMLBundle only works as a route, which skips fetch (and Origin/XFO). Serve
+  // it on a unix socket and pull GET / plus hashed assets through handle().
+  const uiSock = join(tmpdir(), `engined-configsvc-${randomBytes(12).toString('hex')}.sock`)
+  const ui = Bun.serve({
+    unix: uiSock,
+    development: false,
+    routes: { '/': page },
+  })
   const server = Bun.serve({
     hostname: LOOPBACK,
     port: opts.port,
     idleTimeout: 0,
     // Development mode bundles on every request and injects Bun's hot-reload client; a release serves a fixed bundle.
     development: false,
-    routes: { '/': page },
     async fetch(req, srv) {
       try {
         // Behind the bridge, Caddy's hop header is what authenticates X-Forwarded-For.
@@ -203,6 +220,14 @@ export function startConfigsvc(opts: ConfigsvcOptions, deps: ConfigsvcDeps): Sta
     url,
     token: auth.token,
     logLine: `${CONFIGSVC_URL_PREFIX}${shown}`,
-    stop: () => server.stop(true),
+    stop: () => {
+      server.stop(true)
+      ui.stop(true)
+      try {
+        unlinkSync(uiSock)
+      } catch {
+        // Already gone after a clean listen shutdown.
+      }
+    },
   }
 }

@@ -169,7 +169,11 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   expect((await h.call('/nothing', { cookie })).status).toBe(404)
   const shell = await h.call('/')
   expect(shell.status).toBe(200)
+  expect(shell.headers.get('x-frame-options')).toBe('DENY')
   expect(await shell.text()).toContain('id="app"')
+  const framed = await h.call('/', { headers: { 'Sec-Fetch-Site': 'cross-site' } })
+  expect(framed.status).toBe(403)
+  expect(framed.headers.get('x-frame-options')).toBe('DENY')
   h.clock.now += SESSION_IDLE_MS - 1000
   expect((await h.call('/api/config', { cookie })).status).toBe(200)
   h.clock.now += SESSION_IDLE_MS - 1000
