@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.11 - 2026-10-19
 
 - The door and the Cursor listener serve on every interface, so other machines reach `http://<host>:29200` directly; the door no longer refuses a non-loopback `Host`. The config UI stays on loopback by default. Restricting who reaches the door is the operator's call.
 
