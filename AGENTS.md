@@ -160,12 +160,11 @@ Before committing: `gate` (build, typecheck, lint, test, actionlint, shellcheck)
 `bun run ci` runs the four bun tasks through turbo, which keys each
 on its own inputs -- a docs-only change replays them from cache.
 
-maitre, earshot and bastion-client-discord already run on engined: check a change to a verb they use against them.
+maitre and earshot already run on engined: check a change to a verb they use against them.
 
 ## Gate budget
 
-Measured at load average 6 to 15 on 32 cores. `gate` auto-detects six steps (build, typecheck, lint
-with knip, actionlint, shellcheck, `bun test src`). CI runs the same six: the four bun tasks
-through turbo, then actionlint and shellcheck, and skips `test:local`; nothing slow is detected
-that CI omits, and nothing CI runs is missing, apart from
-the bubblewrap install that only CI's runner needs. Warm: 3.1 s wall, 7 CPU-s, after `bun test src --parallel=8 --randomize`. The suite is idle timer waits, so file-level parallelism overlaps them. `cursorModels.test.ts` is self-contained so randomised order does not collide on ports, dirs or env.
+`gate` auto-detects the six steps CI runs (build, typecheck, lint with knip, actionlint, shellcheck,
+`bun test src`); only CI's bubblewrap install and `test:local` are not local. Warm under 10 s:
+`bun test src --parallel=8 --randomize` overlaps the suite's idle timer waits, and
+`cursorModels.test.ts` is self-contained so randomised order does not collide on ports, dirs or env.
