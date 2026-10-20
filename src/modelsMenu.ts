@@ -21,6 +21,7 @@ import {
 import type { DoorContext } from './doorContext.ts'
 import { isLocalLlama } from './engineEntries.ts'
 import { jsonError, STATUS_NOT_FOUND } from './http.ts'
+import { knownContextIn } from './knownContext.ts'
 import { explicitParallel, mergedArgs } from './llamaSpec.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
@@ -33,6 +34,7 @@ import type {
   ModelCapabilities,
   ResolvedRoute,
   Role,
+  Upstream,
 } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
 
@@ -78,17 +80,18 @@ function derivedContextIn(
   return kvUnified === true || parallel === undefined ? ctxSize : ctxSize / parallel
 }
 
-/** A route's `context_in`: its own declared value always wins; otherwise derived for a local llama route and absent for everything else. Exported for `modelsMenu.test.ts`, which exercises it directly rather than through a full door. */
+/** A route's `context_in`: its own declared value always wins; otherwise derived for a local llama route, else a known provider's published window, else absent. Exported for `modelsMenu.test.ts`, which exercises it directly rather than through a full door. */
 export function routeContextIn(
   route: ResolvedRoute,
   engine: EngineEntry | undefined,
   status: EngineStatus | undefined,
+  upstream?: Upstream,
 ): number | undefined {
   if (route.context_in !== undefined) {
     return route.context_in
   }
   if (engine === undefined || status === undefined || !isLocalLlama(engine, status.kind)) {
-    return undefined
+    return knownContextIn(upstream, route.wire_model ?? route.model ?? '')
   }
   return derivedContextIn(engine, route)
 }
@@ -164,6 +167,7 @@ async function modelRow(
       route,
       config.engines.find((e) => e.id === route.engine),
       status,
+      config.upstreams.find((u) => u.id === route.upstream),
     ),
   )
   // A bridged route has no image input of its own -- roleCapabilities gives
@@ -313,6 +317,7 @@ function hopContextIn(hop: ChainHop, config: Config): number | undefined {
     hop.route,
     config.engines.find((e) => e.id === hop.route?.engine),
     hop.status,
+    config.upstreams.find((u) => u.id === hop.route?.upstream),
   )
 }
 

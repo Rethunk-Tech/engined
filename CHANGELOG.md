@@ -4,6 +4,7 @@
 
 - Config UI: Use the Add wizard beside the Chains and Upstreams Add boxes carries the id already typed there into the wizard's id field.
 - A wildcard catalog route reports `capabilities.context_in` from the provider's own `/models` row (OpenRouter, Together, Groq, Mistral, LM Studio, vLLM, Anthropic), so clients stop guessing a window. A declared `context_in` still wins.
+- A remote route on OpenAI, DeepSeek or the Gemini API reports the provider's published context window for the model families engined knows, since those `/models` rows state none.
 - Config UI: the Map draws configs past mermaid's 500-edge default instead of failing with `Edge limit exceeded`.
 
 ## 0.2.12 - 2026-10-19

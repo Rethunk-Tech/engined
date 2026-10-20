@@ -252,8 +252,10 @@ INI — `ctx-size` divided across `parallel`'s slots unless `kv-unified` (or a
 non-splitting `parallel`) gives every slot the whole, undivided pool. A
 wildcard catalog route takes the window its provider's `/models` row states
 (`context_length`, `context_window`, `max_context_length`, `max_model_len` or
-`max_input_tokens`). Absent for any other undeclared route, including a
-catalog whose rows state none, as OpenAI's do.
+`max_input_tokens`). A remote route on OpenAI, DeepSeek or the Gemini API,
+whose rows state none, takes that provider's published window for the model
+families engined knows (`src/knownContext.ts`). Absent for any other
+undeclared route.
 
 `hops` is where a chain says what it resolves to, and the only place it can:
 a chain is not any one engine's route, so `engine`, `upstream`, `model` and

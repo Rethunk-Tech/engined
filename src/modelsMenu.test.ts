@@ -90,6 +90,20 @@ test('a remote openai-http route (no models_dir) is never derived', () => {
   expect(routeContextIn(r, eng, llamaEngineStatus({ id: 'openrouter' }))).toBeUndefined()
 })
 
+test('an undeclared remote route takes a known provider window only for a chat model it names', () => {
+  const eng = engine({ id: 'openai' })
+  const status = llamaEngineStatus({ id: 'openai' })
+  const openai = upstream({ id: 'openai', base_url: 'https://api.openai.com/v1' })
+  const ctx = (model: string, u = openai) =>
+    routeContextIn(route({ engine: 'openai', model, args: {} }), eng, status, u)
+  expect(ctx('gpt-5-mini')).toBe(400_000)
+  expect(ctx('gpt-5.5-pro')).toBe(1_050_000)
+  expect(ctx('gpt-5.4-image-2')).toBeUndefined()
+  expect(
+    ctx('gpt-5-mini', upstream({ id: 'proxy', base_url: 'https://proxy.example/v1' })),
+  ).toBeUndefined()
+})
+
 function chainHop(contextIn: number | undefined, contextOut?: number): ChainHop {
   return {
     hop: '@/llama/x',
