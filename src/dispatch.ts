@@ -235,7 +235,12 @@ export function resolveServedRoute({
   if (!inventory.peek(upstream).includes(wireId)) {
     return
   }
-  return { ...template, model: modelSeg, wire_model: wireId }
+  return {
+    ...template,
+    model: modelSeg,
+    wire_model: wireId,
+    context_in: template.context_in ?? inventory.contextIn(upstream, wireId),
+  }
 }
 
 /** `@/<engine>/<upstream>/<model>`: fully explicit, the one form with no default to apply. */
@@ -420,7 +425,12 @@ export function expandWildcardRoutes(config: Config, inventory: Inventory): Reso
       if (segment === undefined || claimed.has(segment)) {
         continue
       }
-      out.push({ ...template, model: segment, wire_model: wireId })
+      out.push({
+        ...template,
+        model: segment,
+        wire_model: wireId,
+        context_in: template.context_in ?? inventory.contextIn(upstream, wireId),
+      })
     }
   }
   return out

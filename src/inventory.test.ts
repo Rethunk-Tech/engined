@@ -265,6 +265,43 @@ describe('provider /models inventory', () => {
   })
 })
 
+describe('provider /models context windows', () => {
+  test("each row's stated input window is kept per id and survives a reload from disk", async () => {
+    const fake = startFakeUpstream(() =>
+      Response.json({
+        object: 'list',
+        data: [
+          { id: 'or/a', context_length: 131_072 },
+          { id: 'groq-b', context_window: 32_768 },
+          { id: 'mistral-c', max_context_length: 128_000 },
+          { id: 'vllm-d', max_model_len: 8192 },
+          { id: 'claude-e', max_input_tokens: 200_000 },
+          { id: 'openai-f' },
+          { id: 'bad-g', context_length: '4096' },
+        ],
+      }),
+    )
+    const stateRoot = join(TEST_ROOT, 'state-context')
+    try {
+      const u = catalogUpstream(fake.base)
+      await new Inventory({ secretExec: foundSecret, stateRoot }).refresh(u)
+      const reloaded = new Inventory({ stateRoot })
+      const ids = ['or/a', 'groq-b', 'mistral-c', 'vllm-d', 'claude-e', 'openai-f', 'bad-g']
+      expect(ids.map((id) => reloaded.contextIn(u, id))).toEqual([
+        131_072,
+        32_768,
+        128_000,
+        8192,
+        200_000,
+        undefined,
+        undefined,
+      ])
+    } finally {
+      fake.stop()
+    }
+  })
+})
+
 describe('inventory watch', () => {
   test("forget clears only the changed upstream engines' fetch errors, and a fetch in flight across it cannot erase a newer one", async () => {
     const releases: (() => void)[] = []

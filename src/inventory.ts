@@ -11,13 +11,21 @@ import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { excludeMatcher } from './modelExclude.ts'
 import { upstreamInventoryDir } from './paths.ts'
-import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { encodeAddressSegment } from './routeAddress.ts'
 import type { Upstream } from './types.ts'
 import { resolveUpstream, upstreamUrl } from './upstream.ts'
 
 const MODELS_PATH = '/models'
 const CACHE_FILE = 'inventory.json'
+/** Where providers state a model's input window on a `/models` row: OpenRouter and Together, Groq, Mistral and LM Studio, vLLM, Anthropic. OpenAI's rows carry none. */
+const CONTEXT_FIELDS = [
+  'context_length',
+  'context_window',
+  'max_context_length',
+  'max_model_len',
+  'max_input_tokens',
+] as const
 
 export interface InventoryOptions {
   fetch?: HttpClient
@@ -38,6 +46,31 @@ export interface InventoryLookup {
 interface CachedInventory {
   fetchedAt: number
   ids: string[]
+  /** Input window per id, for the rows that stated one. */
+  context: Map<string, number>
+}
+
+function contextOf(row: Record<string, unknown>): number | undefined {
+  for (const field of CONTEXT_FIELDS) {
+    const n = finiteNumber(row[field])
+    if (n !== undefined && n > 0) {
+      return n
+    }
+  }
+  return undefined
+}
+
+function parseContext(raw: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  if (isRecord(raw)) {
+    for (const [id, v] of Object.entries(raw)) {
+      const n = finiteNumber(v)
+      if (n !== undefined && n > 0) {
+        out.set(id, n)
+      }
+    }
+  }
+  return out
 }
 
 function isFresh(fetchedAt: number, maxAgeSeconds: number, now: number): boolean {
@@ -54,14 +87,16 @@ function parseCache(raw: unknown): CachedInventory | undefined {
   return {
     fetchedAt: raw.fetched_at,
     ids: raw.ids.filter((id) => encodeAddressSegment(id) !== undefined),
+    context: parseContext(raw.context),
   }
 }
 
-function parseModelsBody(raw: unknown): string[] | undefined {
+function parseModelsBody(raw: unknown): Pick<CachedInventory, 'ids' | 'context'> | undefined {
   if (!(isRecord(raw) && Array.isArray(raw.data))) {
     return
   }
   const ids: string[] = []
+  const context = new Map<string, number>()
   for (const row of raw.data) {
     if (!isRecord(row) || typeof row.id !== 'string') {
       continue
@@ -70,8 +105,12 @@ function parseModelsBody(raw: unknown): string[] | undefined {
       continue
     }
     ids.push(row.id)
+    const window = contextOf(row)
+    if (window !== undefined) {
+      context.set(row.id, window)
+    }
   }
-  return ids
+  return { ids, context }
 }
 
 /** The ids this upstream's `exclude_models` leaves served; the cache keeps the full catalog. */
@@ -111,6 +150,11 @@ export class Inventory {
     return kept(upstream, this.loadFresh(upstream)?.ids ?? [])
   }
 
+  /** The input window this upstream's `/models` row stated for `wireId`, from the in-age cache. */
+  contextIn(upstream: Upstream, wireId: string): number | undefined {
+    return this.loadFresh(upstream)?.context.get(wireId)
+  }
+
   async refresh(upstream: Upstream): Promise<InventoryLookup> {
     const generation = this.generations.get(upstream.id)
     const live = await this.fetchIds(upstream)
@@ -118,7 +162,11 @@ export class Inventory {
       return { ids: [], stale: true }
     }
     if (live.ok) {
-      const cached: CachedInventory = { fetchedAt: this.now(), ids: live.ids }
+      const cached: CachedInventory = {
+        fetchedAt: this.now(),
+        ids: live.ids,
+        context: live.context,
+      }
       this.mem.set(upstream.id, cached)
       this.writeFile(upstream.id, cached)
       return { ids: kept(upstream, live.ids) }
@@ -190,7 +238,12 @@ export class Inventory {
     const path = this.cachePath(upstreamId)
     mkdirSync(dirname(path), { recursive: true })
     const tmp = `${path}.tmp`
-    writeFileSync(tmp, `${JSON.stringify({ fetched_at: cached.fetchedAt, ids: cached.ids })}\n`)
+    const body = {
+      fetched_at: cached.fetchedAt,
+      ids: cached.ids,
+      context: Object.fromEntries(cached.context),
+    }
+    writeFileSync(tmp, `${JSON.stringify(body)}\n`)
     renameSync(tmp, path)
   }
 
@@ -204,7 +257,9 @@ export class Inventory {
 
   private async fetchIds(
     upstream: Upstream,
-  ): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> {
+  ): Promise<
+    ({ ok: true } & Pick<CachedInventory, 'ids' | 'context'>) | { ok: false; error: string }
+  > {
     const resolution = await resolveUpstream(upstream, this.opts.secretExec)
     if (!resolution.ok) {
       return { ok: false, error: resolution.error }
@@ -229,10 +284,10 @@ export class Inventory {
     } catch (err) {
       return { ok: false, error: errMessage(err) }
     }
-    const ids = parseModelsBody(body)
-    if (ids === undefined) {
+    const parsed = parseModelsBody(body)
+    if (parsed === undefined) {
       return { ok: false, error: `GET ${MODELS_PATH} was not an OpenAI models list` }
     }
-    return { ok: true, ids }
+    return { ok: true, ...parsed }
   }
 }

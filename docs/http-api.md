@@ -249,9 +249,11 @@ row without it omits the field, and a chain never carries it.
 for an undeclared local llama route it is derived instead, from the same
 `ctx-size`/`parallel`/`kv-unified` merge the launcher renders into the preset
 INI — `ctx-size` divided across `parallel`'s slots unless `kv-unified` (or a
-non-splitting `parallel`) gives every slot the whole, undivided pool. Absent
-for any other undeclared route: a remote `openai-http` proxy has no
-`ctx-size` of its own to derive from.
+non-splitting `parallel`) gives every slot the whole, undivided pool. A
+wildcard catalog route takes the window its provider's `/models` row states
+(`context_length`, `context_window`, `max_context_length`, `max_model_len` or
+`max_input_tokens`). Absent for any other undeclared route, including a
+catalog whose rows state none, as OpenAI's do.
 
 `hops` is where a chain says what it resolves to, and the only place it can:
 a chain is not any one engine's route, so `engine`, `upstream`, `model` and
