@@ -106,6 +106,8 @@ function paintMermaid(job: {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
+        // The chart is drawn from the operator's own config, so its size is not an attack surface; mermaid's 500-edge default refuses a large fleet.
+        maxEdges: Number.MAX_SAFE_INTEGER,
         theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
       })
       renders += 1

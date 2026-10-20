@@ -399,7 +399,7 @@ export function UpstreamsView() {
         <button
           type="button"
           onClick={() => {
-            location.hash = 'add/provider'
+            location.hash = id === '' ? 'add/provider' : `add/provider/${encodeURIComponent(id)}`
           }}
         >
           Use the Add wizard

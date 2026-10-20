@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Config UI: Use the Add wizard beside the Chains and Upstreams Add boxes carries the id already typed there into the wizard's id field.
+- Config UI: the Map draws configs past mermaid's 500-edge default instead of failing with `Edge limit exceeded`.
+
 ## 0.2.12 - 2026-10-19
 
 - Config UI: the bundle check also runs on page load and on sign-in. A tab left on the sign-in form across a restart now reloads onto the new UI when it signs in, instead of running the old bundle against the new backend.

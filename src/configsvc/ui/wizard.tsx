@@ -37,6 +37,9 @@ const PATHS = [
 const CUSTOM = 'custom'
 const MODEL_LIST_SPLIT_RE = /[\s,]+/
 
+/** `#add/<path>/<id>`: the id typed beside the Add box that linked here. */
+const PATH_AND_ID_RE = /\/(.*)/s
+
 /** The provider plan as the form edits it; the model list is free text until it becomes the plan. */
 type Form = Omit<ProviderPlan, 'models'> & {
   preset: string
@@ -84,10 +87,13 @@ function planOf(f: Form): ProviderPlan | undefined {
   }
 }
 
-function ProviderPath() {
+function ProviderPath({ initialId }: { initialId: string }) {
   const d = doc.value
   const taken = d?.upstream.map((u) => u.id) ?? []
-  const [f, setF] = useState<Form>(() => presetForm(PRESETS[0]?.id ?? CUSTOM, taken))
+  const [f, setF] = useState<Form>(() => {
+    const form = presetForm(PRESETS[0]?.id ?? CUSTOM, taken)
+    return initialId === '' ? form : { ...form, id: initialId, service: `${initialId}-api` }
+  })
   const [preview, setPreview] = useState<{ text: string; diff: string }>()
   const [error, setError] = useState<string>()
   const set = (patch: Partial<Form>) => setF({ ...f, ...patch })
@@ -263,9 +269,9 @@ function ProviderPath() {
   )
 }
 
-function ChainPath() {
+function ChainPath({ initialId }: { initialId: string }) {
   const d = doc.value
-  const [id, setId] = useState('')
+  const [id, setId] = useState(initialId)
   const [hops, setHops] = useState<string[]>([])
   useEffect(() => {
     fork(loadDiscovery())
@@ -346,7 +352,7 @@ export function AddView() {
       <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
     )
   }
-  const path = viewParam.value
+  const [path, prefill = ''] = (viewParam.value ?? '').split(PATH_AND_ID_RE)
   return (
     <section>
       <div className="tiles">
@@ -361,7 +367,7 @@ export function AddView() {
           </a>
         ))}
       </div>
-      {path === 'provider' ? <ProviderPath /> : null}
+      {path === 'provider' ? <ProviderPath initialId={prefill} /> : null}
       {path === 'engine' ? (
         <>
           <ShippedPicker d={d} />
@@ -371,7 +377,7 @@ export function AddView() {
           </p>
         </>
       ) : null}
-      {path === 'chain' ? <ChainPath /> : null}
+      {path === 'chain' ? <ChainPath initialId={prefill} /> : null}
     </section>
   )
 }

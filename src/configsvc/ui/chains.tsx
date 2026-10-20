@@ -221,7 +221,7 @@ export function ChainsView() {
         <button
           type="button"
           onClick={() => {
-            location.hash = 'add/chain'
+            location.hash = id === '' ? 'add/chain' : `add/chain/${encodeURIComponent(id)}`
           }}
         >
           Use the Add wizard
