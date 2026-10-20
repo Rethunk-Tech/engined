@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.13 - 2026-10-20
 
 - Config UI: Use the Add wizard beside the Chains and Upstreams Add boxes carries the id already typed there into the wizard's id field.
 - A wildcard catalog route reports `capabilities.context_in` from the provider's own `/models` row (OpenRouter, Together, Groq, Mistral, LM Studio, vLLM, Anthropic), so clients stop guessing a window. A declared `context_in` still wins.
