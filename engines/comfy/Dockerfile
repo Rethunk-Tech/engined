@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir \
       torch==2.14.1 torchvision==0.29.1 torchaudio==2.11.0 \
       --index-url ${TORCH_INDEX}
 
-ARG COMFYUI_COMMIT=b0b743566f65daafc423b4fea8a2fbda94b3384a
+ARG COMFYUI_COMMIT=7a28332047b6af638dc6c7f72ef3481a718769fd
 WORKDIR /opt/comfyui
 RUN git init \
     && git remote add origin https://github.com/comfyanonymous/ComfyUI.git \

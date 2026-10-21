@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The comfy image now builds ComfyUI at `7a28332`, which loads MOSS-Image natively (`UNETLoader`, `CLIPLoader` type `moss_image`, FLUX.2 VAE).
+
 ## 0.2.13 - 2026-10-20
 
 - Config UI: Use the Add wizard beside the Chains and Upstreams Add boxes carries the id already typed there into the wizard's id field.
