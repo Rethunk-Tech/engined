@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: Rethunk-Tech/gh-actions/setup-bun@5992e857707202bc73acf8a0a854add36ece781e # v1.21
+      - uses: Rethunk-Tech/gh-actions/setup-bun@67ec8bd68343d915462729ad119c355740cf6205 # v1.22
         with:
           # Turbo keys each task on its own inputs, so a docs-only push replays
           # every check from cache instead of re-running it. The sha in the key
