@@ -153,7 +153,7 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
   const pre = useRef<HTMLPreElement>(null)
   const stick = useRef(true)
   useEffect(() => {
-    if (stick.current && pre.current !== null) {
+    if (stick.current === true && pre.current !== null) {
       pre.current.scrollTop = pre.current.scrollHeight
     }
   })

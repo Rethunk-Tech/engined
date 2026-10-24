@@ -50,7 +50,7 @@ function PotluckBox({ table }: { table: Table | undefined }) {
   const [url, setUrl] = useState(textOf(table?.callback_url))
   const [service, setService] = useState(textOf(secret.service))
   const [username, setUsername] = useState(textOf(secret.username))
-  const [present, setPresent] = useState<boolean>()
+  const [present, setPresent] = useState<boolean | undefined>(undefined)
   const [value, setValue] = useState('')
   const [result, setResult] = useState<string>()
   const had = table !== undefined

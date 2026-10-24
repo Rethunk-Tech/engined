@@ -731,8 +731,9 @@ describe('chain hops', () => {
       const cfg = loadConfig(writeConfig(`${llamaEngineAndRoute()}\n${toml}`))
       expect(cfg.chains.inner).toEqual(['@/local-llama/ornith'])
       expect(cfg.chains.outer).toEqual(['@/local-llama/ornith', '@/local-llama/ornith'])
-      expect(declaredHops(cfg.chains.inner ?? [])).toEqual(['@/local-llama/ornith'])
-      expect(declaredHops(cfg.chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
+      const chains: Record<string, string[] | undefined> = cfg.chains
+      expect(declaredHops(chains.inner ?? [])).toEqual(['@/local-llama/ornith'])
+      expect(declaredHops(chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
     }
   })
 
@@ -756,7 +757,8 @@ describe('chain hops', () => {
       ),
     )
     expect(cfg.chains.outer).toEqual(['@/local-llama/ornith'])
-    expect(declaredHops(cfg.chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
+    const chains: Record<string, string[] | undefined> = cfg.chains
+    expect(declaredHops(chains.outer ?? [])).toEqual(['@/inner', '@/local-llama/ornith'])
     expect(cfg.chains.inner).toBeUndefined()
     expect(cfg.chains.empty).toBeUndefined()
   })
