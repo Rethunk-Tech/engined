@@ -1,19 +1,3 @@
-/**
- * Executing one hop of a request: which engine and upstream it lands on, the
- * body shaping every wire needs, and the three ways a hop can be answered —
- * a local llama router, a remote HTTP provider, or an agentic CLI.
- */
-
-/**
- * The door's OpenAI surface is prefixed; llama-server and every remote provider
- * serve those same paths unprefixed. Strip ours before forwarding, or the
- * upstream is asked for a path only this door knows about.
- */
-const OPENAI_PREFIX = '/openai'
-function enginePath(doorPath: string): string {
-  return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath
-}
-
 import { execAgentic } from './agenticHop.ts'
 import { resolveUpstreamModelId } from './agenticRedirect.ts'
 import { type HopExec, type HopResult, parseHop } from './chain.ts'
@@ -40,6 +24,22 @@ import { errMessage, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import type { Config, Egress, EngineEntry, EngineKind, ResolvedRoute } from './types.ts'
 import { resolveUpstream, upstreamPath, upstreamUrl } from './upstream.ts'
+
+/**
+ * Executing one hop of a request: which engine and upstream it lands on, the
+ * body shaping every wire needs, and the three ways a hop can be answered —
+ * a local llama router, a remote HTTP provider, or an agentic CLI.
+ */
+
+/**
+ * The door's OpenAI surface is prefixed; llama-server and every remote provider
+ * serve those same paths unprefixed. Strip ours before forwarding, or the
+ * upstream is asked for a path only this door knows about.
+ */
+const OPENAI_PREFIX = '/openai'
+function enginePath(doorPath: string): string {
+  return doorPath.startsWith(`${OPENAI_PREFIX}/`) ? doorPath.slice(OPENAI_PREFIX.length) : doorPath
+}
 
 /**
  * An explicit `null` from the caller unsets a wire default rather than being

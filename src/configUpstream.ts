@@ -11,6 +11,7 @@ import {
   requireString,
   requireTable,
 } from './configParse.ts'
+import { isBridgeHost, isLoopbackHost } from './configsvcHost.ts'
 import { ParseError } from './errors/parse.ts'
 import { isRecord } from './records.ts'
 import type { ConfigsvcSettings, PotluckCallback } from './types.ts'
@@ -57,8 +58,6 @@ export function parsePotluckCallback(
     },
   }
 }
-
-import { isBridgeHost, isLoopbackHost } from './configsvcHost.ts'
 
 export const DEFAULT_CONFIGSVC_PORT = 29_202
 const ARGON2ID_PREFIX = '$argon2id$'
