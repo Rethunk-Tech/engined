@@ -3,7 +3,7 @@
  * rather than invented -- opencode 1.18.25 pointed at engined's own door, and
  * the same launch against a dead upstream for the failure shape.
  */
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pruneAgentInstallCaches } from './agentCaches.ts'
@@ -33,7 +33,7 @@ const OPENCODE_OK = [
 const OPENCODE_ERR =
   '{"type":"error","timestamp":1788076739979,"sessionID":"ses_y","error":{"name":"APIError","data":{"message":"Cannot connect to API: Unable to connect. Is the computer able to access the url?","isRetryable":true,"metadata":{"url":"http://127.0.0.1:29999/openai/v1/chat/completions"}}}}'
 
-it("reads opencode's answer out of the text events, which arrive one per chunk", () => {
+test("reads opencode's answer out of the text events, which arrive one per chunk", () => {
   expect(parseOpencodeEvents(OPENCODE_OK)).toEqual({
     ok: true,
     result: 'pong',
@@ -49,7 +49,7 @@ it("reads opencode's answer out of the text events, which arrive one per chunk",
   })
 })
 
-it('joins the text events in order rather than taking only the last', () => {
+test('joins the text events in order rather than taking only the last', () => {
   const split = OPENCODE_OK.replace('"text":"pong"', '"text":"po"').concat(
     '\n',
     '{"type":"text","part":{"type":"text","text":"ng"}}',
@@ -57,32 +57,32 @@ it('joins the text events in order rather than taking only the last', () => {
   expect(parseOpencodeEvents(split).result).toBe('pong')
 })
 
-it("reports the API error's own message, not the event name", () => {
+test("reports the API error's own message, not the event name", () => {
   const out = parseOpencodeEvents(OPENCODE_ERR)
   expect(out.ok).toBe(false)
   expect(out.failure).toContain('Cannot connect to API')
 })
 
-it('an error event fails the call even when text was printed before it', () => {
+test('an error event fails the call even when text was printed before it', () => {
   const out = parseOpencodeEvents(`${OPENCODE_OK}\n${OPENCODE_ERR}`)
   expect(out.ok).toBe(false)
   // The partial answer is still handed back, the way a claude envelope failure carries its result.
   expect(out.result).toBe('pong')
 })
 
-it('a stream that finished without an answer is a failure, not an empty success', () => {
+test('a stream that finished without an answer is a failure, not an empty success', () => {
   const noText = OPENCODE_OK.split('\n')
     .filter((l) => !l.includes('"type":"text"'))
     .join('\n')
   expect(parseOpencodeEvents(noText).ok).toBe(false)
 })
 
-it('stdout that is not events at all is a failure naming that, never a silent empty result', () => {
+test('stdout that is not events at all is a failure naming that, never a silent empty result', () => {
   expect(parseOpencodeEvents('').ok).toBe(false)
   expect(parseOpencodeEvents('Segmentation fault\n').failure).toContain('parseable JSON events')
 })
 
-it("claude's envelope still parses, and is_error still beats a populated result", () => {
+test("claude's envelope still parses, and is_error still beats a populated result", () => {
   expect(parseClaudeEnvelope('{"result":"hi"}')).toEqual({ ok: true, result: 'hi' })
   const lying = parseClaudeEnvelope(
     '{"is_error":true,"subtype":"success","terminal_reason":"api_error","result":"Not logged in"}',
@@ -99,7 +99,7 @@ it("claude's envelope still parses, and is_error still beats a populated result"
 const CLAUDE_OK_WITH_COST =
   '{"type":"result","subtype":"success","is_error":false,"result":"pong","usage":{"input_tokens":2,"cache_creation_input_tokens":21863,"cache_read_input_tokens":9869,"output_tokens":4},"total_cost_usd":0.2236745}'
 
-it("claude's own cost figure is what an agentic attempt records", () => {
+test("claude's own cost figure is what an agentic attempt records", () => {
   const outcome = parseClaudeEnvelope(CLAUDE_OK_WITH_COST)
 
   expect(outcome.usage?.cost_usd).toBe(0.223_674_5)
@@ -112,7 +112,7 @@ it("claude's own cost figure is what an agentic attempt records", () => {
 
 // A run that errored after spending still spent, so the figure has to survive
 // the failure path rather than being dropped with the answer.
-it('a failed claude envelope still reports what the failed run cost', () => {
+test('a failed claude envelope still reports what the failed run cost', () => {
   const failed = parseClaudeEnvelope(
     '{"is_error":true,"subtype":"error_during_execution","result":"","total_cost_usd":0.03}',
   )
@@ -123,11 +123,11 @@ it('a failed claude envelope still reports what the failed run cost', () => {
 
 // An envelope stating nothing engined recognised reports no cost, rather than
 // an object of absent fields that reads as a zero-cost run.
-it('an envelope with no figures in it reports no usage at all', () => {
+test('an envelope with no figures in it reports no usage at all', () => {
   expect(parseClaudeEnvelope('{"result":"hi"}').usage).toBeUndefined()
 })
 
-it('claude carries the read-only floor in its launch argv and opencode carries none', () => {
+test('claude carries the read-only floor in its launch argv and opencode carries none', () => {
   const claude = agentCli('claude')
   const opencode = agentCli('opencode')
   expect(claude?.floor).toBe('flags')
@@ -145,7 +145,7 @@ it('claude carries the read-only floor in its launch argv and opencode carries n
   expect(opencode?.launch('/mcp.json')).toEqual(['run', '--format', 'json'])
 })
 
-it('an unknown agent resolves to nothing, so the spec parser can refuse it by name', () => {
+test('an unknown agent resolves to nothing, so the spec parser can refuse it by name', () => {
   expect(agentCli('codex')).toBeUndefined()
   expect(AGENT_IDS).toEqual(['claude', 'opencode', 'cursor'])
 })
@@ -164,7 +164,7 @@ const CURSOR_OK = [
   '{"type":"result","subtype":"success","duration_ms":2458,"is_error":false,"result":"Hello — good to meet you.","session_id":"s1","request_id":"r1","usage":{"inputTokens":1,"outputTokens":1}}',
 ].join('\n')
 
-it("reads cursor's answer out of the terminal result line, not the progress lines before it", () => {
+test("reads cursor's answer out of the terminal result line, not the progress lines before it", () => {
   expect(parseCursorEvents(CURSOR_OK)).toEqual({
     ok: true,
     result: 'Hello — good to meet you.',
@@ -174,7 +174,7 @@ it("reads cursor's answer out of the terminal result line, not the progress line
   })
 })
 
-it('a stream with no result line is a failure, not a silent empty success', () => {
+test('a stream with no result line is a failure, not a silent empty success', () => {
   const noResult = CURSOR_OK.split('\n')
     .filter((l) => !l.includes('"type":"result"'))
     .join('\n')
@@ -183,12 +183,12 @@ it('a stream with no result line is a failure, not a silent empty success', () =
   expect(out.failure).toContain('parseable result')
 })
 
-it("stdout that is not events at all is a failure naming that -- the empty-stream non-result claude's own trap warns against", () => {
+test("stdout that is not events at all is a failure naming that -- the empty-stream non-result claude's own trap warns against", () => {
   expect(parseCursorEvents('').ok).toBe(false)
   expect(parseCursorEvents('Segmentation fault\n').failure).toContain('parseable result')
 })
 
-it("an in-stream is_error beats a populated result, the same as claude's own envelope", () => {
+test("an in-stream is_error beats a populated result, the same as claude's own envelope", () => {
   const lying = parseCursorEvents(
     '{"type":"result","subtype":"error","is_error":true,"result":"partial"}',
   )
@@ -197,7 +197,7 @@ it("an in-stream is_error beats a populated result, the same as claude's own env
   expect(lying.result).toBe('partial')
 })
 
-it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist -- and never touches AGENTIC_FLOOR", () => {
+test("cursor carries its own floor in argv -- a mode, not claude's tool allowlist -- and never touches AGENTIC_FLOOR", () => {
   const cursor = agentCli('cursor')
   expect(cursor?.floor).toBe('flags')
   expect(cursor?.wire).toBe('openai')
@@ -217,7 +217,7 @@ it("cursor carries its own floor in argv -- a mode, not claude's tool allowlist 
   expect(cursor?.configure).toBeUndefined()
 })
 
-it("every flag an agent's own launch prepends is one no config can re-supply", () => {
+test("every flag an agent's own launch prepends is one no config can re-supply", () => {
   // The guard is derived from these same tables, so a flag added to any one of
   // them is unbeatable with no second edit anywhere. Read back off the launches
   // rather than off a written-down list, which is what would drift.
@@ -234,7 +234,7 @@ it("every flag an agent's own launch prepends is one no config can re-supply", (
   }
 })
 
-it('a config re-supplying --output-format to cursor is refused, silencing no stream-json evidence', () => {
+test('a config re-supplying --output-format to cursor is refused, silencing no stream-json evidence', () => {
   expect(() => assertNoForbiddenFlags(['--output-format'], 'config.toml')).toThrow(
     '--output-format',
   )
@@ -243,13 +243,13 @@ it('a config re-supplying --output-format to cursor is refused, silencing no str
   )
 })
 
-it('cursor declares a binary resolution strategy; claude and opencode -- both npm-fetched by bunx -- declare none', () => {
+test('cursor declares a binary resolution strategy; claude and opencode -- both npm-fetched by bunx -- declare none', () => {
   expect(agentCli('cursor')?.resolveBinary).toBeDefined()
   expect(agentCli('claude')?.resolveBinary).toBeUndefined()
   expect(agentCli('opencode')?.resolveBinary).toBeUndefined()
 })
 
-it('resolveCursorBinary: agent on PATH wins outright, the versions directory never consulted', () => {
+test('resolveCursorBinary: agent on PATH wins outright, the versions directory never consulted', () => {
   const resolved = resolveCursorBinary(
     (cmd) => (cmd === 'agent' ? '/home/x/.local/bin/agent' : null),
     '/nonexistent/versions/dir/never/read',
@@ -257,7 +257,7 @@ it('resolveCursorBinary: agent on PATH wins outright, the versions directory nev
   expect(resolved).toBe('/home/x/.local/bin/agent')
 })
 
-it('resolveCursorBinary: falls back to the newest versions directory by name when PATH has nothing', () => {
+test('resolveCursorBinary: falls back to the newest versions directory by name when PATH has nothing', () => {
   const root = mkdtempSync(join(TEST_ROOT, 'cursor-versions-'))
   for (const version of ['2026.01.01-aaa', '2026.02.15-bbb', '2026.02.01-ccc']) {
     const dir = join(root, version)
@@ -268,17 +268,17 @@ it('resolveCursorBinary: falls back to the newest versions directory by name whe
   expect(resolved).toBe(join(root, '2026.02.15-bbb', 'cursor-agent'))
 })
 
-it('resolveCursorBinary: neither PATH nor a versions directory has it -- throws naming both', () => {
+test('resolveCursorBinary: neither PATH nor a versions directory has it -- throws naming both', () => {
   const root = mkdtempSync(join(TEST_ROOT, 'cursor-versions-empty-'))
   expect(() => resolveCursorBinary(() => null, root)).toThrow(root)
 })
 
-it('resolveCursorBinary: a versions directory that does not exist at all is treated the same as an empty one', () => {
+test('resolveCursorBinary: a versions directory that does not exist at all is treated the same as an empty one', () => {
   expect(() => resolveCursorBinary(() => null, '/nonexistent/engined-cursor-test')).toThrow('PATH')
 })
 
 describe('streamed deltas, per agent', () => {
-  it('claude: partial-message text deltas are the answer as it prints; the result line still decides the verdict', () => {
+  test('claude: partial-message text deltas are the answer as it prints; the result line still decides the verdict', () => {
     const lines = [
       '{"type":"system","subtype":"init"}',
       '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}',
@@ -294,7 +294,7 @@ describe('streamed deltas, per agent', () => {
     })
   })
 
-  it('cursor: assistant text parts; opencode: text events; progress lines add nothing', () => {
+  test('cursor: assistant text parts; opencode: text events; progress lines add nothing', () => {
     const cursor =
       '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pong"}]}}'
     expect(agentDelta('cursor', cursor)).toBe('pong')
@@ -306,7 +306,7 @@ describe('streamed deltas, per agent', () => {
 })
 
 describe('orphan opencode config dirs', () => {
-  it('removes agentic-opencode-* older than process start and leaves fresh dirs and every other name', () => {
+  test('removes agentic-opencode-* older than process start and leaves fresh dirs and every other name', () => {
     const root = makeTestRoot('engined-opencode-orphan-')
     const leak = join(root, 'agentic-opencode-leak')
     const fresh = join(root, 'agentic-opencode-fresh')
@@ -332,7 +332,7 @@ function plantBunPackage(parent: string, base: string, version: string): void {
 }
 
 describe('agent install cache prune', () => {
-  it('keeps the current pin of a package and removes only other versions of that package', () => {
+  test('keeps the current pin of a package and removes only other versions of that package', () => {
     const root = makeTestRoot('engined-agent-cache-')
     const opencode = join(root, 'agentic-home', 'opencode', 'bun', 'install', 'cache')
     const claude = join(root, 'bun-install', 'install', 'cache', '@anthropic-ai')
@@ -371,7 +371,7 @@ describe('agent install cache prune', () => {
     expect(existsSync(join(claude, 'claude-code-linux-x64@2.1.247@@@1'))).toBe(false)
   })
 
-  it('keeps every pin of one agent and removes other versions', () => {
+  test('keeps every pin of one agent and removes other versions', () => {
     const root = makeTestRoot('engined-agent-cache-pins-')
     const opencode = join(root, 'agentic-home', 'opencode', 'bun', 'install', 'cache')
     mkdirSync(opencode, { recursive: true })
