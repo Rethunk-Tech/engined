@@ -84,7 +84,11 @@ test('discovered models are added under declared routes, which win and gain prov
   await d.refresh('claude')
   const view = d.apply(CLAUDE)
   const byModel = new Map(view.routes.map((r) => [r.model, r]))
-  expect([...byModel.keys()].sort()).toEqual(['haiku-4-5', 'opus-5-5', 'sonnet-5', 'sonnet-5-5'])
+  expect(
+    [...byModel.keys()].sort(
+      (a, b) => Number(String(a) > String(b)) - Number(String(a) < String(b)),
+    ),
+  ).toEqual(['haiku-4-5', 'opus-5-5', 'sonnet-5', 'sonnet-5-5'])
   expect(byModel.get('opus-5-5')?.display_name).toBe('Pinned Opus')
   expect(byModel.get('opus-5-5')?.input).toEqual(['text', 'image'])
   expect(byModel.get('sonnet-5-5')).toMatchObject({

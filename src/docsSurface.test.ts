@@ -70,7 +70,9 @@ const DOOR_PATHS = [
 test('HUMANS.md names every CLI flag --help prints', () => {
   const help = readFileSync(join(ROOT, 'src/extraModes.ts'), 'utf8')
   const humans = readFileSync(join(ROOT, 'HUMANS.md'), 'utf8')
-  const flags = [...new Set(help.match(FLAG_RE) ?? [])].sort()
+  const flags = [...new Set(help.match(FLAG_RE) ?? [])].sort(
+    (a, b) => Number(a > b) - Number(a < b),
+  )
   expect(flags.length).toBeGreaterThan(0)
   for (const flag of flags) {
     expect(humans, flag).toContain(flag)
@@ -79,15 +81,10 @@ test('HUMANS.md names every CLI flag --help prints', () => {
 
 test('docs/configuration.md names every closed config key', () => {
   const doc = readFileSync(join(ROOT, 'docs/configuration.md'), 'utf8')
-  for (const { keys } of Object.values(SCHEMA_TABLES)) {
-    for (const key of keys) {
-      if (TABLE_KEYS.has(key)) {
-        expect(doc, key).toContain(`[${key}]`)
-        continue
-      }
-      expect(doc, key).toContain(`\`${key}\``)
-    }
-  }
+  const missing = Object.values(SCHEMA_TABLES)
+    .flatMap(({ keys }) => [...keys])
+    .filter((key) => !doc.includes(TABLE_KEYS.has(key) ? `[${key}]` : `\`${key}\``))
+  expect(missing).toEqual([])
 })
 
 test('docs/http-api.md names every door path the router serves', () => {

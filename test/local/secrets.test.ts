@@ -61,8 +61,9 @@ describe.skipIf(!LOCAL)('resolveSecret (local)', () => {
     await clearScratch()
     const outcome = await resolveSecret(REF)
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) {
-      expect(outcome.reason).toBe('missing')
+    if (outcome.ok) {
+      throw new Error('unreachable: the test expects !outcome.ok')
     }
+    expect(outcome.reason).toBe('missing')
   })
 })

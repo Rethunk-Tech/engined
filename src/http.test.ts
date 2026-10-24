@@ -71,11 +71,11 @@ test('a body already released is not an error the caller has to handle', async (
   const { res } = watchedResponse()
   await res.body?.cancel()
 
-  await discardBody(res)
+  await expect(discardBody(res)).resolves.toBeUndefined()
 })
 
 test('a response carrying no body at all is a no-op', async () => {
-  await discardBody(new Response(null, { status: 204 }))
+  await expect(discardBody(new Response(null, { status: 204 }))).resolves.toBeUndefined()
 })
 
 test('a carry with no frame boundary past the cap is dropped rather than held', () => {
@@ -127,15 +127,16 @@ test('sseFrames yields a trimmed tail with no trailing boundary', async () => {
   expect(frames).toEqual(['data: {"x":1}'])
 })
 
-async function expectJsonTooLarge(result: unknown): Promise<void> {
-  expect(result).toBeInstanceOf(Response)
+async function responseSummary(result: unknown) {
   if (!(result instanceof Response)) {
-    return
+    return { notAResponse: true }
   }
-  expect(result.status).toBe(STATUS_PAYLOAD_TOO_LARGE)
-  expect(await result.json()).toEqual(
-    jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large'),
-  )
+  return { status: result.status, body: await result.json() }
+}
+
+const JSON_TOO_LARGE = {
+  status: STATUS_PAYLOAD_TOO_LARGE,
+  body: jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large'),
 }
 
 test('a JSON error body is OpenAI-shaped and types the status', () => {
@@ -181,7 +182,7 @@ test('a JSON body whose declared Content-Length is past the cap is 413 without r
     headers: { 'content-length': String(MAX_JSON_BODY_BYTES + 1) },
   })
   const result = await readJsonBody(req)
-  await expectJsonTooLarge(result)
+  expect(await responseSummary(result)).toEqual(JSON_TOO_LARGE)
 })
 
 test('a JSON body past the cap with no Content-Length is 413 after the read', async () => {
@@ -198,7 +199,7 @@ test('a JSON body past the cap with no Content-Length is 413 after the read', as
     }),
   }
   const result = await readJsonBody(new Request('http://door.local/', init))
-  await expectJsonTooLarge(result)
+  expect(await responseSummary(result)).toEqual(JSON_TOO_LARGE)
 })
 
 /** A body with no Content-Length, as a chunked upload arrives. */
@@ -223,7 +224,9 @@ test('the JSON cap counts bytes, not characters', async () => {
   const atCap =
     '\u20ac'.repeat(Math.floor(MAX_JSON_BODY_BYTES / 3)) + 'a'.repeat(MAX_JSON_BODY_BYTES % 3)
   expect(await readCappedText(chunkedRequest(atCap))).toBe(atCap)
-  await expectJsonTooLarge(await readCappedText(chunkedRequest(`${atCap}a`)))
+  expect(await responseSummary(await readCappedText(chunkedRequest(`${atCap}a`)))).toEqual(
+    JSON_TOO_LARGE,
+  )
 })
 
 test('readModelBody is 400 when the body has no model, and returns the parsed body otherwise', async () => {

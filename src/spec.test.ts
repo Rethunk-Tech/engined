@@ -80,17 +80,19 @@ describe('shipped specs', () => {
   test('claude resolves clean', () => {
     const loaded = loadShipped({ agent_version: '1.2.3' })
     expect(loaded.spec.kind).toBe('agentic-cli')
-    if (loaded.spec.kind === 'agentic-cli') {
-      expect(loaded.spec.agent).toBe('claude')
+    if (!(loaded.spec.kind === 'agentic-cli')) {
+      throw new Error('unreachable: the test expects loaded.spec.kind === "agentic-cli"')
     }
+    expect(loaded.spec.agent).toBe('claude')
   })
 
   test('cursor resolves clean', () => {
     const loaded = loadShipped({ id: 'cursor', agent_version: '2026.08.28-50f0823' })
     expect(loaded.spec.kind).toBe('agentic-cli')
-    if (loaded.spec.kind === 'agentic-cli') {
-      expect(loaded.spec.agent).toBe('cursor')
+    if (!(loaded.spec.kind === 'agentic-cli')) {
+      throw new Error('unreachable: the test expects loaded.spec.kind === "agentic-cli"')
     }
+    expect(loaded.spec.agent).toBe('cursor')
   })
 
   test('whisper as shipped resolves clean, and keeps its POST probe and accept range', () => {
@@ -99,30 +101,31 @@ describe('shipped specs', () => {
     // than that loading succeeded.
     const loaded = loadShipped({ id: 'whisper', models_dir: '/data/models' })
     expect(loaded.spec.kind).toBe('stt')
-    if (loaded.spec.kind !== 'agentic-cli') {
-      // medium.en by default; EngineRegistry.start (engines.ts) rewrites this
-      // pair's second token per the route a caller actually names.
-      const { command } = loaded.spec
-      expect(command[command.indexOf('-m') + 1]).toBe('/models/ggml-medium.en-q8_0.bin')
-      expect(loaded.spec.ready.path).toBe('/v1/audio/transcriptions')
-      expect(loaded.spec.ready.method).toBe('POST')
-      expect(loaded.spec.ready.accept).toEqual({ min: 200, max: 499 })
-      // {models_dir} and {spec_dir} must resolve to the supplied engine
-      // config and the installed spec directory, not survive as literals.
-      const specDirPath = join(ENGINES_ROOT, 'whisper')
-      expect(loaded.spec.volumes).toEqual([
-        { name: '/data/models', path: '/models', read_only: true },
-        { name: specDirPath, path: '/spec', read_only: true },
-      ])
-      expect(loaded.spec.artifacts).toEqual(WHISPER_ARTIFACTS)
-      // Both audio verbs, because this engine's own weights decide which of
-      // its routes may answer the second one -- the spec offers the path and
-      // `translate` on a route is what claims it.
-      expect(loaded.spec.serves).toEqual([
-        '/openai/v1/audio/transcriptions',
-        '/openai/v1/audio/translations',
-      ])
+    if (loaded.spec.kind === 'agentic-cli') {
+      throw new Error('unreachable: whisper is not an agentic-cli spec')
     }
+    // medium.en by default; EngineRegistry.start (engines.ts) rewrites this
+    // pair's second token per the route a caller actually names.
+    const { command } = loaded.spec
+    expect(command[command.indexOf('-m') + 1]).toBe('/models/ggml-medium.en-q8_0.bin')
+    expect(loaded.spec.ready.path).toBe('/v1/audio/transcriptions')
+    expect(loaded.spec.ready.method).toBe('POST')
+    expect(loaded.spec.ready.accept).toEqual({ min: 200, max: 499 })
+    // {models_dir} and {spec_dir} must resolve to the supplied engine
+    // config and the installed spec directory, not survive as literals.
+    const specDirPath = join(ENGINES_ROOT, 'whisper')
+    expect(loaded.spec.volumes).toEqual([
+      { name: '/data/models', path: '/models', read_only: true },
+      { name: specDirPath, path: '/spec', read_only: true },
+    ])
+    expect(loaded.spec.artifacts).toEqual(WHISPER_ARTIFACTS)
+    // Both audio verbs, because this engine's own weights decide which of
+    // its routes may answer the second one -- the spec offers the path and
+    // `translate` on a route is what claims it.
+    expect(loaded.spec.serves).toEqual([
+      '/openai/v1/audio/transcriptions',
+      '/openai/v1/audio/translations',
+    ])
   })
 
   /**
@@ -239,11 +242,12 @@ test('a container spec with a full round trip resolves clean', () => {
     bunx: BUNX,
   })
   expect(loaded.spec.kind).toBe('stt')
-  if (loaded.spec.kind !== 'agentic-cli') {
-    expect(loaded.spec.command).toEqual(['-m', '/data/models/model.bin'])
-    expect(loaded.spec.ready).toEqual({ path: '/health', status: 200 })
-    expect(loaded.spec.volumes).toEqual([{ name: 'engined-whisper-models', path: '/models' }])
+  if (!(loaded.spec.kind !== 'agentic-cli')) {
+    throw new Error('unreachable: the test expects loaded.spec.kind !== "agentic-cli"')
   }
+  expect(loaded.spec.command).toEqual(['-m', '/data/models/model.bin'])
+  expect(loaded.spec.ready).toEqual({ path: '/health', status: 200 })
+  expect(loaded.spec.volumes).toEqual([{ name: 'engined-whisper-models', path: '/models' }])
 })
 
 test('missing spec directory is fatal, naming the file', () => {

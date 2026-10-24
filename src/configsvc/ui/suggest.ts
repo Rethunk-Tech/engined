@@ -30,7 +30,7 @@ export function modelSuggestions(
       out.add(id)
     }
   }
-  return [...out].sort()
+  return [...out].sort((a, b) => Number(a > b) - Number(a < b))
 }
 
 /** The weights context window of the file a route names, when it is a readable GGUF. */
@@ -65,7 +65,7 @@ export function comfyChoices(files: readonly ModelFile[], key: string): string[]
   const names = files
     .filter((f) => dirs === undefined || dirs.some((d) => f.path.split('/').includes(d)))
     .map((f) => f.path.split('/').pop() ?? f.path)
-  return [...new Set(names)].sort()
+  return [...new Set(names)].sort((a, b) => Number(a > b) - Number(a < b))
 }
 
 export function formatBytes(n: number): string {

@@ -253,7 +253,11 @@ test('start: two concurrent calls against a stopped engine spawn exactly one con
   const { launched: aLaunched, ...aRest } = a
   const { launched: bLaunched, ...bRest } = b
   expect(aRest).toEqual(bRest)
-  expect([aLaunched, bLaunched].sort()).toEqual([false, true])
+  expect(
+    [aLaunched, bLaunched].sort(
+      (left, right) => Number(String(left) > String(right)) - Number(String(left) < String(right)),
+    ),
+  ).toEqual([false, true])
   expect(aRest.idle_until).toMatch(ISO_INSTANT)
   const { idle_until: _idleUntil, ...withoutIdle } = aRest
   expect(withoutIdle).toEqual({

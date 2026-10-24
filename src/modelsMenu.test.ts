@@ -179,11 +179,9 @@ hops = ["@/local-llama/ornith"]
   expect(inner?.declared_hops).toEqual(['@/local-llama/ornith'])
   expect(inner?.hops).toEqual(inner?.declared_hops)
   expect(data.find((row) => row.id === 'off')).toBeUndefined()
-  for (const row of data) {
-    if (row.hops === undefined) {
-      expect(row.declared_hops).toBeUndefined()
-    }
-  }
+  expect(data.filter((row) => row.hops === undefined && row.declared_hops !== undefined)).toEqual(
+    [],
+  )
 })
 
 test('a chain with no hop reporting a context leaves both absent', () => {

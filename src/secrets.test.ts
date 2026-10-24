@@ -31,10 +31,11 @@ describe('resolveSecret', () => {
   test('missing entry returns reason missing with a secret-tool store fix', async () => {
     const outcome = await resolveSecret(REF, fakeExec({ stdout: '', stderr: '', exitCode: 1 }))
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) {
-      expect(outcome.reason).toBe('missing')
-      expect(outcome.fix).toContain('secret-tool store')
+    if (outcome.ok) {
+      throw new Error('unreachable: the test expects !outcome.ok')
     }
+    expect(outcome.reason).toBe('missing')
+    expect(outcome.fix).toContain('secret-tool store')
   })
 
   test('locked keyring returns reason locked without a store command', async () => {
@@ -47,10 +48,11 @@ describe('resolveSecret', () => {
       }),
     )
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) {
-      expect(outcome.reason).toBe('locked')
-      expect(outcome.fix).not.toContain('secret-tool store')
+    if (outcome.ok) {
+      throw new Error('unreachable: the test expects !outcome.ok')
     }
+    expect(outcome.reason).toBe('locked')
+    expect(outcome.fix).not.toContain('secret-tool store')
   })
 
   test('no failure outcome carries the resolved value', async () => {

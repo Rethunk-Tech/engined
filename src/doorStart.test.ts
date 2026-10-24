@@ -168,7 +168,9 @@ function expectExactlyOneStarted(
   secondBody: { data: Record<string, unknown>[] },
 ) {
   const started = [firstBody.data[0]?.started, secondBody.data[0]?.started]
-  expect(started.sort()).toEqual([false, true])
+  expect(
+    started.sort((a, b) => Number(String(a) > String(b)) - Number(String(a) < String(b))),
+  ).toEqual([false, true])
   expect(firstBody.data[0]?.state).toBe('running')
   expect(secondBody.data[0]?.state).toBe('running')
 }

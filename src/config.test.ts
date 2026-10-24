@@ -37,6 +37,16 @@ function parseMessage(toml: string): string {
   return messageOf(writeConfig(toml))
 }
 
+/** The error `fn` throws, or undefined when it returns. */
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn()
+  } catch (err) {
+    return err
+  }
+  return undefined
+}
+
 /** A real models_dir with the given files pre-created, for tests that must parse clean. */
 function tempModelsDir(...files: string[]): string {
   const dir = mkdtempSync(join(TEST_ROOT, 'engined-models-'))
@@ -1574,16 +1584,14 @@ test('loadConfig throws ParseError, not a bare Error, on a fatal rule', () => {
 
 test('malformed TOML is a ParseError naming the file, line, column and reason, with the syntax error as cause', () => {
   const path = writeConfig('listen_port = 8080\nhost = ')
-  try {
-    loadConfig(path)
-    throw new Error('expected loadConfig to throw')
-  } catch (err) {
-    expect(err).toBeInstanceOf(ParseError)
-    const parseErr = err as ParseError
-    expect(parseErr.message).toStartWith(`${path}:2:`)
-    expect(parseErr.message).toContain(": invalid TOML: Missing value after '='")
-    expect(parseErr.cause).toBeDefined()
+  const err = thrownBy(() => loadConfig(path))
+  expect(err).toBeInstanceOf(ParseError)
+  if (!(err instanceof ParseError)) {
+    throw new Error('unreachable: loadConfig did not throw a ParseError')
   }
+  expect(err.message).toStartWith(`${path}:2:`)
+  expect(err.message).toContain(": invalid TOML: Missing value after '='")
+  expect(err.cause).toBeDefined()
 })
 
 const RX_ENGINE_NOT_ARRAY = /"engine" must be an array of tables/
@@ -2182,13 +2190,11 @@ test('[configsvc] defaults off, carries an enabled table, and refuses what canno
 test('a field-level error carries the config path of the entry and key at fault', () => {
   const thrown = (toml: string): ParseError => {
     const file = writeConfig(toml)
-    try {
-      loadConfig(file)
-    } catch (err) {
-      expect(err).toBeInstanceOf(ParseError)
-      return err as ParseError
+    const err = thrownBy(() => loadConfig(file))
+    if (!(err instanceof ParseError)) {
+      throw new Error('expected loadConfig to throw a ParseError')
     }
-    throw new Error('expected loadConfig to throw')
+    return err
   }
   const route = '[[route]]\nengine = "e"\n'
   const unknownKey = thrown(`[[engine]]\nid = "e"\n${route}${route}bogus = 1\n`)

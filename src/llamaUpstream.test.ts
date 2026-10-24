@@ -17,16 +17,15 @@ test('a non-JSON 400 on load does not throw SyntaxError', async () => {
     pollIntervalMs: 1,
     ensureStarted: () => Promise.resolve(),
   })
-  try {
-    await upstream.loadAndWait('m')
-    throw new Error('expected loadAndWait to throw')
-  } catch (err) {
-    expect(err instanceof SyntaxError).toBe(false)
-    if (!(err instanceof Error)) {
-      throw err
-    }
-    expect(err.message).toContain('load failed:')
-    expect(err.message.includes(body)).toBe(false)
-    expect(err.message).toContain('x'.repeat(ENGINE_ERROR_CHARS - 20))
+  const err = await upstream.loadAndWait('m').then(
+    () => undefined,
+    (thrown: unknown) => thrown,
+  )
+  expect(err instanceof SyntaxError).toBe(false)
+  if (!(err instanceof Error)) {
+    throw new Error('unreachable: loadAndWait did not reject with an Error')
   }
+  expect(err.message).toContain('load failed:')
+  expect(err.message.includes(body)).toBe(false)
+  expect(err.message).toContain('x'.repeat(ENGINE_ERROR_CHARS - 20))
 })

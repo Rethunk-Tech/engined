@@ -322,10 +322,10 @@ test("GET /openai/v1/models is an OpenAI list envelope whose data[].id is every 
       expect(r.object).toBe('model')
       expect(r.created).toBe(0)
       expect(r.owned_by).toBe('engined')
-      if (r.id !== '@/local/ornith') {
-        expect(r.display_name).toBeUndefined()
-      }
     }
+    expect(rows.filter((r) => r.id !== '@/local/ornith' && r.display_name !== undefined)).toEqual(
+      [],
+    )
     const chatToEmbed = await chatToEmbeddingRoute(door)
     expect(chatToEmbed.status).toBe(400)
     expect(await chatToEmbed.text()).toContain('does not serve')
@@ -539,10 +539,11 @@ const ORNITH_ROUTE = route({
   filename: 'ornith.gguf',
 })
 
-async function withOrnithHop(
+async function ornithHopOutcome(
   body: Record<string, unknown>,
   cfgExtra: Partial<Config>,
-): Promise<void> {
+): Promise<{ status: number | undefined; forwardedModels: unknown[] }> {
+  let status: number | undefined
   const chatBodies: Record<string, unknown>[] = []
   const good = startFakeUpstream(fakeLlamaUpstream('answered by good', 200, chatBodies))
   const exec = buildExec({ portByContainer: { 'engined-good': good.port } })
@@ -555,12 +556,13 @@ async function withOrnithHop(
     { exec, stoppables: [good] },
     async (door) => {
       const res = await door.fetch(req('POST', '/openai/v1/chat/completions', { body }))
-      expect(res.status).toBe(200)
-      expect(chatBodies).toHaveLength(1)
-      expect(chatBodies[0]?.model).toBe('ornith')
+      status = res.status
     },
   )
+  return { status, forwardedModels: chatBodies.map((b) => b.model) }
 }
+
+const ORNITH_FORWARDED = { status: 200, forwardedModels: ['ornith'] }
 
 async function withOfflineEnginesMenu(
   fn: (res: Response, body: Record<string, unknown>) => Promise<void>,
@@ -749,25 +751,34 @@ test('a streaming chain whose first hop 5xxs on the actual chat call advances to
 // chain name and a model id can never collide (checkNamespaceCollisions).
 
 test("a chain dispatch to a llama hop rewrites the forwarded body's model to the resolved model id, not the chain name", async () => {
-  await withOrnithHop(
-    { model: 'chain-private', messages: [{ role: 'user', content: 'hi' }] },
-    { chains: { 'chain-private': ['@/good/ornith'] } },
-  )
+  expect(
+    await ornithHopOutcome(
+      { model: 'chain-private', messages: [{ role: 'user', content: 'hi' }] },
+      { chains: { 'chain-private': ['@/good/ornith'] } },
+    ),
+  ).toEqual(ORNITH_FORWARDED)
 })
 
 test("a streaming chain dispatch to a llama hop also rewrites the forwarded body's model to the resolved model id", async () => {
-  await withOrnithHop(
-    {
-      model: 'chain-private',
-      stream: true,
-      messages: [{ role: 'user', content: 'hi' }],
-    },
-    { chains: { 'chain-private': ['@/good/ornith'] } },
-  )
+  expect(
+    await ornithHopOutcome(
+      {
+        model: 'chain-private',
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+      { chains: { 'chain-private': ['@/good/ornith'] } },
+    ),
+  ).toEqual(ORNITH_FORWARDED)
 })
 
 test('a direct (non-chain) model request still forwards its own model id unchanged', async () => {
-  await withOrnithHop({ model: '@/good/ornith', messages: [{ role: 'user', content: 'hi' }] }, {})
+  expect(
+    await ornithHopOutcome(
+      { model: '@/good/ornith', messages: [{ role: 'user', content: 'hi' }] },
+      {},
+    ),
+  ).toEqual(ORNITH_FORWARDED)
 })
 
 /**

@@ -183,18 +183,18 @@ function generate(
   )
 }
 
-/** A 200 whose first image is the fixture pixel; `count` also pins how many images came back. */
-async function expectPixelBody(
-  res: Response,
-  count?: number,
-): Promise<{ created: number; data: { b64_json: string }[] }> {
+/** What a 200 image reply carries: its status, image count and first image. */
+async function pixelBodyOf(res: Response) {
   const body = (await res.json()) as { created: number; data: { b64_json: string }[] }
-  expect(res.status).toBe(200)
-  if (count !== undefined) {
-    expect(body.data).toHaveLength(count)
+  return {
+    body,
+    seen: { status: res.status, count: body.data.length, first: body.data[0]?.b64_json },
   }
-  expect(body.data[0]?.b64_json).toBe(Buffer.from(PIXEL).toString('base64'))
-  return body
+}
+
+/** The `seen` of a 200 reply holding `count` copies of the fixture pixel. */
+function pixelReply(count: number) {
+  return { status: 200, count, first: Buffer.from(PIXEL).toString('base64') }
 }
 
 describe('the graph is filled, not templated', () => {
@@ -239,7 +239,8 @@ describe('POST /openai/v1/images/generations', () => {
       prompt: 'a red cube',
       size: '512x512',
     })
-    const body = await expectPixelBody(res, 1)
+    const { body, seen } = await pixelBodyOf(res)
+    expect(seen).toEqual(pixelReply(1))
     expect(typeof body.created).toBe('number')
 
     // The prompt reached the container inside comfy's own envelope, with the
@@ -271,7 +272,7 @@ describe('POST /openai/v1/images/generations', () => {
     }
     const door = await imagesDoor(client)
     const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
-    await expectPixelBody(res, 1)
+    expect((await pixelBodyOf(res)).seen).toEqual(pixelReply(1))
   })
 
   test('n images are n renders, each with its own seed', async () => {
@@ -630,7 +631,7 @@ describe('collect asks before it gives up', () => {
   test('a deadline already passed is one probe, not none', async () => {
     const door = await imagesDoor(rendersInstantly(), CHECKPOINTS, { chatTimeoutSeconds: 0 })
     const res = await generate(door, { model: '@/comfy/local', prompt: 'a red cube' })
-    await expectPixelBody(res)
+    expect((await pixelBodyOf(res)).seen).toEqual(pixelReply(1))
   })
 })
 

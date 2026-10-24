@@ -59,25 +59,23 @@ describe('engine Dockerfiles pin every build input', () => {
       expect(joined).not.toMatch(/huggingface\.co\/\S+\/resolve\/main\//)
       expect(joined).not.toMatch(/git clone --branch /)
 
-      for (const line of lines) {
-        if (/^FROM\s+/.test(line.trim())) {
-          expect(line).toMatch(SHA256)
-        }
+      const unpinned = lines.filter((line) => {
         const from = copyFromSource(line)
-        if (from !== undefined && !isStageOrContext(from)) {
-          expect(from).toMatch(SHA256)
-          expect(from).not.toMatch(/:latest(?:@|$)/)
-        }
-        if (line.includes('git+')) {
-          expect(line).toMatch(GIT_SHA)
-        }
-        if (/pip install/.test(line)) {
-          const args = line.slice(line.indexOf('pip install')).split(/\s+/)
-          expect(
-            args.filter((tok) => tok === 'torch' || tok === 'torchvision' || tok === 'torchaudio'),
-          ).toEqual([])
-        }
-      }
+        const floatingCopy =
+          from !== undefined &&
+          !isStageOrContext(from) &&
+          (!SHA256.test(from) || /:latest(?:@|$)/.test(from))
+        const unpinnedFrom = /^FROM\s+/.test(line.trim()) && !SHA256.test(line)
+        const unpinnedGit = line.includes('git+') && !GIT_SHA.test(line)
+        const torchInstall =
+          /pip install/.test(line) &&
+          line
+            .slice(line.indexOf('pip install'))
+            .split(/\s+/)
+            .some((tok) => tok === 'torch' || tok === 'torchvision' || tok === 'torchaudio')
+        return unpinnedFrom || floatingCopy || unpinnedGit || torchInstall
+      })
+      expect(unpinned).toEqual([])
     })
   }
 })

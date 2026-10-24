@@ -95,11 +95,11 @@ describe('the door: bind', () => {
     await withBoundDoor(config({ listen_port: port }), async () => {
       const v4 = await rawRequest(port, '/openai/v1/models', { Host: `gpu-box:${port}` })
       const v6 = await rawRequest(port, '/openai/v1/models', {}, '::1')
-      expect(v4.status).toBe(200)
-      expect(v6.status).toBe(200)
-      if (lanAddress !== undefined) {
-        expect((await rawRequest(port, '/openai/v1/models', {}, lanAddress)).status).toBe(200)
-      }
+      const lan =
+        lanAddress === undefined
+          ? 200
+          : (await rawRequest(port, '/openai/v1/models', {}, lanAddress)).status
+      expect([v4.status, v6.status, lan]).toEqual([200, 200, 200])
     })
   })
 })

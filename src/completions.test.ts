@@ -159,7 +159,7 @@ describe('infillRequestInit: request mapping', () => {
   })
 })
 
-function assertBufferedInfillCompletion(
+function bufferedInfillSummary(
   body: {
     object: string
     choices: { text: string; finish_reason: string | null }[]
@@ -167,13 +167,15 @@ function assertBufferedInfillCompletion(
   },
   recorded: { url: string; body: string }[],
   lines: string[],
-): void {
-  expect(body.object).toBe('text_completion')
-  expect(body.choices[0]?.text).toBe('return a + b')
-  expect(body.choices[0]?.finish_reason).toBe('stop')
-  expect(body.usage).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 })
-  expect(recorded[0]?.url.endsWith('/infill')).toBe(true)
-  expect(soleProvenanceRecord(lines).engine_used).toBe('local-llama')
+) {
+  return {
+    object: body.object,
+    text: body.choices[0]?.text,
+    finishReason: body.choices[0]?.finish_reason,
+    usage: body.usage,
+    infillUrl: recorded[0]?.url.endsWith('/infill'),
+    engineUsed: soleProvenanceRecord(lines).engine_used,
+  }
 }
 
 async function fetchBufferedInfillCompletion(): Promise<{
@@ -209,7 +211,14 @@ async function fetchBufferedInfillCompletion(): Promise<{
 describe('POST /openai/v1/completions: response mapping', () => {
   test('a buffered infill reply maps to the OpenAI completions shape', async () => {
     const { body, recorded, lines } = await fetchBufferedInfillCompletion()
-    assertBufferedInfillCompletion(body, recorded, lines)
+    expect(bufferedInfillSummary(body, recorded, lines)).toEqual({
+      object: 'text_completion',
+      text: 'return a + b',
+      finishReason: 'stop',
+      usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+      infillUrl: true,
+      engineUsed: 'local-llama',
+    })
   })
 
   test('a buffered completions reply carries the answering-route headers', async () => {

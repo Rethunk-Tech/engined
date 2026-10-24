@@ -210,7 +210,9 @@ export async function pruneCli(
       )
     }
     const routes = removals.filter((r) => r.kind !== 'model')
-    const engines = [...new Set(routes.map((r) => r.engine))].sort()
+    const engines = [...new Set(routes.map((r) => r.engine))].sort(
+      (a, b) => Number(String(a) > String(b)) - Number(String(a) < String(b)),
+    )
     write(
       `removed ${routes.length} routes (${engines.map((e) => `${e}: ${routes.filter((r) => r.engine === e).length}`).join(', ')}) and ${removals.length - routes.length} models; wrote ${written.join(', ')}`,
     )

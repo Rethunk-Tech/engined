@@ -224,7 +224,7 @@ function changedEntries(beforeText: string, afterText: string): string[] {
       }
     }
   }
-  return [...changed].sort()
+  return [...changed].sort((a, b) => Number(a > b) - Number(a < b))
 }
 
 interface SaveResult {

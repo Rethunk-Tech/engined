@@ -190,11 +190,15 @@ agent_version = "1.2.3"
   expect(() => loadConfig(configPath)).toThrow(RX_TOOLS_FLAG)
 })
 
-function expectPinnedBunx(argv: string[]) {
-  expect(argv[0]).toBe(BUNX)
-  expect(argv.some((token) => token.includes(PIN))).toBe(true)
-  expect(argv.some((token) => token.includes('latest'))).toBe(false)
+function pinnedBunxView(argv: string[]) {
+  return {
+    command: argv[0],
+    hasPin: argv.some((token) => token.includes(PIN)),
+    hasLatest: argv.some((token) => token.includes('latest')),
+  }
 }
+
+const PINNED_BUNX = { command: BUNX, hasPin: true, hasLatest: false }
 
 test('buildArgv: command[0] is the given bunx path, and the pin appears literally rather than latest', () => {
   const argv = buildArgv({
@@ -205,7 +209,7 @@ test('buildArgv: command[0] is the given bunx path, and the pin appears literall
     mcpConfigPath: MCP_CONFIG_PATH,
   })
 
-  expectPinnedBunx(argv)
+  expect(pinnedBunxView(argv)).toEqual(PINNED_BUNX)
 })
 
 test('buildArgv: the rendered config path is the value of --mcp-config, never a positional prompt', () => {
@@ -226,42 +230,33 @@ test('buildArgv: an agent with resolveBinary skips bunx and the pin entirely, us
   const cursor = agentCli('cursor')
   expect(cursor?.resolveBinary).toBeDefined()
   let resolved: string | undefined
-  let resolveError: unknown
   try {
     resolved = cursor?.resolveBinary?.()
-  } catch (err) {
-    resolveError = err
+  } catch {
+    resolved = undefined
   }
-  if (resolved === undefined) {
-    // No cursor installed on whatever box is running this suite: the failure
-    // must still be loud and specific, at the same buildArgv call site a
-    // real launch would hit -- never a silent fallback to a bare "agent".
-    expect(resolveError).toBeInstanceOf(Error)
-    expect(() =>
-      buildArgv({
-        bunx: BUNX,
-        agent: 'cursor',
-        agentVersion: PIN,
-        args: {},
-        mcpConfigPath: MCP_CONFIG_PATH,
-      }),
-    ).toThrow()
-  } else {
-    // This box has cursor installed (test/local/cursor.test.ts's own real
-    // round trip relies on the same fact): buildArgv must actually route
-    // through it rather than bunx, and the configured pin -- unused by a
-    // self-updating binary with no pin mechanism -- must never appear.
-    const argv = buildArgv({
+  // Without a cursor install the failure must still be loud and specific, at
+  // the buildArgv call site a real launch would hit -- never a silent fallback
+  // to a bare "agent". With one, buildArgv must route through it rather than
+  // bunx and the pin must never appear.
+  let built: string[] | undefined
+  let buildError: unknown
+  try {
+    built = buildArgv({
       bunx: BUNX,
       agent: 'cursor',
       agentVersion: PIN,
       args: {},
       mcpConfigPath: MCP_CONFIG_PATH,
     })
-    expect(argv[0]).toBe(resolved)
-    expect(argv[0]).not.toBe(BUNX)
-    expect(argv.some((token) => token.includes(PIN))).toBe(false)
+  } catch (err) {
+    buildError = err
   }
+  expect({
+    routed: built?.[0],
+    pinLeaked: built?.some((token) => token.includes(PIN)) ?? false,
+    failedLoudly: buildError instanceof Error,
+  }).toEqual({ routed: resolved, pinLeaked: false, failedLoudly: resolved === undefined })
 })
 
 test('renderEmptyMcpConfig: the file it names exists and holds an empty MCP configuration', () => {
@@ -520,7 +515,7 @@ test('runAgentic: command[0] resolves from the given bunx and the pin appears in
   await runAgenticFixture(spawn)
 
   const [argv] = calls[0] as [string[], unknown]
-  expectPinnedBunx(argv)
+  expect(pinnedBunxView(argv)).toEqual(PINNED_BUNX)
 })
 
 test('runAgentic: --mcp-config in the spawned argv names a real file holding an empty MCP config', async () => {

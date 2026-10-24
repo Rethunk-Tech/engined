@@ -239,8 +239,8 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
                 help="From the cost the upstream reported on calls through the routes below."
               >
                 <span className="readout">
-                  ${spend.toFixed(2)}
-                  {cap === undefined ? null : <span className="muted"> of ${cap}</span>}
+                  {`$${spend.toFixed(2)}`}
+                  {cap === undefined ? null : <span className="muted">{` of $${cap}`}</span>}
                 </span>
               </Labeled>
             ) : null}
@@ -326,7 +326,7 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
         <span className="bad small-text">No route uses it, so it serves no models</span>
       ) : null}
       <span className="muted small-text">
-        {plural(addresses.length, 'route')} · ${monthSpend(addresses).toFixed(2)}
+        {plural(addresses.length, 'route')} · {`$${monthSpend(addresses).toFixed(2)}`}
         {cap === undefined ? '' : ` of $${cap}`} this month
       </span>
     </a>

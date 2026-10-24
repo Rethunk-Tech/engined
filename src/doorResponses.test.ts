@@ -44,21 +44,16 @@ const TEST_ROOT = makeTestRoot('engined-door-test-')
  * point of every caller: equal values would pass a weaker check while proving
  * nothing about which of the two a field actually came from.
  */
-function assertReportedAndResident(lines: string[], reported: string, resident: string): void {
-  if (reported === resident) {
-    throw new Error(`the two values must differ to prove anything; both are "${reported}"`)
-  }
+function reportedAndResident(lines: string[]) {
   const { attempts } = soleProvenanceRecord(lines)
-  const [only, ...rest] = attempts
-  if (only === undefined || rest.length > 0) {
-    throw new Error(`expected exactly one attempt, got ${attempts.length}`)
-  }
-  if (only.model_reported !== reported || only.model_resident !== resident) {
-    throw new Error(
-      `expected reported "${reported}" / resident "${resident}", got "${only.model_reported}" / "${only.model_resident}"`,
-    )
+  return {
+    attempts: attempts.length,
+    reported: attempts[0]?.model_reported,
+    resident: attempts[0]?.model_resident,
   }
 }
+
+const ORNITH_REPORTED_AND_RESIDENT = { attempts: 1, reported: 'ornith', resident: 'ornith-real' }
 
 describe('the door: answering-route headers', () => {
   test('a buffered chat reply names the answering route, upstream, and egress', async () => {
@@ -313,7 +308,7 @@ describe('the door: streaming provenance', () => {
       write,
     })
     await res.text()
-    assertReportedAndResident(lines, 'ornith', 'ornith-real')
+    expect(reportedAndResident(lines)).toEqual(ORNITH_REPORTED_AND_RESIDENT)
   })
 
   test("the caller's stream is byte-identical to what the upstream sent, tee in place", async () => {
@@ -362,7 +357,7 @@ describe('the door: provenance model fields', () => {
     // Draining the body is what completes the underlying stream and fires
     // the deferred provenance line, same as a real consumer reading it.
     await res.json()
-    assertReportedAndResident(lines, 'ornith', 'ornith-real')
+    expect(reportedAndResident(lines)).toEqual(ORNITH_REPORTED_AND_RESIDENT)
   })
 })
 

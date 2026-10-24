@@ -164,21 +164,26 @@ async function unreachedUpload(headers: Record<string, string>, body: string) {
   return { res, calls }
 }
 
-async function refusedCancel(res: Response) {
+async function cancelOutcome(res: Response) {
   const body = (await res.json()) as { error?: string; cancelled?: string }
-  expect(res.status).toBe(502)
-  expect(body.cancelled).toBeUndefined()
-  expect(errorMessageOf(body)).toContain('http 500')
+  return {
+    status: res.status,
+    cancelled: body.cancelled,
+    comfyRefusal: errorMessageOf(body)?.includes('http 500') ?? false,
+  }
 }
 
-async function expectJobCCancelled(
-  res: Response,
-  cancelled: 'running' | 'pending',
-  calls: { url: string; init?: RequestInit }[],
-  interruptCount: number,
-) {
-  expect(await res.json()).toEqual({ prompt_id: 'job-c', cancelled })
-  expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(interruptCount)
+const REFUSED_CANCEL = { status: 502, cancelled: undefined, comfyRefusal: true }
+
+async function jobCOutcome(res: Response, calls: { url: string; init?: RequestInit }[]) {
+  return {
+    body: await res.json(),
+    interrupts: calls.filter((c) => c.url.includes('/interrupt')).length,
+  }
+}
+
+function jobCCancelled(cancelled: 'running' | 'pending', interrupts: number) {
+  return { body: { prompt_id: 'job-c', cancelled }, interrupts }
 }
 
 function jobCDuringDeleteClient(onQueueRead: (reads: number) => Response, withInterrupt: boolean) {
@@ -409,7 +414,11 @@ describe('comfy proxy: GET /view is mediated', () => {
     expect(q.get('subfolder')).toBe('renders')
     expect(q.get('type')).toBe('output')
     expect(q.get('preview')).toBeNull()
-    expect([...q.keys()].sort()).toEqual(['filename', 'subfolder', 'type'])
+    expect([...q.keys()].sort((a, b) => Number(a > b) - Number(a < b))).toEqual([
+      'filename',
+      'subfolder',
+      'type',
+    ])
   })
 })
 
@@ -787,7 +796,7 @@ describe('comfy proxy: a scoped cancel the door can prove and perform', () => {
     const res = await cancel(await boundDoor(client), 'job-c')
 
     expect(res.status).toBe(200)
-    await expectJobCCancelled(res, 'running', calls, 1)
+    expect(await jobCOutcome(res, calls)).toEqual(jobCCancelled('running', 1))
   })
 
   test('POST /cancel drops a not-yet-started prompt from the queue instead of interrupting', async () => {
@@ -818,7 +827,9 @@ describe('comfy proxy: a scoped cancel the door refuses', () => {
   // the caller stops waiting for a prompt that is still queued to render.
   test('POST /cancel reports a queue delete comfy refused, never a cancel it did not perform', async () => {
     const { client } = cancellingComfyClient(['someone-elses-job'], ['job-c'], 500)
-    await refusedCancel(await cancel(await boundDoor(client), 'job-c'))
+    expect(await cancelOutcome(await cancel(await boundDoor(client), 'job-c'))).toEqual(
+      REFUSED_CANCEL,
+    )
   })
 
   // The running branch is the one holding the GPU: a caller told the render was
@@ -827,7 +838,7 @@ describe('comfy proxy: a scoped cancel the door refuses', () => {
   test('POST /cancel reports an interrupt comfy refused, never a cancel it did not perform', async () => {
     const { client, calls } = cancellingComfyClient(['job-c'], [], 200, 500)
     const res = await cancel(await boundDoor(client), 'job-c')
-    await refusedCancel(res)
+    expect(await cancelOutcome(res)).toEqual(REFUSED_CANCEL)
     expect(calls.filter((c) => c.url.includes('/interrupt'))).toHaveLength(1)
   })
 
@@ -1090,7 +1101,7 @@ describe('comfy proxy: a cancel reports what the container did, not what was ask
         : Response.json({ queue_running: [[0, 'job-c']], queue_pending: [] })
     }, true)
     const res = await cancel(await boundDoor(client), 'job-c')
-    await expectJobCCancelled(res, 'running', calls, 1)
+    expect(await jobCOutcome(res, calls)).toEqual(jobCCancelled('running', 1))
   })
 
   test('a pending prompt the delete really removed is still reported pending', async () => {
@@ -1102,7 +1113,7 @@ describe('comfy proxy: a cancel reports what the container did, not what was ask
       false,
     )
     const res = await cancel(await boundDoor(client), 'job-c')
-    await expectJobCCancelled(res, 'pending', calls, 0)
+    expect(await jobCOutcome(res, calls)).toEqual(jobCCancelled('pending', 0))
   })
 })
 
