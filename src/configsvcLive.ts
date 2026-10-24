@@ -218,11 +218,9 @@ function cheapCheck(model: string, serves: readonly string[]): RouteCheck | unde
   if (serves.includes(CONTENT_ENDPOINT_SPEECH)) {
     return { ...json(CONTENT_ENDPOINT_SPEECH, { input: 'ping' }), json: false }
   }
-  const stt = serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS)
-    ? CONTENT_ENDPOINT_TRANSCRIPTIONS
-    : serves.includes(CONTENT_ENDPOINT_TRANSLATIONS)
-      ? CONTENT_ENDPOINT_TRANSLATIONS
-      : undefined
+  const stt = [CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS].find((e) =>
+    serves.includes(e),
+  )
   if (stt !== undefined) {
     const form = new FormData()
     form.set('model', model)

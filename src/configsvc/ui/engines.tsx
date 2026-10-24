@@ -184,20 +184,14 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
             exitCode?: number
             error?: { message?: string }
           }
-          const line =
-            frame.event === 'line'
-              ? d.line
-              : frame.event === 'step'
-                ? `$ ${d.command}`
-                : frame.event === 'exit'
-                  ? `exit ${d.exitCode}`
-                  : d.error?.message
+          const line = obtainLine(frame.event, d)
           setText((t) => `${t}${line ?? ''}\n`)
         }),
       )
     }
     return
   }, [id, panel])
+  const shown = panel === 'spec' ? spec || 'no spec.toml' : text
   return (
     <pre
       ref={pre}
@@ -207,7 +201,7 @@ function Extras({ id, panel, spec }: { id: string; panel: Panel; spec: string | 
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < LOG_STICK_PX
       }}
     >
-      {`${panel === 'spec' ? (spec === undefined || spec === '' ? 'no spec.toml' : spec) : text}`}
+      {shown}
     </pre>
   )
 }
@@ -313,9 +307,15 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
         </p>
       ) : null}
       <div className="group">
-        {(['logs', 'resources', 'spec'] as const).map((p) => (
+        {(
+          [
+            ['logs', 'logs'],
+            ['resources', 'resources'],
+            ['spec', 'spec.toml'],
+          ] as const
+        ).map(([p, label]) => (
           <button key={p} type="button" className="small" onClick={() => toggle(p)}>
-            {p === 'spec' ? 'spec.toml' : p === 'logs' ? 'logs' : 'resources'}
+            {label}
           </button>
         ))}
         {entry?.info.artifacts ? (
@@ -600,4 +600,17 @@ export function EnginesView() {
       <SnippetBox table="route" />
     </section>
   )
+}
+
+function obtainLine(
+  event: string,
+  d: { line?: string; command?: string; exitCode?: number; error?: { message?: string } },
+): string | undefined {
+  if (event === 'line') {
+    return d.line
+  }
+  if (event === 'step') {
+    return `$ ${d.command}`
+  }
+  return event === 'exit' ? `exit ${d.exitCode}` : d.error?.message
 }

@@ -65,13 +65,7 @@ export function engineOps(engine: ShippedEngine, roles = 1): EditOp[] {
     {
       op: 'addEntry',
       table: 'engine',
-      entry:
-        engine.models_dir === undefined
-          ? { id: engine.id }
-          : engine.kind === 'openai-http'
-            ? // The llama spec takes --models-max from config and has no default of its own.
-              { id: engine.id, models_dir: engine.models_dir, models_max: Math.max(1, roles) }
-            : { id: engine.id, models_dir: engine.models_dir },
+      entry: engineEntry(engine, roles),
     },
   ]
   if (engine.kind === 'agentic-cli') {
@@ -105,4 +99,15 @@ export function starterOps(picks: readonly Pick[]): EditOp[] {
     }
   }
   return ops
+}
+
+function engineEntry(engine: ShippedEngine, roles: number): Record<string, unknown> {
+  if (engine.models_dir === undefined) {
+    return { id: engine.id }
+  }
+  if (engine.kind === 'openai-http') {
+    // The llama spec takes --models-max from config and has no default of its own.
+    return { id: engine.id, models_dir: engine.models_dir, models_max: Math.max(1, roles) }
+  }
+  return { id: engine.id, models_dir: engine.models_dir }
 }

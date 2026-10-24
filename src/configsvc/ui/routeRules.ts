@@ -42,14 +42,7 @@ export function routePlan(input: {
   const rules = kind === undefined ? undefined : KIND_TRAITS[kind].localFile
   const wildcard = route.model === WILDCARD_MODEL
   const role = str(route.role)
-  const localReason =
-    route.model === undefined
-      ? 'there is no model whose weights they could describe'
-      : upstream === LOCAL_UPSTREAM
-        ? engine.models_dir === undefined
-          ? `engine "${String(engine.id)}" has no local model store`
-          : undefined
-        : 'a route proxied elsewhere has no local file to describe'
+  const localReason = localFileReason(route, engine, upstream)
   const local = (field: 'filename' | 'role' | 'translate' | 'fim' | 'args'): FieldPlan => {
     if (localReason !== undefined && field !== 'args') {
       return { disposition: 'forbidden', reason: localReason }
@@ -137,5 +130,17 @@ export function ctxWarning(
 ): string | undefined {
   return ctx !== undefined && trained !== undefined && ctx > trained
     ? `ctx-size ${ctx} is above the model's trained context ${trained}`
+    : undefined
+}
+
+function localFileReason(route: Table, engine: Table, upstream: string | null): string | undefined {
+  if (route.model === undefined) {
+    return 'there is no model whose weights they could describe'
+  }
+  if (upstream !== LOCAL_UPSTREAM) {
+    return 'a route proxied elsewhere has no local file to describe'
+  }
+  return engine.models_dir === undefined
+    ? `engine "${String(engine.id)}" has no local model store`
     : undefined
 }

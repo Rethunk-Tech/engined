@@ -88,50 +88,47 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
           const state = hopState(d, hop, upstreamOf)
           const expansion = chainExpansion(d, hop, upstreamOf)
           return (
-            <li
-              className={`hop${
-                dropAt !== i || dragFrom === undefined || dragFrom === i
-                  ? ''
-                  : dragFrom < i
-                    ? ' drop-after'
-                    : ' drop-before'
-              }`}
-              key={key}
-              draggable={true}
-              onDragStart={(e) => {
-                setDragFrom(i)
-                // Firefox starts a drag only when the transfer carries data.
-                e.dataTransfer?.setData('text/plain', hop)
-              }}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDropAt(i)
-              }}
-              onDragEnd={() => {
-                setDragFrom(undefined)
-                setDropAt(undefined)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                if (dragFrom !== undefined && dragFrom !== i) {
-                  move(dragFrom, i)
-                }
-              }}
-            >
-              <span className="muted">{i + 1}.</span>
-              <span className="hopaddr">
-                <code>{hop}</code>
-                {expansion === undefined ? null : (
-                  <span
-                    className={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
-                  >
-                    {expansionText(expansion)}
-                  </span>
-                )}
-                {state === 'ok' ? null : (
-                  <span className="bad small-text">{hopNote(d, hop, state)}</span>
-                )}
-              </span>
+            <li className={`hop${dropClass(dropAt, dragFrom, i)}`} key={key}>
+              <button
+                type="button"
+                className="hophandle"
+                title="Drag to reorder"
+                draggable={true}
+                onDragStart={(e) => {
+                  setDragFrom(i)
+                  // Firefox starts a drag only when the transfer carries data.
+                  e.dataTransfer?.setData('text/plain', hop)
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDropAt(i)
+                }}
+                onDragEnd={() => {
+                  setDragFrom(undefined)
+                  setDropAt(undefined)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragFrom !== undefined && dragFrom !== i) {
+                    move(dragFrom, i)
+                  }
+                }}
+              >
+                <span className="muted">{i + 1}.</span>
+                <span className="hopaddr">
+                  <code>{hop}</code>
+                  {expansion === undefined ? null : (
+                    <span
+                      className={expansion.kind === 'cycle' ? 'bad small-text' : 'muted small-text'}
+                    >
+                      {expansionText(expansion)}
+                    </span>
+                  )}
+                  {state === 'ok' ? null : (
+                    <span className="bad small-text">{hopNote(d, hop, state)}</span>
+                  )}
+                </span>
+              </button>
               <span className="group">
                 <button
                   type="button"
@@ -230,4 +227,11 @@ export function ChainsView() {
       <SnippetBox table="chain" />
     </section>
   )
+}
+
+function dropClass(dropAt: number | undefined, dragFrom: number | undefined, i: number): string {
+  if (dropAt !== i || dragFrom === undefined || dragFrom === i) {
+    return ''
+  }
+  return dragFrom < i ? ' drop-after' : ' drop-before'
 }

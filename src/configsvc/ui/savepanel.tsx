@@ -95,11 +95,7 @@ function Applied() {
           disabled={busy}
           onClick={() => fork(reloadDaemon(mode, test === '' ? undefined : test))}
         >
-          {phase.value === 'reloading'
-            ? 'Reloading…'
-            : phase.value === 'verifying'
-              ? 'Waiting for engined…'
-              : 'Reload now'}
+          {reloadLabel(phase.value)}
         </button>
       </div>
       {applyLog.value.length === 0 ? null : (
@@ -160,4 +156,11 @@ export function SaveView() {
       ) : null}
     </section>
   )
+}
+
+function reloadLabel(current: string): string {
+  if (current === 'reloading') {
+    return 'Reloading…'
+  }
+  return current === 'verifying' ? 'Waiting for engined…' : 'Reload now'
 }

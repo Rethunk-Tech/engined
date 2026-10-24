@@ -6,7 +6,7 @@
  * is nothing to fake.
  */
 
-import { expect, it } from 'bun:test'
+import { expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sandboxArgv } from './sandbox.ts'
@@ -24,9 +24,9 @@ function run(argv: readonly string[]): { code: number; stderr: string } {
   return { code: proc.exitCode, stderr: proc.stderr.toString() }
 }
 
-const bwrapIt = run([BWRAP, '--ro-bind', '/', '/', '--', '/bin/true']).code === 0 ? it : it.skip
+const bwrapIt = run([BWRAP, '--ro-bind', '/', '/', '--', '/bin/true']).code === 0 ? test : test.skip
 
-it('binds the whole filesystem read-only before carving anything back out', () => {
+test('binds the whole filesystem read-only before carving anything back out', () => {
   const argv = sandboxArgv({ bwrap: BWRAP, home: '/h', workdir: '/w', argv: ['/bin/true'] })
   // Order is the mechanism: a later bind wins, so the read-only root has to be
   // first and the workdir's own read-only bind has to come after the home's.

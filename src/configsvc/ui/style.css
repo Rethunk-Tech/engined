@@ -442,9 +442,6 @@ details[open] > summary {
   padding: 2px 0;
   overflow-wrap: anywhere;
 }
-.hop[draggable="true"] {
-  cursor: grab;
-}
 .hop.drop-before {
   box-shadow: inset 0 2px 0 var(--accent);
 }

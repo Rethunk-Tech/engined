@@ -126,7 +126,7 @@ function restore(
 }
 
 async function reload(body: Record<string, unknown>, deps: ConfigsvcDeps): Promise<Response> {
-  const signal = body.mode === 'hot' ? 'HUP' : body.mode === 'hard' ? 'USR1' : undefined
+  const signal = reloadSignal(body.mode)
   if (signal === undefined) {
     return badRequest('mode must be "hot" or "hard"')
   }
@@ -250,4 +250,11 @@ export function configApi(
     return Response.json(configSchema())
   }
   return undefined
+}
+
+function reloadSignal(mode: unknown): 'HUP' | 'USR1' | undefined {
+  if (mode === 'hot') {
+    return 'HUP'
+  }
+  return mode === 'hard' ? 'USR1' : undefined
 }

@@ -293,7 +293,7 @@ export async function runDoctor(overrides: Partial<DoctorDeps> = {}): Promise<Do
 export function formatDoctor(report: DoctorReport): string {
   return report.checks
     .map((c) => {
-      const mark = c.skipped ? 'skip' : c.ok ? 'ok  ' : 'FAIL'
+      const mark = checkMark(c)
       return `${mark} ${c.id}: ${c.detail}${c.fix === undefined ? '' : `\n     fix: ${c.fix}`}`
     })
     .join('\n')
@@ -307,4 +307,11 @@ export async function doctorExit(
   const report = await runDoctor(overrides)
   write(json ? JSON.stringify({ schema: 1, ...report }) : formatDoctor(report))
   return report.ok ? 0 : 1
+}
+
+function checkMark(c: DoctorCheck): string {
+  if (c.skipped) {
+    return 'skip'
+  }
+  return c.ok ? 'ok  ' : 'FAIL'
 }

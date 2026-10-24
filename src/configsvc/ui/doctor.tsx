@@ -24,32 +24,46 @@ export function DoctorView() {
       </div>
       {current === undefined ? (
         <p className="muted">Checking…</p>
-      ) : current.checks.length === 0 ? (
-        <p className="muted">The host report came back with no checks.</p>
       ) : (
-        <table className="grid">
-          <tbody>
-            {current.checks.map((c) => (
-              <tr key={c.id}>
-                <td className={c.skipped ? 'muted' : c.ok ? 'ok' : 'bad'}>
-                  {c.skipped ? 'skipped' : c.ok ? 'pass' : 'fail'}
-                </td>
-                <td>
-                  <code>{c.id}</code>
-                </td>
-                <td>{c.detail}</td>
-                <td>
-                  {c.fix === undefined ? null : (
-                    <>
-                      <span className="muted">{c.fix}</span> <CopyButton text={c.fix} />
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <CheckTable checks={current.checks} />
       )}
     </section>
+  )
+}
+
+type Checks = NonNullable<typeof report.value>['checks']
+
+function verdict(c: Checks[number]): { tone: string; label: string } {
+  if (c.skipped) {
+    return { tone: 'muted', label: 'skipped' }
+  }
+  return c.ok ? { tone: 'ok', label: 'pass' } : { tone: 'bad', label: 'fail' }
+}
+
+function CheckTable({ checks }: { checks: Checks }) {
+  if (checks.length === 0) {
+    return <p className="muted">The host report came back with no checks.</p>
+  }
+  return (
+    <table className="grid">
+      <tbody>
+        {checks.map((c) => (
+          <tr key={c.id}>
+            <td className={verdict(c).tone}>{verdict(c).label}</td>
+            <td>
+              <code>{c.id}</code>
+            </td>
+            <td>{c.detail}</td>
+            <td>
+              {c.fix === undefined ? null : (
+                <>
+                  <span className="muted">{c.fix}</span> <CopyButton text={c.fix} />
+                </>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }

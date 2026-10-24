@@ -51,8 +51,12 @@ export function Labeled(props: {
   )
 }
 
-const asText = (v: unknown): string =>
-  Array.isArray(v) ? v.join(', ') : v === undefined || v === null ? '' : String(v)
+function asText(v: unknown): string {
+  if (Array.isArray(v)) {
+    return v.join(', ')
+  }
+  return v === undefined || v === null ? '' : String(v)
+}
 
 function fromText(raw: string, type: string | undefined, array: boolean): unknown {
   const t = raw.trim()
@@ -113,7 +117,7 @@ export function Prop(props: {
             aria-pressed={current === v}
             onClick={() => commit(v === '' ? undefined : v === 'true')}
           >
-            {v === '' ? 'default' : v === 'true' ? 'true' : 'false'}
+            {v || 'default'}
           </button>
         ))}
       </fieldset>
@@ -171,10 +175,7 @@ export function DiffView({ diff }: { diff: string }) {
   return (
     <pre className="diff">
       {lines.map((line, i) => (
-        <div
-          key={keys[i]}
-          className={line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : ''}
-        >
+        <div key={keys[i]} className={diffClass(line)}>
           {line}
         </div>
       ))}
@@ -286,4 +287,11 @@ export function Icon(props: { name: IconName; label: string; tone?: string; size
       {ICONS[name]}
     </svg>
   )
+}
+
+function diffClass(line: string): string {
+  if (line.startsWith('+')) {
+    return 'add'
+  }
+  return line.startsWith('-') ? 'del' : ''
 }

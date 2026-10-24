@@ -15,10 +15,24 @@
 }
 .hop {
   display: grid;
-  grid-template-columns: 2.5ch minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 12px;
   align-items: start;
   padding: 3px 0;
+}
+button.hophandle {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: grab;
 }
 .stats {
   display: grid;

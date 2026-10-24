@@ -28,6 +28,7 @@ function EngineChoice(props: {
   const on = chosen?.on ?? false
   const files = chosen?.files ?? {}
   const rolePerFile = engine.kind === 'openai-http'
+  const listsFiles = on && engine.models_dir !== undefined
   return (
     <div className="panel">
       <label className="rowhead">
@@ -46,60 +47,58 @@ function EngineChoice(props: {
           {c.fix === undefined ? '' : ` (${c.fix})`}
         </p>
       ))}
-      {on && engine.models_dir !== undefined ? (
-        engine.files.length === 0 ? (
-          <p className="muted small-text">
-            No weights in {engine.models_path} yet, so {engine.id} is left out of the proposal until
-            the files are there.
-          </p>
-        ) : (
-          <>
-            {needsWeights(engine) && Object.keys(files).length === 0 ? (
-              <p className="muted small-text">
-                Pick at least one weights file; without one, {engine.id} is left out of the
-                proposal.
-              </p>
-            ) : null}
-            {engine.files.map((f) => (
-              <div className="argrow" key={f.path}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={f.path in files}
-                    onChange={(e) => {
-                      const next = { ...files }
-                      if (e.currentTarget.checked) {
-                        next[f.path] = rolePerFile ? 'chat' : ''
-                      } else {
-                        delete next[f.path]
-                      }
-                      props.change({ on, files: next })
-                    }}
-                  />{' '}
-                  <code>{f.path}</code>
-                </label>
-                <span className="muted small-text">
-                  {formatBytes(f.bytes)}
-                  {f.gguf?.quantization === undefined ? '' : ` · ${f.gguf.quantization}`}
-                </span>
-                {rolePerFile && f.path in files ? (
-                  <select
-                    value={files[f.path]}
-                    onChange={(e) =>
-                      props.change({ on, files: { ...files, [f.path]: e.currentTarget.value } })
+      {listsFiles && engine.files.length === 0 ? (
+        <p className="muted small-text">
+          No weights in {engine.models_path} yet, so {engine.id} is left out of the proposal until
+          the files are there.
+        </p>
+      ) : null}
+      {listsFiles && engine.files.length > 0 ? (
+        <>
+          {needsWeights(engine) && Object.keys(files).length === 0 ? (
+            <p className="muted small-text">
+              Pick at least one weights file; without one, {engine.id} is left out of the proposal.
+            </p>
+          ) : null}
+          {engine.files.map((f) => (
+            <div className="argrow" key={f.path}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={f.path in files}
+                  onChange={(e) => {
+                    const next = { ...files }
+                    if (e.currentTarget.checked) {
+                      next[f.path] = rolePerFile ? 'chat' : ''
+                    } else {
+                      delete next[f.path]
                     }
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-              </div>
-            ))}
-          </>
-        )
+                    props.change({ on, files: next })
+                  }}
+                />{' '}
+                <code>{f.path}</code>
+              </label>
+              <span className="muted small-text">
+                {formatBytes(f.bytes)}
+                {f.gguf?.quantization === undefined ? '' : ` · ${f.gguf.quantization}`}
+              </span>
+              {rolePerFile && f.path in files ? (
+                <select
+                  value={files[f.path]}
+                  onChange={(e) =>
+                    props.change({ on, files: { ...files, [f.path]: e.currentTarget.value } })
+                  }
+                >
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+          ))}
+        </>
       ) : null}
     </div>
   )
