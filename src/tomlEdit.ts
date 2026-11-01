@@ -99,8 +99,8 @@ function setAt(doc: Doc, path: TomlPath, value: unknown): void {
   }
 }
 
-/** toml-patch cannot create a `[[table]]` key that the document does not have yet, so the first entry is appended as text. */
-function appendFirstEntry(src: string, table: string, entry: Record<string, unknown>): string {
+/** toml-patch cannot create a missing `[[table]]` key and misplaces an appended entry among comments, so every new entry is appended as text. */
+function appendEntry(src: string, table: string, entry: Record<string, unknown>): string {
   const block = stringify({ [table]: [entry] })
   return src.trim() === '' ? block : `${src.trimEnd()}\n\n${block}`
 }
@@ -110,10 +110,9 @@ export function applyOps(src: string, ops: readonly EditOp[]): string {
   let text = src
   const expected = Bun.TOML.parse(src) as Doc
   for (const op of ops) {
-    const firstOfTable = op.op === 'addEntry' && !Array.isArray(expected[op.table])
     applyOne(expected, op)
-    if (firstOfTable) {
-      text = appendFirstEntry(text, op.table, op.entry)
+    if (op.op === 'addEntry') {
+      text = appendEntry(text, op.table, op.entry)
     } else {
       const patched = parse(text) as Doc
       applyOne(patched, op)
