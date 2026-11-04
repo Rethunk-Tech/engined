@@ -14,7 +14,7 @@
         "@lezer/highlight": "^1.2.5",
         "@preact/signals": "^2.11.4",
         "codemirror": "^6.0.2",
-        "mermaid": "^12.2.0",
+        "mermaid": "^12.3.0",
         "preact": "^11.1.1",
       },
       "devDependencies": {
@@ -406,7 +406,7 @@
 
     "dompurify": ["dompurify@3.4.17", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w=="],
 
-    "elkjs": ["elkjs@0.9.3", "", {}, "sha512-f/ZeWvW/BCXbhGEf1Ujp29EASo/lk1FDnETgNKwJrsVvGZhUWCZyg3xLJjAsxfOmt8KjswHmI5EwCQcPMpOYhQ=="],
+    "elkjs": ["elkjs@0.12.1", "", {}, "sha512-IhMYKHE4S2vtx0QrhBP3lYOIKDeIiJXBrdq9MGYkuB8ZHqhrBnHNfSUndjXFewrX1CPK8chwq+2NA0K0hliYuw=="],
 
     "es-toolkit": ["es-toolkit@1.53.1", "", {}, "sha512-VhMc6IXmexu8iYFfL2aaAww6IvJTdHlqBLruLoEUs33YD4IcP5DdZcLOybMsMmmLsiy1c8PsiLsrM0DdIuuRUA=="],
 
@@ -440,7 +440,7 @@
 
     "marked": ["marked@16.4.2", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA=="],
 
-    "mermaid": ["mermaid@12.2.0", "", { "dependencies": { "@braintree/sanitize-url": "^7.1.2", "@iconify/utils": "^3.0.2", "@mermaid-js/parser": "^2.0.1", "@types/d3": "^7.4.3", "@upsetjs/venn.js": "^2.0.0", "chevrotain": "~13.2.0", "cytoscape": "^3.34.0", "cytoscape-cose-bilkent": "^4.1.0", "cytoscape-fcose": "^2.2.0", "d3": "^7.9.0", "d3-sankey": "^0.12.3", "dagre-d3-es": "7.0.14", "dayjs": "^1.11.21", "dompurify": "^3.4.12", "elkjs": "^0.9.3", "es-toolkit": "^1.45.1", "katex": "^0.18.0", "khroma": "^2.1.0", "marked": "^16.3.0", "roughjs": "^4.6.6", "stylis": "^4.3.6", "ts-dedent": "^2.2.0", "uuid": "^11.1.0 || ^12 || ^13 || ^14.0.0" } }, "sha512-w7nr/SFrLO7BaVTs3dQTvYSV6nYSBj0Yy9DjBhsIJtAcHqRzXSq4Pg32ujHZ/AdWsAMNEvvhbm5dt9E2tOiHzw=="],
+    "mermaid": ["mermaid@12.3.0", "", { "dependencies": { "@braintree/sanitize-url": "^7.1.2", "@iconify/utils": "^3.0.2", "@mermaid-js/parser": "^2.0.1", "@types/d3": "^7.4.3", "@upsetjs/venn.js": "^2.0.0", "chevrotain": "~13.2.0", "cytoscape": "^3.34.0", "cytoscape-cose-bilkent": "^4.1.0", "cytoscape-fcose": "^2.2.0", "d3": "^7.9.0", "d3-sankey": "^0.12.3", "dagre-d3-es": "7.0.14", "dayjs": "^1.11.21", "dompurify": "^3.4.17", "elkjs": "^0.12.0", "es-toolkit": "^1.45.1", "katex": "^0.18.0", "khroma": "^2.1.0", "marked": "^16.3.0", "roughjs": "^4.6.6", "stylis": "^4.3.6", "ts-dedent": "^2.2.0" } }, "sha512-4113TdXeLAsMruJ79OpFL5O8+LTFXhQqZ260rF3tgUmiNAtRm4Uume04I+65PRN6yZ69J4f8rVYWW8zRk65UYw=="],
 
     "oxc-parser": ["oxc-parser@0.155.0", "", { "dependencies": { "@oxc-project/types": "^0.155.0" }, "optionalDependencies": { "@oxc-parser/binding-android-arm-eabi": "0.155.0", "@oxc-parser/binding-android-arm64": "0.155.0", "@oxc-parser/binding-darwin-arm64": "0.155.0", "@oxc-parser/binding-darwin-x64": "0.155.0", "@oxc-parser/binding-freebsd-x64": "0.155.0", "@oxc-parser/binding-linux-arm-gnueabihf": "0.155.0", "@oxc-parser/binding-linux-arm-musleabihf": "0.155.0", "@oxc-parser/binding-linux-arm64-gnu": "0.155.0", "@oxc-parser/binding-linux-arm64-musl": "0.155.0", "@oxc-parser/binding-linux-ppc64-gnu": "0.155.0", "@oxc-parser/binding-linux-riscv64-gnu": "0.155.0", "@oxc-parser/binding-linux-riscv64-musl": "0.155.0", "@oxc-parser/binding-linux-s390x-gnu": "0.155.0", "@oxc-parser/binding-linux-x64-gnu": "0.155.0", "@oxc-parser/binding-linux-x64-musl": "0.155.0", "@oxc-parser/binding-openharmony-arm64": "0.155.0", "@oxc-parser/binding-win32-arm64-msvc": "0.155.0", "@oxc-parser/binding-win32-ia32-msvc": "0.155.0", "@oxc-parser/binding-win32-x64-msvc": "0.155.0" } }, "sha512-C/ReSf1JUFukK/zvk6jhcNibSssvas5+ktIzK7fbKVd3CedWe59C3QwHEOrEZj/4Rt9+xg0Jeis/Jv1F/KM1mw=="],
 
@@ -495,8 +495,6 @@
     "unbash": ["unbash@6.0.2", "", {}, "sha512-UhcFfg9u8OpFPnUqdXSKgbGHwk2iEHaEePfpHylako6i4rpdmfoOgCVBBlou4WugaFfNunIHby01mKssJzVTCA=="],
 
     "undici-types": ["undici-types@8.12.3", "", {}, "sha512-EXE4ydL3S76dFb27UFjNVZHTyv/TLdATj/KUe29ptdcg6qXL48J2tZ3126E5kICj5jn781OR+XlVH1N6Mz8jbA=="],
-
-    "uuid": ["uuid@14.0.3", "", { "bin": { "uuid": "dist-node/bin/uuid" } }, "sha512-Sc5u1VVln93y1Xnz4R+CunOZc7R9LUcTmhj7Rc7Eg3HVcf7rVn2FOoa812fe0W8p3jD7xeoGSYbfqCGGH2B6xw=="],
 
     "w3c-keyname": ["w3c-keyname@2.2.8", "", {}, "sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ=="],
 

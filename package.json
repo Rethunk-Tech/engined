@@ -57,7 +57,7 @@
     "@lezer/highlight": "^1.2.5",
     "@preact/signals": "^2.11.4",
     "codemirror": "^6.0.2",
-    "mermaid": "^12.2.0",
+    "mermaid": "^12.3.0",
     "preact": "^11.1.1"
   }
 }
