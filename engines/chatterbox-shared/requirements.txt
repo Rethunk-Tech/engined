@@ -163,9 +163,9 @@ protobuf==7.36.2
     # via onnx
 pycparser==3.12
     # via cffi
-pydantic==2.14.2
+pydantic==2.14.3
     # via fastapi
-pydantic-core==2.50.2
+pydantic-core==2.50.4
     # via pydantic
 pydub==0.25.1
     # via resemble-perth
@@ -232,7 +232,7 @@ starlette==1.10.0
     # via fastapi
 sympy==1.14.0
     # via torch
-threadpoolctl==3.7.0
+threadpoolctl==3.8.0
     # via scikit-learn
 tokenizers==0.23.3
     # via transformers
