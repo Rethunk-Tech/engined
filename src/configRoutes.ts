@@ -88,10 +88,10 @@ function parseRouteFilters(
   site: string,
   file: string,
 ): { strip_params?: string[]; set_params?: Record<string, unknown> } {
-  const strip_params = optionalStringArray(raw.strip_params, `${site} "strip_params"`, file)
-  const set_params = asSetParams(raw.set_params, site, file)
-  if (strip_params !== undefined && set_params !== undefined) {
-    const overlap = strip_params.find((key) => Object.hasOwn(set_params, key))
+  const stripParams = optionalStringArray(raw.strip_params, `${site} "strip_params"`, file)
+  const setParams = asSetParams(raw.set_params, site, file)
+  if (stripParams !== undefined && setParams !== undefined) {
+    const overlap = stripParams.find((key) => Object.hasOwn(setParams, key))
     if (overlap !== undefined) {
       throw new ParseError(`${site} "strip_params" and "set_params" both name "${overlap}"`, {
         file,
@@ -99,7 +99,7 @@ function parseRouteFilters(
       })
     }
   }
-  return { strip_params, set_params }
+  return { strip_params: stripParams, set_params: setParams }
 }
 
 export function parseRouteRaw(
