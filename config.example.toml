@@ -618,29 +618,37 @@ model = "small.en"
 filename = "ggml-small.en-q8_0.bin"
 
 # Not production-safe. The default is to omit `translate`, which is what
-# medium.en and small.en do: they do not serve /openai/v1/audio/translations,
-# and answer it with a 400 naming the address. `translate = true` below is the
-# explicit opt-in. It is not a claim the English is right. Measured on this
-# file, Spanish for "the black cat sleeps on the wooden table" transcribed
-# correctly and translated as "the black man sleeps on the bed". Check the
-# verb against speech you understand before a consumer depends on it. The
-# probe only checks that a route without this key refuses the path.
+# medium.en, small.en and large-v3-turbo do: they do not serve
+# /openai/v1/audio/translations, and answer it with a 400 naming the address.
+# `translate = true` on the medium route below is the explicit opt-in. It is
+# not a claim the English is right: check the verb against speech you
+# understand before a consumer depends on it.
 #
 # Declared here rather than inferred from the filename, because the other
 # failure is silent too: whisper handed the translate flag with English-only
 # weights does not error, it transcribes and returns something that reads
 # like a translation.
 #
-# Worse than medium.en at English on both axes (13.5% WER / 4063 ms against
-# 11.5% / 2715 ms), so it earns its place on translation alone. Download it
-# with the obtain line in engines/whisper/spec.toml; a box that never asks
-# for a translation should delete this route rather than fetch 1.6 GB.
+# The multilingual medium is the translating route. large-v3-turbo was
+# fine-tuned on transcription only and returns wrong English for the same
+# Spanish clip, so it stays a transcription route. Download medium with the
+# obtain line in engines/whisper/spec.toml; a box that never asks for a
+# translation should delete it rather than fetch 785 MB.
+[[route]]
+engine = "whisper"
+upstream = "local"
+model = "medium"
+filename = "ggml-medium-q8_0.bin"
+translate = true
+
+# Multilingual transcription, slower than medium.en at English
+# (13.5% WER / 4063 ms against 11.5% / 2715 ms). Does not translate.
 [[route]]
 engine = "whisper"
 upstream = "local"
 model = "large-v3-turbo"
 filename = "ggml-large-v3-turbo-q8_0.bin"
-translate = true
+translate = false
 
 # The remote STT engine, and the only one that is not a container. A remote
 # address launches nothing, so its engine declares no models_dir and no

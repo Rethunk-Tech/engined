@@ -110,7 +110,7 @@ through `claude` has neither.
 `translate` is the explicit opt-in to `/openai/v1/audio/translations`. The
 default is to omit it. An omitted key, and `translate = false`, do not serve
 that path. Opting in does not make the verb production-safe: on
-large-v3-turbo-q8_0 the same audio transcribed correctly and translated wrong
+large-v3-turbo-q8_0 (since moved off `translate`; medium translates) the same audio transcribed correctly and translated wrong
 ("the black cat" became "the black man", "wooden table" became "bed"), so the
 English can be confident and false. Only an `stt` route may declare the key.
 The other failure it guards is silent too: whisper handed the translate flag

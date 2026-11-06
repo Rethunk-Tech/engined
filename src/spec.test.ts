@@ -65,6 +65,7 @@ const weights = (file: string) => ({
 const WHISPER_ARTIFACTS = [
   weights('ggml-medium.en-q8_0.bin'),
   weights('ggml-small.en-q8_0.bin'),
+  weights('ggml-medium-q8_0.bin'),
   weights('ggml-large-v3-turbo-q8_0.bin'),
   weights('ggml-small.en-q5_1.bin'),
   weights('ggml-medium.en-q5_0.bin'),

@@ -644,8 +644,8 @@ speech as English. Same multipart upload, same `prompt` and `response_format`.
 
 The route default is to omit `translate`. An omitted key, and
 `translate = false`, do not serve this path. `translate = true` is the explicit opt-in, and opting
-in does not mean the English is right: large-v3-turbo-q8_0 can transcribe
-speech perfectly and still translate it confidently wrong. A consumer must not treat this path as safe without that opt-in, and
+in does not mean the English is right: a model can transcribe
+speech perfectly and still translate it confidently wrong (large-v3-turbo-q8_0 did, so the translating route is the multilingual `medium`). A consumer must not treat this path as safe without that opt-in, and
 the opt-in accepts the failure rather than fixing it. Check the verb against
 speech you understand before wiring a consumer to it. The weekly probe only
 checks that a route which did not opt in refuses the path; it cannot tell a
@@ -663,7 +663,7 @@ address, before any audio is decoded.
 
 ```sh
 curl -s localhost:29200/openai/v1/audio/translations \
-  --form-string model=@/whisper/large-v3-turbo -F file=@clip.wav
+  --form-string model=@/whisper/medium -F file=@clip.wav
 ```
 
 `--form-string` for the model, not `-F`: an address begins `@/`, which `-F`

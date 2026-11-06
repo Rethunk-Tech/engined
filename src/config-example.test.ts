@@ -82,6 +82,7 @@ const EXPECTED_ROUTE_MODEL_IDS = [
   'gpt-5.4-mini',
   'k3',
   'large-v3-turbo',
+  'medium',
   'medium.en',
   'north-mini-code:free',
   'ocr',
