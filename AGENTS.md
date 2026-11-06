@@ -41,8 +41,11 @@ real checkpoint when weights are present.
 confidently wrong ("gato" became "man", "mesa de madera" became "bed") while the same
 audio transcribes perfectly, so the loss is in the model's translation head. The route
 default omits `translate` and does not serve the verb. `translate = true` is the explicit
-opt-in, and it is not a claim the English is right. Wire a consumer
-to this verb only after checking it against speech you understand; the probe cannot catch it.
+opt-in, and it is not a claim the English is right. `engined --probe` sends a
+`translate = true` route one synthesised Spanish clip and grades the English by content-word
+recall (`src/probeTranslation.ts`), so the recorded gato/mesa substitutions fail it. It
+still cannot catch a wrong translation of other speech: wire a consumer to this verb only
+after checking it against speech you understand.
 
 Agentic cost is read from each CLI's own envelope, and each shape was
 captured from a real run rather than guessed -- claude's `total_cost_usd`,

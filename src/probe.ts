@@ -33,6 +33,7 @@ import {
   visionVerdict,
 } from './probeImage.ts'
 import { PROBES_PATH, type ProbeKind } from './probeStore.ts'
+import { probeTranslationQuality } from './probeTranslation.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
 import {
@@ -225,6 +226,7 @@ export async function runProbes(
     ...(await probeVision(doorUrl, rows, fetchImpl)),
     ...tagged('rerank', await probeRerank(doorUrl, rows, fetchImpl)),
     ...tagged('translation', await probeTranslations(doorUrl, rows, fetchImpl)),
+    ...tagged('translation', await probeTranslationQuality(doorUrl, rows, fetchImpl)),
     ...(await probeCompletions(doorUrl, rows, fetchImpl)),
   ]
   // One line for a door with nothing configured to prove, rather than one per

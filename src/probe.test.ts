@@ -408,8 +408,7 @@ test('a running route that declares translate is not asked to refuse', async () 
 
   const report = await runProbes('http://door', fakeTranslateDoor([declared], 200))
 
-  expect(report.ok).toBe(true)
-  expect(report.lines[0]?.detail).toBe('no reachable address to prove')
+  expect(report.lines[0]?.detail).not.toContain('refus')
 })
 
 const FIM_ROW = {
@@ -723,4 +722,66 @@ test('--engines without --json is refused, and so is combining it with --probe',
   )
   expect(both.stderr).toContain('usage: engined')
   expect(both.stdout).toBe('')
+})
+
+const TRANSLATE_ROW = {
+  id: '@/whisper/large-v3-turbo',
+  state: 'installed',
+  translate: true,
+  serves: ['/openai/v1/audio/transcriptions', '/openai/v1/audio/translations'],
+}
+
+/** A door whose translations verb returns `text` and records the multipart body it was sent. */
+function fakeTranslatingDoor(text: string, seen: { form?: FormData }): typeof fetch {
+  return fakeDoor([TRANSLATE_ROW], '', {
+    other: (init) => {
+      if (init?.body instanceof FormData) {
+        seen.form = init.body
+      }
+      return Response.json({ text })
+    },
+  })
+}
+
+test('a translate route returning the right English passes and is sent the real clip', async () => {
+  const seen: { form?: FormData } = {}
+  const report = await runProbes(
+    'http://door',
+    fakeTranslatingDoor('The black cat is sleeping on the wooden table.', seen),
+  )
+
+  expect(report.ok).toBe(true)
+  expect(report.lines[0]?.detail).toContain('recall 0.80')
+  const file = seen.form?.get('file')
+  expect(file instanceof Blob && file.size > 10_000).toBe(true)
+  expect(seen.form?.get('model')).toBe('@/whisper/large-v3-turbo')
+})
+
+// The failure recorded in engined#1: fluent, confident, and wrong.
+test('a translate route returning the recorded wrong English fails the probe', async () => {
+  const report = await runProbes(
+    'http://door',
+    fakeTranslatingDoor('The black man sleeps on the bed in the kitchen.', {}),
+  )
+
+  expect(report.ok).toBe(false)
+  expect(report.lines[0]?.detail).toContain('mistranslated')
+})
+
+test('the translate verdict reaches the models listing as a quality verdict, never a pass by absence', async () => {
+  const recorded: unknown[] = []
+  const inner = fakeTranslatingDoor('A man on a bed.', {})
+  const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/engined/v1/probes')) {
+      recorded.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(Response.json({ recorded: 1 }))
+    }
+    return inner(input, init)
+  }) as typeof fetch
+
+  await runProbes('http://door', fetchImpl)
+
+  expect(recorded).toMatchObject([
+    { results: [{ address: '@/whisper/large-v3-turbo', kind: 'translation', quality: false }] },
+  ])
 })

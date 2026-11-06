@@ -12,10 +12,10 @@ const KINDS: readonly ProbeKind[] = ['translation', 'rerank']
  * One address's latest quality-probe answer.
  *
  * `quality` is the probe's verdict and nothing more: it is shaped to be passed
- * whole as `refuseTranslate`'s `probe`. A `translation` outcome says an
- * English-only transcription route refused `/translations` as it must; the
- * probe never grades a `translate = true` route's English, so such a row has
- * no outcome at all.
+ * whole as `refuseTranslate`'s `probe`. A `translation` outcome on an
+ * English-only transcription route says it refused `/translations` as it must;
+ * on a `translate = true` route it says the English returned for a known
+ * Spanish clip scored above the pass mark (`src/probeTranslation.ts`).
  */
 export interface ProbeResult {
   kind: ProbeKind

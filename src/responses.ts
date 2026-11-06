@@ -230,8 +230,7 @@ export interface ModelRow {
   /**
    * This address's latest probe verdict (`ProbeResult`); `probe.quality` is
    * the boolean `refuseTranslate(translate, probe)` reads. Absent when no
-   * probe has run for the address since the door started, and always absent
-   * on a `translate = true` route, which no probe grades. Absent is never a
+   * probe has run for the address since the door started. Absent is never a
    * pass.
    */
   probe?: ProbeResult
