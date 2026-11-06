@@ -176,8 +176,9 @@ async function modelRow(
   if (route.vision_bridge !== undefined && !capabilities.input?.includes('image')) {
     capabilities.input = [...(capabilities.input ?? []), 'image']
   }
+  const id = addressForRoute(route, siblingCount)
   return {
-    id: addressForRoute(route, siblingCount),
+    id,
     object: 'model',
     created: 0,
     owned_by: 'engined',
@@ -194,6 +195,7 @@ async function modelRow(
     vision: route.vision,
     translate: route.translate,
     vision_bridge: route.vision_bridge,
+    probe: ctx.probes.forAddress(id),
     state,
     capabilities,
   }

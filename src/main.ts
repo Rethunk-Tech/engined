@@ -38,6 +38,7 @@ import { LAUNCH_NONCE_RE } from './launchNonce.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { DonorLedger } from './potluck.ts'
+import { handleProbes, PROBES_PATH, ProbeStore } from './probeStore.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import {
@@ -146,6 +147,9 @@ function routePost(
   if (pathname === START_PATH) {
     return handleStart(ctx, req)
   }
+  if (pathname === PROBES_PATH) {
+    return handleProbes(ctx, req)
+  }
   if (pathname === TOKENIZE_PATH) {
     return handleTokenizeRoute(ctx, req)
   }
@@ -182,6 +186,7 @@ function allowFor(pathname: string): string[] {
   const post =
     isCursorPath(pathname) ||
     pathname === START_PATH ||
+    pathname === PROBES_PATH ||
     pathname === TOKENIZE_PATH ||
     pathname === DETOKENIZE_PATH ||
     pathname === VOICE_UPLOAD_PATH ||
@@ -268,6 +273,7 @@ function createDoorContext(
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
     usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot }),
+    probes: new ProbeStore(),
     donorSpend: new DonorLedger({ stateRoot: doorOpts.usageStateRoot }),
   }
 }

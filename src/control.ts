@@ -80,6 +80,12 @@ export async function handleEngines(
 ): Promise<Response> {
   const listed = await ctx.registry.list()
   attachLlamaRoles(ctx, listed.engines)
+  for (const engine of listed.engines) {
+    const probes = ctx.probes.forEngine(engine.id)
+    if (probes.length > 0) {
+      engine.probes = probes
+    }
+  }
   listed.config_error = fault?.message
   listed.config_error_sha256 = fault?.sha256
   listed.config_sha256 = ctx.getConfig().source_sha256

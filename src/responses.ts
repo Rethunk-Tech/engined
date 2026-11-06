@@ -4,6 +4,7 @@
  */
 
 import type { DiscoveryStatus } from './modelDiscovery.ts'
+import type { EngineProbe, ProbeResult } from './probeStore.ts'
 import type { EngineCapability } from './routeServes.ts'
 import type {
   Egress,
@@ -85,6 +86,14 @@ export interface EngineStatus {
    */
   superseded?: string
   last_error?: string
+  /**
+   * Latest translation and rerank probe verdicts for this engine's routes,
+   * one per probed address, as `engined --probe` reported them. Absent until
+   * a probe has run since the door started: no entry is ever a pass. A row
+   * whose `quality` is false is the failure `last_error` cannot carry, since
+   * a running engine can fail a probe and `last_error` stays unset.
+   */
+  probes?: EngineProbe[]
   /**
    * Requests holding this engine open right now. The audio engines serialize
    * every request on one process-wide lock inside the container, so a second
@@ -218,6 +227,14 @@ export interface ModelRow {
    * for a route that has no image input of its own.
    */
   vision_bridge?: string
+  /**
+   * This address's latest probe verdict (`ProbeResult`); `probe.quality` is
+   * the boolean `refuseTranslate(translate, probe)` reads. Absent when no
+   * probe has run for the address since the door started, and always absent
+   * on a `translate = true` route, which no probe grades. Absent is never a
+   * pass.
+   */
+  probe?: ProbeResult
   /**
    * Whether this address can answer at all. On a chain that is the first hop
    * that can: a chain advances past a hop it cannot reach, so one reachable

@@ -16,6 +16,7 @@ import type { HttpClient } from './http.ts'
 import { LlamaRouter } from './llama.ts'
 import type { ModelDiscovery } from './modelDiscovery.ts'
 import type { DonorLedger } from './potluck.ts'
+import type { ProbeStore } from './probeStore.ts'
 import { type CallRecord, recordCall } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
@@ -117,6 +118,8 @@ export interface DoorContext {
   comfySlots: ComfySlots
   /** Per-day, per-route call counters -- see `src/usage.ts`. */
   usage: UsageTracker
+  /** Latest translation and rerank probe verdicts, reported to `/engined/v1/probes`. */
+  probes: ProbeStore
   /**
    * Monthly donor ceilings and the potluck liveness posts. Set by the door.
    * A fixture that never serves a donated upstream leaves it unset.

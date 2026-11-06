@@ -11,6 +11,7 @@ import type { DoorContext } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import { errorMessageOf, jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
+import { ProbeStore } from './probeStore.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './routeServes.ts'
 import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
@@ -361,6 +362,7 @@ function doorFrom(
     agenticInFlight: 0,
     comfyBindings: new Map(),
     comfySlots: new Map(),
+    probes: new ProbeStore(),
     usage: new UsageTracker({ stateRoot: mkdtempSync(join(TEST_ROOT, 'usage-')) }),
   }
   return { ctx, lifecycle, lines }

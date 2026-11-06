@@ -31,6 +31,7 @@ import {
   LLAMA_UNLOAD_PATH as UNLOAD_PATH,
   waitFor,
 } from './llamaTestSupport.ts'
+import { ProbeStore } from './probeStore.ts'
 import {
   BUNX,
   route as baseRoute,
@@ -1122,6 +1123,7 @@ test('retiring a stale llama router releases its keep_resident pin', async () =>
     agenticInFlight: 0,
     comfyBindings: new Map(),
     comfySlots: new Map(),
+    probes: new ProbeStore(),
     usage: new UsageTracker({ stateRoot: TEST_ROOT }),
   }
   const first = getLlamaRouter(ctx, e)

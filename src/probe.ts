@@ -32,6 +32,7 @@ import {
   visionRequestBody,
   visionVerdict,
 } from './probeImage.ts'
+import { PROBES_PATH, type ProbeKind } from './probeStore.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
 import {
@@ -66,6 +67,40 @@ interface ProbeLine {
   address: string
   ok: boolean
   detail: string
+  /** Set on the translation and rerank lines, the two the door records; see `reportProbes`. */
+  kind?: ProbeKind
+}
+
+function tagged(kind: ProbeKind, lines: ProbeLine[]): ProbeLine[] {
+  return lines.map((l) => ({ ...l, kind }))
+}
+
+/**
+ * Hands the translation and rerank verdicts to the door so its engines and
+ * models listings can carry them. A door that refuses the post (older build)
+ * only loses that reporting; the probe's own result is already decided.
+ */
+async function reportProbes(
+  doorUrl: string,
+  lines: readonly ProbeLine[],
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const results = lines.flatMap((l) =>
+    l.kind === undefined
+      ? []
+      : [{ address: l.address, kind: l.kind, quality: l.ok, detail: l.detail }],
+  )
+  if (results.length === 0) {
+    return
+  }
+  try {
+    const res = await postProbe(fetchImpl, `${doorUrl}${PROBES_PATH}`, JSON.stringify({ results }))
+    if (res instanceof Response) {
+      await discardBody(res)
+    }
+  } catch {
+    // The door being unreachable here was already reported by the menu fetch.
+  }
 }
 
 interface ProbeReport {
@@ -188,8 +223,8 @@ export async function runProbes(
 
   const proofs = [
     ...(await probeVision(doorUrl, rows, fetchImpl)),
-    ...(await probeRerank(doorUrl, rows, fetchImpl)),
-    ...(await probeTranslations(doorUrl, rows, fetchImpl)),
+    ...tagged('rerank', await probeRerank(doorUrl, rows, fetchImpl)),
+    ...tagged('translation', await probeTranslations(doorUrl, rows, fetchImpl)),
     ...(await probeCompletions(doorUrl, rows, fetchImpl)),
   ]
   // One line for a door with nothing configured to prove, rather than one per
@@ -203,6 +238,7 @@ export async function runProbes(
   const discovered = await discoveryReport(doorUrl, fetchImpl)
   lines.push(...discovered.lines)
   const ok = lines.every((l) => l.ok)
+  await reportProbes(doorUrl, lines, fetchImpl)
   return discovered.discovery === undefined
     ? { ok, lines }
     : { ok, lines, discovery: discovered.discovery }
