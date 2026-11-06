@@ -105,12 +105,12 @@ engine, config beats spec, floor beats everything.** On remotes,
 `role` and `keep_resident` live on `[[route]]`, which pairs an engine with an
 upstream and, where one applies, a model.
 
-| Entry | Required | Absent by construction |
-| ------ | ------ | ------ |
-| `[[route]]` on llama | `engine`, `upstream`, `model`, `filename`, `role` | — |
-| `[[route]]` on agentic | `engine` | `filename`, `role` |
-| `[[engine]]`, every kind | `id` | — |
-| `[[upstream]]`, remote address | `id`, `egress`; a missing `base_url` parses and refuses at dispatch | — |
+| Entry                          | Required                                                            | Absent by construction |
+| ------------------------------ | ------------------------------------------------------------------- | ---------------------- |
+| `[[route]]` on llama           | `engine`, `upstream`, `model`, `filename`, `role`                   | —                      |
+| `[[route]]` on agentic         | `engine`                                                            | `filename`, `role`     |
+| `[[engine]]`, every kind       | `id`                                                                | —                      |
+| `[[upstream]]`, remote address | `id`, `egress`; a missing `base_url` parses and refuses at dispatch | —                      |
 
 Origin check, browser callers, and why `cursor-agent` ships disabled —
 nothing can thread a door URL into its launch:

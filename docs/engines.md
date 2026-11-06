@@ -149,14 +149,14 @@ speech clips (4.3–8.7s, known transcripts, scored after normalising numeral
 formatting so "twenty five" against "25" is not counted a mishearing), median
 encode per clip:
 
-| route | model file | WER | ms/clip |
-| ------ | ------ | ------ | ------ |
-| `medium.en` | `ggml-medium.en-q8_0` | 11.5% | 2715 |
-| `small.en` | `ggml-small.en-q8_0` | 13.5% | 929 |
-| — | `ggml-large-v3-turbo-q8_0` | 13.5% | 4063 |
+| route       | model file                 | WER   | ms/clip |
+| ----------- | -------------------------- | ----- | ------- |
+| `medium.en` | `ggml-medium.en-q8_0`      | 11.5% | 2715    |
+| `small.en`  | `ggml-small.en-q8_0`       | 13.5% | 929     |
+| —           | `ggml-large-v3-turbo-q8_0` | 13.5% | 4063    |
 
 The third row is not served: the large multilingual model is beaten on
-accuracy *and* speed by `medium.en`, so nothing points at it. Model load is
+accuracy _and_ speed by `medium.en`, so nothing points at it. Model load is
 41–196ms across all three — encode is the entire cost, and size does not buy
 back its own load.
 
@@ -172,16 +172,16 @@ is one file on disk, not two.
 
 Whether the engine can serve a streamed request:
 
-| kind / engine | streams as | notes |
-| ------ | ------ | ------ |
-| `tts` app | per-chunk NDJSON frames | `"stream": true` on `POST /openai/v1/audio/speech` |
-| `openai-http` server | SSE | |
-| agent CLI (`claude`, `opencode`, `cursor`) | text deltas | `"stream": true` on `POST /openai/v1/chat/completions`; streams the answer text as the CLI prints it |
-| `piper`, `kokoro` | sentence by sentence | streams from their own pipelines |
-| `chatterbox-multi`, `chatterbox-en` | one `generate()` call per sentence | runs when the door asks for chunks, so the first sentence's audio goes out while the rest is still sampling -- a single-sentence request is one call either way |
-| `llama` | SSE | |
-| `whisper` | one NDJSON frame per segment as it decodes | `"stream": "true"` on `POST /openai/v1/audio/transcriptions`; this is whisper.cpp's own new-segment callback, not a finished transcript cut into pieces -- its wrapper reaches that callback through whisper-cli, because whisper-server buffers the whole body |
-| `comfy` | does not stream | its proxy is not a content endpoint |
+| kind / engine                              | streams as                                 | notes                                                                                                                                                                                                                                                           |
+| ------------------------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tts` app                                  | per-chunk NDJSON frames                    | `"stream": true` on `POST /openai/v1/audio/speech`                                                                                                                                                                                                              |
+| `openai-http` server                       | SSE                                        |                                                                                                                                                                                                                                                                 |
+| agent CLI (`claude`, `opencode`, `cursor`) | text deltas                                | `"stream": true` on `POST /openai/v1/chat/completions`; streams the answer text as the CLI prints it                                                                                                                                                            |
+| `piper`, `kokoro`                          | sentence by sentence                       | streams from their own pipelines                                                                                                                                                                                                                                |
+| `chatterbox-multi`, `chatterbox-en`        | one `generate()` call per sentence         | runs when the door asks for chunks, so the first sentence's audio goes out while the rest is still sampling -- a single-sentence request is one call either way                                                                                                 |
+| `llama`                                    | SSE                                        |                                                                                                                                                                                                                                                                 |
+| `whisper`                                  | one NDJSON frame per segment as it decodes | `"stream": "true"` on `POST /openai/v1/audio/transcriptions`; this is whisper.cpp's own new-segment callback, not a finished transcript cut into pieces -- its wrapper reaches that callback through whisper-cli, because whisper-server buffers the whole body |
+| `comfy`                                    | does not stream                            | its proxy is not a content endpoint                                                                                                                                                                                                                             |
 
 It lives in `spec.toml` because it is a property of the engine's own app, not
 of an install — the same reason `serves` does — and a `[[route]]` may override

@@ -7,7 +7,7 @@ describes what the door itself does and does not guard.
 
 ## Agentic engines: integrity, not confidentiality
 
-Agentic CLIs are an engine *kind*, not a separate API. They are launched with
+Agentic CLIs are an engine _kind_, not a separate API. They are launched with
 writing structurally disabled, so they read a repository and return text like
 any other completion, and engined never writes to a caller's worktree.
 
@@ -29,7 +29,7 @@ The guarantee is **integrity, not confidentiality.** `workdir` says where an
 agent begins, not what it may read. Measured: under the full read-only floor,
 an agent asked for `/etc/hostname` returns it, with no permission denial.
 
-What an agentic call cannot do is *change* the caller's tree. What it
+What an agentic call cannot do is _change_ the caller's tree. What it
 emphatically can do is read anything this uid can open — every private key,
 the `gh` identity, the credentials of the CLI being run — and send it wherever
 a chain ends. A workdir allowlist bounds nothing meaningful, since the fleet's
@@ -94,7 +94,7 @@ is per-agent too, because what could give an agent its tools back differs: a
 planted settings hook for claude, a permissive `opencode.json` for opencode.
 
 **The two floors are not equally shaped.** claude's also restricts which
-*tools* it has, so it cannot run shell or fetch a URL. The sandbox restricts
+_tools_ it has, so it cannot run shell or fetch a URL. The sandbox restricts
 writing only: it shares the host network namespace, because the agent has to
 reach this door to reach a model at all. Abstract-namespace Unix sockets and
 loopback services therefore remain reachable from an opencode launch. That
@@ -229,7 +229,7 @@ caller's prompt.
 ## Which agents ship, and why
 
 The rule is the same for all of them: **an agent whose read-only enforcement
-has not been *shown* is not shipped.** What differs is how each one was shown.
+has not been _shown_ is not shipped.** What differs is how each one was shown.
 
 `claude` ships on its own flags. The floor is argv, and the probes re-prove it
 against every new pin.
@@ -238,7 +238,7 @@ against every new pin.
 1.18.25: it has no tool or permission flag; an `OPENCODE_CONFIG` floor denying
 `edit`, `bash` and `write` was overridden by a project `opencode.json`; the
 built-in read-only `plan` agent was redefined the same way, because its rules
-are last-wins; and config is discovered by walking *up* from the working
+are last-wins; and config is discovered by walking _up_ from the working
 directory, so the exposure is not even bounded to the workdir. Its own
 configuration therefore cannot be a floor.
 

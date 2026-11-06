@@ -9,7 +9,7 @@ worth guessing at.
 
 `engines/llama/spec.toml` passes `--spec-type draft-mtp` for any catalog
 model marked `mtp` — the head lives inside the GGUF, and llama.cpp only infers
-a speculative type from a *separate* draft model, so it has to be named.
+a speculative type from a _separate_ draft model, so it has to be named.
 Naming it on a headless GGUF is fatal (`model doesn't contain MTP layers`,
 exit 1), which is why the flags follow the model rather than being
 unconditional.
@@ -19,12 +19,12 @@ unconditional.
 At `--ctx-size 32768`, 1200 tokens generated. "Prose" is an 8416-token
 prompt; "structured" is a JSON array over the same context.
 
-| config | prose tok/s | structured tok/s |
-| --- | --- | --- |
-| no speculation | 54.05 | 53.13 |
-| `draft-mtp`, `p-min 0.95` | 47.75 | 60.91 |
-| `draft-mtp`, `p-min 0.75` | 50.99 | 66.12 |
-| `draft-mtp`, `p-min 0.10` | **54.70** | **66.99** |
+| config                    | prose tok/s | structured tok/s |
+| ------------------------- | ----------- | ---------------- |
+| no speculation            | 54.05       | 53.13            |
+| `draft-mtp`, `p-min 0.95` | 47.75       | 60.91            |
+| `draft-mtp`, `p-min 0.75` | 50.99       | 66.12            |
+| `draft-mtp`, `p-min 0.10` | **54.70**   | **66.99**        |
 
 The payoff tracks draft acceptance, which is a property of the output shape:
 83% on prose against 98% on structured output. A high `p-min` is
@@ -51,7 +51,7 @@ it almost exactly: the same build measures 62.6 t/s over 32 generated tokens
 for anything that generates a paragraph, and never compare a decode number
 taken over 32 tokens with one taken over 512.
 
-**Do not reason from file size.** Decode on a sparse MoE tracks the *active*
+**Do not reason from file size.** Decode on a sparse MoE tracks the _active_
 bytes per token, not the size of the GGUF. Switching from a 36.9 GB Q8_0 file
 to a 24.85 GB one is a 33% smaller file but only ~11% faster (49.60 → 55.40
 tok/s, 400 tokens, short prompt), because only 8 of 256 experts are read per
@@ -92,14 +92,14 @@ Placement applies to any local llama route whose merged `parallel` is a
 positive integer `>= 2` (`src/llamaSlots.ts`, driven from `LlamaRouter.proxy`
 in `src/llama.ts`):
 
-| Rule | Behaviour |
-| --- | --- |
-| Slot classes | The first `ceil(parallel / 2)` slot ids are LONG, the rest SHORT. |
-| Sizing | The prompt is counted with the vocab-only tokenizer (`src/bpeTokenize.ts`/`bpeVocab.ts`) against the GGUF `src/tokenizeRoute.ts` reads; `>= slot_long_threshold` (route config, default 4096) is LONG. |
-| LONG request | The idle long slot whose prefix fingerprint (a hash of its first 2048 token ids) matches, else the least-recently-used idle long slot. |
-| SHORT request | Only a short slot, least-recently-used idle first. |
-| Nothing idle | No `id_slot` is sent; llama-server picks a slot itself. |
-| Caller `id_slot` | Forwarded untouched. |
+| Rule             | Behaviour                                                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Slot classes     | The first `ceil(parallel / 2)` slot ids are LONG, the rest SHORT.                                                                                                                                      |
+| Sizing           | The prompt is counted with the vocab-only tokenizer (`src/bpeTokenize.ts`/`bpeVocab.ts`) against the GGUF `src/tokenizeRoute.ts` reads; `>= slot_long_threshold` (route config, default 4096) is LONG. |
+| LONG request     | The idle long slot whose prefix fingerprint (a hash of its first 2048 token ids) matches, else the least-recently-used idle long slot.                                                                 |
+| SHORT request    | Only a short slot, least-recently-used idle first.                                                                                                                                                     |
+| Nothing idle     | No `id_slot` is sent; llama-server picks a slot itself.                                                                                                                                                |
+| Caller `id_slot` | Forwarded untouched.                                                                                                                                                                                   |
 
 `GET /slots` on this build reports only `id`/`is_processing`/`n_ctx`/
 `speculative` — nothing about what a slot has cached — so this table is
@@ -115,10 +115,10 @@ whose prompt differs anywhere inside a message is recomputed from that
 message's start. Measured on ornith with a 31k-token prompt changed at 85%:
 
 | Same text sent as | Tokens reused | Prefill |
-| --- | --- | --- |
-| 1 message | 0 | 52.5 s |
-| 16 messages | 21,849 | 17.8 s |
-| 64 messages | 26,014 | 11.4 s |
+| ----------------- | ------------- | ------- |
+| 1 message         | 0             | 52.5 s  |
+| 16 messages       | 21,849        | 17.8 s  |
+| 64 messages       | 26,014        | 11.4 s  |
 
 VS Code Copilot sends its agent instructions as one ~15k-token user message
 that changes somewhere per chat, so new chats reused only the ~16k-token tool
@@ -137,10 +137,10 @@ default `--cache-ram` never restored anything on this model. Neither is set.
 Slot geometry by `parallel`:
 
 | `parallel` | `n_slots` | `n_ctx_slot` | `kv_unified` |
-| ------ | ------ | ------ | ------ |
-| -1 | 4 | 32768 | true |
-| 1 | 1 | ctx-size | false |
-| 2 | 2 | ctx-size / 2 | false |
+| ---------- | --------- | ------------ | ------------ |
+| -1         | 4         | 32768        | true         |
+| 1          | 1         | ctx-size     | false        |
+| 2          | 2         | ctx-size / 2 | false        |
 
 `-1` is one shared 32768 pool, not four windows: 24.62 GiB loaded against a
 23.13 GiB GGUF, where 32768 tokens of q8_0 KV is 0.64 GiB and four independent

@@ -13,36 +13,36 @@ treated as a caller.
 
 ## Routes
 
-| Route | Method | Answered by |
-| --- | --- | --- |
-| `/openai/v1/chat/completions` | POST | `openai-http`, `agentic-cli` |
-| `/openai/v1/completions` | POST | `llama`, only a route declaring `fim` — legacy OpenAI completions shape over llama's own fill-in-the-middle. See [Fill-in-the-middle](#fill-in-the-middle) |
-| `/openai/v1/embeddings` | POST | `openai-http` |
-| `/openai/v1/rerank` | POST | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank) |
-| `/openai/v1/audio/speech` | POST | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
-| `/openai/v1/audio/transcriptions` | POST | `stt` |
-| `/openai/v1/audio/translations` | POST | `stt`, only a route that opts in with `translate = true`. The default (key absent) refuses the path. Not production-safe: the English can be confidently wrong while transcription of the same audio is fine. See [Translations](#translations) |
-| `/openai/v1/images/generations` | POST | `comfy`: `{prompt, size, n, negative_prompt, seed, response_format}` in, `{created, data:[{b64_json}]}` or `{created, data:[{url}]}` out — see [Images](#images) |
-| `/openai/v1/images/edits` | POST | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image) |
-| `/openai/v1/models` | GET | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model) |
-| `/openai/v1/models/{id}` | GET | the same row the list would have carried for that address, or 404. The `{id}` is URL-encoded (`@%2Fllama%2Fornith`) |
-| `/engined/v1/audio/voices` | POST | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice) |
-| `/engined/v1/images/:id` | GET | a render stored for `response_format: "url"` — see [Images](#images) |
-| `/engined/v1/engines` | GET | engine list, state, and the fix for anything unavailable |
-| `/engined/v1/start` | POST | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it |
-| `/engined/v1/tokenize` | POST | `{model: "@/engine/model", content}` in, `{tokens: <count>}` out — a vocab-only token count for a local GGUF route, no engine started and no weights loaded. See [Vocab-only tokenize](#vocab-only-tokenize) |
-| `/engined/v1/detokenize` | POST | `{model: "@/engine/model", tokens}` in, `{content}` out — the inverse join of those ids against the same CPU vocab. See [Vocab-only tokenize](#vocab-only-tokenize) |
-| `/engined/v1/engines/:id/stop` | POST | stops one engine now, rather than waiting out idle-stop |
-| `/engined/v1/engines/:id/release` | POST | drops the weights but leaves the container up (comfy only) |
-| `/engined/v1/engines/:id/hold` | POST | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands |
-| `/engined/v1/engines/:id/unhold` | POST | ends a hold early rather than waiting out its TTL |
-| `/engined/v1/engines/:id/obtain` | POST | fetches missing spec `[[artifact]]` files for that engine; SSE `step` / `line` / `exit`. 404 when the spec declares no artifacts, 409 while one is already running |
-| `/engined/v1/engines/:id/logs` | GET | `docker logs --tail` for a container-backed engine |
-| `/engined/v1/engines/:id/resources` | GET | what a running container holds, read from inside it |
-| `/engined/v1/engines/events` | GET | SSE: a snapshot, then every engine state change as it happens — snapshot and live frames carry the same `roles[]` as `GET /engined/v1/engines` |
-| `/engined/v1/upstreams/:id/refresh` | POST | fetches that upstream's provider `/models` list now and caches it |
-| `/engined/v1/comfy/:engine/:upstream/...` | GET, POST | mediated Comfy proxy — see [Comfy](#comfy) |
-| `/engined/v1/usage?days=N` | GET | per-day, per-route call totals for the last `N` days (default 7, max 90) — see [Usage](#usage) |
+| Route                                     | Method    | Answered by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/openai/v1/chat/completions`             | POST      | `openai-http`, `agentic-cli`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `/openai/v1/completions`                  | POST      | `llama`, only a route declaring `fim` — legacy OpenAI completions shape over llama's own fill-in-the-middle. See [Fill-in-the-middle](#fill-in-the-middle)                                                                                                                                                                                                                                                                                                                                                   |
+| `/openai/v1/embeddings`                   | POST      | `openai-http`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `/openai/v1/rerank`                       | POST      | `openai-http`: `{model, query, documents}` in, `{results:[{index, relevance_score}]}` out — see [Rerank](#rerank)                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/openai/v1/audio/speech`                 | POST      | `tts`; `"stream": true` returns PCM as it is synthesized, `"stream": "ndjson"` the engine's own frames with synthesis progress, and on each `chunk` frame the `words` it carries (`{text, start, end}` in seconds from the start of the utterance; every shipped engine reports them: kokoro and piper from their own phoneme timings, chatterbox by forced alignment of what it produced). `voice`, `speed` and `instructions` reach the engine under its own names; any other field is forwarded untouched |
+| `/openai/v1/audio/transcriptions`         | POST      | `stt`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `/openai/v1/audio/translations`           | POST      | `stt`, only a route that opts in with `translate = true`. The default (key absent) refuses the path. Not production-safe: the English can be confidently wrong while transcription of the same audio is fine. See [Translations](#translations)                                                                                                                                                                                                                                                              |
+| `/openai/v1/images/generations`           | POST      | `comfy`: `{prompt, size, n, negative_prompt, seed, response_format}` in, `{created, data:[{b64_json}]}` or `{created, data:[{url}]}` out — see [Images](#images)                                                                                                                                                                                                                                                                                                                                             |
+| `/openai/v1/images/edits`                 | POST      | `comfy`: multipart `image` + `prompt`, the same render started from the caller's own image — see [Editing an image](#editing-an-image)                                                                                                                                                                                                                                                                                                                                                                       |
+| `/openai/v1/models`                       | GET       | every dispatchable address, as a row — see [Choosing a model](#choosing-a-model)                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/openai/v1/models/{id}`                  | GET       | the same row the list would have carried for that address, or 404. The `{id}` is URL-encoded (`@%2Fllama%2Fornith`)                                                                                                                                                                                                                                                                                                                                                                                          |
+| `/engined/v1/audio/voices`                | POST      | multipart `file`: stores one voice-clone reference and answers `{voice, bytes}`, the handle a later `/audio/speech` names — see [Cloning a voice](#cloning-a-voice)                                                                                                                                                                                                                                                                                                                                          |
+| `/engined/v1/images/:id`                  | GET       | a render stored for `response_format: "url"` — see [Images](#images)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `/engined/v1/engines`                     | GET       | engine list, state, and the fix for anything unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `/engined/v1/start`                       | POST      | warms the route(s) an address or chain name resolves to; each row's `started` says whether this call launched it                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/engined/v1/tokenize`                    | POST      | `{model: "@/engine/model", content}` in, `{tokens: <count>}` out — a vocab-only token count for a local GGUF route, no engine started and no weights loaded. See [Vocab-only tokenize](#vocab-only-tokenize)                                                                                                                                                                                                                                                                                                 |
+| `/engined/v1/detokenize`                  | POST      | `{model: "@/engine/model", tokens}` in, `{content}` out — the inverse join of those ids against the same CPU vocab. See [Vocab-only tokenize](#vocab-only-tokenize)                                                                                                                                                                                                                                                                                                                                          |
+| `/engined/v1/engines/:id/stop`            | POST      | stops one engine now, rather than waiting out idle-stop                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `/engined/v1/engines/:id/release`         | POST      | drops the weights but leaves the container up (comfy only)                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `/engined/v1/engines/:id/hold`            | POST      | stops the engine and keeps it stopped, so another process can load the same weights without racing this door for the pool. `?seconds=` (default 1800, max 3600) is a TTL, not a lock: a holder that dies releases it by lapsing. Re-holding extends. A start refuses while it stands                                                                                                                                                                                                                         |
+| `/engined/v1/engines/:id/unhold`          | POST      | ends a hold early rather than waiting out its TTL                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/engined/v1/engines/:id/obtain`          | POST      | fetches missing spec `[[artifact]]` files for that engine; SSE `step` / `line` / `exit`. 404 when the spec declares no artifacts, 409 while one is already running                                                                                                                                                                                                                                                                                                                                           |
+| `/engined/v1/engines/:id/logs`            | GET       | `docker logs --tail` for a container-backed engine                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `/engined/v1/engines/:id/resources`       | GET       | what a running container holds, read from inside it                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `/engined/v1/engines/events`              | GET       | SSE: a snapshot, then every engine state change as it happens — snapshot and live frames carry the same `roles[]` as `GET /engined/v1/engines`                                                                                                                                                                                                                                                                                                                                                               |
+| `/engined/v1/upstreams/:id/refresh`       | POST      | fetches that upstream's provider `/models` list now and caches it                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/engined/v1/comfy/:engine/:upstream/...` | GET, POST | mediated Comfy proxy — see [Comfy](#comfy)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `/engined/v1/usage?days=N`                | GET       | per-day, per-route call totals for the last `N` days (default 7, max 90) — see [Usage](#usage)                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 `/engined/v1/engines/:id/tokenize` and `/engined/v1/engines/:id/apply-template`
 proxy through to the named llama engine. If no chat model is resident, the
@@ -83,7 +83,7 @@ anything and so streams nothing.
 `model`, `language`, `prompt` and `response_format` ride in the query string,
 and the reply is the same NDJSON. The engine decodes what has arrived rather
 than waiting for the end of it: fed at 1x realtime, a 20.09s recording's first
-frame lands 4.59s in, against 0.95s *after* the upload finishes for the same
+frame lands 4.59s in, against 0.95s _after_ the upload finishes for the same
 audio sent as a form. Sub-second uploads gain nothing from it -- there is
 nothing to decode ahead of -- and a body that is not a WAV has no sample
 boundaries to cut windows on, so it streams no intermediate frames either way.
@@ -120,10 +120,10 @@ The store keeps the 64 least-recently-spoken-with references, 16 MB each at
 most; a handle that has fallen off the end is refused, and re-uploading the
 file issues a new one.
 
-| Status | When |
-| --- | --- |
-| 413 | any upload past that verb's ceiling: a voice reference, a transcription or translation recording, an image-edit `image`, or a comfy `POST /upload/image`. Refused on `Content-Length` when declared; otherwise the cap is counted in bytes as the body arrives, and a chunked upload that reaches it is refused without the rest being buffered |
-| 400 | a body that is not the multipart form that verb reads |
+| Status | When                                                                                                                                                                                                                                                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 413    | any upload past that verb's ceiling: a voice reference, a transcription or translation recording, an image-edit `image`, or a comfy `POST /upload/image`. Refused on `Content-Length` when declared; otherwise the cap is counted in bytes as the body arrives, and a chunked upload that reaches it is refused without the rest being buffered |
+| 400    | a body that is not the multipart form that verb reads                                                                                                                                                                                                                                                                                           |
 
 `/openai/v1/` carries the OpenAI-compatible endpoints and `/engined/v1/` this
 door's own. `/anthropic/v1/` is reserved for an Anthropic-shaped surface and
@@ -149,7 +149,7 @@ Every JSON error on `/openai/v1/*` and `/engined/v1/*` uses OpenAI's object,
 not a bare string:
 
 ```json
-{"error":{"message":"...","type":"invalid_request_error","param":null,"code":null}}
+{ "error": { "message": "...", "type": "invalid_request_error", "param": null, "code": null } }
 ```
 
 `type` follows the status: `invalid_request_error` for other 4xx,
@@ -175,13 +175,13 @@ than defaulted, because a request that has not said where a prompt should run
 has not said whether it may leave the machine. The OpenAI `model` field takes
 one of four spellings:
 
-| Form | Example | Meaning |
-| --- | --- | --- |
-| `@/model` | `@/ornith` | the highest-preference route offering that model, ordered local → `lan` → `remote` → declaration. Does not walk on failure — a caller wanting fallback writes a chain |
-| `@/engine/model` | `@/llama/ornith` | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one) |
-| `@/engine/upstream/model` | `@/llama/local/ornith` | fully explicit |
-| `@/engine/upstream` | `@/comfy/local` | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
-| chain name | `chain-private`, `@/chain-private` | an ordered fallback list — chat, speech and transcription. `@/<chain-id>` is the same chain as the bare id |
+| Form                      | Example                            | Meaning                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@/model`                 | `@/ornith`                         | the highest-preference route offering that model, ordered local → `lan` → `remote` → declaration. Does not walk on failure — a caller wanting fallback writes a chain                          |
+| `@/engine/model`          | `@/llama/ornith`                   | upstream defaults by the engine's trait: ambient for an `optional`-upstream engine, `local` for `self`, its single upstream for `required` (an error if it has more than one)                  |
+| `@/engine/upstream/model` | `@/llama/local/ornith`             | fully explicit                                                                                                                                                                                 |
+| `@/engine/upstream`       | `@/comfy/local`                    | a **modelless** engine, whose routes declare no `model`. This is its only form: there is no one-segment address for it, and a third segment is a parse error because there is no model to name |
+| chain name                | `chain-private`, `@/chain-private` | an ordered fallback list — chat, speech and transcription. `@/<chain-id>` is the same chain as the bare id                                                                                     |
 
 A bare model id or a bare engine id (no `@/`) is not a valid `model` value —
 an unqualified string resolves only as a chain name, and anything else is a
@@ -309,11 +309,11 @@ OpenAI image content part (`image_url` with a `data:` URI or an `http(s)://`
 one), engined bridges it before dispatching the rewritten request to the
 route the caller actually addressed:
 
-| Step | What happens |
-| --- | --- |
-| 1 | each image goes to the bridge address first, one image per request |
-| 2 | the bridge call runs at low temperature, `max_tokens` around 512, with a fixed system instruction to transcribe any visible text verbatim and then describe the image concisely |
-| 3 | the image part is replaced with a text part `[Image N: <caption>]`, in order |
+| Step | What happens                                                                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | each image goes to the bridge address first, one image per request                                                                                                              |
+| 2    | the bridge call runs at low temperature, `max_tokens` around 512, with a fixed system instruction to transcribe any visible text verbatim and then describe the image concisely |
+| 3    | the image part is replaced with a text part `[Image N: <caption>]`, in order                                                                                                    |
 
 A caller can now attach an image to a model that has no image input of its
 own.
@@ -339,7 +339,7 @@ healthy":
 
 - A chain advances past a hop it cannot reach, so it is usable as long as one
   hop is: `state` is the first hop that can answer, and `state: "installed"`
-  therefore means *some* hop can answer -- possibly not the first.
+  therefore means _some_ hop can answer -- possibly not the first.
 - `unavailable_hops` is the other half of that answer: the hop addresses that
   cannot, each for the reason a direct row to it would give -- an engine that
   is not installed, or an upstream whose address or secret does not resolve.
@@ -367,7 +367,7 @@ fails as itself and the next one is tried, so a chain of chat engines posted to
 `/audio/speech` comes back with each hop's own reason rather than one sentence
 about the chain.
 
-**A recording streamed as the request body cannot use a chain.** The upload *is*
+**A recording streamed as the request body cannot use a chain.** The upload _is_
 the request, and the first hop consumes it; a second hop would be handed a
 drained body and would transcribe silence while reporting success. That is
 refused with a 400 naming the fix — send the recording as a multipart upload,
@@ -378,7 +378,7 @@ A chain across audio engines records one provenance line carrying every hop,
 the same as a chat chain.
 
 `chain-private` is one hop on purpose: it is the name a consumer points at to
-say *this prompt does not leave the box*, and keeping it a chain means adding
+say _this prompt does not leave the box_, and keeping it a chain means adding
 a second local engine later is a config edit rather than a consumer change.
 
 `GET /openai/v1/models` reports both hop lists on a chain row. `hops` is the
@@ -399,13 +399,13 @@ speech, transcriptions, translations, image generations and edits — answers
 with the same facts provenance already writes to journald, as headers a
 caller can read without tailing a log:
 
-| Header | Carries |
-| --- | --- |
-| `x-engined-route` | the answering address, `@/<engine>/<model>` or the three-segment form when a route carries its own upstream |
-| `x-engined-upstream` | that route's resolved `[[upstream]]` id, or `local`; absent for an ambient route |
-| `x-engined-egress` | that route's `egress` |
-| `x-engined-chain` | the chain name the caller addressed; absent when the caller named a route directly |
-| `x-engined-cost-usd` | what the answering hop itself reported the call cost, in dollars; only an agentic CLI reports one, so absent for every other engine |
+| Header               | Carries                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `x-engined-route`    | the answering address, `@/<engine>/<model>` or the three-segment form when a route carries its own upstream                                                                                                                                                                                                                                                                                 |
+| `x-engined-upstream` | that route's resolved `[[upstream]]` id, or `local`; absent for an ambient route                                                                                                                                                                                                                                                                                                            |
+| `x-engined-egress`   | that route's `egress`                                                                                                                                                                                                                                                                                                                                                                       |
+| `x-engined-chain`    | the chain name the caller addressed; absent when the caller named a route directly                                                                                                                                                                                                                                                                                                          |
+| `x-engined-cost-usd` | what the answering hop itself reported the call cost, in dollars; only an agentic CLI reports one, so absent for every other engine                                                                                                                                                                                                                                                         |
 | `x-engined-queue-ms` | how long the call waited for a local llama role lease once its container was already up, in milliseconds; `0` when the role was already resident, present only on a local llama route -- chat included, not just completions/FIM. A cold container start (first request, or a preset change that forces a recreate) is not counted here -- it still shows up in the request's total latency |
 
 For a chain, these name whichever hop actually answered — the second hop of
@@ -615,12 +615,12 @@ refused with the door's normal 4xx before dispatch, and `GET
 across models, and a second engine's own native completion shape has nothing
 here to test it against.
 
-| Field | Meaning |
-| --- | --- |
-| `prompt` | the text before the gap; forwarded as `input_prefix` |
-| `suffix` | the text after the gap; forwarded as `input_suffix` |
-| `extra` | not an OpenAI field: `[{filename, text}]`, neighbouring-file context forwarded to llama-server's own `input_extra` verbatim |
-| `max_tokens`, `temperature`, `stop`, `stream` | forwarded under llama-server's own names (`max_tokens` as `n_predict`) |
+| Field                                         | Meaning                                                                                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`                                      | the text before the gap; forwarded as `input_prefix`                                                                        |
+| `suffix`                                      | the text after the gap; forwarded as `input_suffix`                                                                         |
+| `extra`                                       | not an OpenAI field: `[{filename, text}]`, neighbouring-file context forwarded to llama-server's own `input_extra` verbatim |
+| `max_tokens`, `temperature`, `stop`, `stream` | forwarded under llama-server's own names (`max_tokens` as `n_predict`)                                                      |
 
 The reply is the OpenAI legacy `text_completion` envelope (`choices[0].text`,
 `finish_reason`, `usage` once generation ends) whether buffered or streamed —
@@ -684,14 +684,15 @@ curl -s localhost:29200/openai/v1/rerank -H 'content-type: application/json' \
 ```
 
 ```json
-{"results": [{"index": 0, "relevance_score": 2.5e-06},
-             {"index": 1, "relevance_score": 1.3e-07}]}
+{
+  "results": [{ "index": 0, "relevance_score": 2.5e-6 }, { "index": 1, "relevance_score": 1.3e-7 }]
+}
 ```
 
 Results come back **ordered best-first**, and `index` is into the array as
 sent -- so the caller maps them onto its own list rather than trusting the
 text to come back unchanged. Scores are the engine's own and carry no fixed
-scale: they order documents *within one response* and mean nothing compared
+scale: they order documents _within one response_ and mean nothing compared
 across calls, models, or engines. Measured on Qwen3-Reranker-0.6B-seq-cls,
 one relevant document among three scored 0.907 against 7.8e-11 and 4.9e-11,
 so the separation is wide rather than marginal.
@@ -722,13 +723,13 @@ curl -s localhost:29200/openai/v1/images/generations \
   | jq -r '.data[0].b64_json' | base64 -d > cube.png
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `prompt` | required, non-empty |
-| `size` | `<width>x<height>`, default `1024x1024` |
-| `n` | 1–10, default 1. One render each, with consecutive seeds — the door submits one prompt at a time, so `n` images take `n` renders' worth of wall clock |
-| `negative_prompt` | not an OpenAI field, forwarded because a caller driving a diffusion model has no other way to say it |
-| `seed` | honoured when given; random otherwise, so asking twice is not the same image |
+| Field             | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`          | required, non-empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `size`            | `<width>x<height>`, default `1024x1024`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `n`               | 1–10, default 1. One render each, with consecutive seeds — the door submits one prompt at a time, so `n` images take `n` renders' worth of wall clock                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `negative_prompt` | not an OpenAI field, forwarded because a caller driving a diffusion model has no other way to say it                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `seed`            | honoured when given; random otherwise, so asking twice is not the same image                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `response_format` | `b64_json` (the default, and the historical behaviour) or `url`. `"url"` stores each render under the door's own state directory and answers `data[].url` built from this request's `Host`, so a TLS bridge's public name is what the caller fetches. `GET /engined/v1/images/<id>` returns the bytes (`Content-Type` from the suffix) until the store evicts them. The id is unguessable and a string that is not one this door issued — including a path — is 404. The store keeps 64 renders, 256 MiB, for seven days from write (not from last GET), then drops oldest-first. |
 
 ```sh
@@ -741,12 +742,12 @@ The reply is `b64_json` unless the caller asked for `url`. There is no address i
 
 A client that sends `Accept: text/event-stream` receives server-sent events while the picture renders, on this path and on `POST /openai/v1/images/edits`. Any other request is the single JSON body above. A request refused before rendering (an empty prompt, a bad size, a missing checkpoint) is still that JSON error. Once the stream has started, a failure is an `error` event whose `data` is the same error object, and the response status is 200 because the headers have already gone out. Hanging up still cancels the wait.
 
-| event | data |
-| --- | --- |
-| `progress` | a sampler step the container already reported: `value`, `max`, and when present `node` and `prompt_id` |
-| `preview` | one preview frame already in hand: `bytes`, and `format` (`jpeg` or `png`) when the frame says which. `image` is the base64 of that frame only when it is at most 32 KiB; a larger frame stays metadata, because the final event carries the rendered image |
-| `image` | the same JSON body this endpoint returns without the stream |
-| `error` | the same error object a JSON failure would have returned |
+| event      | data                                                                                                                                                                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `progress` | a sampler step the container already reported: `value`, `max`, and when present `node` and `prompt_id`                                                                                                                                                      |
+| `preview`  | one preview frame already in hand: `bytes`, and `format` (`jpeg` or `png`) when the frame says which. `image` is the base64 of that frame only when it is at most 32 KiB; a larger frame stays metadata, because the final event carries the rendered image |
+| `image`    | the same JSON body this endpoint returns without the stream                                                                                                                                                                                                 |
+| `error`    | the same error object a JSON failure would have returned                                                                                                                                                                                                    |
 
 ```sh
 curl -N localhost:29200/openai/v1/images/generations \
@@ -774,7 +775,7 @@ hand the caller that answers the request they made. That holds for both verbs.
 ### Editing an image
 
 `POST /openai/v1/images/edits` is the same render started from the caller's own
-image rather than an empty latent. Multipart, not JSON, because the image *is*
+image rather than an empty latent. Multipart, not JSON, because the image _is_
 the request — base64 inside a JSON body would be a third bigger on the wire and
 held twice in memory to decode.
 
@@ -793,9 +794,9 @@ behaviour. The same applies to the translations verb above.
 
 `prompt`, `n`, `negative_prompt`, `seed` and `response_format` mean what they do above.
 
-| Field | Meaning |
-| --- | --- |
-| `image` | required: the image to start from, at most 32 MiB; past that is 413 |
+| Field     | Meaning                                                                                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`   | required: the image to start from, at most 32 MiB; past that is 413                                                                                         |
 | `denoise` | how much of the input the sampler discards, greater than 0 and at most 1; default 0.9. At 1.0 nothing of the input survives, which is `/images/generations` |
 
 **No `size`.** The input's own dimensions are the output's — scaling here would
@@ -844,14 +845,14 @@ actually did rather than what was asked of it; anything the container refused
 is a 502 carrying comfy's own status, never a `cancelled` the door did not
 perform.
 
-| Reply | Meaning |
-| --- | --- |
-| 200 `{"cancelled": "running"}` | the prompt was the one executing, and it was interrupted |
-| 200 `{"cancelled": "pending"}` | it was still queued, and was dropped without an interrupt |
-| 200 `{"cancelled": "finished"}` | there was nothing left to stop, and nothing was sent |
-| 502 `comfy queue could not be read` | the queue did not answer as one, so nothing was proven and nothing sent |
-| 502 `comfy refused to interrupt "<id>" (http <status>)` | the prompt was the running one and is running still |
-| 502 `comfy refused to drop "<id>" from its queue (http <status>)` | the prompt was pending and is queued still |
+| Reply                                                             | Meaning                                                                 |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 200 `{"cancelled": "running"}`                                    | the prompt was the one executing, and it was interrupted                |
+| 200 `{"cancelled": "pending"}`                                    | it was still queued, and was dropped without an interrupt               |
+| 200 `{"cancelled": "finished"}`                                   | there was nothing left to stop, and nothing was sent                    |
+| 502 `comfy queue could not be read`                               | the queue did not answer as one, so nothing was proven and nothing sent |
+| 502 `comfy refused to interrupt "<id>" (http <status>)`           | the prompt was the running one and is running still                     |
+| 502 `comfy refused to drop "<id>" from its queue (http <status>)` | the prompt was pending and is queued still                              |
 
 The distinction is what a caller polling `/history` needs to read next — only a
 `running` cancel truncates work already done. Neither reply can be wrong about
@@ -873,10 +874,10 @@ That gate is the one behaviour change a comfy consumer sees. The GPU was
 serial either way; what changes is where the caller waits, and that the door
 can now say what is running:
 
-| Container state | What `POST /prompt` does |
-| --- | --- |
-| free (the ordinary case on a one-GPU box) | forwards immediately, answers with comfy's own `prompt_id`, exactly as before |
-| render in flight | holds until it ends rather than returning an id for a job queued behind it — the wait moves from comfy's queue to the request |
+| Container state                           | What `POST /prompt` does                                                                                                      |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| free (the ordinary case on a one-GPU box) | forwards immediately, answers with comfy's own `prompt_id`, exactly as before                                                 |
+| render in flight                          | holds until it ends rather than returning an id for a job queued behind it — the wait moves from comfy's queue to the request |
 
 A container that has not drained inside the engine's `drain_timeout_seconds`
 (15 minutes by default) answers 503 naming the engine and that key, rather
@@ -901,7 +902,21 @@ URL.
 Every call writes one structured JSON line to journald:
 
 ```json
-{"chain":"chain-private","requested":"chain-private","attempts":[{"engine":"llama","model":"ornith","ok":true,"duration_ms":9203,"model_reported":"ornith","model_resident":"ornith"}],"engine_used":"llama"}
+{
+  "chain": "chain-private",
+  "requested": "chain-private",
+  "attempts": [
+    {
+      "engine": "llama",
+      "model": "ornith",
+      "ok": true,
+      "duration_ms": 9203,
+      "model_reported": "ornith",
+      "model_resident": "ornith"
+    }
+  ],
+  "engine_used": "llama"
+}
 ```
 
 `model_reported` is the id the engine echoed in its body; `model_resident` is
@@ -979,12 +994,32 @@ same call records provenance emits (day files older
 than 90 days are deleted on the periodic flush):
 
 ```json
-{"object":"list","data":[
-  {"date":"2026-09-26","route":"llama/ornith","requests":42,"ok":40,"failed":2,
-   "prompt_tokens":8123,"completion_tokens":2044,"duration_ms":915300,"egress":"none"},
-  {"date":"2026-09-26","route":"claude","requests":3,"ok":3,"failed":0,
-   "cost_usd":0.41,"duration_ms":61200,"egress":"remote"}
-]}
+{
+  "object": "list",
+  "data": [
+    {
+      "date": "2026-09-26",
+      "route": "llama/ornith",
+      "requests": 42,
+      "ok": 40,
+      "failed": 2,
+      "prompt_tokens": 8123,
+      "completion_tokens": 2044,
+      "duration_ms": 915300,
+      "egress": "none"
+    },
+    {
+      "date": "2026-09-26",
+      "route": "claude",
+      "requests": 3,
+      "ok": 3,
+      "failed": 0,
+      "cost_usd": 0.41,
+      "duration_ms": 61200,
+      "egress": "remote"
+    }
+  ]
+}
 ```
 
 `route` is `engine` alone for a modelless or agentic route, `engine/model`

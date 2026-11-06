@@ -62,7 +62,7 @@ The sole other exception is a remote upstream's `base_url`.
 
 ## Deliberately not built
 
-No install, build or update endpoint for *engines* and no stepper UI —
+No install, build or update endpoint for _engines_ and no stepper UI —
 `docker build` by hand, and a missing image reports `unavailable` plus the
 literal command. engined's own install is a script, never a route: nothing
 reachable over HTTP writes to the install directory.

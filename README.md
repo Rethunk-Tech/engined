@@ -92,19 +92,19 @@ Edit the config before the first start: a route naming a model file that is not 
 
 ## Documentation
 
-| Document | Contents |
-| --- | --- |
-| [HUMANS.md](HUMANS.md) | Install, configure, verify, operate, uninstall |
-| [AGENTS.md](AGENTS.md) | Test tiers, config/spec split, invariants |
-| [docs/http-api.md](docs/http-api.md) | Routes, model spellings, chains |
-| [docs/configuration.md](docs/configuration.md) | Schema, key set, args precedence |
-| [docs/engines.md](docs/engines.md) | Per-engine images and occupancy |
-| [docs/tuning.md](docs/tuning.md) | Speculative-decoding measurements |
-| [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary |
-| [docs/design.md](docs/design.md) | Ownership line, why 29200 |
-| [CHANGELOG.md](CHANGELOG.md) | Release notes |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
-| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Upstream projects, models, and their licences |
+| Document                                         | Contents                                       |
+| ------------------------------------------------ | ---------------------------------------------- |
+| [HUMANS.md](HUMANS.md)                           | Install, configure, verify, operate, uninstall |
+| [AGENTS.md](AGENTS.md)                           | Test tiers, config/spec split, invariants      |
+| [docs/http-api.md](docs/http-api.md)             | Routes, model spellings, chains                |
+| [docs/configuration.md](docs/configuration.md)   | Schema, key set, args precedence               |
+| [docs/engines.md](docs/engines.md)               | Per-engine images and occupancy                |
+| [docs/tuning.md](docs/tuning.md)                 | Speculative-decoding measurements              |
+| [docs/security-model.md](docs/security-model.md) | Origin check, agentic boundary                 |
+| [docs/design.md](docs/design.md)                 | Ownership line, why 29200                      |
+| [CHANGELOG.md](CHANGELOG.md)                     | Release notes                                  |
+| [SECURITY.md](SECURITY.md)                       | Reporting a vulnerability                      |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Upstream projects, models, and their licences  |
 
 ## License
 

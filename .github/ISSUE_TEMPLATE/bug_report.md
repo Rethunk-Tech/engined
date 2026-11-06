@@ -1,9 +1,9 @@
 ---
 name: Bug report
 about: Report incorrect engined behaviour
-title: '[BUG] '
+title: "[BUG] "
 labels: bug
-assignees: ''
+assignees: ""
 ---
 
 ## Bug

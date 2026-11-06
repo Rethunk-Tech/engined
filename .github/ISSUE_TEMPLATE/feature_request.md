@@ -1,9 +1,9 @@
 ---
 name: Feature request
 about: Suggest a capability for engined
-title: '[FEATURE] '
+title: "[FEATURE] "
 labels: enhancement
-assignees: ''
+assignees: ""
 ---
 
 ## Gap
