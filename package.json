@@ -39,7 +39,7 @@
     "test:e2e": "playwright test"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.5",
+    "@biomejs/biome": "^2.6.6",
     "@playwright/test": "^1.65.0",
     "@types/bun": "^1.4.4",
     "knip": "^6.44.1",
@@ -58,6 +58,6 @@
     "@preact/signals": "^2.11.4",
     "codemirror": "^6.0.2",
     "mermaid": "^12.3.0",
-    "preact": "^11.1.1"
+    "preact": "^11.2.0"
   }
 }
