@@ -16,7 +16,7 @@
 # itself (piper/espeak-ng-data/), so unlike kokoro this image installs no
 # apt espeak-ng at all. What the split actually buys is dropping uv and curl.
 # 3.14, not 3.15: piper-tts needs onnxruntime, which publishes no cp315 wheel yet.
-FROM python:3.15.2-slim@sha256:e97b88e416c3c01eb427b21fd8cd3ebf006e6ee38afcfcc3cae1c54ee2ab0a75 AS builder
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl \
@@ -66,7 +66,7 @@ RUN mkdir -p /app/voices \
     # patch on a voice a route mounts from models_dir.
     && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
-FROM python:3.15.2-slim@sha256:e97b88e416c3c01eb427b21fd8cd3ebf006e6ee38afcfcc3cae1c54ee2ab0a75
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
