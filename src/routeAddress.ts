@@ -64,14 +64,9 @@ function findModelOnEngine<T extends { engine: string; model?: string; upstream:
   routes: readonly T[],
   engineId: string,
   model: string,
-  upstream?: string,
+  upstream: string,
 ): T | undefined {
-  return routes.find(
-    (r) =>
-      r.engine === engineId &&
-      r.model === model &&
-      (upstream === undefined || r.upstream === upstream),
-  )
+  return routes.find((r) => r.engine === engineId && r.model === model && r.upstream === upstream)
 }
 
 /**
