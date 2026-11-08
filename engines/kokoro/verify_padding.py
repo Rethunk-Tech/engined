@@ -32,8 +32,10 @@ from kokoro import KPipeline
 TEXTS = [
     "Hi.",
     "Let me check on that for you, one moment please.",
-    "This next one is longer still, closer to a full paragraph of spoken "
-    "reply text, meant to exercise a large input-id bucket end to end.",
+    (
+        "This next one is longer still, closer to a full paragraph of spoken "
+        "reply text, meant to exercise a large input-id bucket end to end."
+    ),
 ]
 VOICE = "af_heart"
 # Same order of magnitude as the decoder's own established bar (padding-
