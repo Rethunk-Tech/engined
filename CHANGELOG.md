@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The engines and models listings report translation and rerank probe verdicts (`probes`), and the probe grades the English of `translate = true` routes.
+- Translation routes default to the multilingual `medium` Whisper model, since `large-v3-turbo` does not translate.
+- Config edits that add an array-of-tables entry append each one as text, so a second new entry is no longer lost.
+- Config UI: the drag handle is a real button.
 - The comfy image now builds ComfyUI at `7a28332`, which loads MOSS-Image natively (`UNETLoader`, `CLIPLoader` type `moss_image`, FLUX.2 VAE).
 
 ## 0.2.13 - 2026-10-20
