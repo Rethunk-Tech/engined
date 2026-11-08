@@ -4,7 +4,17 @@
  * does not match IMAGE_ID_RE is 404 rather than a traversal.
  */
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { comfyHistoryEntry, filenamesIn } from './comfyProxy.ts'
@@ -200,12 +210,17 @@ export function handleStoredImageGet(id: string, bounds?: ImageStoreBounds): Res
   const path = join(storeDir(bounds), id)
   try {
     const ttlMs = bounds?.ttlMs ?? IMAGE_TTL_MS
-    if (storeNow(bounds) - statSync(path).mtimeMs > ttlMs) {
-      return jsonError(STATUS_NOT_FOUND, 'unknown image')
+    const fd = openSync(path, 'r')
+    try {
+      if (storeNow(bounds) - fstatSync(fd).mtimeMs > ttlMs) {
+        return jsonError(STATUS_NOT_FOUND, 'unknown image')
+      }
+      const bytes = readFileSync(fd)
+      const ext = extOf(id)
+      return new Response(bytes, { headers: { [CONTENT_TYPE]: typeForExt(ext) } })
+    } finally {
+      closeSync(fd)
     }
-    const bytes = readFileSync(path)
-    const ext = extOf(id)
-    return new Response(bytes, { headers: { [CONTENT_TYPE]: typeForExt(ext) } })
   } catch {
     return jsonError(STATUS_NOT_FOUND, 'unknown image')
   }
