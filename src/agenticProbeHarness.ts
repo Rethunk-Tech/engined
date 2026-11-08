@@ -12,11 +12,10 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import process from 'node:process'
 import {
   type AgenticSpawn,
@@ -36,12 +35,23 @@ const WITNESS_ID_RADIX = 36
 /** Every path under `root` (relative, sorted -- what a failed byte-identical probe names) and one digest over their names and contents. */
 function walkTree(root: string): { paths: string[]; hash: string } {
   const hasher = new Bun.CryptoHasher('sha256')
-  const paths = readdirSync(root, { recursive: true, encoding: 'utf8' }).sort()
+  // Dirent kinds come off the directory read itself, so no path is stat'ed
+  // before it is read: a swap between the two would be invisible otherwise.
+  const entries = new Map(
+    readdirSync(root, { recursive: true, withFileTypes: true }).map((entry) => {
+      const full = join(entry.parentPath, entry.name)
+      return [
+        relative(root, full),
+        { full, isFile: entry.isFile(), isSymbolicLink: entry.isSymbolicLink() },
+      ] as const
+    }),
+  )
+  const paths = [...entries.keys()].sort((a, b) => Number(a > b) - Number(a < b))
   for (const rel of paths) {
     hasher.update(rel)
-    const full = join(root, rel)
-    if (!statSync(full).isDirectory()) {
-      hasher.update(readFileSync(full))
+    const entry = entries.get(rel)
+    if (entry?.isFile || entry?.isSymbolicLink) {
+      hasher.update(readFileSync(entry.full))
     }
   }
   return { paths, hash: hasher.digest('hex') }
