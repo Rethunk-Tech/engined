@@ -180,9 +180,9 @@ export interface ComfyBinding {
 export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
   recordCall(record, ctx.doorOpts.write)
   ctx.usage.record(record)
-  const pending = ctx.donorSpend?.observe(ctx, record)
-  if (pending !== undefined) {
-    pending.catch((err: unknown) => {
+  const donorSpend = ctx.donorSpend
+  if (donorSpend !== undefined) {
+    donorSpend.observe(ctx, record).catch((err: unknown) => {
       process.stderr.write(`potluck: ${errMessage(err)}\n`)
     })
   }
