@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.14 - 2026-11-08
 
 - The engines and models listings report translation and rerank probe verdicts (`probes`), and the probe grades the English of `translate = true` routes.
 - Translation routes default to the multilingual `medium` Whisper model, since `large-v3-turbo` does not translate.
