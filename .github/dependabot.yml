@@ -25,3 +25,21 @@ updates:
     groups:
       all:
         patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /engines/chatterbox-shared
+      - /engines/comfy
+      - /engines/kokoro
+      - /engines/llama
+      - /engines/piper
+      - /engines/whisper
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps):"
+    groups:
+      all:
+        patterns: ["*"]

@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 const ENGINES = join(dirname(import.meta.dir), 'engines')
-const SHA256 = /@sha256:[0-9a-f]{64}/
+const ROOT = dirname(ENGINES)
+const TAG_DIGEST = /:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}/
 const GIT_SHA = /@[0-9a-f]{40}/
 
 function dockerfiles(dir: string): string[] {
@@ -39,8 +40,17 @@ function isStageOrContext(source: string): boolean {
 }
 
 test('install.sh pins the TLS terminator image by digest', () => {
-  const script = readFileSync(join(dirname(ENGINES), 'scripts', 'install.sh'), 'utf8')
-  expect(script).toMatch(new RegExp(`CADDY_IMAGE="\\S+${SHA256.source}"`))
+  const script = readFileSync(join(ROOT, 'scripts', 'install.sh'), 'utf8')
+  expect(script).toMatch(new RegExp(`CADDY_IMAGE="\\S+${TAG_DIGEST.source}"`))
+})
+
+test('dependabot docker covers every Dockerfile directory', () => {
+  const yml = readFileSync(join(ROOT, '.github', 'dependabot.yml'), 'utf8')
+  expect(yml).toMatch(/package-ecosystem:\s*docker\b/)
+  for (const file of dockerfiles(ENGINES)) {
+    const dir = `/${relative(ROOT, dirname(file)).replaceAll('\\', '/')}`
+    expect(yml).toContain(dir)
+  }
 })
 
 describe('engine Dockerfiles pin every build input', () => {
@@ -64,8 +74,8 @@ describe('engine Dockerfiles pin every build input', () => {
         const floatingCopy =
           from !== undefined &&
           !isStageOrContext(from) &&
-          (!SHA256.test(from) || /:latest(?:@|$)/.test(from))
-        const unpinnedFrom = /^FROM\s+/.test(line.trim()) && !SHA256.test(line)
+          (!TAG_DIGEST.test(from) || /:latest(?:@|$)/.test(from))
+        const unpinnedFrom = /^FROM\s+/.test(line.trim()) && !TAG_DIGEST.test(line)
         const unpinnedGit = line.includes('git+') && !GIT_SHA.test(line)
         const torchInstall =
           /pip install/.test(line) &&
