@@ -5,12 +5,12 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 
 ## Prerequisites
 
-- Linux with `systemd --user`
+- Linux with `systemd --user`. There is no Windows or macOS build.
 - Docker, with your user in the `docker` group
 - git and rsync (install syncs `engines/` with `rsync --delete`)
-- [Bun](https://bun.sh) on `PATH` (or `ENGINED_BUNX` set)
+- [Bun](https://bun.sh) 1.4 on `PATH` (or `ENGINED_BUNX` set)
 - `secret-tool` (libsecret) for any engine that needs a key
-- For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+
+- For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+. Other hardware works by pointing an engine at your own image: one `spec_dir = "..."` line on its `[[engine]]` in `config.toml`, naming a spec whose `image` suits your GPU or CPU. See [docs/configuration.md](docs/configuration.md) and [docs/engines.md](docs/engines.md).
 
 Operator environment (the `--user` unit sets the first two):
 
@@ -110,6 +110,8 @@ $EDITOR ~/.config/engined/config.toml
 systemctl --user restart engined.service
 ```
 
+Edit the config before the first start: a route naming a model file that is
+not on disk refuses to parse, and the example names models you may not have.
 Name engines you have images for and GGUFs on disk. A missing file or spec
 fails at parse. Secrets go in the keyring, not the config:
 

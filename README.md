@@ -15,40 +15,6 @@ One local engine broker for the whole workstation.
 
 engined is a `systemd --user` daemon that owns every inference engine on a box and serves them behind a single OpenAI-shaped door, reachable from the LAN. Consumers send a `model` string; engined picks the engine, starts its container on demand, keeps one model resident per role, and stops it when idle.
 
-## Installation
-
-```sh
-brew install rethunk-tech/tap/engined
-```
-
-On Arch: `paru -S engined`, then follow the install message. From a clone:
-
-```sh
-git clone https://github.com/Rethunk-Tech/engined.git
-cd engined
-bash scripts/install.sh
-```
-
-engined is a Linux `systemd --user` daemon; there is no Windows or macOS build.
-
-Completions and a man page ship as `engined-completions-man.tar.gz`:
-
-```bash
-install -Dm644 engined.bash ~/.local/share/bash-completion/completions/engined
-```
-
-```zsh
-install -Dm644 _engined ~/.local/share/zsh/site-functions/_engined
-```
-
-```fish
-install -Dm644 engined.fish ~/.config/fish/completions/engined.fish
-```
-
-```powershell
-Add-Content $PROFILE ". $PWD/engined.ps1"
-```
-
 ## Requirements
 
 - git, [Bun](https://bun.sh) 1.4, Docker, and rsync.
@@ -62,16 +28,11 @@ Add-Content $PROFILE ". $PWD/engined.ps1"
 
 ## Quick start
 
-Install as above, then:
-
 ```sh
-mkdir -p ~/.config/engined
-cp config.example.toml ~/.config/engined/config.toml
-$EDITOR ~/.config/engined/config.toml
-systemctl --user restart engined.service
+brew install rethunk-tech/tap/engined
 ```
 
-Edit the config before the first start: a route naming a model file that is not on disk refuses to parse, and the example names models you may not have. Engine images are built locally: an engine whose image is missing reports the `docker build` line to run. Then `curl -s localhost:29200/engined/v1/engines`. Runbook: **[HUMANS.md](HUMANS.md)**.
+Install, configure, and operate: [HUMANS.md](HUMANS.md).
 
 ## Highlights
 
