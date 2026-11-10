@@ -168,6 +168,10 @@ on its own inputs -- a docs-only change replays them from cache.
 
 maitre and earshot already run on engined: check a change to a verb they use against them.
 
+## Install
+
+The only install is the user unit from `scripts/install.sh`: it rebundles from HEAD and restarts, so rerunning it is the update. `systemctl --user reload engined` re-reads config. `commit` on `GET /engined/v1/engines` reports the running build; it matches HEAD after a deploy.
+
 ## Gate budget
 
 `gate` auto-detects the six steps CI runs (build, typecheck, lint with knip, actionlint, shellcheck,
