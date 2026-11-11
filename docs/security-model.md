@@ -113,8 +113,9 @@ reading the response.
 
 So every request is origin-checked first, on every endpoint including reads. Any
 `Origin` (including `"null"`, refused rather than treated as absent), a
-`Sec-Fetch-Site` other than `none` or `same-origin` (a no-cors GET carries no
-`Origin`) is refused. One middleware. A request carrying no `Origin` and no
+`Sec-Fetch-Site` other than `none` (a no-cors GET carries no `Origin`, and the
+door serves no page, so `same-origin` means a hostile name rebound to this host)
+is refused. One middleware. A request carrying no `Origin` and no
 `Sec-Fetch-Site` is served normally, which covers every CLI and server consumer.
 
 This is not authentication. It keeps a browser page from driving the door; a
