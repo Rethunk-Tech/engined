@@ -19,3 +19,16 @@ export const LAUNCH_NONCE_RE = /^\/openai\/v1\/([0-9a-f]{32})(\/.*)$/
 export function launchScopedBaseUrl(port: number, nonce: string): string {
   return `http://127.0.0.1:${port}/openai/v1/${nonce}`
 }
+
+/**
+ * A launch's keyless upstream: `/engined/v1/upstream/<nonce>/...`, forwarded to
+ * the upstream that launch was routed to with the key added on the way out.
+ * Outside `/openai/v1/` so `LAUNCH_NONCE_RE` never rewrites it into the hop
+ * dispatcher. Capture 1 is the nonce; capture 2 is the rest of the path.
+ */
+export const LAUNCH_UPSTREAM_RE = /^\/engined\/v1\/upstream\/([0-9a-f]{32})(\/.*)$/
+
+/** The `ANTHROPIC_BASE_URL` handed to a launch routed to a real upstream. */
+export function launchUpstreamBaseUrl(port: number, nonce: string): string {
+  return `http://127.0.0.1:${port}/engined/v1/upstream/${nonce}`
+}

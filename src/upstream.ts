@@ -9,10 +9,9 @@
  * same never-cached rule, and two copies of that rule drift the first time
  * one of them learns something about the keyring the other does not.
  *
- * The resolved value reaches a request header, or — for the agentic
- * redirect, which hands it to a child process rather than sending it itself
- * — the raw string from `resolveUpstreamSecret`. It never reaches a log line
- * or an error body from anywhere in here.
+ * The resolved value reaches only a request header engined itself sends,
+ * including the agentic forwarder's (`src/launchUpstream.ts`). It never reaches
+ * a child process, a log line or an error body from anywhere in here.
  */
 
 import type { Exec as SecretExec } from './exec.ts'
@@ -43,16 +42,13 @@ const LEADING_SLASHES = /^\/+/
 const DOOR_VERSION_PREFIX = /^\/openai\/v1(?=\/)/
 
 /**
- * The raw secret, for the one caller that needs the value itself rather than
- * a header: the agentic redirect hands it to a child process as an
- * environment variable. Everything else takes `resolveUpstream` and never
- * sees it.
+ * The raw secret, which only `resolveUpstream` turns into its one header.
  *
  * Resolved per request, never cached — a `--user` unit boots before the login
  * keyring unlocks, and every upstream-addressed engine must recover at the
  * operator's next sign-in without a reload.
  */
-export async function resolveUpstreamSecret(
+async function resolveUpstreamSecret(
   upstream: Upstream,
   secretExec?: SecretExec,
 ): Promise<SecretResolution> {
@@ -78,8 +74,8 @@ export async function resolveUpstreamSecret(
     : { ok: false, status: STATUS_UNAVAILABLE, error: outcome.fix }
 }
 
-/** One wording for the missing-address refusal, shared by every caller that has to have one. */
-export function noBaseUrlFix(upstreamId: string): string {
+/** One wording for the missing-address refusal. */
+function noBaseUrlFix(upstreamId: string): string {
   return `upstream "${upstreamId}" has no configured base_url`
 }
 

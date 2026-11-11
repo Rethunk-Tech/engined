@@ -17,7 +17,8 @@ import {
   STATUS_OK,
   STATUS_UNAVAILABLE,
 } from './http.ts'
-import { launchScopedBaseUrl, mintLaunchNonce } from './launchNonce.ts'
+import { launchScopedBaseUrl, launchUpstreamBaseUrl, mintLaunchNonce } from './launchNonce.ts'
+import { releaseLaunch } from './launchUpstream.ts'
 import { isRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { loadSpec } from './spec.ts'
@@ -207,7 +208,7 @@ interface RouteRedirectOptions {
   engineId: string
   modelSeg: string
   route: ResolvedRoute | undefined
-  doorUrl: string
+  nonce: string
 }
 
 type RouteRedirect =
@@ -217,12 +218,14 @@ type RouteRedirect =
 /**
  * A route naming a real upstream (not ambient, not this box's own `local`)
  * redirects to it: the engine's own launch is identical either way, only
- * its resolved upstream differs. `env: undefined` is the ambient case.
+ * its resolved upstream differs. `env: undefined` is the ambient case. A
+ * redirect also opens the launch's keyless upstream route, released with its
+ * nonce.
  */
-function resolveRouteRedirect(
+async function resolveRouteRedirect(
   ctx: DoorContext,
-  { engineId, modelSeg, route, doorUrl }: RouteRedirectOptions,
-): RouteRedirect | Promise<RouteRedirect> {
+  { engineId, modelSeg, route, nonce }: RouteRedirectOptions,
+): Promise<RouteRedirect> {
   const upstreamId = route?.upstream ?? null
   if (upstreamId === null || upstreamId === LOCAL_UPSTREAM) {
     return { ok: true, env: undefined }
@@ -238,14 +241,19 @@ function resolveRouteRedirect(
       ),
     }
   }
-  return resolveRedirect({
+  const redirect = await resolveRedirect({
     upstream,
     engineId,
     modelSeg,
     config,
-    doorUrl,
+    doorUrl: launchScopedBaseUrl(config.listen_port, nonce),
+    keylessBaseUrl: launchUpstreamBaseUrl(config.listen_port, nonce),
     secretExec: ctx.doorOpts.secretExec,
   })
+  if (redirect.ok) {
+    ctx.launchUpstreams.set(nonce, upstreamId)
+  }
+  return redirect
 }
 
 /**
@@ -481,7 +489,7 @@ export async function execAgentic(
   let handedOff = false
   try {
     const doorUrl = launchScopedBaseUrl(config.listen_port, nonce)
-    const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, doorUrl })
+    const redirect = await resolveRouteRedirect(ctx, { engineId, modelSeg, route, nonce })
     if (!redirect.ok) {
       return redirect.result
     }
@@ -512,13 +520,13 @@ export async function execAgentic(
       req,
       onHandoff: (run) => {
         handedOff = true
-        const release = () => ctx.launchNonces.delete(nonce)
+        const release = () => releaseLaunch(ctx, nonce)
         run.then(release, release)
       },
     })
   } finally {
     if (!handedOff) {
-      ctx.launchNonces.delete(nonce)
+      releaseLaunch(ctx, nonce)
     }
   }
 }

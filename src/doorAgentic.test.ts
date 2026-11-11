@@ -5,6 +5,7 @@ import process from 'node:process'
 import type { AgenticSpawn } from './agentic.ts'
 import type { AgenticProbeRunner } from './agenticProbe.ts'
 import { resolveRedirect } from './agenticRedirect.ts'
+import { ANTHROPIC_SSE_EVENTS, ANTHROPIC_SSE_REQUEST } from './anthropicSseFixture.ts'
 import {
   CLAUDE_SPEC,
   chatRequest,
@@ -107,6 +108,20 @@ function recordingSpawn(result: Awaited<ReturnType<AgenticSpawn>>): {
     return Promise.resolve(result)
   }
   return { spawn, spawnCalls }
+}
+
+/** The keyless upstream route a launch routed to a real upstream gets as its `ANTHROPIC_BASE_URL`. */
+const RX_KEYLESS_BASE_URL = /^http:\/\/127\.0\.0\.1:\d+\/engined\/v1\/upstream\/[0-9a-f]{32}$/
+
+/** The placeholder claude sends as `x-api-key`, which the forwarder strips. */
+const KEYLESS_PLACEHOLDER = 'engined-keyless'
+
+/** A redirected child's env: the keyless route and the placeholder, and `secret` nowhere. */
+function expectKeylessEnv(env: Record<string, string>, secret: string) {
+  expect(Object.values(env).some((v) => v.includes(secret))).toBe(false)
+  expect(env.ANTHROPIC_BASE_URL).toMatch(RX_KEYLESS_BASE_URL)
+  expect(env.ANTHROPIC_API_KEY).toBe(KEYLESS_PLACEHOLDER)
+  expect('ANTHROPIC_AUTH_TOKEN' in env).toBe(false)
 }
 
 async function expectExpiredScopedChat(door: Door, doorUrl: string, model: string, agent: string) {
@@ -240,7 +255,7 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
       chatRequest({ model: '@/claude/moonshot/kimi-k3', messages, workdir }),
     )
     expect(redirected.status).toBe(200)
-    expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
+    expect(spawnCalls[0]?.env.ANTHROPIC_BASE_URL).toMatch(RX_KEYLESS_BASE_URL)
     // A sibling ambient route on the same (engine, model) is exactly the
     // ambiguity the three-segment form breaks -- the header must name it too.
     expect(redirected.headers.get('x-engined-route')).toBe('@/claude/moonshot/kimi-k3')
@@ -257,7 +272,7 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
     expect(env.ANTHROPIC_MODEL).toBe('kimi-k3')
   })
 
-  test('redirect variables and the resolved key reach the child env; ambient GITHUB_TOKEN does not; the full floor survives; the secret never appears in argv', async () => {
+  test('the child env carries the keyless route and the placeholder, never the resolved key; ambient GITHUB_TOKEN does not reach it; the full floor survives; the secret never appears in argv', async () => {
     clearVerifiedVersion('claude')
     const { door, spawnCalls } = createKimiDoor()
     const res = await door.fetch(kimiChatRequest())
@@ -268,14 +283,10 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
     expect(spawnCalls).toHaveLength(1)
     const { env, argv } = spawnCalls[0] ?? { env: {}, argv: [] }
 
-    // Redirect variables and the resolved key reach the child; ambient GITHUB_TOKEN does not.
-    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
-    expect(env.ANTHROPIC_API_KEY).toBe('kimi-secret-value')
+    expectKeylessEnv(env, 'kimi-secret-value')
     expect(env.ANTHROPIC_MODEL).toBe('kimi-k3')
     expect('GITHUB_TOKEN' in env).toBe(false)
     expect(Object.values(env)).not.toContain('ghp_leaked_repo_scope')
-    // secret.header "x-api-key": the Bearer variable is never set.
-    expect('ANTHROPIC_AUTH_TOKEN' in env).toBe(false)
 
     // The full floor is still present in argv, all three flags individually.
     expect(argv).toContain('--safe-mode')
@@ -292,14 +303,12 @@ describe('the door: remote-agentic redirect (claude routed to a moonshot upstrea
 
 /**
  * An Anthropic-compatible Bearer gateway (OpenRouter-shaped): `secret.header`
- * is `authorization`, not `x-api-key`. Carries `secret.scheme = "Bearer"`,
- * same as the real config -- the CLI itself prepends "Bearer" to whatever
- * ANTHROPIC_AUTH_TOKEN carries, so the redirect must hand it the raw value.
+ * is `authorization` with `secret.scheme = "Bearer"`, same as the real config.
  */
 function bearerGatewayUpstream(): Upstream {
   return {
     id: 'openrouter',
-    base_url: 'https://openrouter.ai/api/v1',
+    base_url: 'https://openrouter.ai/api',
     secret: {
       service: 'openrouter-api',
       username: 'claude-code',
@@ -312,9 +321,8 @@ function bearerGatewayUpstream(): Upstream {
 }
 
 describe('the door: remote-agentic redirect (claude routed to a Bearer-gateway upstream)', () => {
-  test('secret.header "authorization" sets ANTHROPIC_AUTH_TOKEN to the RAW value even though secret.scheme is "Bearer" -- the CLI prepends its own, so redirectEnv must not double it', async () => {
+  test('secret.header "authorization" still hands the child only the keyless route and the placeholder', async () => {
     clearVerifiedVersion('claude')
-    const root = redirectDoorRoot()
     const cfg = config({
       engines: [claudeEngine()],
       upstreams: [bearerGatewayUpstream()],
@@ -325,32 +333,11 @@ describe('the door: remote-agentic redirect (claude routed to a Bearer-gateway u
       stderr: '',
       exitCode: 0,
     })
-    const door = createDoor(
-      cfg,
-      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
-      {
-        agenticSpawn: spawn,
-        secretExec: fakeExec('or-secret-value'),
-        write: () => undefined,
-      },
-    )
-    const res = await door.fetch(
-      chatRequest({
-        model: '@/claude/sonnet-5',
-        messages: [{ role: 'user', content: 'hi' }],
-        workdir: TEST_ROOT,
-      }),
-    )
+    const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn, 'or-secret-value')
+    const res = await door.fetch(scratchChatRequest('@/claude/sonnet-5'))
     expect(res.status).toBe(200)
     expect(spawnCalls).toHaveLength(1)
-    const { env } = spawnCalls[0] ?? { env: {} as Record<string, string> }
-
-    expect(env.ANTHROPIC_BASE_URL).toBe('https://openrouter.ai/api/v1')
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('or-secret-value')
-    // Present and empty, not absent: an unset ANTHROPIC_API_KEY leaves the
-    // CLI defaulting to x-api-key, which 401s against a Bearer-only gateway.
-    expect('ANTHROPIC_API_KEY' in env).toBe(true)
-    expect(env.ANTHROPIC_API_KEY).toBe('')
+    expectKeylessEnv(spawnCalls[0]?.env ?? {}, 'or-secret-value')
     clearVerifiedVersion('claude')
   })
 })
@@ -405,6 +392,7 @@ function redirectKimi(upstream: Upstream, cfg: Config, secret: string | undefine
     modelSeg: 'kimi-k3',
     config: cfg,
     doorUrl: TEST_DOOR_URL,
+    keylessBaseUrl: 'http://127.0.0.1:1/engined/v1/upstream/0123456789abcdef0123456789abcdef',
     secretExec: fakeExec(secret),
   })
 }
@@ -588,7 +576,7 @@ describe('the launch-scoped door', () => {
     // redirectEnv's own output: the launch-scoped URL, not the plain door.
     expect(capturedEnv.ENGINED_DOOR_URL).toMatch(RX_LAUNCH_SCOPED_DOOR_URL)
     // The redirect itself is untouched by the door URL's addition.
-    expect(capturedEnv.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
+    expect(capturedEnv.ANTHROPIC_BASE_URL).toMatch(RX_KEYLESS_BASE_URL)
 
     expect(recursive?.status).toBe(403)
     expect(recursive?.body).toContain('agentic')
@@ -931,5 +919,179 @@ describe('agentic concurrency cap', () => {
     const settled = await Promise.all(inflight)
     expect(settled.every((res) => res.status === 200)).toBe(true)
     clearVerifiedVersion('claude')
+  })
+})
+
+/** What the fake Anthropic upstream saw of the one request it served. */
+interface UpstreamSeen {
+  pathAndQuery: string
+  headers: Record<string, string>
+  body: string
+}
+
+/**
+ * A real listener replaying `ANTHROPIC_SSE_EVENTS`. It sends the first event,
+ * then holds the rest until `release` is called, so a forwarder that buffered
+ * the body would never hand the first event back.
+ */
+function fakeAnthropicUpstream() {
+  const seen: UpstreamSeen[] = []
+  const { promise: held, resolve: release } = Promise.withResolvers<void>()
+  const encoder = new TextEncoder()
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    async fetch(req) {
+      const url = new URL(req.url)
+      seen.push({
+        pathAndQuery: url.pathname + url.search,
+        headers: Object.fromEntries(req.headers),
+        body: await req.text(),
+      })
+      const [first, ...rest] = ANTHROPIC_SSE_EVENTS
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode(first))
+          await held
+          for (const event of rest) {
+            controller.enqueue(encoder.encode(event))
+          }
+          controller.close()
+        },
+      })
+      return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+    },
+  })
+  return { baseUrl: `http://127.0.0.1:${server.port}/coding/`, seen, release, server }
+}
+
+/** Reads `reader` until it has at least `length` bytes. */
+async function readAtLeast(
+  reader: { read: () => Promise<{ done: boolean; value?: Uint8Array }> },
+  length: number,
+) {
+  const decoder = new TextDecoder()
+  let text = ''
+  while (text.length < length) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+    text += decoder.decode(value, { stream: true })
+  }
+  return text
+}
+
+/** claude's own first call: the streamed message POST it sends with the placeholder key. */
+function messagesRequest(baseUrl: string): Request {
+  return new Request(`${baseUrl}/v1/messages?beta=true`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': KEYLESS_PLACEHOLDER,
+    },
+    body: ANTHROPIC_SSE_REQUEST,
+  })
+}
+
+describe('the keyless upstream route', () => {
+  for (const shape of [
+    {
+      name: 'x-api-key (Kimi-shaped)',
+      upstream: moonshotUpstream(),
+      secret: 'kimi-secret-value',
+      sent: ['x-api-key', 'kimi-secret-value'],
+      absent: 'authorization',
+    },
+    {
+      name: 'authorization Bearer (OpenRouter-shaped)',
+      upstream: bearerGatewayUpstream(),
+      secret: 'or-secret-value',
+      sent: ['authorization', 'Bearer or-secret-value'],
+      absent: 'x-api-key',
+    },
+  ]) {
+    test(`${shape.name}: the child's call reaches the upstream with the real key in the configured header, the placeholder nowhere, and the SSE streamed back unbuffered`, async () => {
+      clearVerifiedVersion('claude')
+      const fake = fakeAnthropicUpstream()
+      const cfg = config({
+        engines: [claudeEngine()],
+        upstreams: [{ ...shape.upstream, base_url: fake.baseUrl }],
+        routes: [route({ engine: 'claude', upstream: shape.upstream.id, model: 'kimi-k3' })],
+      })
+      let streamed = ''
+      let firstEvent = ''
+      let status = 0
+      let contentType: string | null = null
+      let childBaseUrl = ''
+      const spawn: AgenticSpawn = async (_argv, opts) => {
+        expectKeylessEnv(opts.env, shape.secret)
+        childBaseUrl = opts.env.ANTHROPIC_BASE_URL ?? ''
+        const res = await door.fetch(messagesRequest(childBaseUrl))
+        status = res.status
+        contentType = res.headers.get('content-type')
+        const reader = res.body?.getReader()
+        if (reader === undefined) {
+          throw new Error('expected a streamed body')
+        }
+        firstEvent = await readAtLeast(reader, ANTHROPIC_SSE_EVENTS[0]?.length ?? 0)
+        fake.release()
+        streamed = firstEvent + (await readAtLeast(reader, Number.POSITIVE_INFINITY))
+        return KIMI_ANSWER
+      }
+      const door = createClaudeDoor(cfg, redirectDoorRoot(), spawn, shape.secret)
+      try {
+        const res = await door.fetch(kimiChatRequest())
+        expect(res.status).toBe(200)
+      } finally {
+        fake.release()
+        fake.server.stop(true)
+      }
+
+      expect(status).toBe(200)
+      expect(contentType ?? '').toContain('text/event-stream')
+      expect(firstEvent).toBe(ANTHROPIC_SSE_EVENTS[0] ?? '')
+      expect(streamed).toBe(ANTHROPIC_SSE_EVENTS.join(''))
+
+      expect(fake.seen).toHaveLength(1)
+      const [seen] = fake.seen
+      expect(seen?.pathAndQuery).toBe('/coding/v1/messages?beta=true')
+      expect(seen?.body).toBe(ANTHROPIC_SSE_REQUEST)
+      const headers = seen?.headers ?? {}
+      const [header = '', value] = shape.sent
+      expect(headers[header]).toBe(value)
+      expect(shape.absent in headers).toBe(false)
+      expect(Object.values(headers).some((v) => v.includes(KEYLESS_PLACEHOLDER))).toBe(false)
+
+      // The launch has returned, so its route is gone with its nonce.
+      const stale = await door.fetch(messagesRequest(childBaseUrl))
+      expect(stale.status).toBe(403)
+      expect(JSON.stringify(await stale.json())).toContain('expired')
+      clearVerifiedVersion('claude')
+    })
+  }
+
+  test("the round-trip probe's live nonce, which maps to no upstream, is refused on the upstream route", async () => {
+    const { cfg, root } = opencodeDoorConfig()
+    let refused: { status: number; body: string } | undefined
+    const runner: AgenticProbeRunner = async (_version, _agent, roundTrip) => {
+      const nonce = (roundTrip?.baseUrl ?? '').split('/').at(-1) ?? ''
+      const res = await door.fetch(
+        messagesRequest(`http://127.0.0.1:1/engined/v1/upstream/${nonce}`),
+      )
+      refused = { status: res.status, body: await res.text() }
+      return { ok: false, failedProbe: 'answers-a-real-prompt' }
+    }
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: runner },
+      { write: () => undefined },
+    )
+    clearVerifiedVersion('opencode')
+    await door.fetch(scratchChatRequest('@/opencode/code'))
+    expect(refused?.status).toBe(403)
+    expect(refused?.body).toContain('expired')
+    clearVerifiedVersion('opencode')
   })
 })

@@ -1,25 +1,25 @@
 /**
  * Pointing an agentic CLI at a provider other than its own: the model id that
- * provider knows the route by, and the environment variables that carry the
- * base URL and the key in the shape each CLI expects.
+ * provider knows the route by, and the environment variables that point the
+ * CLI at this launch's keyless upstream route.
  */
 
 import type { HopResult } from './chain.ts'
 import type { Exec as SecretExec } from './exec.ts'
-import { jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
+import { jsonErrorBody } from './http.ts'
 import { decodeAddressSegment, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import type { Config, Upstream } from './types.ts'
-import { noBaseUrlFix, resolveUpstreamSecret } from './upstream.ts'
+import { resolveUpstream } from './upstream.ts'
+
+/** A fixed non-secret, so claude has a key to send that the forwarder can strip. */
+const KEYLESS_PLACEHOLDER = 'engined-keyless'
 
 /**
- * `secret.header` is what actually decides which env var carries the key --
- * not a free choice, and not always `ANTHROPIC_API_KEY`. `x-api-key` (Kimi's
- * own coding endpoint's required header) is `ANTHROPIC_API_KEY` verbatim, the
- * CLI's own default. `authorization` (an Anthropic-compatible Bearer gateway,
- * e.g. OpenRouter) is `ANTHROPIC_AUTH_TOKEN` -- and `ANTHROPIC_API_KEY` must
- * still be set, to the EMPTY STRING, because an unset var and an empty one
- * behave differently: unset, the CLI falls back to sending `x-api-key` and
- * the gateway 401s every request.
+ * The child never holds the provider key. Its base URL is this launch's
+ * keyless upstream route (`src/launchUpstream.ts`), which strips the
+ * placeholder and adds the real credential in whatever header the upstream's
+ * `secret` names. claude sends `ANTHROPIC_API_KEY` as `x-api-key`, so the
+ * placeholder rides there; `ANTHROPIC_AUTH_TOKEN` is never set.
  *
  * Every model tier is pointed at the same `model`, so nothing silently
  * falls back to an Anthropic-named tier this endpoint does not serve. The
@@ -29,26 +29,19 @@ import { noBaseUrlFix, resolveUpstreamSecret } from './upstream.ts'
  */
 function redirectEnv({
   baseUrl,
-  secretHeader,
-  apiKey,
   model,
   doorUrl,
 }: {
   baseUrl: string
-  secretHeader: string
-  apiKey: string
   model: string | undefined
   doorUrl: string
 }): Record<string, string> {
   const env: Record<string, string> = {
     ANTHROPIC_BASE_URL: baseUrl,
-    ...(secretHeader === 'authorization'
-      ? { ANTHROPIC_AUTH_TOKEN: apiKey, ANTHROPIC_API_KEY: '' }
-      : { ANTHROPIC_API_KEY: apiKey }),
+    ANTHROPIC_API_KEY: KEYLESS_PLACEHOLDER,
     // The launch-scoped door: closes the recursion hazard this agent's own
-    // network reach into engined otherwise opens. Carried alongside the
-    // real redirect rather than in place of it -- this agent's own
-    // inference still goes straight to `baseUrl`, never through here.
+    // network reach into engined otherwise opens. Its own inference goes to
+    // `baseUrl`, which reaches only the upstream it was routed to.
     ENGINED_DOOR_URL: doorUrl,
     DISABLE_AUTOUPDATER: '1',
     DISABLE_TELEMETRY: '1',
@@ -107,8 +100,8 @@ type RedirectResolution =
  * A failed secret is a 5xx: `runChain` advances past a dead engine rather
  * than failing every consumer of the chain for one unconfigured remote key,
  * and a lone request to just this engine surfaces the fix command directly.
- * The resolved value only ever reaches the child's environment below --
- * never a log line, an error body, or anything this function returns.
+ * The resolved endpoint is thrown away: the forwarder resolves it again per
+ * request, and the child only ever gets `keylessBaseUrl`.
  */
 interface RedirectOptions {
   upstream: Upstream
@@ -116,6 +109,7 @@ interface RedirectOptions {
   modelSeg: string
   config: Config
   doorUrl: string
+  keylessBaseUrl: string
   secretExec?: SecretExec
 }
 
@@ -125,22 +119,10 @@ export async function resolveRedirect({
   modelSeg,
   config,
   doorUrl,
+  keylessBaseUrl,
   secretExec,
 }: RedirectOptions): Promise<RedirectResolution> {
-  const { base_url } = upstream
-  if (base_url === undefined) {
-    // Config requires a secret alongside a base_url but not the converse, so
-    // an address-less upstream reaches here and must refuse rather than hand
-    // the child an undefined upstream.
-    return {
-      ok: false,
-      result: {
-        status: STATUS_BAD_GATEWAY,
-        body: jsonErrorBody(STATUS_BAD_GATEWAY, noBaseUrlFix(upstream.id)),
-      },
-    }
-  }
-  const resolved = await resolveUpstreamSecret(upstream, secretExec)
+  const resolved = await resolveUpstream(upstream, secretExec)
   if (!resolved.ok) {
     return {
       ok: false,
@@ -150,12 +132,6 @@ export async function resolveRedirect({
   const model = resolveUpstreamModelId(config, engineId, modelSeg, upstream.id)
   return {
     ok: true,
-    env: redirectEnv({
-      baseUrl: base_url,
-      secretHeader: resolved.header,
-      apiKey: resolved.value,
-      model,
-      doorUrl,
-    }),
+    env: redirectEnv({ baseUrl: keylessBaseUrl, model, doorUrl }),
   }
 }

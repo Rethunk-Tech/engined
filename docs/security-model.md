@@ -46,14 +46,41 @@ What stays open:
   uid can read outside `$HOME` stay in the mount table, as they are to any
   local process. Whether a given agent's tools reach for them is that
   agent's own permission model, not a guarantee engined makes.
-- **The agent's own environment.** `/proc/self/environ` is the child's, so a
-  keyed upstream's provider key that `src/agenticRedirect.ts` puts there is
-  readable by the agent it was handed to.
+- **The agent's own environment.** `/proc/self/environ` is the child's and
+  the agent can read it. A provider key is never in it: see the keyless
+  upstream route below.
 - **The network**, below.
 
 A workdir under the home is visible because it is bound back. A workdir that
 is the home, or an ancestor of it, re-exposes the whole home read-only, launch
 HOME included: point an agent at a repository, never at the home.
+
+## A provider key never enters a child
+
+A claude route naming a real upstream does not hand the child that
+upstream's key. Its `ANTHROPIC_BASE_URL` is the launch's keyless upstream
+route, `http://127.0.0.1:<port>/engined/v1/upstream/<nonce>`, and its
+`ANTHROPIC_API_KEY` is the fixed placeholder `engined-keyless`.
+`ANTHROPIC_AUTH_TOKEN` is never set. The door forwards whatever the child
+sends on that route to the one upstream the launch was routed to
+(`src/launchUpstream.ts`): it strips any inbound `x-api-key` and
+`authorization`, adds the real secret in the header and scheme the upstream's
+`secret` names, and streams the reply back as it arrives. The secret is
+resolved from the keyring on every forwarded request, the same never-cached
+rule as everywhere else.
+
+The route shares the launch's nonce and lifetime. Only a dispatch-path launch
+routed to a real upstream maps its nonce to one; an ambient launch's nonce
+and the probe's are refused on this route, and every nonce is refused once its
+launch returns. The route reaches only that upstream's `base_url`, never a hop,
+so it cannot recurse.
+
+**What it leaves open is spend, not the key.** The nonce is in the child's
+environment and the door answers the LAN, so for the life of a launch anyone
+who can read the nonce, including the agent itself under a prompt that tells
+it to, can send that upstream any model and any body on the operator's
+account. They cannot take the key away, and the route closes when the launch
+does.
 
 ## The launch-scoped door closes a recursion hazard
 
@@ -89,8 +116,8 @@ into its launch at all.** Where a channel exists it carries the nonce:
 
 - opencode's provider config always names it as the base URL its own model
   calls go through, since opencode's one route stays local.
-- A claude route naming a real (non-ambient) upstream gets it alongside that
-  upstream's own redirect, so a tool reaching back into engined lands on the
+- A claude route naming a real (non-ambient) upstream gets it alongside its
+  keyless upstream route, so a tool reaching back into engined lands on the
   scoped surface rather than the plain one.
 
 `cursor` has neither. It declares no `configure`, and no route
@@ -227,9 +254,9 @@ engined resolves it per request, never cached — a `--user` unit boots before
 the login keyring unlocks, and every remote engine must recover at the
 operator's next sign-in without a reload.
 
-A resolved secret reaches only the upstream request's headers or a child's
-environment. It never reaches a log line, an error body, or a provenance
-record; `recordCall` picks known fields explicitly so a caller that spreads a
+A resolved secret reaches only the headers of a request engined itself sends
+upstream, including the keyless forwarder's. It never reaches a child's
+environment or argv, a log line, an error body, or a provenance record; `recordCall` picks known fields explicitly so a caller that spreads a
 headers object onto an attempt cannot leak one into journald.
 
 ## Prompts

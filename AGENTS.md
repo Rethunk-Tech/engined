@@ -140,7 +140,11 @@ Every agent runs under the `bwrap` sandbox (`src/sandbox.ts`): the home is
 masked and only the workdir, a worktree's git dir, the binary, Bun's cache and
 the launch's own HOME come back. A login is copied into that HOME, never
 mounted. It can still read paths outside the home and its own environment,
-and reach the network. No `bwrap` refuses the call.
+except a provider key, which never enters a child: a routed claude dials a
+keyless door route that adds the key (`src/launchUpstream.ts`). It can still
+reach the network. No `bwrap` refuses the call. Unproven live: a claude route on the
+`moonshot` (Kimi, `x-api-key`) upstream answering through that route; only the
+Bearer `openrouter-anthropic` shape has.
 
 **claude and cursor also carry an argv floor** (`src/agents.ts`); opencode has
 no such flag and its own config is overridable from any ancestor of the
