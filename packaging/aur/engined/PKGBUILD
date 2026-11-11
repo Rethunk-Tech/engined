@@ -13,7 +13,7 @@ license=('MIT')
 depends=('bun')
 optdepends=(
   'docker: run the inference engines and the Cursor TLS bridge'
-  'bubblewrap: read-only sandbox for the opencode engine'
+  'bubblewrap: sandbox every agentic engine runs under'
 )
 install=engined.install
 # The release workflow builds this tarball once; nothing is built here.

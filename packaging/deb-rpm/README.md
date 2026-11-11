@@ -17,4 +17,4 @@ The `v*` workflow attaches the archives, the four packages, and `SHA256SUMS`.
 Layout matches AUR (`/usr/bin/engined`,
 `/usr/lib/engined/{bunx,engines,Caddyfile.cursor}`, user units,
 `/usr/share/engined/config.{example.toml,schema.json}`, docs). Recommends
-docker, suggests bubblewrap. `postinstall.sh` matches AUR `engined.install`.
+docker and bubblewrap. `postinstall.sh` matches AUR `engined.install`.

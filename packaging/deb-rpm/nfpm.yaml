@@ -12,7 +12,6 @@ homepage: https://github.com/Rethunk-Tech/engined
 license: MIT
 recommends:
   - docker
-suggests:
   - bubblewrap
 overrides:
   deb:
