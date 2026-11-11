@@ -33,7 +33,8 @@ export async function call<T>(path: string, body?: unknown): Promise<T> {
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   })
   const parsed: unknown = await res.json().catch(() => undefined)
-  if (res.status === 401) {
+  const unauthorized = 401
+  if (res.status === unauthorized) {
     session.value = 'out'
   }
   if (!res.ok) {

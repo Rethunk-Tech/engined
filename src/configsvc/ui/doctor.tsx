@@ -3,6 +3,10 @@ import { fork } from './api.ts'
 import { report, runDoctor, summary } from './data.ts'
 import { CopyButton } from './widgets.tsx'
 
+const RUN_AGAIN = 'Run again'
+const CHECKING = 'Checking…'
+const NO_CHECKS = 'The host report came back with no checks.'
+
 function summaryTone(checks: readonly { ok?: boolean; skipped?: boolean }[]): string {
   return checks.some((c) => !(c.ok || c.skipped)) ? 'bad' : 'ok'
 }
@@ -19,11 +23,11 @@ export function DoctorView() {
           <span className={summaryTone(current.checks)}>{summary(current.checks)}</span>
         )}
         <button type="button" className="small" onClick={() => fork(runDoctor())}>
-          Run again
+          {RUN_AGAIN}
         </button>
       </div>
       {current === undefined ? (
-        <p className="muted">Checking…</p>
+        <p className="muted">{CHECKING}</p>
       ) : (
         <CheckTable checks={current.checks} />
       )}
@@ -42,7 +46,7 @@ function verdict(c: Checks[number]): { tone: string; label: string } {
 
 function CheckTable({ checks }: { checks: Checks }) {
   if (checks.length === 0) {
-    return <p className="muted">The host report came back with no checks.</p>
+    return <p className="muted">{NO_CHECKS}</p>
   }
   return (
     <table className="grid">
