@@ -427,6 +427,7 @@ model = "k3"
 engine = "claude"
 upstream = "openrouter-anthropic"
 model = "sonnet-5"
+wire_model = "anthropic/claude-sonnet-5" # OpenRouter refuses the bare "sonnet-5".
 
 # opencode is a local agentic CLI pointed back at THIS door, so a turn taken
 # through it runs on the box's own GPU and is dispatched, chained and
