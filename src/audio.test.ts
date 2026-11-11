@@ -359,6 +359,7 @@ function doorFrom(
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),
+    launchUpstreams: new Map(),
     agenticInFlight: 0,
     comfyBindings: new Map(),
     comfySlots: new Map(),

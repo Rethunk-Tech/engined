@@ -108,6 +108,13 @@ export interface DoorContext {
    */
   launchNonces: Set<string>
   /**
+   * Nonce to upstream id, for a dispatch-path launch routed to a real
+   * upstream: its child's keyless `/engined/v1/upstream/<nonce>/` route
+   * forwards there. Set and released beside `launchNonces`; an ambient launch
+   * or the probe never adds an entry, so its nonce is refused on that route.
+   */
+  launchUpstreams: Map<string, string>
+  /**
    * Dispatch-path agentic launches currently running. The round-trip probe
    * is not counted: it shares `launchNonces` but is not a caller fan-out.
    */

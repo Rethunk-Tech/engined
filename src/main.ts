@@ -34,7 +34,8 @@ import {
 } from './http.ts'
 import { IMAGE_GET_RE, responseForImageGet } from './imageStore.ts'
 import { Inventory } from './inventory.ts'
-import { LAUNCH_NONCE_RE } from './launchNonce.ts'
+import { LAUNCH_NONCE_RE, LAUNCH_UPSTREAM_RE } from './launchNonce.ts'
+import { forwardLaunchUpstream } from './launchUpstream.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
 import { DonorLedger } from './potluck.ts'
@@ -218,6 +219,11 @@ function routeRequest(
   fault: ConfigFault | undefined,
 ): Response | Promise<Response> {
   const url = new URL(req.url)
+  const upstreamMatch = LAUNCH_UPSTREAM_RE.exec(url.pathname)
+  if (upstreamMatch) {
+    const [, nonce = '', rest = ''] = upstreamMatch
+    return forwardLaunchUpstream(ctx, req, nonce, rest)
+  }
   const stripped = stripLaunchNonce(ctx, url.pathname)
   if (stripped === null) {
     return refuse('this launch-scoped URL is unknown or has expired')
@@ -266,6 +272,7 @@ function createDoorContext(
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces,
+    launchUpstreams: new Map(),
     agenticInFlight: 0,
     comfyBindings: loadComfyBindings(),
     comfySlots: new Map(),
