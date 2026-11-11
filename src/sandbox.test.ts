@@ -8,6 +8,8 @@
 
 import { afterAll, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { agentCli } from './agents.ts'
 import { copyLogins, sandboxArgv, workdirGitDirs } from './sandbox.ts'
@@ -17,10 +19,11 @@ const BWRAP = '/usr/bin/bwrap'
 const TEST_ROOT = makeTestRoot('engined-sandbox-test-')
 
 /**
- * Outside /tmp on purpose: the sandbox's own tmpfs over /tmp would hide a
- * fake home there whether or not the home mask worked, and prove nothing.
+ * Outside /tmp and /var/tmp on purpose: the sandbox tmpfs over either would
+ * hide a fake home there whether or not the home mask worked, and prove
+ * nothing.
  */
-const HOME_ROOT = mkdtempSync('/var/tmp/engined-sandbox-home-')
+const HOME_ROOT = mkdtempSync(join(homedir(), 'engined-sandbox-home-'))
 afterAll(() => {
   rmSync(HOME_ROOT, { recursive: true, force: true })
 })
@@ -65,6 +68,8 @@ test('binds the whole filesystem read-only before carving anything back out', ()
     expect.arrayContaining([
       '--tmpfs',
       '/run',
+      '--tmpfs',
+      '/var/tmp',
       '--unshare-ipc',
       '--unshare-pid',
       '--unshare-uts',
@@ -236,6 +241,33 @@ bwrapIt('hides a file under the operator home that the workdir does not cover', 
   expect(masked.stdout).toBe('visible\n')
   expect(masked.stderr).toContain('No such file')
   expect(existsSync(join(state, 'w'))).toBe(true)
+})
+
+bwrapIt('hides a unix socket under /var/tmp so a host browser is not reachable', async () => {
+  const workdir = scratch('engined-sandbox-work-')
+  const home = scratch('engined-sandbox-home-')
+  const dir = mkdtempSync('/var/tmp/engined-sandbox-sock-')
+  const sock = join(dir, 'SingletonSocket')
+  const server = createServer()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(sock, resolve)
+    })
+    expect(existsSync(sock)).toBe(true)
+    const { code } = run(
+      sandboxArgv({
+        bwrap: BWRAP,
+        home,
+        workdir,
+        argv: ['/bin/sh', '-c', `test -S ${sock}`],
+      }),
+    )
+    expect(code).not.toBe(0)
+  } finally {
+    server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 bwrapIt('git reads a worktree whose git dir sits under the masked home', () => {

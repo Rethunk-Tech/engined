@@ -12,9 +12,9 @@ writing structurally disabled, so they read a repository and return text like
 any other completion, and engined never writes to a caller's worktree.
 
 **Every agent runs under `bwrap`** (`src/sandbox.ts`): the filesystem bound
-read-only, the operator's home masked with an empty tmpfs, `/run` as tmpfs
-(only the resolver's directory shown back), isolated IPC, PID and UTS
-namespaces, a new session, and no capabilities. Under the masked home, only
+read-only, the operator's home masked with an empty tmpfs, `/run` and
+`/var/tmp` as tmpfs (only the resolver's directory shown back from `/run`),
+isolated IPC, PID and UTS namespaces, a new session, and no capabilities. Under the masked home, only
 what the launch needs is bound back: the binary's own directory read-only, a
 linked worktree's or submodule's git dir read-only, Bun's install cache behind
 a throwaway overlay, the launch's own writable HOME, and the workdir,
