@@ -160,7 +160,7 @@ function heapSiftUp(heap: BpeBigram[], start: number): void {
 
 function heapSiftDown(heap: BpeBigram[], start: number): void {
   let i = start
-  for (;;) {
+  while (i < heap.length) {
     const left = i * 2 + 1
     const right = left + 1
     const cur = heap[i]
@@ -254,11 +254,7 @@ function bpeMerge(word: string, mergeRank: ReadonlyMap<string, number>): string[
   for (let i = 0; i < symbols.length - 1; i++) {
     tryAddBigram(session, i, i + 1)
   }
-  for (;;) {
-    const bigram = heapPop(heap)
-    if (bigram === undefined) {
-      break
-    }
+  for (let bigram = heapPop(heap); bigram !== undefined; bigram = heapPop(heap)) {
     const leftSym = symbols[bigram.left]
     const rightSym = symbols[bigram.right]
     if (

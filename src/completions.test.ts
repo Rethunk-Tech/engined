@@ -425,12 +425,12 @@ test('mapInfillStream keeps pulling past a keepalive frame that maps to nothing,
   const reader = mapInfillStream(source, 'ornith').getReader()
   const decoder = new TextDecoder()
   let text = ''
-  for (;;) {
-    const { done, value } = await readWithTimeout(reader, 500)
-    if (done) {
-      break
-    }
-    text += decoder.decode(value)
+  for (
+    let chunk = await readWithTimeout(reader, 500);
+    !chunk.done;
+    chunk = await readWithTimeout(reader, 500)
+  ) {
+    text += decoder.decode(chunk.value)
   }
   const frames = text
     .trim()

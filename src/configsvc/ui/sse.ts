@@ -47,15 +47,12 @@ export async function postStream(
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) {
-      return res.status
-    }
-    const taken = takeFrames(buffer + value)
+  for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+    const taken = takeFrames(buffer + chunk.value)
     buffer = taken.rest
     for (const frame of taken.frames) {
       onFrame(frame)
     }
   }
+  return res.status
 }

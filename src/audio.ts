@@ -344,8 +344,8 @@ export async function streamedSpeech(
     await frames.return(undefined).catch(() => undefined)
     return errorResponse(STATUS_BAD_GATEWAY, message)
   }
-  for (;;) {
-    const { done, value } = await frames.next()
+  for (let frame = await frames.next(); ; frame = await frames.next()) {
+    const { done, value } = frame
     if (done) {
       return await fail(`${engineId}: /v1/tts streamed no audio`)
     }
@@ -490,8 +490,8 @@ function pcmStream(first: Uint8Array, frames: AsyncGenerator<Frame>): ReadableSt
         head = undefined
         return
       }
-      for (;;) {
-        const { done, value } = await frames.next()
+      for (let frame = await frames.next(); ; frame = await frames.next()) {
+        const { done, value } = frame
         if (done || value.phase === 'error') {
           // Closing the caller's stream does not reach the source, so an error
           // frame has to release the engine's body itself; a `done` generator

@@ -115,13 +115,12 @@ async function tokenIdsOf(
     const need = Math.max(longThresholdTokens, FINGERPRINT_TOKEN_COUNT)
     const step = need * PREFIX_CHARS_PER_TOKEN
     let end = Math.min(text.length, step)
-    for (;;) {
-      const ids = bpeTokenIds(vocab, text.slice(0, end))
-      if (ids.length >= need || end === text.length) {
-        return ids
-      }
+    let ids = bpeTokenIds(vocab, text.slice(0, end))
+    while (ids.length < need && end < text.length) {
       end = Math.min(text.length, end * 2)
+      ids = bpeTokenIds(vocab, text.slice(0, end))
     }
+    return ids
   } catch {
     return undefined
   }

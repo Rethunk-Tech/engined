@@ -332,8 +332,7 @@ export class RoleScheduler {
     }
     state.pumping = true
     try {
-      for (;;) {
-        const [front] = state.queue
+      for (let front = state.queue[0]; ; front = state.queue[0]) {
         if (!front) {
           // Re-check the queue after a re-warm rather than returning: a request
           // arriving during the swap queues behind a pump that is already

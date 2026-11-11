@@ -502,11 +502,9 @@ test('a stream that dies after the first byte does not advance, and the failure 
   const reader = (result.stream as ReadableStream).getReader()
   let sawError = false
   try {
-    for (;;) {
-      const { done } = await reader.read()
-      if (done) {
-        break
-      }
+    let chunk = await reader.read()
+    while (!chunk.done) {
+      chunk = await reader.read()
     }
   } catch {
     sawError = true

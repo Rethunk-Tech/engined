@@ -44,10 +44,7 @@ export async function pollUntil(
   intervalMs: number,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  for (;;) {
-    if (signal?.aborted === true) {
-      return false
-    }
+  while (signal?.aborted !== true) {
     if (await check()) {
       return true
     }
@@ -56,4 +53,5 @@ export async function pollUntil(
     }
     await Bun.sleep(intervalMs)
   }
+  return false
 }

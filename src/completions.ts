@@ -192,8 +192,8 @@ export function mapInfillStream(
     async pull(controller) {
       pulling = true
       try {
-        for (;;) {
-          const { done, value } = await gen.next()
+        for (let step = await gen.next(); ; step = await gen.next()) {
+          const { done, value } = step
           if (done) {
             controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             controller.close()

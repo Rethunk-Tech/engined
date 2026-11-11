@@ -80,11 +80,9 @@ export function loadConfigWithoutMissingWeights(
   let toml = readFileSync(file, 'utf8')
   const copy = join(dirname(file), `.pruned-${process.pid}.toml`)
   try {
-    for (;;) {
-      let current = file
+    for (let current = file; ; current = copy) {
       if (missing.length > 0) {
         writeFileSync(copy, toml)
-        current = copy
       }
       try {
         return { config: loadConfig(current, enginesRoot), missing }

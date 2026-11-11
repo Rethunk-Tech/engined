@@ -278,8 +278,8 @@ export async function* sseFrames(
   let carry = ''
   let discarding = false
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
+    for (let chunk = await reader.read(); ; chunk = await reader.read()) {
+      const { done, value } = chunk
       if (value) {
         carry += decoder.decode(value, { stream: true })
       }
@@ -354,17 +354,13 @@ async function readCappedBytes(
   const chunks: Uint8Array[] = []
   let total = 0
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-      total += value.byteLength
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      total += chunk.value.byteLength
       if (total > max) {
         reader.cancel().catch(() => undefined)
         return tooLarge(total)
       }
-      chunks.push(value)
+      chunks.push(chunk.value)
     }
   } catch {
     return jsonError(STATUS_BAD_REQUEST, 'request body could not be read')

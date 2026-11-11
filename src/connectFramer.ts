@@ -46,11 +46,11 @@ export function framer(onFrame: (payload: Uint8Array) => void): (chunk: Uint8Arr
   return (chunk: Uint8Array) => {
     chunks.push(chunk)
     buffered += chunk.length
-    for (;;) {
-      const head = peekEnvelope(chunks, buffered)
-      if (head === undefined) {
-        return
-      }
+    for (
+      let head = peekEnvelope(chunks, buffered);
+      head !== undefined;
+      head = peekEnvelope(chunks, buffered)
+    ) {
       if (head.length > MAX_CONNECT_FRAME) {
         throw new Error(`connect frame exceeds ${MAX_CONNECT_FRAME} bytes`)
       }

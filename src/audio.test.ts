@@ -1143,12 +1143,8 @@ test('a streamed transcription forwards each segment as it lands, ahead of the t
 
   release()
   const rest: string[] = []
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
-    rest.push(new TextDecoder().decode(value))
+  for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+    rest.push(new TextDecoder().decode(chunk.value))
   }
   expect(rest.join('').trim()).toBe(
     JSON.stringify({ phase: 'done', text: 'set a timer for 25 minutes' }),
