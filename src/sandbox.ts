@@ -12,12 +12,14 @@
  * an agent may read has to come from something it cannot argue with.
  *
  * `bwrap` binds the filesystem read-only, masks the operator's home with an
- * empty tmpfs, and binds back only what the launch needs: the binary's own
- * directory, a worktree's git dir, Bun's install cache, the agent's writable
- * state directory and, last, the workdir. A write into the workdir fails with
- * EROFS whatever a config file inside it claims, and a read of anything else
- * under the home finds nothing. Unprivileged user namespaces are what make
- * this reachable without root.
+ * empty tmpfs, masks `/run` and `/var/tmp` the same way (live unix sockets
+ * live there -- docker, the user bus, Chromium SingletonSocket files that
+ * hand a URL to the running browser), and binds back only what the launch
+ * needs: the binary's own directory, a worktree's git dir, Bun's install
+ * cache, the agent's writable state directory and, last, the workdir. A write
+ * into the workdir fails with EROFS whatever a config file inside it claims,
+ * and a read of anything else under the home finds nothing. Unprivileged user
+ * namespaces are what make this reachable without root.
  *
  * What this floor does NOT close: the network, and the agent's own
  * environment. The sandbox shares the host network namespace because the
@@ -233,6 +235,8 @@ export function sandboxArgv(input: SandboxInput): string[] {
     '/tmp',
     '--tmpfs',
     '/run',
+    '--tmpfs',
+    '/var/tmp',
     ...binds('--ro-bind', resolverDirs()),
     '--unshare-ipc',
     '--unshare-pid',
