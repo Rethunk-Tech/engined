@@ -35,7 +35,7 @@ jobs:
       - id: typecheck
         run: bunx turbo run typecheck
         continue-on-error: true
-      # The bwrap sandbox is the opencode floor, so its mount-table tests run
+      # The bwrap sandbox is every agent's floor, so its mount-table tests run
       # here for real. Ubuntu 24.04 confines unprivileged user namespaces by
       # AppArmor, which leaves a non-setuid bwrap unable to build its sandbox.
       - name: bubblewrap

@@ -83,7 +83,11 @@ const WORKTREE_PREFIX = 'engined-cursor-'
  * `--mode ask`; without PATH a shell command it runs comes
  * back "command not found".
  */
-function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult> {
+function callAgentic(
+  workdir: string,
+  prompt: string,
+  sandboxWritable?: readonly string[],
+): Promise<RunAgenticResult> {
   assertVersionCurrent()
   return runAgentic({
     agent: 'cursor',
@@ -94,6 +98,7 @@ function callAgentic(workdir: string, prompt: string): Promise<RunAgenticResult>
     prompt,
     spawn: defaultAgenticSpawn,
     bunx: bunx(),
+    sandboxWritable,
   })
 }
 

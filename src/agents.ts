@@ -1,8 +1,8 @@
 /**
  * The agent CLIs engined can launch, and everything that differs between
  * them: which package `bunx` delivers, the argv that puts one in
- * non-interactive JSON mode, how its stdout reports success, and where its
- * read-only floor comes from.
+ * non-interactive JSON mode, how its stdout reports success, which login it
+ * carries into the sandbox, and whatever floor it honours in argv.
  *
  * `agentic-cli` was written around `claude` alone, and the shape it assumed --
  * one print flag, one JSON envelope, a floor made of argv -- is not general.
@@ -36,6 +36,7 @@ import { pathSearchPath } from './env.ts'
 import { isUnder, stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
 import { finiteNumber, isRecord, parseRecord } from './records.ts'
+import { type AgentLogin, CLAUDE_INSTALL_DIR } from './sandbox.ts'
 import type { Wire } from './types.ts'
 
 export interface AgenticOutcome {
@@ -87,17 +88,16 @@ function envelopeUsage(envelope: Record<string, unknown>): Usage | undefined {
   })
 }
 
-/**
- * `flags` means the agent honours a read-only floor passed in argv and
- * `assertNoForbiddenFlags` keeps a config from unsaying it. `sandbox` means it
- * offers nothing argv can reach, so the floor is the mount table -- see
- * `sandbox.ts` for why that is the only honest option for such an agent.
- */
-export type FloorKind = 'flags' | 'sandbox'
-
 interface AgentCliCommon {
   id: string
-  floor: FloorKind
+  /**
+   * Login files copied from the operator's home into each launch's
+   * throwaway one (`sandbox.ts`'s `copyLogins`); the real files are never
+   * mounted. Absent for an agent whose login engined renders itself.
+   */
+  logins?: readonly AgentLogin[]
+  /** Where `bunx` keeps this agent's packages, when not its `sandboxHome`. */
+  installCache?: () => string
   /**
    * The wire shape this agent's own process speaks -- what a redirected
    * upstream must also speak, since the door forwards it unchanged rather
@@ -108,7 +108,7 @@ interface AgentCliCommon {
   wire: Wire
   /**
    * Argv between the pinned package and the operator's `[engine.args]`: the
-   * print flag, the JSON format, and for a `flags` agent the floor itself.
+   * print flag, the JSON format, and any floor the agent honours in argv.
    */
   launch: (
     mcpConfigPath: string,
@@ -128,7 +128,12 @@ interface AgentCliCommon {
    * for an agent that takes its upstream some other way -- claude's is a
    * base URL and a key in the env, already handled as a remote redirect.
    */
-  configure?: (upstream: AgentTarget) => { env: Record<string, string>; cleanup: () => void }
+  configure?: (upstream: AgentTarget) => {
+    env: Record<string, string>
+    cleanup: () => void
+    /** What the rendered env points at, which the sandbox has to show back. */
+    readOnly: string[]
+  }
 }
 
 /**
@@ -364,6 +369,7 @@ export function parseCursorEvents(stdout: string): AgenticOutcome {
 function renderOpencodeConfig(upstream: AgentTarget): {
   env: Record<string, string>
   cleanup: () => void
+  readOnly: string[]
 } {
   mkdirSync(stateDir(), { recursive: true })
   const dir = mkdtempSync(join(stateDir(), 'agentic-opencode-'))
@@ -391,6 +397,7 @@ function renderOpencodeConfig(upstream: AgentTarget): {
   return {
     env: { OPENCODE_CONFIG: path },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    readOnly: [dir],
   }
 }
 
@@ -488,7 +495,10 @@ const AGENTS: Record<string, AgentCli> = {
   claude: {
     id: 'claude',
     pkg: '@anthropic-ai/claude-code',
-    floor: 'flags',
+    logins: [{ from: '.claude/.credentials.json', to: '.claude/.credentials.json' }],
+    // The tree the unit's own BUN_INSTALL names (scripts/engined.service.in),
+    // which already holds every pin claude has been proved on.
+    installCache: () => join(stateDir(), CLAUDE_INSTALL_DIR),
     wire: AGENT_WIRES.claude,
     launch: (mcpConfigPath, streaming, systemPrompt, research) => [
       '-p',
@@ -507,7 +517,6 @@ const AGENTS: Record<string, AgentCli> = {
   opencode: {
     id: 'opencode',
     pkg: 'opencode-ai',
-    floor: 'sandbox',
     wire: AGENT_WIRES.opencode,
     // `-p` here would be `--password`. The print mode is the `run` subcommand.
     launch: () => ['run', '--format', 'json'],
@@ -517,7 +526,9 @@ const AGENTS: Record<string, AgentCli> = {
   },
   cursor: {
     id: 'cursor',
-    floor: 'flags',
+    // cursor reads `$XDG_CONFIG_HOME/cursor/auth.json`, and `sandboxEnv`
+    // puts XDG_CONFIG_HOME at `config` under the launch home.
+    logins: [{ from: '.config/cursor/auth.json', to: 'config/cursor/auth.json' }],
     resolveBinary: resolveCursorBinary,
     // OpenRouter's own dedicated `/api/v1/cursor` endpoint describes itself
     // as normalizing cursor's own request shape "into the standard OpenAI

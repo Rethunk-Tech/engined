@@ -130,7 +130,6 @@ test('an envelope with no figures in it reports no usage at all', () => {
 test('claude carries the read-only floor in its launch argv and opencode carries none', () => {
   const claude = agentCli('claude')
   const opencode = agentCli('opencode')
-  expect(claude?.floor).toBe('flags')
   expect(claude?.launch('/mcp.json')).toEqual([
     '-p',
     '--output-format',
@@ -140,8 +139,7 @@ test('claude carries the read-only floor in its launch argv and opencode carries
     '/mcp.json',
   ])
   // Not an oversight: opencode has no tool or permission flag to be given, so
-  // its floor is the sandbox and its argv says nothing about one.
-  expect(opencode?.floor).toBe('sandbox')
+  // its floor is the sandbox alone and its argv says nothing about one.
   expect(opencode?.launch('/mcp.json')).toEqual(['run', '--format', 'json'])
 })
 
@@ -199,7 +197,6 @@ test("an in-stream is_error beats a populated result, the same as claude's own e
 
 test("cursor carries its own floor in argv -- a mode, not claude's tool allowlist -- and never touches AGENTIC_FLOOR", () => {
   const cursor = agentCli('cursor')
-  expect(cursor?.floor).toBe('flags')
   expect(cursor?.wire).toBe('openai')
   expect(cursor?.launch('/mcp.json')).toEqual([
     '-p',

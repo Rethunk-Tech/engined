@@ -5,39 +5,55 @@ and no TLS. Who can reach it is the operator's call: a firewall rule, a tunnel
 that authenticates, or a reverse proxy with its own auth. Everything below
 describes what the door itself does and does not guard.
 
-## Agentic engines: integrity, not confidentiality
+## Agentic engines: integrity, and the operator's home stays closed
 
 Agentic CLIs are an engine _kind_, not a separate API. They are launched with
 writing structurally disabled, so they read a repository and return text like
 any other completion, and engined never writes to a caller's worktree.
 
-**Where that floor comes from is per-agent**, and `src/agents.ts` says which.
-`claude` honours one passed in argv (`--safe-mode --tools Read,Grep,Glob
---strict-mcp-config`), and `assertNoForbiddenFlags` stops a config unsaying
-it. `opencode` exposes no such flag at all, so engined runs it under `bwrap`
-with the workdir bound read-only, `/run` as tmpfs, isolated IPC, PID and UTS
-namespaces, a new session, and no capabilities. Each launch receives a fresh
-HOME and XDG state; its proved Bun install cache is bound read-only. An agent
-declared `sandbox` never launches without it: a missing `bwrap` refuses the
-call rather than running loose.
+**Every agent runs under `bwrap`** (`src/sandbox.ts`): the filesystem bound
+read-only, the operator's home masked with an empty tmpfs, `/run` as tmpfs
+(only the resolver's directory shown back), isolated IPC, PID and UTS
+namespaces, a new session, and no capabilities. Under the masked home, only
+what the launch needs is bound back: the binary's own directory read-only, a
+linked worktree's or submodule's git dir read-only, Bun's install cache behind
+a throwaway overlay, the launch's own writable HOME, and the workdir,
+read-only and bound last. Each launch gets a fresh HOME and XDG state. A
+missing `bwrap` refuses the call rather than running loose, and the cache
+overlay needs a `bwrap` that has `--tmp-overlay`.
+
+A CLI that signs in with the operator's own account gets a **copy** of its
+login file in that throwaway HOME, mode 0600: claude's
+`~/.claude/.credentials.json`, cursor's `~/.config/cursor/auth.json`. The real
+files are never mounted. `~/.gitconfig`, `~/.git-credentials`, `~/.ssh` and
+the SSH agent socket stay out on purpose.
+
+`claude` and `cursor` also honour an argv floor: claude's
+`--safe-mode --tools Read,Grep,Glob --strict-mcp-config`, cursor's
+`--mode ask --trust`, and `assertNoForbiddenFlags` stops a config unsaying
+either. `opencode` exposes no such flag, so the mount table is its only floor.
 
 An opt-in claude research call instead uses `--tools WebSearch,WebFetch` with
 `--safe-mode --strict-mcp-config`: it can search and read the web but has no file
 tools, so whatever it sends out can only be what is already in the prompt.
 
-The guarantee is **integrity, not confidentiality.** `workdir` says where an
-agent begins, not what it may read. Measured: under the full read-only floor,
-an agent asked for `/etc/hostname` returns it, with no permission denial.
+**Reading outside the workdir is closed under the operator's home.** An agent
+told to read `~/.ssh/id_ed25519` or another repository under the home finds
+nothing there.
+What stays open:
 
-What an agentic call cannot do is _change_ the caller's tree. What it
-emphatically can do is read anything this uid can open — every private key,
-the `gh` identity, the credentials of the CLI being run — and send it wherever
-a chain ends. A workdir allowlist bounds nothing meaningful, since the fleet's
-source lives inside any plausible root. A local process already reads those
-files directly; what engined adds is convenience and an egress path.
+- **Paths outside the home.** `/etc`, `/opt`, `/usr` and anything else this
+  uid can read outside `$HOME` stay in the mount table, as they are to any
+  local process. Whether a given agent's tools reach for them is that
+  agent's own permission model, not a guarantee engined makes.
+- **The agent's own environment.** `/proc/self/environ` is the child's, so a
+  keyed upstream's provider key that `src/agenticRedirect.ts` puts there is
+  readable by the agent it was handed to.
+- **The network**, below.
 
-**Adding a second, less-trusted caller is the moment this stops being
-acceptable.**
+A workdir under the home is visible because it is bound back. A workdir that
+is the home, or an ancestor of it, re-exposes the whole home read-only, launch
+HOME included: point an agent at a repository, never at the home.
 
 ## The launch-scoped door closes a recursion hazard
 
@@ -93,15 +109,14 @@ engined will serve requests through the new pin — and which probes those are
 is per-agent too, because what could give an agent its tools back differs: a
 planted settings hook for claude, a permissive `opencode.json` for opencode.
 
-**The two floors are not equally shaped.** claude's also restricts which
-_tools_ it has, so it cannot run shell or fetch a URL. The sandbox restricts
-writing only: it shares the host network namespace, because the agent has to
-reach this door to reach a model at all. Abstract-namespace Unix sockets and
-loopback services therefore remain reachable from an opencode launch. That
-costs no guarantee this document makes — confidentiality was never one, per
-the paragraphs above — but it does remove an incidental protection claude
-happened to provide. An agent pointed at a private repository is trusted with
-its contents under either floor.
+**The sandbox does not close the network.** It shares the host network
+namespace, because the agent has to reach this door to reach a model at all.
+Abstract-namespace Unix sockets and loopback services therefore remain
+reachable from inside it. claude's argv floor also restricts which _tools_ it
+has, so it cannot run shell or fetch a URL; opencode has no such restriction,
+and cursor's ask mode still runs read-only shell. An agent pointed at a
+private repository is trusted with its contents and can send them wherever
+a chain ends.
 
 ## The browser is a caller too
 
@@ -158,8 +173,9 @@ on.
 
 A client of the door, directly or through the `engined-tls` Caddy bridge
 (`deploy/Caddyfile.cursor`, port 29443, for clients such as Cursor that need
-HTTPS), has the whole door, including agentic calls that can read any file
-this uid can open and remote routes that spend provider credit. Restricting
+HTTPS), has the whole door, including agentic calls that read the workdir
+they name and anything this uid can open outside its home, and remote routes
+that spend provider credit. Restricting
 who reaches it is the operator's responsibility.
 
 ## The config UI is a root-equivalent writer
@@ -232,8 +248,8 @@ caller's prompt.
 The rule is the same for all of them: **an agent whose read-only enforcement
 has not been _shown_ is not shipped.** What differs is how each one was shown.
 
-`claude` ships on its own flags. The floor is argv, and the probes re-prove it
-against every new pin.
+`claude` ships on its own flags under the sandbox. The argv floor is
+re-proved by the probes against every new pin.
 
 `opencode` ships on the sandbox, and only on the sandbox. Measured against
 1.18.25: it has no tool or permission flag; an `OPENCODE_CONFIG` floor denying
@@ -258,11 +274,12 @@ a `systemd-run --user --wait true` launch, and a connection to
 so that proves what an agent round trip would, in milliseconds and with no LLM
 in the loop to be nondeterministic about.
 
-`cursor-agent`'s floor is **argv, like claude's** — first measured against
+`cursor-agent`'s floor is **argv, like claude's**, under the same sandbox — first measured against
 2026.08.28-50f0823 as `--mode plan`, then moved to `--mode ask` against
 2026.10.08-4f5c08d after plan mode stopped holding. It launches: the
 binary is resolved from PATH or `~/.local/share/cursor-agent/versions/`, not
-from npm. It stays disabled for the reason above — nothing can thread a door URL
+from npm, and both its directory and its target's are bound back into the
+sandbox. It stays disabled for the reason above — nothing can thread a door URL
 to it — not for want of a launch path.
 
 Under `--mode ask --trust` a write instruction left the worktree byte-identical

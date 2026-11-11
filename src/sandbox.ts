@@ -1,38 +1,57 @@
 /**
- * The kernel floor, for an agent whose own configuration cannot provide one.
+ * The kernel floor every agentic launch runs under: the agent cannot write
+ * outside its own state directory, and cannot read the operator's home.
  *
- * `claude` takes the read-only floor as flags it honours, and
- * `assertNoForbiddenFlags` stops a config from unsaying them. `opencode` has
- * no equivalent: it exposes no tool or permission flag at all, its only lever
- * is a config file, and config is discovered by walking UP from the working
- * directory -- so any ancestor of the workdir can hand `edit`, `bash` and
- * `write` back, and even the built-in read-only `plan` agent can be redefined
- * the same way, because the rules are last-wins.
+ * An agent's own configuration is not a floor. `opencode` exposes no tool or
+ * permission flag at all, its only lever is a config file, and config is
+ * discovered by walking UP from the working directory -- so any ancestor of
+ * the workdir can hand `edit`, `bash` and `write` back. `claude` and `cursor`
+ * do honour argv floors (`agenticArgs.ts`), and keep them, but a tool allowed
+ * to read can read whatever the uid can: `Read` returns `~/.ssh` and `Grep`
+ * returns `/proc/self/environ`. The door takes prompts from LAN hosts, so what
+ * an agent may read has to come from something it cannot argue with.
  *
- * For an agent like that the guarantee has to come from something it cannot
- * argue with. `bwrap` binds the filesystem read-only and the agent's own state
- * directory read-write, so a write into the workdir fails with EROFS whatever
- * a config file inside it claims. Unprivileged user namespaces are what make
+ * `bwrap` binds the filesystem read-only, masks the operator's home with an
+ * empty tmpfs, and binds back only what the launch needs: the binary's own
+ * directory, a worktree's git dir, Bun's install cache, the agent's writable
+ * state directory and, last, the workdir. A write into the workdir fails with
+ * EROFS whatever a config file inside it claims, and a read of anything else
+ * under the home finds nothing. Unprivileged user namespaces are what make
  * this reachable without root.
  *
- * What this floor does NOT close, and `--tools Read,Grep,Glob
- * --strict-mcp-config` does: reading. The sandbox shares the host network
- * namespace because the agent has to reach engined's own door on loopback, so
- * an agent under it can still run read-only shell, fetch a URL and start an
- * MCP server. It is the stronger floor against writing and the weaker one
- * against exfiltration, and an agent given a private repository is trusted
- * with its contents either way.
+ * What this floor does NOT close: the network, and the agent's own
+ * environment. The sandbox shares the host network namespace because the
+ * agent has to reach engined's own door on loopback, so an agent under it can
+ * still fetch a URL and reach loopback services. Whatever the child's env
+ * carries -- a keyed upstream's provider key, say -- stays readable through
+ * `/proc/self/environ`. Paths outside the home (`/etc`, `/opt`, another
+ * user's world-readable files) stay readable too, as they are to any local
+ * process. An agent given a private repository is trusted with its contents.
  */
-import { mkdirSync, mkdtempSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { envString, pathSearchPath } from './env.ts'
-import { stateDir } from './paths.ts'
+import { isUnder, stateDir } from './paths.ts'
 
 /** State-dir segment that holds every agentic HOME. Cache prune names the same segment. */
 export const AGENTIC_HOME_DIR = 'agentic-home'
 
 /** Writable bun install tree inside an agentic HOME. Cache prune names the same segment. */
 export const SANDBOX_BUN_DIR = 'bun'
+
+/** claude's install cache under the state dir: the tree the unit's BUN_INSTALL names. Cache prune names the same segment. */
+export const CLAUDE_INSTALL_DIR = 'bun-install'
+
+/** The directory the sandbox masks: the real home of this process, symlinks resolved, read once. */
+const OPERATOR_HOME = realpathSync(homedir())
 
 /**
  * Writable, engined-owned, and never inside a repository -- so the agent keeps
@@ -52,38 +71,155 @@ export function sandboxLaunchHome(agentId: string): string {
   return mkdtempSync(join(parent, 'launch-'))
 }
 
+/** A login file an agent keeps under the operator's home, and where the same agent looks for it under a launch home. */
+export interface AgentLogin {
+  /** Relative to the operator's home. */
+  from: string
+  /** Relative to the launch home, already accounting for the XDG paths `sandboxEnv` sets. */
+  to: string
+}
+
+/**
+ * Copied, never bound: the agent signs in as the operator without the real
+ * file being in its mount table, so nothing it does can rewrite the one the
+ * operator's own sessions use. An absent source is a box without that login,
+ * and the agent reports "not logged in" itself.
+ */
+export function copyLogins(
+  launchHome: string,
+  logins: readonly AgentLogin[],
+  operatorHome: string = OPERATOR_HOME,
+): void {
+  for (const login of logins) {
+    const source = join(operatorHome, login.from)
+    if (!existsSync(source)) {
+      continue
+    }
+    const target = join(launchHome, login.to)
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
+    writeFileSync(target, readFileSync(source), { mode: 0o600 })
+  }
+}
+
+const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
+
+/**
+ * A linked worktree or a submodule names its git dir in a `.git` file, and
+ * that dir (plus a worktree's shared `commondir`) usually lives outside the
+ * workdir, often under the masked home. `git log` inside the sandbox needs
+ * both. A `.git` directory is inside the workdir already, so it adds nothing.
+ */
+export function workdirGitDirs(workdir: string): string[] {
+  let pointer: string
+  try {
+    pointer = readFileSync(join(workdir, '.git'), 'utf8')
+  } catch {
+    return []
+  }
+  const named = GITDIR_POINTER.exec(pointer)?.[1]?.trim()
+  if (named === undefined) {
+    return []
+  }
+  const gitDir = resolve(workdir, named)
+  let commonDir: string | undefined
+  try {
+    commonDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim())
+  } catch {
+    // A submodule's git dir has no commondir; it is self-contained.
+  }
+  // A stale pointer would fail bwrap's bind and the whole launch with it;
+  // git reporting "not a git repository" is the honest failure instead.
+  return [commonDir, gitDir].filter((dir): dir is string => dir !== undefined && existsSync(dir))
+}
+
+/** The launch binary's own directory, and its real one when it is a symlink: `bunx` runs `bun` beside it, cursor's launcher runs the `node` beside its target. */
+function binaryDirs(binary: string): string[] {
+  let real = binary
+  try {
+    real = realpathSync(binary)
+  } catch {
+    // A binary that does not exist fails the spawn on its own, naming itself.
+  }
+  return [...new Set([dirname(binary), dirname(real)])]
+}
+
 interface SandboxInput {
   /** Absolute `bwrap` path, resolved by the install script the way `bunx` is. */
   bwrap: string
-  /** The agent's writable state directory, from `sandboxHome`. */
+  /** The agent's writable state directory, from `sandboxLaunchHome`. */
   home: string
-  /** Bun's persistent install tree, available read-only after its proof seeded it. */
+  /** Bun's persistent install tree, behind a throwaway overlay once its proof seeded it. */
   cache?: string
   /** Only the version-proof launch may seed Bun's install cache. */
   cacheWritable?: boolean
   /** Bound read-only over itself: the one directory the agent was pointed at. */
   workdir: string
-  /** The launch the sandbox wraps, `bunx` path first. */
+  /** The launch the sandbox wraps, its binary first. */
   argv: readonly string[]
+  /** Files the launch is handed by path (an MCP config, a rendered agent config), bound back read-only. */
+  readOnly?: readonly string[]
+  /** Further writable binds; only a probe's witness directory, so a hook that fires is seen outside. */
+  writable?: readonly string[]
+  /** Overrides `OPERATOR_HOME` for a test. */
+  operatorHome?: string
 }
 
 /**
- * Order is the whole mechanism: `--ro-bind / /` first makes everything
- * read-only, and only the binds after it are writable. A later bind wins, so
- * the agent's home is carved back out read-write and the workdir is re-bound
- * read-only after it -- explicit rather than merely inherited, because the
- * workdir is the one path this floor exists to protect.
+ * `/run` is masked to hide the docker socket and the user bus, but on a
+ * systemd-resolved box `/etc/resolv.conf` points into it, and an agent that
+ * cannot resolve its provider's host never answers. Only the resolver's own
+ * directory comes back.
+ */
+function resolverDirs(): string[] {
+  try {
+    const target = realpathSync('/etc/resolv.conf')
+    return isUnder('/run', target) ? [dirname(target)] : []
+  } catch {
+    return []
+  }
+}
+
+function binds(flag: '--bind' | '--ro-bind', paths: readonly string[]): string[] {
+  return paths.flatMap((path) => [flag, path, path])
+}
+
+/**
+ * bunx will not start from a read-only install cache: it insists on writing a
+ * temporary file beside it first. An overlay gives it that, with every write
+ * landing in a tmpfs that dies with the launch, so the proved cache itself
+ * stays untouched. Only the version proof binds it through, to seed it.
+ */
+function cacheMount(cache: string | undefined, writable: boolean): string[] {
+  if (cache === undefined) {
+    return []
+  }
+  return writable ? ['--bind', cache, cache] : ['--overlay-src', cache, '--tmp-overlay', cache]
+}
+
+/**
+ * Order is the whole mechanism, because a later mount wins. `--ro-bind / /`
+ * makes everything read-only; the tmpfs over the operator's home then hides
+ * all of it; each bind after that shows one path back through. The agent's
+ * home is carved back out read-write, and the workdir is re-bound read-only
+ * last -- explicit rather than merely inherited, because the workdir is the
+ * one path this floor exists to protect, and it may sit under the home or
+ * under a path bound before it.
  *
  * `/tmp` is a tmpfs rather than read-only, because an agent that cannot write a
- * temporary file fails in ways that look like a bug in the agent. It is the
- * only one: `sandboxEnv` points TMPDIR at it, and every additional tmpfs is
- * another path that could mask a workdir mounted underneath it.
+ * temporary file fails in ways that look like a bug in the agent. `sandboxEnv`
+ * points TMPDIR at it. Every tmpfs could mask a workdir mounted underneath
+ * it, which is why the workdir comes after all of them.
  */
 export function sandboxArgv(input: SandboxInput): string[] {
-  const cacheBind =
-    input.cache === undefined
-      ? []
-      : [input.cacheWritable === true ? '--bind' : '--ro-bind', input.cache, input.cache]
+  const operatorHome = input.operatorHome ?? OPERATOR_HOME
+  const [binary = ''] = input.argv
+  // Anything outside the home is visible through the root bind already, and
+  // re-binding it can only fail, on a path like `/bin` that is a symlink.
+  const shownBack = [
+    ...binaryDirs(binary),
+    ...workdirGitDirs(input.workdir),
+    ...(input.readOnly ?? []),
+  ].filter((path) => isUnder(operatorHome, path))
   return [
     input.bwrap,
     '--ro-bind',
@@ -97,16 +233,21 @@ export function sandboxArgv(input: SandboxInput): string[] {
     '/tmp',
     '--tmpfs',
     '/run',
+    ...binds('--ro-bind', resolverDirs()),
     '--unshare-ipc',
     '--unshare-pid',
     '--unshare-uts',
     '--new-session',
     '--cap-drop',
     'ALL',
-    ...cacheBind,
+    '--tmpfs',
+    operatorHome,
+    ...binds('--ro-bind', shownBack),
+    ...cacheMount(input.cache, input.cacheWritable === true),
     '--bind',
     input.home,
     input.home,
+    ...binds('--bind', input.writable ?? []),
     '--ro-bind',
     input.workdir,
     input.workdir,
@@ -119,11 +260,11 @@ export function sandboxArgv(input: SandboxInput): string[] {
 }
 
 /**
- * Resolved at launch rather than at startup: a box that only ever runs a
- * `flags` agent needs no `bwrap` at all, and making it fatal at boot would
+ * Resolved at launch rather than at startup: a box that never runs an
+ * agentic engine needs no `bwrap` at all, and making it fatal at boot would
  * take engined down for an engine nobody configured. `null` is refused by the
  * caller -- there is no unsandboxed fallback, because the fallback would be
- * running a write-capable agent loose in someone's repository.
+ * an agent loose in someone's repository and the operator's home.
  */
 export function resolveBwrap(): string | null {
   const configured = envString('ENGINED_BWRAP')
@@ -134,11 +275,11 @@ export function resolveBwrap(): string | null {
 }
 
 /**
- * Everything the agent needs pointed inside its own writable directory. A
- * `--user` unit's HOME is the operator's, which the sandbox binds read-only,
- * so an agent left pointing at it fails on its own state file rather than on
- * anything to do with the workdir -- and that failure reads like a bug in the
- * agent rather than the floor doing its job.
+ * Everything the agent needs pointed inside its own writable directory. The
+ * operator's HOME is masked inside the sandbox, so an agent left pointing at
+ * it fails on its own state file rather than on anything to do with the
+ * workdir -- and that failure reads like a bug in the agent rather than the
+ * floor doing its job.
  */
 export function sandboxEnv(
   home: string,

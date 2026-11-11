@@ -36,9 +36,9 @@ StateDirectory=engined engined/bun-install engined/tmp
 Environment=BUN_INSTALL=@STATE_DIR@/bun-install
 Environment=BUN_TMPDIR=@STATE_DIR@/tmp
 
-# The per-agent read-only floor is in the launch itself (`src/agents.ts`):
-# argv flags for claude and cursor, a `bwrap` sandbox for opencode. These
-# directives sandbox the door process on the host; they are not that floor.
+# The agentic floor is in the launch itself: every agent runs under a `bwrap`
+# sandbox (`src/sandbox.ts`), and claude and cursor also under argv flags.
+# These directives sandbox the door process on the host; they are not that floor.
 # Under ProtectSystem=strict, ReadWritePaths=@STATE_DIR@,
 # ProtectHome=read-only, PrivateTmp=yes, BindPaths=/tmp below: a write to a
 # repository under $HOME and to one outside it both fail EROFS, the state

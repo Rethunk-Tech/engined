@@ -135,14 +135,17 @@ the container's queue drains (`src/comfyProxy.ts`), which is the whole reason
 behind the running job, an interrupt cannot stop a successor. Removing the gate
 silently reopens that race, and the reply a caller gets stops being provable.
 
-**Agentic guarantee is integrity, not confidentiality.** An agentic call cannot
-change a worktree; it can read anything this uid can open.
+**An agentic call cannot change a worktree or read the operator's home.**
+Every agent runs under the `bwrap` sandbox (`src/sandbox.ts`): the home is
+masked and only the workdir, a worktree's git dir, the binary, Bun's cache and
+the launch's own HOME come back. A login is copied into that HOME, never
+mounted. It can still read paths outside the home and its own environment,
+and reach the network. No `bwrap` refuses the call.
 
-**Where the floor comes from is per-agent** (`src/agents.ts`): argv flags for
-claude and cursor, a `bwrap` sandbox for opencode, which has no such flag and whose own
-config is overridable from any ancestor of the workdir. An agent declared
-`sandbox` never launches without one. Adding an agent means adding its launch,
-its stdout parser and the probe that re-proves its floor on every new pin.
+**claude and cursor also carry an argv floor** (`src/agents.ts`); opencode has
+no such flag and its own config is overridable from any ancestor of the
+workdir. Adding an agent means adding its launch, its stdout parser, any login
+file it carries in, and the probe that re-proves its floor on every new pin.
 
 **No door logs a prompt.** The provenance line is the only per-call record and
 carries no request content; the stderr of a child running a caller's prompt is
