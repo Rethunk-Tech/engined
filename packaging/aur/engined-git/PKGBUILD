@@ -14,7 +14,7 @@ depends=('bun')
 makedepends=('git')
 optdepends=(
   'docker: run the inference engines and the Cursor TLS bridge'
-  'bubblewrap: read-only sandbox for the opencode engine'
+  'bubblewrap: sandbox every agentic engine runs under'
 )
 install=engined.install
 provides=("engined=$pkgver")
