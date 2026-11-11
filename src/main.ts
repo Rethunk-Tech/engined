@@ -85,13 +85,10 @@ const RESOURCES_RE = engineVerbRe('resources')
 function refuse(message: string): Response {
   return jsonError(STATUS_FORBIDDEN, message)
 }
-/** Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none`/`same-origin` is refused the same way: a no-cors GET carries no Origin. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
+/** Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none` is refused the same way: a no-cors GET carries no Origin, and the door serves no page of its own, so `same-origin` can only come from a page whose name was rebound to this host. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
 function checkOrigin(req: Request): Response | null {
   const site = req.headers.get('Sec-Fetch-Site')
-  if (
-    req.headers.get('Origin') !== null ||
-    (site !== null && site !== 'none' && site !== 'same-origin')
-  ) {
+  if (req.headers.get('Origin') !== null || (site !== null && site !== 'none')) {
     return refuse('cross-origin requests are refused')
   }
   return null

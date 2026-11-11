@@ -5,8 +5,8 @@ tenancy, no TLS: put a proxy with its own auth in front of it to restrict who
 reaches it. `listen_port` overrides the port.
 
 Every request is origin-checked first, on every endpoint including reads: any
-`Origin` (including `"null"`) or a `Sec-Fetch-Site` other than `none` or
-`same-origin` is refused. A request carrying no `Origin` and no
+`Origin` (including `"null"`) or a `Sec-Fetch-Site` other than `none` is
+refused. A request carrying no `Origin` and no
 `Sec-Fetch-Site` is served normally, which covers every CLI and server
 consumer. See [security-model.md](security-model.md) for why a browser is
 treated as a caller.

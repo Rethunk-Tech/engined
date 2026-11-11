@@ -36,7 +36,7 @@ test('a host without IPv6 is served on IPv4 alone', () => {
   expect(bound.map((s) => s.port)).toEqual([4242])
 })
 
-test('Sec-Fetch-Site other than none or same-origin is refused even with no Origin', async () => {
+test('Sec-Fetch-Site other than none is refused even with no Origin', async () => {
   const { cfg, root } = llamaDoorConfig(TEST_ROOT)
   const door = createLlamaDoor(cfg, root, {
     llamaHttpClient: makeLlamaHttpClient([]),
@@ -53,10 +53,11 @@ test('Sec-Fetch-Site other than none or same-origin is refused even with no Orig
   expect(sameSite.status).toBe(403)
   const none = await door.fetch(new Request(models, { headers: { 'Sec-Fetch-Site': 'none' } }))
   expect(none.status).toBe(200)
+  // The door serves no page, so a same-origin fetch is a rebound hostile name.
   const sameOrigin = await door.fetch(
     new Request(models, { headers: { 'Sec-Fetch-Site': 'same-origin' } }),
   )
-  expect(sameOrigin.status).toBe(200)
+  expect(sameOrigin.status).toBe(403)
   const absent = await door.fetch(new Request(models))
   expect(absent.status).toBe(200)
 })
