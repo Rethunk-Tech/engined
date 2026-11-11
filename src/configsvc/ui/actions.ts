@@ -105,7 +105,7 @@ async function checkDraft(text: string, mine: number): Promise<void> {
 /** Replaces the pending text; the validate result and diff follow after a quiet 300 ms. */
 export function setDraft(text: string): void {
   draft.value = text
-  generation++
+  generation += 1
   const mine = generation
   clearTimeout(timer)
   timer = setTimeout(() => fork(checkDraft(text, mine)), VALIDATE_DELAY_MS)

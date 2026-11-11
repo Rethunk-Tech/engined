@@ -7,6 +7,14 @@ import { parseDoc } from './model.ts'
 import { draft } from './store.ts'
 import { CopyButton } from './widgets.tsx'
 
+const INVALID_TOML = 'The pending text is not valid TOML; fix it on the Raw TOML view first.'
+const ADDRESS_HELP_BEFORE = 'What a consumer puts in '
+const MODEL_KEY = 'model'
+const ADDRESS_HELP_AFTER = '. Calls are the last 7 days.'
+const COL_ADDRESS = 'address'
+const COL_KIND = 'kind'
+const COL_CALLS = 'calls'
+
 const doc = computed(() => parseDoc(draft.value))
 
 export function AddressBookView() {
@@ -18,22 +26,22 @@ export function AddressBookView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <p className="bad">{INVALID_TOML}</p>
   }
   const rows = addressBook(parsed, upstreamResolver(parsed))
   return (
     <section>
       <p className="muted">
-        What a consumer puts in <code>model</code>. Calls are the last 7 days.
+        {ADDRESS_HELP_BEFORE}
+        <code>{MODEL_KEY}</code>
+        {ADDRESS_HELP_AFTER}
       </p>
       <table className="grid">
         <thead>
           <tr>
-            <th>address</th>
-            <th>kind</th>
-            <th>calls</th>
+            <th>{COL_ADDRESS}</th>
+            <th>{COL_KIND}</th>
+            <th>{COL_CALLS}</th>
             <th />
           </tr>
         </thead>

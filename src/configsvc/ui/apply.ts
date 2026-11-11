@@ -39,7 +39,8 @@ async function runSave(text: string, base: string): Promise<boolean> {
     await refreshStatus()
     return true
   } catch (err) {
-    if (err instanceof ApiError && err.status === 409) {
+    const conflictStatus = 409
+    if (err instanceof ApiError && err.status === conflictStatus) {
       conflict.value = err.body as Snapshot
     } else {
       notice.value = { kind: 'error', text: err instanceof Error ? err.message : String(err) }

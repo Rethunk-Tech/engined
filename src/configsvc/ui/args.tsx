@@ -6,6 +6,9 @@ import { fork } from './api.ts'
 import { argIssue, argValueFromText } from './argsRules.ts'
 import type { Table } from './model.ts'
 
+const REMOVE_LABEL = 'Remove'
+const ADD_LABEL = 'Add'
+
 interface Scope {
   site: 'route' | 'engine'
   kind: EngineKind | undefined
@@ -52,7 +55,7 @@ function ArgRow(props: {
           fork(editDraft([{ op: 'setKey', path: [...props.path, props.name], value: undefined }]))
         }
       >
-        Remove
+        {REMOVE_LABEL}
       </button>
       {issue === undefined ? null : <span className="bad small-text">{issue}</span>}
     </div>
@@ -127,7 +130,7 @@ export function ArgsEditor(props: {
           disabled={key === '' || issue !== undefined}
           onClick={add}
         >
-          Add
+          {ADD_LABEL}
         </button>
         {issue === undefined ? null : <span className="bad small-text">{issue}</span>}
       </div>
