@@ -22,15 +22,14 @@ import {
   defaultAgenticSpawn,
   type RunAgenticResult,
   runAgentic,
-  usableBwrap,
 } from './agentic.ts'
-import { type AgentTarget, agentCli, type FloorKind } from './agents.ts'
+import { usableBwrap } from './agenticSandbox.ts'
+import type { AgentTarget } from './agents.ts'
 import { errMessage } from './records.ts'
 import { sandboxArgv, sandboxHome } from './sandbox.ts'
 
 /** Everything else is stripped from a probe's environment, so a probe proves the floor rather than the operator's shell. */
 export const PROBE_ENV_ALLOWLIST = ['HOME', 'BUN_INSTALL', 'BUN_TMPDIR'] as const
-const WITNESS_ID_RADIX = 36
 
 /** Every path under `root` (relative, sorted -- what a failed byte-identical probe names) and one digest over their names and contents. */
 function walkTree(root: string): { paths: string[]; hash: string } {
@@ -128,20 +127,13 @@ interface ProbeInput {
 }
 
 /**
- * The two floors fail the same instruction in opposite ways. A `flags` agent
- * is not given a write tool at all, so it declines and says so -- a successful
- * call that changed nothing. A `sandbox` agent has every tool it always had
- * and runs into EROFS, so it usually reports failure. Demanding `ok` of it
- * would fail the probe precisely when the floor worked.
- *
- * `version` is set only on the path that actually spawned something, so it is
- * what keeps "nothing ran" from passing as "nothing was written".
+ * Only an agent with an argv floor runs this probe, and that floor takes its
+ * write tool away, so it declines and says so: a successful call that changed
+ * nothing. Demanding `ok` is what keeps "nothing ran" from passing as
+ * "nothing was written".
  */
-function wroteNothing(outcome: RunAgenticResult, floor: FloorKind, unchanged: boolean): boolean {
-  if (!unchanged) {
-    return false
-  }
-  return floor === 'sandbox' ? outcome.version !== undefined : outcome.ok
+function wroteNothing(outcome: RunAgenticResult, unchanged: boolean): boolean {
+  return unchanged && outcome.ok
 }
 
 const WRITE_INSTRUCTION =
@@ -151,6 +143,7 @@ function probeLaunch(
   input: ProbeInput,
   workdir: string,
   prompt: string,
+  sandboxWritable?: readonly string[],
 ): Promise<RunAgenticResult> {
   return runAgentic({
     agent: input.agent,
@@ -164,7 +157,8 @@ function probeLaunch(
     ambientEnv: input.deps.ambientEnv,
     resolveBinary: input.deps.resolveBinary,
     upstream: input.roundTrip,
-    seedSandboxCache: input.agent === 'opencode',
+    seedSandboxCache: true,
+    sandboxWritable,
   })
 }
 
@@ -175,7 +169,7 @@ async function runByteIdenticalProbe(input: ProbeInput): Promise<ProbeResult> {
     const outcome = await probeLaunch(input, workdir, WRITE_INSTRUCTION)
     const after = walkTree(workdir)
     const unchanged = after.hash === before
-    if (wroteNothing(outcome, agentCli(input.agent)?.floor ?? 'flags', unchanged)) {
+    if (wroteNothing(outcome, unchanged)) {
       return { ok: true }
     }
     // Which of the two conditions failed is the whole diagnosis: a launch
@@ -198,18 +192,19 @@ async function hookSilenceProbe(
   plant: (workdir: string, witness: string) => void,
 ): Promise<{ ok: boolean }> {
   const workdir = scratchWorktree()
-  const witness = join(
-    tmpdir(),
-    `engined-agentic-probe-witness-${Date.now()}-${Math.random().toString(WITNESS_ID_RADIX).slice(2)}`,
-  )
-  rmSync(witness, { force: true })
+  // A directory bound writable into the sandbox: a hook that fires inside it
+  // writes where this process can see, rather than into the sandbox's /tmp.
+  const witnessDir = mkdtempSync(join(tmpdir(), 'engined-agentic-probe-witness-'))
+  const witness = join(witnessDir, 'fired')
   plant(workdir, witness)
   try {
-    const outcome = await probeLaunch(input, workdir, 'Say hello in one short sentence.')
+    const outcome = await probeLaunch(input, workdir, 'Say hello in one short sentence.', [
+      witnessDir,
+    ])
     return { ok: outcome.ok && !existsSync(witness) }
   } finally {
     rmSync(workdir, { recursive: true, force: true })
-    rmSync(witness, { force: true })
+    rmSync(witnessDir, { recursive: true, force: true })
   }
 }
 
@@ -222,7 +217,7 @@ function runCursorHookSilenceProbe(input: ProbeInput): Promise<{ ok: boolean }> 
 }
 
 /**
- * A `sandbox` agent's floor is the mount table, so it is proved against the
+ * opencode's only floor is the mount table, so it is proved against the
  * mount table rather than against the agent: bind a scratch directory the way
  * a real launch binds a workdir, try to write into it, and require EROFS.
  *
@@ -289,10 +284,9 @@ const ROUND_TRIP_PROMPT = 'Reply with exactly the word: pong'
  * route is missing, the same way `AGENT_PROBES` never asks the sandbox probe
  * about anything the sandbox floor does not cover either.
  *
- * A real `runAgentic` call, sandboxed exactly like production traffic
- * (`agent.floor === "sandbox"` applies inside `runAgentic` regardless of who
- * called it) -- this is `test/local/opencode.test.ts`'s own round trip,
- * just run from a status poll instead of a test file.
+ * A real `runAgentic` call, sandboxed exactly like production traffic --
+ * this is `test/local/opencode.test.ts`'s own round trip, just run from a
+ * status poll instead of a test file.
  */
 async function runModelRoundTripProbe(input: ProbeInput): Promise<{ ok: boolean }> {
   if (input.roundTrip === undefined) {

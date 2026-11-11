@@ -553,10 +553,9 @@ async function withOpencodeLaunchEnv(body: () => Promise<void>): Promise<void> {
 
 describe('the launch-scoped door', () => {
   /**
-   * claude routed at moonshot: `redirectEnv`'s own path, and the one that
-   * needs no `bwrap` (claude's floor is argv, not the sandbox) -- so this
-   * exercises the real `resolveRedirect` -> `redirectEnv` wiring end to end
-   * with nothing faked but the spawn.
+   * claude routed at moonshot: `redirectEnv`'s own path, exercising the real
+   * `resolveRedirect` -> `redirectEnv` wiring end to end with nothing faked
+   * but the spawn.
    */
   test("redirectEnv's own output carries the launch-scoped door URL, and a child POSTing back to it naming an agentic engine is refused", async () => {
     const cfg = kimiRoutedConfig(route({ engine: 'claude', model: 'sonnet-5', upstream: null }))

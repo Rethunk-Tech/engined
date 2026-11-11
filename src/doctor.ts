@@ -164,12 +164,16 @@ function agentRetired(use: AgentUse | undefined, id: string): boolean {
 }
 
 function bwrapCheck(deps: DoctorDeps, use?: AgentUse): DoctorCheck {
-  if (agentRetired(use, 'opencode')) {
-    return skip('bwrap', 'opencode is disabled')
+  if (AGENT_IDS.every((id) => agentRetired(use, id))) {
+    return skip('bwrap', 'every agentic engine is disabled')
   }
   const path = deps.which('bwrap')
   return path === null
-    ? fail('bwrap', 'not on PATH', 'install bubblewrap (opencode runs only inside its sandbox)')
+    ? fail(
+        'bwrap',
+        'not on PATH',
+        'install bubblewrap (every agentic CLI runs only inside its sandbox)',
+      )
     : pass('bwrap', path)
 }
 

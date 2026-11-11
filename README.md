@@ -42,8 +42,8 @@ Install, configure, and operate: [HUMANS.md](HUMANS.md).
 - **One resident model per role** — occupancy is engined's job.
 - **Chains with provenance** — fallback lists record which engine answered.
 - **Agentic CLIs as an engine kind** — `claude`, `opencode`, and `cursor`,
-  writing disabled: claude and cursor by their own flags, opencode by a
-  `bwrap` sandbox, because it has no flag that would do it.
+  each under a `bwrap` sandbox that disables writing and hides the operator's
+  home; claude and cursor also by their own flags.
 - **Fill-in-the-middle** — `POST /openai/v1/completions` over llama's own `/infill`, for a route that opts in.
 - **Vision bridge** — a text-only chat route can take an image attachment by
   captioning it through a vision route first.

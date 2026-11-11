@@ -3,16 +3,15 @@
  * nothing under that floor can write, there is no workdir allowlist, no
  * snapshot and no undo: the agent returns content and the caller decides
  * whether to write it. `workdir` must be an existing directory where engined
- * runs, but is not a boundary on what the agent can read.
+ * runs.
  *
- * WHERE the floor comes from is per-agent, and `agents.ts` says which. claude
- * honours it as argv, and `assertNoForbiddenFlags` stops a config or a
- * request unsaying it. A launch returns before spawn when the request
- * carries a forbidden flag. opencode offers no such flag, so its floor is
- * `sandbox.ts`'s mount table -- its config-level floor is overridable from
- * any ancestor of the workdir. An agent whose floor is the sandbox never
- * launches without it: a missing `bwrap` refuses the call rather than
- * running loose.
+ * Every agent runs under `sandbox.ts`'s mount table, which keeps it from
+ * writing anywhere but its own state and from reading the operator's home.
+ * A missing `bwrap` refuses the call rather than running loose. claude and
+ * cursor also honour an argv floor, and `assertNoForbiddenFlags` stops a
+ * config or a request unsaying it: a launch returns before spawn when the
+ * request carries a forbidden flag. opencode offers no such flag, and its
+ * config-level floor is overridable from any ancestor of the workdir.
  *
  * Failure lives in what the agent printed, never in its exit code. Verified:
  * `claude -p --output-format json` exited 0 with `"subtype": "success"` and a
@@ -21,7 +20,7 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import {
   argKeysAsFlags,
@@ -29,6 +28,7 @@ import {
   assertNoForbiddenFlags,
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
+import { applySandboxFloor } from './agenticSandbox.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -41,7 +41,6 @@ import type { ExecResult } from './exec.ts'
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
-import { resolveBwrap, sandboxArgv, sandboxEnv, sandboxHome, sandboxLaunchHome } from './sandbox.ts'
 
 const STDERR_TAIL_CHARS = 300
 // stderrTail only ever reads the final STDERR_TAIL_CHARS of what is captured
@@ -206,8 +205,8 @@ interface BuildArgvInput {
 }
 
 /**
- * Built from scratch on every call. A `flags` agent's floor is prepended
- * here and no config entry or `spec_dir` override can reach it.
+ * Built from scratch on every call. An agent's argv floor is prepended here
+ * and no config entry or `spec_dir` override can reach it.
  *
  * The pinned-package prefix is only for an agent `bunx` actually fetches:
  * one with `resolveBinary` (agents.ts) instead resolves its own already-
@@ -252,12 +251,12 @@ export function buildChildEnv(
 }
 
 interface RunAgenticInput {
-  /** Which agent CLI the spec declared. Decides the argv, the parser and where the floor comes from. */
+  /** Which agent CLI the spec declared. Decides the argv, the parser and the login carried into the sandbox. */
   agent: string
   agentVersion: string
   args: Record<string, unknown>
   envAllowlist: readonly string[]
-  /** Where the process starts. Absent or empty is a 400 that never advances a chain — it is not a read boundary either way. */
+  /** Where the process starts, and the one place under the operator's home it may read. Absent or empty is a 400 that never advances a chain. */
   workdir: string | undefined
   prompt: string
   systemPrompt?: string
@@ -265,7 +264,7 @@ interface RunAgenticInput {
   spawn: AgenticSpawn
   /** The absolute path `resolveBunx` produced, which refuses to be empty. */
   bunx: string
-  /** Overrides `resolveBwrap` for a test. Only ever consulted for a `sandbox` agent. */
+  /** Overrides `resolveBwrap` for a test. */
   bwrap?: string | null
   /** Where this agent's own model lives. Required by an agent with a `configure`; ignored by one without. */
   upstream?: AgentTarget
@@ -285,8 +284,10 @@ interface RunAgenticInput {
   onDelta?: (text: string) => void
   /** See `BuildArgvInput.resolveBinary`. */
   resolveBinary?: () => string
-  /** The pin proof alone may populate the Bun install cache before normal launches bind it read-only. */
+  /** The pin proof alone may populate the Bun install cache, which normal launches see only through a throwaway overlay. */
   seedSandboxCache?: boolean
+  /** Further writable paths inside the sandbox: only a probe's witness directory, so a hook that fires is seen outside it. */
+  sandboxWritable?: readonly string[]
 }
 
 export interface RunAgenticResult {
@@ -321,7 +322,7 @@ function configureUpstream(
   agent: AgentCli,
   upstream: AgentTarget | undefined,
   env: Record<string, string>,
-): { cleanup?: () => void; error?: RunAgenticResult } {
+): { cleanup?: () => void; readOnly?: string[]; error?: RunAgenticResult } {
   if (agent.configure === undefined) {
     return {}
   }
@@ -337,61 +338,7 @@ function configureUpstream(
   }
   const configured = agent.configure(upstream)
   Object.assign(env, configured.env)
-  return { cleanup: configured.cleanup }
-}
-
-interface SandboxFloorInput {
-  workdir: string
-  argv: string[]
-  env: Record<string, string>
-  /** Overrides `resolveBwrap()`; only ever set by a test. */
-  bwrapOverride: string | null | undefined
-  seedCache: boolean
-}
-
-/** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
-export function usableBwrap(override?: string | null): string | null {
-  const bwrap = override === undefined ? resolveBwrap() : override
-  return bwrap === null || bwrap === '' ? null : bwrap
-}
-
-/** `argv` wrapped under bwrap for a `sandbox`-floor agent, `home`'s env merged into `env` in place -- unchanged for a `flags` agent, or a 503 when this box has no bwrap to wrap it with. */
-function applySandboxFloor(
-  agent: AgentCli,
-  input: SandboxFloorInput,
-): { argv: string[]; cleanup?: () => void; error?: RunAgenticResult } {
-  const { workdir, argv, env, bwrapOverride, seedCache } = input
-  if (agent.floor !== 'sandbox') {
-    return { argv }
-  }
-  const bwrap = usableBwrap(bwrapOverride)
-  if (bwrap === null) {
-    // Never a fallback to an unsandboxed launch: this agent's whole floor is
-    // the mount table, so without it there is no floor to run under at all.
-    return {
-      argv,
-      error: {
-        status: STATUS_UNAVAILABLE,
-        ok: false,
-        failure: `agent "${agent.id}" needs bwrap for its read-only floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
-        envelopeFailure: false,
-      },
-    }
-  }
-  const home = sandboxLaunchHome(agent.id)
-  const cache = sandboxHome(agent.id)
-  Object.assign(env, sandboxEnv(home, cache))
-  return {
-    argv: sandboxArgv({
-      bwrap,
-      home,
-      cache,
-      cacheWritable: seedCache,
-      workdir,
-      argv,
-    }),
-    cleanup: () => rmSync(home, { recursive: true, force: true }),
-  }
+  return { cleanup: configured.cleanup, readOnly: configured.readOnly }
 }
 
 interface LaunchInput {
@@ -525,12 +472,13 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
+  const mcpConfigPath = renderEmptyMcpConfig()
   let argv: string[] = buildArgv({
     bunx: input.bunx,
     agent: agent.id,
     agentVersion: input.agentVersion,
     args: input.args,
-    mcpConfigPath: renderEmptyMcpConfig(),
+    mcpConfigPath,
     streaming: input.onDelta !== undefined,
     systemPrompt: input.systemPrompt,
     research: input.research,
@@ -555,9 +503,18 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       env,
       bwrapOverride: input.bwrap,
       seedCache: input.seedSandboxCache === true,
+      readOnly: [mcpConfigPath, ...(configured.readOnly ?? [])],
+      writable: input.sandboxWritable,
     })
-    if (sandboxed.error) {
-      return sandboxed.error
+    if (sandboxed === null) {
+      // Never a fallback to an unsandboxed launch: without the mount table the
+      // agent writes and reads as the operator, which is no floor at all.
+      return {
+        status: STATUS_UNAVAILABLE,
+        ok: false,
+        failure: `agent "${agent.id}" needs bwrap for its floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
+        envelopeFailure: false,
+      }
     }
     sandboxCleanup = sandboxed.cleanup
     ;({ argv } = sandboxed)

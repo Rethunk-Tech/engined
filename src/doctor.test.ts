@@ -90,6 +90,7 @@ test('a disabled agentic engine skips its agent check, and an enabled one still 
       config({
         engines: [
           engine({ id: 'llama', models_dir: '/models' }),
+          engine({ id: 'claude', disabled: true }),
           engine({ id: 'cursor', disabled: true }),
           engine({ id: 'opencode', disabled: true }),
         ],

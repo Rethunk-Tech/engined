@@ -15,6 +15,7 @@ import {
   argKeysAsFlags,
   argvFromArgs,
   assertNoForbiddenFlags,
+  CURSOR_FLOOR,
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
@@ -361,6 +362,8 @@ function runAgenticFixture(
     prompt: 'hello',
     bunx: BUNX,
     spawn,
+    // The spawn is fake, so bwrap never runs: only the argv it would be handed is read.
+    bwrap: '/usr/bin/bwrap',
     ...overrides,
   })
 }
@@ -509,13 +512,48 @@ test('runAgentic: an is_error envelope with exit 0 is reported as a failure, not
   expect(result.status).not.toBe(200)
 })
 
-test('runAgentic: command[0] resolves from the given bunx and the pin appears in argv, never latest', async () => {
+test('runAgentic: the command bwrap runs resolves from the given bunx and the pin appears in argv, never latest', async () => {
   const { spawn, calls } = fakeOkSpawn()
 
   await runAgenticFixture(spawn)
 
   const [argv] = calls[0] as [string[], unknown]
-  expect(pinnedBunxView(argv)).toEqual(PINNED_BUNX)
+  expect(argv[0]).toBe('/usr/bin/bwrap')
+  expect(pinnedBunxView(argv.slice(argv.indexOf('--') + 1))).toEqual(PINNED_BUNX)
+})
+
+test('runAgentic: claude and cursor launch under bwrap with their argv floors intact', async () => {
+  for (const [agent, floor] of [
+    ['claude', AGENTIC_FLOOR],
+    ['cursor', CURSOR_FLOOR],
+  ] as const) {
+    const { spawn, calls } = fakeOkSpawn()
+
+    await runAgenticFixture(spawn, { agent, resolveBinary: () => '/usr/bin/true' })
+
+    const [argv, opts] = calls[0] as [string[], { env: Record<string, string> }]
+    const launched = argv.slice(argv.indexOf('--') + 1)
+    expect(argv[0]).toBe('/usr/bin/bwrap')
+    expect(argv.slice(1, 4)).toEqual(['--ro-bind', '/', '/'])
+    expect(launched.join(' ')).toContain(floor.join(' '))
+    expect(requireEnv(opts.env, 'HOME')).toContain(`/agentic-home/${agent}/launch-`)
+  }
+})
+
+test('runAgentic: claude and cursor refuse with no bwrap rather than run loose', async () => {
+  for (const agent of ['claude', 'cursor']) {
+    const { spawn, calls } = fakeOkSpawn()
+
+    const result = await runAgenticFixture(spawn, {
+      agent,
+      bwrap: null,
+      resolveBinary: () => '/usr/bin/true',
+    })
+
+    expect(result.status).toBe(503)
+    expect(result.failure).toContain('needs bwrap')
+    expect(calls).toHaveLength(0)
+  }
 })
 
 test('runAgentic: --mcp-config in the spawned argv names a real file holding an empty MCP config', async () => {
@@ -555,7 +593,7 @@ test('runAgentic: extraEnv is set on the child alongside the allowlist and wins 
   expect(opts.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
 })
 
-test('runAgentic: opencode gets a fresh XDG home and a read-only Bun cache', async () => {
+test('runAgentic: opencode gets a fresh XDG home and its Bun cache behind a throwaway overlay', async () => {
   const { spawn, calls } = fakeSpawn({
     stdout: '{"type":"text","part":{"text":"ok"}}',
     stderr: '',
@@ -576,7 +614,12 @@ test('runAgentic: opencode gets a fresh XDG home and a read-only Bun cache', asy
   expect(opts.env.XDG_STATE_HOME).toBe(`${home}/state`)
   expect(cache).not.toContain('/launch-')
   const cacheIndex = argv.indexOf(cache)
-  expect(argv.slice(cacheIndex - 1, cacheIndex + 2)).toEqual(['--ro-bind', cache, cache])
+  expect(argv.slice(cacheIndex - 1, cacheIndex + 3)).toEqual([
+    '--overlay-src',
+    cache,
+    '--tmp-overlay',
+    cache,
+  ])
   expect(argv).toContain('--tmpfs')
   expect(argv).toContain('/run')
 })

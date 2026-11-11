@@ -185,7 +185,11 @@ export function agenticIntegrityTests(o: {
   prefix: string
   hookName: string
   plantHook: (workdir: string, witness: string) => void
-  call: (workdir: string, prompt: string) => Promise<RunAgenticResult>
+  call: (
+    workdir: string,
+    prompt: string,
+    sandboxWritable?: readonly string[],
+  ) => Promise<RunAgenticResult>
   timeoutMs: number
 }): void {
   describe.skipIf(!o.ready)(skipTitle(o.title, o.ready, o.skipReason), () => {
@@ -213,15 +217,16 @@ export function agenticIntegrityTests(o: {
       `no hook fires: a planted ${o.hookName} hook never appends to its witness file`,
       async () => {
         const workdir = scratchWorktree(o.prefix)
-        const witness = join(tmpdir(), `${o.prefix}witness-${Date.now()}.txt`)
-        rmSync(witness, { force: true })
+        // Bound writable into the sandbox, so a hook that fires writes where this test can see.
+        const witnessDir = mkdtempSync(join(tmpdir(), `${o.prefix}witness-`))
+        const witness = join(witnessDir, 'fired')
         o.plantHook(workdir, witness)
 
-        const result = await o.call(workdir, 'Say hello in one short sentence.')
+        const result = await o.call(workdir, 'Say hello in one short sentence.', [witnessDir])
 
         const witnessExists = existsSync(witness)
         rmSync(workdir, { recursive: true, force: true })
-        rmSync(witness, { force: true })
+        rmSync(witnessDir, { recursive: true, force: true })
 
         expect(result.status).toBe(200)
         expect(witnessExists).toBe(false)
