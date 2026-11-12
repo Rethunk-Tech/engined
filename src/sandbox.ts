@@ -117,6 +117,11 @@ const SENSITIVE_HOME_REL = [
   join('.local', 'share', 'keyrings'),
 ] as const
 
+const WORKTREE_HOME_REL = [
+  join('.cursor', 'worktrees'),
+  join('.claude', 'worktrees'),
+] as const
+
 function resolvedPath(path: string): string {
   try {
     return realpathSync(path)
@@ -138,6 +143,11 @@ export function workdirForbidden(
   const real = resolvedPath(workdir)
   if (isUnder(real, operatorHome)) {
     return `workdir ${workdir} covers the operator home`
+  }
+  // Linked worktrees of the operator's checkouts live here; their parents hold credentials.
+  const worktreeRoots = WORKTREE_HOME_REL.map((rel) => resolvedPath(join(operatorHome, rel)))
+  if (worktreeRoots.some((root) => real !== root && isUnder(root, real))) {
+    return undefined
   }
   const denied = [
     ...SENSITIVE_HOME_REL.map((rel) => join(operatorHome, rel)),

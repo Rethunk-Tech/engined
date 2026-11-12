@@ -158,6 +158,29 @@ test('tmpfs sandbox_mask paths before the workdir bind', () => {
   ])
 })
 
+bwrapIt('sandbox_mask hides siblings of the workdir but not the workdir itself', () => {
+  const root = scratch('engined-sandbox-mask-')
+  const workdir = join(root, 'one')
+  const sibling = join(root, 'two')
+  mkdirSync(workdir)
+  mkdirSync(sibling)
+  writeFileSync(join(workdir, 'seed.txt'), 'visible\n')
+  writeFileSync(join(sibling, '.env'), 'canary\n')
+  const home = scratch('engined-sandbox-home-')
+  const { code, stdout } = run(
+    sandboxArgv({
+      bwrap: BWRAP,
+      home,
+      workdir,
+      sandboxMask: [root],
+      argv: ['/bin/sh', '-c', `cat ${workdir}/seed.txt; cat ${sibling}/.env`],
+    }),
+  )
+  expect(stdout).toContain('visible')
+  expect(stdout).not.toContain('canary')
+  expect(code).not.toBe(0)
+})
+
 test('masks the operator home before binding anything back, and binds the workdir last', () => {
   const home = '/home/op'
   const argv = sandboxArgv({
@@ -253,6 +276,17 @@ test('refuses a workdir that is, contains, or sits inside a sensitive path', () 
   expect(workdirForbidden(join(home, '.ssh'), home)).toBeDefined()
   expect(workdirForbidden(join(home, '.ssh', 'keys'), home)).toBeDefined()
   expect(workdirForbidden(join(home, 'src', 'repo'), home)).toBeUndefined()
+  expect(workdirForbidden('/usr/local/src/com.github/Org/repo', home)).toBeUndefined()
+  for (const root of ['.cursor', '.claude']) {
+    const tree = join(home, root, 'worktrees', 'repo', 'wt1')
+    mkdirSync(tree, { recursive: true })
+    expect(workdirForbidden(tree, home)).toBeUndefined()
+    expect(workdirForbidden(join(home, root), home)).toBeDefined()
+    expect(workdirForbidden(join(home, root, 'worktrees'), home)).toBeDefined()
+  }
+  for (const rel of ['.gnupg', '.aws', join('.local', 'share', 'keyrings')]) {
+    expect(workdirForbidden(join(home, rel), home)).toBeDefined()
+  }
 })
 
 bwrapIt('hides a file under the operator home that the workdir does not cover', () => {
