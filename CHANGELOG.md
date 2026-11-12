@@ -5,6 +5,7 @@
 - The agentic sandbox refuses a workdir that is or sits under /proc, /sys, /dev, /run, /tmp or /var/tmp: the workdir bind lands after the masks, so `/run/user/<uid>` handed the agent the user bus and an unsandboxed `systemd-run`.
 - A symlinked agentic workdir (and a worktree git dir) is resolved once and that exact path is checked, bound and used as cwd, so a link flipped between the check and the bwrap launch cannot swap the bound tree.
 - The opencode Bun cache overlay is `<agent home>/bun`, no longer the parent of every launch home, so concurrent launches cannot read each other's in-progress homes.
+- `POST /engined/v1/start` resolves a chain's first hop the way the chain does, so audio chains start; an agentic concurrency slot is held until a streamed run settles; a model switch records its target before the stop and only when that call launched; an inconclusive `docker inspect` no longer marks a live container stopped; array message content reaches an agent CLI as its text parts; `stream_stall_seconds` applies to remote and agentic streams.
 - The config UI gives the same reason as the parser when a local-file field is set on an engine with no model store.
 - Inventory, model-discovery, usage, donor-spend, comfy-binding and agentic-version state files are all written to a temp file and renamed into place.
 - `engined completion <bash|zsh|fish>` and `engined man` are listed in `--help`, and `scripts/install.sh`, the AUR PKGBUILDs and the deb/rpm build install the completions and man page; `completion pwsh` is gone.
