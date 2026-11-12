@@ -24,7 +24,9 @@
  * What this floor does NOT close: outbound network, and the agent's own
  * environment. Under `pasta` the sandbox has a private network namespace that
  * forwards only the door's loopback ports, so abstract sockets and host
- * loopback services are out of reach, but an agent can still fetch a URL.
+ * loopback services are out of reach, but an agent can still fetch a URL and
+ * still reaches host services bound to non-loopback addresses (the docker
+ * bridge 172.17.0.1, br-* addresses, the tailscale IP).
  * Without `pasta` it shares the host namespace and reaches both. Whatever the child's env
  * carries -- a keyed upstream's provider key, say -- stays readable through
  * `/proc/self/environ`. Paths outside the home (`/etc`, `/opt`, another

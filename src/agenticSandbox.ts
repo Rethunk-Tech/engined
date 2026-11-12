@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
+import process from 'node:process'
 import { join } from 'node:path'
 import type { AgentCli } from './agents.ts'
 import {
@@ -49,6 +50,21 @@ export function usableBwrap(override?: string | null): string | null {
   return bwrap === null || bwrap === '' ? null : bwrap
 }
 
+/** The agent can `chmod 000` a directory it made under the home, which makes rmSync throw EACCES; the home is ours, so reopen it and retry once. */
+export function removeLaunchHome(home: string): void {
+  const remove = () => rmSync(home, { recursive: true, force: true })
+  try {
+    remove()
+  } catch {
+    try {
+      Bun.spawnSync(['chmod', '-R', 'u+rwX', '--', home])
+      remove()
+    } catch (err) {
+      process.stderr.write(`engined: agent launch home ${home} could not be removed: ${String(err)}\n`)
+    }
+  }
+}
+
 /** `argv` wrapped under bwrap, the launch home's env merged into `env` in place -- or `null` when this box has no bwrap to wrap it with. */
 export function applySandboxFloor(
   agent: AgentCli,
@@ -92,6 +108,6 @@ export function applySandboxFloor(
             },
     }),
     home,
-    cleanup: () => rmSync(home, { recursive: true, force: true }),
+    cleanup: () => removeLaunchHome(home),
   }
 }

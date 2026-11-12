@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Agentic launches no longer run a workdir's name as shell: a directory named with `$(...)` or quotes is opened as a path, and workdirs containing spaces launch again.
+- Launch-home cleanup survives an agent that `chmod 000`s a directory under its home: the home is reopened with `chmod -R u+rwX` and removed again, a remaining failure is logged in one line, and the launch's own cleanup still runs.
 - The agentic sandbox refuses a workdir that is or sits under /proc, /sys, /dev, /run, /tmp or /var/tmp: the workdir bind lands after the masks, so `/run/user/<uid>` handed the agent the user bus and an unsandboxed `systemd-run`.
 - A symlinked agentic workdir (and a worktree git dir) is resolved once and that exact path is checked, bound and used as cwd, so a link flipped between the check and the bwrap launch cannot swap the bound tree.
 - The agentic workdir (and a worktree git dir) is opened as a directory fd inside the launch, re-checked against the validated path, and bound with `--ro-bind-fd`, so swapping a parent directory between the check and bwrap's path lookup can no longer bind another tree (0 canary reads in 300 swap attempts, under pasta).

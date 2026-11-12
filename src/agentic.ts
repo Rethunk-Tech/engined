@@ -562,7 +562,10 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     Object.assign(env, input.extraEnv)
     return await spawnAndParse(agent, { argv, env, workdir }, input)
   } finally {
-    sandboxCleanup?.()
-    configured.cleanup?.()
+    try {
+      sandboxCleanup?.()
+    } finally {
+      configured.cleanup?.()
+    }
   }
 }

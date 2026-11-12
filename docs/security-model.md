@@ -141,8 +141,9 @@ planted settings hook for claude, a permissive `opencode.json` for opencode.
 namespace with outbound NAT: only the loopback ports named by the launch's
 door URL are forwarded in, and the host's abstract-namespace Unix sockets
 (X11) and loopback-only services are out of reach. Anything the host
-listens on at a LAN or tailnet address, and the whole outbound internet,
-stay reachable. Without `pasta` the launch warns and shares the host
+listens on at a non-loopback address (the docker bridge `172.17.0.1`, `br-*`
+bridge addresses, the tailscale IP, a LAN address), and the whole outbound
+internet, stay reachable from the sandbox. Without `pasta` the launch warns and shares the host
 network namespace, where abstract sockets and loopback services are
 reachable. claude's argv floor also restricts which _tools_ it
 has, so it cannot run shell or fetch a URL; opencode has no such restriction,
