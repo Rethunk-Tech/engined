@@ -674,6 +674,9 @@ test('runAgentic: opencode gets a fresh XDG home and its Bun cache behind a thro
   expect(opts.env.XDG_DATA_HOME).toBe(`${home}/data`)
   expect(opts.env.XDG_STATE_HOME).toBe(`${home}/state`)
   expect(cache).not.toContain('/launch-')
+  // An overlay over the launch homes' parent would let one launch read another's in-progress home.
+  expect(home.startsWith(`${cache}/`)).toBe(false)
+  expect(cache.endsWith('/bun')).toBe(true)
   const cacheIndex = argv.indexOf(cache)
   expect(argv.slice(cacheIndex - 1, cacheIndex + 3)).toEqual([
     '--overlay-src',

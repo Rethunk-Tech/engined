@@ -1,8 +1,10 @@
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AgentCli } from './agents.ts'
 import {
   copyLogins,
   resolveBwrap,
+  SANDBOX_BUN_DIR,
   sandboxArgv,
   sandboxEnv,
   sandboxHome,
@@ -40,7 +42,8 @@ export function applySandboxFloor(
   }
   const home = sandboxLaunchHome(agent.id)
   copyLogins(home, agent.logins ?? [])
-  const cache = agent.installCache?.() ?? sandboxHome(agent.id)
+  const cache = agent.installCache?.() ?? join(sandboxHome(agent.id), SANDBOX_BUN_DIR)
+  mkdirSync(cache, { recursive: true })
   Object.assign(input.env, sandboxEnv(home, cache))
   return {
     argv: sandboxArgv({
