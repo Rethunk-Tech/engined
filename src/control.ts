@@ -4,7 +4,7 @@
  * Every one of them answers about engines rather than serving content.
  */
 
-import { parseHop } from './chain.ts'
+import { routeForChainHop } from './chain.ts'
 import { hopsOfChain, resolveQualified } from './dispatch.ts'
 import { type DoorContext, getLlamaRouter } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
@@ -23,7 +23,6 @@ import {
   addressForRoute,
   LOCAL_UPSTREAM,
   qualifiedSegments,
-  routeForHop,
   siblingRouteCount,
 } from './routeAddress.ts'
 import type { ResolvedRoute } from './types.ts'
@@ -112,8 +111,7 @@ function resolveStartRoutes(
     if (first === undefined) {
       return { ok: false, error: `chain "${model}" has no hops` }
     }
-    const hop = parseHop(first)
-    const route = routeForHop(config.routes, hop.engine, hop.model, hop.upstream)
+    const route = routeForChainHop(config.routes, first)
     return route === undefined
       ? { ok: false, error: `chain "${model}"'s first hop "${first}" does not resolve to a route` }
       : { ok: true, routes: [route] }

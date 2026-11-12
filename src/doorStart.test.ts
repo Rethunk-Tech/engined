@@ -228,6 +228,24 @@ describe("POST /engined/v1/start: which of an engine's routes", () => {
   })
 })
 
+describe('POST /engined/v1/start: a modelless first hop', () => {
+  test('a chain whose first hop names an upstream, not a model, still starts', async () => {
+    const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+    writeEngineSpec(root, 'whisper-like', STT_SPEC)
+    const cfg = config({
+      engines: [engine({ id: 'whisper-like', models_dir: '/data/whisper' })],
+      routes: [route({ engine: 'whisper-like', upstream: 'local', model: undefined })],
+      chains: { 'chain-speech': ['@/whisper-like/local'] },
+    })
+    const { door, runLog } = recordingStartDoor(cfg, root)
+    const body = await startOk(door, 'chain-speech')
+    expect(body.data).toHaveLength(1)
+    expect(body.data[0]?.engine).toBe('whisper-like')
+    expect(body.data[0]?.state).toBe('running')
+    expect(runLog).toHaveLength(1)
+  })
+})
+
 describe('POST /engined/v1/start: the started field', () => {
   test('is true only on the call that launches the engine', async () => {
     const flags = await startedFlagsAcrossTwoCalls()
