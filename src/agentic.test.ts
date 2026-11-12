@@ -21,6 +21,7 @@ import {
 } from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
+import { scopedArgv } from './agentScope.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
 import { agentCli, parseClaudeEnvelope as parseEnvelope } from './agents.ts'
@@ -46,6 +47,14 @@ const MANY_OTHER_ARGS: Record<string, unknown> = {
   cwd: undefined,
   'session-id': 'abc-123',
 }
+
+test('scopedArgv: gives each agent its own memory-capped scope, and falls back to the bare argv without systemd-run', () => {
+  const scoped = scopedArgv(['/bin/claude', '-p'], '/usr/bin/systemd-run')
+  expect(scoped.slice(0, 3)).toEqual(['/usr/bin/systemd-run', '--user', '--scope'])
+  expect(scoped).toContain('MemoryMax=2G')
+  expect(scoped.slice(scoped.indexOf('--') + 1)).toEqual(['/bin/claude', '-p'])
+  expect(scopedArgv(['/bin/claude'], null)).toEqual(['/bin/claude'])
+})
 
 test("buildArgv: the floor's three flags all survive a long list of other args, and none of the four forbidden flags appear", () => {
   const argv = buildArgv({

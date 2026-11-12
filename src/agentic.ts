@@ -30,6 +30,7 @@ import {
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
 import { applySandboxFloor } from './agenticSandbox.ts'
+import { scopedArgv, scopeEnv } from './agentScope.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -118,9 +119,11 @@ export async function defaultAgenticSpawn(
   if (argv.length === 0) {
     throw new Error('agentic launch argv is empty')
   }
-  const child = Bun.spawn(argv, {
+  const systemdRun = Bun.which('systemd-run')
+  const child = Bun.spawn(scopedArgv(argv, systemdRun), {
     cwd: opts.cwd,
-    env: opts.env,
+    // systemd-run finds the user manager through this; the child env is otherwise an allowlist.
+    env: systemdRun === null ? opts.env : scopeEnv(opts.env),
     detached: true,
     stdin: 'pipe',
     stdout: 'pipe',
