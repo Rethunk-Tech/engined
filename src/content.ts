@@ -128,6 +128,7 @@ async function handleModelRouted(
     maxEgress: maxEgress.value,
     egressOf: (hop) => egressOf(ctx, hop),
     timeoutMs: chatTimeoutMs(ctx),
+    stallMs: ctx.getConfig().stream_stall_seconds * MS_PER_SECOND,
     signal,
     exec: buildHopExec(
       ctx,

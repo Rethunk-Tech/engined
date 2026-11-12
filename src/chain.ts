@@ -87,6 +87,8 @@ export interface RunChainOptions {
   timeoutMs: (hop: string) => number
   /** The client's own signal. Distinct from the per-hop timeout: when this fires there is no one left to answer, so the chain stops instead of advancing and billing the next provider. */
   signal?: AbortSignal
+  /** How long a streamed answer may sit unread before it is aborted and its record written. */
+  stallMs: number
   exec: HopExec
   /** Carried straight onto the emitted `CallRecord.vision_bridge` -- see `src/visionBridge.ts`. Absent on every call that bridged no image. */
   visionBridgeAttempts?: Attempt[]
@@ -229,15 +231,21 @@ export function classifyResult(result: HopResult): {
   return { advance: false, ok: true }
 }
 
+/** The one failure string a stream abandoned by its reader records, the same reading `pipeUpstream` gives a local stream. */
+const STALLED_FAILURE = 'client stalled: the caller stopped reading'
+
 /** Forwards chunks unchanged; a read that throws mid-body reports the failure instead of restarting the prompt elsewhere. `onDone` is handed the byte count actually forwarded, so a caller that classifies by body size sees what the client received rather than nothing at all. */
 export function wrapStream<T>(
   source: ReadableStream<T>,
   onDone: (ok: boolean, failure?: string, bytes?: number) => void,
   /** Handed every byte chunk as it is forwarded, for a caller reading something out of the frames themselves. Rides the `isView` branch the byte count already takes, so a non-byte stream costs nothing. */
   scan?: (chunk: Uint8Array) => void,
+  /** Absent means no deadline: an unread stream then holds its upstream socket until the client goes or the source ends. */
+  stallMs?: number,
 ): ReadableStream<T> {
   const reader = source.getReader()
   let forwarded = 0
+  let stall: ReturnType<typeof setTimeout> | undefined
   // Whichever terminus arrives first owns the line; `cancel` can still fire
   // after a `pull` has closed the stream.
   let settled = false
@@ -247,6 +255,7 @@ export function wrapStream<T>(
       return
     }
     settled = true
+    clearTimeout(stall)
     onDone(ok, failure, forwarded)
   }
   return new ReadableStream<T>({
@@ -266,6 +275,7 @@ export function wrapStream<T>(
     async pull(controller) {
       pulling = true
       try {
+        clearTimeout(stall)
         const { done, value } = await reader.read()
         if (done) {
           controller.close()
@@ -277,6 +287,15 @@ export function wrapStream<T>(
           scan?.(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
         }
         controller.enqueue(value)
+        // A full queue is a chunk the client has not taken; only a later read
+        // clears the deadline, so an abandoned read is what fires it.
+        if (stallMs !== undefined && (controller.desiredSize ?? 0) <= 0) {
+          stall = setTimeout(() => {
+            controller.error(new Error(STALLED_FAILURE))
+            settle(false, STALLED_FAILURE)
+            reader.cancel(STALLED_FAILURE).catch(() => undefined)
+          }, stallMs)
+        }
       } catch (err) {
         controller.error(err)
         settle(false, errMessage(err))
@@ -461,6 +480,7 @@ function finalizeTerminal(
     (chunk) => {
       scanner.push(chunk)
     },
+    opts.stallMs,
   )
   return { status: result.status, body: result.body, stream, engineUsed: engine, headers }
 }

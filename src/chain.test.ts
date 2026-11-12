@@ -23,6 +23,8 @@ import {
 import type { Egress } from './types.ts'
 
 const DEFAULT_TIMEOUT_MS = 2000
+/** Long enough that no test but the stall ones reaches it while streaming. */
+const DEFAULT_STALL_MS = 60_000
 
 /** The engine a hop names, whether written qualified (`@/engine/...`) or as a bare engine id. */
 function engineOf(hop: string): string {
@@ -113,6 +115,7 @@ function baseOpts(
     requested: 'chain-test-chain',
     egressOf: () => 'remote',
     timeoutMs: () => DEFAULT_TIMEOUT_MS,
+    stallMs: DEFAULT_STALL_MS,
     // Without this every runChain here writes its provenance line to the real
     // stdout; a test that asserts on the line passes its own collector.
     record: (record) => recordCall(record, write ?? (() => undefined)),
@@ -743,6 +746,35 @@ test('a stream whose source fails while the client is reading nothing still emit
 
   const record = soleProvenanceRecord(lines)
   expect(record.attempts[0]?.failure).toBe('client stalled: read nothing for 60s')
+})
+
+test('a remote stream whose client reads nothing is released at the stall budget', async () => {
+  const { lines, write } = collectLines()
+  const source = { cancelled: false }
+  const exec: HopExec = () =>
+    Promise.resolve({
+      status: 200,
+      stream: new ReadableStream<Uint8Array>({
+        start(controller) {
+          // One chunk fills the wrapper's own queue, which is the state a
+          // client that stopped reading leaves its stream in.
+          controller.enqueue(new TextEncoder().encode('data: chunk\n\n'))
+        },
+        cancel() {
+          source.cancelled = true
+        },
+      }),
+    })
+
+  await runChain(['@/e1/m'], baseOpts({ exec, write, stallMs: 20 }))
+  await Bun.sleep(80)
+
+  // Without a stall deadline this line is never written: the socket stays
+  // open and the spend it already incurred is never recorded.
+  const record = soleProvenanceRecord(lines)
+  expect(record.attempts[0]?.ok).toBe(false)
+  expect(record.attempts[0]?.failure).toContain('client stalled')
+  expect(source.cancelled).toBe(true)
 })
 
 test('a client abort stops the chain instead of advancing and billing the next provider', async () => {

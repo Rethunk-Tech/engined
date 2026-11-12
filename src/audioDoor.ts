@@ -299,6 +299,7 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
     // Every audio hop is a container or a vendor's HTTP endpoint; none is an
     // agentic CLI, so there is one budget rather than a per-kind lookup.
     timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
+    stallMs: config.stream_stall_seconds * MS_PER_SECOND,
     signal: opts.signal,
     exec: audioHopExec(ctx, opts.endpoint, opts.attempt, (ct) => {
       contentType = ct
