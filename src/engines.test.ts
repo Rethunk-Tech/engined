@@ -1121,9 +1121,9 @@ describe('model-bearing stt: switching models is a stop-and-restart', () => {
 })
 
 /**
- * Holds the first `docker inspect` that follows the container's own `run`:
- * the status probe `start` ends with, which is the window a caller's lease
- * has not been taken in yet.
+ * Holds the first `docker port` that follows the container's own `run`: a
+ * point inside the start, after the container exists and before the caller's
+ * lease is taken.
  */
 function holdingProbe(reached: () => void, held: Promise<void>): (base: Exec) => Exec {
   let ran = false
@@ -1132,7 +1132,7 @@ function holdingProbe(reached: () => void, held: Promise<void>): (base: Exec) =>
     if (args[0] === 'run') {
       ran = true
     }
-    if (ran && !holding && args[0] === 'inspect') {
+    if (ran && !holding && args[0] === 'port') {
       holding = true
       reached()
       await held
@@ -1149,8 +1149,7 @@ test('a model switch cannot stop a container out from under a start still in fli
     const first = reg.start('whisper-like', 'small')
     await atProbe.promise
 
-    // The first start has its container up and is inside its closing probe;
-    // its caller takes a lease only once that returns.
+    // The first start has its container up and has not yet taken its lease.
     await expect(reg.start('whisper-like', 'big')).rejects.toThrow(EngineBusyError)
     release.resolve()
     await first
@@ -1159,6 +1158,24 @@ test('a model switch cannot stop a container out from under a start still in fli
     expect(stopLog).toHaveLength(0)
   } finally {
     release.resolve()
+    await reg.shutdown()
+  }
+})
+
+test('a start on a running container asks docker once, not once to reconcile and again to report', async () => {
+  const inspects: (readonly string[])[] = []
+  const { reg } = sttSwitchRegistry((base) => (args) => {
+    if (args[0] === 'inspect') {
+      inspects.push(args)
+    }
+    return base(args)
+  })
+  try {
+    await reg.start('whisper-like', 'small')
+    inspects.length = 0
+    await reg.start('whisper-like', 'small', { lease: true })
+    expect(inspects).toHaveLength(1)
+  } finally {
     await reg.shutdown()
   }
 })

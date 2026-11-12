@@ -365,7 +365,19 @@ export class EngineRegistry {
       if (opts?.lease === true) {
         this.lifecycle.beginLease(id)
       }
-      return { ...(await this.statusFor(entry)), launched: launched ?? false }
+      // Read after the lease so it reports it; probing again would repeat the
+      // `docker inspect` `lifecycle.start` just made on every request.
+      return {
+        ...this.inventoryWatch.withFix(
+          statusFrom({
+            engine: entry.engine,
+            spec: entry.spec.spec,
+            runtime: this.lifecycle.getStatus(id),
+            routes: this.config.routes,
+          }),
+        ),
+        launched: launched ?? false,
+      }
     } finally {
       this.residency.leave(id)
     }
