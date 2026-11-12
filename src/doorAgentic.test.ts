@@ -38,6 +38,7 @@ import {
 import type { Config, Upstream } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-door-agentic-test-')
+const STATE_ROOT = makeTestRoot('engined-door-agentic-state-')
 
 /** Moonshot serves an Anthropic-shaped endpoint, so claude's own launch redirects to it unchanged -- only its upstream differs. */
 function moonshotUpstream(): Upstream {
@@ -525,7 +526,7 @@ function renderedOpencodeBaseUrl(path: string): string {
  */
 async function withOpencodeLaunchEnv(body: () => Promise<void>): Promise<void> {
   const previousBwrap = process.env.ENGINED_BWRAP
-  const restoreStateHome = redirectStateHome(TEST_ROOT)
+  const restoreStateHome = redirectStateHome(STATE_ROOT)
   process.env.ENGINED_BWRAP = '/bin/true'
   try {
     await body()

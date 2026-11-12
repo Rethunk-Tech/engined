@@ -440,13 +440,13 @@ test('system chat messages reach claude through a file in launch HOME, not argv 
   })
   const { spawn, calls } = fakeOkSpawn()
   let fromFile = ''
-  const wrapped: AgenticSpawn = (argv, opts) => {
-    const flag = argv.indexOf('--append-system-prompt-file')
-    const promptFile = argv[flag + 1]
+  const wrapped: AgenticSpawn = (launchArgv, launchOpts) => {
+    const flag = launchArgv.indexOf('--append-system-prompt-file')
+    const promptFile = launchArgv[flag + 1]
     if (typeof promptFile === 'string') {
       fromFile = readFileSync(promptFile, 'utf8')
     }
-    return spawn(argv, opts)
+    return spawn(launchArgv, launchOpts)
   }
 
   await runAgenticFixture(wrapped, { prompt, systemPrompt })

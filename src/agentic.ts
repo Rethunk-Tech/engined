@@ -30,7 +30,6 @@ import {
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
 import { applySandboxFloor } from './agenticSandbox.ts'
-import { workdirForbidden } from './sandbox.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -43,6 +42,7 @@ import type { ExecResult } from './exec.ts'
 import { STATUS_BAD_GATEWAY, STATUS_BAD_REQUEST, STATUS_OK, STATUS_UNAVAILABLE } from './http.ts'
 import { stateDir } from './paths.ts'
 import type { Usage } from './provenance.ts'
+import { workdirForbidden } from './sandbox.ts'
 
 const STDERR_TAIL_CHARS = 300
 // stderrTail only ever reads the final STDERR_TAIL_CHARS of what is captured
@@ -541,7 +541,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     sandboxCleanup = sandboxed.cleanup
     ;({ argv } = sandboxed)
     if (input.systemPrompt !== undefined) {
-      const promptFile = join(env.HOME ?? '', 'append-system-prompt')
+      const promptFile = join(env.HOME, 'append-system-prompt')
       writeFileSync(promptFile, input.systemPrompt)
       const flag = argv.indexOf('--append-system-prompt-file')
       if (flag >= 0) {

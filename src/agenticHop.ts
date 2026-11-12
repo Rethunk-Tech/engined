@@ -87,7 +87,6 @@ const AGENTIC_UNHONOURABLE: Record<string, (value: unknown) => boolean> = {
 
 /** The two list-of-tools fields, which a `"none"` choice cancels however long the list is. */
 const AGENTIC_TOOL_LISTS = new Set(['tools', 'functions'])
-
 /**
  * Which of those fields this body carries a demanding value for, in the
  * order a caller would read them back. A caller's `null` unsets a wire
