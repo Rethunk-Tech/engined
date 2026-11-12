@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import {
+  COMPLETION_SHELLS,
   completionExit,
   generateCompletion,
   generateMan,
@@ -44,12 +45,14 @@ test('helpCommands reads only the commands block, and nothing when there is none
 })
 
 test('every shell completes the commands and the flags, and an unknown shell is refused', () => {
-  for (const shell of ['bash', 'zsh', 'fish', 'pwsh']) {
+  for (const shell of COMPLETION_SHELLS) {
     const text = generateCompletion(shell, HELP)
     expect(text, shell).toMatch(/(?:--|-l )probe/)
     expect(text, shell).toMatch(/-(?:-|l )json/)
   }
-  expect(() => generateCompletion('tcsh', HELP)).toThrow('supported: bash, zsh, fish, pwsh')
+  expect(() => generateCompletion('tcsh', HELP)).toThrow(
+    `supported: ${COMPLETION_SHELLS.join(', ')}`,
+  )
 })
 
 test('the man page escapes a backslash and a leading dot or quote so roff reads them as text', () => {
