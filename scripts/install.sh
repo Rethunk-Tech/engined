@@ -137,6 +137,15 @@ install_completions() {
   "$@" completion zsh >"$zsh_dir/_engined"
   "$@" completion fish >"$fish_dir/engined.fish"
   "$@" man >"$man_dir/engined.1"
+  zsh_fpath_hint "$zsh_dir"
+}
+
+# zsh does not search ~/.local/share/zsh/site-functions by default; say so
+# when the directory is missing from the fpath zsh would start with.
+zsh_fpath_hint() {
+  command -v zsh >/dev/null || return 0
+  zsh -c 'print -l $fpath' 2>/dev/null | grep -qxF "$1" && return 0
+  echo "install.sh: zsh completion needs 'fpath+=($1)' before compinit in ~/.zshrc" >&2
 }
 
 main() {

@@ -92,6 +92,14 @@ install -Dm644 /tmp/engined-assets/engined.bash ~/.local/share/bash-completion/c
 install -Dm644 /tmp/engined-assets/_engined ~/.local/share/zsh/site-functions/_engined
 ```
 
+That directory is not on zsh's default `fpath`; add this line to `~/.zshrc`
+before `compinit` (`scripts/install.sh` prints it when needed, and packaged
+installs under `/usr/share/zsh/site-functions` need nothing):
+
+```zsh
+fpath+=(~/.local/share/zsh/site-functions)
+```
+
 ```fish
 install -Dm644 /tmp/engined-assets/engined.fish ~/.config/fish/completions/engined.fish
 ```
