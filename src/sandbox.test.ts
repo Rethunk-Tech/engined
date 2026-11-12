@@ -457,6 +457,23 @@ test.each([
   expect(workdirForbidden(path)).toContain('runtime directory')
 })
 
+test('the pin prelude opens a directory whose name is shell syntax without running it', () => {
+  const canary = join(TEST_ROOT, 'pin-canary')
+  rmSync(canary, { force: true })
+  const odd = join(TEST_ROOT, `pin $(touch ${canary}) \`touch ${canary}\` ; ' " *`)
+  mkdirSync(odd, { recursive: true })
+  const argv = sandboxArgv({ bwrap: BWRAP, home: '/h', workdir: odd, argv: ['/bin/true'] })
+  const dirsAt = argv.indexOf('_') + 1
+  const opened = Bun.spawnSync([...argv.slice(0, dirsAt), odd, '--', '/bin/echo', 'ran'], {
+    stderr: 'pipe',
+  })
+
+  expect(opened.stderr.toString()).toBe('')
+  expect(opened.exitCode).toBe(0)
+  expect(opened.stdout.toString().trim()).toBe('ran')
+  expect(existsSync(canary)).toBe(false)
+})
+
 test('the pin prelude runs the command when each directory is what it was validated as, and refuses with 125 when it is not', () => {
   const real = mkdtempSync(join(TEST_ROOT, 'pin-real-'))
   const link = join(TEST_ROOT, 'pin-link')

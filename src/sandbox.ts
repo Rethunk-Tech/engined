@@ -411,7 +411,7 @@ const PIN_FD_BASE = 9
  */
 const PIN_DIRS_SCRIPT = `n=${PIN_FD_BASE}
 while [ "$1" != -- ]; do
-  eval "exec $n<"$1"" || exit 125
+  eval "exec $n<\\"\\$1\\"" || exit 125
   [ "$(readlink "/proc/self/fd/$n")" = "$1" ] || { echo "engined: $1 changed while launching" >&2; exit 125; }
   n=$((n+1)); shift
 done
