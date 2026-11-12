@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.15 - 2026-11-12
 
 - The agent version proof fetches into a private Bun cache and moves only the new pin into the shared cache after every probe passes (discarded on failure), so a probed agent can no longer write to the other pins the shared cache holds.
 - Agentic launches no longer run a workdir's name as shell: a directory named with `$(...)` or quotes is opened as a path, and workdirs containing spaces launch again.
