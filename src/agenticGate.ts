@@ -18,7 +18,7 @@ import {
   roundTripTargetFor,
   writeVerifiedVersion,
 } from './agenticProbe.ts'
-import { resolveCursorBinary, sweepOrphanOpencodeDirs } from './agents.ts'
+import { agentCli, sweepOrphanOpencodeDirs } from './agents.ts'
 import type { ObservedVersion } from './agentVersion.ts'
 import { baseStatus } from './engineEntries.ts'
 import { mintLaunchNonce } from './launchNonce.ts'
@@ -33,11 +33,12 @@ export type ObserveAgentVersion = (
 ) => Promise<ObservedVersion>
 
 function observationKey(agent: string, configuredVersion: string): string {
-  if (agent !== 'cursor') {
+  const resolveBinary = agentCli(agent)?.resolveBinary
+  if (resolveBinary === undefined) {
     return configuredVersion
   }
   try {
-    const binary = realpathSync(resolveCursorBinary())
+    const binary = realpathSync(resolveBinary())
     return `${binary}:${statSync(binary).mtimeMs}`
   } catch {
     return configuredVersion
@@ -188,9 +189,10 @@ export class AgenticGate {
    *
    * Keyed by the binary's realpath and mtime when the agent resolves its own
    * file (cursor lives under versions/<ver>/), else by the configured pin.
-   * A listing answers from the last observation for that key and does not
-   * spawn again until the key changes. A launch (`fresh`) waits for an
-   * in-flight observation when none has landed yet.
+   * A successful observation of a binary key is final for it, so neither a
+   * listing nor a launch spawns again until the binary changes; a failed one
+   * is retried. A pin-keyed observation spawns nothing, so it is refreshed
+   * on every call.
    */
   private observedVersion(
     engineId: string,
@@ -202,15 +204,16 @@ export class AgenticGate {
     const cached = this.versionObservations.get(engineId)
     const state = cached?.configured === key ? cached : { configured: key }
     this.versionObservations.set(engineId, state)
-    if (state.inFlight === undefined) {
-      state.inFlight = this.observeAgentVersion(agent, configuredVersion)
-        .catch((err): ObservedVersion => ({ ok: false, error: errMessage(err) }))
-        .then((observed) => {
-          state.last = observed
-          state.inFlight = undefined
-          return observed
-        })
+    if (state.last?.ok === true && key !== configuredVersion) {
+      return Promise.resolve(state.last)
     }
+    state.inFlight ??= this.observeAgentVersion(agent, configuredVersion)
+      .catch((err): ObservedVersion => ({ ok: false, error: errMessage(err) }))
+      .then((observed) => {
+        state.last = observed
+        state.inFlight = undefined
+        return observed
+      })
     return fresh || state.last === undefined ? state.inFlight : Promise.resolve(state.last)
   }
 

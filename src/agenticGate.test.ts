@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { chmodSync, writeFileSync } from 'node:fs'
+import { chmodSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { AgenticSpawn } from './agentic.ts'
@@ -52,6 +52,48 @@ serves = ["/openai/v1/chat/completions"]
     await reg.list()
     await reg.list()
     expect(spawns).toBe(1)
+  } finally {
+    process.env.PATH = prevPath
+    clearVerifiedVersion(id)
+    restoreState()
+  }
+})
+
+test('a cursor binary replaced at the same path spawns --version again', async () => {
+  const restoreState = redirectStateHome()
+  const id = 'cursor-observe-mtime'
+  clearVerifiedVersion(id)
+  const agentPath = join(BIN_ROOT, 'agent')
+  writeFileSync(agentPath, '#!/bin/sh\necho 1.0.0\n')
+  chmodSync(agentPath, 0o755)
+  utimesSync(agentPath, 1000, 1000)
+  const root = newEnginesRoot()
+  writeEngineSpec(
+    root,
+    id,
+    `
+kind = "agentic-cli"
+upstream = "optional"
+agent = "cursor"
+serves = ["/openai/v1/chat/completions"]
+`,
+  )
+  let spawns = 0
+  const exec: AgenticSpawn = () => {
+    spawns += 1
+    return Promise.resolve({ stdout: '1.0.0\n', stderr: '', exitCode: 0 })
+  }
+  const prevPath = process.env.PATH
+  process.env.PATH = `${BIN_ROOT}${prevPath === undefined ? '' : `:${prevPath}`}`
+  try {
+    const reg = registry(config({ engines: [engine({ id, agent_version: '1.0.0' })] }), root, {
+      observeAgentVersion: (agent, ver) => observeAgentVersion(agent, ver, exec),
+      agenticProbeRunner: () => Promise.resolve({ ok: true }),
+    })
+    await reg.list()
+    utimesSync(agentPath, 2000, 2000)
+    await reg.list()
+    expect(spawns).toBe(2)
   } finally {
     process.env.PATH = prevPath
     clearVerifiedVersion(id)
