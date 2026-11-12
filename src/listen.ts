@@ -17,11 +17,15 @@ export function bindDoor(
   serve: typeof Bun.serve = Bun.serve,
 ): EnginedServer[] {
   // Bun's default 10s timer closes with no body; it also rejects a value
-  // above 255. 255s is finite for stalled header/body reads and still the
-  // longest inter-chunk gap a streaming response can sit idle. The hop
-  // budget is engined's. `websocket` is the comfy proxy upgrade only.
+  // above 255. 255s bounds a stalled header read; once a request reaches the
+  // handler the timer is off for it, because a non-streaming hop may sit
+  // silent for `chat_timeout_seconds` (default 600) and the hop budget is
+  // engined's. `websocket` is the comfy proxy upgrade only.
   const serveOpts = {
-    fetch,
+    fetch: ((req, server) => {
+      server?.timeout(req, 0)
+      return fetch(req, server)
+    }) as Door['fetch'],
     error(err: Error) {
       return jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err))
     },
