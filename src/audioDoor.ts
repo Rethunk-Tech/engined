@@ -9,9 +9,9 @@ import { DEFAULT_IDLE_STOP_SECONDS } from './engineEntries.ts'
 import type { DoorResponse, EngineStart, SpeechRequestBody } from './audio.ts'
 import { SPEECH_DOOR_KEYS } from './audio.ts'
 import { handleSpeech } from './audioSpeech.ts'
-import { classifyResult, type HopExec, runChain, wrapStream } from './chain.ts'
+import { type HopExec, runChain } from './chain.ts'
 import { routeAddress } from './control.ts'
-import { resolveOrRefuse, resolveQualified, routeEgress } from './dispatch.ts'
+import { type Dispatch, resolveOrRefuse, resolveQualified, routeEgress } from './dispatch.ts'
 import { type DoorContext, recordDoorCall } from './doorContext.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import {
@@ -22,80 +22,12 @@ import {
   STATUS_BAD_GATEWAY,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
-import { answeringHeaders, type CallRecord } from './provenance.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
 import { LOCAL_UPSTREAM, qualifiedSegments, routeForHop } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_SPEECH } from './routeServes.ts'
 import type { Config, Egress, ResolvedRoute } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
 import { resolveVoice } from './voices.ts'
-
-interface AudioCallInfo {
-  engineId: string
-  /** The model segment of the resolved address, when the engine's routes carry one. Absent for a modelless engine. */
-  model?: string
-  /** The resolved route's `[[upstream]]` id, or `"local"`. Absent for an ambient route, the same disposition a chat hop's carries. */
-  upstream?: string
-  /** The route's own `@/...` address, for the answering-route header -- this call has no chain fallback, so the route resolved before dispatch is the route that answers. */
-  address: string
-  egress: Egress
-  requested: string
-  result: DoorResponse
-  startedAt: number
-}
-
-/**
- * Audio provenance is classified by the same rule a chain hop is: one place
- * decides ok-vs-failure, so a failed audio call records WHY it failed and a
- * 200 carrying no audio is not recorded as a success. A streamed call holds
- * no buffered `bytes`, so its line waits for the stream and reports the bytes
- * it actually forwarded -- a stream that ended having delivered audio is a
- * success, and one that died mid-body is not.
- */
-function recordAudioCall(ctx: DoorContext, info: AudioCallInfo): DoorResponse {
-  const { engineId, model, upstream, requested, result, startedAt } = info
-  const emit = (audioBytes: number, streamFailure?: string): void => {
-    const verdict = classifyResult({
-      status: result.status,
-      body: audioBytes > 0 ? 'audio' : result.body,
-    })
-    const ok = verdict.ok && streamFailure === undefined
-    const failure = streamFailure ?? verdict.failure
-    const record: CallRecord = {
-      chain: null,
-      requested,
-      attempts: [
-        {
-          engine: engineId,
-          // A modelless engine (every TTS route, most STT ones) has no
-          // separate model id, so the engine id is the honest fill-in --
-          // the same convention the chat path's own Attempt.model follows.
-          model: model ?? engineId,
-          ok,
-          ...(failure === undefined ? {} : { failure }),
-          duration_ms: Date.now() - startedAt,
-          upstream_used: upstream,
-        },
-      ],
-      engine_used: ok ? engineId : null,
-      // The record's field names the upstream that actually answered, so it
-      // is null wherever `engine_used` is -- the attempt above keeps the
-      // resolved id either way.
-      upstream_used: ok ? (upstream ?? null) : null,
-    }
-    recordDoorCall(ctx, record)
-  }
-  if (!result.stream) {
-    emit(result.bytes?.byteLength ?? 0)
-    return result
-  }
-  return {
-    ...result,
-    stream: wrapStream(result.stream, (ok, streamFailure, bytes) =>
-      emit(bytes ?? 0, ok ? undefined : (streamFailure ?? 'stream ended before completion')),
-    ),
-  }
-}
 
 /** `headers` carries the answering-route fields already, if any; every branch just adds its own `Content-Type` on top rather than building a fresh header set. */
 function doorResponseToResponse(result: DoorResponse, headers?: Headers): Response {
@@ -119,7 +51,7 @@ function doorResponseToResponse(result: DoorResponse, headers?: Headers): Respon
 }
 
 /** Whether this call's `audioStart` actually took a lease -- the only thing entitled to give one back. */
-export interface AudioLease {
+interface AudioLease {
   held: boolean
 }
 
@@ -148,57 +80,8 @@ function armAudioIdleStop(ctx: DoorContext, engineId: string, leased: AudioLease
 }
 
 /**
- * Ends the call's lease when the call actually ends.
- *
- * A streamed response returns as soon as its headers and stream are handed
- * back, while the engine is still producing into it -- a transcription decoded
- * during upload runs for as long as the caller keeps talking. Arming the
- * countdown at that moment aims it at a request still in flight, so the lease
- * ends on the same signal the provenance line waits for: the body finishing.
- */
-function endAudioLease(
-  ctx: DoorContext,
-  engineId: string,
-  leased: AudioLease,
-  result: DoorResponse,
-): DoorResponse {
-  if (!result.stream) {
-    armAudioIdleStop(ctx, engineId, leased)
-    return result
-  }
-  return {
-    ...result,
-    stream: wrapStream(result.stream, () => armAudioIdleStop(ctx, engineId, leased)),
-  }
-}
-
-/**
- * How every audio call ends: the one provenance line is recorded, the lease
- * ends when the body actually does, and what is left is an HTTP response.
- * Both verbs share the sequence because the order within it is load-bearing --
- * `endAudioLease` wraps the stream `recordAudioCall` already wrapped, so the
- * countdown is armed after the line is written rather than racing it.
- */
-export function finishAudioCall(
-  ctx: DoorContext,
-  leased: AudioLease,
-  info: AudioCallInfo,
-): Response {
-  return doorResponseToResponse(
-    endAudioLease(ctx, info.engineId, leased, recordAudioCall(ctx, info)),
-    answeringHeaders({
-      route: info.address,
-      upstreamUsed: info.upstream ?? null,
-      egress: info.egress,
-      chain: null,
-    }),
-  )
-}
-
-/**
- * One audio verb aimed at one engine. The chain path calls it once per hop and
- * the single-address path once; each supplies the engine and model the hop
- * resolved to, so nothing below has to know which of the two it is serving.
+ * One audio verb aimed at one engine, called once per hop with the engine and
+ * model the hop resolved to.
  */
 export type AudioAttempt = (
   engineId: string,
@@ -228,8 +111,8 @@ function audioHopRoute(ctx: DoorContext, hop: string, endpoint: string) {
 
 /**
  * One hop of an audio chain: its own engine, its own lease, its own attempt in
- * the provenance line. The lease is per hop rather than per call -- a hop that
- * failed must give its engine back before the next one is asked, or a chain of
+ * the provenance line. The lease is per hop rather than per call -- `hold`
+ * gives the previous hop's engine back before this one is asked, or a chain of
  * three would hold three engines open to answer once.
  *
  * A hop that will not resolve answers 502 rather than 400, because a 5xx is
@@ -240,6 +123,7 @@ function audioHopExec(
   endpoint: string,
   attempt: AudioAttempt,
   setContentType: (ct: string) => void,
+  hold: (engineId: string, leased: AudioLease) => void,
 ): HopExec {
   return async (hop) => {
     const dispatch = audioHopRoute(ctx, hop, endpoint)
@@ -248,14 +132,13 @@ function audioHopExec(
     }
     const { route } = dispatch
     const leased: AudioLease = { held: false }
-    const result = endAudioLease(
-      ctx,
-      route.engine,
-      leased,
-      await attempt(route.engine, route.model, audioStart(ctx, leased)),
-    )
+    hold(route.engine, leased)
+    const result = await attempt(route.engine, route.model, audioStart(ctx, leased))
     setContentType(result.contentType)
     return {
+      // A modelless engine (every TTS route, most STT ones) has no separate
+      // model id, so the engine id is the honest fill-in.
+      model: route.model ?? route.engine,
       status: result.status,
       body: result.body,
       bytes: result.bytes,
@@ -266,8 +149,7 @@ function audioHopExec(
 }
 
 interface AudioChain {
-  chain: string
-  hops: readonly string[]
+  resolved: Extract<Dispatch, { ok: true }>
   requested: string
   endpoint: string
   attempt: AudioAttempt
@@ -275,9 +157,13 @@ interface AudioChain {
 }
 
 /**
- * A chain across audio engines, walked by the same `runChain` a chat prompt
- * uses: one provenance line carrying every hop, and the first hop that answers
- * is the answer.
+ * An audio call, walked by the same `runChain` a chat prompt uses: one
+ * provenance line carrying every hop, and the first hop that answers is the
+ * answer. A direct `@/...` address is the one-hop case with no chain name.
+ *
+ * The last hop's lease ends when the provenance line has been written, which
+ * for a stream is when the body does; an earlier hop's ends as the next is
+ * asked.
  *
  * No `maxEgress`. The chat door reads a `max_egress` field off the request
  * body, and an audio body has no room for one -- a speech field engined does
@@ -286,26 +172,52 @@ interface AudioChain {
  */
 export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise<Response> {
   let contentType = JSON_CONTENT_TYPE
+  let held: { engineId: string; leased: AudioLease } | undefined
+  const release = (): void => {
+    if (held !== undefined) {
+      armAudioIdleStop(ctx, held.engineId, held.leased)
+      held = undefined
+    }
+  }
   const config = ctx.getConfig()
-  const result = await runChain([...opts.hops], {
-    chain: opts.chain,
-    requested: opts.requested,
-    egressOf: (hop): Egress => {
-      const dispatch = audioHopRoute(ctx, hop, opts.endpoint)
-      // Fail closed, the same reading the chat door's own egressOf takes: a hop
-      // that resolves to no route could be anything, so it is treated as remote.
-      return dispatch.ok ? routeEgress(dispatch.route, config) : 'remote'
+  const { resolved } = opts
+  const result = await runChain(
+    resolved.kind === 'chain' ? [...resolved.hops] : [routeAddress(resolved.route, config.routes)],
+    {
+      chain: resolved.kind === 'chain' ? resolved.chain : null,
+      requested: opts.requested,
+      egressOf: (hop): Egress => {
+        const dispatch = audioHopRoute(ctx, hop, opts.endpoint)
+        // Fail closed, the same reading the chat door's own egressOf takes: a hop
+        // that resolves to no route could be anything, so it is treated as remote.
+        return dispatch.ok ? routeEgress(dispatch.route, config) : 'remote'
+      },
+      // Every audio hop is a container or a vendor's HTTP endpoint; none is an
+      // agentic CLI, so there is one budget rather than a per-kind lookup.
+      timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
+      stallMs: config.stream_stall_seconds * MS_PER_SECOND,
+      signal: opts.signal,
+      exec: audioHopExec(
+        ctx,
+        opts.endpoint,
+        opts.attempt,
+        (ct) => {
+          contentType = ct
+        },
+        (engineId, leased) => {
+          release()
+          held = { engineId, leased }
+        },
+      ),
+      record: (record) => {
+        // A direct address that failed answered nothing: the line names no
+        // engine, the same as every other single-engine verb's.
+        const failed = record.chain === null && record.attempts.at(-1)?.ok !== true
+        recordDoorCall(ctx, failed ? { ...record, engine_used: null, upstream_used: null } : record)
+        release()
+      },
     },
-    // Every audio hop is a container or a vendor's HTTP endpoint; none is an
-    // agentic CLI, so there is one budget rather than a per-kind lookup.
-    timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
-    stallMs: config.stream_stall_seconds * MS_PER_SECOND,
-    signal: opts.signal,
-    exec: audioHopExec(ctx, opts.endpoint, opts.attempt, (ct) => {
-      contentType = ct
-    }),
-    record: (record) => recordDoorCall(ctx, record),
-  })
+  )
   return doorResponseToResponse(
     {
       status: result.status,
@@ -319,31 +231,6 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
     },
     result.headers,
   )
-}
-
-/**
- * Both audio endpoints take an engine, and a model where the resolved
- * route carries one -- whisper's "small.en"/"medium.en", or ElevenLabs'
- * "scribe_v1".
- */
-export function singleAudioRoute(
-  route: ResolvedRoute,
-  config: Config,
-): {
-  engineId: string
-  model?: string
-  upstream?: string
-  address: string
-  egress: Egress
-} {
-  return {
-    engineId: route.engine,
-    model: route.model,
-    // `null` is an ambient route, which named no upstream at all -- absent from the line rather than reported as a name, exactly as a chat hop's is.
-    upstream: route.upstream ?? undefined,
-    address: routeAddress(route, config.routes),
-    egress: routeEgress(route, config),
-  }
 }
 
 /** The route an audio call resolves to; a modelless route has no model segment to look one up by, so it is found by engine id alone, excluding disabled routes exactly as `routeForHop` does for the rest. */
@@ -383,7 +270,7 @@ async function remoteAudioStart(
  * caught start failure's own `status` (`engineErrorStatus`, `http.ts`) into
  * a 503 for a hold or a 502 for anything else.
  */
-export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
+function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id)
     const route = audioRoute(ctx.getConfig(), id, model)
@@ -450,31 +337,11 @@ export async function handleAudioSpeech(
     return handleSpeech(speechReq, start)
   }
 
-  if (resolved.kind === 'chain') {
-    return runAudioChain(ctx, {
-      chain: resolved.chain,
-      hops: resolved.hops,
-      requested: rawModel ?? '',
-      endpoint: CONTENT_ENDPOINT_SPEECH,
-      attempt,
-      signal,
-    })
-  }
-
-  const { engineId, model, upstream, address, egress } = singleAudioRoute(
-    resolved.route,
-    ctx.getConfig(),
-  )
-  const leased: AudioLease = { held: false }
-  const startedAt = Date.now()
-  const result = await attempt(engineId, model, audioStart(ctx, leased))
-  return finishAudioCall(ctx, leased, {
-    engineId,
-    upstream,
-    address,
-    egress,
+  return runAudioChain(ctx, {
+    resolved,
     requested: rawModel ?? '',
-    result,
-    startedAt,
+    endpoint: CONTENT_ENDPOINT_SPEECH,
+    attempt,
+    signal,
   })
 }

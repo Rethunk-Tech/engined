@@ -4,14 +4,7 @@
  */
 
 import type { AnyTranscriptionRequestBody } from './audio.ts'
-import {
-  type AudioAttempt,
-  type AudioLease,
-  audioStart,
-  finishAudioCall,
-  runAudioChain,
-  singleAudioRoute,
-} from './audioDoor.ts'
+import { type AudioAttempt, runAudioChain } from './audioDoor.ts'
 import { handleTranscription } from './audioTranscribe.ts'
 import { resolveOrRefuse } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -203,34 +196,11 @@ export async function handleAudioTranscription(
       'a recording streamed as the request body cannot be replayed on a second hop; send it as a multipart upload to use a chain',
     )
   }
-  const attempt = transcriptionAttempt(form)
-
-  if (resolved.kind === 'chain') {
-    return runAudioChain(ctx, {
-      chain: resolved.chain,
-      hops: resolved.hops,
-      requested: form.rawModel ?? '',
-      endpoint,
-      attempt,
-      signal: req.signal,
-    })
-  }
-
-  const { engineId, model, upstream, address, egress } = singleAudioRoute(
-    resolved.route,
-    ctx.getConfig(),
-  )
-  const leased: AudioLease = { held: false }
-  const startedAt = Date.now()
-  const result = await attempt(engineId, model, audioStart(ctx, leased))
-  return finishAudioCall(ctx, leased, {
-    engineId,
-    model,
-    upstream,
-    address,
-    egress,
+  return runAudioChain(ctx, {
+    resolved,
     requested: form.rawModel ?? '',
-    result,
-    startedAt,
+    endpoint,
+    attempt: transcriptionAttempt(form),
+    signal: req.signal,
   })
 }

@@ -56,6 +56,8 @@ export interface HopResult {
   research?: true
   /** What this hop cost, where the hop kind knows it without a body to read -- an agentic CLI states it in its own envelope. Beats `usageFrom` when set. */
   usage?: Usage
+  /** The model id this attempt records, for a hop whose address has no model segment (a modelless engine records its own id). */
+  model?: string
   /** A hop that classifies its own transport failure (timeout, client gone) names it here; recorded in place of the status-derived reason. */
   failure?: string
   /** Extra response headers this hop set, merged onto the answering-route set. */
@@ -384,7 +386,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
     return {
       attempt: {
         engine,
-        model,
+        model: result.model ?? model,
         ok: outcome.ok,
         failure: result.failure ?? outcome.failure,
         duration_ms: Date.now() - start,

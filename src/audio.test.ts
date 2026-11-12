@@ -970,6 +970,37 @@ test('a speech call records the upstream its route resolved to, not a bare null'
   expect(record.attempts[0]?.upstream_used).toBe('local')
 })
 
+test('a direct speech call writes one chain-less provenance line, names its route, and ends the lease only after the line', async () => {
+  const fake = startFakeChatterboxMulti()
+  const { ctx, lifecycle, lines } = speechDoorContext({ hostPort: Number(fake.base.split(':')[1]) })
+  const linesAtLeaseEnd: number[] = []
+  const endLease = lifecycle.endLease.bind(lifecycle)
+  lifecycle.endLease = (...args: Parameters<typeof endLease>) => {
+    linesAtLeaseEnd.push(lines.length)
+    endLease(...args)
+  }
+
+  const res = await handleAudioSpeech(ctx, {
+    model: '@/chatterbox-multi/local',
+    input: 'hello there',
+  })
+  await res.arrayBuffer()
+  fake.stop()
+
+  expect(res.status).toBe(200)
+  expect(res.headers.get('x-engined-route')).toBe('@/chatterbox-multi/local')
+  const record = soleProvenanceRecord(lines)
+  expect(record.chain).toBeNull()
+  expect(record.requested).toBe('@/chatterbox-multi/local')
+  expect(record.attempts).toHaveLength(1)
+  expect(record.attempts[0]).toMatchObject({
+    engine: 'chatterbox-multi',
+    model: 'chatterbox-multi',
+    ok: true,
+  })
+  expect(linesAtLeaseEnd).toEqual([1])
+})
+
 test('a speech call appears in usage.read', async () => {
   const fake = startFakeChatterboxMulti()
   const { ctx } = speechDoorContext({ hostPort: Number(fake.base.split(':')[1]) })
