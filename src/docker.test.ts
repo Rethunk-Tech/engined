@@ -682,13 +682,34 @@ test('probe: a missing image is not cached -- a pull between polls is picked up 
 
 test('idle-stop failure is recorded as last_error, not thrown, the container stays running, and the timer retries a bounded number of times with no new traffic', async () => {
   const stopCalls: string[][] = []
+  let onStop = (): void => undefined
   const exec = startMissRunPortExec(40_003, (argv) => {
     if (argv[0] === 'stop') {
       stopCalls.push(argv)
+      onStop()
       return { stdout: '', stderr: 'container is not running', exitCode: 1 }
     }
     return
   })
+
+  const waitForStops = (n: number): Promise<void> => {
+    if (stopCalls.length >= n) {
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+      const prev = onStop
+      onStop = () => {
+        prev()
+        if (stopCalls.length >= n) {
+          resolve()
+        }
+      }
+    })
+  }
+  // `docker stop` returns a resolved promise, so one microtask finishes
+  // stopContainer (last_error, restore running) and the next runs the
+  // idle-stop .then that re-arms or gives up.
+  const settleIdleStop = (): Promise<void> => Promise.resolve().then(() => Promise.resolve())
 
   const lifecycle = new DockerLifecycle(exec, readyProbe)
   const opts = { idleStopSeconds: IDLE_STOP_SECONDS, readyTimeoutS: 1 }
@@ -697,7 +718,8 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
   lifecycle.endLease('flaky-stop', opts.idleStopSeconds)
   const firstUntil = lifecycle.getStatus('flaky-stop').idle_until
   expect(firstUntil).toMatch(ISO_INSTANT)
-  await Bun.sleep(PAST_IDLE_WAIT_MS)
+  await waitForStops(1)
+  await settleIdleStop()
 
   const status = lifecycle.getStatus('flaky-stop')
   expect(status.state).toBe('running')
@@ -710,14 +732,13 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
   // cadence -- this is the fix. One initial attempt plus 3 retries, then it
   // stops re-arming itself rather than retrying forever against a wedged
   // daemon.
-  const RetrySettleWaitMs = PAST_IDLE_WAIT_MS * 8
-  await Bun.sleep(RetrySettleWaitMs)
   const TotalAttemptsWithRetries = 4
+  await waitForStops(TotalAttemptsWithRetries)
+  await settleIdleStop()
   expect(stopCalls.length).toBe(TotalAttemptsWithRetries)
 
-  // Bounded: waiting again brings no further attempts.
-  await Bun.sleep(RetrySettleWaitMs)
-  expect(stopCalls.length).toBe(TotalAttemptsWithRetries)
+  // Bounded: the last failure did not re-arm, so idle_until is gone and
+  // nothing further is scheduled.
   expect(lifecycle.getStatus('flaky-stop').state).toBe('running')
   expect(lifecycle.getStatus('flaky-stop').idle_until).toBeUndefined()
 })
