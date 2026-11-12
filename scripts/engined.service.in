@@ -79,5 +79,12 @@ BindPaths=/tmp
 # executable. MemoryDenyWriteExecute enforces W^X (no mapping may be
 # both W and X).
 
+# A 256 MiB upload (maxRequestBodySize / MAX_AUDIO_UPLOAD_BYTES) is copied
+# a few times while the form is read. MemoryMax is that ceiling times four
+# plus the door's idle RSS, so a body at the cap cannot grow without bound;
+# MemorySwapMax=0 stops the same payload swapping instead of being refused.
+MemoryMax=1100M
+MemorySwapMax=0
+
 [Install]
 WantedBy=default.target
