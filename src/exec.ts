@@ -19,8 +19,8 @@ export type Exec = (args: readonly string[]) => Promise<ExecResult>
  */
 const EXEC_TIMEOUT_MS = 120_000
 
-/** `timeout(1)`'s own code for a command it had to kill. */
-const EXIT_TIMED_OUT = 124
+/** `timeout(1)`'s own code for a command it had to kill -- an inconclusive answer, not a negative one. */
+export const EXIT_TIMED_OUT = 124
 
 /** The collector bound to one binary, which is the only thing that varies between callers. */
 export function binExec(bin: string, timeoutMs: number = EXEC_TIMEOUT_MS): Exec {

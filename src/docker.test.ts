@@ -553,6 +553,22 @@ function matchingOrphan(): Orphan {
   return { digest: specDigest(SPEC), ports: `127.0.0.1:${ADOPTED_HOST_PORT}->6379/tcp` }
 }
 
+test('an inconclusive inspect leaves a live container running rather than marking it stopped', async () => {
+  const live = buildExec({ port: STUB_HOST_PORT_A })
+  const wedged = (args: readonly string[]): Promise<ExecResult> =>
+    args[0] === 'inspect'
+      ? Promise.resolve({ stdout: '', stderr: 'timed out', exitCode: 124 })
+      : live(args)
+  const lifecycle = new DockerLifecycle(wedged, readyProbe)
+  await lifecycle.start('wedged', SPEC, START_OPTS)
+
+  // A timeout is not docker's answer that the container is gone; treating it
+  // as one hands the next start a `stopped` record it will `docker rm -f`.
+  const probed = await lifecycle.probe('wedged', SPEC)
+  expect(probed.state).toBe('running')
+  expect(probed.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`)
+})
+
 describe('a container an unclean exit left running: adopted', () => {
   test('probe reports one launched from this exact spec as running, on its own port', async () => {
     const runLog: string[][] = []

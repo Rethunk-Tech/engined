@@ -24,7 +24,7 @@ import {
 } from './dockerCommands.ts'
 import { HeldError } from './errors/held.ts'
 import { StopFailedError } from './errors/stopFailed.ts'
-import { binExec, type Exec } from './exec.ts'
+import { binExec, EXIT_TIMED_OUT, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
 import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
 import type { EngineResources } from './resources.ts'
@@ -274,9 +274,8 @@ export class DockerLifecycle {
       await rt.adoption
       return this.table.status(id)
     }
-    // `warming` is a state this process is actively driving, with an in-flight
-    // start that will resolve it -- and the container it names may not exist
-    // yet, so asking docker about it would report a live start as dead.
+    // `warming` is a start this process is driving; its container may not
+    // exist yet, so asking docker would report a live start as dead.
     if (rt.state === 'warming') {
       return this.table.status(id)
     }
@@ -284,7 +283,9 @@ export class DockerLifecycle {
       // Whatever holds this name is this process's own from here on.
       rt.adoptChecked = true
       const res = await this.exec(['inspect', '-f', '{{.State.Running}}', rt.containerName])
-      if (res.exitCode === 0 && res.stdout.trim() === 'true') {
+      // A timeout is docker not answering; `stopped` would let a start kill it.
+      const live = res.exitCode === 0 && res.stdout.trim() === 'true'
+      if (live || res.exitCode === EXIT_TIMED_OUT) {
         return this.table.status(id)
       }
       this.table.markStopped(rt)
