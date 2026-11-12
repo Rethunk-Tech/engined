@@ -5,10 +5,10 @@
  * that actually answered.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import type { AgentTarget } from './agents.ts'
 import { launchScopedBaseUrl } from './launchNonce.ts'
-import { stateDir } from './paths.ts'
+import { stateDir, writeFileAtomic } from './paths.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import type { Config } from './types.ts'
 
@@ -31,8 +31,7 @@ export function readVerifiedVersion(engineId: string): string | undefined {
 }
 
 export function writeVerifiedVersion(engineId: string, version: string): void {
-  mkdirSync(agenticVerifiedDir(engineId), { recursive: true })
-  writeFileSync(verifiedVersionPath(engineId), version, 'utf8')
+  writeFileAtomic(verifiedVersionPath(engineId), version)
 }
 
 export interface AgenticProbeOutcome {

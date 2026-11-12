@@ -7,8 +7,8 @@
  * Providers that cannot be asked have no source here and keep declared lists.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
 import { CAPABILITY_FIELDS, DEFAULT_INVENTORY_REFRESH_SECONDS } from './configKeys.ts'
 import {
@@ -19,7 +19,7 @@ import {
   type ModelSource,
   SOURCES,
 } from './modelSources.ts'
-import { stateDir } from './paths.ts'
+import { stateDir, writeFileAtomic } from './paths.ts'
 import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import type { Config, EngineEntry, ModelCapabilities, ResolvedRoute } from './types.ts'
 
@@ -301,13 +301,10 @@ export class ModelDiscovery {
 
   private writeCache(engineId: string, cached: Cached): void {
     const path = this.cachePath(engineId)
-    mkdirSync(dirname(path), { recursive: true })
-    const tmp = `${path}.tmp`
-    writeFileSync(
-      tmp,
+    writeFileAtomic(
+      path,
       `${JSON.stringify({ version: CACHE_VERSION, fetched_at: cached.fetchedAt, models: cached.models })}\n`,
     )
-    renameSync(tmp, path)
   }
 }
 

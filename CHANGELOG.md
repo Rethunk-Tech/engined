@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Inventory, model-discovery, usage, donor-spend, comfy-binding and agentic-version state files are all written to a temp file and renamed into place.
 - `engined completion <bash|zsh|fish>` and `engined man` are listed in `--help`, and `scripts/install.sh`, the AUR PKGBUILDs and the deb/rpm build install the completions and man page; `completion pwsh` is gone.
 - A container engine's spec is loaded once per config build instead of twice.
 - A llama engine cold-started by a chat request now carries the engine's `devices`, `group_add` and `env` overrides, the same container spec as `POST /engined/v1/start`.

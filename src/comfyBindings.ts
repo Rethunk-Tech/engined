@@ -4,12 +4,12 @@
  * nothing else ever deletes an entry.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 /** NUL, so the composed key stays unambiguous and `startsWith` can scope a scan to one (engine, origin) pair: no engine id, origin or `prompt_id` can contain one. */
 import type { ComfyBinding, ComfyBindings, DoorContext } from './doorContext.ts'
-import { stateDir } from './paths.ts'
+import { stateDir, writeFileAtomic } from './paths.ts'
 import { writeToStdout } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 export const COMFY_KEY_SEP = '\u0000'
@@ -176,13 +176,8 @@ export function saveComfyBindings(bindings: ComfyBindings): void {
   const kept = live.slice(overCount)
   evicted.push(...live.slice(0, overCount).map(([key]) => key))
   const file = comfyBindingsPath()
-  // Renamed into place: a torn write must not leave a file that parses as an
-  // empty table and drops every stored output on the next boot.
-  const tmp = `${file}.tmp`
   try {
-    mkdirSync(stateDir(), { recursive: true })
-    writeFileSync(tmp, JSON.stringify(Object.fromEntries(kept)))
-    renameSync(tmp, file)
+    writeFileAtomic(file, JSON.stringify(Object.fromEntries(kept)))
   } catch (err) {
     process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`)
     return

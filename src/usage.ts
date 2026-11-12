@@ -10,12 +10,12 @@
  * always answers from memory.
  */
 
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
-import { stateDir } from './paths.ts'
+import { stateDir, writeFileAtomic } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { type Egress, isEgress } from './types.ts'
@@ -268,11 +268,7 @@ export class UsageTracker {
     if (file === undefined) {
       return
     }
-    mkdirSync(this.dir(), { recursive: true })
-    const path = this.filePath(date)
-    const tmp = `${path}.tmp`
-    writeFileSync(tmp, `${JSON.stringify(file)}\n`)
-    renameSync(tmp, path)
+    writeFileAtomic(this.filePath(date), `${JSON.stringify(file)}\n`)
   }
 }
 

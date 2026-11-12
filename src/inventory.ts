@@ -4,13 +4,13 @@
  * once older than the upstream's max age.
  */
 
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { Exec as SecretExec } from './exec.ts'
 import type { HttpClient } from './http.ts'
 import { excludeMatcher } from './modelExclude.ts'
-import { upstreamInventoryDir } from './paths.ts'
+import { upstreamInventoryDir, writeFileAtomic } from './paths.ts'
 import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { encodeAddressSegment } from './routeAddress.ts'
 import type { Upstream } from './types.ts'
@@ -236,15 +236,12 @@ export class Inventory {
 
   private writeFile(upstreamId: string, cached: CachedInventory): void {
     const path = this.cachePath(upstreamId)
-    mkdirSync(dirname(path), { recursive: true })
-    const tmp = `${path}.tmp`
     const body = {
       fetched_at: cached.fetchedAt,
       ids: cached.ids,
       context: Object.fromEntries(cached.context),
     }
-    writeFileSync(tmp, `${JSON.stringify(body)}\n`)
-    renameSync(tmp, path)
+    writeFileAtomic(path, `${JSON.stringify(body)}\n`)
   }
 
   private dropFile(upstreamId: string): void {

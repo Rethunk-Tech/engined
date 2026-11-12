@@ -1,5 +1,6 @@
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { envString } from './env.ts'
 
 /**
@@ -90,4 +91,12 @@ export function isUnder(root: string, candidate: string): boolean {
   const base = resolve(root)
   const path = resolve(candidate)
   return path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
+}
+
+/** Renamed into place, so a crash mid-write leaves the old file or none, never a truncated one that parses as empty state. */
+export function writeFileAtomic(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, text)
+  renameSync(tmp, path)
 }

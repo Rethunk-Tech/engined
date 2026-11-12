@@ -5,8 +5,8 @@
  * visible only in the calls this door already makes.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
 import type { DoorContext } from './doorContext.ts'
 import {
@@ -16,7 +16,7 @@ import {
   STATUS_PAYMENT_REQUIRED,
   STATUS_UNAUTHORIZED,
 } from './http.ts'
-import { stateDir } from './paths.ts'
+import { stateDir, writeFileAtomic } from './paths.ts'
 import type { Attempt, CallRecord } from './provenance.ts'
 import { errMessage, finiteNumber, isRecord, parseRecord } from './records.ts'
 import { resolveSecret } from './secrets.ts'
@@ -199,13 +199,9 @@ export class DonorLedger {
       months[month] = Object.fromEntries(rows)
     }
     const file = this.path()
-    // Renamed into place, so a torn write can never leave a spend file that
-    // parses to zero and lifts the ceiling it exists to enforce.
-    const tmp = `${file}.tmp`
+    // Atomic: a torn spend file would parse to zero and lift the ceiling it exists to enforce.
     try {
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(tmp, `${JSON.stringify({ months })}\n`)
-      renameSync(tmp, file)
+      writeFileAtomic(file, `${JSON.stringify({ months })}\n`)
     } catch (err) {
       process.stderr.write(`potluck: could not write spend file: ${errMessage(err)}\n`)
     }
