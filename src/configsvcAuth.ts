@@ -5,6 +5,7 @@ export const SESSION_COOKIE = 'engined_configsvc'
 export const SESSION_IDLE_MS = 12 * 60 * 60 * 1000
 const MAX_FAILURES = 5
 const FAILURE_WINDOW_MS = 60_000
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 interface Auth {
   /** The one-time token, when no password hash is configured. */
@@ -70,12 +71,16 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
     token,
     async login(secret, client) {
       sweep()
-      if (limited(client)) {
+      // Every local process shares the loopback address, so counting its failures would let any of them lock the operator out; a 128-bit token needs no limit.
+      const counted = !(token !== undefined && LOOPBACK_PEERS.has(client))
+      if (counted && limited(client)) {
         return 'limited'
       }
       // The attempt counts as a failure before the slow hash check starts, so a burst of concurrent guesses cannot all pass the limit check.
       const at = now()
-      failures.set(client, [...(failures.get(client) ?? []), at])
+      if (counted) {
+        failures.set(client, [...(failures.get(client) ?? []), at])
+      }
       const ok =
         token === undefined
           ? await Bun.password.verify(secret, opts.passwordHash as string).catch(() => false)
@@ -85,7 +90,9 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       }
       spent = true
       const kept = failures.get(client) ?? []
-      kept.splice(kept.indexOf(at), 1)
+      if (counted) {
+        kept.splice(kept.indexOf(at), 1)
+      }
       const id = randomBytes(16).toString('hex')
       lastSeen.set(id, now())
       return id

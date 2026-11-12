@@ -24,6 +24,14 @@ test('the minted token is good for one exchange', async () => {
   expect(await auth.login(secret, 'b')).toBeUndefined()
 })
 
+test('wrong tokens from loopback never lock the operator out', async () => {
+  const auth = createAuth({})
+  for (let i = 0; i < 10; i++) {
+    expect(await auth.login('nope', '127.0.0.1')).toBeUndefined()
+  }
+  expect(typeof (await auth.login(auth.token as string, '127.0.0.1'))).toBe('string')
+})
+
 test('concurrent wrong passwords are limited before the hash checks finish', async () => {
   const auth = createAuth({ passwordHash: await Bun.password.hash('right', 'argon2id') })
   const results = await Promise.all(Array.from({ length: 20 }, () => auth.login('wrong', 'c')))

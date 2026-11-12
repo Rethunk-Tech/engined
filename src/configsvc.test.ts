@@ -491,10 +491,11 @@ test('X-Forwarded-For keys lockout only when Caddy set the hop header', async ()
   for (let i = 0; i < 5; i++) {
     expect((await attempt(`10.0.0.${i + 1}`)).status).toBe(401)
   }
-  expect((await attempt('10.0.0.9')).status).toBe(429)
+  expect((await attempt('10.0.0.9')).status).toBe(401)
   for (let i = 0; i < 5; i++) {
-    expect((await attempt(`11.0.0.${i + 1}`, hop)).status).toBe(401)
+    expect((await attempt('11.0.0.1', hop)).status).toBe(401)
   }
+  expect((await attempt('11.0.0.1', hop)).status).toBe(429)
   expect((await attempt('11.0.0.9', hop)).status).toBe(401)
 })
 
