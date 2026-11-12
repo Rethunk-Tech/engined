@@ -1,0 +1,5 @@
+[[hold]]
+package = "docker.io/library/python"
+max_version = "3.14"
+workspace = "engines/piper"
+reason = "piper's onnxruntime has no cp315 wheel; lift once onnxruntime publishes cp315 wheels (also lift the python ignore in .github/dependabot.yml)"

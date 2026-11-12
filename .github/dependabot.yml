@@ -32,11 +32,26 @@ updates:
       - /engines/comfy
       - /engines/kokoro
       - /engines/llama
-      - /engines/piper
       - /engines/whisper
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps):"
+    groups:
+      all:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /engines/piper
+    schedule:
+      interval: weekly
+      day: monday
+    # onnxruntime has no cp315 wheel yet; lift when it ships one (and the hold in .repo-ops.toml).
+    ignore:
+      - dependency-name: python
+        versions: [">=3.15"]
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps):"
