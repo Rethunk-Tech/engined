@@ -438,7 +438,5 @@ test.each([
   '/tmp/tmux-1000',
   '/var/tmp',
 ])('refuses runtime workdir %s that the workdir bind would re-expose over the masks', (path) => {
-  if (existsSync(path)) {
-    expect(workdirForbidden(path)).toContain('runtime directory')
-  }
+  expect(workdirForbidden(path)).toContain('runtime directory')
 })
