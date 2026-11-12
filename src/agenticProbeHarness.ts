@@ -14,7 +14,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import process from 'node:process'
 import {
@@ -68,9 +68,9 @@ export function hashTree(root: string): string {
  */
 export const WORKTREE_SEED = 'unrelated pre-existing content\n'
 
-/** Always a fresh directory under the OS temp directory — never a real repository this box happens to have checked out. */
+/** Always a fresh directory under the operator home (the sandbox refuses /tmp workdirs) — never a real repository this box happens to have checked out. */
 function scratchWorktree(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'engined-agentic-probe-'))
+  const dir = mkdtempSync(join(homedir(), 'engined-agentic-probe-'))
   writeFileSync(join(dir, 'seed.txt'), WORKTREE_SEED)
   return dir
 }
@@ -194,7 +194,7 @@ async function hookSilenceProbe(
   const workdir = scratchWorktree()
   // A directory bound writable into the sandbox: a hook that fires inside it
   // writes where this process can see, rather than into the sandbox's /tmp.
-  const witnessDir = mkdtempSync(join(tmpdir(), 'engined-agentic-probe-witness-'))
+  const witnessDir = mkdtempSync(join(homedir(), 'engined-agentic-probe-witness-'))
   const witness = join(witnessDir, 'fired')
   plant(workdir, witness)
   try {

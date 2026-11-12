@@ -6,7 +6,7 @@
  */
 import { afterAll } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { agenticVerifiedDir } from './agenticProbe.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
@@ -26,7 +26,7 @@ export const ENGINES_ROOT = join(import.meta.dir, '..', 'engines')
  * in `afterAll` instead of each fixture leaking its own top-level temp dir.
  */
 export function makeTestRoot(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
+  const root = mkdtempSync(join(homedir(), prefix))
   afterAll(() => {
     rmSync(root, { recursive: true, force: true })
   })

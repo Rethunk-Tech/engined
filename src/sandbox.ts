@@ -117,6 +117,9 @@ function resolvedPath(path: string): string {
   }
 }
 
+/** The workdir bind lands after every mask, so a workdir here would re-expose live sockets, host procfs and tmux/X sockets. */
+const RUNTIME_ROOTS = ['/proc', '/sys', '/dev', '/run', '/tmp', '/var/tmp'] as const
+
 /**
  * A workdir that is, contains, or sits inside the operator home or a
  * credential path would re-expose that tree through the workdir bind after
@@ -128,6 +131,12 @@ export function workdirForbidden(
   operatorHome: string = OPERATOR_HOME,
 ): string | undefined {
   const real = resolvedPath(workdir)
+  for (const path of RUNTIME_ROOTS) {
+    const root = resolvedPath(path)
+    if (isUnder(root, real) || isUnder(real, root)) {
+      return `workdir ${workdir} is or sits in a runtime directory (${path})`
+    }
+  }
   if (isUnder(real, operatorHome)) {
     return `workdir ${workdir} covers the operator home`
   }

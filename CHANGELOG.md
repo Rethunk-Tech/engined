@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The agentic sandbox refuses a workdir that is or sits under /proc, /sys, /dev, /run, /tmp or /var/tmp: the workdir bind lands after the masks, so `/run/user/<uid>` handed the agent the user bus and an unsandboxed `systemd-run`.
 - The config UI gives the same reason as the parser when a local-file field is set on an engine with no model store.
 - Inventory, model-discovery, usage, donor-spend, comfy-binding and agentic-version state files are all written to a temp file and renamed into place.
 - `engined completion <bash|zsh|fish>` and `engined man` are listed in `--help`, and `scripts/install.sh`, the AUR PKGBUILDs and the deb/rpm build install the completions and man page; `completion pwsh` is gone.

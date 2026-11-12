@@ -426,3 +426,19 @@ test("a worktree's git dir under a sandbox_mask path is bound back after the mas
 
   expect(argv.lastIndexOf(gitDir)).toBeGreaterThan(argv.indexOf(masked))
 })
+
+test.each([
+  '/proc',
+  '/proc/self',
+  '/sys',
+  '/dev/shm',
+  '/run',
+  `/run/user/${process.getuid?.() ?? 1000}`,
+  '/tmp',
+  '/tmp/tmux-1000',
+  '/var/tmp',
+])('refuses runtime workdir %s that the workdir bind would re-expose over the masks', (path) => {
+  if (existsSync(path)) {
+    expect(workdirForbidden(path)).toContain('runtime directory')
+  }
+})
