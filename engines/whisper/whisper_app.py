@@ -63,7 +63,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import IO, Iterator, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
-BIN_DIR = "/app/build/bin"
+BIN_DIR = "/usr/local/bin"
 # The image sets PORT beside its own EXPOSE; a KeyError here is the wanted
 # failure, since a default would be the second spelling this reads it to avoid.
 LISTEN_PORT = int(os.environ["PORT"])

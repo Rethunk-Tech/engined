@@ -33,3 +33,8 @@ FROM ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:a7ec2210034f7b5b378efb1a1a7
 ARG PORT=8080
 ENV PORT=${PORT}
 EXPOSE ${PORT}
+# whisper_app.py (stdlib only) is the container's PID 1 via quiet.sh, and the
+# upstream runtime layer ships no interpreter.
+RUN apt update \
+  && apt install --no-install-recommends -y python3 \
+  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
