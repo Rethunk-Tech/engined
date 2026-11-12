@@ -53,6 +53,13 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # The ROCm builds come from uv --torch-backend rocm7.2 (local +rocm versions, not on PyPI), so
+    # Dependabot's PyPI resolve fails; bump these by hand with the recompile.
+    ignore:
+      - dependency-name: torch
+      - dependency-name: torchvision
+      - dependency-name: torchaudio
+      - dependency-name: triton-rocm
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps):"
