@@ -19,3 +19,9 @@ test('completion and man generation names every top-level command', () => {
     }
   }
 })
+
+test('--help lists the completion and man commands, and pwsh is not a supported shell', () => {
+  expect(HELP).toContain('completion <bash|zsh|fish>')
+  expect(HELP).toContain('engined(1) man page')
+  expect(() => generateCompletion('pwsh', HELP)).toThrow('unknown shell')
+})

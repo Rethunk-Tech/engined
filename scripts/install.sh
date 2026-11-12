@@ -126,6 +126,19 @@ render_unit_file() {
   assert_unit_names_no_user "$out"
 }
 
+# Writes the bash, zsh and fish completions and the man page under the four
+# directories given, by asking the engined command that follows them (the
+# bundle, the compiled binary) to print each, so they cannot drift from --help.
+install_completions() {
+  local bash_dir="$1" zsh_dir="$2" fish_dir="$3" man_dir="$4"
+  shift 4
+  install -d "$bash_dir" "$zsh_dir" "$fish_dir" "$man_dir"
+  "$@" completion bash >"$bash_dir/engined"
+  "$@" completion zsh >"$zsh_dir/_engined"
+  "$@" completion fish >"$fish_dir/engined.fish"
+  "$@" man >"$man_dir/engined.1"
+}
+
 main() {
   for tool in bun bunx rsync; do
     command -v "$tool" >/dev/null || {
@@ -181,6 +194,10 @@ main() {
   rm -rf "${INSTALL_DIR:?}/configsvc"
   cp -r "$REPO_ROOT/dist/." "$INSTALL_DIR/"
   rsync -a --delete "$REPO_ROOT/engines/" "$INSTALL_DIR/engines/"
+
+  local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  install_completions "$data_home/bash-completion/completions" "$data_home/zsh/site-functions" \
+    "$CONFIG_HOME/fish/completions" "$data_home/man/man1" bun "$INSTALL_DIR/main.js"
 
   mkdir -p "$UNIT_DIR"
   render_unit_file engined.service.in "$UNIT_PATH"

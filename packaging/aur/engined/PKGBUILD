@@ -46,6 +46,10 @@ LAUNCHER
     for unit in engined.service engined-configsvc.service engined-probe.service engined-probe.timer engined-tls.service; do
       render_unit_file "$unit.in" "$pkgdir/usr/lib/systemd/user/$unit"
     done
+    # Generated from the bundle being packaged, so they match its --help.
+    install_completions "$pkgdir/usr/share/bash-completion/completions" \
+      "$pkgdir/usr/share/zsh/site-functions" "$pkgdir/usr/share/fish/vendor_completions.d" \
+      "$pkgdir/usr/share/man/man1" bun dist/main.js
   )
 
   # Not under /usr/share/doc, which NoExtract commonly strips: the install

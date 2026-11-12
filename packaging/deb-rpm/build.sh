@@ -76,6 +76,10 @@ find "$STAGE/usr/lib/engined/engines" -name __pycache__ -prune -exec rm -rf {} +
   for unit in engined.service engined-configsvc.service engined-probe.service engined-probe.timer engined-tls.service; do
     render_unit_file "$unit.in" "$STAGE/usr/lib/systemd/user/$unit"
   done
+  install_completions "$STAGE/usr/share/bash-completion/completions" \
+    "$STAGE/usr/share/zsh/site-functions" "$STAGE/usr/share/fish/vendor_completions.d" \
+    "$STAGE/usr/share/man/man1" bun "$REPO_ROOT/src/main.ts"
+  gzip -9n "$STAGE/usr/share/man/man1/engined.1"
 )
 sed -i \
   -e 's|^ConditionPathExists=/usr/lib/engined/main\.js|ConditionPathExists=/usr/bin/engined|' \
