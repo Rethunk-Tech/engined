@@ -1,5 +1,5 @@
 # Compile: uv pip compile --generate-hashes --python-version 3.14 --python-platform x86_64-manylinux_2_28 requirements.in -o requirements.txt
-piper-tts==1.7.0
-onnx==1.22.0
-fastapi==0.141.1
-uvicorn[standard]==0.52.4
+piper-tts==1.8.0
+onnx==1.23.2
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
