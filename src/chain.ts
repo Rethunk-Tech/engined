@@ -56,6 +56,8 @@ export interface HopResult {
   research?: true
   /** What this hop cost, where the hop kind knows it without a body to read -- an agentic CLI states it in its own envelope. Beats `usageFrom` when set. */
   usage?: Usage
+  /** A hop that classifies its own transport failure (timeout, client gone) names it here; recorded in place of the status-derived reason. */
+  failure?: string
   /** Extra response headers this hop set, merged onto the answering-route set. */
   headers?: Headers
   /**
@@ -384,7 +386,7 @@ async function runOneHop(hop: string, opts: RunChainOptions): Promise<HopOutcome
         engine,
         model,
         ok: outcome.ok,
-        failure: outcome.failure,
+        failure: result.failure ?? outcome.failure,
         duration_ms: Date.now() - start,
         model_reported: result.modelReported,
         model_resident: result.modelResident,

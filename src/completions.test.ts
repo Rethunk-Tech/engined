@@ -353,24 +353,27 @@ describe('POST /openai/v1/completions: response mapping', () => {
     expect(soleProvenanceRecord(lines).attempts[0]?.failure).toContain('connection failed')
   })
 
-  test('an infill request whose caller already disconnected records "client disconnected", not "connection failed"', async () => {
+  test('a caller that hangs up while the infill is in flight records "client disconnected", not "connection failed"', async () => {
     const { cfg, root } = fimDoorConfig(TEST_ROOT, true)
     const { lines, write } = collectLines()
     // Whatever error a dropped connection surfaces as, the caller's own
     // aborted signal is what should decide the recorded reason -- not the
     // error's own shape.
-    const httpClient: HttpClient = withLlamaControl(() =>
-      Promise.reject(new TypeError('other side closed')),
+    const httpClient: HttpClient = withLlamaControl(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new TypeError('other side closed')))
+        }),
     )
     const door = doorFor(cfg, root, httpClient, write)
     const controller = new AbortController()
-    controller.abort()
-    const res = await door.fetch(
+    const pending = door.fetch(
       completionsRequest({ model: '@/local-llama/ornith', prompt: 'x' }, controller.signal),
     )
+    setTimeout(() => controller.abort(), 20)
+    const res = await pending
     expect(res.status).toBe(502)
-    const failure = soleProvenanceRecord(lines).attempts[0]?.failure
-    expect(failure).toBe('client disconnected')
+    expect(soleProvenanceRecord(lines).attempts[0]?.failure).toBe('client disconnected')
   })
 
   test('an infill that never answers is cut at chat_timeout_seconds and recorded as "timeout"', async () => {

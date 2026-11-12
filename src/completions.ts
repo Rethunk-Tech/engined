@@ -12,7 +12,7 @@
  * engine's own native completion shape with nothing here to test it against.
  */
 
-import { classifyResult, wrapStream } from './chain.ts'
+import { type HopExec, runChain } from './chain.ts'
 import { routeAddress } from './control.ts'
 import { resolveOrRefuse, routeEgress } from './dispatch.ts'
 import type { DoorContext } from './doorContext.ts'
@@ -30,11 +30,10 @@ import {
   sseDataPayloads,
   sseFrames,
 } from './http.ts'
-import { answeringHeaders, type CallRecord, type Usage } from './provenance.ts'
+import { HEADER_QUEUE_MS, type Usage } from './provenance.ts'
 import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_COMPLETIONS } from './routeServes.ts'
-import type { ResolvedRoute } from './types.ts'
 
 /** llama-server's own FIM verb -- distinct from the door's OpenAI-shaped `pathname`, which never reaches the wire. */
 const INFILL_PATH = '/infill'
@@ -218,45 +217,6 @@ export function mapInfillStream(
   })
 }
 
-interface CompletionCall {
-  ctx: DoorContext
-  route: ResolvedRoute
-  modelId: string
-  rawModel: string | undefined
-  startedAt: number
-}
-
-/**
- * The one record shape this route ever writes -- transport failure, an
- * upstream error body, or success -- differing only in whether the call
- * succeeded and the router/engine ids that go with it, exactly as
- * `images.ts`'s and `audioDoor.ts`'s own record builders do.
- */
-function recordCompletion(
-  { ctx, route, modelId, rawModel, startedAt }: CompletionCall,
-  ok: boolean,
-  failure: string | undefined,
-): void {
-  const record: CallRecord = {
-    chain: null,
-    requested: rawModel ?? '',
-    attempts: [
-      {
-        engine: route.engine,
-        model: modelId,
-        ok,
-        ...(failure === undefined ? {} : { failure }),
-        duration_ms: Date.now() - startedAt,
-        upstream_used: LOCAL_UPSTREAM,
-        egress: routeEgress(route, ctx.getConfig()),
-      },
-    ],
-    engine_used: ok ? route.engine : null,
-    upstream_used: ok ? LOCAL_UPSTREAM : null,
-  }
-  recordDoorCall(ctx, record)
-}
-
 export async function handleCompletions(
   ctx: DoorContext,
   body: Record<string, unknown>,
@@ -290,72 +250,58 @@ export async function handleCompletions(
   }
   const modelId = route.model
   const router = getLlamaRouter(ctx, engineEntry)
-  const startedAt = Date.now()
-  const call: CompletionCall = { ctx, route, modelId, rawModel, startedAt }
-  let response: Response
-  let queueMs = 0
-  // The same per-hop budget `/chat/completions` gets, cleared once headers
-  // arrive so a long stream is bounded by `stream_stall_seconds` instead.
-  const budget = new AbortController()
-  const timer = setTimeout(
-    () => budget.abort(),
-    timeoutSecondsForKind(engineEntry.kind, ctx.getConfig()) * MS_PER_SECOND,
-  )
-  const hopSignal = signal ? AbortSignal.any([budget.signal, signal]) : budget.signal
-  try {
-    ;({ response, queueMs } = await router.proxy(
-      route,
-      INFILL_PATH,
-      infillRequestInit(body, modelId, hopSignal),
-    ))
-  } catch (err) {
-    // Checked before the generic transport failure: an aborted `signal` means
-    // the caller hung up, not that the connection to llama-server failed --
-    // the same distinction `chain.ts`'s own hop classifier draws.
-    let failure = `connection failed: ${errMessage(err)}`
-    if (signal?.aborted) {
-      failure = 'client disconnected'
-    } else if (budget.signal.aborted) {
-      failure = 'timeout'
+  const config = ctx.getConfig()
+  const hop = routeAddress(route, config.routes)
+  const exec: HopExec = async (_hop, hopSignal) => {
+    try {
+      const { response, queueMs } = await router.proxy(
+        route,
+        INFILL_PATH,
+        infillRequestInit(body, modelId, hopSignal),
+      )
+      const headers = new Headers({ [HEADER_QUEUE_MS]: String(queueMs) })
+      const answer = { status: response.status, upstreamUsed: LOCAL_UPSTREAM, headers }
+      if (!response.ok) {
+        const text = await response.text()
+        return {
+          ...answer,
+          body:
+            parseRecord(text) ?? (text === '' ? undefined : jsonErrorBody(response.status, text)),
+        }
+      }
+      if ((response.headers.get(CONTENT_TYPE) ?? '').includes(SSE_CONTENT_TYPE) && response.body) {
+        headers.set(CONTENT_TYPE, SSE_CONTENT_TYPE)
+        return { ...answer, stream: mapInfillStream(response.body, modelId) }
+      }
+      const parsed: unknown = await response.json().catch(() => ({}))
+      return { ...answer, body: completionEnvelope(modelId, isRecord(parsed) ? parsed : {}) }
+    } catch (err) {
+      // The caller hanging up is not a transport failure, and neither is the
+      // hop budget firing; `err`'s own shape says neither.
+      let failure = `connection failed: ${errMessage(err)}`
+      if (signal?.aborted) {
+        failure = 'client disconnected'
+      } else if (hopSignal.aborted) {
+        failure = 'timeout'
+      }
+      const status = engineErrorStatus(err)
+      return { status, body: jsonErrorBody(status, errMessage(err)), failure }
     }
-    const status = engineErrorStatus(err)
-    recordCompletion(call, false, failure)
-    return jsonError(status, errMessage(err))
-  } finally {
-    clearTimeout(timer)
   }
-  if (!response.ok) {
-    const text = await response.text()
-    const parsed = parseRecord(text)
-    const verdict = classifyResult({
-      status: response.status,
-      body: parsed ?? (text === '' ? undefined : jsonErrorBody(response.status, text)),
-    })
-    recordCompletion(call, false, verdict.failure)
-    return new Response(text, {
-      status: response.status,
-      headers: { [CONTENT_TYPE]: response.headers.get(CONTENT_TYPE) ?? JSON_CONTENT_TYPE },
-    })
-  }
-  const headers = answeringHeaders({
-    route: routeAddress(route, ctx.getConfig().routes),
-    upstreamUsed: LOCAL_UPSTREAM,
-    egress: routeEgress(route, ctx.getConfig()),
+  const result = await runChain([hop], {
     chain: null,
-    queueMs,
+    requested: rawModel ?? '',
+    egressOf: () => routeEgress(route, config),
+    timeoutMs: () => timeoutSecondsForKind(engineEntry.kind, config) * MS_PER_SECOND,
+    stallMs: config.stream_stall_seconds * MS_PER_SECOND,
+    signal,
+    exec,
+    record: (record) => recordDoorCall(ctx, record),
   })
-  const contentType = response.headers.get(CONTENT_TYPE) ?? ''
-  if (contentType.includes(SSE_CONTENT_TYPE) && response.body) {
-    headers.set(CONTENT_TYPE, SSE_CONTENT_TYPE)
-    // Deferred the same way `chain.ts` defers a streaming hop's provenance:
-    // a mid-body death or client abort must record as a failure, not the
-    // success this branch would otherwise log before a single byte is sent.
-    const stream = wrapStream(mapInfillStream(response.body, modelId), (ok, failure) => {
-      recordCompletion(call, ok, failure)
-    })
-    return new Response(stream, { status: response.status, headers })
+  if (result.stream) {
+    return new Response(result.stream, { status: result.status, headers: result.headers })
   }
-  recordCompletion(call, true, undefined)
-  const parsed: unknown = await response.json().catch(() => ({}))
-  return Response.json(completionEnvelope(modelId, isRecord(parsed) ? parsed : {}), { headers })
+  return result.body === undefined
+    ? new Response(null, { status: result.status, headers: result.headers })
+    : Response.json(result.body, { status: result.status, headers: result.headers })
 }
