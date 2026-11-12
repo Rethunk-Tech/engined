@@ -13,7 +13,7 @@
 import http2, { type ServerHttp2Stream } from 'node:http2'
 import process from 'node:process'
 import { framer } from './connectFramer.ts'
-import { execOutcome, execRequest, type ToolRequest, toolCallMessage } from './cursorExec.ts'
+import { execOutcome, execRequest, toolCallMessage } from './cursorExec.ts'
 import {
   bytesField,
   decode,
@@ -237,42 +237,6 @@ function userText(frame: Uint8Array): string | undefined {
   return cursor === undefined ? undefined : fieldString(decode(cursor), 1)
 }
 
-export function toolRequestFrom(call: ToolCallOut): ToolRequest {
-  const args = parseRecord(call.function.arguments) ?? {}
-  const str = (key: string): string | undefined =>
-    typeof args[key] === 'string' ? (args[key] as string) : undefined
-  const num = (key: string): number | undefined =>
-    typeof args[key] === 'number' ? (args[key] as number) : undefined
-  const list = (key: string): string[] | undefined =>
-    Array.isArray(args[key])
-      ? (args[key] as unknown[]).filter((v): v is string => typeof v === 'string')
-      : undefined
-  return {
-    tool: call.function.name as ToolRequest['tool'],
-    command: str('command'),
-    path: str('path'),
-    content: str('content'),
-    pattern: str('pattern'),
-    glob: str('glob'),
-    outputMode: str('output_mode'),
-    context: num('context'),
-    contextBefore: num('context_before'),
-    contextAfter: num('context_after'),
-    caseInsensitive: args.case_insensitive === true,
-    fileType: str('type'),
-    headLimit: num('head_limit'),
-    multiline: args.multiline === true,
-    sort: str('sort'),
-    sortAscending: args.sort_ascending === true,
-    resultOffset: num('offset'),
-    background: args.background === true,
-    offset: num('offset'),
-    limit: num('limit'),
-    ignore: list('ignore'),
-    description: str('description'),
-  }
-}
-
 /**
  * One turn. The model speaks, and whenever it calls a tool the request goes
  * to the CLI and the answer comes back on the same stream before the model is
@@ -324,19 +288,20 @@ async function runToolCalls(
 ): Promise<void> {
   const { send, awaitExec } = turn
   for (const call of calls) {
-    const request = execRequest(round + 1, call.id, toolRequestFrom(call))
+    const { name } = call.function
+    const args = parseRecord(call.function.arguments) ?? {}
+    const request = execRequest(round + 1, call.id, name, args)
     if (request === undefined) {
       history.push({
         role: 'tool',
         tool_call_id: call.id,
-        content: `unknown tool ${call.function.name}`,
+        content: `unknown tool ${name}`,
       })
       continue
     }
     // The CLI renders from ToolCall frames and executes from the exec
     // message; sending only the latter runs the tool invisibly.
-    const req = toolRequestFrom(call)
-    const rendered = toolCallMessage(req, call.id)
+    const rendered = toolCallMessage(name, args, call.id)
     if (rendered !== undefined) {
       send(envelope(toolCallFrame(TOOL_CALL_STARTED, call.id, rendered)))
     }

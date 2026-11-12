@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { createServer } from 'node:net'
 import { gzipSync } from 'node:zlib'
 import { framer } from './connectFramer.ts'
-import { serveCursorAgent, toolRequestFrom } from './cursorAgent.ts'
+import { serveCursorAgent } from './cursorAgent.ts'
 import { execOutcome, execRequest } from './cursorExec.ts'
 import {
   bytesField,
@@ -14,26 +14,14 @@ import {
   stringField,
 } from './cursorProto.ts'
 import { FatalError } from './errors/fatal.ts'
+import { parseRecord } from './records.ts'
 
 test('tool arguments of null become an empty table rather than aborting the turn', () => {
-  expect(() =>
-    toolRequestFrom({
-      id: 'call_0',
-      type: 'function',
-      function: { name: 'read', arguments: 'null' },
-    }),
-  ).not.toThrow()
-  expect(
-    toolRequestFrom({
-      id: 'call_0',
-      type: 'function',
-      function: { name: 'read', arguments: 'null' },
-    }),
-  ).toMatchObject({ tool: 'read' })
+  expect(execRequest(1, 'call_0', 'read', parseRecord('null') ?? {})).toBeDefined()
 })
 
 test('execRequest round trip carries id, exec id, and read path', () => {
-  const framed = execRequest(3, 'exec-1', { tool: 'read', path: '/tmp/a' })
+  const framed = execRequest(3, 'exec-1', 'read', { path: '/tmp/a' })
   expect(framed).toBeDefined()
   if (framed === undefined) {
     return

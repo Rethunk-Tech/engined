@@ -52,42 +52,16 @@ const del = cursorExecWire.delete
  */
 const SHELL_TIMEOUT_MS = 120_000
 
-export interface ToolRequest {
-  tool: 'shell' | 'read' | 'write' | 'delete' | 'grep' | 'ls'
-  path?: string
-  command?: string
-  content?: string
-  pattern?: string
-  /** grep: restrict to matching files, the lever that makes it usable on a big repo. */
-  glob?: string
-  /** grep: `content` (default), `files_with_matches`, or `count` -- the client's own set. */
-  outputMode?: string
-  /** grep: lines of context either side of a match, or each side separately. */
-  context?: number
-  contextBefore?: number
-  contextAfter?: number
-  caseInsensitive?: boolean
-  /** grep: ripgrep file type, e.g. `py`. */
-  fileType?: string
-  /** grep: stop after this many results. */
-  headLimit?: number
-  /** grep: let a pattern span lines. */
-  multiline?: boolean
-  /** grep: ripgrep sort key; `none` leaves ripgrep's own order. */
-  sort?: string
-  sortAscending?: boolean
-  /** grep: skip this many results before returning any. */
-  resultOffset?: number
-  /** read: window into a large file, rather than pulling all of it into the turn. */
-  offset?: number
-  limit?: number
-  /** ls: names to leave out of the listing. */
-  ignore?: string[]
-  /** shell: what the command is for, shown by the CLI beside the call. */
-  description?: string
-  /** shell: leave it running and return immediately. */
-  background?: boolean
-}
+/** A tool call's raw JSON arguments, read as the wire fields they become. */
+type ToolArgs = Record<string, unknown>
+
+const str = (args: ToolArgs, key: string): string | undefined =>
+  typeof args[key] === 'string' ? args[key] : undefined
+const num = (args: ToolArgs, key: string): number | undefined =>
+  typeof args[key] === 'number' ? args[key] : undefined
+const flag = (args: ToolArgs, key: string): boolean => args[key] === true
+const list = (args: ToolArgs, key: string): string[] =>
+  Array.isArray(args[key]) ? args[key].filter((v): v is string => typeof v === 'string') : []
 
 /**
  * `ShellArgs.parsing_result` is required: without it the CLI runs nothing and
@@ -112,36 +86,44 @@ function parsingResult(command: string): Uint8Array {
   )
 }
 
-function grepArgs(req: ToolRequest, path: string, execId: string): Uint8Array {
+function grepArgs(args: ToolArgs, path: string, execId: string): Uint8Array {
+  const optStr = (key: string, field: number) => {
+    const v = str(args, key)
+    return v === undefined ? [] : [stringField(field, v)]
+  }
+  const optInt = (key: string, field: number) => {
+    const v = num(args, key)
+    return v === undefined ? [] : [intField(field, v)]
+  }
   return message(
-    stringField(grepWire.pattern, req.pattern ?? ''),
+    stringField(grepWire.pattern, str(args, 'pattern') ?? ''),
     stringField(grepWire.path, path),
-    ...(req.glob === undefined ? [] : [stringField(grepWire.glob, req.glob)]),
-    ...(req.outputMode === undefined ? [] : [stringField(grepWire.outputMode, req.outputMode)]),
-    ...(req.contextBefore === undefined
-      ? []
-      : [intField(grepWire.contextBefore, req.contextBefore)]),
-    ...(req.contextAfter === undefined ? [] : [intField(grepWire.contextAfter, req.contextAfter)]),
-    ...(req.context === undefined ? [] : [intField(grepWire.context, req.context)]),
-    ...(req.caseInsensitive ? [intField(grepWire.caseInsensitive, bool.true)] : []),
-    ...(req.fileType === undefined ? [] : [stringField(grepWire.fileType, req.fileType)]),
-    ...(req.headLimit === undefined ? [] : [intField(grepWire.headLimit, req.headLimit)]),
-    ...(req.multiline ? [intField(grepWire.multiline, bool.true)] : []),
-    ...(req.sort === undefined ? [] : [stringField(grepWire.sort, req.sort)]),
-    ...(req.sortAscending ? [intField(grepWire.sortAsc, bool.true)] : []),
+    ...optStr('glob', grepWire.glob),
+    ...optStr('output_mode', grepWire.outputMode),
+    ...optInt('context_before', grepWire.contextBefore),
+    ...optInt('context_after', grepWire.contextAfter),
+    ...optInt('context', grepWire.context),
+    ...(flag(args, 'case_insensitive') ? [intField(grepWire.caseInsensitive, bool.true)] : []),
+    ...optStr('type', grepWire.fileType),
+    ...optInt('head_limit', grepWire.headLimit),
+    ...(flag(args, 'multiline') ? [intField(grepWire.multiline, bool.true)] : []),
+    ...optStr('sort', grepWire.sort),
+    ...(flag(args, 'sort_ascending') ? [intField(grepWire.sortAsc, bool.true)] : []),
     stringField(grepWire.callId, execId),
-    ...(req.resultOffset === undefined ? [] : [intField(grepWire.resultOffset, req.resultOffset)]),
+    ...optInt('offset', grepWire.resultOffset),
   )
 }
 
 function argsFor(
-  req: ToolRequest,
+  tool: string,
+  args: ToolArgs,
   execId: string,
 ): { field: number; args: Uint8Array } | undefined {
-  const path = req.path ?? ''
-  switch (req.tool) {
+  const path = str(args, 'path') ?? ''
+  switch (tool) {
     case 'shell': {
-      const command = req.command ?? ''
+      const command = str(args, 'command') ?? ''
+      const description = str(args, 'description')
       return {
         field: SHELL,
         args: message(
@@ -151,29 +133,30 @@ function argsFor(
           stringField(shellWire.execId, execId),
           bytesField(shellWire.parsingResult, parsingResult(command)),
           intField(shellWire.skipApproval, bool.true),
-          ...(req.background ? [intField(shellWire.background, bool.true)] : []),
-          ...(req.description === undefined
-            ? []
-            : [stringField(shellWire.description, req.description)]),
+          ...(flag(args, 'background') ? [intField(shellWire.background, bool.true)] : []),
+          ...(description === undefined ? [] : [stringField(shellWire.description, description)]),
         ),
       }
     }
-    case 'read':
+    case 'read': {
+      const offset = num(args, 'offset')
+      const limit = num(args, 'limit')
       return {
         field: READ,
         args: message(
           stringField(read.path, path),
           stringField(read.execId, execId),
-          ...(req.offset === undefined ? [] : [intField(shellWire.readOffset, req.offset)]),
-          ...(req.limit === undefined ? [] : [intField(shellWire.readLimit, req.limit)]),
+          ...(offset === undefined ? [] : [intField(shellWire.readOffset, offset)]),
+          ...(limit === undefined ? [] : [intField(shellWire.readLimit, limit)]),
         ),
       }
+    }
     case 'write':
       return {
         field: WRITE,
         args: message(
           stringField(write.path, path),
-          stringField(write.content, req.content ?? ''),
+          stringField(write.content, str(args, 'content') ?? ''),
           stringField(write.execId, execId),
           intField(shellWire.writeReturnContent, bool.false),
         ),
@@ -184,13 +167,13 @@ function argsFor(
         args: message(stringField(del.path, path), stringField(del.execId, execId)),
       }
     case 'grep':
-      return { field: GREP, args: grepArgs(req, path, execId) }
+      return { field: GREP, args: grepArgs(args, path, execId) }
     case 'ls':
       return {
         field: LS,
         args: message(
           stringField(ls.path, path),
-          ...(req.ignore ?? []).map((name) => stringField(ls.ignore, name)),
+          ...list(args, 'ignore').map((name) => stringField(ls.ignore, name)),
           stringField(ls.execId, execId),
         ),
       }
@@ -200,8 +183,13 @@ function argsFor(
 }
 
 /** `AgentServerMessage{2 exec_server_message{1 id, 15 exec_id, <tool> args}}`. */
-export function execRequest(id: number, execId: string, req: ToolRequest): Uint8Array | undefined {
-  const built = argsFor(req, execId)
+export function execRequest(
+  id: number,
+  execId: string,
+  tool: string,
+  args: ToolArgs,
+): Uint8Array | undefined {
+  const built = argsFor(tool, args, execId)
   if (built === undefined) {
     return undefined
   }
@@ -348,16 +336,20 @@ const TOOL_CALL_ID = 57
  * tool but leaves the CLI with nothing to show, so a transcript reads as bare
  * prose with invisible side effects.
  */
-export function toolCallMessage(req: ToolRequest, callId: string): Uint8Array | undefined {
-  const field = TOOL_CALL_FIELD[req.tool]
+export function toolCallMessage(
+  tool: string,
+  toolArgs: ToolArgs,
+  callId: string,
+): Uint8Array | undefined {
+  const field = TOOL_CALL_FIELD[tool]
   if (field === undefined) {
     return undefined
   }
-  const path = req.path ?? ''
+  const path = str(toolArgs, 'path') ?? ''
   const args = (() => {
-    switch (req.tool) {
+    switch (tool) {
       case 'shell': {
-        const command = req.command ?? ''
+        const command = str(toolArgs, 'command') ?? ''
         return message(
           stringField(shellWire.command, command),
           stringField(shellWire.cwd, '.'),
@@ -373,7 +365,7 @@ export function toolCallMessage(req: ToolRequest, callId: string): Uint8Array | 
         return message(stringField(read.path, path))
       case 'grep': // GrepArgs{1 pattern, 2 path}
         return message(
-          stringField(grepWire.pattern, req.pattern ?? ''),
+          stringField(grepWire.pattern, str(toolArgs, 'pattern') ?? ''),
           stringField(grepWire.path, path),
         )
       default:
