@@ -29,7 +29,7 @@ import wave
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from piper import PiperVoice
+from piper import PiperVoice, SynthesisConfig
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 VOICE_PATH = os.environ.get("PIPER_VOICE_PATH", "/app/voices/en_US-lessac-medium.onnx")
 BAKED_VOICES_DIR = "/app/voices"
+# The voice config's per-phoneme duration jitter (noise_w_scale 0.8) stretches a vowel past what
+# whisper resolves in about 4% of renders ("brown" heard as "brom"); zeroing it keeps the
+# checkpoint, length scale and generator noise, and a line's timing the same every time.
+SYNTHESIS = SynthesisConfig(noise_w_scale=0.0)
 
 
 def _load_voice(path: str) -> PiperVoice:
@@ -145,7 +149,7 @@ def synthesize(req: TtsRequest):
             texts = req.text.split() if len(voice.phonemize(req.text)) == 1 else []
             counts = _phoneme_counts(texts)
             with _model_lock:
-                for chunk in voice.synthesize(req.text, include_alignments=True):
+                for chunk in voice.synthesize(req.text, SYNTHESIS, include_alignments=True):
                     fmt = (chunk.sample_channels, chunk.sample_width, chunk.sample_rate)
                     if req.chunks:
                         yield (

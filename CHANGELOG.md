@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- piper renders each line with the same timing: its per-phoneme duration jitter is off, which made whisper mishear a word in about 4% of renders.
 - chatterbox-multi synthesizes again: its model now uses eager attention, since transformers 5 refused the alignment analyzer's attention outputs under SDPA and every request answered 502.
 - Removing a `[[route]]` (and the same for a commented toml-edit entry) also takes the contiguous comment lines immediately above it; a comment separated by a blank line stays.
 
