@@ -243,9 +243,15 @@ export class DockerLifecycle {
       return this.table.status(id)
     })
     rt.startPromise = promise
-    const status = await promise
-    rt.startPromise = null
-    return { ...status, launched: true }
+    try {
+      const status = await promise
+      return { ...status, launched: true }
+    } catch (err) {
+      this.fail(id, rt, errMessage(err))
+      throw err
+    } finally {
+      rt.startPromise = null
+    }
   }
 
   /**

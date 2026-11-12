@@ -183,6 +183,7 @@ function inspectCountingExec(counter: { count: number }, onInspect: () => ExecRe
 
 const STUB_HOST_PORT_A = 40_000
 const STUB_HOST_PORT_B = 40_001
+const STUB_HOST_PORT_C = 40_002
 const IDLE_STOP_SECONDS = 0.03
 
 function idleLifecycle() {
@@ -267,6 +268,22 @@ test('start: two concurrent calls against a stopped engine spawn exactly one con
     last_error: undefined,
     active_leases: 0,
   })
+})
+
+test('a throw inside doStart does not wedge the next start', async () => {
+  const good = buildExec({ port: STUB_HOST_PORT_C })
+  let boom = true
+  const exec: Exec = (args) => {
+    if (boom && args[0] === 'run') {
+      boom = false
+      return Promise.reject(new Error('docker exec transient'))
+    }
+    return good(args)
+  }
+  const lifecycle = new DockerLifecycle(exec, readyProbe)
+  await expect(lifecycle.start('redis', SPEC, START_OPTS)).rejects.toThrow('transient')
+  const second = await lifecycle.start('redis', SPEC, START_OPTS)
+  expect(second.state).toBe('running')
 })
 
 test('a held lease outlasts idle-stop; a lease-less start still counts down', async () => {
