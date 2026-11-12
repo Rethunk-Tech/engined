@@ -194,7 +194,9 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
   }
   let commonDir: string | undefined
   try {
-    commonDir = resolvedPath(resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim()))
+    commonDir = resolvedPath(
+      resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim()),
+    )
   } catch {
     // A worktree git dir without commondir is still bound on its own.
   }
