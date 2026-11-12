@@ -447,3 +447,23 @@ describe('piper voice from models_dir', () => {
     }
   })
 })
+
+test('an obtain command keeps a substituted path with a space or a semicolon as one shell word', () => {
+  const root = specDir(
+    'stt-engine',
+    `${VALID_CONTAINER}
+[[artifact]]
+path = "/models/model.bin"
+obtain = "touch {models_dir}/model.bin"
+`,
+  )
+  const loaded = loadSpec(engine({ id: 'stt-engine', models_dir: "/data/a b;rm -rf x/it's" }), {
+    enginesRoot: root,
+    bunx: BUNX,
+  })
+  if (loaded.spec.kind === 'agentic-cli') {
+    throw new Error('expected a container spec')
+  }
+  const out = Bun.spawnSync(['sh', '-c', `printf '%s\\n' ${loaded.spec.artifacts[0]?.obtain}`])
+  expect(out.stdout.toString()).toBe("touch\n/data/a b;rm -rf x/it's/model.bin\n")
+})

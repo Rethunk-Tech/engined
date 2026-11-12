@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Obtain commands shell-quote substituted values, so a `models_dir` with a space or `;` stays one word.
 - Cap the user unit at MemoryMax=1100M (4×256 MiB upload copies plus door RSS) and MemorySwapMax=0.
 - Skip the extra Blob.arrayBuffer copy of multipart audio uploads.
 - Bound door header reads with a 255s idleTimeout (Bun's maximum); the timer is off once a request reaches the handler, so long non-streaming hops and streams are not cut.

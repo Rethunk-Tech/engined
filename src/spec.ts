@@ -168,13 +168,25 @@ function dropUnresolvable(spec: ContainerSpec, subs: Record<string, string>): Co
   }
 }
 
-function substitute(s: string, subs: Record<string, string>, file: string): string {
+const SHELL_SAFE_RE = /^[\w@%+=:,./-]+$/
+
+/** POSIX single-quoting, skipped for values that need none so a plain path reads as itself. */
+function shellQuote(v: string): string {
+  return SHELL_SAFE_RE.test(v) ? v : `'${v.replaceAll("'", `'\\''`)}'`
+}
+
+function substitute(
+  s: string,
+  subs: Record<string, string>,
+  file: string,
+  quote: (v: string) => string = (v) => v,
+): string {
   return s.replace(PLACEHOLDER_RE, (whole, key: string) => {
     const v = subs[key]
     if (v === undefined) {
       throw new ParseError(`unresolved placeholder ${whole}`, file)
     }
-    return v
+    return quote(v)
   })
 }
 
@@ -185,17 +197,23 @@ function substitute(s: string, subs: Record<string, string>, file: string): stri
  * whatever it forgets (image, obtain, serves, env, devices, artifact.path,
  * ...) silently unscanned.
  */
-function substituteDeep<T>(value: T, subs: Record<string, string>, file: string): T {
+function substituteDeep<T>(
+  value: T,
+  subs: Record<string, string>,
+  file: string,
+  quote?: (v: string) => string,
+): T {
   if (typeof value === 'string') {
-    return substitute(value, subs, file) as unknown as T
+    return substitute(value, subs, file, quote) as unknown as T
   }
   if (Array.isArray(value)) {
-    return value.map((item) => substituteDeep(item, subs, file)) as unknown as T
+    return value.map((item) => substituteDeep(item, subs, file, quote)) as unknown as T
   }
   if (isRecord(value)) {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value)) {
-      out[k] = substituteDeep(v, subs, file)
+      // `obtain` runs under `sh -c`, so a substituted path stays one word there.
+      out[k] = substituteDeep(v, subs, file, k === 'obtain' ? shellQuote : quote)
     }
     return out as T
   }
