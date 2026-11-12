@@ -28,6 +28,7 @@ import {
   CONTENT_ENDPOINT_TRANSLATIONS,
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
+import { allowOf, dispatch, exactPath, pathPattern, type Route } from './routeTable.ts'
 import type { Config } from './types.ts'
 
 const TEST_ROUTE_TIMEOUT_MS = 120_000
@@ -350,103 +351,80 @@ function specText(id: string, deps: ConfigsvcDeps): Response {
   }
 }
 
-const PROXIED_GET: Record<string, string> = {
-  '/api/status': '/engined/v1/engines',
-  '/api/events': '/engined/v1/engines/events',
-  '/api/usage': '/engined/v1/usage',
-}
-const LIVE_GET = new Set([
-  ...Object.keys(PROXIED_GET),
-  '/api/doctor',
-  '/api/models',
-  '/api/shipped',
-  '/api/discovery',
-  '/api/secrets',
-])
-const LIVE_POST = new Set([
-  '/api/secret',
-  '/api/secret/clear',
-  '/api/test-route',
-  '/api/inventory',
-  '/api/probe',
-])
+type LiveArgs = [req: Request, deps: ConfigsvcDeps]
 
-function liveAllow(path: string): string[] {
-  if (LIVE_POST.has(path) || OBTAIN_RE.test(path)) {
-    return ['POST']
-  }
-  if (LIVE_GET.has(path) || ENGINE_VERB_RE.test(path) || SPEC_RE.test(path)) {
-    return ['GET']
-  }
-  return []
-}
+const get = (
+  path: string,
+  handle: (deps: ConfigsvcDeps, req: Request) => Response | Promise<Response>,
+): Route<LiveArgs> => ({
+  methods: ['GET'],
+  match: exactPath(path),
+  handle: (_, req, deps) => handle(deps, req),
+})
+
+const proxiedGet = (path: string, target: string): Route<LiveArgs> =>
+  get(path, (deps, req) =>
+    proxy(deps, `${target}${new URL(req.url).search}`, { signal: req.signal }),
+  )
+
+const post = (
+  path: string,
+  handle: (deps: ConfigsvcDeps, req: Request) => Response | Promise<Response>,
+): Route<LiveArgs> => ({
+  methods: ['POST'],
+  match: exactPath(path),
+  handle: (_, req, deps) => handle(deps, req),
+})
+
+const LIVE_ROUTES: Route<LiveArgs>[] = [
+  proxiedGet('/api/status', '/engined/v1/engines'),
+  proxiedGet('/api/events', '/engined/v1/engines/events'),
+  proxiedGet('/api/usage', '/engined/v1/usage'),
+  {
+    methods: ['GET'],
+    match: pathPattern(ENGINE_VERB_RE),
+    handle: ([verb = '', id = ''], req, deps) =>
+      proxy(
+        deps,
+        `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/${verb}${new URL(req.url).search}`,
+        { signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]) },
+      ),
+  },
+  {
+    methods: ['GET'],
+    match: pathPattern(SPEC_RE),
+    handle: ([id = ''], _req, deps) => specText(decodeURIComponent(id), deps),
+  },
+  get('/api/doctor', (deps) => deps.doctor().then((report) => Response.json(report))),
+  get('/api/models', (deps) => models(deps)),
+  get('/api/shipped', (deps) => shipped(deps)),
+  get('/api/discovery', (deps) => discovery(deps)),
+  get('/api/secrets', (deps) => secrets(deps)),
+  {
+    methods: ['POST'],
+    match: pathPattern(OBTAIN_RE),
+    handle: ([id = ''], req, deps) =>
+      proxy(deps, `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/obtain`, {
+        method: 'POST',
+        signal: req.signal,
+      }),
+  },
+  post('/api/secret', (deps, req) => storeSecret(req, deps)),
+  post('/api/secret/clear', (deps, req) => clearSecret(req, deps)),
+  post('/api/test-route', (deps, req) => testRoute(req, deps)),
+  post('/api/inventory', (deps, req) => inventory(req, deps)),
+  post('/api/probe', (deps) => runProbes(deps.doorUrl(), deps.fetch).then((r) => Response.json(r))),
+]
 
 export function liveApi(
   req: Request,
   path: string,
   deps: ConfigsvcDeps,
 ): Response | Promise<Response> | undefined {
-  const allow = liveAllow(path)
-  if (allow.length > 0 && !allow.includes(req.method)) {
-    return methodNotAllowed(allow)
+  const routed = dispatch(LIVE_ROUTES, req.method, path, req, deps)
+  if (routed !== undefined) {
+    return routed
   }
-  if (req.method === 'GET') {
-    const target = PROXIED_GET[path]
-    if (target !== undefined) {
-      return proxy(deps, `${target}${new URL(req.url).search}`, { signal: req.signal })
-    }
-    const verb = ENGINE_VERB_RE.exec(path)
-    if (verb !== null) {
-      const id = encodeURIComponent(decodeURIComponent(verb[2] as string))
-      return proxy(deps, `/engined/v1/engines/${id}/${verb[1]}${new URL(req.url).search}`, {
-        signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]),
-      })
-    }
-    const spec = SPEC_RE.exec(path)?.[1]
-    if (spec !== undefined) {
-      return specText(decodeURIComponent(spec), deps)
-    }
-    switch (path) {
-      case '/api/doctor':
-        return deps.doctor().then((report) => Response.json(report))
-      case '/api/models':
-        return models(deps)
-      case '/api/shipped':
-        return shipped(deps)
-      case '/api/discovery':
-        return discovery(deps)
-      case '/api/secrets':
-        return secrets(deps)
-      default:
-        return undefined
-    }
-  }
-  if (req.method !== 'POST') {
-    return undefined
-  }
-  const obtain = OBTAIN_RE.exec(path)?.[1]
-  if (obtain !== undefined) {
-    return proxy(
-      deps,
-      `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(obtain))}/obtain`,
-      {
-        method: 'POST',
-        signal: req.signal,
-      },
-    )
-  }
-  switch (path) {
-    case '/api/secret':
-      return storeSecret(req, deps)
-    case '/api/secret/clear':
-      return clearSecret(req, deps)
-    case '/api/test-route':
-      return testRoute(req, deps)
-    case '/api/inventory':
-      return inventory(req, deps)
-    case '/api/probe':
-      return runProbes(deps.doorUrl(), deps.fetch).then((report) => Response.json(report))
-    default:
-      return undefined
-  }
+  const allow = allowOf(LIVE_ROUTES, path)
+  return allow.length > 0 ? methodNotAllowed(allow) : undefined
 }

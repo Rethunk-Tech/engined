@@ -22,30 +22,10 @@ import {
   STATUS_UNPROCESSABLE,
 } from './http.ts'
 import { errMessage, isRecord, parseRecord } from './records.ts'
+import { allowOf, dispatch, exactPath, pathPattern, type Route } from './routeTable.ts'
 import { applyOps, dependents, type EditOp } from './tomlEdit.ts'
 
 const HISTORY_ENTRY_RE = /^\/api\/history\/([^/]+)$/
-
-const CONFIG_POSTS = new Set([
-  '/api/validate',
-  '/api/edit',
-  '/api/dependents',
-  '/api/diff',
-  '/api/save',
-  '/api/restore',
-  '/api/reload',
-])
-const CONFIG_GETS = new Set(['/api/config', '/api/history', '/api/schema'])
-
-function configAllow(path: string): string[] {
-  if (CONFIG_POSTS.has(path)) {
-    return ['POST']
-  }
-  if (CONFIG_GETS.has(path) || HISTORY_ENTRY_RE.test(path)) {
-    return ['GET']
-  }
-  return []
-}
 
 const EDIT_OPS = new Set(['setKey', 'addEntry', 'removeEntry', 'renameId'])
 
@@ -179,46 +159,97 @@ function validate(candidate: string, deps: ConfigsvcDeps): Response {
   })
 }
 
-async function configPost(
-  path: string,
-  req: Request,
+type ApiArgs = [req: Request, deps: ConfigsvcDeps, info: RequestInfo]
+type BodyHandler = (
+  body: Record<string, unknown>,
   deps: ConfigsvcDeps,
   info: RequestInfo,
-): Promise<Response> {
-  const body = await readJson(req)
-  if (body instanceof Response) {
-    return body
+) => Response | Promise<Response>
+
+/** A POST route whose body must be a JSON object. */
+function withBody(handler: BodyHandler): Route<ApiArgs>['handle'] {
+  return async (_, req, deps, info) => {
+    const body = await readJson(req)
+    if (body instanceof Response) {
+      return body
+    }
+    return body === undefined
+      ? badRequest('the body must be a JSON object')
+      : handler(body, deps, info)
   }
-  if (body === undefined) {
-    return badRequest('the body must be a JSON object')
-  }
-  if (path === '/api/restore') {
-    return restore(body, deps, info)
-  }
-  if (path === '/api/reload') {
-    return reload(body, deps)
-  }
-  const candidate = text(body, 'text')
-  if (candidate === undefined) {
-    return badRequest('"text" is required')
-  }
-  if (path === '/api/validate') {
-    return validate(candidate, deps)
-  }
-  if (path === '/api/diff') {
-    return Response.json({ diff: unifiedDiff(readSnapshot(deps.configFile).text, candidate) })
-  }
-  if (path === '/api/edit') {
-    return edit(body, candidate)
-  }
-  if (path === '/api/dependents') {
-    return listDependents(body, candidate)
-  }
-  const base = text(body, 'base_sha256')
-  return base === undefined
-    ? badRequest('"base_sha256" is required')
-    : save(deps, info, candidate, base)
 }
+
+/** A POST route that also carries the candidate config `text`. */
+function withCandidate(
+  handler: (
+    body: Record<string, unknown>,
+    candidate: string,
+    deps: ConfigsvcDeps,
+    info: RequestInfo,
+  ) => Response | Promise<Response>,
+): Route<ApiArgs>['handle'] {
+  return withBody((body, deps, info) => {
+    const candidate = text(body, 'text')
+    return candidate === undefined
+      ? badRequest('"text" is required')
+      : handler(body, candidate, deps, info)
+  })
+}
+
+const getJson = (path: string, make: (deps: ConfigsvcDeps) => unknown): Route<ApiArgs> => ({
+  methods: ['GET'],
+  match: exactPath(path),
+  handle: (_, _req, deps) => Response.json(make(deps)),
+})
+
+const postRoute = (path: string, handle: Route<ApiArgs>['handle']): Route<ApiArgs> => ({
+  methods: ['POST'],
+  match: exactPath(path),
+  handle,
+})
+
+const CONFIG_ROUTES: Route<ApiArgs>[] = [
+  postRoute('/api/restore', withBody(restore)),
+  postRoute(
+    '/api/reload',
+    withBody((body, deps) => reload(body, deps)),
+  ),
+  postRoute(
+    '/api/validate',
+    withCandidate((_, candidate, deps) => validate(candidate, deps)),
+  ),
+  postRoute(
+    '/api/diff',
+    withCandidate((_, candidate, deps) =>
+      Response.json({ diff: unifiedDiff(readSnapshot(deps.configFile).text, candidate) }),
+    ),
+  ),
+  postRoute(
+    '/api/edit',
+    withCandidate((body, candidate) => edit(body, candidate)),
+  ),
+  postRoute(
+    '/api/dependents',
+    withCandidate((body, candidate) => listDependents(body, candidate)),
+  ),
+  postRoute(
+    '/api/save',
+    withCandidate((body, candidate, deps, info) => {
+      const base = text(body, 'base_sha256')
+      return base === undefined
+        ? badRequest('"base_sha256" is required')
+        : save(deps, info, candidate, base)
+    }),
+  ),
+  getJson('/api/config', (deps) => readSnapshot(deps.configFile)),
+  getJson('/api/history', (deps) => ({ entries: listHistory(deps.configFile) })),
+  getJson('/api/schema', () => configSchema()),
+  {
+    methods: ['GET'],
+    match: pathPattern(HISTORY_ENTRY_RE),
+    handle: ([entry = ''], _req, deps) => historyEntry(decodeURIComponent(entry), deps),
+  },
+]
 
 export function configApi(
   req: Request,
@@ -226,30 +257,12 @@ export function configApi(
   deps: ConfigsvcDeps,
   info: RequestInfo,
 ): Response | Promise<Response> | undefined {
-  const allow = configAllow(path)
-  if (allow.length > 0 && !allow.includes(req.method)) {
-    return methodNotAllowed(allow)
+  const routed = dispatch(CONFIG_ROUTES, req.method, path, req, deps, info)
+  if (routed !== undefined) {
+    return routed
   }
-  if (req.method === 'POST') {
-    return CONFIG_POSTS.has(path) ? configPost(path, req, deps, info) : undefined
-  }
-  if (req.method !== 'GET') {
-    return undefined
-  }
-  if (path === '/api/config') {
-    return Response.json(readSnapshot(deps.configFile))
-  }
-  if (path === '/api/history') {
-    return Response.json({ entries: listHistory(deps.configFile) })
-  }
-  const entry = HISTORY_ENTRY_RE.exec(path)?.[1]
-  if (entry !== undefined) {
-    return historyEntry(decodeURIComponent(entry), deps)
-  }
-  if (path === '/api/schema') {
-    return Response.json(configSchema())
-  }
-  return undefined
+  const allow = allowOf(CONFIG_ROUTES, path)
+  return allow.length > 0 ? methodNotAllowed(allow) : undefined
 }
 
 function reloadSignal(mode: unknown): 'HUP' | 'USR1' | undefined {

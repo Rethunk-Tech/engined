@@ -54,6 +54,7 @@ import {
   CONTENT_ENDPOINT_TRANSLATIONS,
   OPENAI_MODELS_PATH,
 } from './routeServes.ts'
+import { allowOf, dispatch, exactPath, GET_HEAD, pathPattern, type Route } from './routeTable.ts'
 import { refuseMovedPorts, type ServedPorts } from './servedPorts.ts'
 import {
   DETOKENIZE_PATH,
@@ -100,99 +101,99 @@ const EXTRAS_RE = engineVerbRe('(tokenize|apply-template)')
 
 export type { Door }
 
-function routeGet(
-  ctx: DoorContext,
-  url: URL,
-  fault: ConfigFault | undefined,
-  signal: AbortSignal,
-): Response | Promise<Response> | undefined {
-  const { pathname } = url
-  if (pathname === OPENAI_MODELS_PATH) {
-    return modelsMenu(ctx)
-  }
-  if (pathname.startsWith(`${OPENAI_MODELS_PATH}/`)) {
-    return modelById(ctx, decodeURIComponent(pathname.slice(OPENAI_MODELS_PATH.length + 1)))
-  }
-  if (pathname === ENGINED_ENGINES_PATH) {
-    return handleEngines(ctx, fault)
-  }
-  if (pathname === `${ENGINED_ENGINES_PATH}/events`) {
-    return handleEngineEvents(ctx, signal)
-  }
-  if (pathname === USAGE_PATH) {
-    return handleUsage(ctx, url)
-  }
-  const logsMatch = pathname.match(LOGS_RE)?.[1]
-  if (logsMatch !== undefined) {
-    return handleLogs(ctx.registry, logsMatch, url)
-  }
-  const resourcesMatch = pathname.match(RESOURCES_RE)?.[1]
-  if (resourcesMatch !== undefined) {
-    return handleResources(ctx.registry, resourcesMatch)
-  }
-  return responseForImageGet(pathname)
-}
+type GetArgs = [ctx: DoorContext, url: URL, fault: ConfigFault | undefined, signal: AbortSignal]
+type PostArgs = [ctx: DoorContext, req: Request, pathname: string, launchScoped: boolean]
 
-function routePost(
-  ctx: DoorContext,
-  req: Request,
-  pathname: string,
-  launchScoped: boolean,
-): Response | Promise<Response> | undefined {
-  if (isCursorPath(pathname)) {
-    return handleCursor(ctx, pathname)
-  }
-  if (pathname === START_PATH) {
-    return handleStart(ctx, req)
-  }
-  if (pathname === PROBES_PATH) {
-    return handleProbes(ctx, req)
-  }
-  if (pathname === TOKENIZE_PATH) {
-    return handleTokenizeRoute(ctx, req)
-  }
-  if (pathname === DETOKENIZE_PATH) {
-    return handleDetokenizeRoute(ctx, req)
-  }
-  const verb = routeEngineVerb(ctx, req, pathname)
-  if (verb !== undefined) {
-    return verb
-  }
-  if (pathname === VOICE_UPLOAD_PATH) {
-    return handleVoiceUpload(req)
-  }
-  if (CONTENT_ENDPOINTS.has(pathname)) {
-    return handleContent(ctx, req, pathname, launchScoped)
-  }
-  const extras = pathname.match(EXTRAS_RE)
-  if (extras?.[1] !== undefined && extras[2] !== undefined) {
-    return handleExtras(ctx, req, extras[1], extras[2])
-  }
-  return undefined
-}
+const MODEL_PREFIX = `${OPENAI_MODELS_PATH}/`
 
-function allowFor(pathname: string): string[] {
-  const get =
-    pathname === OPENAI_MODELS_PATH ||
-    pathname.startsWith(`${OPENAI_MODELS_PATH}/`) ||
-    pathname === ENGINED_ENGINES_PATH ||
-    pathname === `${ENGINED_ENGINES_PATH}/events` ||
-    pathname === USAGE_PATH ||
-    IMAGE_GET_RE.test(pathname) ||
-    LOGS_RE.test(pathname) ||
-    RESOURCES_RE.test(pathname)
-  const post =
-    isCursorPath(pathname) ||
-    pathname === START_PATH ||
-    pathname === PROBES_PATH ||
-    pathname === TOKENIZE_PATH ||
-    pathname === DETOKENIZE_PATH ||
-    pathname === VOICE_UPLOAD_PATH ||
-    CONTENT_ENDPOINTS.has(pathname) ||
-    isEngineVerbPath(pathname) ||
-    EXTRAS_RE.test(pathname)
-  return [...(get ? ['GET', 'HEAD'] : []), ...(post ? ['POST'] : [])]
-}
+const GET_ROUTES: Route<GetArgs>[] = [
+  { methods: GET_HEAD, match: exactPath(OPENAI_MODELS_PATH), handle: (_, ctx) => modelsMenu(ctx) },
+  {
+    methods: GET_HEAD,
+    match: (p) => (p.startsWith(MODEL_PREFIX) ? [p.slice(MODEL_PREFIX.length)] : undefined),
+    handle: ([id = ''], ctx) => modelById(ctx, decodeURIComponent(id)),
+  },
+  {
+    methods: GET_HEAD,
+    match: exactPath(ENGINED_ENGINES_PATH),
+    handle: (_, ctx, _url, fault) => handleEngines(ctx, fault),
+  },
+  {
+    methods: GET_HEAD,
+    match: exactPath(`${ENGINED_ENGINES_PATH}/events`),
+    handle: (_, ctx, _url, _fault, signal) => handleEngineEvents(ctx, signal),
+  },
+  {
+    methods: GET_HEAD,
+    match: exactPath(USAGE_PATH),
+    handle: (_, ctx, url) => handleUsage(ctx, url),
+  },
+  {
+    methods: GET_HEAD,
+    match: pathPattern(LOGS_RE),
+    handle: ([id = ''], ctx, url) => handleLogs(ctx.registry, id, url),
+  },
+  {
+    methods: GET_HEAD,
+    match: pathPattern(RESOURCES_RE),
+    handle: ([id = ''], ctx) => handleResources(ctx.registry, id),
+  },
+  {
+    methods: GET_HEAD,
+    match: pathPattern(IMAGE_GET_RE),
+    handle: (_, _ctx, url) => responseForImageGet(url.pathname),
+  },
+]
+
+const POST_ROUTES: Route<PostArgs>[] = [
+  {
+    methods: ['POST'],
+    match: (p) => (isCursorPath(p) ? [] : undefined),
+    handle: (_, ctx, _req, pathname) => handleCursor(ctx, pathname),
+  },
+  {
+    methods: ['POST'],
+    match: exactPath(START_PATH),
+    handle: (_, ctx, req) => handleStart(ctx, req),
+  },
+  {
+    methods: ['POST'],
+    match: exactPath(PROBES_PATH),
+    handle: (_, ctx, req) => handleProbes(ctx, req),
+  },
+  {
+    methods: ['POST'],
+    match: exactPath(TOKENIZE_PATH),
+    handle: (_, ctx, req) => handleTokenizeRoute(ctx, req),
+  },
+  {
+    methods: ['POST'],
+    match: exactPath(DETOKENIZE_PATH),
+    handle: (_, ctx, req) => handleDetokenizeRoute(ctx, req),
+  },
+  {
+    methods: ['POST'],
+    match: (p) => (isEngineVerbPath(p) ? [] : undefined),
+    handle: (_, ctx, req, pathname) => routeEngineVerb(ctx, req, pathname),
+  },
+  {
+    methods: ['POST'],
+    match: exactPath(VOICE_UPLOAD_PATH),
+    handle: (_, _ctx, req) => handleVoiceUpload(req),
+  },
+  {
+    methods: ['POST'],
+    match: (p) => (CONTENT_ENDPOINTS.has(p) ? [] : undefined),
+    handle: (_, ctx, req, pathname, launchScoped) =>
+      handleContent(ctx, req, pathname, launchScoped),
+  },
+  {
+    methods: ['POST'],
+    match: pathPattern(EXTRAS_RE),
+    handle: ([id, verb], ctx, req) =>
+      id === undefined || verb === undefined ? undefined : handleExtras(ctx, req, id, verb),
+  },
+]
 
 /**
  * Launch-scoped `/openai/v1/<nonce>/...` matches the public door; `null` is an
@@ -235,14 +236,22 @@ function routeRequest(
   }
   let matched: Response | Promise<Response> | undefined
   if (req.method === 'GET' || req.method === 'HEAD') {
-    matched = routeGet(ctx, new URL(pathname + url.search, url), fault, req.signal)
+    matched = dispatch(
+      GET_ROUTES,
+      req.method,
+      pathname,
+      ctx,
+      new URL(pathname + url.search, url),
+      fault,
+      req.signal,
+    )
   } else if (req.method === 'POST') {
-    matched = routePost(ctx, req, pathname, launchScoped)
+    matched = dispatch(POST_ROUTES, req.method, pathname, ctx, req, pathname, launchScoped)
   }
   if (matched !== undefined) {
     return req.method === 'HEAD' ? headOf(matched) : matched
   }
-  const allow = allowFor(pathname)
+  const allow = [...allowOf(GET_ROUTES, pathname), ...allowOf(POST_ROUTES, pathname)]
   return allow.length === 0 ? jsonError(STATUS_NOT_FOUND, 'not found') : methodNotAllowed(allow)
 }
 
