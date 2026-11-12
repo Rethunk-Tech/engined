@@ -309,11 +309,9 @@ export async function proxyComfyUpload(
   // Blob; a File already named for storage keeps `File.name` and that
   // filename the same string.
   outgoing.append('image', new File([image], namespaced, { type: image.type }))
-  for (const [key, value] of incoming.entries()) {
-    if (key !== 'image' && typeof value === 'string') {
-      outgoing.append(key, value)
-    }
-  }
+  outgoing.append('type', 'input')
+  outgoing.append('subfolder', '')
+  outgoing.append('overwrite', 'false')
   const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: outgoing })
   return jsonForward(res, await res.text())
 }

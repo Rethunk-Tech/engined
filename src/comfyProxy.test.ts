@@ -286,6 +286,29 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     expect(calls).toHaveLength(1)
   })
 
+  test("an upload pins type, subfolder and overwrite rather than forwarding the caller's", async () => {
+    const { client, calls } = recordingComfyClient(async (_url, init) => {
+      const form = await (init?.body as FormData)
+      return Response.json({
+        type: form.get('type'),
+        subfolder: form.get('subfolder'),
+        overwrite: form.get('overwrite'),
+      })
+    })
+    const door = await comfyDoor(client)
+    const form = new FormData()
+    form.append('image', new Blob([new Uint8Array([1, 2, 3])]), 'reference.png')
+    form.append('type', 'output')
+    form.append('subfolder', 'escape')
+    form.append('overwrite', 'true')
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, { method: 'POST', body: form }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ type: 'input', subfolder: '', overwrite: 'false' })
+    expect(calls).toHaveLength(1)
+  })
+
   test('an oversized upload is 413 before it is forwarded', async () => {
     const { res, calls } = await unreachedUpload({ 'content-length': String(33_554_433) }, 'x')
     expect(res.status).toBe(413)
