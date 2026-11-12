@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { handleSpeech } from '../../src/audioSpeech.ts'
 import { handleTranscription } from '../../src/audioTranscribe.ts'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
+import { buildEntries } from '../../src/engineEntries.ts'
+import { specForModel } from '../../src/modelResidency.ts'
 import { loadSpec } from '../../src/spec.ts'
 import { isContainerSpec } from '../../src/specTypes.ts'
-import type { EngineEntry } from '../../src/types.ts'
+import type { Config, EngineEntry } from '../../src/types.ts'
 import {
   BUNX,
   CONFIG_EXAMPLE,
@@ -113,7 +115,7 @@ describe.skipIf(!HAVE_CHATTERBOX)(
 
     afterAll(async () => {
       await lifecycle.shutdown()
-    })
+    }, TEST_TIMEOUT_MS)
 
     test(
       'a real chatterbox-multi container starts on demand and its NDJSON is translated into real WAV bytes',
@@ -194,7 +196,7 @@ describe.skipIf(!HAVE_WHISPER)(
         // have been found (otherwise fix would be a "docker build"
         // command, not this artifact's own obtain line).
         expect(status.fix).toBe(loaded.spec.artifacts[0]?.obtain)
-        expect(status.fix).toContain('curl')
+        expect(status.fix).toContain('fetch.sh')
       },
       TEST_TIMEOUT_MS,
     )
@@ -236,18 +238,19 @@ for (const tts of TTS_ROUND_TRIPS) {
       const lifecycle = new DockerLifecycle(dockerExec, undefined, TEST_NAME_PREFIX)
 
       function startFor(id: string) {
-        const engine: EngineEntry = {
-          id,
-          args: {},
-          models_dir: WHISPER_MODELS.dir,
-          idle_stop_seconds: IDLE_STOP_SECONDS,
-          ready_timeout_s: READY_TIMEOUT_S,
+        // Built the way the daemon builds it: route_file weights no route names are dropped
+        // and a bare start loads the first route's file, so only the weights this box holds are required.
+        const config = loadLocalConfig().config as Config
+        const entry = buildEntries(
+          config,
+          { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+          () => '',
+        ).find((e) => e.engine.id === id)
+        if (entry === undefined || !isContainerSpec(entry.spec.spec)) {
+          throw new Error(`${id} is not a container engine in ${CONFIG_EXAMPLE}`)
         }
-        const loaded = loadSpec(engine, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
-        if (!isContainerSpec(loaded.spec)) {
-          throw new Error(`${id} spec.toml did not parse as a container spec`)
-        }
-        const { spec } = loaded
+        const loaded = entry.spec
+        const spec = specForModel(entry.spec.spec, config.routes, id, undefined)
         return async (requested: string) => {
           const status = await lifecycle.start(requested, spec, {
             idleStopSeconds: IDLE_STOP_SECONDS,
@@ -260,7 +263,7 @@ for (const tts of TTS_ROUND_TRIPS) {
 
       afterAll(async () => {
         await lifecycle.shutdown()
-      })
+      }, TEST_TIMEOUT_MS)
 
       test(
         `${tts.id} speaks a phrase and whisper reads that same phrase back`,
