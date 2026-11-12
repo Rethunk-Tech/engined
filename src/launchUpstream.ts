@@ -23,8 +23,12 @@ import { resolveUpstream, upstreamUrl } from './upstream.ts'
 
 const LAUNCH_UPSTREAM_PATHS = new Set(['/v1/messages', '/v1/messages/count_tokens', '/v1/models'])
 
+const ENCODED_SLASH_OR_DOT = /%2f|%2e/i
+
 function launchUpstreamPathAllowed(rest: string, rawUrl: string): boolean {
-  return !/%2f|%2e/i.test(rawUrl) && !rest.includes('..') && LAUNCH_UPSTREAM_PATHS.has(rest)
+  return (
+    !(ENCODED_SLASH_OR_DOT.test(rawUrl) || rest.includes('..')) && LAUNCH_UPSTREAM_PATHS.has(rest)
+  )
 }
 
 /**

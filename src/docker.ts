@@ -221,37 +221,31 @@ export class DockerLifecycle {
     }
     const rt = this.table.runtime(id)
     this.table.cancelIdle(rt)
-    // Returning the map's record on faith hands back a corpse when the
-    // container crashed, was OOM-killed or was removed underneath engined --
-    // and starting on faith destroys a container this process never started
-    // but an earlier one did. A reconcile decides both, and only what it
-    // leaves `running` is handed back without a fresh start.
+    // Neither trust the map (a crashed or removed container is a corpse) nor
+    // start blindly (it may destroy an earlier process's container): reconcile decides.
     const reconciled = await this.reconcile(id, spec, opts.idleStopSeconds)
     if (reconciled.state === 'running' && rt.hostPort !== null) {
       this.refreshIdle(rt, opts.idleStopSeconds)
       return { ...this.table.status(id), launched: false, adopted: reconciled.adopted }
     }
     if (rt.startPromise !== null) {
-      // Joining someone else's in-flight start, not running doStart myself --
-      // `launched` must be decided per caller, not read off the shared
-      // promise's resolved value, or every joiner would inherit the
-      // launcher's `true`.
+      // `launched` is per caller; reading it off the shared promise would hand every joiner `true`.
       return { ...(await rt.startPromise), launched: false }
     }
-    const promise = this.doStart(id, rt, spec, opts).then(() => {
-      this.refreshIdle(rt, opts.idleStopSeconds)
-      return this.table.status(id)
-    })
+    const promise = this.doStart(id, rt, spec, opts)
+      .then(() => {
+        this.refreshIdle(rt, opts.idleStopSeconds)
+        return this.table.status(id)
+      })
+      .catch((err: unknown) => {
+        this.fail(id, rt, errMessage(err))
+        throw err
+      })
+      .finally(() => {
+        rt.startPromise = null
+      })
     rt.startPromise = promise
-    try {
-      const status = await promise
-      return { ...status, launched: true }
-    } catch (err) {
-      this.fail(id, rt, errMessage(err))
-      throw err
-    } finally {
-      rt.startPromise = null
-    }
+    return { ...(await promise), launched: true }
   }
 
   /**

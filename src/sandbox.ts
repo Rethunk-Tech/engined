@@ -117,10 +117,7 @@ const SENSITIVE_HOME_REL = [
   join('.local', 'share', 'keyrings'),
 ] as const
 
-const WORKTREE_HOME_REL = [
-  join('.cursor', 'worktrees'),
-  join('.claude', 'worktrees'),
-] as const
+const WORKTREE_HOME_REL = [join('.cursor', 'worktrees'), join('.claude', 'worktrees')] as const
 
 function resolvedPath(path: string): string {
   try {

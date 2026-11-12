@@ -541,7 +541,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     sandboxCleanup = sandboxed.cleanup
     ;({ argv } = sandboxed)
     if (input.systemPrompt !== undefined) {
-      const promptFile = join(env.HOME, 'append-system-prompt')
+      const promptFile = join(sandboxed.home, 'append-system-prompt')
       writeFileSync(promptFile, input.systemPrompt)
       const flag = argv.indexOf('--append-system-prompt-file')
       if (flag >= 0) {

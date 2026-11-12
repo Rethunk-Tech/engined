@@ -33,7 +33,7 @@ export function usableBwrap(override?: string | null): string | null {
 export function applySandboxFloor(
   agent: AgentCli,
   input: SandboxFloorInput,
-): { argv: string[]; cleanup: () => void } | null {
+): { argv: string[]; home: string; cleanup: () => void } | null {
   const bwrap = usableBwrap(input.bwrapOverride)
   if (bwrap === null) {
     return null
@@ -55,6 +55,7 @@ export function applySandboxFloor(
       writable: input.writable,
       sandboxMask: input.sandboxMask,
     }),
+    home,
     cleanup: () => rmSync(home, { recursive: true, force: true }),
   }
 }
