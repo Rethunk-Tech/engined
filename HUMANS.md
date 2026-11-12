@@ -6,10 +6,14 @@ is under [`docs/`](docs/) and linked from [README.md](README.md).
 ## Prerequisites
 
 - Linux with `systemd --user`. There is no Windows or macOS build.
-- Docker, with your user in the `docker` group
-- git and rsync (install syncs `engines/` with `rsync --delete`)
+- Docker running, with your user in the `docker` group. A user service only sees a new group after the user manager restarts, so after `sudo usermod -aG docker $USER` log out and back in (or `sudo systemctl restart user@$(id -u)`); until then engines read `unavailable` and `engined --doctor` is green only from a fresh shell
+- git and rsync (install syncs `engines/` with `rsync --delete`), and `jq` for the commands below that pipe through it
 - [Bun](https://bun.sh) 1.4 on `PATH` (or `ENGINED_BUNX` set)
 - `secret-tool` (libsecret) for any engine that needs a key
+
+On Fedora, a minimal install needs: `sudo dnf install git rsync jq libsecret bubblewrap moby-engine`, then
+`sudo systemctl enable --now docker` and Bun from `curl -fsSL https://bun.sh/install | bash` (open a new shell so `bun` is on `PATH`).
+
 - For GPU engines, the shipped images target AMD Strix Halo / gfx1151, ROCm 7.2+. Other hardware works by pointing an engine at your own image: one `spec_dir = "..."` line on its `[[engine]]` in `config.toml`, naming a spec whose `image` suits your GPU or CPU. See [docs/configuration.md](docs/configuration.md) and [docs/engines.md](docs/engines.md).
 
 Operator environment (the `--user` unit sets the first two):
@@ -96,6 +100,10 @@ install -Dm644 /tmp/engined-assets/engined.fish ~/.config/fish/completions/engin
 Add-Content $PROFILE '. /tmp/engined-assets/engined.ps1'
 ```
 
+A clone install puts no `engined` on `PATH`; the commands under Operate run the installed bundle, so
+`alias engined='bun ~/.local/share/engined/main.js'` (packages ship the real command). It does write the bash, zsh and fish
+completions and the man page under `~/.local/share` and `~/.config/fish`, so the tarball steps above are for hosts without a clone.
+
 **Never run it under `sudo`.** Root-owned outputs break later user-level builds.
 
 The sync uses `rsync --delete`; the model tree is a sibling of the install
@@ -135,6 +143,26 @@ vision_bridge = "@/llama/vision"     # must resolve to a served role = "vision" 
 ```
 
 Full schema: [docs/configuration.md](docs/configuration.md).
+
+The smallest config that proves the install on a machine with no GPU is the CPU `piper` voice (no model files; the first
+`engines` call prints its `docker build` line, run it once):
+
+```toml
+listen_port = 29200
+[[upstream]]
+id = "local"
+egress = "none"
+[[engine]]
+id = "piper"
+[[route]]
+engine = "piper"
+upstream = "local"
+```
+
+```sh
+curl -s localhost:29200/openai/v1/audio/speech -H 'content-type: application/json' \
+  -d '{"model":"@/piper/local","input":"The quick brown fox."}' -o t.wav
+```
 
 ## Verify
 
