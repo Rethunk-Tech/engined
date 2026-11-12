@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Removing a `[[route]]` (and the same for a commented toml-edit entry) also takes the contiguous comment lines immediately above it; a comment separated by a blank line stays.
+
 ## 0.2.17 - 2026-11-12
 
 - An agentic launch on a box without `pasta` (package `passt`) is refused with a 503 naming the package, as a launch without `bwrap` is: it no longer runs in the host network namespace, where host loopback services and the X11 socket were reachable.

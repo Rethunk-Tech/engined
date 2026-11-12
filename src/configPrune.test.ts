@@ -75,6 +75,8 @@ model = "opus-5-5"
 wire_model = "claude-opus-5-5"
 display_name = "My Opus"
 
+# stays: blank line separates this from the retired route
+
 [[route]]
 engine = "claude"
 model = "pinned"
@@ -101,10 +103,12 @@ test('removes redundant and retired routes, keeps a differing one, and keeps eve
   ).toEqual(['duplicate:sonnet-5-5', 'model:pinned', 'model:sonnet-5-5', 'retired:pinned'])
   const text = readFileSync(out, 'utf8')
   expect(text).toContain('# top comment')
-  expect(text).toContain('# keep: a real pin')
+  expect(text).toContain('# differs in one field (label)')
+  expect(text).toContain('# stays: blank line separates this from the retired route')
   expect(text).toContain('model = "opus-5-5"')
+  expect(text).not.toContain('# redundant with discovery')
+  expect(text).not.toContain('# keep: a real pin')
   expect(text).not.toContain('wire_model = "claude-sonnet-5-5"')
-  // A [[model]] goes with the last route that used it, and comments stay.
   expect(text).not.toContain('id = "sonnet-5-5"')
   expect(text).not.toContain('id = "pinned"')
 })
@@ -115,7 +119,7 @@ test('prunes a config.d fragment and writes it beside the output', async () => {
   mkdirSync(dir)
   writeFileSync(
     join(dir, 'extra.toml'),
-    '# fragment\n[[route]]\nengine = "claude"\nmodel = "sonnet-5-5"\nwire_model = "claude-sonnet-5-5"\n',
+    '# fragment\n\n[[route]]\nengine = "claude"\nmodel = "sonnet-5-5"\nwire_model = "claude-sonnet-5-5"\n',
   )
   const noRoute = readFileSync(main, 'utf8').replace(/# redundant with discovery[\s\S]*?\n\n/, '')
   writeFileSync(main, noRoute)
@@ -129,7 +133,7 @@ test('prunes a config.d fragment and writes it beside the output', async () => {
     true,
   )
   const fragment = readFileSync(join(out, '..', 'config.d', 'extra.toml'), 'utf8')
-  expect(fragment).toBe('# fragment\n')
+  expect(fragment).toBe('# fragment\n\n')
 })
 
 test('refuses, writing nothing, when a provider list cannot be fetched', async () => {

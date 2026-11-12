@@ -49,8 +49,12 @@ function blockTable(lines: readonly string[], from: number, to: number): Record<
   return isRecord(first) ? first : {}
 }
 
-/** `[from, to)` widened to swallow the blank lines after the block's last content line, leaving the comments that belong to the next block. */
+/** `[from, to)`: comments immediately above the header (stopped by a blank or non-comment) and blank lines after the last content line. A comment above a blank line belongs to whatever precedes it. */
 function removalRange(lines: readonly string[], from: number, to: number): [number, number] {
+  let start = from
+  while (start > 0 && /^\s*#/.test(lines[start - 1] as string)) {
+    start -= 1
+  }
   let end = to
   while (end > from + 1 && BLANK_OR_COMMENT.test(lines[end - 1] as string)) {
     end -= 1
@@ -59,7 +63,7 @@ function removalRange(lines: readonly string[], from: number, to: number): [numb
   while (stop < lines.length - 1 && (lines[stop] as string).trim() === '') {
     stop += 1
   }
-  return [from, stop]
+  return [start, stop]
 }
 
 /** Routes of `engine`/`model` named in `targets` with no `upstream`, dropped from one file's text. */

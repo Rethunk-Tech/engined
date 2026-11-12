@@ -37,6 +37,25 @@ test('adding then removing a route leaves every other line byte-identical', () =
   expect(removeEntry(added, 'route', routes)).toBe(EXAMPLE)
 })
 
+test('removeEntry drops contiguous comments immediately above the entry', () => {
+  const src = `# keep above blank
+
+# redundant with the next route
+[[route]]
+engine = "gone"
+model = "x"
+
+[[route]]
+engine = "kept"
+model = "y"
+`
+  const out = removeEntry(src, 'route', 0)
+  expect(out).toContain('# keep above blank')
+  expect(out).not.toContain('# redundant with the next route')
+  expect(out).not.toContain('engine = "gone"')
+  expect(out).toContain('engine = "kept"')
+})
+
 test('the first entry of a table the file lacks is appended, comments intact', () => {
   const src = '# keep\nlisten_port = 1 # port\n'
   const out = addEntry(src, 'upstream', { id: 'local', egress: 'none' })

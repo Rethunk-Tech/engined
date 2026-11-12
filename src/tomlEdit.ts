@@ -8,6 +8,7 @@
 import { parse, patch, stringify } from '@decimalturn/toml-patch'
 import { ID_RE } from './config.ts'
 import type { EditOp, TomlPath } from './editOps.ts'
+import { dropRanges, tableBlocks } from './localConfigPrune.ts'
 import { isRecord } from './records.ts'
 import { qualifiedSegments } from './routeAddress.ts'
 
@@ -113,6 +114,34 @@ function appendEntry(src: string, table: string, entry: Record<string, unknown>)
   return src.trim() === '' ? block : `${src.trimEnd()}\n\n${block}`
 }
 
+/** toml-patch leaves comments that sat immediately above a removed `[[table]]`; drop them with the entry. A comment above a blank line stays. */
+function dropCommentedEntry(src: string, table: string, index: number): string {
+  const lines = src.split('\n')
+  const range = tableBlocks(lines, table)[index]
+  if (range === undefined) {
+    throw new Error(`${table}[${index}] does not exist`)
+  }
+  const [from, to] = range
+  let start = from
+  while (start > 0 && /^\s*#/.test(lines[start - 1] as string)) {
+    start -= 1
+  }
+  if (start === from) {
+    const patched = parse(src) as Doc
+    applyOne(patched, { op: 'removeEntry', table, index })
+    return patch(src, patched)
+  }
+  let end = to
+  while (end > from + 1 && /^\s*(#.*)?$/.test(lines[end - 1] as string)) {
+    end -= 1
+  }
+  let stop = end
+  while (stop < lines.length - 1 && (lines[stop] as string).trim() === '') {
+    stop += 1
+  }
+  return dropRanges(lines, [[start, stop]])
+}
+
 /** Runs `ops` in order against `src`; any op, or a result Bun reads differently, throws. */
 export function applyOps(src: string, ops: readonly EditOp[]): string {
   let text = src
@@ -121,6 +150,8 @@ export function applyOps(src: string, ops: readonly EditOp[]): string {
     applyOne(expected, op)
     if (op.op === 'addEntry') {
       text = appendEntry(text, op.table, op.entry)
+    } else if (op.op === 'removeEntry') {
+      text = dropCommentedEntry(text, op.table, op.index)
     } else {
       const patched = parse(text) as Doc
       applyOne(patched, op)
