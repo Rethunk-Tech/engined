@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -737,6 +738,70 @@ test('buildAgenticProbeRunner: a clean completion under both probes yields ok --
 
   expect(outcome).toEqual({ ok: true })
   expect(cwds).toHaveLength(2)
+})
+
+/** Runs the probe with the state dir at a scratch root holding one already-proved pin; `spawn` sees the shared cache path, the bwrap argv and env. */
+async function probeWithSharedCache(
+  spawn: (shared: string, argv: string[], env: Record<string, string>) => void,
+  isError = false,
+) {
+  const root = makeTestRoot('engined-probe-cache-')
+  const saved = process.env.XDG_STATE_HOME
+  process.env.XDG_STATE_HOME = root
+  const shared = join(root, 'engined', 'bun-install')
+  const other = join(shared, 'install', 'cache', '@anthropic-ai', 'claude-code@9.9.9@@@1')
+  mkdirSync(other, { recursive: true })
+  writeFileSync(join(other, 'cli.js'), 'original')
+  try {
+    const outcome = await runProbe((argv, opts) => {
+      spawn(shared, argv, opts.env)
+      return Promise.resolve({
+        stdout: JSON.stringify({ is_error: isError, result: 'hello' }),
+        stderr: '',
+        exitCode: 0,
+      })
+    })
+    return { outcome, shared, other }
+  } finally {
+    if (saved === undefined) {
+      delete process.env.XDG_STATE_HOME
+    } else {
+      process.env.XDG_STATE_HOME = saved
+    }
+  }
+}
+
+test('buildAgenticProbeRunner: the shared Bun cache is never bound writable, so another pin cannot be overwritten', async () => {
+  const binds: string[] = []
+  const { shared, other } = await probeWithSharedCache((_s, argv) => {
+    argv.forEach((arg, i) => {
+      if (arg === '--bind') {
+        binds.push(argv[i + 1] ?? '')
+      }
+    })
+  })
+  expect(binds.some((src) => src === shared || src.startsWith(`${shared}/`))).toBe(false)
+  expect(binds.some((src) => src.startsWith(`${shared}.probe-`))).toBe(true)
+  expect(readFileSync(join(other, 'cli.js'), 'utf8')).toBe('original')
+})
+
+test('buildAgenticProbeRunner: a passed probe promotes only the new pin; a failed one promotes nothing', async () => {
+  const fetch = (_shared: string, _argv: string[], env: Record<string, string>) => {
+    const pkg = join(env.BUN_INSTALL ?? '', 'install', 'cache', '@anthropic-ai')
+    mkdirSync(join(pkg, `claude-code@${PIN}@@@1`), { recursive: true })
+    mkdirSync(join(pkg, 'claude-code@9.9.9@@@1'), { recursive: true })
+    writeFileSync(join(pkg, 'claude-code@9.9.9@@@1', 'cli.js'), 'poisoned')
+  }
+  const newPin = (shared: string) =>
+    join(shared, 'install', 'cache', '@anthropic-ai', `claude-code@${PIN}@@@1`)
+  const passed = await probeWithSharedCache(fetch)
+  expect(passed.outcome.ok).toBe(true)
+  expect(existsSync(newPin(passed.shared))).toBe(true)
+  expect(readFileSync(join(passed.other, 'cli.js'), 'utf8')).toBe('original')
+
+  const failed = await probeWithSharedCache(fetch, true)
+  expect(failed.outcome.ok).toBe(false)
+  expect(existsSync(newPin(failed.shared))).toBe(false)
 })
 
 test('buildAgenticProbeRunner: a probe that throws becomes a failed outcome, never a rejection', async () => {

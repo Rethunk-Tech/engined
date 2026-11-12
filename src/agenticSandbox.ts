@@ -1,5 +1,5 @@
-import { mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
 import type { AgentCli } from './agents.ts'
 import {
@@ -20,7 +20,8 @@ interface SandboxFloorInput {
   env: Record<string, string>
   /** Overrides `resolveBwrap()`; only ever set by a test. */
   bwrapOverride: string | null | undefined
-  seedCache: boolean
+  /** A private, empty Bun install tree the launch may write; the shared cache is then not mounted at all. */
+  seedCache?: string
   /** Paths the launch was handed, shown back through the masked home. */
   readOnly: readonly string[]
   writable?: readonly string[]
@@ -67,6 +68,45 @@ export function removeLaunchHome(home: string): void {
   }
 }
 
+/** The Bun install tree every normal launch of this agent reads (through a throwaway overlay). */
+export function sharedInstallCache(agent: AgentCli): string {
+  return agent.installCache?.() ?? join(sandboxHome(agent.id), SANDBOX_BUN_DIR)
+}
+
+/** A fresh private seed tree beside `shared`, on the same filesystem so promotion is a rename. */
+export function makeSeedCache(shared: string): string {
+  mkdirSync(dirname(shared), { recursive: true })
+  return mkdtempSync(`${shared}.probe-`)
+}
+
+/**
+ * Move what a passed probe fetched into the shared cache: package entries under
+ * `install/cache` (one `@scope` level deep) that the shared tree does not
+ * already hold. An existing entry is never replaced and a symlink is never moved.
+ */
+export function promoteSeedCache(seed: string, shared: string): void {
+  const merge = (from: string, to: string, scopes: boolean): void => {
+    if (!existsSync(from)) {
+      return
+    }
+    mkdirSync(to, { recursive: true })
+    for (const name of readdirSync(from)) {
+      const src = join(from, name)
+      const dst = join(to, name)
+      const kind = lstatSync(src)
+      if (kind.isSymbolicLink()) {
+        continue
+      }
+      if (scopes && name.startsWith('@') && kind.isDirectory()) {
+        merge(src, dst, false)
+      } else if (!existsSync(dst)) {
+        renameSync(src, dst)
+      }
+    }
+  }
+  merge(join(seed, 'install', 'cache'), join(shared, 'install', 'cache'), true)
+}
+
 /** `argv` wrapped under bwrap, the launch home's env merged into `env` in place -- or `null` when this box has no bwrap to wrap it with. */
 export function applySandboxFloor(
   agent: AgentCli,
@@ -82,8 +122,9 @@ export function applySandboxFloor(
   if (pasta === null || pasta === '') {
     warnNoPasta()
   }
-  const cache = agent.installCache?.() ?? join(sandboxHome(agent.id), SANDBOX_BUN_DIR)
-  mkdirSync(cache, { recursive: true })
+  const shared = sharedInstallCache(agent)
+  mkdirSync(shared, { recursive: true })
+  const cache = input.seedCache ?? shared
   Object.assign(input.env, sandboxEnv(home, cache))
   return {
     argv: sandboxArgv({
@@ -91,7 +132,7 @@ export function applySandboxFloor(
       home,
       // A self-installed binary has no bunx cache to mount.
       cache: agent.pkg === undefined ? undefined : cache,
-      cacheWritable: input.seedCache,
+      cacheWritable: input.seedCache !== undefined,
       workdir: input.workdir,
       argv: input.argv,
       readOnly: input.readOnly,

@@ -23,8 +23,8 @@ import {
   type RunAgenticResult,
   runAgentic,
 } from './agentic.ts'
-import { usableBwrap } from './agenticSandbox.ts'
-import type { AgentTarget } from './agents.ts'
+import { makeSeedCache, promoteSeedCache, sharedInstallCache, usableBwrap } from './agenticSandbox.ts'
+import { type AgentTarget, agentCli } from './agents.ts'
 import { errMessage } from './records.ts'
 import { sandboxArgv, sandboxHome } from './sandbox.ts'
 
@@ -124,6 +124,8 @@ interface ProbeInput {
   deps: AgenticProbeRunnerDeps
   /** Where a real model-answer probe dials, when this engine has a free local one to run. See `runModelRoundTripProbe`. */
   roundTrip?: AgentTarget
+  /** Private Bun install tree this pin's probes write; promoted to the shared cache only after every probe passes. */
+  seedCache?: string
 }
 
 /**
@@ -157,7 +159,7 @@ function probeLaunch(
     ambientEnv: input.deps.ambientEnv,
     resolveBinary: input.deps.resolveBinary,
     upstream: input.roundTrip,
-    seedSandboxCache: true,
+    seedSandboxCache: input.seedCache,
     sandboxWritable,
   })
 }
@@ -361,13 +363,32 @@ export function buildAgenticProbeRunner(
   return async (agentVersion, agent, roundTrip) => {
     // Ordered, and stopped at the first failure: each run is a real billed
     // call, and a pin already proven broken should not pay for the next one.
-    for (const probe of AGENT_PROBES[agent] ?? []) {
-      const outcome = await runProbe(probe, { agent, agentVersion, bunx, deps, roundTrip })
-      if (!outcome.ok) {
-        return { ok: false, failedProbe: probe.name, detail: outcome.detail }
+    const cli = agentCli(agent)
+    const shared = cli?.pkg === undefined ? undefined : sharedInstallCache(cli)
+    const seedCache = shared === undefined ? undefined : makeSeedCache(shared)
+    try {
+      for (const probe of AGENT_PROBES[agent] ?? []) {
+        const outcome = await runProbe(probe, {
+          agent,
+          agentVersion,
+          bunx,
+          deps,
+          roundTrip,
+          seedCache,
+        })
+        if (!outcome.ok) {
+          return { ok: false, failedProbe: probe.name, detail: outcome.detail }
+        }
+      }
+      if (seedCache !== undefined && shared !== undefined) {
+        promoteSeedCache(seedCache, shared)
+      }
+      return { ok: true }
+    } finally {
+      if (seedCache !== undefined) {
+        rmSync(seedCache, { recursive: true, force: true })
       }
     }
-    return { ok: true }
   }
 }
 

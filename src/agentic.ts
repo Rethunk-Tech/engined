@@ -291,8 +291,8 @@ interface RunAgenticInput {
   onDelta?: (text: string) => void
   /** See `BuildArgvInput.resolveBinary`. */
   resolveBinary?: () => string
-  /** The pin proof alone may populate the Bun install cache, which normal launches see only through a throwaway overlay. */
-  seedSandboxCache?: boolean
+  /** The pin proof alone writes a Bun install tree, and only this private one: normal launches see the shared cache through a throwaway overlay. */
+  seedSandboxCache?: string
   /** Further writable paths inside the sandbox: only a probe's witness directory, so a hook that fires is seen outside it. */
   sandboxWritable?: readonly string[]
   /** tmpfs'd before the workdir bind; omitted uses the config default. */
@@ -531,7 +531,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       argv,
       env,
       bwrapOverride: input.bwrap,
-      seedCache: input.seedSandboxCache === true,
+      seedCache: input.seedSandboxCache,
       readOnly: [mcpConfigPath, ...(configured.readOnly ?? [])],
       writable: input.sandboxWritable,
       sandboxMask: input.sandboxMask,
