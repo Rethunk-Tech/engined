@@ -225,7 +225,7 @@ function invalidTranscriptionRequest(req: AnyTranscriptionRequestBody): DoorResp
   }
   // A live body's emptiness is not knowable here -- the engine answers a body
   // that turned out to carry nothing with its own 400.
-  if (!liveUpload(req) && req.file.length === 0) {
+  if (!liveUpload(req) && (req.file instanceof Blob ? req.file.size : req.file.length) === 0) {
     return errorResponse(STATUS_BAD_REQUEST, 'file is required')
   }
   // srt/vtt/text format a whole transcript, and a streamed reply has no whole

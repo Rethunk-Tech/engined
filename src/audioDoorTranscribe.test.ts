@@ -5,7 +5,7 @@ test('multipart file Blob is not copied via arrayBuffer', async () => {
   const orig = Blob.prototype.arrayBuffer
   let calls = 0
   Blob.prototype.arrayBuffer = function arrayBuffer(this: Blob) {
-    calls++
+    calls += 1
     return orig.call(this)
   }
   try {
