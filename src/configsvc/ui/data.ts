@@ -12,6 +12,10 @@ import {
   type Table,
 } from './model.ts'
 
+const WEEK_BACK_DAYS = 6
+const ISO_DATE_LEN = 10
+const ISO_MONTH_LEN = 7
+
 export interface SpecEntry {
   info: SpecInfo
   text: string
@@ -116,11 +120,11 @@ export async function loadDiscovery(): Promise<void> {
   }
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
+const DAY_MS = 86_400_000
 
 /** Seven-day call count of one address. */
 export function callsFor(address: string | undefined): number {
-  const since = new Date(Date.now() - 6 * DAY_MS).toISOString().slice(0, 10)
+  const since = new Date(Date.now() - WEEK_BACK_DAYS * DAY_MS).toISOString().slice(0, ISO_DATE_LEN)
   return address === undefined
     ? 0
     : usage.value
@@ -130,7 +134,7 @@ export function callsFor(address: string | undefined): number {
 
 /** What the given addresses cost in the current UTC month, from the costs their upstreams reported. */
 export function monthSpend(addresses: readonly string[]): number {
-  const month = new Date().toISOString().slice(0, 7)
+  const month = new Date().toISOString().slice(0, ISO_MONTH_LEN)
   return usage.value
     .filter((row) => addresses.includes(row.route) && row.date.startsWith(month))
     .reduce((sum, row) => sum + (row.cost_usd ?? 0), 0)

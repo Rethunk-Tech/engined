@@ -8,6 +8,12 @@ import { engineKind, parseDoc } from './model.ts'
 import { draft } from './store.ts'
 import { CopyButton, InvalidToml } from './widgets.tsx'
 
+const FIT = 'Fit'
+const ZOOM_OUT = 'Zoom out'
+const ZOOM_IN = 'Zoom in'
+const DISABLED = 'Disabled'
+const DRAWING = 'Drawing…'
+
 const doc = computed(() => parseDoc(draft.value))
 const source = computed(() => {
   const d = doc.value
@@ -209,7 +215,7 @@ export function MapView() {
             drag.current = undefined
           }}
         >
-          {drawn || error !== undefined ? null : <p className="muted pad">Drawing…</p>}
+          {drawn || error !== undefined ? null : <p className="muted pad">{DRAWING}</p>}
           <div ref={box} className="map-canvas" />
           <div ref={scratch} className="map-scratch" />
         </div>
@@ -230,7 +236,7 @@ export function MapView() {
           ))}
           <li>
             <span className="swatch off" />
-            Disabled
+            {DISABLED}
           </li>
         </ul>
         <span className="group map-tools">
@@ -239,21 +245,21 @@ export function MapView() {
             className="small"
             onClick={() => zoomCentre(frame.current, box.current, pan.current, STEP)}
           >
-            Zoom in
+            {ZOOM_IN}
           </button>
           <button
             type="button"
             className="small"
             onClick={() => zoomCentre(frame.current, box.current, pan.current, 1 / STEP)}
           >
-            Zoom out
+            {ZOOM_OUT}
           </button>
           <button
             type="button"
             className="small"
             onClick={() => fitPan(frame.current, box.current, pan.current)}
           >
-            Fit
+            {FIT}
           </button>
           <CopyButton text={text} title="Copy the Mermaid source" />
         </span>

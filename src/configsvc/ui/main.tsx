@@ -8,6 +8,8 @@ import { session } from './store.ts'
 import { bundleReload, moduleBundleChanged } from './uiBuild.ts'
 import { View, ViewNav } from './views.tsx'
 
+const LOADING = 'Loading…'
+
 const BUNDLE_RELOAD = 'configsvc-bundle-reload'
 
 /** This tab runs whatever bundle it loaded. Reload once when the server now serves another. */
@@ -47,7 +49,7 @@ export function App() {
     return startStatusPolling()
   }, [])
   if (session.value === 'checking') {
-    return <p className="muted pad">Loading…</p>
+    return <p className="muted pad">{LOADING}</p>
   }
   if (session.value === 'out') {
     return <SignIn />

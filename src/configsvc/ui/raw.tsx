@@ -11,6 +11,9 @@ import { setDraft } from './actions.ts'
 import { locate } from './locate.ts'
 import { draft, problems, snapshot } from './store.ts'
 
+const READ_ONLY_EDIT_IT = '(read-only; edit it on disk)'
+const THE_PENDING_TEXT_LOADS = 'The pending text loads cleanly.'
+
 const highlight = HighlightStyle.define([
   { tag: tags.comment, color: 'var(--muted)', fontStyle: 'italic' },
   { tag: [tags.string, tags.special(tags.string)], color: 'var(--ok)' },
@@ -113,7 +116,7 @@ export function RawView() {
     <section>
       <div ref={host} className="editor" />
       {shown.length === 0 ? (
-        <p className="ok">The pending text loads cleanly.</p>
+        <p className="ok">{THE_PENDING_TEXT_LOADS}</p>
       ) : (
         <ul className="errors">
           {shown.map((p) => {
@@ -135,7 +138,7 @@ export function RawView() {
       {saved?.fragments.map((f) => (
         <details key={f.file} className="panel">
           <summary>
-            {f.file} <span className="muted">(read-only; edit it on disk)</span>
+            {f.file} <span className="muted">{READ_ONLY_EDIT_IT}</span>
           </summary>
           <pre>{f.text}</pre>
         </details>

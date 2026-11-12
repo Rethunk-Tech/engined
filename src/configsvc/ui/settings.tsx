@@ -7,6 +7,18 @@ import { loadSchema } from './schema.ts'
 import { draft } from './store.ts'
 import { InvalidToml, Prop } from './widgets.tsx'
 
+const SO_THE_UI_KEEPS = ' so the UI keeps running.'
+const ENABLE_TRUE = 'enable = true'
+const OFF_STOPS_IT_AT =
+  ' off stops it at its next start; with no value set, a save from here writes '
+const ENABLE = 'enable'
+const THE_CONFIG_UI_ITSELF = 'The config UI itself. Turning '
+const CONFIG_UI = 'Config UI'
+const DOOR = 'Door'
+const CLEAR = 'Clear'
+const STORE = 'Store'
+const POTLUCK = 'Potluck'
+
 const doc = computed(() => parseDoc(draft.value))
 
 const TOP = [
@@ -76,7 +88,7 @@ function PotluckBox({ table }: { table: Table | undefined }) {
   }
   return (
     <>
-      <h3>Potluck</h3>
+      <h3>{POTLUCK}</h3>
       <div className="form">
         <Prop
           table="potluck"
@@ -128,10 +140,10 @@ function PotluckBox({ table }: { table: Table | undefined }) {
             onInput={(e) => setValue(e.currentTarget.value)}
           />
           <button type="button" className="small" disabled={value === ''} onClick={store}>
-            Store
+            {STORE}
           </button>
           <button type="button" className="small" onClick={() => fork(clear())}>
-            Clear
+            {CLEAR}
           </button>
           {result === undefined ? null : <span className="muted small-text">{result}</span>}
         </div>
@@ -151,16 +163,19 @@ export function SettingsView() {
   const svc = (parsed.top.configsvc ?? {}) as Table
   return (
     <section>
-      <h3>Door</h3>
+      <h3>{DOOR}</h3>
       <div className="form">
         {TOP.map((k) => (
           <Prop key={k} table="top" name={k} value={parsed.top[k]} path={[k]} />
         ))}
       </div>
-      <h3>Config UI</h3>
+      <h3>{CONFIG_UI}</h3>
       <p className="muted">
-        The config UI itself. Turning <code>enable</code> off stops it at its next start; with no
-        value set, a save from here writes <code>enable = true</code> so the UI keeps running.
+        {THE_CONFIG_UI_ITSELF}
+        <code>{ENABLE}</code>
+        {OFF_STOPS_IT_AT}
+        <code>{ENABLE_TRUE}</code>
+        {SO_THE_UI_KEEPS}
       </p>
       <div className="form">
         {CONFIGSVC.map((k) => (

@@ -19,6 +19,29 @@ import { parseDoc, routeAddress } from './model.ts'
 import { dirty, draft, draftDiff, problems } from './store.ts'
 import { DiffView } from './widgets.tsx'
 
+const FIX_THE_ERRORS_ABOVE = 'Fix the errors above first (they are marked on the Raw TOML view).'
+const NOTHING_PENDING = 'Nothing pending.'
+const REVERT = 'Revert'
+const KEEP = 'Keep'
+const KEEP_THE_SAVED_CONFIG =
+  'Keep the saved config as it is, or restore the previous one and reload it the same way? Without an answer the change stays.'
+const AFTER_RELOAD = ' after reload'
+const TEST = 'test '
+const NO_ROUTE_TEST = 'no route test'
+const HARD_RELOAD_STOPS_EVERY = ' Hard reload (stops every container)'
+const HOT_RELOAD_KEEPS_CONTAINERS = ' Hot reload (keeps containers running)'
+const A_LISTEN_PORT_CHANGED = 'A listen port changed, so only a hard reload applies it.'
+const ENGINES_WHOSE_CONTAINER_CHANGES =
+  'Engines whose container changes and restarts on their next start:'
+const NO_RUNNING_ENGINE_CHANGES = 'No running engine changes shape.'
+const CHANGED = 'Changed: '
+const SAVED = 'Saved'
+const SAVE_MINE_OVER_IT = 'Save mine over it'
+const RELOAD_FROM_DISK_DROP = 'Reload from disk (drop my edits)'
+const THE_DIFF_BELOW_GOES =
+  'The diff below goes from what is on disk now to your pending text. Saving anyway replaces the on-disk change.'
+const CONFIG_TOML_CHANGED_ON = 'config.toml changed on disk since this page read it'
+
 const doc = computed(() => parseDoc(draft.value))
 
 function Conflict() {
@@ -28,17 +51,14 @@ function Conflict() {
   }, [])
   return (
     <div className="panel">
-      <h3 className="bad">config.toml changed on disk since this page read it</h3>
-      <p>
-        The diff below goes from what is on disk now to your pending text. Saving anyway replaces
-        the on-disk change.
-      </p>
+      <h3 className="bad">{CONFIG_TOML_CHANGED_ON}</h3>
+      <p>{THE_DIFF_BELOW_GOES}</p>
       <DiffView diff={diff} />
       <button type="button" onClick={() => fork(discardForDisk())}>
-        Reload from disk (drop my edits)
+        {RELOAD_FROM_DISK_DROP}
       </button>{' '}
       <button type="button" className="danger" onClick={() => fork(overwriteDisk())}>
-        Save mine over it
+        {SAVE_MINE_OVER_IT}
       </button>
     </div>
   )
@@ -55,37 +75,37 @@ function Applied() {
   const busy = phase.value !== 'idle'
   return (
     <div className="panel">
-      <h3 className="ok">Saved</h3>
+      <h3 className="ok">{SAVED}</h3>
       <p className="muted">
-        Changed: {done.changed.length === 0 ? 'nothing' : done.changed.join(', ')}
+        {CHANGED}
+        {done.changed.length === 0 ? 'nothing' : done.changed.join(', ')}
       </p>
       {done.restart.length === 0 ? (
-        <p className="muted">No running engine changes shape.</p>
+        <p className="muted">{NO_RUNNING_ENGINE_CHANGES}</p>
       ) : (
         <p>
-          Engines whose container changes and restarts on their next start:{' '}
-          <strong>{done.restart.join(', ')}</strong>
+          {ENGINES_WHOSE_CONTAINER_CHANGES} <strong>{done.restart.join(', ')}</strong>
         </p>
       )}
-      {done.hard_reload_needed ? (
-        <p className="bad">A listen port changed, so only a hard reload applies it.</p>
-      ) : null}
+      {done.hard_reload_needed ? <p className="bad">{A_LISTEN_PORT_CHANGED}</p> : null}
       <div className="rowhead">
         <label>
-          <input type="radio" checked={mode === 'hot'} onChange={() => setMode('hot')} /> Hot reload
-          (keeps containers running)
+          <input type="radio" checked={mode === 'hot'} onChange={() => setMode('hot')} />
+          {HOT_RELOAD_KEEPS_CONTAINERS}
         </label>
         <label>
-          <input type="radio" checked={mode === 'hard'} onChange={() => setMode('hard')} /> Hard
-          reload (stops every container)
+          <input type="radio" checked={mode === 'hard'} onChange={() => setMode('hard')} />
+          {HARD_RELOAD_STOPS_EVERY}
         </label>
       </div>
       <div className="rowhead">
         <select value={test} onChange={(e) => setTest(e.currentTarget.value)}>
-          <option value="">no route test</option>
+          <option value="">{NO_ROUTE_TEST}</option>
           {routes.map((a) => (
             <option key={a} value={a}>
-              test {a} after reload
+              {TEST}
+              {a}
+              {AFTER_RELOAD}
             </option>
           ))}
         </select>
@@ -108,15 +128,12 @@ function Applied() {
       {keepOrRevert.value === undefined ? null : (
         <div className="panel guard">
           <strong className="bad">{keepOrRevert.value.problem}</strong>
-          <p>
-            Keep the saved config as it is, or restore the previous one and reload it the same way?
-            Without an answer the change stays.
-          </p>
+          <p>{KEEP_THE_SAVED_CONFIG}</p>
           <button type="button" onClick={keepChange}>
-            Keep
+            {KEEP}
           </button>{' '}
           <button type="button" className="danger" onClick={() => fork(revertLastSave())}>
-            Revert
+            {REVERT}
           </button>
         </div>
       )}
@@ -133,7 +150,7 @@ export function SaveView() {
       {dirty.value ? (
         <DiffView diff={draftDiff.value} />
       ) : (
-        <p className="muted">Nothing pending.</p>
+        <p className="muted">{NOTHING_PENDING}</p>
       )}
       {faults.map((p) => (
         <p className="bad" key={p.message}>
@@ -148,12 +165,7 @@ export function SaveView() {
       >
         {phase.value === 'saving' ? 'Saving…' : 'Save config.toml'}
       </button>
-      {faults.length > 0 ? (
-        <span className="muted">
-          {' '}
-          Fix the errors above first (they are marked on the Raw TOML view).
-        </span>
-      ) : null}
+      {faults.length > 0 ? <span className="muted"> {FIX_THE_ERRORS_ABOVE}</span> : null}
     </section>
   )
 }

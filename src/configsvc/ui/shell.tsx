@@ -5,6 +5,14 @@ import { fork } from './api.ts'
 import { banner } from './banner.ts'
 import { dirty, lastSavedSha, notice, snapshot, status, statusFault } from './store.ts'
 
+const DISMISS = 'Dismiss'
+const SIGN_OUT = 'Sign out'
+const DISCARD = 'Discard'
+const UNSAVED_CHANGES_REVIEW_AND = 'unsaved changes: review and save'
+const ENGINED_CONFIG = 'engined config'
+const SIGN_IN = 'Sign in'
+const PASSWORD_OR_SIGN_IN = 'Password or sign-in token'
+
 export function SignIn() {
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string>()
@@ -18,9 +26,9 @@ export function SignIn() {
   }
   return (
     <form className="signin panel" onSubmit={submit}>
-      <h1>engined config</h1>
+      <h1>{ENGINED_CONFIG}</h1>
       <label>
-        Password or sign-in token
+        {PASSWORD_OR_SIGN_IN}
         <input
           type="password"
           autoComplete="current-password"
@@ -30,7 +38,7 @@ export function SignIn() {
       </label>
       {error !== undefined && <p className="bad">{error}</p>}
       <button type="submit" className="primary">
-        Sign in
+        {SIGN_IN}
       </button>
     </form>
   )
@@ -49,7 +57,7 @@ export function TopBar() {
         })
   return (
     <header className="topbar">
-      <strong>engined config</strong>
+      <strong>{ENGINED_CONFIG}</strong>
       <a className="muted" href="#about">
         {ENGINED_VERSION}
       </a>
@@ -58,15 +66,15 @@ export function TopBar() {
       {dirty.value ? (
         <>
           <a className="pill" href="#save">
-            unsaved changes: review and save
+            {UNSAVED_CHANGES_REVIEW_AND}
           </a>
           <button type="button" onClick={revertDraft}>
-            Discard
+            {DISCARD}
           </button>
         </>
       ) : null}
       <button type="button" onClick={() => fork(logout())}>
-        Sign out
+        {SIGN_OUT}
       </button>
     </header>
   )
@@ -84,7 +92,7 @@ export function Notice() {
           notice.value = undefined
         }}
       >
-        Dismiss
+        {DISMISS}
       </button>
     </div>
   )

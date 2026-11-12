@@ -2,6 +2,9 @@
 import { faultFor, type RunningStatus } from './banner.ts'
 import type { Doc } from './model.ts'
 
+const HTTP_OK = 200
+const HTTP_REDIRECT = 300
+
 const APPLY_WAIT_MS = 10_000
 const APPLY_POLL_MS = 500
 
@@ -36,7 +39,10 @@ export function verdict(input: {
           : `engined has not loaded the saved config; its last load failed: ${running.config_error}`,
     }
   }
-  if (routeTest !== undefined && (routeTest.status < 200 || routeTest.status >= 300)) {
+  if (
+    routeTest !== undefined &&
+    (routeTest.status < HTTP_OK || routeTest.status >= HTTP_REDIRECT)
+  ) {
     return {
       ok: false,
       problem: `the route test failed (${routeTest.status === 0 ? 'unreachable' : routeTest.status})${routeTest.error === undefined ? '' : `: ${routeTest.error}`}`,

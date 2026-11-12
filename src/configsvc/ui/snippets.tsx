@@ -5,6 +5,10 @@ import { call } from './api.ts'
 import { snippetEntries } from './snippet.ts'
 import { draft, type Problem, problems } from './store.ts'
 
+const VALIDATE_AND_ADD = 'Validate and add'
+const SNIPPET = ']] snippet'
+const PASTE_A = 'Paste a [['
+
 /** Paste `[[table]]` TOML to add its entries; the merged text is validated first and refused if it introduces a fault. */
 export function SnippetBox(props: { table: string }) {
   const [text, setText] = useState('')
@@ -38,7 +42,11 @@ export function SnippetBox(props: { table: string }) {
   }
   return (
     <details className="panel">
-      <summary>Paste a [[{props.table}]] snippet</summary>
+      <summary>
+        {PASTE_A}
+        {props.table}
+        {SNIPPET}
+      </summary>
       <textarea
         rows={6}
         className="snippet"
@@ -48,7 +56,7 @@ export function SnippetBox(props: { table: string }) {
       />
       <div className="rowhead">
         <button type="button" disabled={text.trim() === ''} onClick={merge}>
-          Validate and add
+          {VALIDATE_AND_ADD}
         </button>
         {error === undefined ? null : <span className="bad small-text">{error}</span>}
       </div>

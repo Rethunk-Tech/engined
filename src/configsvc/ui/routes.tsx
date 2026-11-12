@@ -21,6 +21,28 @@ import {
 } from './suggest.ts'
 import { CopyButton, Labeled, Prop } from './widgets.tsx'
 
+const HTTP_OK = 200
+const HTTP_REDIRECT = 300
+
+const THIS_ADDRESS_AS_A = ' this address as a hop.'
+const DELETE = 'Delete'
+const KEEP = 'Keep'
+const CONFIRM_DELETE = 'Confirm delete'
+const TEST = 'Test'
+const T_7_D = ' / 7 d'
+const ARGS = 'args'
+const ENGINED_S_OWN_A = "(engined's own; a config cannot change it)"
+const FLOOR = 'floor'
+const CAPABILITIES = 'capabilities '
+const SEPARATOR = ')'
+const SEPARATOR_2 = '('
+const UPSTREAM = 'upstream '
+const RESOLVED_ROUTE = 'Resolved route'
+const DEFAULT = '(default: '
+const MS = ' ms '
+const SEPARATOR_3 = ' · '
+const TESTING = 'testing…'
+
 export interface EngineCtx {
   doc: Doc
   engine: Table
@@ -54,15 +76,19 @@ function TestBadge({ address }: { address: string }) {
     return null
   }
   if (result === 'running') {
-    return <span className="muted">testing…</span>
+    return <span className="muted">{TESTING}</span>
   }
   if (result.skipped !== undefined) {
     return <span className="muted">{result.skipped}</span>
   }
-  const ok = result.status >= 200 && result.status < 300
+  const ok = result.status >= HTTP_OK && result.status < HTTP_REDIRECT
   return (
     <span className={ok ? 'ok' : 'bad'} title={result.error}>
-      {result.status === 0 ? 'unreachable' : result.status} · {result.ms} ms {result.error ?? ''}
+      {result.status === 0 ? 'unreachable' : result.status}
+      {SEPARATOR_3}
+      {result.ms}
+      {MS}
+      {result.error ?? ''}
     </span>
   )
 }
@@ -100,7 +126,11 @@ function UpstreamSelect(props: {
           )
         }
       >
-        <option value="">(default: {props.fallback})</option>
+        <option value="">
+          {DEFAULT}
+          {props.fallback}
+          {SEPARATOR}
+        </option>
         {known ? null : <option value={current}>{current}</option>}
         {choices.map((id) => (
           <option key={id} value={id}>
@@ -116,22 +146,27 @@ function Resolved(props: { ctx: EngineCtx; route: Table }) {
   const done = resolveRoute(props.ctx.doc, props.route, props.ctx.engine, props.ctx.spec?.info)
   return (
     <details className="resolved">
-      <summary>Resolved route</summary>
+      <summary>{RESOLVED_ROUTE}</summary>
       <p>
-        upstream <code>{done.upstream.value ?? 'ambient'}</code>{' '}
-        <span className="muted">({done.upstream.note})</span>
+        {UPSTREAM}
+        <code>{done.upstream.value ?? 'ambient'}</code>{' '}
+        <span className="muted">
+          {SEPARATOR_2}
+          {done.upstream.note}
+          {SEPARATOR}
+        </span>
       </p>
       <p>
-        capabilities <code>{JSON.stringify(done.capabilities)}</code>
+        {CAPABILITIES}
+        <code>{JSON.stringify(done.capabilities)}</code>
       </p>
       <table className="grid">
         <tbody>
           {done.floor.length === 0 ? null : (
             <tr>
-              <td className="muted">floor</td>
+              <td className="muted">{FLOOR}</td>
               <td colSpan={2}>
-                <code>{done.floor.join(' ')}</code>{' '}
-                <span className="muted">(engined's own; a config cannot change it)</span>
+                <code>{done.floor.join(' ')}</code> <span className="muted">{ENGINED_S_OWN_A}</span>
               </td>
             </tr>
           )}
@@ -214,7 +249,7 @@ function RouteArgs(props: { ctx: EngineCtx; entry: IndexedRoute; plan: Plan }) {
     <>
       {plan.args.disposition === 'forbidden' ? null : (
         <div className="argsbox">
-          <span className="section-title">args</span>
+          <span className="section-title">{ARGS}</span>
           <ArgsEditor
             args={route.args}
             path={[...base, 'args']}
@@ -354,14 +389,17 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
           {address === undefined ? null : <CopyButton text={address} />}
           <CopyButton text={entryToToml('route', route)} label="Copy TOML" />
         </span>
-        <span className="muted calls">{plural(callsFor(address), 'call')} / 7 d</span>
+        <span className="muted calls">
+          {plural(callsFor(address), 'call')}
+          {T_7_D}
+        </span>
         <span className="grow" />
         <span className="group">
           {address === undefined ? null : (
             <>
               <TestBadge address={address} />
               <button type="button" className="small" onClick={() => fork(testRoute(address))}>
-                Test
+                {TEST}
               </button>
             </>
           )}
@@ -401,22 +439,23 @@ export function RouteCard(props: { ctx: EngineCtx; entry: IndexedRoute }) {
                 fork(editDraft([{ op: 'removeEntry', table: 'route', index: entry.index }]))
               }
             >
-              Confirm delete
+              {CONFIRM_DELETE}
             </button>
             <button type="button" className="small" onClick={() => setConfirm(false)}>
-              Keep
+              {KEEP}
             </button>
           </span>
         ) : (
           <button type="button" className="small danger" onClick={() => setConfirm(true)}>
-            Delete
+            {DELETE}
           </button>
         )}
       </div>
       {confirm && chains.length > 0 ? (
         <p className="bad small-text">
           {chains.length === 1 ? 'Chain' : 'Chains'} {chains.map((c) => String(c.id)).join(', ')}{' '}
-          {chains.length === 1 ? 'lists' : 'list'} this address as a hop.
+          {chains.length === 1 ? 'lists' : 'list'}
+          {THIS_ADDRESS_AS_A}
         </p>
       ) : null}
       {warn === undefined ? null : <p className="bad small-text">{warn}</p>}

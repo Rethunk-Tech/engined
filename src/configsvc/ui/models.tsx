@@ -9,6 +9,10 @@ import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
 import { AddEntryRow, CopyButton, InvalidToml, Prop } from './widgets.tsx'
 
+const CAPABILITY_ROWS_A_ROUTE =
+  "Capability rows a route can inherit by naming the model; a route's own fields win."
+const INHERITED_BY = 'Inherited by '
+
 const doc = computed(() => parseDoc(draft.value))
 
 function ModelCard({ d, model, index }: { d: Doc; model: Table; index: number }) {
@@ -29,7 +33,8 @@ function ModelCard({ d, model, index }: { d: Doc; model: Table; index: number })
         ))}
       </div>
       <p className="muted small-text">
-        Inherited by {addresses.length === 0 ? 'no routes' : addresses.join(', ')}
+        {INHERITED_BY}
+        {addresses.length === 0 ? 'no routes' : addresses.join(', ')}
       </p>
     </section>
   )
@@ -45,9 +50,7 @@ export function ModelsView() {
   }
   return (
     <section>
-      <p className="muted">
-        Capability rows a route can inherit by naming the model; a route's own fields win.
-      </p>
+      <p className="muted">{CAPABILITY_ROWS_A_ROUTE}</p>
       {parsed.model.map((m, i) => (
         <ModelCard key={String(m.id)} d={parsed} model={m} index={i} />
       ))}

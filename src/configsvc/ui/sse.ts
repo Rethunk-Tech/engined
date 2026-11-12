@@ -1,5 +1,8 @@
 /** Server-sent events over `fetch`, for the POST streams EventSource cannot open. */
 
+const EVENT_PREFIX_LEN = 'event:'.length
+const DATA_PREFIX_LEN = 'data:'.length
+
 export interface SseFrame {
   event: string
   data: unknown
@@ -15,9 +18,9 @@ export function takeFrames(buffer: string): { frames: SseFrame[]; rest: string }
     const data: string[] = []
     for (const line of part.split('\n')) {
       if (line.startsWith('event:')) {
-        event = line.slice(6).trim()
+        event = line.slice(EVENT_PREFIX_LEN).trim()
       } else if (line.startsWith('data:')) {
-        data.push(line.slice(5).trim())
+        data.push(line.slice(DATA_PREFIX_LEN).trim())
       }
     }
     if (data.length > 0) {

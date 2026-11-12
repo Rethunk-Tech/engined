@@ -1,5 +1,11 @@
 import { useRef, useState } from 'preact/hooks'
 
+const CANCEL = 'Cancel'
+const ADD = 'Add '
+const SELECT_ALL_VISIBLE = 'Select all visible'
+const HOPS_ARE_ADDED_IN = 'Hops are added in the order you tick them.'
+const ADD_HOPS = 'Add hops…'
+
 /** Catalogs run to thousands of ids; rendering them all as checkboxes stalls the dialog. */
 const SHOWN = 200
 const FILTER_WS_RE = /\s+/
@@ -49,7 +55,7 @@ export function HopPicker(props: {
   return (
     <>
       <button type="button" className="small" onClick={() => dialog.current?.showModal()}>
-        Add hops…
+        {ADD_HOPS}
       </button>
       <dialog
         ref={dialog}
@@ -90,14 +96,14 @@ export function HopPicker(props: {
           {matches.length > SHOWN
             ? `Showing ${SHOWN} of ${matches.length}; narrow the filter to see the rest.`
             : `${offered} available.`}{' '}
-          Hops are added in the order you tick them.
+          {HOPS_ARE_ADDED_IN}
         </p>
         <button
           type="button"
           disabled={selectable.length === 0 || selectable.every((a) => picked.includes(a))}
           onClick={selectVisible}
         >
-          Select all visible
+          {SELECT_ALL_VISIBLE}
         </button>{' '}
         <button
           type="button"
@@ -108,10 +114,11 @@ export function HopPicker(props: {
             dialog.current?.close()
           }}
         >
-          Add {picked.length === 1 ? '1 hop' : `${picked.length} hops`}
+          {ADD}
+          {picked.length === 1 ? '1 hop' : `${picked.length} hops`}
         </button>{' '}
         <button type="button" onClick={() => dialog.current?.close()}>
-          Cancel
+          {CANCEL}
         </button>
       </dialog>
     </>

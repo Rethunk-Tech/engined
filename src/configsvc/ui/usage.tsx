@@ -2,6 +2,18 @@ import { useEffect, useState } from 'preact/hooks'
 import { fork } from './api.ts'
 import { loadUsage, usage } from './data.ts'
 
+const WEEK = 7
+const MONTH = 31
+const DAY_MS = 86_400_000
+const COST_DIGITS = 4
+const REPORTED_COST = 'reported cost'
+const FAILED = 'failed'
+const CALLS = 'calls'
+const ROUTE = 'route'
+const NO_CALLS_RECORDED = 'No calls recorded.'
+const DAYS = ' days'
+const LAST = 'Last '
+
 interface Total {
   route: string
   requests: number
@@ -13,8 +25,8 @@ export function UsageView() {
   useEffect(() => {
     fork(loadUsage())
   }, [])
-  const [days, setDays] = useState<7 | 31>(7)
-  const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10)
+  const [days, setDays] = useState<typeof WEEK | typeof MONTH>(WEEK)
+  const since = new Date(Date.now() - (days - 1) * DAY_MS).toISOString().slice(0, 10)
   const totals = new Map<string, Total>()
   for (const row of usage.value.filter((r) => r.date >= since)) {
     const t = totals.get(row.route) ?? { route: row.route, requests: 0, failed: 0, cost: 0 }
@@ -27,7 +39,7 @@ export function UsageView() {
   return (
     <section>
       <fieldset className="seg">
-        {([7, 31] as const).map((n) => (
+        {([WEEK, MONTH] as const).map((n) => (
           <button
             key={n}
             type="button"
@@ -35,20 +47,22 @@ export function UsageView() {
             aria-pressed={days === n}
             onClick={() => setDays(n)}
           >
-            Last {n} days
+            {LAST}
+            {n}
+            {DAYS}
           </button>
         ))}
       </fieldset>
       {rows.length === 0 ? (
-        <p className="muted">No calls recorded.</p>
+        <p className="muted">{NO_CALLS_RECORDED}</p>
       ) : (
         <table className="grid">
           <thead>
             <tr>
-              <th>route</th>
-              <th>calls</th>
-              <th>failed</th>
-              <th>reported cost</th>
+              <th>{ROUTE}</th>
+              <th>{CALLS}</th>
+              <th>{FAILED}</th>
+              <th>{REPORTED_COST}</th>
             </tr>
           </thead>
           <tbody>
@@ -59,7 +73,7 @@ export function UsageView() {
                 </td>
                 <td>{t.requests}</td>
                 <td className={t.failed > 0 ? 'bad' : ''}>{t.failed}</td>
-                <td>{t.cost > 0 ? `$${t.cost.toFixed(4)}` : 'none reported'}</td>
+                <td>{t.cost > 0 ? `$${t.cost.toFixed(COST_DIGITS)}` : 'none reported'}</td>
               </tr>
             ))}
           </tbody>

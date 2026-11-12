@@ -8,6 +8,9 @@ import { clipboardFlash } from './clipboard.ts'
 import { lineKeys } from './data.ts'
 import { propOf } from './schema.ts'
 
+const THE_PENDING_TEXT_IS = 'The pending text is not valid TOML; fix it on the Raw TOML view first.'
+const DEFAULT = '(default)'
+
 const COPY_FLASH_MS = 1200
 const HTTPS_PREFIX_RE = /^https:\/\//
 
@@ -147,7 +150,7 @@ export function Prop(props: {
         value={asText(props.value)}
         onChange={(e) => commit(e.currentTarget.value === '' ? undefined : e.currentTarget.value)}
       >
-        <option value="">(default)</option>
+        <option value="">{DEFAULT}</option>
         {prop.enum.map((v) => (
           <option key={v} value={v}>
             {v}
@@ -297,9 +300,7 @@ function diffClass(line: string): string {
 }
 
 export function InvalidToml() {
-  return (
-    <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-  )
+  return <p className="bad">{THE_PENDING_TEXT_IS}</p>
 }
 
 /** An id box and an Add button; `entry` builds the new row from the typed id, `lead` and `trail` slot extra controls either side of the button. */

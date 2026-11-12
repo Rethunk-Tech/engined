@@ -14,6 +14,17 @@ import { snapshot } from './store.ts'
 import { formatBytes } from './suggest.ts'
 import { About, DiffView, KindPill } from './widgets.tsx'
 
+const USE_THIS_PROPOSAL = 'Use this proposal'
+const PROPOSAL = 'Proposal'
+const THERE_IS_NO_CONFIG =
+  'There is no config yet. Pick what to run; the proposal below becomes the pending text, which you review and save.'
+const IS_LEFT_OUT_OF = ' is left out of the proposal.'
+const PICK_AT_LEAST_ONE = 'Pick at least one weights file; without one, '
+const IS_LEFT_OUT_OF_2 = ' is left out of the proposal until the files are there.'
+const YET_SO = ' yet, so '
+const NO_WEIGHTS_IN = 'No weights in '
+const SEPARATOR = ': '
+
 type Chosen = Record<string, { on: boolean; files: Record<string, string> }>
 
 const ROLES = ['chat', 'vision', 'embedding', 'rerank']
@@ -43,21 +54,28 @@ function EngineChoice(props: {
       <About info={engine} />
       {blocked.map((c) => (
         <p className="bad small-text" key={c.id}>
-          {c.id}: {c.detail}
+          {c.id}
+          {SEPARATOR}
+          {c.detail}
           {c.fix === undefined ? '' : ` (${c.fix})`}
         </p>
       ))}
       {listsFiles && engine.files.length === 0 ? (
         <p className="muted small-text">
-          No weights in {engine.models_path} yet, so {engine.id} is left out of the proposal until
-          the files are there.
+          {NO_WEIGHTS_IN}
+          {engine.models_path}
+          {YET_SO}
+          {engine.id}
+          {IS_LEFT_OUT_OF_2}
         </p>
       ) : null}
       {listsFiles && engine.files.length > 0 ? (
         <>
           {needsWeights(engine) && Object.keys(files).length === 0 ? (
             <p className="muted small-text">
-              Pick at least one weights file; without one, {engine.id} is left out of the proposal.
+              {PICK_AT_LEAST_ONE}
+              {engine.id}
+              {IS_LEFT_OUT_OF}
             </p>
           ) : null}
           {engine.files.map((f) => (
@@ -153,10 +171,7 @@ export function StarterView() {
   }, [engines, chosen])
   return (
     <section>
-      <p className="muted">
-        There is no config yet. Pick what to run; the proposal below becomes the pending text, which
-        you review and save.
-      </p>
+      <p className="muted">{THERE_IS_NO_CONFIG}</p>
       {engines.map((e) => (
         <EngineChoice
           key={e.id}
@@ -165,7 +180,7 @@ export function StarterView() {
           change={(next) => setChosen({ ...chosen, [e.id]: next })}
         />
       ))}
-      <h3>Proposal</h3>
+      <h3>{PROPOSAL}</h3>
       {error === undefined ? null : <p className="bad">{error}</p>}
       {preview === undefined ? null : <DiffView diff={preview.diff} />}
       <button
@@ -179,7 +194,7 @@ export function StarterView() {
           }
         }}
       >
-        Use this proposal
+        {USE_THIS_PROPOSAL}
       </button>
     </section>
   )

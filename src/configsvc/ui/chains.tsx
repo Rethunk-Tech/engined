@@ -20,6 +20,14 @@ import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
 import { AddEntryRow, CopyButton, InvalidToml } from './widgets.tsx'
 
+const USE_THE_ADD_WIZARD = 'Use the Add wizard'
+const A_CHAIN_TRIES_ITS = 'A chain tries its hops in order and moves to the next when one fails.'
+const SEPARATOR = '✕'
+const SEPARATOR_2 = '↓'
+const SEPARATOR_3 = '↑'
+const SEPARATOR_4 = '.'
+const SEPARATOR_5 = '@/'
+
 const doc = computed(() => parseDoc(draft.value))
 
 const NOTE: Record<HopState, string> = {
@@ -57,7 +65,10 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
     <section className={`panel${chain.disable === true ? ' off' : ''}`}>
       <div className="rowhead">
         <h3>{id}</h3>
-        <code>@/{id}</code>
+        <code>
+          {SEPARATOR_5}
+          {id}
+        </code>
         <span className="grow" />
         <span className="group">
           <button
@@ -114,7 +125,10 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                   }
                 }}
               >
-                <span className="muted">{i + 1}.</span>
+                <span className="muted">
+                  {i + 1}
+                  {SEPARATOR_4}
+                </span>
                 <span className="hopaddr">
                   <code>{hop}</code>
                   {expansion === undefined ? null : (
@@ -138,7 +152,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                   disabled={i === 0}
                   onClick={() => move(i, i - 1)}
                 >
-                  ↑
+                  {SEPARATOR_3}
                 </button>
                 <button
                   type="button"
@@ -148,7 +162,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                   disabled={i === hops.length - 1}
                   onClick={() => move(i, i + 1)}
                 >
-                  ↓
+                  {SEPARATOR_2}
                 </button>
                 <button
                   type="button"
@@ -157,7 +171,7 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
                   aria-label={`Remove ${hop}`}
                   onClick={() => set(hops.filter((_, j) => j !== i))}
                 >
-                  ✕
+                  {SEPARATOR}
                 </button>
               </span>
             </li>
@@ -189,7 +203,7 @@ export function ChainsView() {
   }
   return (
     <section>
-      <p className="muted">A chain tries its hops in order and moves to the next when one fails.</p>
+      <p className="muted">{A_CHAIN_TRIES_ITS}</p>
       <div className="chain-grid">
         {parsed.chain.map((c, i) => (
           <Chain key={String(c.id)} d={parsed} chain={c} index={i} />
@@ -207,7 +221,7 @@ export function ChainsView() {
               location.hash = id === '' ? 'add/chain' : `add/chain/${encodeURIComponent(id)}`
             }}
           >
-            Use the Add wizard
+            {USE_THE_ADD_WIZARD}
           </button>
         )}
       />

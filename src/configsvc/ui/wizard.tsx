@@ -14,6 +14,22 @@ import { draft } from './store.ts'
 import { DiffView, InvalidToml, Labeled } from './widgets.tsx'
 import { engineFor, freeId, PRESETS, type ProviderPlan, providerOps } from './wizard.ts'
 
+const EVERY_ENGINE_ENGINED_SHIPS =
+  'Every engine engined ships is listed until it is in the config. For one it does not ship, use Add engine on the Engines view.'
+const ADD_CHAIN = 'Add chain'
+const SEPARATOR = '✕'
+const HOPS_TRIED_IN_THIS = 'hops, tried in this order'
+const ADD_TO_THE_PENDING = 'Add to the pending config'
+const T_4_REVIEW = '4. Review'
+const EVERY_MODEL_THE_PROVIDER =
+  'Every model the provider lists becomes an address, refreshed hourly from its /models.'
+const T_3_MODELS = '3. Models'
+const T_2_KEY = '2. Key'
+const ANTHROPIC = 'anthropic'
+const OPENAI = 'openai'
+const CUSTOM_2 = 'Custom'
+const T_1_PROVIDER = '1. Provider'
+
 const doc = computed(() => parseDoc(draft.value))
 
 const PATHS = [
@@ -142,7 +158,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
   return (
     <section>
       <div className="panel form">
-        <span className="section-title">1. Provider</span>
+        <span className="section-title">{T_1_PROVIDER}</span>
         <Labeled label="provider">
           <select value={f.preset} onChange={(e) => setF(presetForm(e.currentTarget.value, taken))}>
             {PRESETS.map((p) => (
@@ -150,7 +166,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
                 {p.label}
               </option>
             ))}
-            <option value={CUSTOM}>Custom</option>
+            <option value={CUSTOM}>{CUSTOM_2}</option>
           </select>
         </Labeled>
         <Labeled
@@ -177,13 +193,13 @@ function ProviderPath({ initialId }: { initialId: string }) {
           help="openai for OpenAI-compatible APIs; anthropic for the Anthropic API, served through the claude CLI."
         >
           <select value={f.wire} onChange={(e) => set({ wire: e.currentTarget.value as Wire })}>
-            <option value="openai">openai</option>
-            <option value="anthropic">anthropic</option>
+            <option value="openai">{OPENAI}</option>
+            <option value="anthropic">{ANTHROPIC}</option>
           </select>
         </Labeled>
       </div>
       <div className="panel form">
-        <span className="section-title">2. Key</span>
+        <span className="section-title">{T_2_KEY}</span>
         <Labeled
           label="API key"
           help="Stored in this machine's keyring when you add the provider; never written to config.toml. Leave empty if the keyring already holds it."
@@ -212,7 +228,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
         </Labeled>
       </div>
       <div className="panel form">
-        <span className="section-title">3. Models</span>
+        <span className="section-title">{T_3_MODELS}</span>
         {f.wire === 'openai' ? (
           <fieldset className="seg">
             {(
@@ -234,9 +250,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
           </fieldset>
         ) : null}
         {f.all && f.wire === 'openai' ? (
-          <p className="muted small-text">
-            Every model the provider lists becomes an address, refreshed hourly from its /models.
-          </p>
+          <p className="muted small-text">{EVERY_MODEL_THE_PROVIDER}</p>
         ) : (
           <Labeled
             label="model ids"
@@ -251,7 +265,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
         )}
       </div>
       <div className="panel">
-        <span className="section-title">4. Review</span>
+        <span className="section-title">{T_4_REVIEW}</span>
         <p className="small-text">
           {plan === undefined
             ? 'Fill in the provider, key name and at least one model.'
@@ -262,7 +276,7 @@ function ProviderPath({ initialId }: { initialId: string }) {
         {error === undefined ? null : <p className="bad">{error}</p>}
         {preview === undefined ? null : <DiffView diff={preview.diff} />}
         <button type="button" className="primary" disabled={preview === undefined} onClick={apply}>
-          Add to the pending config
+          {ADD_TO_THE_PENDING}
         </button>
       </div>
     </section>
@@ -291,7 +305,7 @@ function ChainPath({ initialId }: { initialId: string }) {
         <input value={id} onInput={(e) => setId(e.currentTarget.value)} />
       </Labeled>
       <div>
-        <span className="section-title">hops, tried in this order</span>
+        <span className="section-title">{HOPS_TRIED_IN_THIS}</span>
         <ol>
           {hops.map((h, i) => {
             const expansion = chainExpansion(d, h, upstreamOf)
@@ -306,7 +320,7 @@ function ChainPath({ initialId }: { initialId: string }) {
                       aria-label={`Remove ${h}`}
                       onClick={() => setHops(hops.filter((_, j) => j !== i))}
                     >
-                      ✕
+                      {SEPARATOR}
                     </button>
                   </span>
                   {expansion === undefined ? null : (
@@ -339,7 +353,7 @@ function ChainPath({ initialId }: { initialId: string }) {
           }
         }}
       >
-        Add chain
+        {ADD_CHAIN}
       </button>
     </section>
   )
@@ -369,10 +383,7 @@ export function AddView() {
       {path === 'engine' ? (
         <>
           <ShippedPicker d={d} />
-          <p className="muted small-text">
-            Every engine engined ships is listed until it is in the config. For one it does not
-            ship, use Add engine on the Engines view.
-          </p>
+          <p className="muted small-text">{EVERY_ENGINE_ENGINED_SHIPS}</p>
         </>
       ) : null}
       {path === 'chain' ? <ChainPath initialId={prefill} /> : null}

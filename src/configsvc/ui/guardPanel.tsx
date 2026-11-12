@@ -6,6 +6,16 @@ import { removalOps } from './guard.ts'
 import type { Doc } from './model.ts'
 import { draft } from './store.ts'
 
+const CANCEL = 'Cancel'
+const STILL_REFERENCED_BY = 'Still referenced by:'
+const NOTHING_ELSE_POINTS_AT = 'Nothing else points at it.'
+const SEPARATOR = '.'
+const IN_THE_LAST_7 = ' in the last 7 days across'
+const SEPARATOR_2 = '"?'
+const SEPARATOR_3 = ' "'
+const DELETE = 'Delete '
+const DELETE_2 = 'Delete'
+
 /**
  * Delete with a guard: lists what still points at the entry and what it served in the last
  * seven days, then removes it alone (when nothing points at it) or with its dependents.
@@ -45,23 +55,28 @@ export function DeleteGuard(props: {
   return (
     <>
       <button type="button" className="small danger" onClick={start}>
-        Delete
+        {DELETE_2}
       </button>
       {deps === undefined ? null : (
         // Esc and Cancel both close the dialog; its close event is the one place the guard resets.
         <dialog ref={dialog} className="guard panel" onClose={() => setDeps(undefined)}>
           <strong>
-            Delete {props.table} "{props.id}"?
+            {DELETE}
+            {props.table}
+            {SEPARATOR_3}
+            {props.id}
+            {SEPARATOR_2}
           </strong>
           <p className="muted">
-            {plural(calls, 'call')} in the last 7 days across{' '}
-            {plural(props.addresses.length, 'address', 'addresses')}.
+            {plural(calls, 'call')}
+            {IN_THE_LAST_7} {plural(props.addresses.length, 'address', 'addresses')}
+            {SEPARATOR}
           </p>
           {deps.length === 0 ? (
-            <p className="ok">Nothing else points at it.</p>
+            <p className="ok">{NOTHING_ELSE_POINTS_AT}</p>
           ) : (
             <>
-              <p>Still referenced by:</p>
+              <p>{STILL_REFERENCED_BY}</p>
               <ul>
                 {deps.map((d) => (
                   <li key={d}>
@@ -75,7 +90,7 @@ export function DeleteGuard(props: {
             {deps.length === 0 ? 'Delete' : 'Remove it and its dependents'}
           </button>{' '}
           <button type="button" onClick={() => dialog.current?.close()}>
-            Cancel
+            {CANCEL}
           </button>
         </dialog>
       )}

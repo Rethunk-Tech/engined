@@ -36,6 +36,15 @@ import { UsageView } from './usage.tsx'
 import { DiffView } from './widgets.tsx'
 import { AddView } from './wizard.tsx'
 
+const SEPARATOR = '!'
+const PENDING_CHANGES = 'Pending changes'
+const SEPARATOR_2 = ' ·'
+const SHA256 = ' · sha256 '
+const NO_SAVES_THROUGH_THIS = 'No saves through this UI yet.'
+const RECENT_SAVES = 'Recent saves'
+const NO_CALLS_RECORDED = 'No calls recorded.'
+const BUSIEST_ROUTES_7_DAYS = 'Busiest routes, 7 days'
+
 interface ViewDef {
   id: string
   title: string
@@ -45,6 +54,10 @@ interface ViewDef {
 }
 
 const DAY_MS = 86_400_000
+const WEEK_BACK_DAYS = 6
+const RECENT_COUNT = 6
+const ISO_MONTH_LEN = 7
+const SHA_SHORT_LEN = 12
 
 function Stat(props: {
   label: string
@@ -82,9 +95,9 @@ function SidePanels(props: {
   return (
     <div className="cols">
       <div className="panel">
-        <h3>Busiest routes, 7 days</h3>
+        <h3>{BUSIEST_ROUTES_7_DAYS}</h3>
         {busiest.length === 0 ? (
-          <p className="muted">No calls recorded.</p>
+          <p className="muted">{NO_CALLS_RECORDED}</p>
         ) : (
           <table className="grid">
             <tbody>
@@ -101,13 +114,13 @@ function SidePanels(props: {
         )}
       </div>
       <div className="panel">
-        <h3>Recent saves</h3>
+        <h3>{RECENT_SAVES}</h3>
         {saves.length === 0 ? (
-          <p className="muted">No saves through this UI yet.</p>
+          <p className="muted">{NO_SAVES_THROUGH_THIS}</p>
         ) : (
           <table className="grid">
             <tbody>
-              {saves.slice(0, 6).map((s) => (
+              {saves.slice(0, RECENT_COUNT).map((s) => (
                 <tr key={s.name}>
                   <td>{new Date(s.modified).toLocaleString()}</td>
                   <td>
@@ -145,7 +158,7 @@ function Overview() {
   const saved = snapshot.value
   const d = parseDoc(draft.value)
   const today = new Date().toISOString().slice(0, 10)
-  const since = new Date(Date.now() - 6 * DAY_MS).toISOString().slice(0, 10)
+  const since = new Date(Date.now() - WEEK_BACK_DAYS * DAY_MS).toISOString().slice(0, 10)
   const week = usage.value.filter((r) => r.date >= since)
   const busiest = [
     ...week.reduce(
@@ -154,9 +167,11 @@ function Overview() {
     ),
   ]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
+    .slice(0, RECENT_COUNT)
   const spend = total(
-    usage.value.filter((r) => r.date.startsWith(today.slice(0, 7))).map((r) => r.cost_usd ?? 0),
+    usage.value
+      .filter((r) => r.date.startsWith(today.slice(0, ISO_MONTH_LEN)))
+      .map((r) => r.cost_usd ?? 0),
   )
   const diffLines = draftDiff.value.split('\n')
   const added = diffLines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length
@@ -174,8 +189,10 @@ function Overview() {
     <section>
       {saved !== undefined && (
         <p className="muted small-text">
-          {saved.path} · sha256 {saved.sha256.slice(0, 12)} ·{' '}
-          {plural(saved.fragments.length, 'config.d fragment')}
+          {saved.path}
+          {SHA256}
+          {saved.sha256.slice(0, SHA_SHORT_LEN)}
+          {SEPARATOR_2} {plural(saved.fragments.length, 'config.d fragment')}
         </p>
       )}
       <div className="stats">
@@ -242,7 +259,7 @@ function Overview() {
       <SidePanels busiest={busiest} saves={saves} />
       {draftDiff.value === '' ? null : (
         <div className="panel">
-          <h3>Pending changes</h3>
+          <h3>{PENDING_CHANGES}</h3>
           <DiffView diff={draftDiff.value} />
         </div>
       )}
@@ -291,7 +308,7 @@ export function ViewNav() {
           {v.title}
           {v.id === 'doctor' && failed ? (
             <span className="bad" title="Host checks failed">
-              !
+              {SEPARATOR}
             </span>
           ) : null}
         </a>

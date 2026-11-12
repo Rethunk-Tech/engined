@@ -29,6 +29,27 @@ import {
   Prop,
 } from './widgets.tsx'
 
+const USE_THE_ADD_WIZARD = 'Use the Add wizard'
+const IN_THE_PENDING_CONFIG = '" in the pending config.'
+const NO_UPSTREAM = 'No upstream "'
+const UPSTREAMS = '← Upstreams'
+const THIS_MONTH = ' this month'
+const SEPARATOR = ' · '
+const NO_ROUTE_USES_IT = 'No route uses it, so it serves no models'
+const EGRESS_UNSET = 'egress unset'
+const USED_BY = 'Used by '
+const LISTS_THE_PROVIDER_S = " lists the provider's whole catalog."
+const MODEL = 'model = "*"'
+const NO_ROUTE_USES_THIS =
+  'No route uses this upstream, so it serves no models. Give it an engine of kind openai-http and a route naming both; '
+const FETCH_INVENTORY = 'Fetch inventory'
+const CLEAR = 'Clear'
+const STORE = 'Store'
+const SECRET = 'secret'
+const ADD = 'Add'
+const REMOVE = 'Remove'
+const HEADERS = 'headers'
+
 const doc = computed(() => parseDoc(draft.value))
 
 const SECTIONS = [
@@ -45,7 +66,7 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
     typeof headers === 'object' && headers !== null ? Object.entries(headers as Table) : []
   return (
     <div className="argsbox">
-      <span className="section-title">headers</span>
+      <span className="section-title">{HEADERS}</span>
       {rows.map(([k, v]) => (
         <div className="kvrow" key={k}>
           <code>{k}</code>
@@ -61,7 +82,7 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
               )
             }
           >
-            Remove
+            {REMOVE}
           </button>
         </div>
       ))}
@@ -81,7 +102,7 @@ function Headers({ index, headers }: { index: number; headers: unknown }) {
             }
           }}
         >
-          Add
+          {ADD}
         </button>
       </div>
     </div>
@@ -116,7 +137,7 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
   }
   return (
     <div className="argsbox">
-      <span className="section-title">secret</span>{' '}
+      <span className="section-title">{SECRET}</span>{' '}
       {row === undefined ? null : (
         <span className={row.present ? 'ok' : 'bad'}>
           {row.present ? 'present in the keyring' : 'missing from the keyring'}
@@ -144,11 +165,11 @@ function SecretBox({ index, upstream }: { index: number; upstream: Table }) {
             onInput={(e) => setValue(e.currentTarget.value)}
           />
           <button type="button" className="small" disabled={value === ''} onClick={store}>
-            Store
+            {STORE}
           </button>
           {row?.present === true ? (
             <button type="button" className="small" onClick={() => fork(clear())}>
-              Clear
+              {CLEAR}
             </button>
           ) : null}
           {result === undefined ? null : <span className="muted small-text">{result}</span>}
@@ -183,7 +204,7 @@ function Inventory({ id }: { id: string }) {
           }
         }}
       >
-        Fetch inventory
+        {FETCH_INVENTORY}
       </button>
       <span className="muted small-text">
         {cached?.ids === undefined
@@ -260,11 +281,15 @@ function UpstreamCard({ d, upstream, index }: { d: Doc; upstream: Table; index: 
       <Inventory id={id} />
       {used.length === 0 ? (
         <p className="bad small-text">
-          No route uses this upstream, so it serves no models. Give it an engine of kind openai-http
-          and a route naming both; <code>model = "*"</code> lists the provider's whole catalog.
+          {NO_ROUTE_USES_THIS}
+          <code>{MODEL}</code>
+          {LISTS_THE_PROVIDER_S}
         </p>
       ) : (
-        <p className="muted small-text">Used by {addresses.join(', ')}</p>
+        <p className="muted small-text">
+          {USED_BY}
+          {addresses.join(', ')}
+        </p>
       )}
     </section>
   )
@@ -291,7 +316,7 @@ const EGRESS_LOOK: Record<string, { icon: IconName; label: string }> = {
 function EgressIcon({ egress, word }: { egress: unknown; word?: boolean }) {
   const look = typeof egress === 'string' ? EGRESS_LOOK[egress] : undefined
   if (look === undefined) {
-    return <span className="pill bad">egress unset</span>
+    return <span className="pill bad">{EGRESS_UNSET}</span>
   }
   const icon = <Icon name={look.icon} label={look.label} tone="muted" />
   return word === true ? (
@@ -330,12 +355,13 @@ function UpstreamTile({ d, upstream }: { d: Doc; upstream: Table }) {
           {secret.present ? 'secret in the keyring' : 'secret missing from the keyring'}
         </span>
       )}
-      {addresses.length === 0 ? (
-        <span className="bad small-text">No route uses it, so it serves no models</span>
-      ) : null}
+      {addresses.length === 0 ? <span className="bad small-text">{NO_ROUTE_USES_IT}</span> : null}
       <span className="muted small-text">
-        {plural(addresses.length, 'route')} · {`$${monthSpend(addresses).toFixed(2)}`}
-        {cap === undefined ? '' : ` of $${cap}`} this month
+        {plural(addresses.length, 'route')}
+        {SEPARATOR}
+        {`$${monthSpend(addresses).toFixed(2)}`}
+        {cap === undefined ? '' : ` of $${cap}`}
+        {THIS_MONTH}
       </span>
     </a>
   )
@@ -359,10 +385,14 @@ export function UpstreamsView() {
     return (
       <section>
         <a className="back" href="#upstreams">
-          ← Upstreams
+          {UPSTREAMS}
         </a>
         {upstream === undefined ? (
-          <p className="bad">No upstream "{open}" in the pending config.</p>
+          <p className="bad">
+            {NO_UPSTREAM}
+            {open}
+            {IN_THE_PENDING_CONFIG}
+          </p>
         ) : (
           <UpstreamCard d={parsed} upstream={upstream} index={index} />
         )}
@@ -388,7 +418,7 @@ export function UpstreamsView() {
               location.hash = id === '' ? 'add/provider' : `add/provider/${encodeURIComponent(id)}`
             }}
           >
-            Use the Add wizard
+            {USE_THE_ADD_WIZARD}
           </button>
         )}
       />

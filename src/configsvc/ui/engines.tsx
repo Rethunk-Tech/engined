@@ -24,6 +24,7 @@ import {
   specs,
   watchEngines,
 } from './data.ts'
+import { copy } from './enginesCopy.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import {
   type Doc,
@@ -131,20 +132,24 @@ function Rename({ engine }: { engine: Table }) {
           dialog.current?.showModal()
         }}
       >
-        Rename
+        {copy.RENAME}
       </button>
       <dialog ref={dialog} className="guard panel">
         <form onSubmit={apply}>
           <label className="field">
-            <span className="fieldname">Rename engine "{id}"</span>
+            <span className="fieldname">
+              {copy.RENAME_ENGINE}
+              {id}
+              {copy.SEPARATOR_6}
+            </span>
             <input value={name} onInput={(e) => setName(e.currentTarget.value)} />
           </label>
-          <p className="muted small-text">Routes and chains that name it are updated with it.</p>
+          <p className="muted small-text">{copy.ROUTES_AND_CHAINS_THAT}</p>
           <button type="submit" className="primary" disabled={name === '' || name === id}>
-            Rename
+            {copy.RENAME}
           </button>{' '}
           <button type="button" onClick={() => dialog.current?.close()}>
-            Cancel
+            {copy.CANCEL}
           </button>
         </form>
       </dialog>
@@ -238,9 +243,13 @@ function MemoryLine({ d, engine }: { d: Doc; engine: Table }) {
   const verdict = memoryVerdict(mem.resident + mem.largestOnDemand, box)
   return (
     <p className={`small-text${verdict?.level === 'bad' ? ' bad' : ''}`}>
-      resident: {formatBytes(mem.resident)} (keep_resident routes) · largest on-demand:{' '}
-      {formatBytes(mem.largestOnDemand)} · box: {formatBytes(box.total)} total,{' '}
-      {formatBytes(box.available)} available now
+      {copy.RESIDENT}
+      {formatBytes(mem.resident)}
+      {copy.KEEP_RESIDENT_ROUTES_LARGEST} {formatBytes(mem.largestOnDemand)}
+      {copy.BOX}
+      {formatBytes(box.total)}
+      {copy.TOTAL} {formatBytes(box.available)}
+      {copy.AVAILABLE_NOW}
       {verdict === undefined ? null : ` · ${verdict.text}`}
     </p>
   )
@@ -313,7 +322,8 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
       {liveEngines.value[id]?.fix &&
       !(engine.disable === true || liveEngines.value[id]?.disabled) ? (
         <p className="muted small-text">
-          fix: <code>{liveEngines.value[id]?.fix}</code>
+          {copy.FIX}
+          <code>{liveEngines.value[id]?.fix}</code>
         </p>
       ) : null}
       <div className="group">
@@ -330,13 +340,13 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
         ))}
         {entry?.info.artifacts ? (
           <button type="button" className="small" onClick={() => toggle('obtain')}>
-            Obtain
+            {copy.OBTAIN}
           </button>
         ) : null}
       </div>
       {panel === undefined ? null : <Extras id={id} panel={panel} spec={entry?.text} />}
       <details>
-        <summary>Engine settings</summary>
+        <summary>{copy.ENGINE_SETTINGS}</summary>
         <div className="form">
           {entry === null || entry === undefined ? (
             <Labeled
@@ -357,7 +367,7 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
                   )
                 }
               >
-                <option value="">(none)</option>
+                <option value="">{copy.NONE}</option>
                 {Object.keys(KIND_TRAITS).map((k) => (
                   <option key={k} value={k}>
                     {k}
@@ -370,7 +380,7 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
             <Prop key={f} table="engine" name={f} value={engine[f]} path={['engine', index, f]} />
           ))}
           <div className="argsbox">
-            <span className="section-title">args</span>
+            <span className="section-title">{copy.ARGS}</span>
             <ArgsEditor
               args={engine.args}
               path={['engine', index, 'args']}
@@ -397,7 +407,9 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
               onInput={(e) => setQuery(e.currentTarget.value)}
             />
             <span className="muted small-text">
-              {shown.length} of {routes.length}
+              {shown.length}
+              {copy.OF}
+              {routes.length}
             </span>
           </div>
         ) : null}
@@ -411,7 +423,7 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
             fork(editDraft([{ op: 'addEntry', table: 'route', entry: { engine: id } }]))
           }
         >
-          Add route
+          {copy.ADD_ROUTE}
         </button>
       </div>
     </section>
@@ -420,7 +432,6 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
 
 const TILE_ROUTES = 4
 /** Appended to an engine's detail link to open it with the Obtain panel running. */
-const OBTAIN_SUFFIX = '/obtain'
 
 /** One engine in the grid: enough to find it and see its health; the card behind it edits. */
 function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
@@ -436,7 +447,7 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
   return (
     <a
       className={`tile panel edge-${stateOf(id, disabled)}${disabled ? ' off' : ''}`}
-      href={`#engines/${encodeURIComponent(id)}${weightsMissing ? OBTAIN_SUFFIX : ''}`}
+      href={`#engines/${encodeURIComponent(id)}${weightsMissing ? copy.OBTAIN_SUFFIX : ''}`}
     >
       <div className="rowhead">
         <h3>{id}</h3>
@@ -447,7 +458,9 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
       {info?.description === undefined ? null : (
         <span className="small-text clamp">{info.description}</span>
       )}
-      {weightsMissing ? <span className="bad small-text">weights missing · Obtain</span> : null}
+      {weightsMissing ? (
+        <span className="bad small-text">{copy.WEIGHTS_MISSING_OBTAIN}</span>
+      ) : null}
       {fix === undefined ? null : <span className="muted small-text clamp">{fix}</span>}
       <ul className="tile-list">
         {addresses.slice(0, TILE_ROUTES).map((a) => (
@@ -456,12 +469,18 @@ function EngineTile({ d, engine }: { d: Doc; engine: Table }) {
           </li>
         ))}
         {addresses.length > TILE_ROUTES ? (
-          <li className="muted small-text">+{addresses.length - TILE_ROUTES} more</li>
+          <li className="muted small-text">
+            {copy.SEPARATOR_5}
+            {addresses.length - TILE_ROUTES}
+            {copy.MORE}
+          </li>
         ) : null}
       </ul>
       <span className="muted small-text">
-        {plural(addresses.length, 'route')} · {calls === 0 ? 'no calls' : plural(calls, 'call')} in
-        7 days
+        {plural(addresses.length, 'route')}
+        {copy.SEPARATOR_4}
+        {calls === 0 ? 'no calls' : plural(calls, 'call')}
+        {copy.IN_7_DAYS}
       </span>
     </a>
   )
@@ -485,7 +504,7 @@ export function ShippedPicker({ d }: { d: Doc }) {
   const hasLocal = d.upstream.some((u) => u.id === 'local')
   return (
     <div className="panel">
-      <h3>Shipped engines not in this config</h3>
+      <h3>{copy.SHIPPED_ENGINES_NOT_IN}</h3>
       {missing.map((e) => (
         <div key={e.id}>
           <div className="rowhead">
@@ -499,7 +518,7 @@ export function ShippedPicker({ d }: { d: Doc }) {
                 fork(editDraft([...(hasLocal ? [] : [LOCAL_UPSTREAM_OP]), ...engineOps(e)]))
               }
             >
-              Add
+              {copy.ADD}
             </button>
           </div>
           <About info={e} />
@@ -519,10 +538,17 @@ function AddEngine() {
       entry={(id) => (kind === '' ? { id } : { id, kind })}
       lead={(id) => (
         <select value={kind} onChange={(e) => setKind(e.currentTarget.value)}>
-          <option value="">(spec in engines/{id || 'id'}/)</option>
+          <option value="">
+            {copy.SPEC_IN_ENGINES}
+            {id || 'id'}
+            {copy.SEPARATOR_3}
+          </option>
           {(Object.keys(KIND_TRAITS) as EngineKind[]).map((k) => (
             <option key={k} value={k}>
-              {KIND_LABELS[k]} ({k})
+              {KIND_LABELS[k]}
+              {copy.SEPARATOR_2}
+              {k}
+              {copy.SEPARATOR}
             </option>
           ))}
         </select>
@@ -534,7 +560,7 @@ function AddEngine() {
             location.hash = 'add/engine'
           }}
         >
-          Use the Add wizard
+          {copy.USE_THE_ADD_WIZARD}
         </button>
       )}
     />
@@ -564,17 +590,21 @@ export function EnginesView() {
   }
   const param = viewParam.value
   if (param !== undefined) {
-    const obtain = param.endsWith(OBTAIN_SUFFIX)
-    const open = obtain ? param.slice(0, -OBTAIN_SUFFIX.length) : param
+    const obtain = param.endsWith(copy.OBTAIN_SUFFIX)
+    const open = obtain ? param.slice(0, -copy.OBTAIN_SUFFIX.length) : param
     const index = parsed.engine.findIndex((e) => String(e.id) === open)
     const engine = parsed.engine[index]
     return (
       <section>
         <a className="back" href="#engines">
-          ← Engines
+          {copy.ENGINES}
         </a>
         {engine === undefined ? (
-          <p className="bad">No engine "{open}" in the pending config.</p>
+          <p className="bad">
+            {copy.NO_ENGINE}
+            {open}
+            {copy.IN_THE_PENDING_CONFIG}
+          </p>
         ) : (
           <EngineCard
             d={parsed}
