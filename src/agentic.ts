@@ -21,6 +21,7 @@
  */
 
 import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
 import {
   argKeysAsFlags,
@@ -467,6 +468,14 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
+  if (input.systemPrompt?.includes('\0') === true) {
+    return {
+      status: STATUS_BAD_REQUEST,
+      ok: false,
+      failure: 'system prompt must not contain a NUL byte',
+      envelopeFailure: false,
+    }
+  }
   const agent = agentCli(input.agent)
   if (agent === undefined) {
     return {
@@ -531,6 +540,14 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
     }
     sandboxCleanup = sandboxed.cleanup
     ;({ argv } = sandboxed)
+    if (input.systemPrompt !== undefined) {
+      const promptFile = join(env.HOME ?? '', 'append-system-prompt')
+      writeFileSync(promptFile, input.systemPrompt)
+      const flag = argv.indexOf('--append-system-prompt-file')
+      if (flag >= 0) {
+        argv[flag + 1] = promptFile
+      }
+    }
     Object.assign(env, input.extraEnv)
     return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input)
   } finally {

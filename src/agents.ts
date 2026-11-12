@@ -506,7 +506,9 @@ const AGENTS: Record<string, AgentCli> = {
       ...(research === true
         ? ['--safe-mode', '--tools', 'WebSearch,WebFetch', '--strict-mcp-config']
         : AGENTIC_FLOOR),
-      ...(systemPrompt === undefined ? [] : ['--append-system-prompt', systemPrompt]),
+      ...(systemPrompt === undefined
+        ? []
+        : ['--append-system-prompt-file', 'append-system-prompt']),
       // --strict-mcp-config is a bare switch; a positional path would become the prompt.
       ...CLAUDE_MCP_CONFIG_FLAG,
       mcpConfigPath,

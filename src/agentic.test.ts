@@ -431,7 +431,7 @@ test('runAgentic: a final stdout chunk without a newline still reaches onDelta',
   expect(deltas).toEqual(['tail'])
 })
 
-test('system chat messages reach claude through its system-prompt flag, not stdin', async () => {
+test('system chat messages reach claude through a file in launch HOME, not argv or stdin', async () => {
   const { prompt, systemPrompt } = promptsFromMessages({
     messages: [
       { role: 'system', content: '<rules>answer JSON</rules>' },
@@ -439,14 +439,31 @@ test('system chat messages reach claude through its system-prompt flag, not stdi
     ],
   })
   const { spawn, calls } = fakeOkSpawn()
+  let fromFile = ''
+  const wrapped: AgenticSpawn = (argv, opts) => {
+    const flag = argv.indexOf('--append-system-prompt-file')
+    const promptFile = argv[flag + 1]
+    if (typeof promptFile === 'string') {
+      fromFile = readFileSync(promptFile, 'utf8')
+    }
+    return spawn(argv, opts)
+  }
 
-  await runAgenticFixture(spawn, { prompt, systemPrompt })
+  await runAgenticFixture(wrapped, { prompt, systemPrompt })
 
   const [argv, opts] = calls[0] as [string[], { input: string }]
-  const flagIndex = argv.indexOf('--append-system-prompt')
-  expect(argv[flagIndex + 1]).toBe('<rules>answer JSON</rules>')
+  expect(argv).not.toContain('<rules>answer JSON</rules>')
+  expect(argv).toContain('--append-system-prompt-file')
+  expect(fromFile).toBe('<rules>answer JSON</rules>')
   expect(opts.input).toBe('{"contact":"B"}')
   expect(opts.input).not.toContain('<rules>')
+})
+
+test('a system prompt with a NUL byte is refused before spawn', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+  const result = await runAgenticFixture(spawn, { systemPrompt: 'a\0b' })
+  expect(result).toMatchObject({ status: 400, ok: false, envelopeFailure: false })
+  expect(calls).toHaveLength(0)
 })
 
 test("runAgentic: the child's stderr reaches neither the result nor the log", async () => {
