@@ -9,6 +9,7 @@ import {
   jsonErrorBody,
   MAX_JSON_BODY_BYTES,
   methodNotAllowed,
+  readCappedBytes,
   readCappedText,
   readJsonBody,
   readModelBody,
@@ -20,6 +21,7 @@ import {
   STATUS_NOT_FOUND,
   STATUS_PAYLOAD_TOO_LARGE,
   STATUS_PAYMENT_REQUIRED,
+  STATUS_REQUEST_TIMEOUT,
   STATUS_TOO_MANY_REQUESTS,
   STATUS_UNAUTHORIZED,
   STATUS_UNAVAILABLE,
@@ -203,6 +205,25 @@ test('a JSON body past the cap with no Content-Length is 413 after the read', as
 })
 
 /** A body with no Content-Length, as a chunked upload arrives. */
+test('a request body that stops sending is abandoned after the stall window', async () => {
+  const init: RequestInit & { duplex: 'half' } = {
+    method: 'POST',
+    duplex: 'half',
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('partial'))
+      },
+    }),
+  }
+  const out = await readCappedBytes(
+    new Request('http://door.local/', init),
+    MAX_JSON_BODY_BYTES,
+    () => new Response(null, { status: STATUS_PAYLOAD_TOO_LARGE }),
+    50,
+  )
+  expect(out instanceof Response && out.status).toBe(STATUS_REQUEST_TIMEOUT)
+})
+
 function chunkedRequest(text: string): Request {
   const bytes = new TextEncoder().encode(text)
   const init: RequestInit & { duplex: 'half' } = {

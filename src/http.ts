@@ -18,6 +18,7 @@ export const STATUS_NOT_FOUND = 404
 export const STATUS_METHOD_NOT_ALLOWED = 405
 export const STATUS_CONFLICT = 409
 export const STATUS_PAYLOAD_TOO_LARGE = 413
+export const STATUS_REQUEST_TIMEOUT = 408
 export const STATUS_UNPROCESSABLE = 422
 export const STATUS_TOO_MANY_REQUESTS = 429
 /** The client hung up before an answer. Nobody reads this body; it exists so the provenance line and the chain's own return value agree on why it stopped. */
@@ -330,6 +331,25 @@ const KIBIBYTE = 1024
 const MEBIBYTE = KIBIBYTE * KIBIBYTE
 export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
 
+/** No request-body chunk for this long and the read is abandoned; the idle timeout only bounds the headers. */
+export const BODY_STALL_MS = 30_000
+
+/** The next chunk, or `undefined` when none arrived within `ms`. */
+async function readOrStall(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  ms: number,
+): Promise<ReadableStreamReadResult<Uint8Array> | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const stalled = new Promise<undefined>((resolve) => {
+    timer = setTimeout(resolve, ms)
+  })
+  try {
+    return await Promise.race([reader.read(), stalled])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * A request body within `max` bytes, or the 413/400 to return instead;
  * `tooLarge` words the 413 from the byte count that tripped it. The cap counts
@@ -342,6 +362,7 @@ export async function readCappedBytes(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,
+  stallMs: number = BODY_STALL_MS,
 ): Promise<Uint8Array<ArrayBuffer> | Response> {
   const declared = declaredOverLimit(req, max)
   if (declared !== undefined) {
@@ -354,7 +375,18 @@ export async function readCappedBytes(
   const chunks: Uint8Array[] = []
   let total = 0
   try {
-    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+    for (
+      let chunk = await readOrStall(reader, stallMs);
+      ;
+      chunk = await readOrStall(reader, stallMs)
+    ) {
+      if (chunk === undefined) {
+        reader.cancel().catch(() => undefined)
+        return jsonError(STATUS_REQUEST_TIMEOUT, 'request body stalled')
+      }
+      if (chunk.done) {
+        break
+      }
       total += chunk.value.byteLength
       if (total > max) {
         reader.cancel().catch(() => undefined)
@@ -380,8 +412,9 @@ export async function readCappedForm(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,
+  stallMs: number = BODY_STALL_MS,
 ): Promise<RequestForm | Response | undefined> {
-  const bytes = await readCappedBytes(req, max, tooLarge)
+  const bytes = await readCappedBytes(req, max, tooLarge, stallMs)
   if (bytes instanceof Response) {
     return bytes
   }
