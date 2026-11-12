@@ -43,8 +43,12 @@ COPY --from=shared requirements.txt /tmp/requirements.txt
 # which only this index carries.
 # `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt \
       --extra-index-url ${TORCH_INDEX}
+# These two are git-sourced, which --require-hashes cannot check, so each is pinned
+# by commit SHA instead; Perth's own deps are hash-locked in requirements.txt.
+RUN pip install --no-cache-dir --no-deps \
+      'resemble-perth @ git+https://github.com/resemble-ai/Perth.git@ff1c8ac55a976971245cdd53c18d6131ca00d993'
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
 # and torch==2.5.1, both older than what this build actually installs above.
 # requirements.txt installs the real runtime deps at versions confirmed to

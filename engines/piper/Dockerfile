@@ -16,7 +16,7 @@
 # itself (piper/espeak-ng-data/), so unlike kokoro this image installs no
 # apt espeak-ng at all. What the split actually buys is dropping uv and curl.
 # 3.14, not 3.15: piper-tts needs onnxruntime, which publishes no cp315 wheel yet.
-FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl \
@@ -37,11 +37,8 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # Pinned rather than floating: this image is rebuilt rarely and a voice that
 # changes character between builds is exactly the kind of drift nobody
 # attributes to a dependency bump.
-RUN pip install --no-cache-dir \
-      piper-tts==1.7.0 \
-      onnx==1.20.1 \
-      fastapi==0.141.1 \
-      "uvicorn[standard]==0.52.4"
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt
 
 # Baked at build time, matching chatterbox's and kokoro's no-runtime-download
 # posture: without this the first real request burns the adapter's timeout on
@@ -66,7 +63,7 @@ RUN mkdir -p /app/voices \
     # patch on a voice a route mounts from models_dir.
     && python3 -m piper.patch_voice_with_alignment "/app/voices/${PIPER_VOICE}.onnx"
 
-FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

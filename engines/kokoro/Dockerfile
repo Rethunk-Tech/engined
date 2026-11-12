@@ -38,19 +38,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d
 RUN uv venv --seed --python /usr/bin/python3.12 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# torch only -- no torchvision/torchaudio, kokoro doesn't need them.
+# requirements.txt is hash-locked from requirements.in (torch only -- no
+# torchvision/torchaudio, kokoro doesn't need them) and pins torch to its ROCm 7.2
+# build, which only this index carries.
 # `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
-RUN pip install --no-cache-dir torch==2.14.1 --index-url ${TORCH_INDEX}
-
-# Pinned here rather than via an unversioned requirements.txt (the source
-# ships one with no version on any of these four, and no CI to catch
-# drift) -- confirmed current on PyPI at the time these were pinned.
-RUN pip install --no-cache-dir \
-      kokoro==0.9.4 \
-      soundfile==0.14.0 \
-      fastapi==0.141.1 \
-      "uvicorn[standard]==0.52.4"
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt \
+      --extra-index-url ${TORCH_INDEX}
 
 # Bakes the HuggingFace download into the image at build time -- matches
 # Chatterbox's no-runtime-download posture. Without this, the first real

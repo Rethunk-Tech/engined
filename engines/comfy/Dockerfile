@@ -23,22 +23,18 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 # `--build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu` builds a CPU image.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
-RUN pip install --no-cache-dir \
-      torch==2.14.1 torchvision==0.29.1 torchaudio==2.11.0 \
-      --index-url ${TORCH_INDEX}
+# requirements.txt is hash-locked from requirements.in: the torch trio, pinned
+# to its ROCm 7.2 build (only this index carries it), plus ComfyUI's own deps.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt \
+      --extra-index-url ${TORCH_INDEX}
 
 ARG COMFYUI_COMMIT=7a28332047b6af638dc6c7f72ef3481a718769fd
 WORKDIR /opt/comfyui
 RUN git init \
     && git remote add origin https://github.com/comfyanonymous/ComfyUI.git \
     && git fetch --depth 1 origin ${COMFYUI_COMMIT} \
-    && git checkout --detach FETCH_HEAD \
-    # torch/torchvision/torchaudio already installed above from the ROCm
-    # index -- ComfyUI's own requirements.txt pins CUDA wheels for those, and
-    # letting pip see both would fight the ROCm install just made.
-    && grep -viE '^(torch|torchvision|torchaudio)([<>=~! ].*)?$' requirements.txt \
-      > requirements.rocm.txt \
-    && pip install --no-cache-dir -r requirements.rocm.txt
+    && git checkout --detach FETCH_HEAD
 
 FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 

@@ -4,7 +4,8 @@
 # run a newer torch on purpose for ROCm 7.2/gfx1151). These are its actual
 # runtime deps, and gradio is left out (its own demo UI, unused -- we only
 # call the library API via app.py). Compile with `uv pip compile
-# requirements.in -o requirements.txt`; uv.toml supplies the target.
+# --generate-hashes --no-emit-package resemble-perth requirements.in -o requirements.txt`;
+# uv.toml supplies the target.
 torch
 torchaudio
 torchvision

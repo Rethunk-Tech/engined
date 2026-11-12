@@ -1,0 +1,6 @@
+# Compile: uv pip compile --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --torch-backend rocm7.2 requirements.in -o requirements.txt
+torch==2.14.1
+kokoro==0.9.4
+soundfile==0.14.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
