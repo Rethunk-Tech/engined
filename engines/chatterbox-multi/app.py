@@ -15,6 +15,12 @@ from chatterbox_app import DEVICE, TtsRequest, create_app
 # .generate() takes a REQUIRED `language_id` with no default — MultilingualTtsRequest
 # below defaults it to "en" so an unspecified language keeps today's output.
 model = ChatterboxMultilingualTTS.from_pretrained(device=DEVICE)
+# chatterbox's own LLAMA_CONFIGS sets attn_implementation="sdpa", and the
+# multilingual path is the only one that builds an AlignmentStreamAnalyzer --
+# which sets output_attentions=True to read the alignment heads. transformers 5
+# raises ValueError on that pairing instead of falling back, so every synthesis
+# dies after the model loads; eager is what that analyzer's hooks require.
+model.t3.tfmr.set_attn_implementation("eager")
 DEFAULT_LANGUAGE = "en"
 
 # ChatterboxMultilingualTTS.generate() defaults this to 2.0, which is high
