@@ -6,9 +6,6 @@
  */
 
 import { crc32, deflateSync } from 'node:zlib'
-import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
-import { errMessage } from './records.ts'
-import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
 /** PNG's own field widths, which the format fixes and this encoder cannot choose: a chunk's length and CRC are 4 bytes each, and IHDR's payload is 13. */
 const PNG_LENGTH_BYTES = 4
@@ -290,106 +287,4 @@ export function visionVerdict(reply: string): { ok: boolean; detail: string } {
     return { ok: false, detail: `named the halves in the wrong order: ${JSON.stringify(reply)}` }
   }
   return { ok: true, detail: JSON.stringify(reply) }
-}
-
-const RIFF_ASCII_R = 0x52
-const RIFF_ASCII_I = 0x49
-const RIFF_ASCII_F = 0x46
-const RIFF_WAVEFORM_SIZE_PLACEHOLDER = 0
-const NOT_REALLY_AUDIO = new Uint8Array([
-  RIFF_ASCII_R,
-  RIFF_ASCII_I,
-  RIFF_ASCII_F,
-  RIFF_ASCII_F,
-  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
-  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
-  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
-  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
-])
-
-interface TranslationProbeRow {
-  id?: unknown
-  role?: unknown
-  translate?: unknown
-  state?: unknown
-  serves?: unknown
-}
-
-interface ProbeLine {
-  address: string
-  ok: boolean
-  detail: string
-}
-
-/**
- * Whether this address can answer a probe at all.
- *
- * `unavailable` is the only state worth skipping for rerank, translations and
- * completions: `GET /engined/v1/engines` already reports why, with the literal
- * command that fixes it, and a probe repeating that in a different voice adds
- * nothing.
- *
- * Vision does not skip. A configured vision route that cannot be asked fails
- * the run (`probeVision`); filtering it out here would be a green result that
- * checked nothing.
- *
- * NOT `state === "installed"`, which is what this checked first and which
- * quietly meant "prove nothing whenever the engine is already up" -- a
- * running engine reports `running`, so a box mid-use skipped every address it
- * had. That is the silence this module exists to end, so the test below pins
- * it.
- */
-export function canAnswer(state: unknown): boolean {
-  return typeof state === 'string' && state !== 'unavailable'
-}
-
-async function probeOneRefusal(
-  doorUrl: string,
-  address: string,
-  fetchImpl: typeof fetch,
-): Promise<{ ok: boolean; detail: string }> {
-  const form = new FormData()
-  form.append('file', new Blob([NOT_REALLY_AUDIO]), 'probe.wav')
-  form.append('model', address)
-  try {
-    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
-      method: 'POST',
-      body: form,
-    })
-    const text = await res.text()
-    if (res.status === STATUS_BAD_REQUEST) {
-      return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
-    }
-    return {
-      ok: false,
-      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
-    }
-  } catch (err) {
-    return { ok: false, detail: errMessage(err) }
-  }
-}
-
-/** English-only transcription routes must refuse `/translations` before any model loads. */
-export async function probeTranslations(
-  doorUrl: string,
-  rows: readonly TranslationProbeRow[],
-  fetchImpl: typeof fetch,
-): Promise<ProbeLine[]> {
-  const englishOnly = rows.filter(
-    (r): r is TranslationProbeRow & { id: string } =>
-      r.role === undefined &&
-      r.translate !== true &&
-      canAnswer(r.state) &&
-      typeof r.id === 'string' &&
-      Array.isArray(r.serves) &&
-      r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),
-  )
-  if (englishOnly.length === 0) {
-    return []
-  }
-  const lines: ProbeLine[] = []
-  for (const row of englishOnly) {
-    lines.push({ address: row.id, ...(await probeOneRefusal(doorUrl, row.id, fetchImpl)) })
-  }
-  return lines
 }

@@ -24,8 +24,6 @@
 import { CONTENT_TYPE, discardBody, ENGINE_ERROR_CHARS, JSON_CONTENT_TYPE } from './http.ts'
 import type { DiscoveryStatus } from './modelDiscovery.ts'
 import {
-  canAnswer,
-  probeTranslations,
   readProbeText,
   visionReadRequestBody,
   visionReadVerdict,
@@ -33,7 +31,8 @@ import {
   visionVerdict,
 } from './probeImage.ts'
 import { PROBES_PATH, type ProbeKind } from './probeStore.ts'
-import { probeTranslationQuality } from './probeTranslation.ts'
+import { probeTranslationQuality, probeTranslations } from './probeTranslation.ts'
+import { canAnswer, eachRow, type KeptRow, type MenuRow, type ProbeLine } from './probeTypes.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
 import {
@@ -61,15 +60,6 @@ async function postProbe(
     }
   }
   return res
-}
-
-/** One line per vision address the door offers, in the order the menu listed them. */
-interface ProbeLine {
-  address: string
-  ok: boolean
-  detail: string
-  /** Set on the translation and rerank lines, the two the door records; see `reportProbes`. */
-  kind?: ProbeKind
 }
 
 function tagged(kind: ProbeKind, lines: ProbeLine[]): ProbeLine[] {
@@ -115,16 +105,6 @@ interface ProbeReport {
    * Absent when that fetch failed.
    */
   discovery?: Record<string, DiscoveryStatus>
-}
-
-/** The subset of a `/openai/v1/models` row this probe reads. Parsed from the wire, so it is narrowed here rather than imported: a row is whatever the running door sent, not whatever this build's `ModelRow` says. */
-interface MenuRow {
-  id?: unknown
-  role?: unknown
-  vision?: unknown
-  state?: unknown
-  translate?: unknown
-  serves?: unknown
 }
 
 /**
@@ -282,27 +262,19 @@ async function discoveryReport(
 const VISION_UNCHECKED = 'unavailable, so vision fidelity was not checked; a skip is not a pass'
 
 /** Every vision address the door lists, each sent the ground-truth check its own `vision` kind can answer. */
-async function probeVision(
+function probeVision(
   doorUrl: string,
   rows: readonly MenuRow[],
   fetchImpl: typeof fetch,
 ): Promise<ProbeLine[]> {
-  const vision = rows.filter(
-    (r): r is MenuRow & { id: string } => r.role === 'vision' && typeof r.id === 'string',
+  return eachRow(
+    rows,
+    (r) => r.role === 'vision',
+    (row) =>
+      canAnswer(row.state)
+        ? probeOne(doorUrl, row, fetchImpl)
+        : Promise.resolve({ ok: false, detail: VISION_UNCHECKED }),
   )
-  if (vision.length === 0) {
-    return []
-  }
-
-  const lines: ProbeLine[] = []
-  for (const row of vision) {
-    if (!canAnswer(row.state)) {
-      lines.push({ address: row.id, ok: false, detail: VISION_UNCHECKED })
-      continue
-    }
-    lines.push({ address: row.id, ...(await probeOne(doorUrl, row, fetchImpl)) })
-  }
-  return lines
 }
 
 /**
@@ -324,23 +296,16 @@ const RERANK_DOCUMENTS = [
 /** The index into `RERANK_DOCUMENTS` that answers `RERANK_QUERY`. */
 const RERANK_ANSWER = 1
 
-async function probeRerank(
+function probeRerank(
   doorUrl: string,
   rows: readonly MenuRow[],
   fetchImpl: typeof fetch,
 ): Promise<ProbeLine[]> {
-  const rerank = rows.filter(
-    (r): r is MenuRow & { id: string } =>
-      r.role === 'rerank' && canAnswer(r.state) && typeof r.id === 'string',
+  return eachRow(
+    rows,
+    (r) => r.role === 'rerank' && canAnswer(r.state),
+    (row) => probeOneRerank(doorUrl, row.id, fetchImpl),
   )
-  if (rerank.length === 0) {
-    return []
-  }
-  const lines: ProbeLine[] = []
-  for (const row of rerank) {
-    lines.push({ address: row.id, ...(await probeOneRerank(doorUrl, row.id, fetchImpl)) })
-  }
-  return lines
 }
 
 async function probeOneRerank(
@@ -388,26 +353,19 @@ const FIM_PREFIX = 'def add(a, b):\n    '
 const FIM_SUFFIX = '\n\nprint(add(1, 2))\n'
 const FIM_MAX_TOKENS = 16
 
-async function probeCompletions(
+function probeCompletions(
   doorUrl: string,
   rows: readonly MenuRow[],
   fetchImpl: typeof fetch,
 ): Promise<ProbeLine[]> {
-  const fim = rows.filter(
-    (r): r is MenuRow & { id: string } =>
+  return eachRow(
+    rows,
+    (r) =>
       canAnswer(r.state) &&
-      typeof r.id === 'string' &&
       Array.isArray(r.serves) &&
       r.serves.includes(CONTENT_ENDPOINT_COMPLETIONS),
+    (row) => probeOneCompletion(doorUrl, row.id, fetchImpl),
   )
-  if (fim.length === 0) {
-    return []
-  }
-  const lines: ProbeLine[] = []
-  for (const row of fim) {
-    lines.push({ address: row.id, ...(await probeOneCompletion(doorUrl, row.id, fetchImpl)) })
-  }
-  return lines
 }
 
 async function probeOneCompletion(
@@ -451,7 +409,7 @@ async function probeOneCompletion(
  * fails a model that is working -- PaddleOCR-VL
  * answers the colour question with degenerate repetition.
  */
-function checkFor(row: MenuRow & { id: string }):
+function checkFor(row: KeptRow):
   | {
       body: string
       verdict: (reply: string) => { ok: boolean; detail: string }
@@ -476,7 +434,7 @@ function checkFor(row: MenuRow & { id: string }):
 
 async function probeOne(
   doorUrl: string,
-  row: MenuRow & { id: string },
+  row: KeptRow,
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; detail: string }> {
   const check = checkFor(row)

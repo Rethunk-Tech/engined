@@ -17,9 +17,10 @@
  */
 
 import { resolve } from 'node:path'
-import { ENGINE_ERROR_CHARS } from './http.ts'
-import { canAnswer } from './probeImage.ts'
+import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
 import clipPath from './probeTranslation.es.wav' with { type: 'file' }
+import type { MenuRow } from './probeTypes.ts'
+import { canAnswer, eachRow, type ProbeLine } from './probeTypes.ts'
 import { errMessage } from './records.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
@@ -72,62 +73,104 @@ export function translationVerdict(
   }
 }
 
-interface TranslateQualityRow {
-  id?: unknown
-  role?: unknown
-  translate?: unknown
-  state?: unknown
-  serves?: unknown
-}
+const RIFF_ASCII_R = 0x52
+const RIFF_ASCII_I = 0x49
+const RIFF_ASCII_F = 0x46
+const RIFF_WAVEFORM_SIZE_PLACEHOLDER = 0
+const NOT_REALLY_AUDIO = new Uint8Array([
+  RIFF_ASCII_R,
+  RIFF_ASCII_I,
+  RIFF_ASCII_F,
+  RIFF_ASCII_F,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+  RIFF_WAVEFORM_SIZE_PLACEHOLDER,
+])
 
 /** Every route that opted into `translate = true`, sent the clip and graded against the reference. */
-export async function probeTranslationQuality(
+export function probeTranslationQuality(
   doorUrl: string,
-  rows: readonly TranslateQualityRow[],
+  rows: readonly MenuRow[],
   fetchImpl: typeof fetch,
-): Promise<{ address: string; ok: boolean; detail: string }[]> {
-  const translating = rows.filter(
-    (r): r is TranslateQualityRow & { id: string } =>
+): Promise<ProbeLine[]> {
+  let clip: Uint8Array | undefined
+  return eachRow(
+    rows,
+    (r) =>
       r.role === undefined &&
       r.translate === true &&
       canAnswer(r.state) &&
-      typeof r.id === 'string' &&
       Array.isArray(r.serves) &&
       r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS) &&
       r.serves.includes(CONTENT_ENDPOINT_TRANSLATIONS),
-  )
-  if (translating.length === 0) {
-    return []
-  }
-  const clip = new Uint8Array(await Bun.file(resolve(import.meta.dir, clipPath)).arrayBuffer())
-  const lines: { address: string; ok: boolean; detail: string }[] = []
-  for (const row of translating) {
-    const form = new FormData()
-    form.append('file', new Blob([clip]), 'probe.wav')
-    form.append('model', row.id)
-    try {
-      const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
-        method: 'POST',
-        body: form,
-      })
-      if (!res.ok) {
-        lines.push({
-          address: row.id,
-          ok: false,
-          detail: `http ${res.status}: ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
+    async (row) => {
+      clip ??= new Uint8Array(await Bun.file(resolve(import.meta.dir, clipPath)).arrayBuffer())
+      const form = new FormData()
+      form.append('file', new Blob([clip]), 'probe.wav')
+      form.append('model', row.id)
+      try {
+        const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
+          method: 'POST',
+          body: form,
         })
-        continue
-      }
-      const { text } = (await res.json()) as { text?: unknown }
-      lines.push({
-        address: row.id,
-        ...(typeof text === 'string'
+        if (!res.ok) {
+          return {
+            ok: false,
+            detail: `http ${res.status}: ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
+          }
+        }
+        const { text } = (await res.json()) as { text?: unknown }
+        return typeof text === 'string'
           ? translationVerdict(TRANSLATION_REFERENCE, text)
-          : { ok: false, detail: 'the reply carried no text' }),
-      })
-    } catch (err) {
-      lines.push({ address: row.id, ok: false, detail: errMessage(err) })
+          : { ok: false, detail: 'the reply carried no text' }
+      } catch (err) {
+        return { ok: false, detail: errMessage(err) }
+      }
+    },
+  )
+}
+
+async function probeOneRefusal(
+  doorUrl: string,
+  address: string,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: boolean; detail: string }> {
+  const form = new FormData()
+  form.append('file', new Blob([NOT_REALLY_AUDIO]), 'probe.wav')
+  form.append('model', address)
+  try {
+    const res = await fetchImpl(`${doorUrl}${CONTENT_ENDPOINT_TRANSLATIONS}`, {
+      method: 'POST',
+      body: form,
+    })
+    const text = await res.text()
+    if (res.status === STATUS_BAD_REQUEST) {
+      return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
     }
+    return {
+      ok: false,
+      detail: `answered http ${res.status} instead of refusing to translate: ${text.slice(0, ENGINE_ERROR_CHARS)}`,
+    }
+  } catch (err) {
+    return { ok: false, detail: errMessage(err) }
   }
-  return lines
+}
+
+/** English-only transcription routes must refuse `/translations` before any model loads. */
+export function probeTranslations(
+  doorUrl: string,
+  rows: readonly MenuRow[],
+  fetchImpl: typeof fetch,
+): Promise<ProbeLine[]> {
+  return eachRow(
+    rows,
+    (r) =>
+      r.role === undefined &&
+      r.translate !== true &&
+      canAnswer(r.state) &&
+      Array.isArray(r.serves) &&
+      r.serves.includes(CONTENT_ENDPOINT_TRANSCRIPTIONS),
+    (row) => probeOneRefusal(doorUrl, row.id, fetchImpl),
+  )
 }
