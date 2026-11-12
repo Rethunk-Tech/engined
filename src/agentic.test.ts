@@ -440,6 +440,21 @@ test('runAgentic: a final stdout chunk without a newline still reaches onDelta',
   expect(deltas).toEqual(['tail'])
 })
 
+test('array content reaches the CLI as its text parts, never as "[object Object]"', () => {
+  const { prompt } = promptsFromMessages({
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this' },
+          { type: 'image_url', image_url: { url: 'https://example/x.png' } },
+        ],
+      },
+    ],
+  })
+  expect(prompt).toBe('describe this')
+})
+
 test('system chat messages reach claude through a file in launch HOME, not argv or stdin', async () => {
   const { prompt, systemPrompt } = promptsFromMessages({
     messages: [

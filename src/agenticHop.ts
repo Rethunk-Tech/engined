@@ -19,6 +19,7 @@ import {
 } from './http.ts'
 import { launchScopedBaseUrl, launchUpstreamBaseUrl, mintLaunchNonce } from './launchNonce.ts'
 import { releaseLaunch } from './launchUpstream.ts'
+import { messageText } from './llamaSlots.ts'
 import { isRecord } from './records.ts'
 import { LOCAL_UPSTREAM } from './routeAddress.ts'
 import { loadSpec } from './spec.ts'
@@ -31,25 +32,17 @@ export function promptsFromMessages(body: Record<string, unknown>): {
   systemPrompt: string | undefined
 } {
   const messages = Array.isArray(body.messages) ? body.messages : []
-  const contentFor = (role: string) =>
-    messages
-      .flatMap((message) =>
-        isRecord(message) && message.role === role ? [String(message.content ?? '')] : [],
-      )
-      .join('\n')
-  const systemPrompt = contentFor('system')
-  return {
-    prompt: messages
-      .flatMap((message) =>
-        isRecord(message) &&
-        (message.role === 'user' || message.role === 'assistant') &&
-        String(message.content ?? '') !== ''
-          ? [String(message.content ?? '')]
-          : [],
-      )
-      .join('\n'),
-    systemPrompt: systemPrompt === '' ? undefined : systemPrompt,
-  }
+  const textsOf = (role: string): string[] =>
+    messages.flatMap((m) => (isRecord(m) && m.role === role ? [messageText(m)] : []))
+  const systemPrompt = textsOf('system').join('\n')
+  const prompt = messages
+    .flatMap((m) =>
+      isRecord(m) && (m.role === 'user' || m.role === 'assistant')
+        ? [messageText(m)].filter((text) => text !== '')
+        : [],
+    )
+    .join('\n')
+  return { prompt, systemPrompt: systemPrompt === '' ? undefined : systemPrompt }
 }
 
 /**

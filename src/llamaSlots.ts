@@ -151,7 +151,8 @@ export async function classifyPrompt(
   }
 }
 
-function messageText(message: unknown): string {
+/** The text a chat message carries: its string content, or the text parts of an array, never a String() of the array. */
+export function messageText(message: unknown): string {
   if (!isRecord(message)) {
     return ''
   }
