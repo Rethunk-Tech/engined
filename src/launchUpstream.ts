@@ -10,9 +10,22 @@
  */
 
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, STATUS_BAD_GATEWAY, STATUS_FORBIDDEN } from './http.ts'
+import {
+  jsonError,
+  MAX_JSON_BODY_BYTES,
+  readCappedBytes,
+  STATUS_BAD_GATEWAY,
+  STATUS_FORBIDDEN,
+  STATUS_PAYLOAD_TOO_LARGE,
+} from './http.ts'
 import { errMessage } from './records.ts'
 import { resolveUpstream, upstreamUrl } from './upstream.ts'
+
+const LAUNCH_UPSTREAM_PATHS = new Set(['/v1/messages', '/v1/messages/count_tokens', '/v1/models'])
+
+function launchUpstreamPathAllowed(rest: string, rawUrl: string): boolean {
+  return !/%2f|%2e/i.test(rawUrl) && !rest.includes('..') && LAUNCH_UPSTREAM_PATHS.has(rest)
+}
 
 /**
  * Hop-by-hop and length headers Bun recomputes, `accept-encoding` so Bun
@@ -39,6 +52,20 @@ export async function forwardLaunchUpstream(
   if (upstreamId === undefined) {
     return jsonError(STATUS_FORBIDDEN, 'this launch-scoped URL is unknown or has expired')
   }
+  if (!launchUpstreamPathAllowed(rest, req.url)) {
+    return jsonError(STATUS_FORBIDDEN, 'this launch-scoped URL cannot reach that path')
+  }
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+  let body: Uint8Array | undefined
+  if (hasBody) {
+    const bytes = await readCappedBytes(req, MAX_JSON_BODY_BYTES, () =>
+      jsonError(STATUS_PAYLOAD_TOO_LARGE, 'JSON body too large'),
+    )
+    if (bytes instanceof Response) {
+      return bytes
+    }
+    body = bytes
+  }
   const upstream = ctx.getConfig().upstreams.find((u) => u.id === upstreamId)
   if (upstream === undefined) {
     return jsonError(STATUS_BAD_GATEWAY, `upstream "${upstreamId}" is no longer configured`)
@@ -54,13 +81,12 @@ export async function forwardLaunchUpstream(
   for (const [name, value] of Object.entries(resolved.endpoint.headers)) {
     headers.set(name, value)
   }
-  const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
   let res: Response
   try {
     res = await fetch(upstreamUrl(resolved.endpoint.base_url, rest) + new URL(req.url).search, {
       method: req.method,
       headers,
-      body: hasBody ? await req.arrayBuffer() : undefined,
+      body,
       signal: req.signal,
       redirect: 'error',
     })

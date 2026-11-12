@@ -338,7 +338,7 @@ export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
  * mid-upload makes the read throw, and that is the caller's malformed request,
  * not this door's failure.
  */
-async function readCappedBytes(
+export async function readCappedBytes(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,

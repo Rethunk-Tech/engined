@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The keyless launch forwarder allows only `/v1/messages`, `/v1/messages/count_tokens` and `/v1/models`, rejects encoded slashes, and caps the body.
 - Claude's caller system prompt is passed as a file in the launch HOME (`--append-system-prompt-file`), not as argv, so it is not readable via `/proc` and cannot trip E2BIG.
 - A throw during engine start no longer leaves the engine wedged in `warming`; the next start can run.
 - `sandbox_mask` (default `/usr/local/src`, `/mnt`, `/media`, `/srv`) is tmpfs'd in the agent sandbox before the workdir bind, so a launch aimed at one checkout cannot read its siblings.
