@@ -7,16 +7,6 @@ const PORT_MAX = 65_535
 const LABEL = 'route[0] "port"'
 const FILE = 'config.toml'
 
-function expectParseError(run: () => unknown): void {
-  try {
-    run()
-  } catch (err) {
-    expect(err).toBeInstanceOf(ParseError)
-    return
-  }
-  throw new Error('expected ParseError')
-}
-
 test('parsePort: integer 1–65535 is returned unchanged', () => {
   fc.assert(
     fc.property(fc.integer({ min: 1, max: PORT_MAX }), (n) => {
@@ -46,7 +36,7 @@ test('parsePort: non-ports throw ParseError, never another error', () => {
         fc.array(fc.integer()),
       ),
       (v) => {
-        expectParseError(() => parsePort(v, LABEL, FILE, 8080))
+        expect(() => parsePort(v, LABEL, FILE, 8080)).toThrow(ParseError)
       },
     ),
   )
@@ -80,7 +70,7 @@ test('parsePositiveInteger: non-positive-integers throw ParseError', () => {
         fc.constant(null),
       ),
       (v) => {
-        expectParseError(() => parsePositiveInteger(v, LABEL, FILE, 4))
+        expect(() => parsePositiveInteger(v, LABEL, FILE, 4)).toThrow(ParseError)
       },
     ),
   )
@@ -117,7 +107,7 @@ test('asEnv: non-tables, bad keys, and non-string values throw ParseError', () =
           .filter((t) => Object.keys(t).length > 0),
       ),
       (v) => {
-        expectParseError(() => asEnv(v, 'engine[0]', FILE))
+        expect(() => asEnv(v, 'engine[0]', FILE)).toThrow(ParseError)
       },
     ),
   )
