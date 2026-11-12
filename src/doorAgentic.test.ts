@@ -921,6 +921,33 @@ describe('agentic concurrency cap', () => {
     expect(settled.every((res) => res.status === 200)).toBe(true)
     clearVerifiedVersion('claude')
   })
+
+  test('a streamed launch holds its slot until the child exits, not until its first delta', async () => {
+    clearVerifiedVersion('claude')
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
+    const spawn: AgenticSpawn = (_argv, opts) => {
+      opts.onStdout?.(`${STREAMED_PONG_LINES[1]}\n`)
+      return held.then(() => KIMI_ANSWER)
+    }
+    const door = createClaudeDoor(kimiRoutedConfig(), redirectDoorRoot(), spawn, 'k')
+    const streamed = () =>
+      door.fetch(
+        chatRequest({
+          model: '@/claude/kimi-k3',
+          messages: [{ role: 'user', content: 'hi' }],
+          workdir: TEST_ROOT,
+          stream: true,
+        }),
+      )
+    const inflight = [0, 1, 2, 3].map(() => streamed())
+    const handedOff = await Promise.all(inflight)
+    expect(handedOff.every((res) => res.status === 200)).toBe(true)
+    const over = await streamed()
+    expect(over.status).toBe(429)
+    release()
+    await Promise.all(handedOff.map((res) => res.text()))
+    clearVerifiedVersion('claude')
+  })
 })
 
 /** What the fake Anthropic upstream saw of the one request it served. */

@@ -200,6 +200,8 @@ export interface AgenticHop {
     setContentType: (ct: string) => void
     toolsHonourableElsewhere: boolean
     inChain: boolean
+    /** Called at stream handoff with the run that now outlives this call, so whoever accounts for it can wait for it to settle. */
+    onHandoff?: (run: Promise<unknown>) => void
   }
 }
 
@@ -522,6 +524,7 @@ export async function execAgentic(
         handedOff = true
         const release = () => releaseLaunch(ctx, nonce)
         run.then(release, release)
+        req.onHandoff?.(run)
       },
     })
   } finally {

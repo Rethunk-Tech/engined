@@ -432,6 +432,10 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
       }
     }
     ctx.agenticInFlight += 1
+    // A streamed launch outlives this call: its slot is held until the child
+    // exits, or eight streamed calls would run eight children under a cap of
+    // four while the counter already read zero.
+    let handedOff = false
     try {
       return await execAgentic(ctx, {
         engineId,
@@ -443,10 +447,23 @@ async function execHop(ctx: DoorContext, req: HopRequest, d: HopDispatch): Promi
           setContentType: req.setContentType,
           toolsHonourableElsewhere: req.toolsHonourableElsewhere,
           inChain: req.inChain,
+          onHandoff: (run) => {
+            handedOff = true
+            run.then(
+              () => {
+                ctx.agenticInFlight -= 1
+              },
+              () => {
+                ctx.agenticInFlight -= 1
+              },
+            )
+          },
         },
       })
     } finally {
-      ctx.agenticInFlight -= 1
+      if (!handedOff) {
+        ctx.agenticInFlight -= 1
+      }
     }
   }
   const engineEntry = ctx.registry.entry(engineId)
