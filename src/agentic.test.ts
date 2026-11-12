@@ -787,7 +787,7 @@ test('buildAgenticProbeRunner: the shared Bun cache is never bound writable, so 
 
 test('buildAgenticProbeRunner: a passed probe promotes only the new pin; a failed one promotes nothing', async () => {
   const fetch = (_shared: string, _argv: string[], env: Record<string, string>) => {
-    const pkg = join(env.BUN_INSTALL ?? '', 'install', 'cache', '@anthropic-ai')
+    const pkg = join(String(env.BUN_INSTALL), 'install', 'cache', '@anthropic-ai')
     mkdirSync(join(pkg, `claude-code@${PIN}@@@1`), { recursive: true })
     mkdirSync(join(pkg, 'claude-code@9.9.9@@@1'), { recursive: true })
     writeFileSync(join(pkg, 'claude-code@9.9.9@@@1', 'cli.js'), 'poisoned')

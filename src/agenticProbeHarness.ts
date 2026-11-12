@@ -23,7 +23,12 @@ import {
   type RunAgenticResult,
   runAgentic,
 } from './agentic.ts'
-import { makeSeedCache, promoteSeedCache, sharedInstallCache, usableBwrap } from './agenticSandbox.ts'
+import {
+  makeSeedCache,
+  promoteSeedCache,
+  sharedInstallCache,
+  usableBwrap,
+} from './agenticSandbox.ts'
 import { type AgentTarget, agentCli } from './agents.ts'
 import { errMessage } from './records.ts'
 import { sandboxArgv, sandboxHome } from './sandbox.ts'
