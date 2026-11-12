@@ -12,7 +12,7 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { agentCli } from './agents.ts'
-import { copyLogins, sandboxArgv, workdirGitDirs } from './sandbox.ts'
+import { copyLogins, sandboxArgv, workdirForbidden, workdirGitDirs } from './sandbox.ts'
 import { makeTestRoot } from './test-support.ts'
 
 const BWRAP = '/usr/bin/bwrap'
@@ -204,12 +204,33 @@ test("resolves a linked worktree's git dir and its common dir, both outside the 
   mkdirSync(submodule)
   writeFileSync(join(submodule, '.git'), 'gitdir: ../.git/modules/sub\n')
 
+  expect(workdirGitDirs(worktree)).toEqual([])
+  writeFileSync(join(gitDir, 'gitdir'), `${join(worktree, '.git')}\n`)
   expect(workdirGitDirs(worktree)).toEqual([join(repo, '.git'), gitDir])
-  expect(workdirGitDirs(submodule)).toEqual([join(repo, '.git', 'modules', 'sub')])
+  // A submodule has no gitdir backlink, so a crafted pointer cannot bind an arbitrary path.
+  expect(workdirGitDirs(submodule)).toEqual([])
   // A plain checkout's .git is inside the workdir, and a stale pointer binds nothing.
   expect(workdirGitDirs(repo)).toEqual([])
   writeFileSync(join(worktree, '.git'), 'gitdir: /nonexistent/engined\n')
   expect(workdirGitDirs(worktree)).toEqual([])
+})
+
+test("a .git pointer at an arbitrary path is not bound without git's worktree backlink", () => {
+  const secret = scratch('engined-sandbox-secret-')
+  writeFileSync(join(secret, 'id_ed25519'), 'key\n')
+  const workdir = scratch('engined-sandbox-forged-')
+  writeFileSync(join(workdir, '.git'), `gitdir: ${secret}\n`)
+  expect(workdirGitDirs(workdir)).toEqual([])
+})
+
+test('refuses a workdir that is, contains, or sits inside a sensitive path', () => {
+  const home = scratch('engined-sandbox-op-')
+  mkdirSync(join(home, '.ssh'), { recursive: true })
+  mkdirSync(join(home, 'src', 'repo'), { recursive: true })
+  expect(workdirForbidden(home, home)).toBeDefined()
+  expect(workdirForbidden(join(home, '.ssh'), home)).toBeDefined()
+  expect(workdirForbidden(join(home, '.ssh', 'keys'), home)).toBeDefined()
+  expect(workdirForbidden(join(home, 'src', 'repo'), home)).toBeUndefined()
 })
 
 bwrapIt('hides a file under the operator home that the workdir does not cover', () => {

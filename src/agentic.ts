@@ -29,6 +29,7 @@ import {
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
 import { applySandboxFloor } from './agenticSandbox.ts'
+import { workdirForbidden } from './sandbox.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -452,6 +453,15 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       status: STATUS_BAD_REQUEST,
       ok: false,
       failure: `workdir ${input.workdir} does not exist for engined (the service runs with PrivateTmp, so /tmp and /var/tmp are private to it; use a directory under the user's home)`,
+      envelopeFailure: false,
+    }
+  }
+  const sensitive = workdirForbidden(input.workdir)
+  if (sensitive !== undefined) {
+    return {
+      status: STATUS_BAD_REQUEST,
+      ok: false,
+      failure: sensitive,
       envelopeFailure: false,
     }
   }

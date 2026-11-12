@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import {
@@ -367,6 +368,18 @@ function runAgenticFixture(
     ...overrides,
   })
 }
+
+test('runAgentic refuses a workdir that is the operator home', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+  const result = await runAgenticFixture(spawn, { workdir: homedir() })
+  expect(result).toMatchObject({
+    status: 400,
+    ok: false,
+    envelopeFailure: false,
+  })
+  expect(result.failure).toContain('home')
+  expect(calls).toHaveLength(0)
+})
 
 test('runAgentic: cursor refuses --force, --yolo, and --sandbox before any spawn', async () => {
   // `force: false` still names the key. argvFromArgs would emit nothing for

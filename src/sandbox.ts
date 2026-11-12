@@ -41,7 +41,7 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { envString, pathSearchPath } from './env.ts'
-import { isUnder, stateDir } from './paths.ts'
+import { configHome, isUnder, stateDir } from './paths.ts'
 
 /** State-dir segment that holds every agentic HOME. Cache prune names the same segment. */
 export const AGENTIC_HOME_DIR = 'agentic-home'
@@ -105,13 +105,70 @@ export function copyLogins(
 
 const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
 
+const SENSITIVE_HOME_REL = [
+  '.ssh',
+  '.gnupg',
+  '.claude',
+  '.cursor',
+  join('.config', 'cursor'),
+  '.aws',
+  join('.local', 'share', 'keyrings'),
+] as const
+
+function resolvedPath(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
 /**
- * A linked worktree or a submodule names its git dir in a `.git` file, and
- * that dir (plus a worktree's shared `commondir`) usually lives outside the
- * workdir, often under the masked home. `git log` inside the sandbox needs
- * both. A `.git` directory is inside the workdir already, so it adds nothing.
+ * A workdir that is, contains, or sits inside the operator home or a
+ * credential path would re-expose that tree through the workdir bind after
+ * the home tmpfs. Children of the home that are not themselves sensitive
+ * stay allowed -- that is where checkouts live.
  */
-export function workdirGitDirs(workdir: string): string[] {
+export function workdirForbidden(
+  workdir: string,
+  operatorHome: string = OPERATOR_HOME,
+): string | undefined {
+  const real = resolvedPath(workdir)
+  if (isUnder(real, operatorHome)) {
+    return `workdir ${workdir} covers the operator home`
+  }
+  const denied = [
+    ...SENSITIVE_HOME_REL.map((rel) => join(operatorHome, rel)),
+    stateDir(),
+    join(configHome(), 'engined'),
+  ]
+  for (const path of denied) {
+    const root = resolvedPath(path)
+    if (isUnder(root, real) || isUnder(real, root)) {
+      return `workdir ${workdir} covers a sensitive path`
+    }
+  }
+  return undefined
+}
+
+function gitdirPointsAtWorkdir(gitDir: string, workdir: string): boolean {
+  let named: string
+  try {
+    named = readFileSync(join(gitDir, 'gitdir'), 'utf8').trim()
+  } catch {
+    return false
+  }
+  return named !== '' && resolvedPath(named) === resolvedPath(join(workdir, '.git'))
+}
+
+/**
+ * A linked worktree names its git dir in a `.git` file, and that dir (plus
+ * its shared `commondir`) usually lives outside the workdir, often under the
+ * masked home. `git log` inside the sandbox needs both. A `.git` directory
+ * is inside the workdir already, so it adds nothing. A crafted pointer is
+ * ignored unless git's own `gitdir` backlink names this workdir's `.git`.
+ */
+export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_HOME): string[] {
   let pointer: string
   try {
     pointer = readFileSync(join(workdir, '.git'), 'utf8')
@@ -123,15 +180,21 @@ export function workdirGitDirs(workdir: string): string[] {
     return []
   }
   const gitDir = resolve(workdir, named)
+  if (!gitdirPointsAtWorkdir(gitDir, workdir)) {
+    return []
+  }
   let commonDir: string | undefined
   try {
     commonDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim())
   } catch {
-    // A submodule's git dir has no commondir; it is self-contained.
+    // A worktree git dir without commondir is still bound on its own.
   }
   // A stale pointer would fail bwrap's bind and the whole launch with it;
   // git reporting "not a git repository" is the honest failure instead.
-  return [commonDir, gitDir].filter((dir): dir is string => dir !== undefined && existsSync(dir))
+  return [commonDir, gitDir].filter(
+    (dir): dir is string =>
+      dir !== undefined && existsSync(dir) && workdirForbidden(dir, operatorHome) === undefined,
+  )
 }
 
 /** The launch binary's own directory, and its real one when it is a symlink: `bunx` runs `bun` beside it, cursor's launcher runs the `node` beside its target. */
