@@ -72,14 +72,18 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       if (limited(client)) {
         return 'limited'
       }
+      // The attempt counts as a failure before the slow hash check starts, so a burst of concurrent guesses cannot all pass the limit check.
+      const at = now()
+      failures.set(client, [...(failures.get(client) ?? []), at])
       const ok =
         token === undefined
           ? await Bun.password.verify(secret, opts.passwordHash as string).catch(() => false)
           : sameSecret(secret, token)
       if (!ok) {
-        failures.set(client, [...(failures.get(client) ?? []), now()])
         return
       }
+      const kept = failures.get(client) ?? []
+      kept.splice(kept.indexOf(at), 1)
       const id = randomBytes(16).toString('hex')
       lastSeen.set(id, now())
       return id
