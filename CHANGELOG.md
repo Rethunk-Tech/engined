@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The agentic sandbox refuses workdir `/`, any workdir inside a hidden home directory (except the two worktree roots) and a forged `commondir`, and binds a worktree's git dir back under `sandbox_mask` paths.
+- Each agent launch runs in its own `systemd-run --user --scope` with MemoryMax=2G, so one agent cannot OOM the door's cgroup; without `systemd-run` it warns and falls back.
+- A request body that sends no chunk for 30 s is abandoned with a 408.
 - Config UI login: concurrent wrong passwords count against the limit before the hash check, the minted sign-in token works for one exchange, and loopback token logins are not rate limited so a local process cannot lock the operator out.
 - Config UI: `/api/diff` replaces a differing block whole past 4M table cells instead of exhausting memory, edit paths refuse `__proto__`, `constructor` and `prototype`, saving keeps `config.toml`'s mode and fsyncs before the rename, secret store and clear accept only items the saved config names, and a mixed-case `[configsvc] host` is lowercased.
 - The llama preset INI writes a route's `filename` normalised, and refuses a line break, an absolute path or a `..` escape.
