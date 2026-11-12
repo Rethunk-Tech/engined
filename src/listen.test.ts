@@ -10,7 +10,7 @@ test("door idleTimeout is finite at Bun's ceiling", () => {
       err.code = 'EAFNOSUPPORT'
       throw err
     }
-    return { port: 1, stop() {} }
+    return { port: 1, stop: () => undefined }
   }) as unknown as typeof Bun.serve
   bindDoor(async () => new Response(), 0, serve)
   expect(idleTimeout).toBe(255)
