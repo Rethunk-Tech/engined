@@ -19,6 +19,7 @@ import {
   CHAIN_KEYS,
   CONFIGSVC_KEYS,
   DEFAULT_INVENTORY_REFRESH_SECONDS,
+  DEFAULT_SANDBOX_MASK,
   ENGINE_KEYS,
   MODEL_KEYS,
   POTLUCK_KEYS,
@@ -277,6 +278,15 @@ const TOP_FIELDS: Fields = {
   agentic_concurrency: {
     description: 'Live agentic launches allowed at once; a further call is refused with 429.',
     schema: { type: 'integer', minimum: 1, default: DEFAULT_AGENTIC_CONCURRENCY },
+  },
+  sandbox_mask: {
+    description:
+      'Directories tmpfs-masked inside the agent sandbox before the workdir bind, so a launch aimed at one checkout cannot read its siblings.',
+    schema: {
+      type: 'array',
+      items: { type: 'string' },
+      default: [...DEFAULT_SANDBOX_MASK],
+    },
   },
   engine: tables('Engines the door may start or reach.', 'engine'),
   upstream: tables('Where non-local bytes come from.', 'upstream'),

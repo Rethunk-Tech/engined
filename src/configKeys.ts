@@ -40,6 +40,8 @@ export const UPSTREAM_KEYS = new Set([
 ])
 /** Re-fetch interval when an upstream omits `inventory_refresh_seconds`. */
 export const DEFAULT_INVENTORY_REFRESH_SECONDS = 3600
+/** Directories tmpfs'd in the agent sandbox before the workdir bind. */
+export const DEFAULT_SANDBOX_MASK = ['/usr/local/src', '/mnt', '/media', '/srv'] as const
 export const SECRET_KEYS = new Set(['service', 'username', 'header', 'scheme'])
 export const MODEL_KEYS = new Set([
   'id',
@@ -83,6 +85,7 @@ export const TOP_KEYS = new Set([
   'agent_timeout_seconds',
   'stream_stall_seconds',
   'agentic_concurrency',
+  'sandbox_mask',
   'engine',
   'upstream',
   'model',

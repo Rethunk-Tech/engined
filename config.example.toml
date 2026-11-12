@@ -34,6 +34,9 @@ chat_timeout_seconds = 1200
 agent_timeout_seconds = 3600 # an agentic CLI reading a repo runs in minutes, not seconds.
 stream_stall_seconds = 60    # a streamed answer its client stops reading is aborted after this.
 agentic_concurrency = 4      # live /openai/v1 agentic launches; over-cap is 429.
+# Directories tmpfs'd inside the agent sandbox before the workdir bind, so a
+# launch aimed at one checkout cannot read its siblings. Empty list disables.
+sandbox_mask = ["/usr/local/src", "/mnt", "/media", "/srv"]
 
 # `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]
 # takes it out of service without deleting it. A disabled engine stays

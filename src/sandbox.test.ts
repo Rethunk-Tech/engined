@@ -136,6 +136,28 @@ bwrapIt(
   },
 )
 
+test('tmpfs sandbox_mask paths before the workdir bind', () => {
+  const argv = sandboxArgv({
+    bwrap: BWRAP,
+    home: '/h',
+    workdir: '/usr/local/src/one',
+    argv: ['/bin/true'],
+    sandboxMask: ['/usr/local/src', '/mnt'],
+    operatorHome: '/home/op',
+  })
+  const src = argv.indexOf('/usr/local/src')
+  expect(argv[src - 1]).toBe('--tmpfs')
+  const launched = argv.indexOf('--')
+  expect(src).toBeLessThan(argv.lastIndexOf('--ro-bind'))
+  expect(src).toBeLessThan(launched)
+  expect(argv.slice(argv.lastIndexOf('--ro-bind'), launched)).toEqual([
+    '--ro-bind',
+    '/usr/local/src/one',
+    '/usr/local/src/one',
+    '--die-with-parent',
+  ])
+})
+
 test('masks the operator home before binding anything back, and binds the workdir last', () => {
   const home = '/home/op'
   const argv = sandboxArgv({

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { FORBIDDEN_AGENTIC_FLAGS } from './agenticArgs.ts'
-import { loadConfig } from './config.ts'
+import { DEFAULT_SANDBOX_MASK, loadConfig } from './config.ts'
 import { declaredHops } from './configChains.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import { ParseError } from './errors/parse.ts'
@@ -616,6 +616,16 @@ test('defaults apply when listen_port/chat_timeout/agent_timeout/stream_stall ar
   expect(cfg.agent_timeout_seconds).toBe(DEFAULT_AGENT_TIMEOUT_SECONDS)
   expect(cfg.stream_stall_seconds).toBe(60)
   expect(cfg.agentic_concurrency).toBe(4)
+  expect(cfg.sandbox_mask).toEqual([...DEFAULT_SANDBOX_MASK])
+})
+
+test('sandbox_mask empty list is kept, relative paths are refused', () => {
+  expect(
+    loadConfig(writeConfig(`sandbox_mask = []\n${llamaEngineAndRoute()}`)).sandbox_mask,
+  ).toEqual([])
+  expect(() => loadConfig(writeConfig(`sandbox_mask = ["src"]\n${llamaEngineAndRoute()}`))).toThrow(
+    /sandbox_mask\[0\]" must be an absolute path/,
+  )
 })
 
 test('idle_stop_seconds and ready_timeout_s default when an engine omits them', () => {

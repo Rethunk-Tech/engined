@@ -429,6 +429,8 @@ export interface Config {
   stream_stall_seconds: number
   /** Live dispatch-path agentic launches allowed at once. Probe launches are not counted. */
   agentic_concurrency: number
+  /** Directories tmpfs-masked inside the agent sandbox before the workdir bind. */
+  sandbox_mask: string[]
   /** Absent unless this install reports donated-upstream liveness back to potluck. */
   potluck?: PotluckCallback
   configsvc: ConfigsvcSettings

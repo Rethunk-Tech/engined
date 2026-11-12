@@ -289,6 +289,8 @@ interface RunAgenticInput {
   seedSandboxCache?: boolean
   /** Further writable paths inside the sandbox: only a probe's witness directory, so a hook that fires is seen outside it. */
   sandboxWritable?: readonly string[]
+  /** tmpfs'd before the workdir bind; omitted uses the config default. */
+  sandboxMask?: readonly string[]
 }
 
 export interface RunAgenticResult {
@@ -515,6 +517,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       seedCache: input.seedSandboxCache === true,
       readOnly: [mcpConfigPath, ...(configured.readOnly ?? [])],
       writable: input.sandboxWritable,
+      sandboxMask: input.sandboxMask,
     })
     if (sandboxed === null) {
       // Never a fallback to an unsandboxed launch: without the mount table the

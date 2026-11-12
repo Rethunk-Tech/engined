@@ -19,6 +19,8 @@ interface SandboxFloorInput {
   /** Paths the launch was handed, shown back through the masked home. */
   readOnly: readonly string[]
   writable?: readonly string[]
+  /** tmpfs'd before the workdir bind; omitted uses the config default. */
+  sandboxMask?: readonly string[]
 }
 
 /** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
@@ -51,6 +53,7 @@ export function applySandboxFloor(
       argv: input.argv,
       readOnly: input.readOnly,
       writable: input.writable,
+      sandboxMask: input.sandboxMask,
     }),
     cleanup: () => rmSync(home, { recursive: true, force: true }),
   }

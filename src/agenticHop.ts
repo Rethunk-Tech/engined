@@ -319,6 +319,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     prompt,
     systemPrompt,
     research,
+    sandboxMask: ctx.getConfig().sandbox_mask,
     spawn: ctx.doorOpts.agenticSpawn ?? defaultAgenticSpawn,
     bunx: ctx.registryOpts.bunx,
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,

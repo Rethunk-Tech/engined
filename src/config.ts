@@ -8,10 +8,16 @@
  * an upstream may share an id with no conflict, since nothing before
  * addressing (a later phase) ever compares the two.
  */
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { argKeysAsFlags, assertNoForbiddenFlags } from './agenticArgs.ts'
 import { buildChains, parseChainRaw } from './configChains.ts'
-import { ENGINE_KEYS, MODEL_KEYS, SECRET_KEYS, UPSTREAM_KEYS } from './configKeys.ts'
+import {
+  DEFAULT_SANDBOX_MASK,
+  ENGINE_KEYS,
+  MODEL_KEYS,
+  SECRET_KEYS,
+  UPSTREAM_KEYS,
+} from './configKeys.ts'
 import { recordOrigins } from './configOrigin.ts'
 import {
   asArgs,
@@ -72,6 +78,7 @@ export const DEFAULT_CHAT_TIMEOUT_SECONDS = 600
 export const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 export const DEFAULT_STREAM_STALL_SECONDS = 60
 export const DEFAULT_AGENTIC_CONCURRENCY = 4
+export { DEFAULT_SANDBOX_MASK }
 
 function parseSecret(value: unknown, site: string, file: string): SecretRef {
   const v = requireTable(value, `${site} "secret"`, SECRET_KEYS, file)
@@ -404,6 +411,23 @@ function cachedTraitFor(enginesRoot: string): (engine: EngineEntry) => SpecFacts
   }
 }
 
+function parseSandboxMask(value: unknown, file: string): string[] {
+  const paths = optionalStringArray(value, 'config "sandbox_mask"', file)
+  if (paths === undefined) {
+    return [...DEFAULT_SANDBOX_MASK]
+  }
+  return paths.map((path, i) => {
+    const expanded = expandConfigPath(path)
+    if (!isAbsolute(expanded)) {
+      throw new ParseError(`config "sandbox_mask[${i}]" must be an absolute path`, {
+        file,
+        key: 'sandbox_mask',
+      })
+    }
+    return expanded
+  })
+}
+
 function parseTopLevelSettings(
   raw: Record<string, unknown>,
   file: string,
@@ -415,6 +439,7 @@ function parseTopLevelSettings(
   | 'agent_timeout_seconds'
   | 'stream_stall_seconds'
   | 'agentic_concurrency'
+  | 'sandbox_mask'
   | 'potluck'
   | 'configsvc'
 > {
@@ -444,6 +469,7 @@ function parseTopLevelSettings(
       file,
       DEFAULT_AGENTIC_CONCURRENCY,
     ),
+    sandbox_mask: parseSandboxMask(raw.sandbox_mask, file),
     ...parsePotluckCallback(raw, file),
     configsvc: parseConfigsvc(raw, { listen: listenPort, cursor: cursorPort }, file),
   }

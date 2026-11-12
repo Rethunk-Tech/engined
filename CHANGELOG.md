@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `sandbox_mask` (default `/usr/local/src`, `/mnt`, `/media`, `/srv`) is tmpfs'd in the agent sandbox before the workdir bind, so a launch aimed at one checkout cannot read its siblings.
 - Agentic launches refuse a workdir that is, contains, or sits inside the operator home or credential paths (`~/.ssh`, `~/.gnupg`, `~/.claude`, `~/.cursor`, `~/.config/cursor`, `~/.aws`, keyrings, engined's state dir), and bind a linked worktree's git dir only when git's own backlink names that workdir.
 - Piper's `onnx` is 1.22.0, and the chatterbox image pins Perth and chatterbox-v2 by sha256.
 - Every agentic engine (claude, cursor, opencode) runs under the `bwrap` sandbox, which now masks the operator's home: only the workdir, a linked worktree's git dir, the agent's binary, Bun's cache and the launch's own HOME are visible. claude's and cursor's logins are copied into that HOME, mode 0600. A box without `bwrap` refuses every agentic call.

@@ -36,10 +36,12 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { DEFAULT_SANDBOX_MASK } from './configKeys.ts'
 import { envString, pathSearchPath } from './env.ts'
 import { configHome, isUnder, stateDir } from './paths.ts'
 
@@ -219,6 +221,8 @@ interface SandboxInput {
   cacheWritable?: boolean
   /** Bound read-only over itself: the one directory the agent was pointed at. */
   workdir: string
+  /** tmpfs'd before the workdir bind so siblings of the workdir stay hidden. */
+  sandboxMask?: readonly string[]
   /** The launch the sandbox wraps, its binary first. */
   argv: readonly string[]
   /** Files the launch is handed by path (an MCP config, a rendered agent config), bound back read-only. */
@@ -246,6 +250,16 @@ function resolverDirs(): string[] {
 
 function binds(flag: '--bind' | '--ro-bind', paths: readonly string[]): string[] {
   return paths.flatMap((path) => [flag, path, path])
+}
+
+function maskMounts(paths: readonly string[]): string[] {
+  return paths.flatMap((path) => {
+    try {
+      return statSync(path).isDirectory() ? ['--tmpfs', path] : []
+    } catch {
+      return []
+    }
+  })
 }
 
 /**
@@ -309,6 +323,7 @@ export function sandboxArgv(input: SandboxInput): string[] {
     'ALL',
     '--tmpfs',
     operatorHome,
+    ...maskMounts(input.sandboxMask ?? DEFAULT_SANDBOX_MASK),
     ...binds('--ro-bind', shownBack),
     ...cacheMount(input.cache, input.cacheWritable === true),
     '--bind',
