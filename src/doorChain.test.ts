@@ -37,6 +37,8 @@ import {
 } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-door-test-')
+// Not /tmp: the preload keeps state homes under it, and a workdir covering one is refused.
+const WORKDIR = mkdtempSync(join(TEST_ROOT, 'engined-workdir-'))
 
 function spawnDoor(opts: {
   cfg: Parameters<typeof createDoor>[0]
@@ -56,7 +58,7 @@ function spawnDoor(opts: {
   )
 }
 
-function chainHi(model = 'chain-x', workdir = '/tmp') {
+function chainHi(model = 'chain-x', workdir = WORKDIR) {
   return chatRequest({
     model,
     messages: [{ role: 'user', content: 'hi' }],
@@ -259,7 +261,7 @@ describe('the door: agentic and chain routing', () => {
       chatRequest({
         model: `@/${id}/assistant`,
         messages: [{ role: 'user', content: 'hi' }],
-        workdir: '/tmp',
+        workdir: WORKDIR,
       }),
     )
     // A lone-hop dispatch that fails now advances like any other unavailable
@@ -540,7 +542,7 @@ describe('the door: a tool call never falls back into prose', () => {
     const { status, body, spawnCalls } = await toolFallbackCall({
       model: 'chain-tools',
       messages: [{ role: 'user', content: 'what time is it' }],
-      workdir: '/tmp',
+      workdir: WORKDIR,
       tools: [TOOL_NOW],
       parallel_tool_calls: true,
     })
@@ -653,7 +655,7 @@ describe('the door: an agentic engine named directly refuses the tool field by n
     const { status, body, spawnCalls } = await toolFallbackCall({
       model: '@/claude/x',
       messages: [{ role: 'user', content: 'what time is it' }],
-      workdir: '/tmp',
+      workdir: WORKDIR,
       tools: [TOOL_NOW],
     })
     expect(status).toBe(400)
@@ -667,7 +669,7 @@ describe('the door: an agentic engine named directly refuses the tool field by n
     const { status, body, spawnCalls } = await toolFallbackCall({
       model: '@/claude/x',
       messages: [{ role: 'user', content: 'what time is it' }],
-      workdir: '/tmp',
+      workdir: WORKDIR,
       functions: [TOOL_NOW.function],
       function_call: 'auto',
     })
@@ -683,7 +685,7 @@ describe('the door: a body that demands no tool call is answered', () => {
     const { status, spawnCalls } = await toolFallbackCall({
       model: '@/claude/x',
       messages: [{ role: 'user', content: 'what time is it' }],
-      workdir: '/tmp',
+      workdir: WORKDIR,
       tools: [],
       tool_choice: 'none',
       parallel_tool_calls: false,
@@ -713,7 +715,7 @@ describe('the door: a body that demands no tool call is answered', () => {
     const { status, spawnCalls } = await toolFallbackCall({
       model: '@/claude/x',
       messages: [{ role: 'user', content: 'what time is it' }],
-      workdir: '/tmp',
+      workdir: WORKDIR,
       tools: [TOOL_NOW],
       tool_choice: 'none',
     })
@@ -740,7 +742,7 @@ describe('the door: which addresses forward a tool call is discoverable', () => 
       chatRequest({
         model: 'chain-tools',
         messages: [{ role: 'user', content: 'what time is it' }],
-        workdir: '/tmp',
+        workdir: WORKDIR,
       }),
     )
     expect(res.status).toBe(200)
