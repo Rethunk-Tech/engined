@@ -42,17 +42,6 @@ interface SandboxFloorInput {
   pasta?: string | null
 }
 
-let warnedNoPasta = false
-
-function warnNoPasta(): void {
-  if (!warnedNoPasta) {
-    warnedNoPasta = true
-    process.stderr.write(
-      'engined: pasta not found; agents share the host network namespace (abstract X11 sockets and loopback services are reachable). Install passt.\n',
-    )
-  }
-}
-
 /** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
 export function usableBwrap(override?: string | null): string | null {
   const bwrap = override === undefined ? resolveBwrap() : override
@@ -115,21 +104,27 @@ export function promoteSeedCache(seed: string, shared: string): void {
   merge(join(seed, 'install', 'cache'), join(shared, 'install', 'cache'), true)
 }
 
-/** `argv` wrapped under bwrap, the launch home's env merged into `env` in place -- or `null` when this box has no bwrap to wrap it with. */
+/** What to install or set when the sandbox floor is missing a tool. */
+export const SANDBOX_FIX = {
+  bwrap: 'set ENGINED_BWRAP or install bubblewrap',
+  pasta: 'install passt',
+} as const
+
+/** `argv` wrapped under bwrap in pasta's network namespace, the launch home's env merged into `env` in place -- or the tool this box lacks to build that floor. */
 export function applySandboxFloor(
   agent: AgentCli,
   input: SandboxFloorInput,
-): { argv: string[]; home: string; cleanup: () => void } | null {
+): { argv: string[]; home: string; cleanup: () => void } | { missing: 'bwrap' | 'pasta' } {
   const bwrap = usableBwrap(input.bwrapOverride)
   if (bwrap === null) {
-    return null
+    return { missing: 'bwrap' }
+  }
+  const pasta = input.pasta === undefined ? resolvePasta() : input.pasta
+  if (pasta === null || pasta === '') {
+    return { missing: 'pasta' }
   }
   const home = sandboxLaunchHome(agent.id)
   copyLogins(home, agent.logins ?? [])
-  const pasta = input.pasta === undefined ? resolvePasta() : input.pasta
-  if (pasta === null || pasta === '') {
-    warnNoPasta()
-  }
   const shared = sharedInstallCache(agent)
   mkdirSync(shared, { recursive: true })
   const cache = input.seedCache ?? shared
@@ -146,17 +141,14 @@ export function applySandboxFloor(
       readOnly: input.readOnly,
       writable: input.writable,
       sandboxMask: input.sandboxMask,
-      netns:
-        pasta === null || pasta === ''
-          ? undefined
-          : {
-              pasta,
-              ports: loopbackPorts([
-                input.upstreamUrl,
-                ...Object.values(input.env),
-                ...Object.values(input.extraEnv ?? {}),
-              ]),
-            },
+      netns: {
+        pasta,
+        ports: loopbackPorts([
+          input.upstreamUrl,
+          ...Object.values(input.env),
+          ...Object.values(input.extraEnv ?? {}),
+        ]),
+      },
     }),
     home,
     cleanup: () => removeLaunchHome(home),

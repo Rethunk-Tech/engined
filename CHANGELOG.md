@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- An agentic launch on a box without `pasta` (package `passt`) is refused with a 503 naming the package, as a launch without `bwrap` is: it no longer runs in the host network namespace, where host loopback services and the X11 socket were reachable.
+
 ## 0.2.16 - 2026-11-12
 
 - The release workflow builds its completions archive again: it stopped asking the CLI for a PowerShell completion, which the CLI no longer generates (v0.2.15 was tagged but never released for this reason).

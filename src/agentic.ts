@@ -29,7 +29,7 @@ import {
   assertNoForbiddenFlags,
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
-import { applySandboxFloor } from './agenticSandbox.ts'
+import { applySandboxFloor, SANDBOX_FIX } from './agenticSandbox.ts'
 import { pipedArgv, scopedArgv, scopeEnv } from './agentScope.ts'
 import {
   type AgentCli,
@@ -539,13 +539,13 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       extraEnv: input.extraEnv,
       pasta: input.pasta,
     })
-    if (sandboxed === null) {
-      // Never a fallback to an unsandboxed launch: without the mount table the
-      // agent writes and reads as the operator, which is no floor at all.
+    if ('missing' in sandboxed) {
+      // Never a fallback to a weaker launch: without bwrap the agent writes and reads as the
+      // operator, and without pasta it reaches the host's loopback services and X11 socket.
       return {
         status: STATUS_UNAVAILABLE,
         ok: false,
-        failure: `agent "${agent.id}" needs bwrap for its floor and none was found; set ENGINED_BWRAP or install bubblewrap`,
+        failure: `agent "${agent.id}" needs ${sandboxed.missing} for its sandbox and none was found; ${SANDBOX_FIX[sandboxed.missing]}`,
         envelopeFailure: false,
       }
     }

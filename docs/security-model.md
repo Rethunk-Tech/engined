@@ -143,9 +143,7 @@ door URL are forwarded in, and the host's abstract-namespace Unix sockets
 (X11) and loopback-only services are out of reach. Anything the host
 listens on at a non-loopback address (the docker bridge `172.17.0.1`, `br-*`
 bridge addresses, the tailscale IP, a LAN address), and the whole outbound
-internet, stay reachable from the sandbox. Without `pasta` the launch warns and shares the host
-network namespace, where abstract sockets and loopback services are
-reachable. claude's argv floor also restricts which _tools_ it
+internet, stay reachable from the sandbox. Without `pasta` the launch is refused, as it is without `bwrap`. claude's argv floor also restricts which _tools_ it
 has, so it cannot run shell or fetch a URL; opencode has no such restriction,
 and cursor's ask mode still runs read-only shell. An agent pointed at a
 private repository is trusted with its contents and can send them wherever

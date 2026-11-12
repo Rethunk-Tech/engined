@@ -383,10 +383,18 @@ function runAgenticFixture(
     spawn,
     // The spawn is fake, so bwrap never runs: only the argv it would be handed is read.
     bwrap: '/usr/bin/bwrap',
-    pasta: null,
+    pasta: '/usr/bin/pasta',
     ...overrides,
   })
 }
+
+test('runAgentic refuses to launch without pasta, as without bwrap, and never spawns', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+  const result = await runAgenticFixture(spawn, { pasta: null })
+  expect(result).toMatchObject({ ok: false, envelopeFailure: false })
+  expect(result.failure).toContain('install passt')
+  expect(calls).toHaveLength(0)
+})
 
 test('runAgentic refuses a workdir that is the operator home', async () => {
   const { spawn, calls } = fakeOkSpawn()
@@ -523,8 +531,7 @@ test("runAgentic: the child's stderr reaches neither the result nor the log", as
 
   let result: Awaited<ReturnType<typeof runAgentic>>
   try {
-    // A pasta path keeps the once-per-process "pasta not found" warning out of the capture.
-    result = await runAgenticFixture(spawn, { pasta: '/usr/bin/pasta' })
+    result = await runAgenticFixture(spawn)
   } finally {
     process.stderr.write = realWrite
   }

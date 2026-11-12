@@ -142,7 +142,7 @@ the launch's own HOME come back. A login is copied into that HOME, never
 mounted. It can still read paths outside the home and its own environment,
 except a provider key, which never enters a child: a routed claude dials a
 keyless door route that adds the key (`src/launchUpstream.ts`). It can still
-reach the internet, but under `pasta` not the host's loopback services or abstract sockets. No `bwrap` refuses the call. Unproven live: a claude route on the
+reach the internet, but under `pasta` not the host's loopback services or abstract sockets. No `bwrap` or no `pasta` refuses the call. Unproven live: a claude route on the
 `moonshot` (Kimi, `x-api-key`) upstream answering through that route; only the
 Bearer `openrouter-anthropic` shape has.
 
