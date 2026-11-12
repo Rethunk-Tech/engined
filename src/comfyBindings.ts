@@ -4,7 +4,7 @@
  * nothing else ever deletes an entry.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 /** NUL, so the composed key stays unambiguous and `startsWith` can scope a scan to one (engine, origin) pair: no engine id, origin or `prompt_id` can contain one. */
@@ -175,9 +175,14 @@ export function saveComfyBindings(bindings: ComfyBindings): void {
   const overCount = Math.max(0, live.length - COMFY_BINDINGS_MAX)
   const kept = live.slice(overCount)
   evicted.push(...live.slice(0, overCount).map(([key]) => key))
+  const file = comfyBindingsPath()
+  // Renamed into place: a torn write must not leave a file that parses as an
+  // empty table and drops every stored output on the next boot.
+  const tmp = `${file}.tmp`
   try {
     mkdirSync(stateDir(), { recursive: true })
-    writeFileSync(comfyBindingsPath(), JSON.stringify(Object.fromEntries(kept)))
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(kept)))
+    renameSync(tmp, file)
   } catch (err) {
     process.stderr.write(`comfy bindings not persisted: ${errMessage(err)}\n`)
     return

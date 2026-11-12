@@ -4,7 +4,7 @@
  * `views` shape a stored binding round-trips.
  */
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   COMFY_KEY_SEP,
@@ -12,6 +12,7 @@ import {
   comfyKey,
   expired,
   loadComfyBindings,
+  saveComfyBindings,
 } from './comfyBindings.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
 import { collectLines, makeTestRoot } from './test-support.ts'
@@ -44,6 +45,27 @@ describe('expired', () => {
     const now = Date.now()
     expect(expired(now - WeekMs, now)).toBe(true)
     expect(expired(now - WeekMs - 1, now)).toBe(true)
+  })
+})
+
+describe('saveComfyBindings: a torn write keeps the last complete file', () => {
+  test('a save interrupted before its rename leaves every stored binding on disk', () => {
+    // A directory where the temp path goes is the half-finished write: the
+    // live file must still parse to the bindings it held, or a restart drops
+    // outputs callers can still see on disk.
+    process.env.XDG_STATE_HOME = TEST_ROOT
+    mkdirSync(dirname(comfyBindingsPath()), { recursive: true })
+    const prior = JSON.stringify({ 'comfy local kept': { at: Date.now(), views: [] } })
+    writeFileSync(comfyBindingsPath(), prior)
+    mkdirSync(`${comfyBindingsPath()}.tmp`, { recursive: true })
+
+    const table = new Map([
+      ['comfy local kept', { at: Date.now(), views: [] }],
+      ['comfy local newer', { at: Date.now(), views: [] }],
+    ])
+    saveComfyBindings(table)
+    expect(readFileSync(comfyBindingsPath(), 'utf8')).toBe(prior)
+    expect(table.size).toBe(2)
   })
 })
 

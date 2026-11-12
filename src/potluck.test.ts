@@ -4,7 +4,7 @@
  */
 
 import { expect, test } from 'bun:test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig } from './config.ts'
 import { chatRequest, fakeExec } from './doorFixtures.ts'
@@ -78,6 +78,21 @@ headers = { "anthropic-version" = "2023-06-01" }
 
   writeFileSync(file, `[[upstream]]\nid = "x"\negress = "remote"\nfingerprint = "abcd"\n`)
   expect(() => loadConfig(file, dir)).toThrow(ParseError)
+})
+
+test('a spend save interrupted before its rename leaves the previous totals on disk', () => {
+  // The temp path is where an interrupted write leaves the torn bytes; making
+  // it undwritable is the same half-finished state, and the live file must
+  // still hold the totals that were actually persisted.
+  const dir = join(TEST_ROOT, 'torn-spend')
+  mkdirSync(join(dir, 'donor-spend.json.tmp'), { recursive: true })
+  const file = join(dir, 'donor-spend.json')
+  const prior = `${JSON.stringify({ months: { '2026-10': { u: 1 } } })}\n`
+  writeFileSync(file, prior)
+  const ledger = new DonorLedger({ stateRoot: dir, now: () => Date.UTC(2026, 9, 1) })
+
+  ledger.note('u', 2, Date.UTC(2026, 9, 1))
+  expect(readFileSync(file, 'utf8')).toBe(prior)
 })
 
 test('a donated credential serves, reports live, then stops at the ceiling', async () => {

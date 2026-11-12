@@ -5,7 +5,7 @@
  * visible only in the calls this door already makes.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import type { DoorContext } from './doorContext.ts'
@@ -199,9 +199,13 @@ export class DonorLedger {
       months[month] = Object.fromEntries(rows)
     }
     const file = this.path()
+    // Renamed into place, so a torn write can never leave a spend file that
+    // parses to zero and lifts the ceiling it exists to enforce.
+    const tmp = `${file}.tmp`
     try {
       mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, `${JSON.stringify({ months })}\n`)
+      writeFileSync(tmp, `${JSON.stringify({ months })}\n`)
+      renameSync(tmp, file)
     } catch (err) {
       process.stderr.write(`potluck: could not write spend file: ${errMessage(err)}\n`)
     }
