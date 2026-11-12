@@ -9,8 +9,8 @@ const routes: Route<[]>[] = [
 ]
 
 test('one row set serves a path and names its Allow', async () => {
-  expect(await dispatch(routes, 'POST', '/a')?.text()).toBe('post')
-  expect(await dispatch(routes, 'GET', '/b/x')?.text()).toBe('x')
+  expect(await (await dispatch(routes, 'POST', '/a'))?.text()).toBe('post')
+  expect(await (await dispatch(routes, 'GET', '/b/x'))?.text()).toBe('x')
   expect(allowOf(routes, '/a')).toEqual(['GET', 'POST'])
   expect(dispatch(routes, 'POST', '/b/x')).toBeUndefined()
   expect(allowOf(routes, '/b/x')).toEqual(['GET'])
