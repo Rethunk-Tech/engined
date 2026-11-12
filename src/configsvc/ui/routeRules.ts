@@ -1,6 +1,6 @@
 /** Which route fields apply, and the cross-route cases the form must explain. Advisory: the server's validate decides. */
 import { WILDCARD_FORBIDDEN_KEYS } from '../../configKeys.ts'
-import { LOCAL_UPSTREAM, WILDCARD_MODEL } from '../../routeAddress.ts'
+import { LOCAL_UPSTREAM, localFileForbiddenReason, WILDCARD_MODEL } from '../../routeAddress.ts'
 import type { Disposition, EngineKind } from '../../types.ts'
 import { KIND_TRAITS } from '../../types.ts'
 import type { Table } from './model.ts'
@@ -42,7 +42,10 @@ export function routePlan(input: {
   const rules = kind === undefined ? undefined : KIND_TRAITS[kind].localFile
   const wildcard = route.model === WILDCARD_MODEL
   const role = str(route.role)
-  const localReason = localFileReason(route, engine, upstream)
+  const localReason = localFileForbiddenReason(str(route.model), upstream, {
+    id: String(engine.id),
+    models_dir: str(engine.models_dir),
+  })
   const local = (field: 'filename' | 'role' | 'translate' | 'fim' | 'args'): FieldPlan => {
     if (localReason !== undefined && field !== 'args') {
       return { disposition: 'forbidden', reason: localReason }
@@ -130,17 +133,5 @@ export function ctxWarning(
 ): string | undefined {
   return ctx !== undefined && trained !== undefined && ctx > trained
     ? `ctx-size ${ctx} is above the model's trained context ${trained}`
-    : undefined
-}
-
-function localFileReason(route: Table, engine: Table, upstream: string | null): string | undefined {
-  if (route.model === undefined) {
-    return 'there is no model whose weights they could describe'
-  }
-  if (upstream !== LOCAL_UPSTREAM) {
-    return 'a route proxied elsewhere has no local file to describe'
-  }
-  return engine.models_dir === undefined
-    ? `engine "${String(engine.id)}" has no local model store`
     : undefined
 }

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { localFileForbiddenReason } from '../../routeAddress.ts'
 import {
   addressBook,
   blockedChainHops,
@@ -398,4 +399,12 @@ test('the starter proposes only what the host can run and writes routes for chos
   expect(
     starterOps([{ engine: llama, files: [] }]).map((o) => o.op === 'addEntry' && o.table),
   ).toEqual(['upstream'])
+})
+
+test('the UI and the parser give one reason for a local file on an engine with no model store', () => {
+  const route = { engine: 'e', model: 'm' }
+  const plan = routePlan({ kind: 'openai-http', engine: { id: 'e' }, route, upstream: 'local' })
+  const reason = localFileForbiddenReason('m', 'local', { id: 'e' })
+  expect(reason).toBe('engine "e" has no local model store to host it')
+  expect(plan.filename).toEqual({ disposition: 'forbidden', reason })
 })

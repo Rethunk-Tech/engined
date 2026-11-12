@@ -136,3 +136,21 @@ export function addressForRoute<
   }
   return `@/${route.engine}/${route.model}`
 }
+
+/** Why a route may not carry a local `filename`/`role`/`args`, or undefined when it may; the config parser and the config UI both ask. */
+export function localFileForbiddenReason(
+  model: string | undefined,
+  upstreamId: string | null,
+  engine: { id: string; models_dir?: string },
+): string | undefined {
+  if (model === undefined) {
+    return 'there is no model whose weights they could describe'
+  }
+  if (upstreamId !== LOCAL_UPSTREAM) {
+    return 'a route proxied elsewhere has no local file to describe'
+  }
+  if (engine.models_dir === undefined) {
+    return `engine "${engine.id}" has no local model store to host it`
+  }
+  return undefined
+}

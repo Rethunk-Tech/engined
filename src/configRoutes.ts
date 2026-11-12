@@ -23,7 +23,7 @@ import {
 } from './configParse.ts'
 import { ParseError } from './errors/parse.ts'
 import { isRecord } from './records.ts'
-import { LOCAL_UPSTREAM, WILDCARD_MODEL } from './routeAddress.ts'
+import { LOCAL_UPSTREAM, localFileForbiddenReason, WILDCARD_MODEL } from './routeAddress.ts'
 import type {
   EngineEntry,
   ModelCapabilities,
@@ -316,23 +316,6 @@ function defaultUpstreamFor({
  * question -- whisper requires `filename` and forbids `role`, llama requires
  * both -- is checked instead.
  */
-function localFileForbiddenReason(
-  model: string | undefined,
-  upstreamId: string | null,
-  engine: EngineEntry,
-): string | undefined {
-  if (model === undefined) {
-    return 'there is no model whose weights they could describe'
-  }
-  if (upstreamId !== LOCAL_UPSTREAM) {
-    return 'a route proxied elsewhere has no local file to describe'
-  }
-  if (engine.models_dir === undefined) {
-    return `engine "${engine.id}" has no local model store to host it`
-  }
-  return undefined
-}
-
 export function resolveRoute({
   raw,
   allRaws,
