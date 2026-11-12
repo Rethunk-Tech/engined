@@ -3,7 +3,7 @@
  * one resident GGUF per role. Composes `DockerLifecycle` for the container
  * itself, `loadSpec` for the spec and precedence rules, `RoleScheduler` for
  * per-role occupancy and `LlamaUpstream` for the calls into llama-server;
- * this file owns the presets INI and the lease/proxy sequence around them.
+ * this file owns the lease/proxy sequence; `llamaSpec.ts` owns the presets INI.
  *
  * `--models-preset` is the only channel proven to reach a child's argv — a
  * `POST /models/load` with an `args` array left argv unchanged in the probe

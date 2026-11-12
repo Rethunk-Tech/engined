@@ -11,7 +11,7 @@ import { finiteNumber, isRecord, parseRecord } from './records.ts'
 import type { ModelCapabilities } from './types.ts'
 
 export const CLAUDE_ENGINE_ID = 'claude'
-const CURSOR_ENGINE_ID = 'cursor'
+export const CURSOR_ENGINE_ID = 'cursor'
 const MODELS_URL = 'https://api.anthropic.com/v1/models'
 const MAX_PAGES = 10
 const MODELS_PAGE_SIZE = 1000

@@ -25,6 +25,10 @@ export function errMessage(err: unknown): string {
 }
 
 export const MS_PER_SECOND = 1000
+export const MS_PER_MINUTE = 60 * MS_PER_SECOND
+export const MS_PER_DAY = 24 * 60 * MS_PER_MINUTE
+export const KIBIBYTE = 1024
+export const MEBIBYTE = KIBIBYTE * KIBIBYTE
 
 /**
  * Every "wait for the engine to become able to serve" loop: check, then give

@@ -10,6 +10,7 @@ import type { DoorContext } from './doorContext.ts'
 import type { EngineRegistry } from './engines.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
 import type { Inventory } from './inventory.ts'
+import { CURSOR_ENGINE_ID } from './modelSources.ts'
 import {
   decodeAddressSegment,
   encodeAddressSegment,
@@ -41,8 +42,6 @@ interface ResolveCtx {
   registry: EngineRegistry
   body?: Record<string, unknown>
 }
-
-const CURSOR_ENGINE_ID = 'cursor'
 
 /**
  * `@/cursor/<base>` collapses Cursor's own flat, per-reasoning-level model

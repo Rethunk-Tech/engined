@@ -17,7 +17,8 @@
  * snippet below is the only thing that needs a container.
  */
 
-const KIB = 1024
+import { KIBIBYTE } from './records.ts'
+
 /** `drm-memory-gtt: \t2048 KiB` -- the kernel pads keys, so the key needs trimming. */
 const FDINFO_LINE = /^(?<file>[^:]+):(?<key>[^:]+):(?<value>.*)$/
 const AMOUNT = /^(\d+)\s*KiB$/
@@ -127,7 +128,7 @@ export function parseGraphicsBytes(fdinfo: string): number {
 
   let total = 0
   for (const { vram, gtt } of perClient.values()) {
-    total += (vram + gtt) * KIB
+    total += (vram + gtt) * KIBIBYTE
   }
   return total
 }

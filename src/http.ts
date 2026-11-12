@@ -7,7 +7,7 @@
 
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { HeldError } from './errors/held.ts'
-import { isRecord, parseRecord } from './records.ts'
+import { isRecord, MEBIBYTE, parseRecord } from './records.ts'
 
 export const STATUS_OK = 200
 export const STATUS_BAD_REQUEST = 400
@@ -327,8 +327,6 @@ export function imageTooLarge(bytes: number): Response {
 
 /** JSON routes share this ceiling; the Bun server's larger upload cap is for audio, not tables. */
 const JSON_BODY_LIMIT_MEBIBYTES = 32
-const KIBIBYTE = 1024
-const MEBIBYTE = KIBIBYTE * KIBIBYTE
 export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
 
 /** No request-body chunk for this long and the read is abandoned; the idle timeout only bounds the headers. */

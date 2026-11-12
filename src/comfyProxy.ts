@@ -22,7 +22,7 @@ import {
   STATUS_NOT_FOUND,
   STATUS_UNAVAILABLE,
 } from './http.ts'
-import { isRecord, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
+import { isRecord, MS_PER_MINUTE, MS_PER_SECOND, parseRecord, pollUntil } from './records.ts'
 
 const COMFY_PROXY_RE = /^\/engined\/v1\/comfy\/([^/]+)\/([^/]+)\/(.+)$/
 export const COMFY_WS_SUFFIX = 'ws'
@@ -146,8 +146,7 @@ const COMFY_DRAIN_POLL_MS = 500
  * key to raise, which is recoverable; an unbounded wait is not.
  */
 const COMFY_DRAIN_TIMEOUT_MINUTES = 15
-const SECONDS_PER_MINUTE = 60
-const COMFY_DRAIN_TIMEOUT_MS = COMFY_DRAIN_TIMEOUT_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND
+const COMFY_DRAIN_TIMEOUT_MS = COMFY_DRAIN_TIMEOUT_MINUTES * MS_PER_MINUTE
 
 /** This engine's own ceiling, or the default above. */
 function comfyDrainTimeoutMs(ctx: DoorContext, engineId: string): number {

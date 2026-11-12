@@ -20,11 +20,17 @@ import {
   SOURCES,
 } from './modelSources.ts'
 import { stateDir, writeFileAtomic } from './paths.ts'
-import { errMessage, finiteNumber, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import {
+  errMessage,
+  finiteNumber,
+  isRecord,
+  MS_PER_MINUTE,
+  MS_PER_SECOND,
+  parseRecord,
+} from './records.ts'
 import type { Config, EngineEntry, ModelCapabilities, ResolvedRoute } from './types.ts'
 
 const CACHE_VERSION = 1
-const MS_PER_MINUTE = 60_000
 
 /**
  * The capabilities of a Claude family, for a declared route the provider has

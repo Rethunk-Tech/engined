@@ -6,12 +6,11 @@
  */
 
 import { open } from 'node:fs/promises'
+import { MEBIBYTE } from './records.ts'
 
 const MAGIC = 0x46_55_47_47 // "GGUF" read little-endian as a u32
 const UINT32_BYTES = 4
 const UINT64_BYTES = 8
-const KIBIBYTE = 1024
-const MEBIBYTE = KIBIBYTE * KIBIBYTE
 
 const GgufValueType = {
   Uint8: 0,

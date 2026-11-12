@@ -346,6 +346,8 @@ export function parseCursorEvents(stdout: string): AgenticOutcome {
   return envelopeOutcome(outcome)
 }
 
+const OPENCODE_TEMP_PREFIX = 'agentic-opencode-'
+
 /**
  * opencode is configured by file, not by flags, so engined writes the file.
  * It names an openai-compatible provider at the given base -- normally
@@ -372,7 +374,7 @@ function renderOpencodeConfig(upstream: AgentTarget): {
   readOnly: string[]
 } {
   mkdirSync(stateDir(), { recursive: true })
-  const dir = mkdtempSync(join(stateDir(), 'agentic-opencode-'))
+  const dir = mkdtempSync(join(stateDir(), OPENCODE_TEMP_PREFIX))
   const path = join(dir, 'config.json')
   writeFileSync(
     path,
@@ -400,8 +402,6 @@ function renderOpencodeConfig(upstream: AgentTarget): {
     readOnly: [dir],
   }
 }
-
-const OPENCODE_TEMP_PREFIX = 'agentic-opencode-'
 
 /** Process start, so a later `AgenticGate` in this process cannot reap in-flight dirs. */
 const PROCESS_STARTED_MS = performance.timeOrigin

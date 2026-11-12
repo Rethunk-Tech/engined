@@ -23,6 +23,7 @@ import { isLocalLlama } from './engineEntries.ts'
 import { jsonError, STATUS_NOT_FOUND } from './http.ts'
 import { knownContextIn } from './knownContext.ts'
 import { explicitParallel, mergedArgs } from './llamaSpec.ts'
+import { CURSOR_ENGINE_ID } from './modelSources.ts'
 import type { EngineStatus, ModelRow, ModelsResponse } from './responses.ts'
 import { addressForRoute, LOCAL_UPSTREAM, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import { CONTENT_ENDPOINT_CHAT, routeServes } from './routeServes.ts'
@@ -207,7 +208,9 @@ function isDefaultRoute(config: Config, route: ResolvedRoute): boolean {
   if (named === undefined || route.upstream !== null) {
     return false
   }
-  return route.model === (route.engine === 'cursor' ? parseCursorModelId(named).base : named)
+  return (
+    route.model === (route.engine === CURSOR_ENGINE_ID ? parseCursorModelId(named).base : named)
+  )
 }
 
 /**
@@ -419,11 +422,11 @@ async function chainRow({
  * base offers.
  */
 export function collapseCursorRoutes(routes: readonly ResolvedRoute[]): ResolvedRoute[] {
-  const cursorRoutes = routes.filter((r) => r.engine === 'cursor' && r.model !== undefined)
+  const cursorRoutes = routes.filter((r) => r.engine === CURSOR_ENGINE_ID && r.model !== undefined)
   if (cursorRoutes.length === 0 || !cursorRoutes.every((r) => r.upstream === null)) {
     return [...routes]
   }
-  const rest = routes.filter((r) => !(r.engine === 'cursor' && r.model !== undefined))
+  const rest = routes.filter((r) => !(r.engine === CURSOR_ENGINE_ID && r.model !== undefined))
   const byModel = new Map(cursorRoutes.map((r) => [r.model as string, r]))
   const groups = groupCursorModels(cursorRoutes.map((r) => r.model as string))
   const collapsed: ResolvedRoute[] = []

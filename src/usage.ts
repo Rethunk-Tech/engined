@@ -17,7 +17,7 @@ import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
 import { stateDir, writeFileAtomic } from './paths.ts'
 import type { CallRecord } from './provenance.ts'
-import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { errMessage, isRecord, MS_PER_DAY, parseRecord } from './records.ts'
 import { type Egress, isEgress } from './types.ts'
 
 export const USAGE_PATH = '/engined/v1/usage'
@@ -27,7 +27,6 @@ const DEFAULT_DAYS = 7
 const MAX_DAYS = 90
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.json$/
-const MS_PER_DAY = 24 * 60 * 60 * MS_PER_SECOND
 
 interface RouteCounters {
   requests: number

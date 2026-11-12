@@ -7,13 +7,11 @@
 import type { DockerLifecycle } from './docker.ts'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { FatalError } from './errors/fatal.ts'
+import { MODELS_CONTAINER_PATH } from './llamaSpec.ts'
 import { routeForHop } from './routeAddress.ts'
 import { mergeEnv } from './spec.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import type { ResolvedRoute } from './types.ts'
-
-/** Where every container-kind engine's models_dir is bind-mounted; `filename` on a route is relative to it. */
-const MODEL_MOUNT_PATH = '/models'
 
 /**
  * The `-m <path>` pair in a stt-kind engine's own command, rewritten to name
@@ -31,7 +29,7 @@ function withModelFile(spec: RunnableContainerSpec, filename: string): RunnableC
     )
   }
   const command = [...spec.command]
-  command[idx + 1] = `${MODEL_MOUNT_PATH}/${filename}`
+  command[idx + 1] = `${MODELS_CONTAINER_PATH}/${filename}`
   return { ...spec, command }
 }
 
@@ -45,7 +43,7 @@ function withRouteFile(spec: RunnableContainerSpec, filename: string): RunnableC
   if (spec.route_file_env !== undefined) {
     return {
       ...spec,
-      env: mergeEnv(spec.env, { [spec.route_file_env]: `${MODEL_MOUNT_PATH}/${filename}` }),
+      env: mergeEnv(spec.env, { [spec.route_file_env]: `${MODELS_CONTAINER_PATH}/${filename}` }),
     }
   }
   return spec.kind === 'stt' ? withModelFile(spec, filename) : spec

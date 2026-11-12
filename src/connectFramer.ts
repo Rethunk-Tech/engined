@@ -1,5 +1,6 @@
 import { gunzipSync } from 'node:zlib'
 import { ENVELOPE_HEADER } from './cursorProto.ts'
+import { MEBIBYTE } from './records.ts'
 
 /**
  * Connect sets the low bit of a frame's flag byte when the payload is
@@ -9,8 +10,6 @@ import { ENVELOPE_HEADER } from './cursorProto.ts'
  */
 const FLAG_COMPRESSED = 1
 
-const KIBIBYTE = 1024
-const MEBIBYTE = KIBIBYTE * KIBIBYTE
 const MAX_CONNECT_FRAME_MEBIBYTES = 16
 
 /** A Connect frame larger than this is a runaway, not a turn. */

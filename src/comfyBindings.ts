@@ -11,7 +11,7 @@ import process from 'node:process'
 import type { ComfyBinding, ComfyBindings, DoorContext } from './doorContext.ts'
 import { stateDir, writeFileAtomic } from './paths.ts'
 import { writeToStdout } from './provenance.ts'
-import { errMessage, isRecord, MS_PER_SECOND, parseRecord } from './records.ts'
+import { errMessage, isRecord, MS_PER_DAY, parseRecord } from './records.ts'
 export const COMFY_KEY_SEP = '\u0000'
 
 export function comfyKey(engineId: string, origin: string, promptId: string): string {
@@ -103,11 +103,7 @@ export function loadComfyBindings(write: (line: string) => void = writeToStdout)
  * prompt forever on a box that renders daily.
  */
 const COMFY_BINDING_TTL_DAYS = 7
-const HOURS_PER_DAY = 24
-const MINUTES_PER_HOUR = 60
-const SECONDS_PER_MINUTE = 60
-const COMFY_BINDING_TTL_MS =
-  COMFY_BINDING_TTL_DAYS * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND
+const COMFY_BINDING_TTL_MS = COMFY_BINDING_TTL_DAYS * MS_PER_DAY
 
 /** Whether a binding bound at `at` has aged out. */
 export function expired(at: number, now: number): boolean {

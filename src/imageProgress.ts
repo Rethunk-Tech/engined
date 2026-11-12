@@ -6,7 +6,7 @@
 
 import { HTTP_SCHEME_RE } from './comfyProxy.ts'
 import { CONTENT_TYPE, SSE_CONTENT_TYPE } from './http.ts'
-import { isRecord, parseRecord } from './records.ts'
+import { isRecord, KIBIBYTE, parseRecord } from './records.ts'
 
 /** Comfy's binary websocket types. Big-endian, matching `struct.pack(">I", ...)`. */
 const PREVIEW_IMAGE = 1
@@ -14,7 +14,6 @@ const PREVIEW_IMAGE_WITH_METADATA = 4
 const JPEG_PREVIEW = 1
 const PNG_PREVIEW = 2
 const U32_BYTES = 4
-const KIBIBYTE = 1024
 const PREVIEW_INLINE_KIB = 32
 /**
  * A latent preview is a small JPEG already in hand. Past this the event keeps
