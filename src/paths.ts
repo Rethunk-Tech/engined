@@ -89,5 +89,5 @@ export function llamaPresetPath(engineId: string): string {
 export function isUnder(root: string, candidate: string): boolean {
   const base = resolve(root)
   const path = resolve(candidate)
-  return path === base || path.startsWith(base + sep)
+  return path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
 }

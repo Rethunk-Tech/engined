@@ -275,6 +275,9 @@ test('refuses a workdir that is, contains, or sits inside a sensitive path', () 
   expect(workdirForbidden(home, home)).toBeDefined()
   expect(workdirForbidden(join(home, '.ssh'), home)).toBeDefined()
   expect(workdirForbidden(join(home, '.ssh', 'keys'), home)).toBeDefined()
+  // The filesystem root contains the home; its trailing separator must not defeat the prefix check.
+  expect(workdirForbidden('/', home)).toBeDefined()
+  expect(workdirForbidden('//', home)).toBeDefined()
   expect(workdirForbidden(join(home, 'src', 'repo'), home)).toBeUndefined()
   expect(workdirForbidden('/usr/local/src/com.github/Org/repo', home)).toBeUndefined()
   for (const root of ['.cursor', '.claude']) {
