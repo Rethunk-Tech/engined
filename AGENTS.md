@@ -3,7 +3,7 @@
 Contributor map. `README.md` orients; `HUMANS.md` is the runbook. This file
 covers test tiers, the config/spec split, and invariants.
 
-Decided-but-unbuilt work lives in `TODO.md`. The task list tracks the rest.
+Decided-but-unbuilt work lives in `docs/specs/2nd_delivery/`. The task list tracks the rest.
 An acceptance criterion nobody has actually proven stays recorded here even
 when the feature looks done, because deleting it erases the only record that
 it is unproven.
