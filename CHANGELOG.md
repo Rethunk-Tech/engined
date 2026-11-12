@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Piper's `onnx` is 1.22.0, and the chatterbox image pins Perth and chatterbox-v2 by sha256.
 - Every agentic engine (claude, cursor, opencode) runs under the `bwrap` sandbox, which now masks the operator's home: only the workdir, a linked worktree's git dir, the agent's binary, Bun's cache and the launch's own HOME are visible. claude's and cursor's logins are copied into that HOME, mode 0600. A box without `bwrap` refuses every agentic call.
 - Bun's install cache is mounted through a throwaway overlay, since `bunx` will not start from a read-only one; this needs a `bwrap` with `--tmp-overlay`.
 - The sandbox shows `/etc/resolv.conf`'s target back when it lives under `/run`, so an agent resolves its provider's host on a systemd-resolved box.
