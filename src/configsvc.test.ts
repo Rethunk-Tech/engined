@@ -179,17 +179,19 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   expect((await h.call('/api/config', { cookie })).status).toBe(200)
   h.clock.now += SESSION_IDLE_MS - 1000
   expect((await h.call('/api/config', { cookie })).status).toBe(200)
-  await h.call('/logout', { method: 'POST', cookie })
-  expect((await h.call('/api/config', { cookie })).status).toBe(401)
-
-  const again = await h.signIn()
   const foreign = await h.call('/api/config', {
-    cookie: again,
+    cookie,
     headers: { Origin: 'http://evil.example' },
   })
   expect(foreign.status).toBe(403)
-  h.clock.now += SESSION_IDLE_MS + 1000
-  expect((await h.call('/api/config', { cookie: again })).status).toBe(401)
+  await h.call('/logout', { method: 'POST', cookie })
+  expect((await h.call('/api/config', { cookie })).status).toBe(401)
+
+  const reused = await h.call('/login', {
+    method: 'POST',
+    body: JSON.stringify({ token: h.svc.token }),
+  })
+  expect(reused.status).toBe(401)
 })
 
 test('a known configsvc path asked with the wrong method is 405', async () => {

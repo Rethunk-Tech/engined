@@ -35,6 +35,7 @@ function sessionIdOf(cookieHeader: string | null): string | undefined {
 export function createAuth(opts: { passwordHash?: string; now?: () => number }): Auth {
   const now = opts.now ?? Date.now
   const token = opts.passwordHash === undefined ? randomBytes(16).toString('hex') : undefined
+  let spent = false
   const lastSeen = new Map<string, number>()
   const failures = new Map<string, number[]>()
 
@@ -78,10 +79,11 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       const ok =
         token === undefined
           ? await Bun.password.verify(secret, opts.passwordHash as string).catch(() => false)
-          : sameSecret(secret, token)
+          : !spent && sameSecret(secret, token)
       if (!ok) {
         return
       }
+      spent = true
       const kept = failures.get(client) ?? []
       kept.splice(kept.indexOf(at), 1)
       const id = randomBytes(16).toString('hex')

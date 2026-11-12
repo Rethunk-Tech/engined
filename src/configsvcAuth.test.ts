@@ -3,8 +3,11 @@ import { createAuth, SESSION_COOKIE, SESSION_IDLE_MS } from './configsvcAuth.ts'
 
 test('login sweeps idle sessions before minting a new one', async () => {
   const clock = { now: 1_000_000 }
-  const auth = createAuth({ now: () => clock.now })
-  const secret = auth.token as string
+  const auth = createAuth({
+    passwordHash: await Bun.password.hash('right', 'argon2id'),
+    now: () => clock.now,
+  })
+  const secret = 'right'
   const stale = await auth.login(secret, 'a')
   expect(typeof stale).toBe('string')
   clock.now += SESSION_IDLE_MS + 1
@@ -12,6 +15,13 @@ test('login sweeps idle sessions before minting a new one', async () => {
   expect(typeof fresh).toBe('string')
   expect(auth.authorize(`${SESSION_COOKIE}=${stale}`)).toBe(false)
   expect(auth.authorize(`${SESSION_COOKIE}=${fresh}`)).toBe(true)
+})
+
+test('the minted token is good for one exchange', async () => {
+  const auth = createAuth({})
+  const secret = auth.token as string
+  expect(typeof (await auth.login(secret, 'a'))).toBe('string')
+  expect(await auth.login(secret, 'b')).toBeUndefined()
 })
 
 test('concurrent wrong passwords are limited before the hash checks finish', async () => {
