@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import type { AgentCli } from './agents.ts'
 import {
   copyLogins,
+  loopbackPorts,
   resolveBwrap,
+  resolvePasta,
   SANDBOX_BUN_DIR,
   sandboxArgv,
   sandboxEnv,
@@ -23,6 +25,22 @@ interface SandboxFloorInput {
   writable?: readonly string[]
   /** tmpfs'd before the workdir bind; omitted uses the config default. */
   sandboxMask?: readonly string[]
+  /** The launch's upstream and extra env name the door; their loopback ports are the only host network the sandbox keeps. */
+  upstreamUrl?: string
+  extraEnv?: Record<string, string>
+  /** Overrides `resolvePasta()`; only ever set by a test. */
+  pasta?: string | null
+}
+
+let warnedNoPasta = false
+
+function warnNoPasta(): void {
+  if (!warnedNoPasta) {
+    warnedNoPasta = true
+    process.stderr.write(
+      'engined: pasta not found; agents share the host network namespace (abstract X11 sockets and loopback services are reachable). Install passt.\n',
+    )
+  }
 }
 
 /** The one reading of "this box has no bwrap": `null`, and the empty string an override may spell it as. */
@@ -42,6 +60,10 @@ export function applySandboxFloor(
   }
   const home = sandboxLaunchHome(agent.id)
   copyLogins(home, agent.logins ?? [])
+  const pasta = input.pasta === undefined ? resolvePasta() : input.pasta
+  if (pasta === null || pasta === '') {
+    warnNoPasta()
+  }
   const cache = agent.installCache?.() ?? join(sandboxHome(agent.id), SANDBOX_BUN_DIR)
   mkdirSync(cache, { recursive: true })
   Object.assign(input.env, sandboxEnv(home, cache))
@@ -57,6 +79,17 @@ export function applySandboxFloor(
       readOnly: input.readOnly,
       writable: input.writable,
       sandboxMask: input.sandboxMask,
+      netns:
+        pasta === null || pasta === ''
+          ? undefined
+          : {
+              pasta,
+              ports: loopbackPorts([
+                input.upstreamUrl,
+                ...Object.values(input.env),
+                ...Object.values(input.extraEnv ?? {}),
+              ]),
+            },
     }),
     home,
     cleanup: () => rmSync(home, { recursive: true, force: true }),

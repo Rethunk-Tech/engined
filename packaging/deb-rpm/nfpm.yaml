@@ -13,6 +13,7 @@ license: MIT
 recommends:
   - docker
   - bubblewrap
+  - passt
 overrides:
   deb:
     recommends:

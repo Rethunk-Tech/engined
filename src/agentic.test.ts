@@ -28,7 +28,7 @@ import {
 } from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
-import { scopedArgv } from './agentScope.ts'
+import { pipedArgv, scopedArgv } from './agentScope.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
 import { agentCli, parseClaudeEnvelope as parseEnvelope } from './agents.ts'
@@ -36,6 +36,7 @@ import { agentCli, parseClaudeEnvelope as parseEnvelope } from './agents.ts'
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from './config.ts'
 import type { ExecResult } from './exec.ts'
+import { loopbackPorts } from './sandbox.ts'
 import { BUNX, makeTestRoot } from './test-support.ts'
 
 const PIN = '1.2.3'
@@ -381,6 +382,7 @@ function runAgenticFixture(
     spawn,
     // The spawn is fake, so bwrap never runs: only the argv it would be handed is read.
     bwrap: '/usr/bin/bwrap',
+    pasta: null,
     ...overrides,
   })
 }
@@ -983,3 +985,65 @@ test('runAgentic: a symlink to a runtime directory is refused by what it resolve
   expect(result.status).toBe(400)
   expect(calls).toHaveLength(0)
 })
+
+test('runAgentic: with pasta the sandbox gets a private netns that forwards only the door port', async () => {
+  const { spawn, calls } = fakeOkSpawn()
+
+  await runAgenticFixture(spawn, {
+    pasta: '/usr/bin/pasta',
+    extraEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:29200/engined/scoped', OTHER: 'x' },
+  })
+
+  const [argv] = calls[0] as [string[]]
+  expect(argv.slice(0, 8)).toEqual([
+    '/usr/bin/pasta',
+    '-q',
+    '--config-net',
+    '--map-host-loopback',
+    'none',
+    '-T',
+    '29200',
+    '--',
+  ])
+  expect(argv[8]).toBe('/usr/bin/bwrap')
+})
+
+test('loopbackPorts names only loopback URLs, with default ports', () => {
+  expect(
+    loopbackPorts([
+      'http://localhost:1/x',
+      'https://127.0.0.1/',
+      'http://10.0.0.1:2/',
+      'nope',
+      undefined,
+    ]),
+  ).toEqual([1, 443])
+})
+
+test('pipedArgv leaves a non-pasta argv alone', () => {
+  expect(pipedArgv(['/usr/bin/bwrap', 'x'])).toEqual(['/usr/bin/bwrap', 'x'])
+})
+
+// pasta drops socket stdio, which is what Bun hands a piped child; the real spawn has to still get stdin, stdout, stderr and the exit code through it.
+test.skipIf(Bun.which('pasta') === null)(
+  'defaultAgenticSpawn carries stdin, stdout, stderr and the exit code through pasta',
+  async () => {
+    const result = await defaultAgenticSpawn(
+      [
+        Bun.which('pasta') ?? '',
+        '-q',
+        '--config-net',
+        '--',
+        '/bin/bash',
+        '-c',
+        'read l; echo "out:$l"; echo err >&2; exit 7',
+      ],
+      { cwd: '/usr/share', env: { PATH: '/usr/bin' }, input: 'hello' } as Parameters<
+        typeof defaultAgenticSpawn
+      >[1],
+    )
+    expect(result.stdout).toBe('out:hello\n')
+    expect(result.stderr).toContain('err')
+    expect(result.exitCode).toBe(7)
+  },
+)

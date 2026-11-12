@@ -21,10 +21,11 @@
  * and a read of anything else under the home finds nothing. Unprivileged user
  * namespaces are what make this reachable without root.
  *
- * What this floor does NOT close: the network, and the agent's own
- * environment. The sandbox shares the host network namespace because the
- * agent has to reach engined's own door on loopback, so an agent under it can
- * still fetch a URL and reach loopback services. Whatever the child's env
+ * What this floor does NOT close: outbound network, and the agent's own
+ * environment. Under `pasta` the sandbox has a private network namespace that
+ * forwards only the door's loopback ports, so abstract sockets and host
+ * loopback services are out of reach, but an agent can still fetch a URL.
+ * Without `pasta` it shares the host namespace and reaches both. Whatever the child's env
  * carries -- a keyed upstream's provider key, say -- stays readable through
  * `/proc/self/environ`. Paths outside the home (`/etc`, `/opt`, another
  * user's world-readable files) stay readable too, as they are to any local
@@ -244,6 +245,8 @@ interface SandboxInput {
   writable?: readonly string[]
   /** Overrides `OPERATOR_HOME` for a test. */
   operatorHome?: string
+  /** Runs the sandbox in a private network namespace; only these loopback ports reach the host. */
+  netns?: { pasta: string; ports: readonly number[] }
 }
 
 /**
@@ -289,6 +292,42 @@ function cacheMount(cache: string | undefined, writable: boolean): string[] {
 }
 
 /**
+ * pasta gives the sandbox a private network namespace with outbound NAT, so
+ * the host's abstract unix sockets (X11, dbus) and every loopback-only service
+ * are out of reach. `-T` forwards just the door's ports from the namespace's
+ * loopback to the host's; `--map-host-loopback none` closes pasta's default
+ * mapping of the gateway address onto the host's loopback.
+ */
+function netnsPrefix(netns: SandboxInput['netns']): string[] {
+  if (netns === undefined) {
+    return []
+  }
+  const forward = netns.ports.length === 0 ? [] : ['-T', netns.ports.join(',')]
+  return [netns.pasta, '-q', '--config-net', '--map-host-loopback', 'none', ...forward, '--']
+}
+
+/** `pasta` for the sandbox's network namespace, or `null` when the box has none. */
+export function resolvePasta(): string | null {
+  return Bun.which('pasta', { PATH: pathSearchPath() })
+}
+
+/** Loopback ports named by the URLs in `values`: what the sandbox's own namespace has to forward to the host. */
+export function loopbackPorts(values: readonly (string | undefined)[]): number[] {
+  const ports = new Set<number>()
+  for (const value of values) {
+    try {
+      const url = new URL(value ?? '')
+      if (['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+        ports.add(Number(url.port || (url.protocol === 'https:' ? 443 : 80)))
+      }
+    } catch {
+      // Not a URL: most env values are not.
+    }
+  }
+  return [...ports]
+}
+
+/**
  * Order is the whole mechanism, because a later mount wins. `--ro-bind / /`
  * makes everything read-only; the tmpfs over the operator's home then hides
  * all of it; each bind after that shows one path back through. The agent's
@@ -314,6 +353,7 @@ export function sandboxArgv(input: SandboxInput): string[] {
     ...(input.readOnly ?? []),
   ].filter((path) => [operatorHome, ...masks].some((hidden) => isUnder(hidden, path)))
   return [
+    ...netnsPrefix(input.netns),
     input.bwrap,
     '--ro-bind',
     '/',

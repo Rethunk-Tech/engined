@@ -15,6 +15,7 @@ makedepends=('git')
 optdepends=(
   'docker: run the inference engines and the Cursor TLS bridge'
   'bubblewrap: sandbox every agentic engine runs under'
+  'passt: private network namespace for the agentic sandbox'
 )
 install=engined.install
 provides=("engined=$pkgver")

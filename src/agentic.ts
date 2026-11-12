@@ -30,7 +30,7 @@ import {
   FORBIDDEN_AGENTIC_FLAGS,
 } from './agenticArgs.ts'
 import { applySandboxFloor } from './agenticSandbox.ts'
-import { scopedArgv, scopeEnv } from './agentScope.ts'
+import { pipedArgv, scopedArgv, scopeEnv } from './agentScope.ts'
 import {
   type AgentCli,
   type AgenticOutcome,
@@ -120,7 +120,7 @@ export async function defaultAgenticSpawn(
     throw new Error('agentic launch argv is empty')
   }
   const systemdRun = Bun.which('systemd-run')
-  const child = Bun.spawn(scopedArgv(argv, systemdRun), {
+  const child = Bun.spawn(scopedArgv(pipedArgv(argv), systemdRun), {
     cwd: opts.cwd,
     // systemd-run finds the user manager through this; the child env is otherwise an allowlist.
     env: systemdRun === null ? opts.env : scopeEnv(opts.env),
@@ -271,6 +271,8 @@ interface RunAgenticInput {
   bunx: string
   /** Overrides `resolveBwrap` for a test. */
   bwrap?: string | null
+  /** Overrides `resolvePasta()`; only ever set by a test. */
+  pasta?: string | null
   /** Where this agent's own model lives. Required by an agent with a `configure`; ignored by one without. */
   upstream?: AgentTarget
   ambientEnv?: NodeJS.ProcessEnv
@@ -533,6 +535,9 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       readOnly: [mcpConfigPath, ...(configured.readOnly ?? [])],
       writable: input.sandboxWritable,
       sandboxMask: input.sandboxMask,
+      upstreamUrl: input.upstream?.baseUrl,
+      extraEnv: input.extraEnv,
+      pasta: input.pasta,
     })
     if (sandboxed === null) {
       // Never a fallback to an unsandboxed launch: without the mount table the

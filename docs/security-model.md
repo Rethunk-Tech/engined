@@ -136,10 +136,15 @@ engined will serve requests through the new pin — and which probes those are
 is per-agent too, because what could give an agent its tools back differs: a
 planted settings hook for claude, a permissive `opencode.json` for opencode.
 
-**The sandbox does not close the network.** It shares the host network
-namespace, because the agent has to reach this door to reach a model at all.
-Abstract-namespace Unix sockets and loopback services therefore remain
-reachable from inside it. claude's argv floor also restricts which _tools_ it
+**The sandbox closes the host's local network, not the internet.** With
+`pasta` (package `passt`) installed, the sandbox runs in a private network
+namespace with outbound NAT: only the loopback ports named by the launch's
+door URL are forwarded in, and the host's abstract-namespace Unix sockets
+(X11) and loopback-only services are out of reach. Anything the host
+listens on at a LAN or tailnet address, and the whole outbound internet,
+stay reachable. Without `pasta` the launch warns and shares the host
+network namespace, where abstract sockets and loopback services are
+reachable. claude's argv floor also restricts which _tools_ it
 has, so it cannot run shell or fetch a URL; opencode has no such restriction,
 and cursor's ask mode still runs read-only shell. An agent pointed at a
 private repository is trusted with its contents and can send them wherever
