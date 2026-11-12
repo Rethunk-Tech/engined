@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The llama preset INI writes a route's `filename` normalised, and refuses a line break, an absolute path or a `..` escape.
 - GGUF metadata reads refuse an array claiming more elements than the file holds, skip fixed-size arrays in one step, and cap array nesting at 4, so a crafted file cannot stall the loop.
 - Whisper and piper weight downloads pin a Hugging Face revision, check a sha256, and land via a `.part` rename, so a truncated or swapped file is never taken as present.
 - Obtain commands shell-quote substituted values, so a `models_dir` with a space or `;` stays one word.

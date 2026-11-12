@@ -8,7 +8,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, posix } from 'node:path'
 import { ParseError } from './errors/parse.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import { loadSpec, type SpecLoadOptions } from './spec.ts'
@@ -64,6 +64,25 @@ export function explicitParallel(
     : undefined
 }
 
+const FIRST_PRINTABLE = 0x20
+
+/** `filename` as a normalised path inside the models mount; an INI line must hold neither a line break nor a way out of it. */
+function modelsRelative(model: string, filename: string): string {
+  const rel = posix.normalize(filename)
+  if (
+    [...rel].some((ch) => ch.charCodeAt(0) < FIRST_PRINTABLE) ||
+    posix.isAbsolute(rel) ||
+    rel === '..' ||
+    rel.startsWith('../')
+  ) {
+    throw new ParseError(
+      `model "${model}" "filename" must be a plain path under models_dir`,
+      undefined,
+    )
+  }
+  return rel
+}
+
 /**
  * One `[model]` section per route on this engine. A route's section starts
  * from the engine's process-flag defaults and layers the route's own on top
@@ -79,7 +98,10 @@ export function renderPresetIni(engine: EngineEntry, routes: readonly ResolvedRo
     )
     .map((r) => {
       const args = mergedArgs(engine, r)
-      const lines = [`model = ${MODELS_CONTAINER_PATH}/${r.filename}`, ...iniLines(args)]
+      const lines = [
+        `model = ${MODELS_CONTAINER_PATH}/${modelsRelative(r.model, r.filename)}`,
+        ...iniLines(args),
+      ]
       return `[${r.model}]\n${lines.join('\n')}`
     })
     .join('\n\n')

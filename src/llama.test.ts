@@ -249,6 +249,20 @@ describe('renderPresetIni', () => {
     expect(argv[presetIdx + 1]).toBe('/preset.ini')
   })
 
+  test('a filename is normalised under /models, and one that would inject a key or leave the mount is refused', () => {
+    const e = engine()
+    const ini = renderPresetIni(e, [model({ id: 'a', filename: 'sub/../a.gguf' })])
+    expect(parseIniSections(ini).get('a')).toEqual({ model: '/models/a.gguf' })
+    for (const filename of [
+      'a.gguf\nhf-token = x',
+      '../a.gguf',
+      'sub/../../a.gguf',
+      '/etc/a.gguf',
+    ]) {
+      expect(() => renderPresetIni(e, [model({ id: 'a', filename })])).toThrow('plain path')
+    }
+  })
+
   test('a model arg beats an engine arg naming the same key', () => {
     const e = engine({ args: { 'ctx-size': 4096 } })
     const a = model({ args: { 'ctx-size': 8192 } })
