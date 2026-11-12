@@ -109,6 +109,11 @@ getattr(importlib.import_module('${CHECKPOINT_MODULE}'), '${CHECKPOINT_CLASS}') 
 # The forced aligner chatterbox_app.py places words with, baked beside the voice under
 # the same cache so the runtime downloads nothing.
 ENV TORCH_HOME=/app/hf_cache/torch
+# torchaudio fetches these weights from dl.fbaipublicfiles.com with no hash check; this copy is
+# byte-identical to that file and pinned by sha256, so get_model() below only loads the cache.
+ADD --checksum=sha256:20ef12963ab4924bef49ac4fc7f58ad5da2ee43b2c11bc8c853c9b90ecdbc680 \
+    https://huggingface.co/selectorrrr/ctc_alignment_mling_uroman/resolve/c13912af40f24d0f910181f141d6f917caf6edcc/model.pt \
+    /app/hf_cache/torch/hub/checkpoints/model.pt
 RUN python3 -c "from torchaudio.pipelines import MMS_FA; MMS_FA.get_model()"
 
 FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
