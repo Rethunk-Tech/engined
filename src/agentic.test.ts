@@ -522,7 +522,8 @@ test("runAgentic: the child's stderr reaches neither the result nor the log", as
 
   let result: Awaited<ReturnType<typeof runAgentic>>
   try {
-    result = await runAgenticFixture(spawn)
+    // A pasta path keeps the once-per-process "pasta not found" warning out of the capture.
+    result = await runAgenticFixture(spawn, { pasta: '/usr/bin/pasta' })
   } finally {
     process.stderr.write = realWrite
   }
