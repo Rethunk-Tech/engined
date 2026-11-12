@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { buildComfySpec } from './comfy.ts'
 import { buildRunArgs } from './dockerArgs.ts'
+import { loadSpec } from './spec.ts'
 import { isContainerSpec } from './specTypes.ts'
 import { BUNX, engine as baseEngine, ENGINES_ROOT } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
@@ -10,6 +11,10 @@ const RX_NO_MODELS_DIR = /has no models_dir/
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
   return baseEngine({ id: 'comfy', models_dir: '/models-host/comfy', ...overrides })
+}
+
+function build(e: EngineEntry) {
+  return buildComfySpec(e, loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }))
 }
 
 // buildComfySpec's own return type is the wider ContainerSpec, though it
@@ -23,7 +28,7 @@ function asRunnable(spec: ReturnType<typeof buildComfySpec>) {
 }
 
 test('the run argv bind-mounts a host path ending in /comfy, never the old named volume, and it is not :ro', () => {
-  const spec = asRunnable(buildComfySpec(engine(), { enginesRoot: ENGINES_ROOT, bunx: BUNX }))
+  const spec = asRunnable(build(engine()))
   const argv = buildRunArgs('engined-comfy', spec, CONTAINER_PORT)
 
   const mountArgs = argv.filter((_, i) => argv[i - 1] === '-v')
@@ -33,18 +38,11 @@ test('the run argv bind-mounts a host path ending in /comfy, never the old named
 })
 
 test("a models_dir ending anywhere other than /comfy still mounts correctly -- the container path is what's fixed", () => {
-  const spec = asRunnable(
-    buildComfySpec(engine({ models_dir: '/elsewhere/comfy-models' }), {
-      enginesRoot: ENGINES_ROOT,
-      bunx: BUNX,
-    }),
-  )
+  const spec = asRunnable(build(engine({ models_dir: '/elsewhere/comfy-models' })))
   const argv = buildRunArgs('engined-comfy', spec, CONTAINER_PORT)
   expect(argv).toContain('/elsewhere/comfy-models:/opt/comfyui/models')
 })
 
 test('throws rather than silently starting with no models mount when models_dir is unset', () => {
-  expect(() =>
-    buildComfySpec(engine({ models_dir: undefined }), { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
-  ).toThrow(RX_NO_MODELS_DIR)
+  expect(() => build(engine({ models_dir: undefined }))).toThrow(RX_NO_MODELS_DIR)
 })

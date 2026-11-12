@@ -89,6 +89,9 @@ export interface AgenticSpec extends SpecCommon {
 
 export type Spec = ContainerSpec | AgenticSpec
 
+/** Where a llama engine's rendered presets INI is bind-mounted; the spec's `{preset_ini}` always resolves here. */
+export const PRESET_CONTAINER_PATH = '/preset.ini'
+
 /** A `ContainerSpec` that can actually be run: `image` is the one field a spec-less engine's built-in spec omits, and `isContainerSpec` is the only way to reach this type. */
 export type RunnableContainerSpec = ContainerSpec & { image: string }
 

@@ -11,6 +11,7 @@ import type { HttpClient } from './http.ts'
 import { type LlamaHop, LlamaRouter } from './llama.ts'
 import { buildLlamaSpec } from './llamaSpec.ts'
 import { pollUntil } from './records.ts'
+import { loadSpec } from './spec.ts'
 import { BUNX, ENGINES_ROOT, engine, inspectSinglePort, portResult, route } from './test-support.ts'
 import type { EngineEntry, ResolvedRoute } from './types.ts'
 
@@ -58,7 +59,11 @@ export const llamaFakeProbe: Probe = () => Promise.resolve({ status: 200 })
 export function llamaBaseOpts(httpClient: HttpClient, presetHostPath: string) {
   return {
     spec: () =>
-      buildLlamaSpec(llamaEngine(), { enginesRoot: ENGINES_ROOT, bunx: BUNX }, presetHostPath),
+      buildLlamaSpec(
+        llamaEngine(),
+        loadSpec(llamaEngine(), { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
+        presetHostPath,
+      ),
     idleStopSeconds: 1000,
     readyTimeoutS: 5,
     presetHostPath,

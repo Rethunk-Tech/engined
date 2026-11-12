@@ -12,6 +12,7 @@ import { redirectStateHome } from './enginesFixtures.ts'
 import type { HttpClient } from './http.ts'
 import { fillWorkflow } from './images.ts'
 import { createDoor } from './main.ts'
+import { loadSpec } from './spec.ts'
 import {
   BUNX,
   buildExec,
@@ -526,10 +527,11 @@ describe('Accept: text/event-stream', () => {
 // all, with every test here still green.
 describe('the shipped comfy engine', () => {
   test('resolves an images_workflow that exists, and the graph names only placeholders the door fills', () => {
-    const spec = buildComfySpec(engine({ id: 'comfy', models_dir: '/unused' }), {
-      enginesRoot: join(import.meta.dir, '..', 'engines'),
-      bunx: BUNX,
-    })
+    const comfy = engine({ id: 'comfy', models_dir: '/unused' })
+    const spec = buildComfySpec(
+      comfy,
+      loadSpec(comfy, { enginesRoot: join(import.meta.dir, '..', 'engines'), bunx: BUNX }),
+    )
     expect(spec.images_workflow).toBeDefined()
     expect(existsSync(spec.images_workflow as string)).toBe(true)
 

@@ -11,12 +11,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, posix } from 'node:path'
 import { ParseError } from './errors/parse.ts'
 import { localRoutesOf } from './routeAddress.ts'
-import { loadSpec, type SpecLoadOptions } from './spec.ts'
-import type { RunnableContainerSpec } from './specTypes.ts'
-import { isContainerSpec } from './specTypes.ts'
+import {
+  isContainerSpec,
+  type LoadedSpec,
+  PRESET_CONTAINER_PATH,
+  type RunnableContainerSpec,
+} from './specTypes.ts'
 import type { EngineEntry, ResolvedRoute } from './types.ts'
 
-export const PRESET_CONTAINER_PATH = '/preset.ini'
 export const MODELS_CONTAINER_PATH = '/models'
 
 function iniLines(args: Record<string, unknown>): string[] {
@@ -121,14 +123,9 @@ export function renderPresetIni(engine: EngineEntry, routes: readonly ResolvedRo
  */
 export function buildLlamaSpec(
   engine: EngineEntry,
-  opts: SpecLoadOptions,
+  loaded: LoadedSpec,
   presetHostPath: string,
 ): RunnableContainerSpec {
-  const loaded = loadSpec(engine, {
-    enginesRoot: opts.enginesRoot,
-    bunx: opts.bunx,
-    presetIni: PRESET_CONTAINER_PATH,
-  })
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
       `engine "${engine.id}": llama spec must be a container spec`,

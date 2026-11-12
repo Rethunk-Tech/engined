@@ -17,6 +17,7 @@ import {
   type ContainerSpec,
   isContainerSpec,
   type LoadedSpec,
+  PRESET_CONTAINER_PATH,
   type Spec,
 } from './specTypes.ts'
 import {
@@ -34,8 +35,6 @@ export interface SpecLoadOptions {
   enginesRoot: string
   /** Absolute `bunx` path the install script resolved and recorded. */
   bunx: string
-  /** The rendered presets-INI path, when one exists for this engine. */
-  presetIni?: string
 }
 
 /** Keys that belong to the container dialect only; fatal on an agentic-cli spec. */
@@ -131,9 +130,7 @@ function buildSubs(
     spec_dir: specDir,
     bunx: opts.bunx,
     state_dir: stateDir(),
-  }
-  if (opts.presetIni !== undefined) {
-    subs.preset_ini = opts.presetIni
+    preset_ini: PRESET_CONTAINER_PATH,
   }
   if (engine.models_dir !== undefined) {
     subs.models_dir = engine.models_dir

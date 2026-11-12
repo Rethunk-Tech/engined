@@ -36,7 +36,6 @@ export function specImage(engine: EngineEntry): string | undefined {
     const loaded = loadSpec(engine, {
       enginesRoot: ENGINES_ROOT,
       bunx: BUNX,
-      presetIni: '/unused',
     })
     return isContainerSpec(loaded.spec) ? loaded.spec.image : undefined
   } catch {

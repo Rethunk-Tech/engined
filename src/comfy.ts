@@ -8,9 +8,8 @@
  */
 
 import { ParseError } from './errors/parse.ts'
-import { applyEngineArgs, loadSpec, type SpecLoadOptions } from './spec.ts'
-import type { ContainerSpec } from './specTypes.ts'
-import { isContainerSpec } from './specTypes.ts'
+import { applyEngineArgs } from './spec.ts'
+import { type ContainerSpec, isContainerSpec, type LoadedSpec } from './specTypes.ts'
 import type { EngineEntry } from './types.ts'
 
 const MODELS_CONTAINER_PATH = '/opt/comfyui/models'
@@ -20,8 +19,7 @@ const MODELS_CONTAINER_PATH = '/opt/comfyui/models'
  * caches beneath its models directory. Tightening this needs evidence it
  * still starts clean, not an assumption.
  */
-export function buildComfySpec(engine: EngineEntry, opts: SpecLoadOptions): ContainerSpec {
-  const loaded = loadSpec(engine, { enginesRoot: opts.enginesRoot, bunx: opts.bunx })
+export function buildComfySpec(engine: EngineEntry, loaded: LoadedSpec): ContainerSpec {
   if (!isContainerSpec(loaded.spec)) {
     throw new ParseError(
       `engine "${engine.id}": comfy spec must be a container spec`,

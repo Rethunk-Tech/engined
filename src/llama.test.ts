@@ -32,6 +32,7 @@ import {
   waitFor,
 } from './llamaTestSupport.ts'
 import { ProbeStore } from './probeStore.ts'
+import { loadSpec } from './spec.ts'
 import {
   BUNX,
   route as baseRoute,
@@ -242,7 +243,11 @@ describe('renderPresetIni', () => {
     // connects that file to the child: `--models-preset` names the mounted
     // path. Reading the child's real argv/`/slots` per flag needs a live
     // container and belongs to a smoke test under test/local/.
-    const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath())
+    const spec = buildLlamaSpec(
+      e,
+      loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
+      tmpIniPath(),
+    )
     const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
     const presetIdx = argv.indexOf('--models-preset')
     expect(presetIdx).toBeGreaterThan(-1)
@@ -307,7 +312,11 @@ describe('explicitParallel', () => {
 describe('buildLlamaSpec / buildRunArgs', () => {
   test('run argv pins models-max and sets no-models-autoload, never models-dir or /dev/kfd', () => {
     const e = engine({ models_max: 3 })
-    const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath())
+    const spec = buildLlamaSpec(
+      e,
+      loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
+      tmpIniPath(),
+    )
     const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
     expect(argv).toContain('--no-models-autoload')
     const maxIdx = argv.indexOf('--models-max')
@@ -322,7 +331,11 @@ describe('buildLlamaSpec / buildRunArgs', () => {
 
   test('engine args reach the preset, never the command line that would override it', () => {
     const e = engine({ models_max: 3, args: { 'ctx-size': 32_768, parallel: -1 } })
-    const spec = buildLlamaSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }, tmpIniPath())
+    const spec = buildLlamaSpec(
+      e,
+      loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
+      tmpIniPath(),
+    )
     const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
 
     // llama-server lets a CLI flag beat the preset for every model it loads,

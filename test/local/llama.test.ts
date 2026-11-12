@@ -5,6 +5,7 @@ import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { LlamaRouter, type LlamaRouterOptions } from '../../src/llama.ts'
 import { AUTO_PARALLEL, buildLlamaSpec } from '../../src/llamaSpec.ts'
 import { visionRequestBody, visionVerdict } from '../../src/probeImage.ts'
+import { loadSpec } from '../../src/spec.ts'
 import { engine } from '../../src/test-support.ts'
 import type { EngineEntry, ResolvedRoute, Role } from '../../src/types.ts'
 import {
@@ -150,7 +151,7 @@ function buildRouter(
     spec: () =>
       buildLlamaSpec(
         engineEntry,
-        { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+        loadSpec(engineEntry, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
         join(import.meta.dir, presetFile),
       ),
     streamStallSeconds: () => 60,

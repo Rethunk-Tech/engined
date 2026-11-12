@@ -6,6 +6,7 @@ import { EngineRegistry } from '../../src/engines.ts'
 import { LlamaRouter } from '../../src/llama.ts'
 import { buildLlamaSpec } from '../../src/llamaSpec.ts'
 import { pollUntil } from '../../src/records.ts'
+import { loadSpec } from '../../src/spec.ts'
 import type { Config, EngineEntry } from '../../src/types.ts'
 import {
   BUNX,
@@ -333,7 +334,7 @@ function buildRig(fixture: Fixture): Rig {
     spec: () =>
       buildLlamaSpec(
         fixture.llamaEngine,
-        { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+        loadSpec(fixture.llamaEngine, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
         join(import.meta.dir, '.scratch-preset-comfy.ini'),
       ),
     streamStallSeconds: () => 60,

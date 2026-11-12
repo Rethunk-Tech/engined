@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { shippedEngines } from './configsvcShipped.ts'
-import { buildLlamaSpec, MODELS_CONTAINER_PATH, PRESET_CONTAINER_PATH } from './llamaSpec.ts'
+import { buildLlamaSpec, MODELS_CONTAINER_PATH } from './llamaSpec.ts'
 import { specForModel } from './modelResidency.ts'
 import { loadSpec } from './spec.ts'
-import { isContainerSpec } from './specTypes.ts'
+import { isContainerSpec, PRESET_CONTAINER_PATH } from './specTypes.ts'
 import {
   BUNX,
   engine as baseEngine,
@@ -171,9 +171,10 @@ describe('shipped specs', () => {
       }
       expect(spec.volumes.map((v) => v.path)).toContain(VOICE_CONTAINER_DIR)
     }
+    const llamaEngine = engine({ id: 'llama', models_dir: '/data/models', models_max: 4 })
     const llama = buildLlamaSpec(
-      engine({ id: 'llama', models_dir: '/data/models', models_max: 4 }),
-      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+      llamaEngine,
+      loadSpec(llamaEngine, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
       '/tmp/presets.ini',
     )
     const llamaPaths = llama.volumes.map((v) => v.path)
@@ -409,7 +410,7 @@ test('every shipped spec parses against the closed key sets', () => {
   for (const id of ids) {
     const loaded = loadSpec(
       engine({ id, agent_version: '1.0.0', models_dir: '/data/models', models_max: 4 }),
-      { enginesRoot: ENGINES_ROOT, bunx: BUNX, presetIni: '/tmp/presets.ini' },
+      { enginesRoot: ENGINES_ROOT, bunx: BUNX },
     )
     expect(loaded.spec.kind).toBeString()
   }

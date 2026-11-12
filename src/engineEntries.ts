@@ -107,20 +107,11 @@ export interface Entry {
 }
 
 /**
- * Substituted into the throwaway peek below, never mounted: a spec that reads
- * `{preset_ini}` is re-resolved by its own builder with the real path, and a
- * spec that does not read it never sees this. Named rather than inlined so it
- * is obvious no real path was meant.
- */
-const PEEK_PRESET_INI = '/unused'
-
-/**
  * Picks the per-engine builder from the loaded spec's own `kind` and the
  * engine's own configuration, never from a hardcoded id — an operator naming
  * the local llama engine something other than "llama" must still get
- * its models mount. `buildLlamaSpec`/`buildComfySpec` each call `loadSpec`
- * themselves; the first call here only exists to learn `kind` cheaply,
- * before ever running or proxying anything.
+ * its models mount. `buildLlamaSpec`/`buildComfySpec` only append their
+ * volumes to the spec loaded here.
  *
  * An engine declaring `kind` in config is spec-less and takes the built-in
  * spec for that kind; everything else loads `engines/<id>/spec.toml`.
@@ -133,18 +124,15 @@ function loadEngineSpec(
   if (engine.kind !== undefined) {
     return { spec: builtInSpec(engine, engine.kind), source: BUILTIN_SPEC_SOURCE }
   }
-  // The peek's own resolved spec is discarded whenever a builder below takes
-  // over -- each calls loadSpec again with the substitution `{preset_ini}`
-  // actually needs.
-  const loaded = loadSpec(engine, { ...specOptions, presetIni: PEEK_PRESET_INI })
+  const loaded = loadSpec(engine, specOptions)
   if (!isContainerSpec(loaded.spec)) {
     return loaded
   }
   if (loaded.spec.kind === 'comfy' && engine.models_dir !== undefined) {
-    return { ...loaded, spec: buildComfySpec(engine, specOptions) }
+    return { ...loaded, spec: buildComfySpec(engine, loaded) }
   }
   if (isLocalLlama(engine, loaded.spec.kind)) {
-    return { ...loaded, spec: buildLlamaSpec(engine, specOptions, presetHostPathFor(engine.id)) }
+    return { ...loaded, spec: buildLlamaSpec(engine, loaded, presetHostPathFor(engine.id)) }
   }
   return { ...loaded, spec: applyEngineArgs(engine, loaded.spec) }
 }
