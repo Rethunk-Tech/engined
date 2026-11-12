@@ -7,7 +7,15 @@
  */
 
 import { afterAll, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -447,4 +455,30 @@ test.each([
   '/var/tmp',
 ])('refuses runtime workdir %s that the workdir bind would re-expose over the masks', (path) => {
   expect(workdirForbidden(path)).toContain('runtime directory')
+})
+
+test('the pin prelude runs the command when each directory is what it was validated as, and refuses with 125 when it is not', () => {
+  const real = mkdtempSync(join(TEST_ROOT, 'pin-real-'))
+  const link = join(TEST_ROOT, 'pin-link')
+  rmSync(link, { force: true })
+  symlinkSync(real, link)
+  const argv = sandboxArgv({ bwrap: BWRAP, home: '/h', workdir: real, argv: ['/bin/true'] })
+  const dirsAt = argv.indexOf('_') + 1
+  const end = argv.indexOf('--')
+  const launch = (dirs: string[]) =>
+    Bun.spawnSync([...argv.slice(0, dirsAt), ...dirs, '--', '/bin/echo', 'ran'], {
+      stderr: 'pipe',
+    })
+
+  expect(argv.slice(dirsAt, end)).toContain(real)
+  const answered = launch([real])
+  expect(answered.exitCode).toBe(0)
+  expect(answered.stdout.toString().trim()).toBe('ran')
+
+  // The fd opened through the link resolves to the real directory, so the path
+  // that was validated no longer names what was opened.
+  const swapped = launch([link])
+  expect(swapped.exitCode).toBe(125)
+  expect(swapped.stderr.toString()).toContain('changed while launching')
+  expect(swapped.stdout.toString()).toBe('')
 })
