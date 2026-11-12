@@ -92,6 +92,11 @@ export class InventoryWatch {
     if (result.stale || this.config === undefined) {
       return
     }
+    process.stderr.write(
+      result.fetchError === undefined
+        ? `inventory: ${upstream.id}: found ${result.ids.length}\n`
+        : `inventory: ${upstream.id}: refresh failed (${result.fetchError}); serving ${result.ids.length} cached\n`,
+    )
     // Read after the await: a reload while this fetch was out may have moved
     // an engine off this upstream, and its error is no longer this one's.
     const engines = new Set(
