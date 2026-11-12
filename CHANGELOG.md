@@ -5,6 +5,11 @@
 - Every agentic engine (claude, cursor, opencode) runs under the `bwrap` sandbox, which now masks the operator's home: only the workdir, a linked worktree's git dir, the agent's binary, Bun's cache and the launch's own HOME are visible. claude's and cursor's logins are copied into that HOME, mode 0600. A box without `bwrap` refuses every agentic call.
 - Bun's install cache is mounted through a throwaway overlay, since `bunx` will not start from a read-only one; this needs a `bwrap` with `--tmp-overlay`.
 - The sandbox shows `/etc/resolv.conf`'s target back when it lives under `/run`, so an agent resolves its provider's host on a systemd-resolved box.
+- A provider key never enters an agent: a routed claude dials a keyless door route that adds the key. The sandbox also masks `/var/tmp`, so host unix sockets there stay out of reach.
+- The door refuses a fetch whose `Origin` matches its own host, which only DNS rebinding produces.
+- The `openrouter-anthropic` route sends the `wire_model` OpenRouter accepts.
+- Engine images install their Python dependencies from hash-locked requirements, pin every `FROM` by digest, and fetch chatterbox's word aligner from a sha256-pinned copy, since torchaudio's own host serves an expired certificate.
+- The AUR package recommends `bubblewrap`, which every agentic engine needs.
 
 ## 0.2.14 - 2026-11-08
 
