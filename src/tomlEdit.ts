@@ -64,13 +64,20 @@ function descend(node: unknown, step: string | number): object | undefined {
   if (Array.isArray(node) && typeof step === 'number') {
     next = node[step]
   } else if (isRecord(node) && typeof step === 'string') {
-    next = node[step]
+    refuseInherited(step)
+    next = Object.hasOwn(node, step) ? node[step] : undefined
     if (next === undefined) {
       next = {}
       node[step] = next
     }
   }
   return typeof next === 'object' && next !== null ? next : undefined
+}
+
+function refuseInherited(key: string): void {
+  if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+    throw new Error(`"${key}" is not a config key`)
+  }
 }
 
 function setAt(doc: Doc, path: TomlPath, value: unknown): void {
@@ -92,6 +99,7 @@ function setAt(doc: Doc, path: TomlPath, value: unknown): void {
   if (!isRecord(node) || typeof last !== 'string') {
     throw new Error(`${path.join('.')} does not address a key`)
   }
+  refuseInherited(last)
   if (value === undefined) {
     delete node[last]
   } else {

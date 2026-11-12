@@ -89,3 +89,14 @@ test('renaming an engine rewrites every reference and the result still loads', (
   expect(cfg.engines.map((e) => e.id)).not.toContain('llama')
   expect(() => renameIdIn(EXAMPLE, 'engine', 'llama', 'whisper')).toThrow('already exists')
 })
+
+test('setKey refuses prototype-reaching path segments', () => {
+  for (const path of [
+    ['__proto__', 'polluted'],
+    ['constructor', 'prototype', 'x'],
+    ['a', '__proto__'],
+  ]) {
+    expect(() => setKey(EXAMPLE, path, 1)).toThrow()
+  }
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+})
