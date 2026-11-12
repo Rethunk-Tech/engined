@@ -54,11 +54,14 @@ test('binds the whole filesystem read-only before carving anything back out', ()
   const argv = sandboxArgv({ bwrap: BWRAP, home: '/h', workdir: '/w', argv: ['/bin/true'] })
   // Order is the mechanism: a later bind wins, so the read-only root has to be
   // first and the workdir's own read-only bind has to come after the home's.
-  expect(argv.slice(0, 4)).toEqual([BWRAP, '--ro-bind', '/', '/'])
-  expect(argv.indexOf('--bind')).toBeLessThan(argv.lastIndexOf('--ro-bind'))
-  expect(argv.slice(argv.lastIndexOf('--ro-bind'))).toEqual([
-    '--ro-bind',
+  const bwrapAt = argv.indexOf(BWRAP)
+  expect(argv.slice(bwrapAt, bwrapAt + 4)).toEqual([BWRAP, '--ro-bind', '/', '/'])
+  expect(argv.indexOf('--bind')).toBeLessThan(argv.lastIndexOf('--ro-bind-fd'))
+  expect(argv.slice(argv.lastIndexOf('--ro-bind-fd'))).toEqual([
+    '--ro-bind-fd',
+    '9',
     '/w',
+    '--chdir',
     '/w',
     '--die-with-parent',
     '--',
@@ -147,12 +150,14 @@ test('tmpfs sandbox_mask paths before the workdir bind', () => {
   })
   const src = argv.indexOf('/usr/local/src')
   expect(argv[src - 1]).toBe('--tmpfs')
-  const launched = argv.indexOf('--')
-  expect(src).toBeLessThan(argv.lastIndexOf('--ro-bind'))
+  const launched = argv.indexOf('--', argv.indexOf(BWRAP))
+  expect(src).toBeLessThan(argv.lastIndexOf('--ro-bind-fd'))
   expect(src).toBeLessThan(launched)
-  expect(argv.slice(argv.lastIndexOf('--ro-bind'), launched)).toEqual([
-    '--ro-bind',
+  expect(argv.slice(argv.lastIndexOf('--ro-bind-fd'), launched)).toEqual([
+    '--ro-bind-fd',
+    '9',
     '/usr/local/src/one',
+    '--chdir',
     '/usr/local/src/one',
     '--die-with-parent',
   ])
@@ -196,14 +201,17 @@ test('masks the operator home before binding anything back, and binds the workdi
   expect(argv[mask - 1]).toBe('--tmpfs')
   // Every mount naming a path under the home comes after the mask, or the mask would hide it.
   const underHome = argv.flatMap((token, i) => (token.startsWith(`${home}/`) ? [i] : []))
-  const launched = argv.indexOf('--')
-  for (const at of underHome.filter((i) => i < launched)) {
+  const bwrapAt = argv.indexOf(BWRAP)
+  const launched = argv.indexOf('--', bwrapAt)
+  for (const at of underHome.filter((i) => i > bwrapAt && i < launched)) {
     expect(at).toBeGreaterThan(mask)
   }
   expect(argv).toEqual(expect.arrayContaining([`${home}/.bun/bin`]))
-  expect(argv.slice(argv.lastIndexOf('--ro-bind'), launched)).toEqual([
-    '--ro-bind',
+  expect(argv.slice(argv.lastIndexOf('--ro-bind-fd'), launched)).toEqual([
+    '--ro-bind-fd',
+    '9',
     `${home}/src/repo`,
+    '--chdir',
     `${home}/src/repo`,
     '--die-with-parent',
   ])

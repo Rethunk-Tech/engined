@@ -581,8 +581,9 @@ test('runAgentic: the command bwrap runs resolves from the given bunx and the pi
   await runAgenticFixture(spawn)
 
   const [argv] = calls[0] as [string[], unknown]
-  expect(argv[0]).toBe('/usr/bin/bwrap')
-  expect(pinnedBunxView(argv.slice(argv.indexOf('--') + 1))).toEqual(PINNED_BUNX)
+  const bwrapAt = argv.indexOf('/usr/bin/bwrap')
+  expect(bwrapAt).toBeGreaterThan(0)
+  expect(pinnedBunxView(argv.slice(argv.indexOf('--', bwrapAt) + 1))).toEqual(PINNED_BUNX)
 })
 
 test('runAgentic: claude and cursor launch under bwrap with their argv floors intact', async () => {
@@ -595,9 +596,9 @@ test('runAgentic: claude and cursor launch under bwrap with their argv floors in
     await runAgenticFixture(spawn, { agent, resolveBinary: () => '/usr/bin/true' })
 
     const [argv, opts] = calls[0] as [string[], { env: Record<string, string> }]
-    const launched = argv.slice(argv.indexOf('--') + 1)
-    expect(argv[0]).toBe('/usr/bin/bwrap')
-    expect(argv.slice(1, 4)).toEqual(['--ro-bind', '/', '/'])
+    const bwrapAt = argv.indexOf('/usr/bin/bwrap')
+    const launched = argv.slice(argv.indexOf('--', bwrapAt) + 1)
+    expect(argv.slice(bwrapAt + 1, bwrapAt + 4)).toEqual(['--ro-bind', '/', '/'])
     expect(launched.join(' ')).toContain(floor.join(' '))
     expect(requireEnv(opts.env, 'HOME')).toContain(`/agentic-home/${agent}/launch-`)
   }
@@ -1005,7 +1006,8 @@ test('runAgentic: with pasta the sandbox gets a private netns that forwards only
     '29200',
     '--',
   ])
-  expect(argv[8]).toBe('/usr/bin/bwrap')
+  expect(argv.slice(8, 10)).toEqual(['/bin/bash', '-c'])
+  expect(argv).toContain('/usr/bin/bwrap')
 })
 
 test('loopbackPorts names only loopback URLs, with default ports', () => {

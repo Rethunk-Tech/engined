@@ -347,13 +347,14 @@ export function sandboxArgv(input: SandboxInput): string[] {
   const masks = input.sandboxMask ?? DEFAULT_SANDBOX_MASK
   // Anything outside the home and the masks is visible through the root bind already, and
   // re-binding it can only fail, on a path like `/bin` that is a symlink.
-  const shownBack = [
-    ...binaryDirs(binary),
-    ...workdirGitDirs(input.workdir, operatorHome),
-    ...(input.readOnly ?? []),
-  ].filter((path) => [operatorHome, ...masks].some((hidden) => isUnder(hidden, path)))
+  const hidden = (path: string): boolean =>
+    [operatorHome, ...masks].some((mask) => isUnder(mask, path))
+  const workdir = resolvedPath(input.workdir)
+  const gitDirs = workdirGitDirs(workdir, operatorHome).filter(hidden)
+  const shownBack = [...binaryDirs(binary), ...(input.readOnly ?? [])].filter(hidden)
   return [
     ...netnsPrefix(input.netns),
+    ...pinDirs([workdir, ...gitDirs]),
     input.bwrap,
     '--ro-bind',
     '/',
@@ -379,20 +380,46 @@ export function sandboxArgv(input: SandboxInput): string[] {
     operatorHome,
     ...maskMounts(masks),
     ...binds('--ro-bind', shownBack),
+    ...gitDirs.flatMap((dir, i) => ['--ro-bind-fd', String(PIN_FD_BASE + 1 + i), dir]),
     ...cacheMount(input.cache, input.cacheWritable === true),
     '--bind',
     input.home,
     input.home,
     ...binds('--bind', input.writable ?? []),
-    '--ro-bind',
-    input.workdir,
-    input.workdir,
+    '--ro-bind-fd',
+    String(PIN_FD_BASE),
+    workdir,
+    '--chdir',
+    workdir,
     // Belt and braces beside defaultAgenticSpawn's process-group kill: if
     // engined dies without getting its signal out, the sandbox still goes.
     '--die-with-parent',
     '--',
     ...input.argv,
   ]
+}
+
+const PIN_FD_BASE = 9
+
+/**
+ * bwrap resolves a bind source by path, so a parent directory swapped for a
+ * symlink after engined's realpath check would bind someone else's tree. This
+ * opens each directory once, as the launch's own fd, and refuses unless the fd
+ * still names the checked path; bwrap then binds the fd (`--ro-bind-fd`), which
+ * no later swap can redirect. Done in the process that runs bwrap because pasta
+ * closes every inherited fd, so an fd opened by engined would not reach it.
+ */
+const PIN_DIRS_SCRIPT = `n=${PIN_FD_BASE}
+while [ "$1" != -- ]; do
+  eval "exec $n<"$1"" || exit 125
+  [ "$(readlink "/proc/self/fd/$n")" = "$1" ] || { echo "engined: $1 changed while launching" >&2; exit 125; }
+  n=$((n+1)); shift
+done
+shift
+exec "$@"`
+
+function pinDirs(dirs: readonly string[]): string[] {
+  return ['/bin/bash', '-c', PIN_DIRS_SCRIPT, '_', ...dirs, '--']
 }
 
 /**
