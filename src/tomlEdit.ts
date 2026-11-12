@@ -16,6 +16,9 @@ export type { EditOp, TomlPath }
 
 type Doc = Record<string, unknown>
 
+const COMMENT_LINE = /^\s*#/
+const BLANK_OR_COMMENT = /^\s*(#.*)?$/
+
 /** Tables whose entries carry an `id` other entries can point at. */
 const ID_TABLES = ['engine', 'upstream', 'model', 'chain'] as const
 
@@ -123,7 +126,7 @@ function dropCommentedEntry(src: string, table: string, index: number): string {
   }
   const [from, to] = range
   let start = from
-  while (start > 0 && /^\s*#/.test(lines[start - 1] as string)) {
+  while (start > 0 && COMMENT_LINE.test(lines[start - 1] as string)) {
     start -= 1
   }
   if (start === from) {
@@ -132,7 +135,7 @@ function dropCommentedEntry(src: string, table: string, index: number): string {
     return patch(src, patched)
   }
   let end = to
-  while (end > from + 1 && /^\s*(#.*)?$/.test(lines[end - 1] as string)) {
+  while (end > from + 1 && BLANK_OR_COMMENT.test(lines[end - 1] as string)) {
     end -= 1
   }
   let stop = end

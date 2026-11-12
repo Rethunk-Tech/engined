@@ -23,6 +23,7 @@ import { SOURCES } from './modelSources.ts'
 import { errMessage, isRecord } from './records.ts'
 
 const BLANK_OR_COMMENT = /^\s*(#.*)?$/
+const COMMENT_LINE = /^\s*#/
 
 interface PruneRemoval {
   kind: 'duplicate' | 'retired' | 'model'
@@ -52,7 +53,7 @@ function blockTable(lines: readonly string[], from: number, to: number): Record<
 /** `[from, to)`: comments immediately above the header (stopped by a blank or non-comment) and blank lines after the last content line. A comment above a blank line belongs to whatever precedes it. */
 function removalRange(lines: readonly string[], from: number, to: number): [number, number] {
   let start = from
-  while (start > 0 && /^\s*#/.test(lines[start - 1] as string)) {
+  while (start > 0 && COMMENT_LINE.test(lines[start - 1] as string)) {
     start -= 1
   }
   let end = to
