@@ -40,7 +40,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { DEFAULT_SANDBOX_MASK } from './configKeys.ts'
 import { envString, pathSearchPath } from './env.ts'
 import { configHome, isUnder, stateDir } from './paths.ts'
@@ -107,16 +107,6 @@ export function copyLogins(
 
 const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
 
-const SENSITIVE_HOME_REL = [
-  '.ssh',
-  '.gnupg',
-  '.claude',
-  '.cursor',
-  join('.config', 'cursor'),
-  '.aws',
-  join('.local', 'share', 'keyrings'),
-] as const
-
 const WORKTREE_HOME_REL = [join('.cursor', 'worktrees'), join('.claude', 'worktrees')] as const
 
 function resolvedPath(path: string): string {
@@ -146,12 +136,12 @@ export function workdirForbidden(
   if (worktreeRoots.some((root) => real !== root && isUnder(root, real))) {
     return undefined
   }
-  const denied = [
-    ...SENSITIVE_HOME_REL.map((rel) => join(operatorHome, rel)),
-    stateDir(),
-    join(configHome(), 'engined'),
-  ]
-  for (const path of denied) {
+  // Every dot-directory of the home holds credentials or sessions (gh, docker, kube, browsers); checkouts do not live there.
+  const [top = ''] = relative(operatorHome, real).split(sep)
+  if (top.startsWith('.') && top !== '..') {
+    return `workdir ${workdir} sits in a hidden home directory`
+  }
+  for (const path of [stateDir(), join(configHome(), 'engined')]) {
     const root = resolvedPath(path)
     if (isUnder(root, real) || isUnder(real, root)) {
       return `workdir ${workdir} covers a sensitive path`
@@ -197,6 +187,10 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
     commonDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim())
   } catch {
     // A worktree git dir without commondir is still bound on its own.
+  }
+  // git writes the git dir as <common>/worktrees/<name>; any other commondir is a forged pointer at a path to expose.
+  if (commonDir !== undefined && gitDir !== join(commonDir, 'worktrees', basename(gitDir))) {
+    return []
   }
   // A stale pointer would fail bwrap's bind and the whole launch with it;
   // git reporting "not a git repository" is the honest failure instead.
@@ -299,13 +293,14 @@ function cacheMount(cache: string | undefined, writable: boolean): string[] {
 export function sandboxArgv(input: SandboxInput): string[] {
   const operatorHome = input.operatorHome ?? OPERATOR_HOME
   const [binary = ''] = input.argv
-  // Anything outside the home is visible through the root bind already, and
+  const masks = input.sandboxMask ?? DEFAULT_SANDBOX_MASK
+  // Anything outside the home and the masks is visible through the root bind already, and
   // re-binding it can only fail, on a path like `/bin` that is a symlink.
   const shownBack = [
     ...binaryDirs(binary),
-    ...workdirGitDirs(input.workdir),
+    ...workdirGitDirs(input.workdir, operatorHome),
     ...(input.readOnly ?? []),
-  ].filter((path) => isUnder(operatorHome, path))
+  ].filter((path) => [operatorHome, ...masks].some((hidden) => isUnder(hidden, path)))
   return [
     input.bwrap,
     '--ro-bind',
@@ -330,7 +325,7 @@ export function sandboxArgv(input: SandboxInput): string[] {
     'ALL',
     '--tmpfs',
     operatorHome,
-    ...maskMounts(input.sandboxMask ?? DEFAULT_SANDBOX_MASK),
+    ...maskMounts(masks),
     ...binds('--ro-bind', shownBack),
     ...cacheMount(input.cache, input.cacheWritable === true),
     '--bind',

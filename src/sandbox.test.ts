@@ -260,6 +260,18 @@ test("resolves a linked worktree's git dir and its common dir, both outside the 
   expect(workdirGitDirs(worktree)).toEqual([])
 })
 
+test('a forged commondir cannot bind a hidden home directory', () => {
+  const home = scratch('engined-sandbox-op-')
+  mkdirSync(join(home, '.config', 'gh'), { recursive: true })
+  const workdir = scratch('engined-sandbox-forged-')
+  const gitDir = join(workdir, 'fake')
+  mkdirSync(gitDir)
+  writeFileSync(join(workdir, '.git'), `gitdir: ${gitDir}\n`)
+  writeFileSync(join(gitDir, 'gitdir'), `${join(workdir, '.git')}\n`)
+  writeFileSync(join(gitDir, 'commondir'), `${join(home, '.config', 'gh')}\n`)
+  expect(workdirGitDirs(workdir, home)).toEqual([])
+})
+
 test("a .git pointer at an arbitrary path is not bound without git's worktree backlink", () => {
   const secret = scratch('engined-sandbox-secret-')
   writeFileSync(join(secret, 'id_ed25519'), 'key\n')
@@ -287,7 +299,16 @@ test('refuses a workdir that is, contains, or sits inside a sensitive path', () 
     expect(workdirForbidden(join(home, root), home)).toBeDefined()
     expect(workdirForbidden(join(home, root, 'worktrees'), home)).toBeDefined()
   }
-  for (const rel of ['.gnupg', '.aws', join('.local', 'share', 'keyrings')]) {
+  for (const rel of [
+    '.gnupg',
+    '.aws',
+    join('.local', 'share', 'keyrings'),
+    join('.config', 'gh'),
+    '.docker',
+    '.kube',
+    '.mozilla',
+    '.pki',
+  ]) {
     expect(workdirForbidden(join(home, rel), home)).toBeDefined()
   }
 })
@@ -383,4 +404,25 @@ bwrapIt('git reads a worktree whose git dir sits under the masked home', () => {
   expect(stderr).toBe('')
   expect(code).toBe(0)
   expect(stdout).toBe('seeded\n')
+})
+
+test("a worktree's git dir under a sandbox_mask path is bound back after the mask", () => {
+  const masked = scratch('engined-sandbox-masked-')
+  const gitDir = join(masked, 'repo', '.git', 'worktrees', 'wt')
+  mkdirSync(gitDir, { recursive: true })
+  writeFileSync(join(gitDir, 'commondir'), '../..\n')
+  const worktree = scratch('engined-sandbox-wt-')
+  writeFileSync(join(worktree, '.git'), `gitdir: ${gitDir}\n`)
+  writeFileSync(join(gitDir, 'gitdir'), `${join(worktree, '.git')}\n`)
+
+  const argv = sandboxArgv({
+    bwrap: BWRAP,
+    home: scratch('engined-sandbox-state-'),
+    workdir: worktree,
+    operatorHome: scratch('engined-sandbox-op-'),
+    sandboxMask: [masked],
+    argv: ['/usr/bin/git'],
+  })
+
+  expect(argv.lastIndexOf(gitDir)).toBeGreaterThan(argv.indexOf(masked))
 })
