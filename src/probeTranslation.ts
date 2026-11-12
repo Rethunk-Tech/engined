@@ -16,6 +16,7 @@
  * route; it is not a general translation score.
  */
 
+import { resolve } from 'node:path'
 import { ENGINE_ERROR_CHARS } from './http.ts'
 import { canAnswer } from './probeImage.ts'
 import clipPath from './probeTranslation.es.wav' with { type: 'file' }
@@ -98,7 +99,7 @@ export async function probeTranslationQuality(
   if (translating.length === 0) {
     return []
   }
-  const clip = new Uint8Array(await Bun.file(clipPath).arrayBuffer())
+  const clip = new Uint8Array(await Bun.file(resolve(import.meta.dir, clipPath)).arrayBuffer())
   const lines: { address: string; ok: boolean; detail: string }[] = []
   for (const row of translating) {
     const form = new FormData()
