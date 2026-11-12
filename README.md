@@ -36,20 +36,20 @@ Install, configure, and operate: [HUMANS.md](HUMANS.md).
 
 ## Highlights
 
-- **One door for five modalities** — chat, embeddings, speech, transcription,
+- **One door for five modalities**: chat, embeddings, speech, transcription,
   images.
-- **Start on demand, stop when idle** — leases counted; idle 35B returns ~27 GiB.
-- **One resident model per role** — occupancy is engined's job.
-- **Chains with provenance** — fallback lists record which engine answered.
-- **Agentic CLIs as an engine kind** — `claude`, `opencode`, and `cursor`,
+- **Start on demand, stop when idle**: leases counted; idle 35B returns ~27 GiB.
+- **One resident model per role**: occupancy is engined's job.
+- **Chains with provenance**: fallback lists record which engine answered.
+- **Agentic CLIs as an engine kind**: `claude`, `opencode`, and `cursor`,
   each under a `bwrap` sandbox that disables writing and hides the operator's
   home; claude and cursor also by their own flags.
-- **Fill-in-the-middle** — `POST /openai/v1/completions` over llama's own `/infill`, for a route that opts in.
-- **Vision bridge** — a text-only chat route can take an image attachment by
+- **Fill-in-the-middle**: `POST /openai/v1/completions` over llama's own `/infill`, for a route that opts in.
+- **Vision bridge**: a text-only chat route can take an image attachment by
   captioning it through a vision route first.
-- **Per-day usage totals** — `GET /engined/v1/usage` sums provenance without
+- **Per-day usage totals**: `GET /engined/v1/usage` sums provenance without
   keeping request content.
-- **Failures name their own fix** — literal `docker build` or `secret-tool store`.
+- **Failures name their own fix**: literal `docker build` or `secret-tool store`.
 
 ## Documentation
 
