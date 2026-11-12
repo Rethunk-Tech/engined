@@ -1,7 +1,7 @@
 import { envString } from './env.ts'
 
 /** Per-agent cgroup ceiling: a claude CLI peaks near 1 GiB, and the door's own MemoryMax must not be shared with it. */
-export const AGENT_MEMORY_MAX = '2G'
+const AGENT_MEMORY_MAX = '2G'
 
 let warnedNoScope = false
 

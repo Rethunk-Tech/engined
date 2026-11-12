@@ -332,22 +332,18 @@ const MEBIBYTE = KIBIBYTE * KIBIBYTE
 export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
 
 /** No request-body chunk for this long and the read is abandoned; the idle timeout only bounds the headers. */
-export const BODY_STALL_MS = 30_000
+const BODY_STALL_MS = 30_000
 
 /** The next chunk, or `undefined` when none arrived within `ms`. */
 async function readOrStall(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reader: Pick<ReadableStreamDefaultReader<Uint8Array>, 'read'>,
   ms: number,
-): Promise<ReadableStreamReadResult<Uint8Array> | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined
+): Promise<Awaited<ReturnType<typeof reader.read>> | undefined> {
+  const stall = AbortSignal.timeout(ms)
   const stalled = new Promise<undefined>((resolve) => {
-    timer = setTimeout(resolve, ms)
+    stall.addEventListener('abort', () => resolve(undefined), { once: true })
   })
-  try {
-    return await Promise.race([reader.read(), stalled])
-  } finally {
-    clearTimeout(timer)
-  }
+  return await Promise.race([reader.read(), stalled])
 }
 
 /**
