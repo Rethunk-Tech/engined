@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A llama engine cold-started by a chat request now carries the engine's `devices`, `group_add` and `env` overrides, the same container spec as `POST /engined/v1/start`.
+
 - The agentic sandbox refuses workdir `/`, any workdir inside a hidden home directory (except the two worktree roots) and a forged `commondir`, and binds a worktree's git dir back under `sandbox_mask` paths.
 - Each agent launch runs in its own `systemd-run --user --scope` with MemoryMax=2G, so one agent cannot OOM the door's cgroup; without `systemd-run` it warns and falls back.
 - A request body that sends no chunk for 30 s is abandoned with a 408.

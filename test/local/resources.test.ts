@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { LlamaRouter } from '../../src/llama.ts'
+import { buildLlamaSpec } from '../../src/llamaSpec.ts'
 import { engine } from '../../src/test-support.ts'
 import type { EngineEntry } from '../../src/types.ts'
 import {
@@ -137,8 +138,12 @@ function skipReason(): string {
 /** Drives one real completion, which is what makes the GGUF resident for the reading below. */
 async function loadChatModel(lifecycle: DockerLifecycle, chat: ChatRoute): Promise<void> {
   const router = new LlamaRouter(FIXTURE.engine, [chat], lifecycle, {
-    enginesRoot: ENGINES_ROOT,
-    bunx: BUNX,
+    spec: () =>
+      buildLlamaSpec(
+        FIXTURE.engine,
+        { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+        join(import.meta.dir, '.scratch-preset-resources.ini'),
+      ),
     streamStallSeconds: () => 60,
     idleStopSeconds: IDLE_STOP_SECONDS,
     readyTimeoutS: READY_TIMEOUT_S,

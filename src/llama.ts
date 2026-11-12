@@ -21,17 +21,12 @@ import {
   LlamaSlotTable,
   renderedPromptText,
 } from './llamaSlots.ts'
-import {
-  AUTO_PARALLEL,
-  buildLlamaSpec,
-  explicitParallel,
-  readIfExists,
-  renderPresetIni,
-} from './llamaSpec.ts'
+import { AUTO_PARALLEL, explicitParallel, readIfExists, renderPresetIni } from './llamaSpec.ts'
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
 import { isRecord, parseRecord } from './records.ts'
 import type { RoleContention } from './responses.ts'
+import type { RunnableContainerSpec } from './specTypes.ts'
 import { ggufPath } from './tokenizeRoute.ts'
 import type { EngineEntry, ResolvedRoute, Role } from './types.ts'
 
@@ -78,8 +73,8 @@ interface HopCall {
 }
 
 export interface LlamaRouterOptions {
-  enginesRoot: string
-  bunx: string
+  /** The registry's spec for this engine, read per start so `devices`/`group_add`/`env` overrides and a reload reach a chat-path cold start exactly as they reach `POST /engined/v1/start`. */
+  spec: () => RunnableContainerSpec
   idleStopSeconds: number
   readyTimeoutS: number
   /** Defaults under the one writable state dir; tests always override this. */
@@ -303,8 +298,7 @@ export class LlamaRouter {
     }
     mkdirSync(dirname(this.presetHostPath), { recursive: true })
     writeFileSync(this.presetHostPath, nextPreset, 'utf8')
-    const spec = buildLlamaSpec(this.engine, this.opts, this.presetHostPath)
-    await this.lifecycle.start(this.engine.id, spec, {
+    await this.lifecycle.start(this.engine.id, this.opts.spec(), {
       idleStopSeconds: this.opts.idleStopSeconds,
       readyTimeoutS: this.opts.readyTimeoutS,
     })

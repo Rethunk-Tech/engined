@@ -1118,6 +1118,49 @@ test('a held llama engine refuses to start and docker is never run', async () =>
   expect(runs).toEqual([])
 })
 
+test('a chat-path cold start runs the same container spec as POST /engined/v1/start', async () => {
+  const e = engine({ devices: ['/dev/null'], group_add: ['render'] })
+  const a = model({ id: 'a', filename: 'a.gguf' })
+  const presetPath = tmpIniPath()
+  const runArgv = async (via: 'registry' | 'router'): Promise<readonly string[]> => {
+    const argvs: (readonly string[])[] = []
+    const inner = fakeExec()
+    const exec: Exec = (args) => {
+      if (args[0] === 'run') {
+        argvs.push(args)
+      }
+      return inner(args)
+    }
+    const lifecycle = new DockerLifecycle(exec, fakeProbe)
+    const cfg = testConfig({ engines: [e], routes: [a] })
+    const registry = new EngineRegistry(cfg, {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      presetHostPath: presetPath,
+    })
+    if (via === 'registry') {
+      await registry.start(e.id)
+    } else {
+      const ctx = {
+        getConfig: () => cfg,
+        registry,
+        lifecycle,
+        registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
+        doorOpts: { llamaHttpClient: fakeLlama().client, llamaPresetHostPath: presetPath },
+        llamaRouters: new Map(),
+        staleLlamaRouters: new Set(),
+      } as unknown as DoorContext
+      await chatText(getLlamaRouter(ctx, e), a, 'a')
+    }
+    expect(argvs).toHaveLength(1)
+    return argvs[0] ?? []
+  }
+  const viaRegistry = await runArgv('registry')
+  expect(viaRegistry).toContain('/dev/null')
+  expect(await runArgv('router')).toEqual(viaRegistry)
+})
+
 test('retiring a stale llama router releases its keep_resident pin', async () => {
   const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
   const e = engine()
@@ -1125,12 +1168,18 @@ test('retiring a stale llama router releases its keep_resident pin', async () =>
   const unpinned = model({ id: 'a', filename: 'a.gguf' })
   const { client } = fakeLlama()
   let routes: ResolvedRoute[] = [pinned]
+  const presetPath = tmpIniPath()
   const ctx: DoorContext = {
     getConfig: () => testConfig({ routes }),
-    registry: {} as EngineRegistry,
+    registry: new EngineRegistry(testConfig({ engines: [e], routes }), {
+      enginesRoot: ENGINES_ROOT,
+      bunx: BUNX,
+      lifecycle,
+      presetHostPath: presetPath,
+    }),
     lifecycle,
     registryOpts: { enginesRoot: ENGINES_ROOT, bunx: BUNX, lifecycle },
-    doorOpts: { llamaHttpClient: client, llamaPresetHostPath: tmpIniPath() },
+    doorOpts: { llamaHttpClient: client, llamaPresetHostPath: presetPath },
     llamaRouters: new Map(),
     staleLlamaRouters: new Set(),
     launchNonces: new Set(),

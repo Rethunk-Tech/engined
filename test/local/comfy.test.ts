@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { EngineRegistry } from '../../src/engines.ts'
 import { LlamaRouter } from '../../src/llama.ts'
+import { buildLlamaSpec } from '../../src/llamaSpec.ts'
 import { pollUntil } from '../../src/records.ts'
 import type { Config, EngineEntry } from '../../src/types.ts'
 import {
@@ -329,8 +330,12 @@ function buildRig(fixture: Fixture): Rig {
     comfyPollIntervalMs: COMFY_POLL_INTERVAL_MS,
   })
   const router = new LlamaRouter(fixture.llamaEngine, [fixture.chatRoute], lifecycle, {
-    enginesRoot: ENGINES_ROOT,
-    bunx: BUNX,
+    spec: () =>
+      buildLlamaSpec(
+        fixture.llamaEngine,
+        { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+        join(import.meta.dir, '.scratch-preset-comfy.ini'),
+      ),
     streamStallSeconds: () => 60,
     idleStopSeconds: LLAMA_IDLE_STOP_SECONDS,
     readyTimeoutS: READY_TIMEOUT_S,

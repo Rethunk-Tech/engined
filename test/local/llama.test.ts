@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
 import { LlamaRouter, type LlamaRouterOptions } from '../../src/llama.ts'
-import { AUTO_PARALLEL } from '../../src/llamaSpec.ts'
+import { AUTO_PARALLEL, buildLlamaSpec } from '../../src/llamaSpec.ts'
 import { visionRequestBody, visionVerdict } from '../../src/probeImage.ts'
 import { engine } from '../../src/test-support.ts'
 import type { EngineEntry, ResolvedRoute, Role } from '../../src/types.ts'
@@ -147,8 +147,12 @@ function buildRouter(
   lifecycle: DockerLifecycle,
 ): LlamaRouter {
   const opts: LlamaRouterOptions = {
-    enginesRoot: ENGINES_ROOT,
-    bunx: BUNX,
+    spec: () =>
+      buildLlamaSpec(
+        engineEntry,
+        { enginesRoot: ENGINES_ROOT, bunx: BUNX },
+        join(import.meta.dir, presetFile),
+      ),
     streamStallSeconds: () => 60,
     idleStopSeconds: IDLE_STOP_SECONDS,
     readyTimeoutS: READY_TIMEOUT_S,

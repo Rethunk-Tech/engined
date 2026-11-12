@@ -22,6 +22,7 @@ import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import { localRoutesOf } from './routeAddress.ts'
 import type { ServedPorts } from './servedPorts.ts'
+import { isContainerSpec } from './specTypes.ts'
 import type { Config, EngineEntry } from './types.ts'
 import type { UsageTracker } from './usage.ts'
 
@@ -204,8 +205,13 @@ export function getLlamaRouter(ctx: DoorContext, engine: EngineEntry): LlamaRout
   ctx.staleLlamaRouters.delete(engine.id)
   const routes = localRoutesOf(ctx.getConfig().routes, engine.id)
   const router = new LlamaRouter(engine, routes, ctx.lifecycle, {
-    enginesRoot: ctx.registryOpts.enginesRoot,
-    bunx: ctx.registryOpts.bunx,
+    spec: () => {
+      const spec = ctx.registry.specFor(engine.id)
+      if (spec === undefined || !isContainerSpec(spec)) {
+        throw new Error(`engine "${engine.id}" has no container spec`)
+      }
+      return spec
+    },
     idleStopSeconds: engine.idle_stop_seconds,
     readyTimeoutS: engine.ready_timeout_s,
     httpClient: ctx.doorOpts.llamaHttpClient,
