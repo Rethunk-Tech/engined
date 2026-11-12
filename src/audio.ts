@@ -139,7 +139,7 @@ export interface TranscriptionRequestBody {
    */
   model?: string
   /** Raw audio bytes already read from the multipart upload. */
-  file: Uint8Array<ArrayBuffer>
+  file: Blob | Uint8Array<ArrayBuffer>
   /** Reaches the engine on the wire, per request; never written into its spec. */
   language?: string
   response_format?: string

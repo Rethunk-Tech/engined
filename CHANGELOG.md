@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Cap the user unit at MemoryMax=1100M (4×256 MiB upload copies plus door RSS) and MemorySwapMax=0.
+- Skip the extra Blob.arrayBuffer copy of multipart audio uploads.
 
 - Comfy image uploads pin `type=input`, `subfolder=` and `overwrite=false` rather than forwarding caller-chosen placement.
 - The keyless launch forwarder allows only `/v1/messages`, `/v1/messages/count_tokens` and `/v1/models`, rejects encoded slashes, and caps the body.

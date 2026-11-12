@@ -26,8 +26,8 @@ import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from '
 
 interface TranscriptionForm {
   rawModel: string | null
-  /** A stream when the recording is still being made; the bytes of one that is not. */
-  file: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>
+  /** A stream when the recording is still being made; the Blob of a finished multipart upload. */
+  file: Blob | ReadableStream<Uint8Array>
   language: string | undefined
   responseFormat: string | undefined
   prompt: string | undefined
@@ -82,7 +82,7 @@ async function parseTranscriptionForm(
   const stream = form.get('stream')
   return {
     rawModel: typeof rawModel === 'string' ? rawModel : null,
-    file: file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0),
+    file: file instanceof Blob ? file : new Blob(),
     language: typeof language === 'string' ? language : undefined,
     responseFormat: typeof responseFormat === 'string' ? responseFormat : undefined,
     prompt: typeof prompt === 'string' ? prompt : undefined,
@@ -122,7 +122,7 @@ function tooLarge(bytes: number): Response {
  * as an empty transcript, which reads like silence rather than a bad request.
  */
 function uploadRefusal(file: TranscriptionForm['file']): Response | undefined {
-  if (file instanceof ReadableStream || file.byteLength > 0) {
+  if (file instanceof ReadableStream || file.size > 0) {
     return undefined
   }
   return jsonError(STATUS_BAD_REQUEST, 'multipart form carried no `file` part')
