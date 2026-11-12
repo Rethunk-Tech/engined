@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import process from 'node:process'
 import { join } from 'node:path'
+import process from 'node:process'
 import type { AgentCli } from './agents.ts'
 import {
   copyLogins,
@@ -60,7 +60,9 @@ export function removeLaunchHome(home: string): void {
       Bun.spawnSync(['chmod', '-R', 'u+rwX', '--', home])
       remove()
     } catch (err) {
-      process.stderr.write(`engined: agent launch home ${home} could not be removed: ${String(err)}\n`)
+      process.stderr.write(
+        `engined: agent launch home ${home} could not be removed: ${String(err)}\n`,
+      )
     }
   }
 }
