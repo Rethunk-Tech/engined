@@ -180,6 +180,11 @@ class Cursor {
     return Number(v)
   }
 
+  /** Bytes buffered past the cursor. */
+  remaining(): number {
+    return this.buf.length - this.pos
+  }
+
   str(): string {
     const len = this.u64()
     this.need(len)
@@ -214,23 +219,37 @@ class Cursor {
   }
 }
 
+const MAX_ARRAY_DEPTH = 4
+
 /** Reads one value of `type`, decoding strings and the two array shapes this door cares about; every other value is skipped. */
-function readValue(c: Cursor, type: GgufValueType, want: boolean): unknown {
+function readValue(c: Cursor, type: GgufValueType, want: boolean, depth = 0): unknown {
   if (type === GgufValueType.String) {
     return c.str()
   }
   if (type === GgufValueType.Array) {
+    if (depth >= MAX_ARRAY_DEPTH) {
+      throw new Error('GGUF arrays nest too deeply')
+    }
     const elemType = c.u32() as GgufValueType
     const count = c.u64()
+    // Every element is at least a byte, so a larger count is a truncated prefix or a crafted header.
+    if (count > c.remaining()) {
+      throw NEED_MORE_BYTES
+    }
+    const elemSize = FIXED_TYPE_SIZES[elemType]
     if (!want) {
+      if (elemSize !== undefined) {
+        c.skipFixed(count * elemSize)
+        return undefined
+      }
       for (let i = 0; i < count; i++) {
-        readValue(c, elemType, false)
+        readValue(c, elemType, false, depth + 1)
       }
       return undefined
     }
     const out: unknown[] = []
     for (let i = 0; i < count; i++) {
-      out.push(readValue(c, elemType, true))
+      out.push(readValue(c, elemType, true, depth + 1))
     }
     return out
   }

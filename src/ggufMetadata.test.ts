@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readGgufMetadata } from './ggufMetadata.ts'
 import { makeTestRoot, writeGgufFixture } from './test-support.ts'
@@ -75,5 +76,39 @@ describe('readGgufMetadata', () => {
     const path = join(TEST_ROOT, 'not-gguf.bin')
     await Bun.write(path, 'not a gguf file at all')
     await expect(readGgufMetadata(path)).rejects.toThrow(/bad magic/)
+  })
+})
+
+describe('readGgufMetadata on a crafted header', () => {
+  /** One key "x" holding an array of `elemType` with `count` claimed elements, then `tail` bytes. */
+  function craft(name: string, elemType: number, count: bigint, tail: Buffer): string {
+    const path = join(TEST_ROOT, name)
+    const h = Buffer.alloc(8 + 8 + 8 + 8 + 1 + 4 + 4 + 8)
+    let o = h.writeUInt32LE(0x46_55_47_47, 0)
+    o = h.writeUInt32LE(3, o)
+    o = h.writeBigUInt64LE(0n, o)
+    o = h.writeBigUInt64LE(1n, o)
+    o = h.writeBigUInt64LE(1n, o)
+    o += h.write('x', o)
+    o = h.writeUInt32LE(9, o)
+    o = h.writeUInt32LE(elemType, o)
+    h.writeBigUInt64LE(count, o)
+    writeFileSync(path, Buffer.concat([h, tail]))
+    return path
+  }
+
+  test('an array claiming more elements than the file holds is refused without scanning them', async () => {
+    const path = craft('huge.gguf', 7, 1n << 40n, Buffer.alloc(20 * 1024 * 1024))
+    const t = performance.now()
+    await expect(readGgufMetadata(path)).rejects.toBeDefined()
+    expect(performance.now() - t).toBeLessThan(300)
+  })
+
+  test('arrays nested past the depth cap are refused', async () => {
+    const nested = Buffer.alloc(12)
+    nested.writeUInt32LE(9, 0)
+    nested.writeBigUInt64LE(1n, 4)
+    const path = craft('deep.gguf', 9, 1n, Buffer.concat(Array.from({ length: 10 }, () => nested)))
+    await expect(readGgufMetadata(path)).rejects.toThrow('nest too deeply')
   })
 })

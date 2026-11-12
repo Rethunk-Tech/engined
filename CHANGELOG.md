@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GGUF metadata reads refuse an array claiming more elements than the file holds, skip fixed-size arrays in one step, and cap array nesting at 4, so a crafted file cannot stall the loop.
 - Whisper and piper weight downloads pin a Hugging Face revision, check a sha256, and land via a `.part` rename, so a truncated or swapped file is never taken as present.
 - Obtain commands shell-quote substituted values, so a `models_dir` with a space or `;` stays one word.
 - Cap the user unit at MemoryMax=1100M (4×256 MiB upload copies plus door RSS) and MemorySwapMax=0.
