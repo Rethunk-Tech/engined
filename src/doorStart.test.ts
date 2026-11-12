@@ -228,6 +228,27 @@ describe("POST /engined/v1/start: which of an engine's routes", () => {
   })
 })
 
+describe('POST /engined/v1/start: two models racing on one container engine', () => {
+  test('the model recorded resident is the one the launched container actually runs', async () => {
+    const { cfg, root } = whisperDoorConfig(
+      route({ engine: 'whisper-like', upstream: 'local', model: 'medium', filename: 'medium.bin' }),
+    )
+    const { door, runLog } = recordingStartDoor(cfg, root)
+    const [small, medium] = await Promise.all([
+      door.fetch(startRequest('@/whisper-like/small')),
+      door.fetch(startRequest('@/whisper-like/medium')),
+    ])
+    expect([small.status, medium.status]).toEqual([200, 200])
+    expect(runLog).toHaveLength(1)
+    const argv = runLog[0] as string[]
+    // Asking again for whatever the one launched container runs must be a
+    // no-op; a resident record naming the other model stops and recreates it.
+    const launched = argv[argv.indexOf('-m') + 1] === '/models/medium.bin' ? 'medium' : 'small'
+    await startOk(door, `@/whisper-like/${launched}`)
+    expect(runLog).toHaveLength(1)
+  })
+})
+
 describe('POST /engined/v1/start: a modelless first hop', () => {
   test('a chain whose first hop names an upstream, not a model, still starts', async () => {
     const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))

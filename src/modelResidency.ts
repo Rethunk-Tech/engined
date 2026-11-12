@@ -117,15 +117,18 @@ export class ModelResidency {
       )
     }
     const current = this.lifecycle.getStatus(id)
-    if (current.state !== 'running') {
-      return
-    }
     if ((current.active_leases ?? 0) > 0) {
       throw new EngineBusyError(
         `engine "${id}" is serving ${current.active_leases} active request(s); switching to model "${model}" would stop them mid-flight`,
       )
     }
-    await this.lifecycle.stop(id)
+    // Claimed before the stop: the record names the model this start commits
+    // to, so a start racing in behind it sees the switch already decided
+    // rather than re-deciding it against a record nothing has written yet.
+    this.resident.set(id, model)
+    if (current.state === 'running') {
+      await this.lifecycle.stop(id)
+    }
   }
 
   enter(id: string): void {

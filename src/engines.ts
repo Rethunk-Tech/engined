@@ -347,7 +347,13 @@ export class EngineRegistry {
         readyTimeoutS: entry.engine.ready_timeout_s,
         specSource: entry.spec.source,
       })
-      this.residency.started(id, model)
+      // Only the call whose own spec the container runs records it: a joiners'
+      // start resolves off the launcher's promise with this call's model
+      // unapplied, so recording it would name a model the container is not
+      // running and the next start for the real one would recreate it.
+      if (launched === true || adopted === true) {
+        this.residency.started(id, model)
+      }
       // A start that found the container already up did not apply this
       // shape; recording it would hide the restart the old one still needs.
       this.recordShape(id, launched === true || adopted === true, shape)
