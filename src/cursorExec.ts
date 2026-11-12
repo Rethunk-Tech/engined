@@ -115,12 +115,12 @@ function grepArgs(args: ToolArgs, path: string, execId: string): Uint8Array {
 }
 
 function argsFor(
-  tool: string,
+  name: string,
   args: ToolArgs,
   execId: string,
 ): { field: number; args: Uint8Array } | undefined {
   const path = str(args, 'path') ?? ''
-  switch (tool) {
+  switch (name) {
     case 'shell': {
       const command = str(args, 'command') ?? ''
       const description = str(args, 'description')
@@ -173,7 +173,7 @@ function argsFor(
         field: LS,
         args: message(
           stringField(ls.path, path),
-          ...list(args, 'ignore').map((name) => stringField(ls.ignore, name)),
+          ...list(args, 'ignore').map((entry) => stringField(ls.ignore, entry)),
           stringField(ls.execId, execId),
         ),
       }
@@ -186,10 +186,10 @@ function argsFor(
 export function execRequest(
   id: number,
   execId: string,
-  tool: string,
+  name: string,
   args: ToolArgs,
 ): Uint8Array | undefined {
-  const built = argsFor(tool, args, execId)
+  const built = argsFor(name, args, execId)
   if (built === undefined) {
     return undefined
   }
@@ -337,17 +337,17 @@ const TOOL_CALL_ID = 57
  * prose with invisible side effects.
  */
 export function toolCallMessage(
-  tool: string,
+  name: string,
   toolArgs: ToolArgs,
   callId: string,
 ): Uint8Array | undefined {
-  const field = TOOL_CALL_FIELD[tool]
+  const field = TOOL_CALL_FIELD[name]
   if (field === undefined) {
     return undefined
   }
   const path = str(toolArgs, 'path') ?? ''
   const args = (() => {
-    switch (tool) {
+    switch (name) {
       case 'shell': {
         const command = str(toolArgs, 'command') ?? ''
         return message(

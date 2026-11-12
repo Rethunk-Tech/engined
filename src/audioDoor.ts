@@ -120,10 +120,8 @@ function audioHopRoute(ctx: DoorContext, hop: string, endpoint: string) {
  */
 function audioHopExec(
   ctx: DoorContext,
-  endpoint: string,
-  attempt: AudioAttempt,
-  setContentType: (ct: string) => void,
-  hold: (engineId: string, leased: AudioLease) => void,
+  { endpoint, attempt }: AudioChain,
+  { setContentType, hold }: HopHooks,
 ): HopExec {
   return async (hop) => {
     const dispatch = audioHopRoute(ctx, hop, endpoint)
@@ -146,6 +144,11 @@ function audioHopExec(
       upstreamUsed: route.upstream ?? undefined,
     }
   }
+}
+
+interface HopHooks {
+  setContentType: (ct: string) => void
+  hold: (engineId: string, leased: AudioLease) => void
 }
 
 interface AudioChain {
@@ -197,18 +200,15 @@ export async function runAudioChain(ctx: DoorContext, opts: AudioChain): Promise
       timeoutMs: () => config.chat_timeout_seconds * MS_PER_SECOND,
       stallMs: config.stream_stall_seconds * MS_PER_SECOND,
       signal: opts.signal,
-      exec: audioHopExec(
-        ctx,
-        opts.endpoint,
-        opts.attempt,
-        (ct) => {
+      exec: audioHopExec(ctx, opts, {
+        setContentType: (ct) => {
           contentType = ct
         },
-        (engineId, leased) => {
+        hold: (engineId, leased) => {
           release()
           held = { engineId, leased }
         },
-      ),
+      }),
       record: (record) => {
         // A direct address that failed answered nothing: the line names no
         // engine, the same as every other single-engine verb's.
@@ -303,11 +303,11 @@ function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   }
 }
 
-export async function handleAudioSpeech(
+export function handleAudioSpeech(
   ctx: DoorContext,
   body: Record<string, unknown>,
   signal?: AbortSignal,
-): Promise<Response> {
+): Response | Promise<Response> {
   const rawModel = typeof body.model === 'string' ? body.model : undefined
   const resolved = resolveOrRefuse(ctx, rawModel, CONTENT_ENDPOINT_SPEECH)
   if (resolved instanceof Response) {
