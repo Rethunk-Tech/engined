@@ -6,7 +6,7 @@ import { configMermaid, MAP_COLOURS } from './configMap.ts'
 import { discovery, ensureSpec, specs, upstreamResolver } from './data.ts'
 import { engineKind, parseDoc } from './model.ts'
 import { draft } from './store.ts'
-import { CopyButton } from './widgets.tsx'
+import { CopyButton, InvalidToml } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 const source = computed(() => {
@@ -185,9 +185,7 @@ export function MapView() {
   )
   const text = source.value
   if (text === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   return (
     <section>

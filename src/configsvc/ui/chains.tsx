@@ -18,7 +18,7 @@ import { type Doc, parseDoc, type Table } from './model.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton } from './widgets.tsx'
+import { AddEntryRow, CopyButton, InvalidToml } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -177,7 +177,6 @@ function Chain({ d, chain, index }: { d: Doc; chain: Table; index: number }) {
 }
 
 export function ChainsView() {
-  const [id, setId] = useState('')
   useEffect(() => {
     fork(loadDiscovery())
     for (const e of doc.value?.engine ?? []) {
@@ -186,9 +185,7 @@ export function ChainsView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   return (
     <section>
@@ -198,32 +195,22 @@ export function ChainsView() {
           <Chain key={String(c.id)} d={parsed} chain={c} index={i} />
         ))}
       </div>
-      <div className="panel rowhead">
-        <input
-          placeholder="new chain id"
-          value={id}
-          onInput={(e) => setId(e.currentTarget.value)}
-        />
-        <button
-          type="button"
-          disabled={id === ''}
-          onClick={async () => {
-            if (await editDraft([{ op: 'addEntry', table: 'chain', entry: { id, hops: [] } }])) {
-              setId('')
-            }
-          }}
-        >
-          Add chain
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            location.hash = id === '' ? 'add/chain' : `add/chain/${encodeURIComponent(id)}`
-          }}
-        >
-          Use the Add wizard
-        </button>
-      </div>
+      <AddEntryRow
+        table="chain"
+        label="Add chain"
+        placeholder="new chain id"
+        entry={(id) => ({ id, hops: [] })}
+        trail={(id) => (
+          <button
+            type="button"
+            onClick={() => {
+              location.hash = id === '' ? 'add/chain' : `add/chain/${encodeURIComponent(id)}`
+            }}
+          >
+            Use the Add wizard
+          </button>
+        )}
+      />
       <SnippetBox table="chain" />
     </section>
   )

@@ -1,6 +1,5 @@
 import { computed } from '@preact/signals'
-import { useEffect, useState } from 'preact/hooks'
-import { editDraft } from './actions.ts'
+import { useEffect } from 'preact/hooks'
 import { fork } from './api.ts'
 import { DeleteGuard } from './guardPanel.tsx'
 import { type Doc, parseDoc, routeAddress, type Table } from './model.ts'
@@ -8,7 +7,7 @@ import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton, Prop } from './widgets.tsx'
+import { AddEntryRow, CopyButton, InvalidToml, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -40,12 +39,9 @@ export function ModelsView() {
   useEffect(() => {
     fork(loadSchema())
   }, [])
-  const [id, setId] = useState('')
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   return (
     <section>
@@ -55,24 +51,12 @@ export function ModelsView() {
       {parsed.model.map((m, i) => (
         <ModelCard key={String(m.id)} d={parsed} model={m} index={i} />
       ))}
-      <div className="panel rowhead">
-        <input
-          placeholder="new model id"
-          value={id}
-          onInput={(e) => setId(e.currentTarget.value)}
-        />
-        <button
-          type="button"
-          disabled={id === ''}
-          onClick={async () => {
-            if (await editDraft([{ op: 'addEntry', table: 'model', entry: { id } }])) {
-              setId('')
-            }
-          }}
-        >
-          Add model
-        </button>
-      </div>
+      <AddEntryRow
+        table="model"
+        label="Add model"
+        placeholder="new model id"
+        entry={(id) => ({ id })}
+      />
       <SnippetBox table="model" />
     </section>
   )

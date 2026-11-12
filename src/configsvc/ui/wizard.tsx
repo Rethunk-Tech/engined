@@ -11,7 +11,7 @@ import { HopPicker } from './hopPicker.tsx'
 import { parseDoc } from './model.ts'
 import { viewParam } from './nav.ts'
 import { draft } from './store.ts'
-import { DiffView, Labeled } from './widgets.tsx'
+import { DiffView, InvalidToml, Labeled } from './widgets.tsx'
 import { engineFor, freeId, PRESETS, type ProviderPlan, providerOps } from './wizard.ts'
 
 const doc = computed(() => parseDoc(draft.value))
@@ -348,9 +348,7 @@ function ChainPath({ initialId }: { initialId: string }) {
 export function AddView() {
   const d = doc.value
   if (d === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   const [path, prefill = ''] = (viewParam.value ?? '').split(PATH_AND_ID_RE)
   return (

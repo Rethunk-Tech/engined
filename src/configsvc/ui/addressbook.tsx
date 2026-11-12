@@ -5,9 +5,8 @@ import { fork } from './api.ts'
 import { callsFor, ensureSpec, loadUsage, upstreamResolver } from './data.ts'
 import { parseDoc } from './model.ts'
 import { draft } from './store.ts'
-import { CopyButton } from './widgets.tsx'
+import { CopyButton, InvalidToml } from './widgets.tsx'
 
-const INVALID_TOML = 'The pending text is not valid TOML; fix it on the Raw TOML view first.'
 const ADDRESS_HELP_BEFORE = 'What a consumer puts in '
 const MODEL_KEY = 'model'
 const ADDRESS_HELP_AFTER = '. Calls are the last 7 days.'
@@ -26,7 +25,7 @@ export function AddressBookView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return <p className="bad">{INVALID_TOML}</p>
+    return <InvalidToml />
   }
   const rows = addressBook(parsed, upstreamResolver(parsed))
   return (

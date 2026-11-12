@@ -295,3 +295,43 @@ function diffClass(line: string): string {
   }
   return line.startsWith('-') ? 'del' : ''
 }
+
+export function InvalidToml() {
+  return (
+    <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
+  )
+}
+
+/** An id box and an Add button; `entry` builds the new row from the typed id, `lead` and `trail` slot extra controls either side of the button. */
+export function AddEntryRow(props: {
+  table: string
+  label: string
+  placeholder: string
+  entry: (id: string) => Record<string, unknown>
+  lead?: (id: string) => ComponentChildren
+  trail?: (id: string) => ComponentChildren
+}) {
+  const [id, setId] = useState('')
+  return (
+    <div className="panel rowhead">
+      <input
+        placeholder={props.placeholder}
+        value={id}
+        onInput={(e) => setId(e.currentTarget.value)}
+      />
+      {props.lead?.(id)}
+      <button
+        type="button"
+        disabled={id === ''}
+        onClick={async () => {
+          if (await editDraft([{ op: 'addEntry', table: props.table, entry: props.entry(id) }])) {
+            setId('')
+          }
+        }}
+      >
+        {props.label}
+      </button>
+      {props.trail?.(id)}
+    </div>
+  )
+}

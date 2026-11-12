@@ -44,7 +44,17 @@ import { postStream } from './sse.ts'
 import { engineOps, LOCAL_UPSTREAM_OP } from './starter.ts'
 import { draft, status } from './store.ts'
 import { findModelFile, formatBytes } from './suggest.ts'
-import { About, CopyButton, Icon, type IconName, KindPill, Labeled, Prop } from './widgets.tsx'
+import {
+  About,
+  AddEntryRow,
+  CopyButton,
+  Icon,
+  type IconName,
+  InvalidToml,
+  KindPill,
+  Labeled,
+  Prop,
+} from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -500,43 +510,34 @@ export function ShippedPicker({ d }: { d: Doc }) {
 }
 
 function AddEngine() {
-  const [id, setId] = useState('')
   const [kind, setKind] = useState('')
   return (
-    <div className="panel rowhead">
-      <input placeholder="new engine id" value={id} onInput={(e) => setId(e.currentTarget.value)} />
-      <select value={kind} onChange={(e) => setKind(e.currentTarget.value)}>
-        <option value="">(spec in engines/{id || 'id'}/)</option>
-        {(Object.keys(KIND_TRAITS) as EngineKind[]).map((k) => (
-          <option key={k} value={k}>
-            {KIND_LABELS[k]} ({k})
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        disabled={id === ''}
-        onClick={async () => {
-          if (
-            await editDraft([
-              { op: 'addEntry', table: 'engine', entry: kind === '' ? { id } : { id, kind } },
-            ])
-          ) {
-            setId('')
-          }
-        }}
-      >
-        Add engine
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          location.hash = 'add/engine'
-        }}
-      >
-        Use the Add wizard
-      </button>
-    </div>
+    <AddEntryRow
+      table="engine"
+      label="Add engine"
+      placeholder="new engine id"
+      entry={(id) => (kind === '' ? { id } : { id, kind })}
+      lead={(id) => (
+        <select value={kind} onChange={(e) => setKind(e.currentTarget.value)}>
+          <option value="">(spec in engines/{id || 'id'}/)</option>
+          {(Object.keys(KIND_TRAITS) as EngineKind[]).map((k) => (
+            <option key={k} value={k}>
+              {KIND_LABELS[k]} ({k})
+            </option>
+          ))}
+        </select>
+      )}
+      trail={() => (
+        <button
+          type="button"
+          onClick={() => {
+            location.hash = 'add/engine'
+          }}
+        >
+          Use the Add wizard
+        </button>
+      )}
+    />
   )
 }
 
@@ -559,9 +560,7 @@ export function EnginesView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   const param = viewParam.value
   if (param !== undefined) {

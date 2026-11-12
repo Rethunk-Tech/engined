@@ -19,7 +19,15 @@ import { loadSchema } from './schema.ts'
 import { entryToToml } from './snippet.ts'
 import { SnippetBox } from './snippets.tsx'
 import { draft } from './store.ts'
-import { CopyButton, Icon, type IconName, Labeled, Prop } from './widgets.tsx'
+import {
+  AddEntryRow,
+  CopyButton,
+  Icon,
+  type IconName,
+  InvalidToml,
+  Labeled,
+  Prop,
+} from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -340,12 +348,9 @@ export function UpstreamsView() {
     fork(loadUsage())
     fork(loadDiscovery())
   }, [])
-  const [id, setId] = useState('')
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   const open = viewParam.value
   if (open !== undefined) {
@@ -371,40 +376,22 @@ export function UpstreamsView() {
           <UpstreamTile key={String(u.id)} d={parsed} upstream={u} />
         ))}
       </div>
-      <div className="panel rowhead">
-        <input
-          placeholder="new upstream id"
-          value={id}
-          onInput={(e) => setId(e.currentTarget.value)}
-        />
-        <button
-          type="button"
-          disabled={id === ''}
-          onClick={async () => {
-            if (
-              await editDraft([
-                {
-                  op: 'addEntry',
-                  table: 'upstream',
-                  entry: { id, egress: id === 'local' ? 'none' : 'remote' },
-                },
-              ])
-            ) {
-              setId('')
-            }
-          }}
-        >
-          Add upstream
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            location.hash = id === '' ? 'add/provider' : `add/provider/${encodeURIComponent(id)}`
-          }}
-        >
-          Use the Add wizard
-        </button>
-      </div>
+      <AddEntryRow
+        table="upstream"
+        label="Add upstream"
+        placeholder="new upstream id"
+        entry={(id) => ({ id, egress: id === 'local' ? 'none' : 'remote' })}
+        trail={(id) => (
+          <button
+            type="button"
+            onClick={() => {
+              location.hash = id === '' ? 'add/provider' : `add/provider/${encodeURIComponent(id)}`
+            }}
+          >
+            Use the Add wizard
+          </button>
+        )}
+      />
       <SnippetBox table="upstream" />
     </section>
   )

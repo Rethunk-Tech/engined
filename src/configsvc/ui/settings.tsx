@@ -5,7 +5,7 @@ import { call, fork } from './api.ts'
 import { isTable, parseDoc, type Table } from './model.ts'
 import { loadSchema } from './schema.ts'
 import { draft } from './store.ts'
-import { Prop } from './widgets.tsx'
+import { InvalidToml, Prop } from './widgets.tsx'
 
 const doc = computed(() => parseDoc(draft.value))
 
@@ -146,9 +146,7 @@ export function SettingsView() {
   }, [])
   const parsed = doc.value
   if (parsed === undefined) {
-    return (
-      <p className="bad">The pending text is not valid TOML; fix it on the Raw TOML view first.</p>
-    )
+    return <InvalidToml />
   }
   const svc = (parsed.top.configsvc ?? {}) as Table
   return (
