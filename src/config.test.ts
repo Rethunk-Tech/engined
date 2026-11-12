@@ -2189,6 +2189,7 @@ test('[configsvc] defaults off, carries an enabled table, and refuses what canno
     port: 29_300,
     password_hash: hash,
   })
+  expect(loadConfig(writeConfig(on('host = "Engined.LAN"\n'))).configsvc.host).toBe('engined.lan')
   expect(parseMessage(on('port = 29200\n'))).toContain('must differ from "listen_port"')
   expect(parseMessage(on('host = "0.0.0.0"\n'))).toContain('configsvc.host')
   expect(parseMessage(on('host = "a b"\n'))).toContain('configsvc.host')

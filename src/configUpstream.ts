@@ -92,7 +92,9 @@ export function parseConfigsvc(
       { file, key: 'configsvc.port' },
     )
   }
-  const host = optional(table.host, 'string', 'config "configsvc.host"', file) ?? '127.0.0.1'
+  const host = (
+    optional(table.host, 'string', 'config "configsvc.host"', file) ?? '127.0.0.1'
+  ).toLowerCase()
   if (!(isLoopbackHost(host) || isBridgeHost(host))) {
     throw new ParseError(
       'config "configsvc.host" must be a name or address clients dial (not 0.0.0.0): the UI listens on loopback and the TLS bridge serves that name',
