@@ -13,6 +13,8 @@
 - `engined completion <bash|zsh|fish>` and `engined man` are listed in `--help`, and `scripts/install.sh`, the AUR PKGBUILDs and the deb/rpm build install the completions and man page; `completion pwsh` is gone.
 - A container engine's spec is loaded once per config build instead of twice.
 - A llama engine cold-started by a chat request now carries the engine's `devices`, `group_add` and `env` overrides, the same container spec as `POST /engined/v1/start`.
+- Completions (FIM) go through the chain runner: a client that hangs up before dispatch gets 499 and records no attempt, a failed call fills `engine_used`, a non-JSON upstream error body is wrapped as JSON, and `stream_stall_seconds` applies to FIM streams.
+- A single-address audio call gets `chat_timeout_seconds` (default 600) and the stream-stall deadline, the same as a chain call.
 
 - The agentic sandbox refuses workdir `/`, any workdir inside a hidden home directory (except the two worktree roots) and a forged `commondir`, and binds a worktree's git dir back under `sandbox_mask` paths.
 - Each agent launch runs in its own `systemd-run --user --scope` with MemoryMax=2G, so one agent cannot OOM the door's cgroup; without `systemd-run` it warns and falls back.
