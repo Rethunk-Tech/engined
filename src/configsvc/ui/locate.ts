@@ -24,8 +24,11 @@ function lineStarts(text: string): number[] {
 function entryLine(lines: string[], table: string, index: number): number {
   let seen = -1
   for (const [i, line] of lines.entries()) {
-    if (line.trim() === `[[${table}]]` && ++seen === index) {
-      return i
+    if (line.trim() === `[[${table}]]`) {
+      seen += 1
+      if (seen === index) {
+        return i
+      }
     }
   }
   return -1
