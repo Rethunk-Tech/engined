@@ -47,24 +47,12 @@ export function readSnapshot(configFile: string): ConfigSnapshot {
   return { path: configFile, text, sha256: configFilesSha256(configFile) ?? '', fragments }
 }
 
-/** A unified line diff (3 lines of context) of `before` to `after`; empty when they are equal. */
-export function unifiedDiff(before: string, after: string): string {
-  const a = before.split('\n')
-  const b = after.split('\n')
-  let head = 0
-  while (head < a.length && head < b.length && a[head] === b[head]) {
-    head++
-  }
-  let tail = 0
-  while (tail < a.length - head && tail < b.length - head && a.at(-1 - tail) === b.at(-1 - tail)) {
-    tail++
-  }
-  const x = a.slice(head, a.length - tail)
-  const y = b.slice(head, b.length - tail)
-  if (x.length === 0 && y.length === 0) {
-    return ''
-  }
-  // Longest common subsequence of the differing middle, as a table of suffix lengths.
+/** Past this many table cells (about 16 MiB of Uint32) the diff replaces the whole differing block instead of aligning it. */
+const MAX_LCS_CELLS = 4_000_000
+
+/** Longest common subsequence of the differing middle, as a table of suffix lengths. */
+function middleOps(x: string[], y: string[]): { tag: ' ' | '-' | '+'; line: string }[] {
+  const ops: { tag: ' ' | '-' | '+'; line: string }[] = []
   const lcs = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1))
   for (let i = x.length - 1; i >= 0; i--) {
     for (let j = y.length - 1; j >= 0; j--) {
@@ -75,9 +63,6 @@ export function unifiedDiff(before: string, after: string): string {
           : Math.max((lcs[i + 1] as Uint32Array)[j] as number, row[j + 1] as number)
     }
   }
-  const ops: { tag: ' ' | '-' | '+'; line: string }[] = a
-    .slice(0, head)
-    .map((line) => ({ tag: ' ' as const, line }))
   let i = 0
   let j = 0
   while (i < x.length || j < y.length) {
@@ -96,6 +81,39 @@ export function unifiedDiff(before: string, after: string): string {
       ops.push({ tag: '-', line: x[i] as string })
       i++
     }
+  }
+  return ops
+}
+
+/** A unified line diff (3 lines of context) of `before` to `after`; empty when they are equal. */
+export function unifiedDiff(before: string, after: string): string {
+  const a = before.split('\n')
+  const b = after.split('\n')
+  let head = 0
+  while (head < a.length && head < b.length && a[head] === b[head]) {
+    head++
+  }
+  let tail = 0
+  while (tail < a.length - head && tail < b.length - head && a.at(-1 - tail) === b.at(-1 - tail)) {
+    tail++
+  }
+  const x = a.slice(head, a.length - tail)
+  const y = b.slice(head, b.length - tail)
+  if (x.length === 0 && y.length === 0) {
+    return ''
+  }
+  const ops: { tag: ' ' | '-' | '+'; line: string }[] = a
+    .slice(0, head)
+    .map((line) => ({ tag: ' ' as const, line }))
+  if (x.length * y.length > MAX_LCS_CELLS) {
+    for (const line of x) {
+      ops.push({ tag: '-', line })
+    }
+    for (const line of y) {
+      ops.push({ tag: '+', line })
+    }
+  } else {
+    ops.push(...middleOps(x, y))
   }
   for (const line of a.slice(a.length - tail)) {
     ops.push({ tag: ' ', line })
