@@ -1,15 +1,18 @@
 /** The config files on disk for the config UI: reading, the line diff, history and the atomic save. */
 import { randomBytes } from 'node:crypto'
 import {
+  closeSync,
   copyFileSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
+  writeSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { configFilesSha256, fragmentFiles } from './configSources.ts'
@@ -284,7 +287,15 @@ export function saveConfig(
   }
   const temp = join(dirname(env.configFile), `.config.toml.tmp-${randomBytes(6).toString('hex')}`)
   mkdirSync(dirname(env.configFile), { recursive: true })
-  writeFileSync(temp, text)
+  // The file can carry configsvc.password_hash, so the replacement keeps the owner's mode and is durable before the rename.
+  const mode = existsSync(env.configFile) ? statSync(env.configFile).mode & 0o777 : 0o600
+  const fd = openSync(temp, 'w', mode)
+  try {
+    writeSync(fd, text)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
   renameSync(temp, env.configFile)
   return {
     ok: true,
