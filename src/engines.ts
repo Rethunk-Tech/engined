@@ -283,6 +283,14 @@ export class EngineRegistry {
     return this.byId.get(id)?.spec.spec
   }
 
+  private entryOrThrow(id: string): Entry {
+    const entry = this.byId.get(id)
+    if (!entry) {
+      throw new Error(`unknown engine "${id}"`)
+    }
+    return entry
+  }
+
   /** Sync accessor: reports the lifecycle's cached state — no image probe, no keyring lookup. */
   get(id: string): EngineStatus | undefined {
     const entry = this.byId.get(id)
@@ -308,10 +316,7 @@ export class EngineRegistry {
     model?: string,
     opts?: { lease?: boolean },
   ): Promise<EngineStatus & { launched: boolean }> {
-    const entry = this.byId.get(id)
-    if (!entry) {
-      throw new Error(`unknown engine "${id}"`)
-    }
+    const entry = this.entryOrThrow(id)
     // Listed by `GET /engined/v1/engines` and startable are different things: an
     // operator can see it is off, and starting it is still the config edit.
     if (entry.engine.disabled) {
@@ -408,10 +413,7 @@ export class EngineRegistry {
    * reports the same state, so a consumer never has to check first.
    */
   async stop(id: string): Promise<EngineStatus> {
-    const entry = this.byId.get(id)
-    if (!entry) {
-      throw new Error(`unknown engine "${id}"`)
-    }
+    const entry = this.entryOrThrow(id)
     if (isContainerSpec(entry.spec.spec)) {
       this.comfy.forget(id)
       await this.lifecycle.stop(id)
@@ -426,10 +428,7 @@ export class EngineRegistry {
    * could want back.
    */
   async hold(id: string, seconds: number): Promise<EngineStatus> {
-    const entry = this.byId.get(id)
-    if (!entry) {
-      throw new Error(`unknown engine "${id}"`)
-    }
+    const entry = this.entryOrThrow(id)
     if (!isContainerSpec(entry.spec.spec)) {
       throw new Error(`engine "${id}" runs no container, so there is nothing to hold`)
     }
@@ -440,10 +439,7 @@ export class EngineRegistry {
 
   /** Ends a hold early. Idempotent, because the state the caller wants is "not held" either way. */
   unhold(id: string): Promise<EngineStatus> {
-    const entry = this.byId.get(id)
-    if (!entry) {
-      throw new Error(`unknown engine "${id}"`)
-    }
+    const entry = this.entryOrThrow(id)
     this.lifecycle.unhold(id)
     return this.statusFor(entry)
   }

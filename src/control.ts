@@ -250,36 +250,31 @@ export function holdSeconds(url: URL): number {
  * which is the trade it exists to make: a caller told "held" retries, where an
  * OOM takes the box and everything else running on it.
  */
-export async function handleHold(
-  registry: EngineRegistry,
-  id: string,
-  url: URL,
-): Promise<Response> {
+export function handleHold(registry: EngineRegistry, id: string, url: URL): Promise<Response> {
   const seconds = holdSeconds(url)
-  try {
-    return Response.json(await registry.hold(id, seconds))
-  } catch (err) {
-    return jsonError(
-      err instanceof StopFailedError ? STATUS_BAD_GATEWAY : STATUS_NOT_FOUND,
-      errMessage(err),
-    )
-  }
+  return answer(
+    () => registry.hold(id, seconds),
+    (err) => (err instanceof StopFailedError ? STATUS_BAD_GATEWAY : STATUS_NOT_FOUND),
+  )
 }
 
 /** `POST /engined/v1/engines/<id>/unhold`: ends a hold early rather than waiting out its TTL. */
-export async function handleUnhold(registry: EngineRegistry, id: string): Promise<Response> {
-  try {
-    return Response.json(await registry.unhold(id))
-  } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err))
-  }
+export function handleUnhold(registry: EngineRegistry, id: string): Promise<Response> {
+  return answer(() => registry.unhold(id))
 }
 
-export async function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
+export function handleStop(registry: EngineRegistry, id: string): Promise<Response> {
+  return answer(() => registry.stop(id))
+}
+
+async function answer(
+  work: () => Promise<unknown>,
+  status: (err: unknown) => number = () => STATUS_NOT_FOUND,
+): Promise<Response> {
   try {
-    return Response.json(await registry.stop(id))
+    return Response.json(await work())
   } catch (err) {
-    return jsonError(STATUS_NOT_FOUND, errMessage(err))
+    return jsonError(status(err), errMessage(err))
   }
 }
 
