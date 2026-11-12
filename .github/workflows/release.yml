@@ -79,13 +79,12 @@ jobs:
           bun dist/main.js completion bash >"$assets/engined.bash"
           bun dist/main.js completion zsh >"$assets/_engined"
           bun dist/main.js completion fish >"$assets/engined.fish"
-          bun dist/main.js completion pwsh >"$assets/engined.ps1"
           bun dist/main.js man >"$assets/engined.1"
-          for f in engined.bash _engined engined.fish engined.ps1 engined.1; do
+          for f in engined.bash _engined engined.fish engined.1; do
             test -s "$assets/$f" || { echo "missing generated asset: $f"; exit 1; }
           done
           tar -czf engined-completions-man.tar.gz -C "$assets" \
-            engined.bash _engined engined.fish engined.ps1 engined.1
+            engined.bash _engined engined.fish engined.1
           sha256sum engined-completions-man.tar.gz > engined-completions-man.tar.gz.sha256
 
       - name: Checksums

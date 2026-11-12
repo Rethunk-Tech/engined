@@ -73,7 +73,7 @@ When Docker is on `PATH`, install also enables `engined-tls.service`: a
 `engined-tls` container running `deploy/Caddyfile.cursor` so the Cursor door
 can speak TLS. See [docs/security-model.md § Anyone who reaches the door](docs/security-model.md#anyone-who-reaches-the-door-has-all-of-it).
 
-Completions (bash, zsh, fish, PowerShell) and a man page are
+Completions (bash, zsh, fish) and a man page are
 `engined-completions-man.tar.gz`:
 
 ```bash
@@ -102,10 +102,6 @@ fpath+=(~/.local/share/zsh/site-functions)
 
 ```fish
 install -Dm644 /tmp/engined-assets/engined.fish ~/.config/fish/completions/engined.fish
-```
-
-```powershell
-Add-Content $PROFILE '. /tmp/engined-assets/engined.ps1'
 ```
 
 A clone install puts no `engined` on `PATH`; the commands under Operate run the installed bundle, so

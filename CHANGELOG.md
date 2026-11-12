@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.2.15 - 2026-11-12
+## Unreleased
 
+- The release workflow builds its completions archive again: it stopped asking the CLI for a PowerShell completion, which the CLI no longer generates (v0.2.15 was tagged but never released for this reason).
 - The agent version proof fetches into a private Bun cache and moves only the new pin into the shared cache after every probe passes (discarded on failure), so a probed agent can no longer write to the other pins the shared cache holds.
 - Agentic launches no longer run a workdir's name as shell: a directory named with `$(...)` or quotes is opened as a path, and workdirs containing spaces launch again.
 - Launch-home cleanup survives an agent that `chmod 000`s a directory under its home: the home is reopened with `chmod -R u+rwX` and removed again, a remaining failure is logged in one line, and the launch's own cleanup still runs.
