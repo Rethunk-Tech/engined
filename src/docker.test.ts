@@ -696,12 +696,12 @@ test('idle-stop failure is recorded as last_error, not thrown, the container sta
     if (stopCalls.length >= n) {
       return Promise.resolve()
     }
-    return new Promise((resolve) => {
+    return new Promise((done) => {
       const prev = onStop
       onStop = () => {
         prev()
         if (stopCalls.length >= n) {
-          resolve()
+          done()
         }
       }
     })
