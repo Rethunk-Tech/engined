@@ -175,6 +175,7 @@ function gitdirPointsAtWorkdir(gitDir: string, workdir: string): boolean {
  * masked home. `git log` inside the sandbox needs both. A `.git` directory
  * is inside the workdir already, so it adds nothing. A crafted pointer is
  * ignored unless git's own `gitdir` backlink names this workdir's `.git`.
+ * Both dirs are returned symlink-resolved, so the path checked is the path bound.
  */
 export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_HOME): string[] {
   let pointer: string
@@ -187,13 +188,13 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
   if (named === undefined) {
     return []
   }
-  const gitDir = resolve(workdir, named)
+  const gitDir = resolvedPath(resolve(workdir, named))
   if (!gitdirPointsAtWorkdir(gitDir, workdir)) {
     return []
   }
   let commonDir: string | undefined
   try {
-    commonDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim())
+    commonDir = resolvedPath(resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim()))
   } catch {
     // A worktree git dir without commondir is still bound on its own.
   }

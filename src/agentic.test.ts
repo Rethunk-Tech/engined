@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -948,3 +955,28 @@ function requireEnv(env: Record<string, string | undefined>, key: string): strin
   }
   return value
 }
+
+test('runAgentic: a symlinked workdir is bound and used as cwd by its resolved path, so a flipped link cannot redirect the bind', async () => {
+  const real = mkdtempSync(join(TEST_ROOT, 'real-workdir-'))
+  const link = join(TEST_ROOT, `link-${crypto.randomUUID()}`)
+  symlinkSync(real, link)
+  const { spawn, calls } = fakeOkSpawn()
+
+  await runAgenticFixture(spawn, { workdir: link })
+
+  const [argv, opts] = calls[0] as [string[], { cwd: string }]
+  expect(opts.cwd).toBe(realpathSync(real))
+  expect(argv).toContain(realpathSync(real))
+  expect(argv).not.toContain(link)
+})
+
+test('runAgentic: a symlink to a runtime directory is refused by what it resolves to', async () => {
+  const link = join(TEST_ROOT, `run-link-${crypto.randomUUID()}`)
+  symlinkSync('/run', link)
+  const { spawn, calls } = fakeOkSpawn()
+
+  const result = await runAgenticFixture(spawn, { workdir: link })
+
+  expect(result.status).toBe(400)
+  expect(calls).toHaveLength(0)
+})

@@ -20,7 +20,7 @@
  * agent's own parser decides success.
  */
 
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import {
@@ -450,8 +450,11 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
+  // Resolved once: the check, the bwrap bind and the child's cwd all take this exact string, so a symlink flipped after the check cannot change what gets bound.
+  let workdir: string
   try {
-    if (!statSync(input.workdir).isDirectory()) {
+    workdir = realpathSync(input.workdir)
+    if (!statSync(workdir).isDirectory()) {
       throw new Error('not a directory')
     }
   } catch {
@@ -462,7 +465,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
-  const sensitive = workdirForbidden(input.workdir)
+  const sensitive = workdirForbidden(workdir)
   if (sensitive !== undefined) {
     return {
       status: STATUS_BAD_REQUEST,
@@ -522,7 +525,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
   let sandboxCleanup: (() => void) | undefined
   try {
     const sandboxed = applySandboxFloor(agent, {
-      workdir: input.workdir,
+      workdir,
       argv,
       env,
       bwrapOverride: input.bwrap,
@@ -552,7 +555,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       }
     }
     Object.assign(env, input.extraEnv)
-    return await spawnAndParse(agent, { argv, env, workdir: input.workdir }, input)
+    return await spawnAndParse(agent, { argv, env, workdir }, input)
   } finally {
     sandboxCleanup?.()
     configured.cleanup?.()
