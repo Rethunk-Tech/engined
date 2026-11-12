@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Config UI login: concurrent wrong passwords count against the limit before the hash check, the minted sign-in token works for one exchange, and loopback token logins are not rate limited so a local process cannot lock the operator out.
+- Config UI: `/api/diff` replaces a differing block whole past 4M table cells instead of exhausting memory, edit paths refuse `__proto__`, `constructor` and `prototype`, saving keeps `config.toml`'s mode and fsyncs before the rename, secret store and clear accept only items the saved config names, and a mixed-case `[configsvc] host` is lowercased.
 - The llama preset INI writes a route's `filename` normalised, and refuses a line break, an absolute path or a `..` escape.
 - GGUF metadata reads refuse an array claiming more elements than the file holds, skip fixed-size arrays in one step, and cap array nesting at 4, so a crafted file cannot stall the loop.
 - Whisper and piper weight downloads pin a Hugging Face revision, check a sha256, and land via a `.part` rename, so a truncated or swapped file is never taken as present.
