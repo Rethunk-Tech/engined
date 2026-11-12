@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.17 - 2026-11-12
 
 - An agentic launch on a box without `pasta` (package `passt`) is refused with a 503 naming the package, as a launch without `bwrap` is: it no longer runs in the host network namespace, where host loopback services and the X11 socket were reachable.
 
