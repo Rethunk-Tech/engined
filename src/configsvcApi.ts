@@ -159,7 +159,11 @@ function validate(candidate: string, deps: ConfigsvcDeps): Response {
   })
 }
 
-type ApiArgs = [req: Request, deps: ConfigsvcDeps, info: RequestInfo]
+interface ApiArgs {
+  req: Request
+  deps: ConfigsvcDeps
+  info: RequestInfo
+}
 type BodyHandler = (
   body: Record<string, unknown>,
   deps: ConfigsvcDeps,
@@ -168,7 +172,7 @@ type BodyHandler = (
 
 /** A POST route whose body must be a JSON object. */
 function withBody(handler: BodyHandler): Route<ApiArgs>['handle'] {
-  return async (_, req, deps, info) => {
+  return async (_, { req, deps, info }) => {
     const body = await readJson(req)
     if (body instanceof Response) {
       return body
@@ -199,7 +203,7 @@ function withCandidate(
 const getJson = (path: string, make: (deps: ConfigsvcDeps) => unknown): Route<ApiArgs> => ({
   methods: ['GET'],
   match: exactPath(path),
-  handle: (_, _req, deps) => Response.json(make(deps)),
+  handle: (_, { deps }) => Response.json(make(deps)),
 })
 
 const postRoute = (path: string, handle: Route<ApiArgs>['handle']): Route<ApiArgs> => ({
@@ -247,7 +251,7 @@ const CONFIG_ROUTES: Route<ApiArgs>[] = [
   {
     methods: ['GET'],
     match: pathPattern(HISTORY_ENTRY_RE),
-    handle: ([entry = ''], _req, deps) => historyEntry(decodeURIComponent(entry), deps),
+    handle: ([entry = ''], { deps }) => historyEntry(decodeURIComponent(entry), deps),
   },
 ]
 
@@ -257,7 +261,7 @@ export function configApi(
   deps: ConfigsvcDeps,
   info: RequestInfo,
 ): Response | Promise<Response> | undefined {
-  const routed = dispatch(CONFIG_ROUTES, req.method, path, req, deps, info)
+  const routed = dispatch(CONFIG_ROUTES, req.method, path, { req, deps, info })
   if (routed !== undefined) {
     return routed
   }

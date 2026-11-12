@@ -101,47 +101,61 @@ const EXTRAS_RE = engineVerbRe('(tokenize|apply-template)')
 
 export type { Door }
 
-type GetArgs = [ctx: DoorContext, url: URL, fault: ConfigFault | undefined, signal: AbortSignal]
-type PostArgs = [ctx: DoorContext, req: Request, pathname: string, launchScoped: boolean]
+interface GetArgs {
+  ctx: DoorContext
+  url: URL
+  fault: ConfigFault | undefined
+  signal: AbortSignal
+}
+interface PostArgs {
+  ctx: DoorContext
+  req: Request
+  pathname: string
+  launchScoped: boolean
+}
 
 const MODEL_PREFIX = `${OPENAI_MODELS_PATH}/`
 
 const GET_ROUTES: Route<GetArgs>[] = [
-  { methods: GET_HEAD, match: exactPath(OPENAI_MODELS_PATH), handle: (_, ctx) => modelsMenu(ctx) },
+  {
+    methods: GET_HEAD,
+    match: exactPath(OPENAI_MODELS_PATH),
+    handle: (_, { ctx }) => modelsMenu(ctx),
+  },
   {
     methods: GET_HEAD,
     match: (p) => (p.startsWith(MODEL_PREFIX) ? [p.slice(MODEL_PREFIX.length)] : undefined),
-    handle: ([id = ''], ctx) => modelById(ctx, decodeURIComponent(id)),
+    handle: ([id = ''], { ctx }) => modelById(ctx, decodeURIComponent(id)),
   },
   {
     methods: GET_HEAD,
     match: exactPath(ENGINED_ENGINES_PATH),
-    handle: (_, ctx, _url, fault) => handleEngines(ctx, fault),
+    handle: (_, { ctx, fault }) => handleEngines(ctx, fault),
   },
   {
     methods: GET_HEAD,
     match: exactPath(`${ENGINED_ENGINES_PATH}/events`),
-    handle: (_, ctx, _url, _fault, signal) => handleEngineEvents(ctx, signal),
+    handle: (_, { ctx, signal }) => handleEngineEvents(ctx, signal),
   },
   {
     methods: GET_HEAD,
     match: exactPath(USAGE_PATH),
-    handle: (_, ctx, url) => handleUsage(ctx, url),
+    handle: (_, { ctx, url }) => handleUsage(ctx, url),
   },
   {
     methods: GET_HEAD,
     match: pathPattern(LOGS_RE),
-    handle: ([id = ''], ctx, url) => handleLogs(ctx.registry, id, url),
+    handle: ([id = ''], { ctx, url }) => handleLogs(ctx.registry, id, url),
   },
   {
     methods: GET_HEAD,
     match: pathPattern(RESOURCES_RE),
-    handle: ([id = ''], ctx) => handleResources(ctx.registry, id),
+    handle: ([id = ''], { ctx }) => handleResources(ctx.registry, id),
   },
   {
     methods: GET_HEAD,
     match: pathPattern(IMAGE_GET_RE),
-    handle: (_, _ctx, url) => responseForImageGet(url.pathname),
+    handle: (_, { url }) => responseForImageGet(url.pathname),
   },
 ]
 
@@ -149,48 +163,48 @@ const POST_ROUTES: Route<PostArgs>[] = [
   {
     methods: ['POST'],
     match: (p) => (isCursorPath(p) ? [] : undefined),
-    handle: (_, ctx, _req, pathname) => handleCursor(ctx, pathname),
+    handle: (_, { ctx, pathname }) => handleCursor(ctx, pathname),
   },
   {
     methods: ['POST'],
     match: exactPath(START_PATH),
-    handle: (_, ctx, req) => handleStart(ctx, req),
+    handle: (_, { ctx, req }) => handleStart(ctx, req),
   },
   {
     methods: ['POST'],
     match: exactPath(PROBES_PATH),
-    handle: (_, ctx, req) => handleProbes(ctx, req),
+    handle: (_, { ctx, req }) => handleProbes(ctx, req),
   },
   {
     methods: ['POST'],
     match: exactPath(TOKENIZE_PATH),
-    handle: (_, ctx, req) => handleTokenizeRoute(ctx, req),
+    handle: (_, { ctx, req }) => handleTokenizeRoute(ctx, req),
   },
   {
     methods: ['POST'],
     match: exactPath(DETOKENIZE_PATH),
-    handle: (_, ctx, req) => handleDetokenizeRoute(ctx, req),
+    handle: (_, { ctx, req }) => handleDetokenizeRoute(ctx, req),
   },
   {
     methods: ['POST'],
     match: (p) => (isEngineVerbPath(p) ? [] : undefined),
-    handle: (_, ctx, req, pathname) => routeEngineVerb(ctx, req, pathname),
+    handle: (_, { ctx, req, pathname }) => routeEngineVerb(ctx, req, pathname),
   },
   {
     methods: ['POST'],
     match: exactPath(VOICE_UPLOAD_PATH),
-    handle: (_, _ctx, req) => handleVoiceUpload(req),
+    handle: (_, { req }) => handleVoiceUpload(req),
   },
   {
     methods: ['POST'],
     match: (p) => (CONTENT_ENDPOINTS.has(p) ? [] : undefined),
-    handle: (_, ctx, req, pathname, launchScoped) =>
+    handle: (_, { ctx, req, pathname, launchScoped }) =>
       handleContent(ctx, req, pathname, launchScoped),
   },
   {
     methods: ['POST'],
     match: pathPattern(EXTRAS_RE),
-    handle: ([id, verb], ctx, req) =>
+    handle: ([id, verb], { ctx, req }) =>
       id === undefined || verb === undefined ? undefined : handleExtras(ctx, req, id, verb),
   },
 ]
@@ -236,17 +250,14 @@ function routeRequest(
   }
   let matched: Response | Promise<Response> | undefined
   if (req.method === 'GET' || req.method === 'HEAD') {
-    matched = dispatch(
-      GET_ROUTES,
-      req.method,
-      pathname,
+    matched = dispatch(GET_ROUTES, req.method, pathname, {
       ctx,
-      new URL(pathname + url.search, url),
+      url: new URL(pathname + url.search, url),
       fault,
-      req.signal,
-    )
+      signal: req.signal,
+    })
   } else if (req.method === 'POST') {
-    matched = dispatch(POST_ROUTES, req.method, pathname, ctx, req, pathname, launchScoped)
+    matched = dispatch(POST_ROUTES, req.method, pathname, { ctx, req, pathname, launchScoped })
   }
   if (matched !== undefined) {
     return req.method === 'HEAD' ? headOf(matched) : matched

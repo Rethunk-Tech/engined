@@ -351,7 +351,10 @@ function specText(id: string, deps: ConfigsvcDeps): Response {
   }
 }
 
-type LiveArgs = [req: Request, deps: ConfigsvcDeps]
+interface LiveArgs {
+  req: Request
+  deps: ConfigsvcDeps
+}
 
 const get = (
   path: string,
@@ -359,7 +362,7 @@ const get = (
 ): Route<LiveArgs> => ({
   methods: ['GET'],
   match: exactPath(path),
-  handle: (_, req, deps) => handle(deps, req),
+  handle: (_, { req, deps }) => handle(deps, req),
 })
 
 const proxiedGet = (path: string, target: string): Route<LiveArgs> =>
@@ -373,7 +376,7 @@ const post = (
 ): Route<LiveArgs> => ({
   methods: ['POST'],
   match: exactPath(path),
-  handle: (_, req, deps) => handle(deps, req),
+  handle: (_, { req, deps }) => handle(deps, req),
 })
 
 const LIVE_ROUTES: Route<LiveArgs>[] = [
@@ -383,7 +386,7 @@ const LIVE_ROUTES: Route<LiveArgs>[] = [
   {
     methods: ['GET'],
     match: pathPattern(ENGINE_VERB_RE),
-    handle: ([verb = '', id = ''], req, deps) =>
+    handle: ([verb = '', id = ''], { req, deps }) =>
       proxy(
         deps,
         `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/${verb}${new URL(req.url).search}`,
@@ -393,7 +396,7 @@ const LIVE_ROUTES: Route<LiveArgs>[] = [
   {
     methods: ['GET'],
     match: pathPattern(SPEC_RE),
-    handle: ([id = ''], _req, deps) => specText(decodeURIComponent(id), deps),
+    handle: ([id = ''], { deps }) => specText(decodeURIComponent(id), deps),
   },
   get('/api/doctor', (deps) => deps.doctor().then((report) => Response.json(report))),
   get('/api/models', (deps) => models(deps)),
@@ -403,7 +406,7 @@ const LIVE_ROUTES: Route<LiveArgs>[] = [
   {
     methods: ['POST'],
     match: pathPattern(OBTAIN_RE),
-    handle: ([id = ''], req, deps) =>
+    handle: ([id = ''], { req, deps }) =>
       proxy(deps, `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/obtain`, {
         method: 'POST',
         signal: req.signal,
@@ -421,7 +424,7 @@ export function liveApi(
   path: string,
   deps: ConfigsvcDeps,
 ): Response | Promise<Response> | undefined {
-  const routed = dispatch(LIVE_ROUTES, req.method, path, req, deps)
+  const routed = dispatch(LIVE_ROUTES, req.method, path, { req, deps })
   if (routed !== undefined) {
     return routed
   }
