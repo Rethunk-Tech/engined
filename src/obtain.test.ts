@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createDoor } from './main.ts'
 import { BUNX, config, engine, makeTestRoot, writeEngineSpec } from './test-support.ts'
@@ -70,4 +70,31 @@ test('obtain streams the missing artifact commands, skips what is present, and r
   expect((await door.fetch(post('slow'))).status).toBe(409)
   expect(await first.text()).toContain('"exitCode":0')
   expect((await door.fetch(post('slow'))).status).toBe(200)
+})
+
+const FETCH = join(import.meta.dir, '..', 'engines', 'whisper', 'fetch.sh')
+
+test('fetch.sh leaves the destination only for bytes matching the pinned digest', () => {
+  const dir = mkdtempSync(join(TEST_ROOT, 'fetch-'))
+  const src = join(dir, 'src.bin')
+  Bun.write(src, 'weights')
+  const sha = new Bun.CryptoHasher('sha256').update('weights').digest('hex')
+  const run = (dest: string, digest: string) =>
+    Bun.spawnSync(['sh', FETCH, dest, digest, `file://${src}`], { stderr: 'pipe' })
+
+  const bad = run(join(dir, 'bad.bin'), '0'.repeat(64))
+  expect(bad.exitCode).not.toBe(0)
+  expect(existsSync(join(dir, 'bad.bin'))).toBe(false)
+  expect(existsSync(join(dir, 'bad.bin.part'))).toBe(false)
+
+  expect(run(join(dir, 'ok.bin'), sha).exitCode).toBe(0)
+  expect(readFileSync(join(dir, 'ok.bin'), 'utf8')).toBe('weights')
+})
+
+test('shipped weight downloads pin a revision', () => {
+  for (const id of ['whisper', 'piper']) {
+    expect(
+      readFileSync(join(import.meta.dir, '..', 'engines', id, 'spec.toml'), 'utf8'),
+    ).not.toMatch(/^obtain = .*resolve\/main\//m)
+  }
 })

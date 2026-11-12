@@ -56,24 +56,44 @@ function loadShipped(overrides: Partial<EngineEntry> = {}): ReturnType<typeof lo
 }
 
 /** What whisper's shipped `[[artifact]]` rows resolve to with `models_dir = "/data/models"`. */
-const weights = (file: string) => ({
+const weights = (file: string, sha: string) => ({
   path: `/models/${file}`,
   route_file: true as const,
-  obtain: `curl -fL -o /data/models/${file} https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${file}`,
+  obtain: `sh ${join(ENGINES_ROOT, 'whisper')}/fetch.sh /data/models/${file} ${sha} https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/${file}`,
 })
 
 const WHISPER_ARTIFACTS = [
-  weights('ggml-medium.en-q8_0.bin'),
-  weights('ggml-small.en-q8_0.bin'),
-  weights('ggml-medium-q8_0.bin'),
-  weights('ggml-large-v3-turbo-q8_0.bin'),
-  weights('ggml-small.en-q5_1.bin'),
-  weights('ggml-medium.en-q5_0.bin'),
-  weights('ggml-large-v3-turbo-q5_0.bin'),
+  weights(
+    'ggml-medium.en-q8_0.bin',
+    '43fa2cd084de5a04399a896a9a7a786064e221365c01700cea4666005218f11c',
+  ),
+  weights(
+    'ggml-small.en-q8_0.bin',
+    '67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067',
+  ),
+  weights(
+    'ggml-medium-q8_0.bin',
+    '42a1ffcbe4167d224232443396968db4d02d4e8e87e213d3ee2e03095dea6502',
+  ),
+  weights(
+    'ggml-large-v3-turbo-q8_0.bin',
+    '317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1',
+  ),
+  weights(
+    'ggml-small.en-q5_1.bin',
+    'bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30',
+  ),
+  weights(
+    'ggml-medium.en-q5_0.bin',
+    '76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0',
+  ),
+  weights(
+    'ggml-large-v3-turbo-q5_0.bin',
+    '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2',
+  ),
   {
     path: '/models/ggml-silero-v6.2.0.bin',
-    obtain:
-      'curl -fL -o /data/models/ggml-silero-v6.2.0.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin',
+    obtain: `sh ${join(ENGINES_ROOT, 'whisper')}/fetch.sh /data/models/ggml-silero-v6.2.0.bin 2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987 https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin`,
   },
 ]
 

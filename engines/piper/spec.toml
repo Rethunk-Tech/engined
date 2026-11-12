@@ -37,7 +37,7 @@ optional = true
 [[artifact]]
 path = "/models/en_US-lessac-medium.onnx"
 route_file = true
-obtain = "curl -fL -o {models_dir}/en_US-lessac-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx && curl -fL -o {models_dir}/en_US-lessac-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+obtain = "sh {spec_dir}/fetch.sh {models_dir}/en_US-lessac-medium.onnx 5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx && sh {spec_dir}/fetch.sh {models_dir}/en_US-lessac-medium.onnx.json efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0 https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
 
 # app.py's /health is a static {"status": "ok"} that never inspects the loaded
 # voice -- but PiperVoice.load runs at module import, before uvicorn creates
