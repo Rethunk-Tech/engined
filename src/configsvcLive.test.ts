@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ConfigsvcDeps } from './configsvcApi.ts'
 import { liveApi } from './configsvcLive.ts'
 import {
@@ -6,10 +8,27 @@ import {
   CONTENT_ENDPOINT_IMAGES,
   CONTENT_ENDPOINT_TRANSLATIONS,
 } from './routeServes.ts'
+import { ENGINES_ROOT, makeTestRoot } from './test-support.ts'
 
 const asFetch = (
   fn: (input: string | Request | URL, init?: RequestInit) => Promise<Response>,
 ): typeof fetch => Object.assign(fn, { preconnect: fetch.preconnect })
+
+const TEST_ROOT = makeTestRoot('engined-live-')
+
+function configWithSecret(): string {
+  const file = join(mkdtempSync(join(TEST_ROOT, 'cfg-')), 'config.toml')
+  writeFileSync(
+    file,
+    `[[upstream]]
+id = "openai"
+base_url = "https://api.openai.com/v1"
+secret = { service = "openai-api", username = "default", header = "authorization" }
+egress = "remote"
+`,
+  )
+  return file
+}
 
 function deps(over: Partial<ConfigsvcDeps>): ConfigsvcDeps {
   return {
@@ -96,6 +115,8 @@ test('a skip names the served paths unless they are image verbs', async () => {
 test('POST /api/secret/clear drops the named item and refuses a body without both names', async () => {
   const cleared: string[] = []
   const env = deps({
+    configFile: configWithSecret(),
+    enginesRoot: ENGINES_ROOT,
     secrets: {
       present: async () => true,
       store: async () => ({ ok: true }),
@@ -122,12 +143,24 @@ test('POST /api/secret/clear drops the named item and refuses a body without bot
     new Request('http://ui/api/secret/clear', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ service: 'engined', username: 'openai' }),
+      body: JSON.stringify({ service: 'openai-api', username: 'default' }),
     }),
     '/api/secret/clear',
     env,
   )
   expect(ok).toBeInstanceOf(Response)
   expect((ok as Response).status).toBe(200)
-  expect(cleared).toEqual(['engined:openai'])
+  expect(cleared).toEqual(['openai-api:default'])
+
+  const unnamed = await liveApi(
+    new Request('http://ui/api/secret/clear', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ service: 'gh', username: 'token' }),
+    }),
+    '/api/secret/clear',
+    env,
+  )
+  expect((unnamed as Response).status).toBe(403)
+  expect(cleared).toEqual(['openai-api:default'])
 })

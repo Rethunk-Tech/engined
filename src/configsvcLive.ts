@@ -10,6 +10,7 @@ import {
   methodNotAllowed,
   STATUS_BAD_GATEWAY,
   STATUS_BAD_REQUEST,
+  STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
   STATUS_UNPROCESSABLE,
 } from './http.ts'
@@ -133,6 +134,25 @@ async function secrets(deps: ConfigsvcDeps): Promise<Response> {
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== ''
 
+/** Only a keyring item the saved config names may be written or cleared, so the UI cannot be pointed at any other login item. */
+function refuseUnnamedSecret(
+  deps: ConfigsvcDeps,
+  service: string,
+  username: string,
+): Response | undefined {
+  const config = savedConfig(deps)
+  if (config instanceof Response) {
+    return config
+  }
+  const named = [
+    ...config.upstreams.flatMap((u) => (u.secret === undefined ? [] : [u.secret])),
+    ...(config.potluck === undefined ? [] : [config.potluck.secret]),
+  ]
+  return named.some((ref) => ref.service === service && ref.username === username)
+    ? undefined
+    : jsonError(STATUS_FORBIDDEN, `the saved config names no secret "${service}"/"${username}"`)
+}
+
 async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response> {
   const body = await readJson(req)
   if (body instanceof Response) {
@@ -140,6 +160,10 @@ async function storeSecret(req: Request, deps: ConfigsvcDeps): Promise<Response>
   }
   if (!(body && nonEmpty(body.service) && nonEmpty(body.username) && nonEmpty(body.value))) {
     return jsonError(STATUS_BAD_REQUEST, '"service", "username" and "value" are required strings')
+  }
+  const refused = refuseUnnamedSecret(deps, body.service, body.username)
+  if (refused) {
+    return refused
   }
   const stored = await deps.secrets.store(body.service, body.username, body.value)
   return Response.json(stored.ok ? { ok: true } : { ok: false, error: stored.error }, {
@@ -154,6 +178,10 @@ async function clearSecret(req: Request, deps: ConfigsvcDeps): Promise<Response>
   }
   if (!(body && nonEmpty(body.service) && nonEmpty(body.username))) {
     return jsonError(STATUS_BAD_REQUEST, '"service" and "username" are required strings')
+  }
+  const refused = refuseUnnamedSecret(deps, body.service, body.username)
+  if (refused) {
+    return refused
   }
   const cleared = await deps.secrets.clear(body.service, body.username)
   return Response.json(cleared.ok ? { ok: true } : { ok: false, error: cleared.error }, {
