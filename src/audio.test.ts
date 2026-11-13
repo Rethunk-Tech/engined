@@ -10,7 +10,7 @@ import { buildRunArgs } from './dockerArgs.ts'
 import type { DoorContext } from './doorContext.ts'
 import { EngineRegistry } from './engines.ts'
 import type { Exec, ExecResult } from './exec.ts'
-import { errorMessageOf, jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
+import { errorMessageOf, type HttpClient, jsonErrorBody, STATUS_BAD_GATEWAY } from './http.ts'
 import { ProbeStore } from './probeStore.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS } from './routeServes.ts'
 import { loadSpec } from './spec.ts'
@@ -1134,6 +1134,40 @@ test('a transcription fetch that refuses the connection is 503', async () => {
   )
   expect(result.status).toBe(503)
   expect(JSON.stringify(result.body)).toContain('Unable to connect')
+})
+
+/** A fetch that answers only by failing once its own signal aborts, the way an engine still decoding looks to the door. */
+function fetchUntilAborted(): HttpClient {
+  return (_url, init) =>
+    new Promise((_, reject) => {
+      const fail = () => reject(new Error('aborted'))
+      if (init?.signal?.aborted) {
+        fail()
+      }
+      init?.signal?.addEventListener('abort', fail, { once: true })
+    })
+}
+
+test("a caller's abort reaches the engine fetch, so a decode nobody will read is dropped", async () => {
+  const transcribing = new AbortController()
+  const transcription = handleTranscription(
+    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES },
+    async () => ({ private_url: '127.0.0.1:1' }),
+    fetchUntilAborted(),
+    transcribing.signal,
+  )
+  const speaking = new AbortController()
+  const speech = handleSpeech(
+    { engine: 'piper', input: 'hi' },
+    STUB_START,
+    fetchUntilAborted(),
+    speaking.signal,
+  )
+  transcribing.abort()
+  speaking.abort()
+
+  expect((await transcription).status).toBe(503)
+  expect((await speech).status).toBe(503)
 })
 
 test('a streamed transcription forwards each segment as it lands, ahead of the terminal transcript', async () => {

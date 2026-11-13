@@ -87,6 +87,7 @@ export type AudioAttempt = (
   engineId: string,
   model: string | undefined,
   start: EngineStart,
+  signal: AbortSignal,
 ) => Promise<DoorResponse>
 
 /**
@@ -123,7 +124,7 @@ function audioHopExec(
   { endpoint, attempt }: AudioChain,
   { setContentType, hold }: HopHooks,
 ): HopExec {
-  return async (hop) => {
+  return async (hop, signal) => {
     const dispatch = audioHopRoute(ctx, hop, endpoint)
     if (!dispatch.ok) {
       return { status: STATUS_BAD_GATEWAY, body: jsonErrorBody(STATUS_BAD_GATEWAY, dispatch.error) }
@@ -131,7 +132,7 @@ function audioHopExec(
     const { route } = dispatch
     const leased: AudioLease = { held: false }
     hold(route.engine, leased)
-    const result = await attempt(route.engine, route.model, audioStart(ctx, leased))
+    const result = await attempt(route.engine, route.model, audioStart(ctx, leased), signal)
     setContentType(result.contentType)
     return {
       // A modelless engine (every TTS route, most STT ones) has no separate
@@ -328,7 +329,7 @@ export function handleAudioSpeech(
   )
   // A hop's model is a voice file on an engine whose routes pick one (piper);
   // most TTS routes are modelless and the hop changes only the engine.
-  const attempt: AudioAttempt = (hopEngine, hopModel, start) => {
+  const attempt: AudioAttempt = (hopEngine, hopModel, start, hopSignal) => {
     const speechReq: SpeechRequestBody = {
       engine: hopEngine,
       ...(hopModel === undefined ? {} : { model: hopModel }),
@@ -340,7 +341,7 @@ export function handleAudioSpeech(
       instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
       ...(Object.keys(extra).length > 0 ? { extra } : {}),
     }
-    return handleSpeech(speechReq, start)
+    return handleSpeech(speechReq, start, fetch, hopSignal)
   }
 
   return runAudioChain(ctx, {

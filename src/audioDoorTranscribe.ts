@@ -127,7 +127,7 @@ function uploadRefusal(file: TranscriptionForm['file']): Response | undefined {
  * one streams only if the caller asked for segments as they are decoded.
  */
 function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
-  return (hopEngine, hopModel, start) => {
+  return (hopEngine, hopModel, start, signal) => {
     const common = {
       engine: hopEngine,
       model: hopModel,
@@ -140,7 +140,7 @@ function transcriptionAttempt(form: TranscriptionForm): AudioAttempt {
       form.file instanceof ReadableStream
         ? { ...common, file: form.file, stream: true }
         : { ...common, file: form.file, stream: form.stream }
-    return handleTranscription(transcriptionReq, start)
+    return handleTranscription(transcriptionReq, start, fetch, signal)
   }
 }
 

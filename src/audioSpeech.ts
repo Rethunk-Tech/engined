@@ -164,6 +164,8 @@ export async function handleSpeech(
   req: SpeechRequestBody,
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
+  /** The hop's own: its budget or the caller leaving, either of which ends a synthesis nobody will hear. */
+  signal?: AbortSignal,
 ): Promise<DoorResponse> {
   const invalid = invalidSpeechRequest(req)
   if (invalid) {
@@ -217,6 +219,7 @@ export async function handleSpeech(
   try {
     res = await fetchImpl(`http://${engine.private_url}/v1/tts`, {
       method: 'POST',
+      signal,
       headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
       body: JSON.stringify({
         text,

@@ -290,7 +290,10 @@ export async function handleTranscription(
   req: AnyTranscriptionRequestBody,
   start: EngineStart,
   fetchImpl: HttpClient = fetch,
+  /** The hop's own: its budget or the caller leaving, either of which ends a decode nobody will read. */
+  signal?: AbortSignal,
 ): Promise<DoorResponse> {
+  const send: HttpClient = (url, init) => fetchImpl(url, { ...init, signal })
   const invalid = invalidTranscriptionRequest(req)
   if (invalid) {
     return invalid
@@ -320,7 +323,7 @@ export async function handleTranscription(
       return errorResponse(STATUS_BAD_GATEWAY, `${req.engine} requires a model, and none was named`)
     }
     try {
-      return await transcribeRemote(req, engine.remote, req.model, fetchImpl)
+      return await transcribeRemote(req, engine.remote, req.model, send)
     } catch (err) {
       return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
     }
@@ -333,9 +336,9 @@ export async function handleTranscription(
   }
   try {
     if (liveUpload(req) || req.stream === true) {
-      return await transcribeStreamed(req, engine.private_url, fetchImpl)
+      return await transcribeStreamed(req, engine.private_url, send)
     }
-    return await transcribeLocal(req, engine.private_url, fetchImpl)
+    return await transcribeLocal(req, engine.private_url, send)
   } catch (err) {
     return errorResponse(STATUS_UNAVAILABLE, errMessage(err))
   }
