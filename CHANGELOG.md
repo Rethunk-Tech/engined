@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `engined --prune-config` refuses an `--out` beside the source file, which wrote the pruned fragments over the source's own `config.d`.
+- A llama engine restarted under its router (an operator stop or hold, a crash) takes its `keep_resident` pin and any in-flight lease again, so idle-stop no longer stops a pinned or busy container.
+- `HEAD /engined/v1/engines/events` (and any reader that cancels the stream) unsubscribes from engine state changes instead of leaking a watcher and a keepalive timer per request.
+- A streamed agentic answer whose stream is cancelled, as a stalled reader's is, kills the agent instead of letting the paid run finish for nobody.
+- `POST /engined/v1/detokenize` answers 413 when the text would pass the same 4 Mi-character cap tokenize enforces, rather than building it.
+
 - The comfy websocket bridge closes a caller that stops reading (16 MiB queued) instead of dropping frames, so a lost final message surfaces as a close, and caller frames are capped at 64 KiB.
 - whisper refuses a request body over 256 MiB with 413, and runs at most `WHISPER_MAX_CONCURRENT` (default 2) streaming decodes at once, queueing `WHISPER_MAX_QUEUE` (default 8) more and answering 503 past that; set both with `[engine.env]`.
 - Every engine container runs alone on its own internal network with an isolated gateway, so it can no longer reach the door, the LAN or the internet. Its port is published on `127.0.0.1` by a `socat` proxy sidecar (`engined-<id>.proxy`, `alpine/socat` pinned by digest) exactly as before; start, stop, crash detection and orphan adoption treat the engine, proxy and network as one unit. A running engine from an earlier build has no proxy, so it is replaced on its next start.
