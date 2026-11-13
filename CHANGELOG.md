@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Agent sandboxes refuse to copy a login file that is a symlink, so a planted link can't pull a file from outside the sandbox into it.
+- When the agent binary sits directly in a masked directory or an ancestor of the workdir, the sandbox shows just the binary instead of re-binding that whole directory, which undid the mask and exposed every file it hid.
+- A sandbox whose workdir is a subdirectory of a git repo now shows git that ancestor repo, so `git` works in it.
+- `GET /logs?tail=` with an empty value uses the default tail instead of failing.
+
 ## 0.2.19 - 2026-11-13
 
 - An unhandled door error answers 500 with `internal error (id <uuid>)` instead of the error's message, which could quote internals or prompt text; the journal logs that id with the error's name and stack frames, never its message.
