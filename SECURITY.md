@@ -47,7 +47,7 @@ Releases from the first one after this section landed carry `SHA256SUMS.asc`, a 
 - Fingerprint: `827D 0553 6BF3 3C8F 634E  DBE3 E60A 9B0F 6E3F 276E`
 - Verify: `gpg --import rethunk-release-signing.pub.asc && gpg --verify SHA256SUMS.asc SHA256SUMS`
 
-```
+```text
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 
 mDMEavZr2xYJKwYBBAHaRw8BAQdAuTAn1oKhKC13SOyJMlYmaoGGQtVRyZ5yEpxT
