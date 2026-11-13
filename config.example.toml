@@ -591,6 +591,12 @@ idle_stop_seconds = 1800
 ready_timeout_s = 300                                # whisper.cpp's own model load is slower than a container boot.
 # [engine.args]
 # threads = 8   # CPU threads for VAD and request handling; whisper.cpp's default when unset.
+# Streaming transcriptions each spawn their own whisper-cli with its own GPU copy of
+# the model: at most WHISPER_MAX_CONCURRENT run at once (default 2) and up to
+# WHISPER_MAX_QUEUE more wait (default 8); anything past that is answered 503.
+# [engine.env]
+# WHISPER_MAX_CONCURRENT = "2"
+# WHISPER_MAX_QUEUE = "8"
 
 # Two model-bearing routes on the one engine rather than two engines: same
 # image, same models_dir, differing only by which weights file starts the

@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { startFakeUpstream } from './test-support.ts'
@@ -14,6 +16,8 @@ os.environ["PORT"] = "0"
 import whisper_app
 from http.server import ThreadingHTTPServer
 whisper_app.UPSTREAM = sys.argv[2]
+if len(sys.argv) > 3:
+    whisper_app.BIN_DIR = sys.argv[3]
 whisper_app.SERVER_ARGV = ["--request-path", "", "--inference-path", "/v1/audio/transcriptions"]
 server = ThreadingHTTPServer(("127.0.0.1", 0), whisper_app.Handler)
 print(server.server_address[1], flush=True)
@@ -27,7 +31,11 @@ afterEach(() => {
   }
 })
 
-async function startWrapper(upstreamPort: number): Promise<string> {
+async function startWrapper(
+  upstreamPort: number,
+  limits: Record<string, string> = {},
+  binDir?: string,
+): Promise<string> {
   const proc = Bun.spawn(
     [
       'python3',
@@ -36,8 +44,9 @@ async function startWrapper(upstreamPort: number): Promise<string> {
       HARNESS,
       join(import.meta.dir, '..', 'engines', 'whisper'),
       `127.0.0.1:${upstreamPort}`,
+      ...(binDir === undefined ? [] : [binDir]),
     ],
-    { stdout: 'pipe', stderr: 'ignore' },
+    { stdout: 'pipe', stderr: 'ignore', env: { ...process.env, ...limits } },
   )
   cleanups.push(() => proc.kill())
   const reader = proc.stdout.getReader()
@@ -136,3 +145,70 @@ test.each(['/v1/audio/transcriptions', '/v1/audio/transcriptions/stream'])(
     expect((await done).split('\r\n')[0]).toContain('413')
   },
 )
+
+/** A whisper-cli that records each start and holds until `release` exists, then prints one segment. */
+function fakeCli() {
+  const dir = mkdtempSync(join(tmpdir(), 'fake-cli-'))
+  const started = join(dir, 'started')
+  const release = join(dir, 'release')
+  writeFileSync(started, '')
+  writeFileSync(
+    join(dir, 'whisper-cli'),
+    `#!/bin/sh\necho $$ >> ${started}\nwhile [ ! -e ${release} ]; do sleep 0.05; done\necho '[00:00:00.000 --> 00:00:01.000]   hi'\n`,
+  )
+  chmodSync(join(dir, 'whisper-cli'), 0o755)
+  return {
+    dir,
+    starts: () => readFileSync(started, 'utf8').split('\n').filter(Boolean).length,
+    release: () => writeFileSync(release, ''),
+  }
+}
+
+const streamPost = (wrapper: string) =>
+  fetch(`${wrapper}/v1/audio/transcriptions/stream`, { method: 'POST', body: new Uint8Array(16) })
+
+async function until(cond: () => boolean) {
+  for (let i = 0; i < 200 && !cond(); i++) {
+    await Bun.sleep(25)
+  }
+}
+
+test('a decode past WHISPER_MAX_CONCURRENT waits for a slot instead of starting another whisper-cli', async () => {
+  const cli = fakeCli()
+  const upstream = startUpstream(() => Response.json({ text: 'ok' }))
+  const wrapper = await startWrapper(
+    upstream.port,
+    { WHISPER_MAX_CONCURRENT: '2', WHISPER_MAX_QUEUE: '4' },
+    cli.dir,
+  )
+  const calls = [streamPost(wrapper), streamPost(wrapper), streamPost(wrapper)]
+  await until(() => cli.starts() === 2)
+  await Bun.sleep(400)
+  expect(cli.starts()).toBe(2)
+  cli.release()
+  const bodies = await Promise.all((await Promise.all(calls)).map((r) => r.text()))
+  expect(cli.starts()).toBe(3)
+  for (const body of bodies) {
+    expect(body).toContain('"phase": "done"')
+  }
+})
+
+test('a request past the queue bound is answered 503', async () => {
+  const cli = fakeCli()
+  const upstream = startUpstream(() => Response.json({ text: 'ok' }))
+  const wrapper = await startWrapper(
+    upstream.port,
+    { WHISPER_MAX_CONCURRENT: '1', WHISPER_MAX_QUEUE: '1' },
+    cli.dir,
+  )
+  const running = streamPost(wrapper)
+  await until(() => cli.starts() === 1)
+  const queued = streamPost(wrapper)
+  await Bun.sleep(300)
+  const refused = await streamPost(wrapper)
+  expect(refused.status).toBe(503)
+  expect(await refused.text()).toContain('retry')
+  cli.release()
+  expect((await running).status).toBe(200)
+  expect((await queued).status).toBe(200)
+})

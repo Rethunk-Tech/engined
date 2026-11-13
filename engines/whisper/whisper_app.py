@@ -59,6 +59,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import IO, Iterator, NamedTuple
 from urllib.parse import parse_qs, urlparse
@@ -115,6 +116,31 @@ MAX_WINDOW_SECONDS = 30.0
 MAX_AUDIO_BYTES = 268_435_456
 
 READ_BYTES = 65536
+
+# Every streaming request spawns its own whisper-cli, and each one loads its
+# own copy of the model onto the GPU. Set through `[engine.env]`.
+MAX_CONCURRENT = int(os.environ.get("WHISPER_MAX_CONCURRENT", "2"))
+# Requests allowed to wait for a slot; one past this is answered 503 rather than
+# held open behind a decode that may run for minutes.
+MAX_QUEUE = int(os.environ.get("WHISPER_MAX_QUEUE", "8"))
+SLOTS = threading.Semaphore(MAX_CONCURRENT)
+QUEUE_LOCK = threading.Lock()
+WAITING = 0
+
+
+def _admit() -> bool:
+    """Takes a decode slot, waiting for one if the queue has room."""
+    global WAITING
+    if SLOTS.acquire(blocking=False):
+        return True
+    with QUEUE_LOCK:
+        if WAITING >= MAX_QUEUE:
+            return False
+        WAITING += 1
+    SLOTS.acquire()
+    with QUEUE_LOCK:
+        WAITING -= 1
+    return True
 
 # How often the caller's socket is checked for a hangup while whisper-server
 # decodes. Short enough that an abandoned decode is not measurably longer than
@@ -446,6 +472,18 @@ class Handler(BaseHTTPRequestHandler):
     def _transcribe(self) -> None:
         if self._too_large():
             return
+        if not _admit():
+            self._error(
+                503,
+                f"{MAX_CONCURRENT} transcriptions are running and {MAX_QUEUE} are waiting; retry shortly",
+            )
+            return
+        try:
+            self._transcribe_admitted()
+        finally:
+            SLOTS.release()
+
+    def _transcribe_admitted(self) -> None:
         params = parse_qs(urlparse(self.path).query)
         chunks, live = self._audio_chunks()
         try:

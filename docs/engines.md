@@ -143,6 +143,14 @@ copy of the pinned digest would only be a second thing to keep in step.
 Switching between the two routes is a stop-and-restart, refused with 409
 while a transcription is in flight.
 
+Each streaming request (`POST /v1/audio/transcriptions/stream`) spawns its
+own `whisper-cli`, which loads its own copy of the model. `whisper_app.py`
+therefore runs at most `WHISPER_MAX_CONCURRENT` of them at once (default 2) and
+queues up to `WHISPER_MAX_QUEUE` more (default 8); a request past that is
+answered `503`. Both are container environment, set per engine with
+`[engine.env]`. A request body over 256 MiB (the door's upload limit) is
+refused with `413`.
+
 Which route a consumer addresses is a latency choice, and it is a real
 frontier rather than a big/small pair. Measured on this box over 8 recorded
 speech clips (4.3–8.7s, known transcripts, scored after normalising numeral
