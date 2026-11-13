@@ -348,6 +348,15 @@ class Handler(BaseHTTPRequestHandler):
         """One line per request would restore exactly the per-request noise
         engines/whisper/quiet.sh exists to drop."""
 
+    def _too_large(self) -> bool:
+        """Answers 413 and returns True when the declared body is over the cap,
+        before any of it is read."""
+        if int(self.headers.get("content-length") or 0) <= MAX_AUDIO_BYTES:
+            return False
+        self._error(413, f"upload is larger than {MAX_AUDIO_BYTES} bytes")
+        self.close_connection = True
+        return True
+
     def _body(self) -> bytes:
         length = int(self.headers.get("content-length") or 0)
         return self.rfile.read(length) if length > 0 else b""
@@ -361,6 +370,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _proxy(self) -> None:
+        if self._too_large():
+            return
         body = self._body()
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
         conn = http.client.HTTPConnection(UPSTREAM)
@@ -433,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
             self.rfile.read(2)
 
     def _transcribe(self) -> None:
+        if self._too_large():
+            return
         params = parse_qs(urlparse(self.path).query)
         chunks, live = self._audio_chunks()
         try:

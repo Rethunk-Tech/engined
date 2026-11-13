@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { join } from 'node:path'
+import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import { startFakeUpstream } from './test-support.ts'
 
 /**
@@ -107,3 +108,31 @@ test('a WAV header declaring zero-width samples ends in one error frame, not a d
 
   expect(frames.at(-1)?.phase).toBe('error')
 })
+
+test.each(['/v1/audio/transcriptions', '/v1/audio/transcriptions/stream'])(
+  '%s refuses a declared body over the upload limit with 413',
+  async (path) => {
+    const wrapper = new URL(await startWrapper(1))
+    // fetch cannot declare a length it does not send, so the request is written raw.
+    const { promise: done, resolve } = Promise.withResolvers<string>()
+    let received = ''
+    await Bun.connect({
+      hostname: wrapper.hostname,
+      port: Number(wrapper.port),
+      socket: {
+        open(sock) {
+          sock.write(
+            `POST ${path} HTTP/1.1\r\nhost: x\r\ncontent-length: ${MAX_AUDIO_UPLOAD_BYTES + 1}\r\n\r\n`,
+          )
+        },
+        data(_sock, chunk) {
+          received += chunk.toString()
+        },
+        close() {
+          resolve(received)
+        },
+      },
+    })
+    expect((await done).split('\r\n')[0]).toContain('413')
+  },
+)
