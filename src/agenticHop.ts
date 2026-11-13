@@ -341,14 +341,9 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     req.setContentType(SSE_CONTENT_TYPE)
     return {
       status: STATUS_OK,
-      stream: agenticSse(
-        run,
-        deltas,
-        (p) => {
-          pump = p
-        },
-        () => kill.abort(),
-      ),
+      stream: agenticSse(run, deltas, kill, (p) => {
+        pump = p
+      }),
       version: agentVersion,
       research: research ? true : undefined,
     }
@@ -543,8 +538,8 @@ export async function execAgentic(
 function agenticSse(
   run: Promise<RunAgenticResult>,
   deltas: string[],
+  kill: AbortController,
   attach: (pump: () => void) => void,
-  onCancel: () => void,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   agenticCallSeq += 1
@@ -562,11 +557,10 @@ function agenticSse(
         ...extra,
       })}\n\n`,
     )
-  let cancelled = false
   return new ReadableStream({
     start(controller) {
       const pump = (): void => {
-        while (deltas.length > 0 && !cancelled) {
+        while (deltas.length > 0 && !kill.signal.aborted) {
           controller.enqueue(chunk({ role: 'assistant', content: deltas.shift() }, null))
         }
       }
@@ -574,11 +568,8 @@ function agenticSse(
       pump()
       run.then(
         (outcome) => {
-          if (cancelled) {
-            return
-          }
           pump()
-          if (!outcome.ok) {
+          if (kill.signal.aborted || !outcome.ok) {
             controller.error(new Error(outcome.failure ?? 'agentic call failed'))
             return
           }
@@ -600,9 +591,6 @@ function agenticSse(
         (err: unknown) => controller.error(err),
       )
     },
-    cancel() {
-      cancelled = true
-      onCancel()
-    },
+    cancel: () => kill.abort(),
   })
 }

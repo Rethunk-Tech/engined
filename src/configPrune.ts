@@ -164,9 +164,7 @@ export async function pruneConfig({
     }
 
     const files = [file, ...fragmentFiles(file)]
-    const dests = files.map((f, i) =>
-      i === 0 ? out : join(dirname(out), 'config.d', basename(f)),
-    )
+    const dests = files.map((f, i) => (i === 0 ? out : join(dirname(out), 'config.d', basename(f))))
     const clobbered = files.find((f, i) => resolve(f) === resolve(dests[i] as string))
     if (clobbered !== undefined) {
       throw new Error(
