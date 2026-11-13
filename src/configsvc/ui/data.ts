@@ -155,8 +155,10 @@ export function upstreamResolver(doc: Doc): (route: Table) => string | null {
   }
 }
 
+/** One keyring item the saved config names: an upstream's, or potluck's callback secret. */
 export interface SecretRow {
-  upstream: string
+  upstream?: string
+  potluck?: true
   service: string
   username: string
   present: boolean

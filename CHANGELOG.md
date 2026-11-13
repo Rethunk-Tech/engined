@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The config UI's secrets list includes potluck's callback secret, so the settings page shows whether it is stored and the missing-secrets count covers it.
 - engined keeps its secrets under one keyring prefix: items carry `service engined` with the config's `service` as their `name`, so a config or the config UI can no longer read, overwrite or clear another program's keyring item. Existing secrets the config names move under the prefix on first read (the old item stays); the `secret-tool store` fix line names the new attributes.
 - A container start that fails after `docker run` (readiness timeout, no host port) removes the container instead of leaving it holding its GPU, and a stop or hold that lands while a start is in flight removes the container that start created rather than letting it come up under the hold.
 - Comfy queue reads, `/prompt`, queue deletes and `/interrupt` time out after 30 s, so a wedged comfy container no longer parks every later submission and cancel behind the submission gate.

@@ -2,6 +2,7 @@ import { computed } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { editDraft } from './actions.ts'
 import { call, fork } from './api.ts'
+import { loadSecrets, secrets } from './data.ts'
 import { isTable, parseDoc, type Table } from './model.ts'
 import { loadSchema } from './schema.ts'
 import { draft } from './store.ts'
@@ -62,7 +63,9 @@ function PotluckBox({ table }: { table: Table | undefined }) {
   const [url, setUrl] = useState(textOf(table?.callback_url))
   const [service, setService] = useState(textOf(secret.service))
   const [username, setUsername] = useState(textOf(secret.username))
-  const [present, setPresent] = useState<boolean | undefined>(undefined)
+  const [stored, setPresent] = useState<boolean | undefined>(undefined)
+  const present = stored ?? secrets.value.find((s) => s.potluck === true)?.present
+  useEffect(() => fork(loadSecrets()), [])
   const [value, setValue] = useState('')
   const [result, setResult] = useState<string>()
   const had = table !== undefined

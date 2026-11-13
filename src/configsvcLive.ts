@@ -120,11 +120,14 @@ async function secrets(deps: ConfigsvcDeps): Promise<Response> {
   if (config instanceof Response) {
     return config
   }
-  const refs = config.upstreams.flatMap((u) =>
-    u.secret === undefined
-      ? []
-      : [{ upstream: u.id, service: u.secret.service, username: u.secret.username }],
-  )
+  const refs = [
+    ...config.upstreams.flatMap((u) =>
+      u.secret === undefined
+        ? []
+        : [{ upstream: u.id, service: u.secret.service, username: u.secret.username }],
+    ),
+    ...(config.potluck === undefined ? [] : [{ potluck: true as const, ...config.potluck.secret }]),
+  ]
   const rows = await Promise.all(
     refs.map(async (ref) => ({
       ...ref,

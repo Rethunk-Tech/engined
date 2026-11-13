@@ -286,9 +286,11 @@ test('settings potluck writes a loadable table only when every required field is
     secret: { service: 'potluck', username: 'callback' },
   })
   const listed = (await (await h.call('/api/secrets', { cookie })).json()) as {
-    secrets: { service: string }[]
+    secrets: unknown[]
   }
-  expect(listed.secrets).toEqual([])
+  expect(listed.secrets).toEqual([
+    { potluck: true, service: 'potluck', username: 'callback', present: false },
+  ])
   const stored = await h.call('/api/secret', {
     method: 'POST',
     cookie,
