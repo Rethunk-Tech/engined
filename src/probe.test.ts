@@ -768,7 +768,7 @@ test('a translate route returning the recorded wrong English fails the probe', a
   expect(report.lines[0]?.detail).toContain('mistranslated')
 })
 
-test("a 503 from a probed engine is a skip with the door's reason, not a failed proof", async () => {
+test('a 503 from a probed engine is a failed proof, not a pass', async () => {
   const reason = 'docker build -t whisper:local -f engines/whisper/Dockerfile engines/whisper'
   const report = await runProbes(
     'http://door',
@@ -781,11 +781,10 @@ test("a 503 from a probed engine is a skip with the door's reason, not a failed 
     }),
   )
 
-  expect(report.ok).toBe(true)
+  expect(report.ok).toBe(false)
   expect(report.lines[0]).toEqual({
     address: TRANSLATE_ROW.id,
-    ok: true,
-    skip: true,
+    ok: false,
     kind: 'translation',
     detail: reason,
   })
@@ -804,7 +803,7 @@ test('an unexpected status from a probed engine still fails the run', async () =
   expect(report.lines[0]?.detail).toBe('http 500: engine fault')
 })
 
-test('a skipped translate route is not recorded as a quality verdict', async () => {
+test('a 503 translate route is recorded as a failed quality verdict', async () => {
   const recorded: unknown[] = []
   const inner = fakeDoor([TRANSLATE_ROW], '', {
     other: () =>
@@ -830,11 +829,13 @@ test('a skipped translate route is not recorded as a quality verdict', async () 
 
   const report = await runProbes('http://door', fetchImpl)
 
-  expect(report.ok).toBe(true)
-  expect(recorded).toEqual([])
+  expect(report.ok).toBe(false)
+  expect(recorded).toMatchObject([
+    { results: [{ address: TRANSLATE_ROW.id, kind: 'translation', quality: false }] },
+  ])
 })
 
-test('--probe prints SKIP and a skip count, and still exits 0', async () => {
+test('--probe prints FAIL for a 503 engine and exits 1', async () => {
   const reason =
     'engine "whisper" is held for another 12s; whatever took the hold wants this engine\'s memory'
   const server = Bun.serve({
@@ -859,8 +860,8 @@ test('--probe prints SKIP and a skip count, and still exits 0', async () => {
       throw new Error('the fake door did not bind a port')
     }
     const run = await runCli(['--probe'], { XDG_CONFIG_HOME: configHomeFor(port) })
-    expect(run.code).toBe(0)
-    expect(run.stdout).toBe(`SKIP ${TRANSLATE_ROW.id}: ${reason}\nskipped 1\n`)
+    expect(run.code).toBe(1)
+    expect(run.stdout).toBe(`FAIL ${TRANSLATE_ROW.id}: ${reason}\n`)
   } finally {
     server.stop(true)
   }
