@@ -273,6 +273,27 @@ test('a state change reaches a subscriber as a live frame', async () => {
   expect(live.join('\n')).toContain('local-llama')
 })
 
+// HEAD cancels the body and never aborts the request signal, so only the stream's own cancel can unsubscribe it.
+test('a cancelled events stream stops watching the registry', async () => {
+  const { exec } = recordingExec(() => ({}))
+  const door = doorWith(exec)
+  const watch = door.registry.watch.bind(door.registry)
+  let watching = 0
+  door.registry.watch = (listener) => {
+    watching += 1
+    const unwatch = watch(listener)
+    return () => {
+      watching -= 1
+      unwatch()
+    }
+  }
+  const res = await door.fetch(
+    new Request('http://engined/engined/v1/engines/events', { method: 'HEAD' }),
+  )
+  expect(res.status).toBe(200)
+  expect(watching).toBe(0)
+})
+
 // An engine id names a thing, never a location: POST /engined/v1/start,
 // keyed by address, replaces the per-engine route outright.
 test('the old engine-keyed start route is a 404', async () => {

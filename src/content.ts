@@ -287,6 +287,7 @@ export async function handleContent(
  */
 export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Response {
   const encoder = new TextEncoder()
+  let close = (): void => undefined
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let open = true
@@ -315,7 +316,7 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
         }
       }, SSE_KEEPALIVE_MS)
 
-      const close = (): void => {
+      close = (): void => {
         open = false
         clearInterval(keepalive)
         unwatch()
@@ -338,6 +339,10 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
           // A snapshot that cannot be built is not a reason to deny the
           // client the live frames it actually subscribed for.
         })
+    },
+    // A cancel (HEAD, or a reader letting go) does not abort the request signal.
+    cancel() {
+      close()
     },
   })
 
