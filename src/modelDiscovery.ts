@@ -109,6 +109,8 @@ export class ModelDiscovery {
   private timers: ReturnType<typeof setInterval>[] = []
   private generation = 0
   private readonly errors = new Map<string, string>()
+  /** Last time a refresh failure was logged, per source; first failure always logs. */
+  private readonly failLogAt = new Map<string, number>()
   private readonly inFlight = new Set<string>()
   private applied: { config: Config; generation: number; view: Config } | undefined
   private readonly opts: DiscoveryOptions
@@ -162,11 +164,17 @@ export class ModelDiscovery {
     try {
       found = await withTimeout(source(), this.opts.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS)
     } catch (err) {
+      const now = this.opts.now?.() ?? Date.now()
+      const repeating = this.errors.has(engineId)
       this.errors.set(engineId, errMessage(err))
       this.generation += 1
-      this.log(
-        `models: ${engineId}: refresh failed (${errMessage(err)}); keeping ${previous.length} cached, ${this.age(engineId)}`,
-      )
+      const last = this.failLogAt.get(engineId)
+      if (!repeating || last === undefined || now - last >= 60 * MS_PER_MINUTE) {
+        this.log(
+          `models: ${engineId}: refresh failed (${errMessage(err)}); keeping ${previous.length} cached, ${this.age(engineId)}`,
+        )
+        this.failLogAt.set(engineId, now)
+      }
       return
     }
     const before = new Set(previous.map((m) => m.wire))
@@ -183,6 +191,7 @@ export class ModelDiscovery {
     this.cache.set(engineId, cached)
     this.writeCache(engineId, cached)
     this.errors.delete(engineId)
+    this.failLogAt.delete(engineId)
     this.generation += 1
   }
 
