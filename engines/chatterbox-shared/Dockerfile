@@ -46,12 +46,14 @@ ARG TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
 RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt \
       --extra-index-url ${TORCH_INDEX}
 # Git VCS URLs cannot carry --hash, so these two land as commit tarballs
-# pinned by ADD --checksum (pip has no --hash on the command line); Perth's own deps are hash-locked in requirements.txt.
+# pinned by ADD --checksum; pip then re-checks the same hash via --require-hashes.
+# Perth's own deps are hash-locked in requirements.txt.
 ADD --checksum=sha256:00e89ff833f7efc1a0ae0ca3c5420ae108b9adbed9c0fb7b03750b854d30f149 \
     https://github.com/resemble-ai/Perth/archive/ff1c8ac55a976971245cdd53c18d6131ca00d993.tar.gz \
     /tmp/perth.tar.gz
-RUN pip install --no-cache-dir --no-deps \
-      /tmp/perth.tar.gz
+RUN printf '%s\n' '/tmp/perth.tar.gz --hash=sha256:00e89ff833f7efc1a0ae0ca3c5420ae108b9adbed9c0fb7b03750b854d30f149' \
+      >/tmp/perth.req \
+ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/perth.req
 # --no-deps: chatterbox-v2's own pyproject.toml pins numpy>=1.24.0,<1.26.0
 # and torch==2.5.1, both older than what this build actually installs above.
 # requirements.txt installs the real runtime deps at versions confirmed to
@@ -59,8 +61,9 @@ RUN pip install --no-cache-dir --no-deps \
 ADD --checksum=sha256:9454a3833e9eee3527633215b9b417793b93ff5dfc1fe3b7ccfbcb09c9c6a6ee \
     https://github.com/devnen/chatterbox-v2/archive/cc0357396d9c73fc1e6c544ee40bb596020edd09.tar.gz \
     /tmp/chatterbox.tar.gz
-RUN pip install --no-cache-dir --no-deps \
-      /tmp/chatterbox.tar.gz
+RUN printf '%s\n' '/tmp/chatterbox.tar.gz --hash=sha256:9454a3833e9eee3527633215b9b417793b93ff5dfc1fe3b7ccfbcb09c9c6a6ee' \
+      >/tmp/chatterbox.req \
+ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/chatterbox.req
 
 # gfx1151 dtype fixes for torch 2.9+ (numpy float64 leaking into float32-only
 # ops) -- same two patches devnen/Chatterbox-TTS-Server carries for this
