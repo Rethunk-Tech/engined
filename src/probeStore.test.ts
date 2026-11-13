@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { createLlamaDoor, llamaDoorConfig } from './doorFixtures.ts'
-import { runProbes } from './probe.ts'
 import { MAX_JSON_BODY_BYTES } from './http.ts'
+import { runProbes } from './probe.ts'
 import { PROBES_PATH } from './probeStore.ts'
 import type { EnginesResponse, ModelsResponse } from './responses.ts'
 import { makeTestRoot } from './test-support.ts'
