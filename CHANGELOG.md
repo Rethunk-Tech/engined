@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.20 - 2026-11-13
 
 - Agent sandboxes refuse to copy a login file that is a symlink, so a planted link can't pull a file from outside the sandbox into it.
 - When the agent binary sits directly in a masked directory or an ancestor of the workdir, the sandbox shows just the binary instead of re-binding that whole directory, which undid the mask and exposed every file it hid.
