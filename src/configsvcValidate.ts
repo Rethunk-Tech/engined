@@ -52,7 +52,7 @@ function problemOf(err: unknown, tempFile: string, configFile: string): Problem 
 export function checkConfigText(text: string, env: ValidateEnv): Checked {
   const temp = join(dirname(env.configFile), `.validate-${randomBytes(6).toString('hex')}.toml`)
   try {
-    writeFileSync(temp, text)
+    writeFileSync(temp, text, { mode: 0o600 })
     const config = loadConfig(temp, env.enginesRoot)
     buildEntries(config, { enginesRoot: env.enginesRoot, bunx: env.bunx }, llamaPresetPath)
     return { config }

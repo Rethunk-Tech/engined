@@ -3,6 +3,7 @@
 ## Unreleased
 
 - An unhandled door error answers 500 with `internal error (id <uuid>)` instead of the error's message, which could quote internals or prompt text; the journal logs that id with the error's name and stack frames, never its message.
+- Config validation writes its temporary copy owner-only (0600), since the candidate text can carry `configsvc.password_hash`.
 
 ## 0.2.18 - 2026-11-13
 
