@@ -1213,6 +1213,38 @@ test('retiring a stale llama router releases its keep_resident pin', async () =>
   expect(lifecycle.getStatus(e.id).active_leases).toBe(0)
 })
 
+test('a keep_resident pin is re-taken on a container restarted under it', async () => {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf', keep_resident: true })
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
+  const { client } = fakeLlama()
+  const router = new LlamaRouter(e, [a], lifecycle, baseOpts(client))
+
+  await chatText(router, a, 'a')
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(1)
+  await lifecycle.stop(e.id)
+  await chatText(router, a, 'a')
+  // Without the pin the restarted container idle-stops out from under its keep_resident model.
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(1)
+})
+
+test('a stream still open across a restart keeps a lease on the new container', async () => {
+  const e = engine()
+  const a = model({ id: 'a', filename: 'a.gguf', role: 'chat' })
+  const v = model({ id: 'v', filename: 'v.gguf', role: 'vision' })
+  const lifecycle = new DockerLifecycle(fakeExec(), fakeProbe)
+  const { client } = fakeLlama()
+  const router = new LlamaRouter(e, [a, v], lifecycle, baseOpts(client))
+
+  const open = await router.proxy(a, CHAT_PATH, chatInit('a', { stream: true }))
+  await lifecycle.stop(e.id)
+  // Another role is not queued behind the open stream, so it restarts the container and finishes first.
+  await chatText(router, v, 'v')
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(1)
+  await open.response.body?.cancel()
+  expect(lifecycle.getStatus(e.id).active_leases).toBe(0)
+})
+
 describe('cache-aware slot placement', () => {
   /**
    * A real, tiny GGUF vocab ("a" and "b" each their own token, no merges) so

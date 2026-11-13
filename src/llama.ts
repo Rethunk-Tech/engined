@@ -164,7 +164,7 @@ export class LlamaRouter {
    * from under it -- idle-stop stops the container, it does not unload a
    * model. So an engine with one holds a single lifecycle lease that is never
    * released, which is the same mechanism a live request uses to keep the
-   * container up. Taken once, on the first lease of the process.
+   * container up. Taken on the first lease, and again on each fresh start.
    */
   private pinContainer(): void {
     if (this.containerLease === 'held') {
@@ -303,6 +303,12 @@ export class LlamaRouter {
       readyTimeoutS: this.opts.readyTimeoutS,
     })
     this.scheduler.forgetResidents()
+    // A fresh container starts with no leases; re-take the ones this router still owes it, or idle-stop arms under them.
+    if (this.totalActive > 0) {
+      this.lifecycle.beginLease(this.engine.id)
+    }
+    this.containerLease = 'none'
+    this.pinContainer()
   }
 
   /**
