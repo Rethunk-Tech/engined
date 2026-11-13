@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.18 - 2026-11-13
 
 - `engined --prune-config` refuses an `--out` beside the source file, which wrote the pruned fragments over the source's own `config.d`.
 - A llama engine restarted under its router (an operator stop or hold, a crash) takes its `keep_resident` pin and any in-flight lease again, so idle-stop no longer stops a pinned or busy container.
