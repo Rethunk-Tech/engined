@@ -186,9 +186,14 @@ export function listHistory(
 }
 
 export function readHistory(configFile: string, name: string): string | undefined {
-  return HISTORY_NAME_RE.test(name)
-    ? readFileSync(join(historyDir(configFile), name), 'utf8')
-    : undefined
+  if (!HISTORY_NAME_RE.test(name)) {
+    return undefined
+  }
+  try {
+    return readFileSync(join(historyDir(configFile), name), 'utf8')
+  } catch {
+    return undefined
+  }
 }
 
 function keepHistory(configFile: string, now: Date): void {

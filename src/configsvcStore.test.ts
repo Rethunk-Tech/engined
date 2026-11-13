@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { chmodSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readSnapshot, saveConfig, unifiedDiff } from './configsvcStore.ts'
+import { readHistory, readSnapshot, saveConfig, unifiedDiff } from './configsvcStore.ts'
 import { ENGINES_ROOT, makeTestRoot } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-store-')
@@ -34,4 +34,9 @@ test('saving keeps the config file private', () => {
   )
   expect(out.ok).toBe(true)
   expect(statSync(configFile).mode & 0o777).toBe(0o600)
+})
+
+test('a well-formed history name with no file reads as absent, not a throw', () => {
+  const configFile = join(mkdtempSync(join(TEST_ROOT, 'hist-')), 'config.toml')
+  expect(readHistory(configFile, 'config-20260101T000000Z.toml')).toBeUndefined()
 })
