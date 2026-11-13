@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { createLlamaDoor, llamaDoorConfig } from './doorFixtures.ts'
 import { runProbes } from './probe.ts'
+import { MAX_JSON_BODY_BYTES } from './http.ts'
 import { PROBES_PATH } from './probeStore.ts'
 import type { EnginesResponse, ModelsResponse } from './responses.ts'
 import { makeTestRoot } from './test-support.ts'
@@ -110,4 +111,10 @@ test('runProbes reports its rerank verdict to the door it probed', async () => {
       ],
     },
   ])
+})
+
+test('a probe report past the JSON body ceiling is refused 413 before it is buffered whole', async () => {
+  const { post } = setup()
+  const res = await post({ results: [], pad: 'x'.repeat(MAX_JSON_BODY_BYTES) })
+  expect(res.status).toBe(413)
 })

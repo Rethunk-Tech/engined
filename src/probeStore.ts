@@ -1,6 +1,7 @@
 import { routeAddress } from './control.ts'
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, STATUS_BAD_REQUEST } from './http.ts'
+import { jsonError, readCappedText, STATUS_BAD_REQUEST } from './http.ts'
+import { parseRecord } from './records.ts'
 
 export const PROBES_PATH = '/engined/v1/probes'
 
@@ -89,7 +90,11 @@ function parseSubmitted(body: unknown): Submitted[] | undefined {
  * address no route answers for is a 400 and records nothing from the batch.
  */
 export async function handleProbes(ctx: DoorContext, req: Request): Promise<Response> {
-  const submitted = parseSubmitted(await req.json().catch(() => undefined))
+  const raw = await readCappedText(req)
+  if (raw instanceof Response) {
+    return raw
+  }
+  const submitted = parseSubmitted(parseRecord(raw))
   if (submitted === undefined) {
     return jsonError(
       STATUS_BAD_REQUEST,
