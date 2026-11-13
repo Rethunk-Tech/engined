@@ -151,7 +151,7 @@ export function methodNotAllowed(allow: readonly string[]): Response {
 }
 
 /** A path segment percent-decoded, or `undefined` when its escapes are not valid UTF-8. */
-export function tryDecodeSegment(segment: string): string | undefined {
+function tryDecodeSegment(segment: string): string | undefined {
   try {
     return decodeURIComponent(segment)
   } catch {
