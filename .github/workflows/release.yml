@@ -98,6 +98,21 @@ jobs:
             (cd packages && sha256sum -- *)
           } >SHA256SUMS
 
+      # Detached signature over SHA256SUMS; the Homebrew tap and Scoop bucket verify it against the pinned
+      # fingerprint (see SECURITY.md).
+      - name: Sign SHA256SUMS
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          install -d -m 700 "$GNUPGHOME"
+          trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$RELEASE_GPG_KEY" | gpg --batch --quiet --import
+          fpr=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/{print $10; exit}')
+          gpg --batch --yes --local-user "$fpr" --armor --detach-sign -o SHA256SUMS.asc SHA256SUMS
+          gpg --batch --verify SHA256SUMS.asc SHA256SUMS
+
       - name: Record the tag annotation for the publish job
         env:
           TAG: ${{ github.ref_name }}
@@ -117,6 +132,7 @@ jobs:
             engined-completions-man.tar.gz.sha256
             packages/
             SHA256SUMS
+            SHA256SUMS.asc
             release-subject.txt
             release-notes.md
           if-no-files-found: error
@@ -152,4 +168,4 @@ jobs:
           fi
           gh release upload "$TAG" "engined-${TAG#v}.tar.gz" \
             engined-completions-man.tar.gz engined-completions-man.tar.gz.sha256 \
-            packages/engined-linux-*.tar.gz packages/*.deb packages/*.rpm SHA256SUMS --clobber
+            packages/engined-linux-*.tar.gz packages/*.deb packages/*.rpm SHA256SUMS SHA256SUMS.asc --clobber
