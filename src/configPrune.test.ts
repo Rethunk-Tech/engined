@@ -172,3 +172,21 @@ model = "sonnet-5-5"
   expect(text).toContain('id = "sonnet-5-5"')
   expect(text).toContain('upstream = "moonshot"')
 })
+
+test('refuses an output beside the source, whose config.d is the source fragments themselves', async () => {
+  const { main } = fixture()
+  const dir = join(main, '..', 'config.d')
+  mkdirSync(dir)
+  const original =
+    '# fragment\n\n[[route]]\nengine = "claude"\nmodel = "sonnet-5-5"\nwire_model = "claude-sonnet-5-5"\n'
+  writeFileSync(join(dir, 'extra.toml'), original)
+  await expect(
+    pruneConfig({
+      file: main,
+      out: join(main, '..', 'pruned.toml'),
+      enginesRoot: ENGINES,
+      discovery: discovery(),
+    }),
+  ).rejects.toThrow('would overwrite its own source')
+  expect(readFileSync(join(dir, 'extra.toml'), 'utf8')).toBe(original)
+})

@@ -11,7 +11,7 @@
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 
 import { loadConfig } from './config.ts'
@@ -164,6 +164,15 @@ export async function pruneConfig({
     }
 
     const files = [file, ...fragmentFiles(file)]
+    const dests = files.map((f, i) =>
+      i === 0 ? out : join(dirname(out), 'config.d', basename(f)),
+    )
+    const clobbered = files.find((f, i) => resolve(f) === resolve(dests[i] as string))
+    if (clobbered !== undefined) {
+      throw new Error(
+        `refusing to prune: writing beside the source would overwrite its own source ${clobbered}; name an --out in another directory`,
+      )
+    }
     const routePass = files.map((f) => pruneRoutes(readFileSync(f, 'utf8'), f, targets))
     const removedModels = new Set(routePass.flatMap((p) => [...p.models]))
     const still = new Set(routePass.flatMap((p) => [...usedModels(p.text)]))
@@ -177,7 +186,7 @@ export async function pruneConfig({
         still,
       )
       removals.push(...modelPass.removals)
-      const dest = i === 0 ? out : join(dirname(out), 'config.d', basename(f))
+      const dest = dests[i] as string
       mkdirSync(dirname(dest), { recursive: true })
       writeFileSync(dest, modelPass.text)
       written.push(dest)
