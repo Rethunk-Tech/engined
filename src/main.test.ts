@@ -61,3 +61,17 @@ test('Sec-Fetch-Site other than none is refused even with no Origin', async () =
   const absent = await door.fetch(new Request(models))
   expect(absent.status).toBe(200)
 })
+
+test('a malformed percent-escape in a model or upstream id is a 404, not a 500', async () => {
+  const { cfg, root } = llamaDoorConfig(TEST_ROOT)
+  const door = createLlamaDoor(cfg, root, {
+    llamaHttpClient: makeLlamaHttpClient([]),
+    write: () => undefined,
+  })
+  const model = await door.fetch(new Request('http://engined/openai/v1/models/%E0%A4%A'))
+  expect(model.status).toBe(404)
+  const refresh = await door.fetch(
+    new Request('http://engined/engined/v1/upstreams/%E0%A4%A/refresh', { method: 'POST' }),
+  )
+  expect(refresh.status).toBe(404)
+})

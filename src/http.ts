@@ -150,6 +150,15 @@ export function methodNotAllowed(allow: readonly string[]): Response {
   return res
 }
 
+/** A path segment percent-decoded; one that is not valid UTF-8 escapes stays raw, so it names no id and answers as an unknown one rather than throwing. */
+export function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
+}
+
 /** The GET answer with its body dropped: HEAD on a GET route. */
 export async function headOf(res: Response | Promise<Response>): Promise<Response> {
   const answered = await res

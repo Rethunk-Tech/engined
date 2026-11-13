@@ -24,6 +24,7 @@ import { ambientEnv } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
 import { extraModeExit } from './extraModes.ts'
 import {
+  decodeSegment,
   headOf,
   jsonError,
   methodNotAllowed,
@@ -125,7 +126,7 @@ const GET_ROUTES: Route<GetArgs>[] = [
   {
     methods: GET_HEAD,
     match: (p) => (p.startsWith(MODEL_PREFIX) ? [p.slice(MODEL_PREFIX.length)] : undefined),
-    handle: ([id = ''], { ctx }) => modelById(ctx, decodeURIComponent(id)),
+    handle: ([id = ''], { ctx }) => modelById(ctx, decodeSegment(id)),
   },
   {
     methods: GET_HEAD,

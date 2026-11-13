@@ -1,7 +1,7 @@
 /** The `POST /engined/v1/engines/:id/<verb>` routes, so the door's router names them in one place. */
 import { handleHold, handleRelease, handleStop, handleUnhold } from './control.ts'
 import type { DoorContext } from './doorContext.ts'
-import { jsonError, STATUS_NOT_FOUND } from './http.ts'
+import { decodeSegment, jsonError, STATUS_NOT_FOUND } from './http.ts'
 import { handleObtain } from './obtain.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
 
@@ -30,7 +30,7 @@ export function routeEngineVerb(
 ): Response | Promise<Response> | undefined {
   const refresh = UPSTREAM_REFRESH_RE.exec(pathname)?.[1]
   if (refresh !== undefined) {
-    return handleUpstreamRefresh(ctx, decodeURIComponent(refresh))
+    return handleUpstreamRefresh(ctx, decodeSegment(refresh))
   }
   const match = VERB_RE.exec(pathname)
   const id = match?.[1]
