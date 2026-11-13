@@ -55,11 +55,16 @@ export function queuedPromptIds(entries: unknown): string[] {
     .filter((id): id is string => typeof id === 'string')
 }
 
+/** The gate is held across these calls, so a container that accepts the connection and never answers would park every later submission and cancel behind it. */
+export const COMFY_GATED_CALL_TIMEOUT_MS = 30_000
+
 export async function readComfyQueue(
   base: string,
   httpClient: HttpClient,
 ): Promise<Record<string, unknown> | undefined> {
-  const res = await httpClient(`${base}/queue`)
+  const res = await httpClient(`${base}/queue`, {
+    signal: AbortSignal.timeout(COMFY_GATED_CALL_TIMEOUT_MS),
+  })
   if (!res.ok) {
     await discardBody(res)
     return undefined

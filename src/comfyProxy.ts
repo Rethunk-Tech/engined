@@ -5,7 +5,7 @@ import {
   liveBinding,
   saveComfyBindings,
 } from './comfyBindings.ts'
-import { queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
+import { COMFY_GATED_CALL_TIMEOUT_MS, queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
 import type { DoorContext } from './doorContext.ts'
 import {
   CONTENT_TYPE,
@@ -174,7 +174,7 @@ export function withComfySlot<T>(
 
 /** Whether the container is holding nothing at all -- neither running nor queued. */
 async function comfyDrained(base: string, httpClient: HttpClient): Promise<boolean> {
-  const queue = await readComfyQueue(base, httpClient)
+  const queue = await readComfyQueue(base, httpClient).catch(() => undefined)
   if (queue === undefined) {
     return false
   }
@@ -263,6 +263,7 @@ export async function submitComfyPrompt({
           method: 'POST',
           headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
           body,
+          signal: AbortSignal.timeout(COMFY_GATED_CALL_TIMEOUT_MS),
         })
         return onAnswered(res, await res.text())
       })

@@ -1,6 +1,6 @@
 import { comfyKey, liveBinding } from './comfyBindings.ts'
 import { type ComfyProxy, jsonForward, withComfySlot } from './comfyProxy.ts'
-import { queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
+import { COMFY_GATED_CALL_TIMEOUT_MS, queuedPromptIds, readComfyQueue } from './comfyQueue.ts'
 import {
   CONTENT_TYPE,
   type HttpClient,
@@ -72,6 +72,7 @@ export async function proxyComfyCancel(
         method: 'POST',
         headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
         body: JSON.stringify({ delete: [promptId] }),
+        signal: AbortSignal.timeout(COMFY_GATED_CALL_TIMEOUT_MS),
       })
       if (!dropped.ok) {
         return jsonError(
@@ -98,7 +99,10 @@ async function interruptComfyRunning(
   httpClient: HttpClient,
   promptId: string,
 ): Promise<Response> {
-  const interrupted = await httpClient(`${base}/interrupt`, { method: 'POST' })
+  const interrupted = await httpClient(`${base}/interrupt`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(COMFY_GATED_CALL_TIMEOUT_MS),
+  })
   if (!interrupted.ok) {
     return jsonError(
       STATUS_BAD_GATEWAY,

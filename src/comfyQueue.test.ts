@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultQueueFetch, defaultReleaseFetch, queuedPromptIds } from './comfyQueue.ts'
+import {
+  defaultQueueFetch,
+  defaultReleaseFetch,
+  queuedPromptIds,
+  readComfyQueue,
+} from './comfyQueue.ts'
 
 test('the memory-release POST carries an abort timeout', async () => {
   const orig = globalThis.fetch
@@ -32,4 +37,13 @@ describe('comfy queue snapshot', () => {
       server.stop()
     }
   })
+})
+
+test('the gated queue read carries a timeout signal so a wedged container cannot hold the submission gate', async () => {
+  let signal: AbortSignal | null | undefined
+  await readComfyQueue('http://x', async (_url, init) => {
+    signal = init?.signal
+    return new Response('{}')
+  })
+  expect(signal).toBeInstanceOf(AbortSignal)
 })
