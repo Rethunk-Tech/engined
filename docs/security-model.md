@@ -234,7 +234,8 @@ UI is therefore gated like the privilege it holds:
 - **Audit.** Each save logs one line with the client, what changed and the
   before and after hashes. The previous file is kept in `.history/`.
 - **Secrets.** A value typed into the UI goes to `secret-tool` on stdin and is
-  never read back; the UI only learns whether an item exists.
+  never read back; the UI only learns whether an item exists. Only items under
+  engined's own keyring prefix can be stored or cleared (see Secrets below).
 
 **LAN access goes through TLS.** When `[configsvc] host` names something other
 than loopback, the UI still listens on loopback only. The `engined-tls` Caddy
@@ -255,7 +256,16 @@ the firewall and tunnel advice for the Cursor bridge applies here too.
 
 ## Secrets
 
-Secrets never live in `config.toml`. A remote engine names a keyring entry and
+Secrets never live in `config.toml`. Every keyring item engined reads, stores
+or clears carries `service engined`, with the config's `service` as its `name`
+attribute, so neither a saved config nor the config UI can read, overwrite or
+clear another program's login item. A config naming one (a browser's safe
+storage key, say) resolves as missing. An older secret at `service <service>
+username <username>` is read there once and moved under the prefix, only for
+the refs the config named when a prefixed build first ran; the old item is
+never deleted.
+
+A remote engine names a keyring entry and
 engined resolves it per request, never cached — a `--user` unit boots before
 the login keyring unlocks, and every remote engine must recover at the
 operator's next sign-in without a reload.

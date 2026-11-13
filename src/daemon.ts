@@ -14,6 +14,7 @@ import { configPath, installDir, voicesDir } from './paths.ts'
 import { flushCallSummaries, writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
+import { seedLegacySecrets } from './secrets.ts'
 import type { Config } from './types.ts'
 
 export function runDaemon(make: {
@@ -34,7 +35,9 @@ export function runDaemon(make: {
       agenticProbeRunner: buildAgenticProbeRunner(bunx),
     }
     try {
-      return createDoor(loadConfig(), registryOpts)
+      const config = loadConfig()
+      seedLegacySecrets(config)
+      return createDoor(config, registryOpts)
     } catch (err) {
       // A restart cannot fix a bad config, but an edit can: the door comes up
       // answering 503 with the reason, and the next reload signal loads it.

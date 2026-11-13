@@ -13,6 +13,7 @@ import { FatalError } from './errors/fatal.ts'
 import { errorCode } from './listen.ts'
 import { configPath, installDir, stateDir } from './paths.ts'
 import { errMessage, isRecord } from './records.ts'
+import { seedLegacySecrets } from './secrets.ts'
 
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 29_202
@@ -58,6 +59,7 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
   let settings: Settings
   try {
     const config = loadConfig(configFile)
+    seedLegacySecrets(config)
     if (!config.configsvc.enable) {
       write('configsvc: not enabled in config.toml ([configsvc] enable = true); exiting')
       return 0

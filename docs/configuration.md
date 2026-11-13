@@ -278,8 +278,16 @@ secret = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key
 ```
 
 ```sh
-secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
+secret-tool store --label='engined elevenlabs-api/scribe' service engined name elevenlabs-api username scribe
 ```
+
+engined reads, stores and clears only items carrying `service engined`; the
+config's `service` is the item's `name` attribute under it, so a config cannot
+point engined at another program's login item. A secret stored before that
+prefix, at `service <service> username <username>`, moves under it the first
+time it is read, but only for the refs the config named when a prefixed build
+first ran (`keyring-legacy.json` in the state directory). The old item is left
+where it is.
 
 Resolution is per request and never cached — see
 [security-model.md](security-model.md). An engine with no key configured

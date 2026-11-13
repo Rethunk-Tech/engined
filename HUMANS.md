@@ -128,7 +128,7 @@ Name engines you have images for and GGUFs on disk. A missing file or spec
 fails at parse. Secrets go in the keyring, not the config:
 
 ```sh
-secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
+secret-tool store --label='engined elevenlabs-api/scribe' service engined name elevenlabs-api username scribe
 ```
 
 Opt a local llama chat route into fill-in-the-middle, or give a text-only

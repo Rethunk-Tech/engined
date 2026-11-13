@@ -21,11 +21,13 @@ Environment=ENGINED_INSTALL_DIR=@INSTALL_DIR@
 # The same sandbox as engined.service, narrowed to what this process writes.
 # It is the only writer of config.toml, and the write is a temp file renamed
 # over it plus a .history/ directory beside it, so the whole directory has to
-# be writable, not config.toml alone (rename needs the directory). Everything
-# else, including the state directory it reads, stays read-only. It never
+# be writable, not config.toml alone (rename needs the directory). The state
+# directory is writable for the keyring's record of which old secrets may
+# still move under the engined prefix (src/secrets.ts); a clear has to strike
+# its ref there, or the next read would move the old value back. It never
 # touches docker: engined does that.
 ProtectSystem=strict
-ReadWritePaths=@CONFIG_DIR@
+ReadWritePaths=@CONFIG_DIR@ @STATE_DIR@
 ProtectHome=read-only
 NoNewPrivileges=yes
 PrivateTmp=yes

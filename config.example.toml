@@ -97,7 +97,7 @@ wire = "anthropic"
 # port = 29202
 # password_hash = "$argon2id$..."
 
-#   secret-tool store --label='elevenlabs-api' service elevenlabs-api username scribe
+#   secret-tool store --label='engined elevenlabs-api/scribe' service engined name elevenlabs-api username scribe
 [[upstream]]
 id = "elevenlabs"
 base_url = "https://api.elevenlabs.io/v1"
@@ -105,7 +105,7 @@ secret = { service = "elevenlabs-api", username = "scribe", header = "xi-api-key
 egress = "remote"
 
 # Reports unavailable, naming its own fix, until:
-#   secret-tool store --label='openai-api' service openai-api username default
+#   secret-tool store --label='engined openai-api/default' service engined name openai-api username default
 [[upstream]]
 id = "openai"
 base_url = "https://api.openai.com/v1"

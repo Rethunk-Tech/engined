@@ -10,7 +10,8 @@ export interface ExecResult {
   exitCode: number
 }
 
-export type Exec = (args: readonly string[]) => Promise<ExecResult>
+/** `stdin`, when given, is the child's whole input. */
+export type Exec = (args: readonly string[], stdin?: string) => Promise<ExecResult>
 
 /**
  * Long enough for the slowest thing engined asks of either binary -- a `docker
@@ -24,10 +25,11 @@ export const EXIT_TIMED_OUT = 124
 
 /** The collector bound to one binary, which is the only thing that varies between callers. */
 export function binExec(bin: string, timeoutMs: number = EXEC_TIMEOUT_MS): Exec {
-  return async (args) => {
-    let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
+  return async (args, stdin) => {
+    let proc: Bun.Subprocess<Blob | 'ignore', 'pipe', 'pipe'>
     try {
       proc = Bun.spawn([bin, ...args], {
+        stdin: stdin === undefined ? 'ignore' : new Blob([stdin]),
         stdout: 'pipe',
         stderr: 'pipe',
         timeout: timeoutMs,

@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
-import { spawn } from 'node:child_process'
-import { resolveSecret, secretExec } from '../../src/secrets.ts'
+import { clearSecret, resolveSecret, storeSecret } from '../../src/secrets.ts'
 import type { SecretRef } from '../../src/types.ts'
 import { LOCAL } from './exclusive.ts'
 
@@ -19,31 +18,17 @@ const REF: SecretRef = {
 const SCRATCH_VALUE = 'engined-test-scratch-value'
 
 async function clearScratch(): Promise<void> {
-  await secretExec(['clear', 'service', REF.service, 'username', REF.username])
+  await clearSecret(REF)
 }
 
-/** `secret-tool store` reads the password from stdin until EOF; `secretExec` never writes to it. */
-function storeScratch(value: string): Promise<number> {
-  return new Promise((resolve) => {
-    const proc = spawn('secret-tool', [
-      'store',
-      `--label=${REF.service}`,
-      'service',
-      REF.service,
-      'username',
-      REF.username,
-    ])
-    proc.on('close', (code) => resolve(code ?? 1))
-    proc.stdin.write(value)
-    proc.stdin.end()
-  })
+async function storeScratch(value: string): Promise<boolean> {
+  return (await storeSecret(REF, value)).ok
 }
 
 describe.skipIf(!LOCAL)('resolveSecret (local)', () => {
   beforeEach(async () => {
     await clearScratch()
-    const exitCode = await storeScratch(SCRATCH_VALUE)
-    if (exitCode !== 0) {
+    if (!(await storeScratch(SCRATCH_VALUE))) {
       throw new Error('secret-tool store failed for the scratch entry; is the keyring unlocked?')
     }
   })
