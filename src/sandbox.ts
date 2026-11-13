@@ -288,7 +288,7 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
     return here
   }
   let dir = resolvedPath(workdir)
-  for (;;) {
+  while (true) {
     const parent = dirname(dir)
     if (parent === dir) {
       return []
