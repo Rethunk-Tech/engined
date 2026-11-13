@@ -202,6 +202,16 @@ directory is trusted code, on the same footing as `main.js`.
 See `scripts/engined.service.in`'s own comment for the measurement this rests
 on.
 
+Inside that, every engine container runs with `--cap-drop ALL`,
+`--security-opt no-new-privileges` and `--pids-limit 4096`
+(`src/dockerArgs.ts`): GPU access is the spec's `--device` and `--group-add`,
+which need no capability. Each still sits on docker's default bridge, so a
+compromised engine can reach the LAN, the internet and the door through the
+bridge gateway. A docker `--internal` network does not close that on its own:
+docker drops the `-p` publish engined reads the port back from, and the
+gateway address still reaches every host listener on all interfaces,
+the door included.
+
 ## Anyone who reaches the door has all of it
 
 A client of the door, directly or through the `engined-tls` Caddy bridge

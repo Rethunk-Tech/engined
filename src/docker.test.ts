@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { buildComfySpec } from './comfy.ts'
 import { DockerLifecycle, type Probe } from './docker.ts'
 import {
   buildRunArgs,
@@ -12,8 +13,18 @@ import {
 import { HeldError } from './errors/held.ts'
 import { StopFailedError } from './errors/stopFailed.ts'
 import type { Exec, ExecResult } from './exec.ts'
-import type { RunnableContainerSpec } from './specTypes.ts'
-import { buildExec, containerRunning, makeTestRoot, portResult } from './test-support.ts'
+import { buildLlamaSpec } from './llamaSpec.ts'
+import { loadSpec } from './spec.ts'
+import { isContainerSpec, type RunnableContainerSpec } from './specTypes.ts'
+import {
+  BUNX,
+  buildExec,
+  containerRunning,
+  ENGINES_ROOT,
+  engine,
+  makeTestRoot,
+  portResult,
+} from './test-support.ts'
 import type { Volume } from './types.ts'
 
 const TEST_ROOT = makeTestRoot('engined-docker-')
@@ -1287,4 +1298,47 @@ test('a stop landing during docker run does not leave the new container running'
   await starting
   expect(lifecycle.getStatus('stop-warming').state).toBe('installed')
   expect(rmLog.length).toBe(2)
+})
+
+describe('every shipped engine runs without capabilities, privilege gain or an unbounded process count', () => {
+  const shipped = (id: string): RunnableContainerSpec => {
+    const entry = engine({ id, models_dir: `/models-host/${id}`, models_max: 1 })
+    const loaded = loadSpec(entry, { enginesRoot: ENGINES_ROOT, bunx: BUNX })
+    if (id === 'llama') {
+      return buildLlamaSpec(entry, loaded, '/state/llama/presets.ini')
+    }
+    const spec = id === 'comfy' ? buildComfySpec(entry, loaded) : loaded.spec
+    if (!isContainerSpec(spec)) {
+      throw new Error(`${id} is not a container spec`)
+    }
+    return spec
+  }
+  const flag = (argv: string[], name: string) => argv.filter((_, i) => argv[i - 1] === name)
+
+  for (const id of [
+    'chatterbox-en',
+    'chatterbox-multi',
+    'comfy',
+    'kokoro',
+    'llama',
+    'piper',
+    'whisper',
+  ]) {
+    test(id, () => {
+      const spec = shipped(id)
+      const argv = buildRunArgs(`engined-${id}`, spec, 8000)
+      const image = argv.indexOf(spec.image)
+      const flags = argv.slice(0, image)
+      expect(flag(flags, '--cap-drop')).toEqual(['ALL'])
+      expect(flag(flags, '--cap-add')).toEqual([])
+      expect(flag(flags, '--security-opt')).toContain('no-new-privileges')
+      expect(Number(flag(flags, '--pids-limit')[0])).toBeGreaterThan(0)
+      // The GPU path a spec declares survives the hardening untouched.
+      expect(flag(flags, '--device')).toEqual(spec.devices)
+      expect(flag(flags, '--group-add')).toEqual(spec.group_add)
+      for (const opt of spec.security_opt) {
+        expect(flag(flags, '--security-opt')).toContain(opt)
+      }
+    })
+  }
 })

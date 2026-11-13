@@ -24,6 +24,9 @@ export const SPEC_LABEL = 'engined.spec'
 
 type PortResult = { port: number } | { error: string }
 
+/** Far above what a model server's thread pools and llama's per-model children use, far below a fork bomb's reach. */
+const PIDS_LIMIT = 4096
+
 export function mountSpec(volume: Volume): string {
   const base = `${volume.name}:${volume.path}`
   return volume.read_only === true ? `${base}:ro` : base
@@ -109,7 +112,16 @@ export function hostBindings(ports: string): string {
 
 /** Everything `docker run` takes that comes from the spec, in the order the image needs: flags, then the image, then its argv. */
 function specRunArgs(spec: RunnableContainerSpec): string[] {
-  const args: string[] = []
+  // Every engine: no capabilities (GPU access is --device plus the group, not a capability),
+  // no privilege gain through a setuid binary, and a ceiling on what a compromised one can fork.
+  const args: string[] = [
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--pids-limit',
+    String(PIDS_LIMIT),
+  ]
   for (const device of spec.devices) {
     args.push('--device', device)
   }
