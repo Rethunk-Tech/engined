@@ -306,10 +306,12 @@ export function ndjsonFrames(body: ReadableStream<Uint8Array<ArrayBuffer>>): Asy
   return frames
 }
 
-async function* parseNdjson(reader: ReadableStreamDefaultReader<string>): AsyncGenerator<Frame> {
+async function* parseNdjson(reader: {
+  read(): Promise<{ done: boolean; value?: string }>
+}): AsyncGenerator<Frame> {
   let pending = ''
   for (let read = await reader.read(); !read.done; read = await reader.read()) {
-    pending += read.value
+    pending += read.value ?? ''
     const lines = pending.split('\n')
     pending = lines.pop() ?? ''
     for (const line of lines) {
