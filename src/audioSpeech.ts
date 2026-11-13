@@ -66,7 +66,7 @@ function unusableSpeechEngine(name: string, engine: StartedEngine): DoorResponse
   if (engine.private_url === null) {
     return errorResponse(
       engine.status ?? STATUS_UNAVAILABLE,
-      engine.unavailable ?? `${name} is not available`,
+      engine.unavailable ?? engine.fix ?? engine.last_error ?? `${name} is not available`,
     )
   }
   return undefined

@@ -220,6 +220,10 @@ export interface StartedEngine {
    * actionable and always specific.
    */
   unavailable?: string
+  /** `EngineStatus.fix` when start returned a status instead of throwing. */
+  fix?: string
+  /** `EngineStatus.last_error` when start returned a status instead of throwing. */
+  last_error?: string
   /**
    * The status `unavailable` should answer with, when it came from a caught
    * start error rather than a resolvable-upstream problem -- 503 for a hold,

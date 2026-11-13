@@ -328,7 +328,7 @@ export async function handleTranscription(
   if (engine.private_url === null) {
     return errorResponse(
       engine.status ?? STATUS_UNAVAILABLE,
-      engine.unavailable ?? `${req.engine} is not available`,
+      engine.unavailable ?? engine.fix ?? engine.last_error ?? `${req.engine} is not available`,
     )
   }
   try {

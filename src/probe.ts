@@ -21,7 +21,7 @@
  * kind of drift this repo keeps getting bitten by.
  */
 
-import { CONTENT_TYPE, discardBody, ENGINE_ERROR_CHARS, JSON_CONTENT_TYPE } from './http.ts'
+import { CONTENT_TYPE, discardBody, JSON_CONTENT_TYPE } from './http.ts'
 import type { DiscoveryStatus } from './modelDiscovery.ts'
 import {
   readProbeText,
@@ -32,7 +32,14 @@ import {
 } from './probeImage.ts'
 import { PROBES_PATH, type ProbeKind } from './probeStore.ts'
 import { probeTranslationQuality, probeTranslations } from './probeTranslation.ts'
-import { canAnswer, eachRow, type KeptRow, type MenuRow, type ProbeLine } from './probeTypes.ts'
+import {
+  canAnswer,
+  eachRow,
+  httpProbeError,
+  type KeptRow,
+  type MenuRow,
+  type ProbeLine,
+} from './probeTypes.ts'
 import { errMessage } from './records.ts'
 import { CONTRACT } from './responses.ts'
 import {
@@ -47,17 +54,14 @@ async function postProbe(
   fetchImpl: typeof fetch,
   url: string,
   body: string,
-): Promise<Response | { ok: false; detail: string }> {
+): Promise<Response | { ok: boolean; skip?: boolean; detail: string }> {
   const res = await fetchImpl(url, {
     method: 'POST',
     headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
     body,
   })
   if (!res.ok) {
-    return {
-      ok: false,
-      detail: `http ${res.status}: ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
-    }
+    return httpProbeError(res.status, await res.text())
   }
   return res
 }
@@ -77,7 +81,7 @@ async function reportProbes(
   fetchImpl: typeof fetch,
 ): Promise<void> {
   const results = lines.flatMap((l) =>
-    l.kind === undefined
+    l.kind === undefined || l.skip === true
       ? []
       : [{ address: l.address, kind: l.kind, quality: l.ok, detail: l.detail }],
   )
@@ -312,7 +316,7 @@ async function probeOneRerank(
   doorUrl: string,
   address: string,
   fetchImpl: typeof fetch,
-): Promise<{ ok: boolean; detail: string }> {
+): Promise<{ ok: boolean; detail: string; skip?: boolean }> {
   try {
     const res = await postProbe(
       fetchImpl,
@@ -372,7 +376,7 @@ async function probeOneCompletion(
   doorUrl: string,
   address: string,
   fetchImpl: typeof fetch,
-): Promise<{ ok: boolean; detail: string }> {
+): Promise<{ ok: boolean; detail: string; skip?: boolean }> {
   try {
     const res = await postProbe(
       fetchImpl,
@@ -436,7 +440,7 @@ async function probeOne(
   doorUrl: string,
   row: KeptRow,
   fetchImpl: typeof fetch,
-): Promise<{ ok: boolean; detail: string }> {
+): Promise<{ ok: boolean; detail: string; skip?: boolean }> {
   const check = checkFor(row)
   if (check === undefined) {
     return {

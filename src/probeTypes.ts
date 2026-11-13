@@ -1,6 +1,8 @@
 /** What the `--probe` families share: the menu row they read, the line they print, and the loop between them. */
 
+import { ENGINE_ERROR_CHARS, errorMessageOf, STATUS_UNAVAILABLE } from './http.ts'
 import type { ProbeKind } from './probeStore.ts'
+import { parseRecord } from './records.ts'
 
 /** One line per address the door offers, in the order the menu listed them. */
 export interface ProbeLine {
@@ -9,6 +11,30 @@ export interface ProbeLine {
   detail: string
   /** Set on the translation and rerank lines, the two the door records; see `reportProbes`. */
   kind?: ProbeKind
+  /**
+   * The engine answered 503. Not a failed proof (the door already named why)
+   * and not a pass; `ok` stays true so a skip does not fail the run.
+   */
+  skip?: boolean
+}
+
+/**
+ * A probed engine that answers 503 is a skip with the door's own reason; any
+ * other non-success is a failed proof.
+ */
+export function httpProbeError(
+  status: number,
+  raw: string,
+): { ok: boolean; skip?: boolean; detail: string } {
+  const clipped = raw.slice(0, ENGINE_ERROR_CHARS)
+  if (status === STATUS_UNAVAILABLE) {
+    return {
+      ok: true,
+      skip: true,
+      detail: errorMessageOf(parseRecord(clipped) ?? {}) ?? clipped,
+    }
+  }
+  return { ok: false, detail: `http ${status}: ${clipped}` }
 }
 
 /** The subset of a `/openai/v1/models` row this probe reads. Parsed from the wire, so it is narrowed here rather than imported: a row is whatever the running door sent, not whatever this build's `ModelRow` says. */
@@ -49,7 +75,7 @@ export type KeptRow = MenuRow & { id: string }
 export async function eachRow(
   rows: readonly MenuRow[],
   keep: (row: MenuRow) => boolean,
-  one: (row: KeptRow) => Promise<{ ok: boolean; detail: string }>,
+  one: (row: KeptRow) => Promise<{ ok: boolean; detail: string; skip?: boolean }>,
 ): Promise<ProbeLine[]> {
   const lines: ProbeLine[] = []
   for (const row of rows) {

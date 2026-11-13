@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `engined --probe` reports an engine that answers 503 as `SKIP <route>: <reason>` (with a skip count) rather than a failed proof, and a whisper 503 names why (missing image, missing artifact, GPU hold) instead of only "whisper is not available".
 - `applySandboxFloor` removes the per-launch HOME when copying logins (or anything else after that home is created) throws, so a failed launch no longer leaks a directory.
 - piper renders each line with the same timing: its per-phoneme duration jitter is off, which made whisper mishear a word in about 4% of renders.
 - chatterbox-multi synthesizes again: its model now uses eager attention, since transformers 5 refused the alignment analyzer's attention outputs under SDPA and every request answered 502.

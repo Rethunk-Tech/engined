@@ -450,8 +450,8 @@ test('only a route serving /openai/v1/completions is probed: a plain chat route 
 
 const PROBE_ROOT = makeTestRoot('engined-probe-cli-')
 
-/** `ok|FAIL <address>: <detail>`. The address contains colons; the separator is colon-space. */
-const RX_PROBE_TEXT = /^(ok|FAIL) (.*?): (.*)$/
+/** `ok|FAIL|SKIP <address>: <detail>`. The address contains colons; the separator is colon-space. */
+const RX_PROBE_TEXT = /^(ok|FAIL|SKIP) (.*?): (.*)$/
 
 interface ReportedLine {
   address: string
@@ -766,6 +766,104 @@ test('a translate route returning the recorded wrong English fails the probe', a
 
   expect(report.ok).toBe(false)
   expect(report.lines[0]?.detail).toContain('mistranslated')
+})
+
+test("a 503 from a probed engine is a skip with the door's reason, not a failed proof", async () => {
+  const reason = 'docker build -t whisper:local -f engines/whisper/Dockerfile engines/whisper'
+  const report = await runProbes(
+    'http://door',
+    fakeDoor([TRANSLATE_ROW], '', {
+      other: () =>
+        Response.json(
+          { error: { message: reason, type: 'unavailable', param: null, code: null } },
+          { status: 503 },
+        ),
+    }),
+  )
+
+  expect(report.ok).toBe(true)
+  expect(report.lines[0]).toEqual({
+    address: TRANSLATE_ROW.id,
+    ok: true,
+    skip: true,
+    kind: 'translation',
+    detail: reason,
+  })
+})
+
+test('an unexpected status from a probed engine still fails the run', async () => {
+  const report = await runProbes(
+    'http://door',
+    fakeDoor([TRANSLATE_ROW], '', {
+      other: () => new Response('engine fault', { status: 500 }),
+    }),
+  )
+
+  expect(report.ok).toBe(false)
+  expect(report.lines[0]?.skip).toBeUndefined()
+  expect(report.lines[0]?.detail).toBe('http 500: engine fault')
+})
+
+test('a skipped translate route is not recorded as a quality verdict', async () => {
+  const recorded: unknown[] = []
+  const inner = fakeDoor([TRANSLATE_ROW], '', {
+    other: () =>
+      Response.json(
+        {
+          error: {
+            message: 'whisper is not available',
+            type: 'unavailable',
+            param: null,
+            code: null,
+          },
+        },
+        { status: 503 },
+      ),
+  })
+  const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/engined/v1/probes')) {
+      recorded.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(Response.json({ recorded: 1 }))
+    }
+    return inner(input, init)
+  }) as typeof fetch
+
+  const report = await runProbes('http://door', fetchImpl)
+
+  expect(report.ok).toBe(true)
+  expect(recorded).toEqual([])
+})
+
+test('--probe prints SKIP and a skip count, and still exits 0', async () => {
+  const reason =
+    'engine "whisper" is held for another 12s; whatever took the hold wants this engine\'s memory'
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const path = new URL(req.url).pathname
+      if (path === OPENAI_MODELS_PATH) {
+        return Response.json({ object: 'list', data: [TRANSLATE_ROW] })
+      }
+      if (path === ENGINED_ENGINES_PATH) {
+        return Response.json({ contract: CONTRACT, engines: [] })
+      }
+      return Response.json(
+        { error: { message: reason, type: 'unavailable', param: null, code: null } },
+        { status: 503 },
+      )
+    },
+  })
+  const port = server.port
+  try {
+    if (port === undefined) {
+      throw new Error('the fake door did not bind a port')
+    }
+    const run = await runCli(['--probe'], { XDG_CONFIG_HOME: configHomeFor(port) })
+    expect(run.code).toBe(0)
+    expect(run.stdout).toBe(`SKIP ${TRANSLATE_ROW.id}: ${reason}\nskipped 1\n`)
+  } finally {
+    server.stop(true)
+  }
 })
 
 test('the translate verdict reaches the models listing as a quality verdict, never a pass by absence', async () => {

@@ -77,8 +77,17 @@ export async function probeExit(json: boolean): Promise<number> {
   if (json) {
     writeToStdout(JSON.stringify({ schema: 1, ...report }))
   } else {
+    let skipped = 0
     for (const line of report.lines) {
-      writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)
+      if (line.skip === true) {
+        skipped += 1
+        writeToStdout(`SKIP ${line.address}: ${line.detail}`)
+      } else {
+        writeToStdout(`${line.ok ? 'ok' : 'FAIL'} ${line.address}: ${line.detail}`)
+      }
+    }
+    if (skipped > 0) {
+      writeToStdout(`skipped ${skipped}`)
     }
   }
   return report.ok ? 0 : 1

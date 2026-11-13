@@ -299,6 +299,12 @@ function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
     // is the one condition `beginLease` takes a lease under. Read in the same
     // tick, it answers whether the start above took one.
     leased.held = status.active_leases !== undefined
+    if (status.private_url === null) {
+      return {
+        private_url: null,
+        unavailable: status.fix ?? status.last_error,
+      }
+    }
     return { private_url: status.private_url }
   }
 }

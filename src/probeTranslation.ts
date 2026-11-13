@@ -17,10 +17,10 @@
  */
 
 import { resolve } from 'node:path'
-import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST } from './http.ts'
+import { ENGINE_ERROR_CHARS, STATUS_BAD_REQUEST, STATUS_UNAVAILABLE } from './http.ts'
 import clipPath from './probeTranslation.es.wav' with { type: 'file' }
 import type { MenuRow } from './probeTypes.ts'
-import { canAnswer, eachRow, type ProbeLine } from './probeTypes.ts'
+import { canAnswer, eachRow, httpProbeError, type ProbeLine } from './probeTypes.ts'
 import { errMessage } from './records.ts'
 import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from './routeServes.ts'
 
@@ -115,10 +115,7 @@ export function probeTranslationQuality(
           body: form,
         })
         if (!res.ok) {
-          return {
-            ok: false,
-            detail: `http ${res.status}: ${(await res.text()).slice(0, ENGINE_ERROR_CHARS)}`,
-          }
+          return httpProbeError(res.status, await res.text())
         }
         const { text } = (await res.json()) as { text?: unknown }
         return typeof text === 'string'
@@ -147,6 +144,9 @@ async function probeOneRefusal(
     const text = await res.text()
     if (res.status === STATUS_BAD_REQUEST) {
       return { ok: true, detail: 'refused to translate, as a route not declaring it must' }
+    }
+    if (res.status === STATUS_UNAVAILABLE) {
+      return httpProbeError(res.status, text)
     }
     return {
       ok: false,

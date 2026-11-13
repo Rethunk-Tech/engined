@@ -485,13 +485,13 @@ test("with no whisper image built, transcriptions returns 503 naming it and GET 
   )
 
   expect(result.status).toBe(503)
-  expect(JSON.stringify(result.body)).toContain('whisper')
   expect(realContainerRuns.length).toBe(0)
   const status = lifecycle.getStatus('whisper')
   expect(status.state).toBe('unavailable')
   expect(status.fix).toBe(
     `docker build -t ${spec.image} -f ${join(whisperSpecDir, 'Dockerfile')} ${whisperSpecDir}`,
   )
+  expect(errorMessageOf(result.body)).toBe(status.fix)
 })
 
 test("image present but the model artifact absent: unavailable naming the artifact's command, never installed, never a container that starts and dies", async () => {
@@ -520,6 +520,7 @@ test("image present but the model artifact absent: unavailable naming the artifa
   const status = lifecycle.getStatus('whisper')
   expect(status.state).toBe('unavailable')
   expect(status.fix).toBe(spec.artifacts[0]?.obtain)
+  expect(errorMessageOf(result.body)).toBe(status.fix)
 })
 
 test('a second audio caller is visible as a lease while the first is still in flight', async () => {
