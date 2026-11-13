@@ -68,3 +68,52 @@ test('a streamed launch whose child then rejects does not surface unhandledRejec
     clearVerifiedVersion(id)
   }
 })
+
+// A stalled reader is cancelled with the request signal still live, so only the stream's cancel can end the paid run.
+test('cancelling a streamed agentic answer kills the child', async () => {
+  const id = 'claude-cancel-handoff'
+  clearVerifiedVersion(id)
+  const root = mkdtempSync(join(TEST_ROOT, 'engined-door-'))
+  writeEngineSpec(root, id, CLAUDE_SPEC)
+  const workdir = mkdtempSync(join(TEST_ROOT, 'engined-workdir-'))
+  const cfg = config({
+    routes: [route({ engine: id, model: 'assistant', upstream: null })],
+    engines: [engine({ id, agent_version: '1.2.3' })],
+  })
+  let killed = false
+  let emit: (() => void) | undefined
+  const spawn: AgenticSpawn = (_argv, opts) => {
+    opts.onStdout?.(DELTA_LINE)
+    emit = () => opts.onStdout?.(DELTA_LINE)
+    return new Promise((_resolve, reject) => {
+      opts.signal?.addEventListener('abort', () => {
+        killed = true
+        reject(new Error('killed'))
+      })
+    })
+  }
+  try {
+    const door = createDoor(
+      cfg,
+      { enginesRoot: root, bunx: BUNX, agenticProbeRunner: PASSING_PROBE },
+      { agenticSpawn: spawn, write: () => undefined },
+    )
+    const res = await door.fetch(
+      chatRequest({
+        model: `@/${id}/assistant`,
+        messages: [{ role: 'user', content: 'hi' }],
+        workdir,
+        stream: true,
+      }),
+    )
+    expect(res.status).toBe(200)
+    const reader = res.body?.getReader()
+    await reader?.read()
+    await reader?.cancel()
+    expect(() => emit?.()).not.toThrow()
+    await Bun.sleep(20)
+    expect(killed).toBe(true)
+  } finally {
+    clearVerifiedVersion(id)
+  }
+})

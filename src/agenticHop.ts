@@ -299,6 +299,8 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     first = resolve
   })
   const { prompt, systemPrompt } = promptsFromMessages(rawBody)
+  // A cancelled stream (a stalled reader) leaves the request signal live, so the stream needs its own kill.
+  const kill = new AbortController()
   const run = runAgentic({
     agent: spec.agent,
     agentVersion,
@@ -318,7 +320,7 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     bunx: ctx.registryOpts.bunx,
     ambientEnv: ctx.doorOpts.agenticAmbientEnv,
     extraEnv,
-    signal,
+    signal: AbortSignal.any([signal, kill.signal]),
     onDelta: wantsStream
       ? (text) => {
           deltas.push(text)
@@ -339,9 +341,14 @@ async function launchAgentic(ctx: DoorContext, launch: AgenticLaunch): Promise<H
     req.setContentType(SSE_CONTENT_TYPE)
     return {
       status: STATUS_OK,
-      stream: agenticSse(run, deltas, (p) => {
-        pump = p
-      }),
+      stream: agenticSse(
+        run,
+        deltas,
+        (p) => {
+          pump = p
+        },
+        () => kill.abort(),
+      ),
       version: agentVersion,
       research: research ? true : undefined,
     }
@@ -537,6 +544,7 @@ function agenticSse(
   run: Promise<RunAgenticResult>,
   deltas: string[],
   attach: (pump: () => void) => void,
+  onCancel: () => void,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   agenticCallSeq += 1
@@ -554,10 +562,11 @@ function agenticSse(
         ...extra,
       })}\n\n`,
     )
+  let cancelled = false
   return new ReadableStream({
     start(controller) {
       const pump = (): void => {
-        while (deltas.length > 0) {
+        while (deltas.length > 0 && !cancelled) {
           controller.enqueue(chunk({ role: 'assistant', content: deltas.shift() }, null))
         }
       }
@@ -565,6 +574,9 @@ function agenticSse(
       pump()
       run.then(
         (outcome) => {
+          if (cancelled) {
+            return
+          }
           pump()
           if (!outcome.ok) {
             controller.error(new Error(outcome.failure ?? 'agentic call failed'))
@@ -587,6 +599,10 @@ function agenticSse(
         },
         (err: unknown) => controller.error(err),
       )
+    },
+    cancel() {
+      cancelled = true
+      onCancel()
     },
   })
 }
