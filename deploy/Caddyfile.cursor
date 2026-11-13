@@ -11,8 +11,8 @@
 # Caddy's; if Caddy runs in a container, point NODE_EXTRA_CA_CERTS at the
 # volume that holds the same root.crt, or any cert the operator chooses.
 # It is a Node bundle, so no system trust store change is needed.
-
 {
+	skip_install_trust
 	auto_https disable_redirects
 	# The container shares the host network, so Caddy's admin API would sit on the host's
 	# 127.0.0.1:2019 where any local process could rewrite the proxy. Nothing here reloads

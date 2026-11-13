@@ -13,13 +13,20 @@ import { errMessage } from './records.ts'
 
 const CONFIGSVC_SITE_MARKER = '# @CONFIGSVC_SITE@'
 
+/** Tabs for indent, no blank line before `{`, trailing newline — the shape `caddy fmt` writes. */
+function formatCaddyfile(src: string): string {
+  const tabbed = src.replace(/^( +)/gm, (spaces) => '\t'.repeat(Math.ceil(spaces.length / 4)))
+  const squeezed = tabbed.replace(/\n\n\{/g, '\n{')
+  return squeezed.endsWith('\n') ? squeezed : `${squeezed}\n`
+}
+
 /** The template with its marker replaced by the config UI's HTTPS site, or left as the comment it is. */
 export function renderCaddyfile(
   template: string,
   configsvc: { host: string; port: number; hop: string } | undefined,
 ): string {
   if (configsvc === undefined) {
-    return template
+    return formatCaddyfile(template)
   }
   // Caddy passes the client's Host through, which is what the config UI checks against its bridged name.
   // The hop header is the authenticating mark: X-Forwarded-For is ignored without it.
@@ -32,7 +39,7 @@ export function renderCaddyfile(
     '\t}',
     '}',
   ].join('\n')
-  return template.replace(CONFIGSVC_SITE_MARKER, site)
+  return formatCaddyfile(template.replace(CONFIGSVC_SITE_MARKER, site))
 }
 
 /** The bridged name and loopback port from the live config; none when it is loopback, disabled, or does not load. */

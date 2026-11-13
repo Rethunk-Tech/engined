@@ -14,3 +14,18 @@ test('the config UI site is added only for a bridged name, and the template stay
   expect(out).toContain('engined.localhost:29443 {')
   expect(out.indexOf('engined.lan')).toBeGreaterThan(out.indexOf('engined.localhost'))
 })
+
+test('the renderer emits skip_install_trust and tab indentation, matching caddy fmt', () => {
+  const plain = renderCaddyfile(TEMPLATE, undefined)
+  expect(plain).toContain('\tskip_install_trust\n')
+  expect(plain).not.toMatch(/^[ ]+/m)
+  const spaced = TEMPLATE.replace('\tskip_install_trust\n', '    skip_install_trust\n').replace(
+    '\n{',
+    '\n\n{',
+  )
+  expect(renderCaddyfile(spaced, undefined)).toBe(TEMPLATE)
+  const out = renderCaddyfile(TEMPLATE, { host: 'engined.lan', port: 29_202, hop: 'hop-secret' })
+  expect(out).toContain('\ttls internal\n')
+  expect(out).toContain('\t\theader_up X-Engined-Hop hop-secret\n')
+  expect(out).not.toMatch(/^[ ]+/m)
+})

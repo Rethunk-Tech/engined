@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- engined-tls sets `skip_install_trust` and the `--caddyfile` renderer emits tab-indented output, so container starts stop asking to install a CA and stop warning to run `caddy fmt`.
 - `engined --probe` reports an engine that answers 503 as `SKIP <route>: <reason>` (with a skip count) rather than a failed proof, and a whisper 503 names why (missing image, missing artifact, GPU hold) instead of only "whisper is not available".
 - `applySandboxFloor` removes the per-launch HOME when copying logins (or anything else after that home is created) throws, so a failed launch no longer leaks a directory.
 - piper renders each line with the same timing: its per-phoneme duration jitter is off, which made whisper mishear a word in about 4% of renders.
