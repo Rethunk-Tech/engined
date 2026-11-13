@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The agent sandbox's network namespace sets every pasta forward it does not need to `none`. pasta's `auto` defaults let an agent reach UDP and TCP services bound to the host's loopback, and published any port the agent listened on to every host interface.
+
 ## 0.2.20 - 2026-11-13
 
 - Agent sandboxes refuse to copy a login file that is a symlink, so a planted link can't pull a file from outside the sandbox into it.

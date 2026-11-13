@@ -1106,17 +1106,23 @@ test('runAgentic: with pasta the sandbox gets a private netns that forwards only
   })
 
   const [argv] = calls[0] as [string[]]
-  expect(argv.slice(0, 8)).toEqual([
+  expect(argv.slice(0, 14)).toEqual([
     '/usr/bin/pasta',
     '-q',
     '--config-net',
     '--map-host-loopback',
     'none',
+    '-t',
+    'none',
+    '-u',
+    'none',
+    '-U',
+    'none',
     '-T',
     '29200',
     '--',
   ])
-  expect(argv.slice(8, 10)).toEqual(['/bin/bash', '-c'])
+  expect(argv.slice(14, 16)).toEqual(['/bin/bash', '-c'])
   expect(argv).toContain('/usr/bin/bwrap')
 })
 

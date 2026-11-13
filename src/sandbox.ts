@@ -394,14 +394,32 @@ function cacheMount(cache: string | undefined, writable: boolean): string[] {
  * the host's abstract unix sockets (X11, dbus) and every loopback-only service
  * are out of reach. `-T` forwards just the door's ports from the namespace's
  * loopback to the host's; `--map-host-loopback none` closes pasta's default
- * mapping of the gateway address onto the host's loopback.
+ * mapping of the gateway address onto the host's loopback. Every other
+ * forward defaults to `auto` in pasta, which would reach host loopback UDP
+ * (`-U`) and TCP (`-T`) services and publish the sandbox's own listeners on
+ * every host interface (`-t`, `-u`), so each is set to `none`.
  */
 function netnsPrefix(netns: SandboxInput['netns']): string[] {
   if (netns === undefined) {
     return []
   }
-  const forward = netns.ports.length === 0 ? [] : ['-T', netns.ports.join(',')]
-  return [netns.pasta, '-q', '--config-net', '--map-host-loopback', 'none', ...forward, '--']
+  const forward = netns.ports.length === 0 ? 'none' : netns.ports.join(',')
+  return [
+    netns.pasta,
+    '-q',
+    '--config-net',
+    '--map-host-loopback',
+    'none',
+    '-t',
+    'none',
+    '-u',
+    'none',
+    '-U',
+    'none',
+    '-T',
+    forward,
+    '--',
+  ]
 }
 
 /** `pasta` for the sandbox's network namespace, or `null` when the box has none. */
