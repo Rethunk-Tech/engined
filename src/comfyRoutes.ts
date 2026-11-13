@@ -24,6 +24,7 @@ import {
 } from './comfyProxy.ts'
 import type { DoorContext } from './doorContext.ts'
 import { jsonError, STATUS_BAD_REQUEST, STATUS_NOT_FOUND } from './http.ts'
+import { KIBIBYTE, MEBIBYTE } from './records.ts'
 
 /**
  * Everything else the container answers, dispatched by method and
@@ -163,8 +164,10 @@ export function handleComfyWsUpgrade(
 /** What `comfyWebSocketHandlers.open` announces first, so the caller learns the door-assigned `clientId` before it ever needs one for `POST /prompt`. */
 const CLIENT_ID_MESSAGE_TYPE = 'client_id'
 
-const BACKPRESSURE_LIMIT_BYTES = 16 * 1024 * 1024
-const MAX_CALLER_FRAME_BYTES = 64 * 1024
+const BACKPRESSURE_LIMIT_MEBIBYTES = 16
+const BACKPRESSURE_LIMIT_BYTES = BACKPRESSURE_LIMIT_MEBIBYTES * MEBIBYTE
+const MAX_CALLER_FRAME_KIBIBYTES = 64
+const MAX_CALLER_FRAME_BYTES = MAX_CALLER_FRAME_KIBIBYTES * KIBIBYTE
 
 /**
  * Bridges the caller's own upgraded socket to a fresh outbound connection to
