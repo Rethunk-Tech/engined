@@ -83,13 +83,13 @@ test('a WAV header declaring zero-width samples ends in one error frame, not a d
   const wrapper = await startWrapper(upstream.port)
   const header = Buffer.alloc(44)
   header.write('RIFF', 0)
-  header.writeUInt32LE(0xffffffff, 4)
+  header.writeUInt32LE(0xff_ff_ff_ff, 4)
   header.write('WAVEfmt ', 8)
   header.writeUInt32LE(16, 16)
   header.writeUInt16LE(1, 20)
   // channels, rate, byte rate, block align, bits: all zero.
   header.write('data', 36)
-  header.writeUInt32LE(0xffffffff, 40)
+  header.writeUInt32LE(0xff_ff_ff_ff, 40)
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       controller.enqueue(header)
