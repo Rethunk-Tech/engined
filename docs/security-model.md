@@ -230,7 +230,7 @@ the LAN gateway, the internet and DNS are all unreachable, while the same probe
 from the default bridge reaches the door.
 
 The engines that load Hugging Face weights (kokoro, chatterbox-en,
-chatterbox-multi) bake every file they load, including kokoro's voice packs,
+chatterbox-multi) bake every file they load, including kokoro's voice packs and chatterbox-multi's pkuseg segmenter,
 and set `HF_HUB_OFFLINE=1`, so none of them tries the hub at start. The bake is
 part of the image: a local image without it asks the hub for `main`, has no
 network to ask over, and fails to start until it is rebuilt from its spec dir.

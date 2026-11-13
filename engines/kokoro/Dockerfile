@@ -52,13 +52,19 @@ RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.t
 # request burns the adapter's timeout on a cold download and looks like a
 # hung engine.
 ENV HF_HOME=/app/hf_cache
+ARG KOKORO_REV=f3ff3571791e39611d31c381e3a41a3af07b4987
 RUN python3 -c "\
 import huggingface_hub as hh; \
-REV='f3ff3571791e39611d31c381e3a41a3af07b4987'; \
+REV='${KOKORO_REV}'; \
 _dl, _sd = hh.hf_hub_download, hh.snapshot_download; \
 hh.hf_hub_download = lambda *a, **k: _dl(*a, **{**k, 'revision': REV}); \
 hh.snapshot_download = lambda *a, **k: _sd(*a, **{**k, 'revision': REV}); \
 from kokoro import KPipeline; KPipeline(lang_code='a')"
+# Every voice pack as well: KPipeline fetches one the first time it is asked
+# for it, and the running container has no network to fetch it over.
+RUN python3 -c "\
+import huggingface_hub as hh; \
+hh.snapshot_download('hexgrad/Kokoro-82M', revision='${KOKORO_REV}', allow_patterns=['voices/*'])"
 
 FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 
@@ -89,6 +95,15 @@ ENV MIOPEN_FIND_MODE=2
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app/hf_cache /app/hf_cache
+# The container runs on a network that reaches nothing (docs/security-model.md), so
+# the hub is never asked. Offline, huggingface_hub resolves the `main` that
+# from_pretrained asks for through refs/main, which a bake pinned to a commit never
+# writes; each cache holds exactly one snapshot, the pinned one. chatterbox keeps
+# a second cache nested inside its snapshot for the Cangjie table, hence find.
+RUN find /app/hf_cache -type d -name snapshots | while read -r snaps; do \
+      mkdir -p "$snaps/../refs" && printf %s "$(ls "$snaps")" > "$snaps/../refs/main"; \
+    done
+ENV HF_HUB_OFFLINE=1
 
 WORKDIR /app
 COPY app.py .

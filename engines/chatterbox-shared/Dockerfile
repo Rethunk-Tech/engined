@@ -121,6 +121,10 @@ ADD --checksum=sha256:20ef12963ab4924bef49ac4fc7f58ad5da2ee43b2c11bc8c853c9b90ec
     https://huggingface.co/selectorrrr/ctc_alignment_mling_uroman/resolve/c13912af40f24d0f910181f141d6f917caf6edcc/model.pt \
     /app/hf_cache/torch/hub/checkpoints/model.pt
 RUN python3 -c "from torchaudio.pipelines import MMS_FA; MMS_FA.get_model()"
+# chatterbox-multi's tokenizer builds a pkuseg segmenter at load, which downloads
+# its model from GitHub into PKUSEG_HOME unless it is already there.
+ENV PKUSEG_HOME=/app/hf_cache/pkuseg
+RUN python3 -c "from spacy_pkuseg import pkuseg; pkuseg()"
 
 FROM rocm/dev-ubuntu-24.04:7.2.4@sha256:bdc8e61026cbb844ede93d44d2c50055f51ebb2041906b60182bf3bee3139054
 
@@ -143,6 +147,16 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app/hf_cache /app/hf_cache
+# The container runs on a network that reaches nothing (docs/security-model.md), so
+# the hub is never asked. Offline, huggingface_hub resolves the `main` that
+# from_pretrained asks for through refs/main, which a bake pinned to a commit never
+# writes; each cache holds exactly one snapshot, the pinned one. chatterbox keeps
+# a second cache nested inside its snapshot for the Cangjie table, hence find.
+RUN find /app/hf_cache -type d -name snapshots | while read -r snaps; do \
+      mkdir -p "$snaps/../refs" && printf %s "$(ls "$snaps")" > "$snaps/../refs/main"; \
+    done
+ENV HF_HUB_OFFLINE=1
+ENV PKUSEG_HOME=/app/hf_cache/pkuseg
 
 WORKDIR /app
 COPY --from=shared chatterbox_app.py .
