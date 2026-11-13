@@ -258,15 +258,27 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
   )
 }
 
-/** The launch binary's own directory, and its real one when it is a symlink: `bunx` runs `bun` beside it, cursor's launcher runs the `node` beside its target. */
-function binaryDirs(binary: string): string[] {
+/**
+ * The launch binary's own directory, and its real one when it is a symlink:
+ * `bunx` runs `bun` beside it, cursor's launcher runs the `node` beside its
+ * target. Binding a masked root itself would undo the tmpfs and show every
+ * sibling the mask hid, so that case names the files instead of the directory.
+ */
+function binaryShown(binary: string, isMaskedRoot: (path: string) => boolean): string[] {
   let real = binary
   try {
     real = realpathSync(binary)
   } catch {
     // A binary that does not exist fails the spawn on its own, naming itself.
   }
-  return [...new Set([dirname(binary), dirname(real)])]
+  const files = [...new Set([binary, real])]
+  return [
+    ...new Set(
+      [...new Set([dirname(binary), dirname(real)])].flatMap((dir) =>
+        isMaskedRoot(dir) ? files : [dir],
+      ),
+    ),
+  ]
 }
 
 interface SandboxInput {
@@ -394,9 +406,13 @@ export function sandboxArgv(input: SandboxInput): string[] {
   // re-binding it can only fail, on a path like `/bin` that is a symlink.
   const hidden = (path: string): boolean =>
     [operatorHome, ...masks].some((mask) => isUnder(mask, path))
+  const maskedRoots = [operatorHome, ...masks].map(resolvedPath)
+  const isMaskedRoot = (path: string): boolean => maskedRoots.includes(resolvedPath(path))
   const workdir = resolvedPath(input.workdir)
   const gitDirs = workdirGitDirs(workdir, operatorHome).filter(hidden)
-  const shownBack = [...binaryDirs(binary), ...(input.readOnly ?? [])].filter(hidden)
+  const shownBack = [...binaryShown(binary, isMaskedRoot), ...(input.readOnly ?? [])].filter(
+    (path) => hidden(path) && !isMaskedRoot(path),
+  )
   return [
     ...netnsPrefix(input.netns),
     ...pinDirs([workdir, ...gitDirs]),

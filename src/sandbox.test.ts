@@ -171,6 +171,33 @@ test('tmpfs sandbox_mask paths before the workdir bind', () => {
   ])
 })
 
+bwrapIt('a binary sitting in a sandbox_mask root does not re-bind the masked siblings', () => {
+  const root = scratch('engined-sandbox-maskbin-')
+  const workdir = join(root, 'one')
+  const sibling = join(root, 'two')
+  mkdirSync(workdir)
+  mkdirSync(sibling)
+  writeFileSync(join(workdir, 'seed.txt'), 'visible\n')
+  writeFileSync(join(sibling, '.env'), 'canary\n')
+  const binary = join(root, 'agent')
+  writeFileSync(binary, `#!/bin/sh\ncat ${workdir}/seed.txt; cat ${sibling}/.env\n`, {
+    mode: 0o755,
+  })
+  const home = scratch('engined-sandbox-home-')
+  const { code, stdout } = run(
+    sandboxArgv({
+      bwrap: BWRAP,
+      home,
+      workdir,
+      sandboxMask: [root],
+      argv: [binary],
+    }),
+  )
+  expect(stdout).toContain('visible')
+  expect(stdout).not.toContain('canary')
+  expect(code).not.toBe(0)
+})
+
 bwrapIt('sandbox_mask hides siblings of the workdir but not the workdir itself', () => {
   const root = scratch('engined-sandbox-mask-')
   const workdir = join(root, 'one')
