@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.21 - 2026-11-13
 
 - `engined --probe` treats an engine that answers 503 as a failed proof (`FAIL`, exit 1), not a skip that passes the run.
 - chatterbox image builds pass `--require-hashes` when pip-installing the Perth and chatterbox-v2 tarballs.
