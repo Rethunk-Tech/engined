@@ -1248,3 +1248,43 @@ test('start while held throws HeldError and does not run a container', async () 
   await expect(lifecycle.start('held-start', SPEC, START_OPTS)).rejects.toBeInstanceOf(HeldError)
   expect(runLog).toEqual([])
 })
+
+test('a start whose readiness never answers removes the container it ran', async () => {
+  const runLog: string[][] = []
+  const rmLog: string[][] = []
+  const inner = buildExec({ runLog, port: STUB_HOST_PORT_A })
+  const exec: Exec = async (args) => {
+    if (args[0] === 'rm') {
+      rmLog.push([...args])
+    }
+    return await inner(args)
+  }
+  const never = (): ReturnType<Probe> => Promise.resolve({ status: 503 })
+  const lifecycle = new DockerLifecycle(exec, never)
+  const status = await lifecycle.start('leak-ready', SPEC, {
+    idleStopSeconds: 60,
+    readyTimeoutS: 0.05,
+  })
+  expect(status.state).toBe('unavailable')
+  // One rm -f before the run, one after the failed readiness.
+  expect(rmLog.length).toBe(2)
+})
+
+test('a stop landing during docker run does not leave the new container running', async () => {
+  const rmLog: string[][] = []
+  const inner = buildExec({ port: STUB_HOST_PORT_B, runDelayMs: 60 })
+  const exec: Exec = async (args) => {
+    if (args[0] === 'rm') {
+      rmLog.push([...args])
+    }
+    return await inner(args)
+  }
+  const lifecycle = new DockerLifecycle(exec, readyProbe)
+  const starting = lifecycle.start('stop-warming', SPEC, START_OPTS).catch(() => undefined)
+  await Bun.sleep(20)
+  // The stub's docker stop succeeds immediately, as it would for a container that exists.
+  await lifecycle.stop('stop-warming')
+  await starting
+  expect(lifecycle.getStatus('stop-warming').state).toBe('installed')
+  expect(rmLog.length).toBe(2)
+})

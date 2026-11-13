@@ -12,9 +12,8 @@
 
 import process from 'node:process'
 import { hostBindings, parseHostPort, specDigest } from './dockerArgs.ts'
+import { ensureArtifactsChecked, ensureImageChecked } from './dockerChecks.ts'
 import {
-  checkArtifacts,
-  checkImage,
   findOrphan,
   type Result,
   readHostPort,
@@ -403,11 +402,11 @@ export class DockerLifecycle {
     spec: RunnableContainerSpec,
     specSource?: string,
   ): Promise<{ ok: true; containerPort: number } | { ok: false; status: RuntimeStatus }> {
-    const image = await this.ensureImageChecked(rt, spec, specSource)
+    const image = await ensureImageChecked(this.exec, rt, spec, specSource)
     if (!image.ok) {
       return { ok: false, status: this.fail(id, rt, image.error, image.fix) }
     }
-    const artifacts = await this.ensureArtifactsChecked(rt, spec)
+    const artifacts = await ensureArtifactsChecked(this.exec, rt, spec)
     if (!artifacts.ok) {
       return { ok: false, status: this.fail(id, rt, artifacts.error, artifacts.fix) }
     }
@@ -437,19 +436,29 @@ export class DockerLifecycle {
     }
     const ran = await runContainer(this.exec, rt.containerName, spec, checked.containerPort)
     if (!ran.ok) {
-      return this.fail(id, rt, ran.error)
+      return await this.failAfterRun(id, rt, ran.error)
+    }
+    if (rt.state !== 'warming') {
+      return await this.abandon(id, rt)
     }
     const hostPort = await readHostPort(this.exec, rt.containerName, checked.containerPort)
     if (hostPort === null) {
-      return this.fail(id, rt, `${rt.containerName}: docker port returned no host binding`)
+      return await this.failAfterRun(
+        id,
+        rt,
+        `${rt.containerName}: docker port returned no host binding`,
+      )
     }
     const ready = await this.pollReady(
       hostPort,
       spec.ready,
       Date.now() + opts.readyTimeoutS * MS_PER_SECOND,
     )
+    if (rt.state !== 'warming') {
+      return await this.abandon(id, rt)
+    }
     if (!ready) {
-      return this.fail(
+      return await this.failAfterRun(
         id,
         rt,
         `${rt.containerName}: ${spec.ready.path} did not reach ${spec.ready.status} within ${opts.readyTimeoutS}s`,
@@ -463,35 +472,16 @@ export class DockerLifecycle {
     return this.table.status(id)
   }
 
-  /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix (e.g. `docker pull`) can make it pass, and that fix happens outside this process. */
-  private async ensureImageChecked(
-    rt: Runtime,
-    spec: RunnableContainerSpec,
-    specSource?: string,
-  ): Promise<Result<{ containerPort: number }>> {
-    if (!rt.imageCheck) {
-      rt.imageCheck = checkImage(this.exec, spec, specSource)
-    }
-    const result = await rt.imageCheck
-    if (!result.ok) {
-      rt.imageCheck = null
-    }
-    return result
+  /** A start that fails after `docker run` must not leave the container holding its GPU while the record says it is down. */
+  private async failAfterRun(id: string, rt: Runtime, error: string): Promise<RuntimeStatus> {
+    await this.exec(['rm', '-f', rt.containerName])
+    return this.fail(id, rt, error)
   }
 
-  /** Run when the engine is first asked for; cached until it next starts. A failed check is never cached: only a fix can make it pass, and the fix happens outside this process. */
-  private async ensureArtifactsChecked(rt: Runtime, spec: RunnableContainerSpec): Promise<Result> {
-    if (spec.artifacts.length === 0) {
-      return { ok: true }
-    }
-    if (!rt.artifactCheck) {
-      rt.artifactCheck = checkArtifacts(this.exec, spec)
-    }
-    const result = await rt.artifactCheck
-    if (!result.ok) {
-      rt.artifactCheck = null
-    }
-    return result
+  /** A stop or hold landed while this start was in flight: it won, so the container this start made must not outlive it. */
+  private async abandon(id: string, rt: Runtime): Promise<RuntimeStatus> {
+    await this.exec(['rm', '-f', rt.containerName])
+    return this.table.status(id)
   }
 
   /**
