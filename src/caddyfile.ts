@@ -13,9 +13,13 @@ import { errMessage } from './records.ts'
 
 const CONFIGSVC_SITE_MARKER = '# @CONFIGSVC_SITE@'
 
+const SPACES_PER_TAB = 4
+
 /** Tabs for indent, no blank line before `{`, trailing newline — the shape `caddy fmt` writes. */
 function formatCaddyfile(src: string): string {
-  const tabbed = src.replace(/^( +)/gm, (spaces) => '\t'.repeat(Math.ceil(spaces.length / 4)))
+  const tabbed = src.replace(/^( +)/gm, (spaces) =>
+    '\t'.repeat(Math.ceil(spaces.length / SPACES_PER_TAB)),
+  )
   const squeezed = tabbed.replace(/\n\n\{/g, '\n{')
   return squeezed.endsWith('\n') ? squeezed : `${squeezed}\n`
 }

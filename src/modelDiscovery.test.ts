@@ -147,7 +147,7 @@ test('a failed refresh keeps the list, and an offline start reads it from disk',
 
 test('a repeating refresh failure logs the first in full, then at most once an hour, then once when it recovers', async () => {
   let now = 1_700_000_000_000
-  let fail = false
+  const source: { fail: boolean } = { fail: false }
   const log: string[] = []
   const d = new ModelDiscovery({
     stateRoot: mkdtempSync(join(ROOT, 'state-')),
@@ -155,11 +155,11 @@ test('a repeating refresh failure logs the first in full, then at most once an h
     env: {},
     now: () => now,
     log: (l) => log.push(l),
-    fetch: async () => (fail ? new Response('no', { status: 500 }) : Response.json(LIST)),
+    fetch: async () => (source.fail ? new Response('no', { status: 500 }) : Response.json(LIST)),
   })
   await d.refresh('claude')
   expect(log).toEqual(['models: claude: found 4, added 4, removed 0'])
-  fail = true
+  source.fail = true
   await d.refresh('claude')
   expect(log).toHaveLength(2)
   expect(log[1]).toContain('refresh failed')
@@ -172,7 +172,7 @@ test('a repeating refresh failure logs the first in full, then at most once an h
   await d.refresh('claude')
   expect(log).toHaveLength(3)
   expect(log[2]).toContain('refresh failed')
-  fail = false
+  source.fail = false
   await d.refresh('claude')
   expect(log.at(-1)).toBe('models: claude: found 4, unchanged')
 })
