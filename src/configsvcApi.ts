@@ -20,6 +20,7 @@ import {
   STATUS_CONFLICT,
   STATUS_NOT_FOUND,
   STATUS_UNPROCESSABLE,
+  withDecodedSegment,
 } from './http.ts'
 import { errMessage, isRecord, parseRecord } from './records.ts'
 import { allowOf, dispatch, exactPath, pathPattern, type Route } from './routeTable.ts'
@@ -251,7 +252,8 @@ const CONFIG_ROUTES: Route<ApiArgs>[] = [
   {
     methods: ['GET'],
     match: pathPattern(HISTORY_ENTRY_RE),
-    handle: ([entry = ''], { deps }) => historyEntry(decodeURIComponent(entry), deps),
+    handle: ([entry = ''], { deps }) =>
+      withDecodedSegment(entry, (name) => historyEntry(name, deps)),
   },
 ]
 

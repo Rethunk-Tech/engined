@@ -366,6 +366,7 @@ test('save refuses a stale base, then writes atomically with history and one aud
   expect(entry.text).toBe(first.text)
   expect((await h.call('/api/history/config-19990101T000000Z.toml', { cookie })).status).toBe(404)
   expect((await h.call('/api/history/..%2Fconfig.toml', { cookie })).status).toBe(404)
+  expect((await h.call('/api/history/config-%E0%A4%A.toml', { cookie })).status).toBe(400)
 
   const stale = await save(`${edited}# lost\n`, first.sha256)
   expect(stale.status).toBe(409)

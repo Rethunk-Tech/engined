@@ -164,3 +164,15 @@ test('POST /api/secret/clear drops the named item and refuses a body without bot
   expect((unnamed as Response).status).toBe(403)
   expect(cleared).toEqual(['openai-api:default'])
 })
+
+test('a malformed percent-escape in an engine id is a 400, not a 500', async () => {
+  const env = deps({ configFile: configWithSecret(), enginesRoot: ENGINES_ROOT })
+  for (const [method, path] of [
+    ['GET', '/api/spec/%E0%A4%A'],
+    ['GET', '/api/logs/%E0%A4%A'],
+    ['POST', '/api/obtain/%E0%A4%A'],
+  ] as const) {
+    const res = await liveApi(new Request(`http://ui${path}`, { method }), path, env)
+    expect([path, (res as Response).status]).toEqual([path, 400])
+  }
+})

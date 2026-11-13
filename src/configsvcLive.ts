@@ -13,6 +13,7 @@ import {
   STATUS_FORBIDDEN,
   STATUS_NOT_FOUND,
   STATUS_UNPROCESSABLE,
+  withDecodedSegment,
 } from './http.ts'
 import { runProbes } from './probe.ts'
 import { errMessage, isRecord } from './records.ts'
@@ -387,16 +388,18 @@ const LIVE_ROUTES: Route<LiveArgs>[] = [
     methods: ['GET'],
     match: pathPattern(ENGINE_VERB_RE),
     handle: ([verb = '', id = ''], { req, deps }) =>
-      proxy(
-        deps,
-        `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/${verb}${new URL(req.url).search}`,
-        { signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]) },
+      withDecodedSegment(id, (engine) =>
+        proxy(
+          deps,
+          `/engined/v1/engines/${encodeURIComponent(engine)}/${verb}${new URL(req.url).search}`,
+          { signal: AbortSignal.any([req.signal, AbortSignal.timeout(TEST_ROUTE_TIMEOUT_MS)]) },
+        ),
       ),
   },
   {
     methods: ['GET'],
     match: pathPattern(SPEC_RE),
-    handle: ([id = ''], { deps }) => specText(decodeURIComponent(id), deps),
+    handle: ([id = ''], { deps }) => withDecodedSegment(id, (engine) => specText(engine, deps)),
   },
   get('/api/doctor', (deps) => deps.doctor().then((report) => Response.json(report))),
   get('/api/models', (deps) => models(deps)),
@@ -407,10 +410,12 @@ const LIVE_ROUTES: Route<LiveArgs>[] = [
     methods: ['POST'],
     match: pathPattern(OBTAIN_RE),
     handle: ([id = ''], { req, deps }) =>
-      proxy(deps, `/engined/v1/engines/${encodeURIComponent(decodeURIComponent(id))}/obtain`, {
-        method: 'POST',
-        signal: req.signal,
-      }),
+      withDecodedSegment(id, (engine) =>
+        proxy(deps, `/engined/v1/engines/${encodeURIComponent(engine)}/obtain`, {
+          method: 'POST',
+          signal: req.signal,
+        }),
+      ),
   },
   post('/api/secret', (deps, req) => storeSecret(req, deps)),
   post('/api/secret/clear', (deps, req) => clearSecret(req, deps)),

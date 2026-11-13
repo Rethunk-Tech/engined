@@ -150,13 +150,29 @@ export function methodNotAllowed(allow: readonly string[]): Response {
   return res
 }
 
-/** A path segment percent-decoded; one that is not valid UTF-8 escapes stays raw, so it names no id and answers as an unknown one rather than throwing. */
-export function decodeSegment(segment: string): string {
+/** A path segment percent-decoded, or `undefined` when its escapes are not valid UTF-8. */
+export function tryDecodeSegment(segment: string): string | undefined {
   try {
     return decodeURIComponent(segment)
   } catch {
-    return segment
+    return undefined
   }
+}
+
+/** A path segment percent-decoded; one that is not valid UTF-8 escapes stays raw, so it names no id and answers as an unknown one rather than throwing. */
+export function decodeSegment(segment: string): string {
+  return tryDecodeSegment(segment) ?? segment
+}
+
+/** The handler's answer for a decoded path segment, or a 400 when the segment's escapes are malformed. */
+export function withDecodedSegment(
+  segment: string,
+  handle: (decoded: string) => Response | Promise<Response>,
+): Response | Promise<Response> {
+  const decoded = tryDecodeSegment(segment)
+  return decoded === undefined
+    ? jsonError(STATUS_BAD_REQUEST, 'malformed percent-escape in the path')
+    : handle(decoded)
 }
 
 /** The GET answer with its body dropped: HEAD on a GET route. */

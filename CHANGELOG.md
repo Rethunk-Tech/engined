@@ -14,6 +14,7 @@
 - chatterbox-multi synthesizes again: its model now uses eager attention, since transformers 5 refused the alignment analyzer's attention outputs under SDPA and every request answered 502.
 - Removing a `[[route]]` (and the same for a commented toml-edit entry) also takes the contiguous comment lines immediately above it; a comment separated by a blank line stays.
 - A malformed percent-escape in `GET /openai/v1/models/<id>` or `POST /engined/v1/upstreams/<id>/refresh` answers 404 like any unknown id, not a 500.
+- A malformed percent-escape in a config UI history entry, spec, logs, resources or obtain path answers 400, not a 500.
 
 ## 0.2.17 - 2026-11-12
 
