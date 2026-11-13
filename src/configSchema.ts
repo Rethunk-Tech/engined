@@ -212,6 +212,10 @@ const ROUTE_FIELDS: Fields = {
   fim: bool('Opts a local llama route into fill-in-the-middle completions.'),
   keep_resident: bool('Load this model at engine start and reload it whenever its role returns.'),
   streaming: bool('Overrides whether this route streams, against the engine spec.'),
+  log: oneOf(
+    'Folds successful sub-5s calls into one journal line per minute (count, p50_ms, max_ms). Absent logs every call.',
+    ['summary'],
+  ),
   slot_long_threshold: positive('Token count at or above which a request goes to a long slot.'),
   vision_bridge: str(
     'Address of a vision route that captions image attachments for this chat route.',

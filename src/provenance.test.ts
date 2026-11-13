@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test'
-import { type Attempt, type CallRecord, recordCall } from './provenance.ts'
+import {
+  type Attempt,
+  type CallRecord,
+  CallSummaries,
+  flushCallSummaries,
+  recordCall,
+} from './provenance.ts'
 import { collectLines, soleProvenanceRecord } from './test-support.ts'
 
 const DURATION_A_MS = 120
@@ -169,4 +175,99 @@ test('recordCall: upstream_used survives serialization on both the attempt and t
   const parsed = soleProvenanceRecord(lines)
   expect(parsed.attempts[0]?.upstream_used).toBe('moonshot')
   expect(parsed.upstream_used).toBe('moonshot')
+})
+
+const FOLD_MAX_MS = 5_000
+const MINUTE_MS = 60_000
+const FAST_A_MS = 10
+const FAST_B_MS = 20
+const FAST_C_MS = 30
+
+function okCall(requested: string, duration_ms: number): CallRecord {
+  return {
+    chain: null,
+    requested,
+    attempts: [{ engine: 'llama', model: 'embed', ok: true, duration_ms }],
+    engine_used: 'llama',
+    upstream_used: 'local',
+  }
+}
+
+test('recordCall: log=summary folds successful sub-5s calls into one line per route per minute', () => {
+  const clock = { now: 0 }
+  const summaries = new CallSummaries({ now: () => clock.now })
+  const { lines, write } = collectLines()
+  recordCall(okCall('@/llama/embed', FAST_A_MS), write, { log: 'summary', summaries })
+  recordCall(okCall('@/llama/embed', FAST_C_MS), write, { log: 'summary', summaries })
+  recordCall(okCall('@/llama/embed', FAST_B_MS), write, { log: 'summary', summaries })
+  expect(lines).toEqual([])
+  flushCallSummaries(write, summaries)
+  expect(lines).toEqual([
+    JSON.stringify({
+      route: '@/llama/embed',
+      count: 3,
+      p50_ms: FAST_B_MS,
+      max_ms: FAST_C_MS,
+    }),
+  ])
+})
+
+test('recordCall: log=summary still emits failures and 5s-or-slower successes as full lines', () => {
+  const clock = { now: 0 }
+  const summaries = new CallSummaries({ now: () => clock.now })
+  const { lines, write } = collectLines()
+  const failed: CallRecord = {
+    chain: null,
+    requested: '@/llama/embed',
+    attempts: [
+      {
+        engine: 'llama',
+        model: 'embed',
+        ok: false,
+        failure: 'timeout',
+        duration_ms: FAST_A_MS,
+      },
+    ],
+    engine_used: null,
+    upstream_used: null,
+  }
+  recordCall(okCall('@/llama/embed', FAST_A_MS), write, { log: 'summary', summaries })
+  recordCall(failed, write, { log: 'summary', summaries })
+  recordCall(okCall('@/llama/embed', FOLD_MAX_MS), write, { log: 'summary', summaries })
+  expect(lines).toHaveLength(2)
+  expect(soleProvenanceRecord([lines[0] ?? '']).attempts[0]?.failure).toBe('timeout')
+  expect(soleProvenanceRecord([lines[1] ?? '']).attempts[0]?.duration_ms).toBe(FOLD_MAX_MS)
+  flushCallSummaries(write, summaries)
+  expect(JSON.parse(lines[2] ?? '')).toEqual({
+    route: '@/llama/embed',
+    count: 1,
+    p50_ms: FAST_A_MS,
+    max_ms: FAST_A_MS,
+  })
+})
+
+test('recordCall: log=summary flushes the previous minute when the injected clock rolls', () => {
+  const clock = { now: 0 }
+  const summaries = new CallSummaries({ now: () => clock.now })
+  const { lines, write } = collectLines()
+  recordCall(okCall('@/llama/embed', FAST_A_MS), write, { log: 'summary', summaries })
+  clock.now = MINUTE_MS
+  recordCall(okCall('@/llama/embed', FAST_C_MS), write, { log: 'summary', summaries })
+  expect(lines).toEqual([
+    JSON.stringify({
+      route: '@/llama/embed',
+      count: 1,
+      p50_ms: FAST_A_MS,
+      max_ms: FAST_A_MS,
+    }),
+  ])
+  flushCallSummaries(write, summaries)
+  expect(lines[1]).toBe(
+    JSON.stringify({
+      route: '@/llama/embed',
+      count: 1,
+      p50_ms: FAST_C_MS,
+      max_ms: FAST_C_MS,
+    }),
+  )
 })

@@ -239,6 +239,9 @@ test('config.example.toml parses through the real loadConfig()', () => {
   // proven against this exact path in config.test.ts, not here -- this load
   // has patched the line away.
   expect(raw).toMatch(WHISPER_MODELS_DIR_RE)
+  expect(config.routes.find((r) => r.engine === 'llama' && r.model === 'embed')?.log).toBe(
+    'summary',
+  )
 })
 
 // The [[model]] row's capabilities reach the route naming it, and inserting

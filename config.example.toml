@@ -256,6 +256,9 @@ upstream = "local"
 model = "embed"
 filename = "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 role = "embedding"
+# Successful sub-5s calls fold into one journal line per minute; failures and
+# slower calls still log in full. Absent (the default) logs every request.
+log = "summary"
 
 # Without this the child launches without `--embeddings` and every
 # request 501s ("This server does not support embeddings. Start it with

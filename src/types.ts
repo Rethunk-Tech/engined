@@ -335,6 +335,8 @@ export interface ResolvedRoute extends ModelCapabilities {
   keep_resident?: boolean
   /** Overrides the engine spec's `streaming` for this one route: a provider tier that cannot chunk what its siblings can. Absent means the engine's own answer. */
   streaming?: boolean
+  /** Folds successful sub-5s calls into one journal line per minute. Absent logs every call. */
+  log?: 'summary'
   /**
    * The token count at or above which `LlamaRouter`'s own slot placement
    * (`llamaSlots.ts`) calls a prompt "long" and reserves it one of this

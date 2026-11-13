@@ -11,6 +11,7 @@ import type { Door, DoorOptions } from './doorContext.ts'
 import { FatalError } from './errors/fatal.ts'
 import { bindDoor, errorCode } from './listen.ts'
 import { configPath, installDir, voicesDir } from './paths.ts'
+import { flushCallSummaries, writeToStdout } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
 import type { Config } from './types.ts'
@@ -134,6 +135,7 @@ export function runDaemon(make: {
     door.registry
       .shutdown()
       .then(() => {
+        flushCallSummaries(door.ctx.doorOpts.write ?? writeToStdout)
         door.ctx.usage.shutdown()
         cursorAgent?.stop()
         for (const s of bound) {

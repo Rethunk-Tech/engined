@@ -171,20 +171,110 @@ export function answeringHeaders(fields: {
   return headers
 }
 
+/** Slow enough that an operator grepping the journal should still see the call, not only the minute's p50. */
+const FOLD_MAX_MS = 5_000
+const SUMMARY_WINDOW_MS = 60_000
+
+interface SummaryBucket {
+  window: number
+  durations: number[]
+}
+
+export class CallSummaries {
+  private readonly buckets = new Map<string, SummaryBucket>()
+  private readonly now: () => number
+
+  constructor(opts: { now?: () => number } = {}) {
+    this.now = opts.now ?? Date.now
+  }
+
+  record(record: CallRecord, write: (line: string) => void, log?: 'summary'): void {
+    this.flushElapsed(write)
+    if (log === 'summary' && foldable(record)) {
+      this.add(record.requested, Math.max(...record.attempts.map((attempt) => attempt.duration_ms)))
+      return
+    }
+    write(callLine(record))
+  }
+
+  flush(write: (line: string) => void): void {
+    for (const [route, bucket] of this.buckets) {
+      if (bucket.durations.length > 0) {
+        write(summaryLine(route, bucket.durations))
+      }
+    }
+    this.buckets.clear()
+  }
+
+  private add(route: string, durationMs: number): void {
+    const window = Math.floor(this.now() / SUMMARY_WINDOW_MS)
+    let bucket = this.buckets.get(route)
+    if (bucket === undefined) {
+      bucket = { window, durations: [] }
+      this.buckets.set(route, bucket)
+    }
+    bucket.durations.push(durationMs)
+  }
+
+  private flushElapsed(write: (line: string) => void): void {
+    const window = Math.floor(this.now() / SUMMARY_WINDOW_MS)
+    for (const [route, bucket] of this.buckets) {
+      if (bucket.window < window) {
+        write(summaryLine(route, bucket.durations))
+        this.buckets.delete(route)
+      }
+    }
+  }
+}
+
+const defaultSummaries = new CallSummaries()
+
+function foldable(record: CallRecord): boolean {
+  return (
+    record.attempts.length > 0 &&
+    record.attempts.every((attempt) => attempt.ok && attempt.duration_ms < FOLD_MAX_MS)
+  )
+}
+
+function p50Ms(durations: number[]): number {
+  const sorted = durations.slice().sort((a, b) => a - b)
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? 0
+}
+
+function summaryLine(route: string, durations: number[]): string {
+  return JSON.stringify({
+    route,
+    count: durations.length,
+    p50_ms: p50Ms(durations),
+    max_ms: Math.max(...durations),
+  })
+}
+
+export function flushCallSummaries(
+  write: (line: string) => void = writeToStdout,
+  summaries: CallSummaries = defaultSummaries,
+): void {
+  summaries.flush(write)
+}
+
+function callLine(record: CallRecord): string {
+  return JSON.stringify({
+    chain: record.chain,
+    requested: record.requested,
+    attempts: record.attempts.map(serializeAttempt),
+    engine_used: record.engine_used,
+    upstream_used: record.upstream_used,
+    ...(record.vision_bridge === undefined
+      ? {}
+      : { vision_bridge: record.vision_bridge.map(serializeAttempt) }),
+  })
+}
+
 export function recordCall(
   record: CallRecord,
   write: (line: string) => void = writeToStdout,
+  opts?: { log?: 'summary'; summaries?: CallSummaries },
 ): void {
-  write(
-    JSON.stringify({
-      chain: record.chain,
-      requested: record.requested,
-      attempts: record.attempts.map(serializeAttempt),
-      engine_used: record.engine_used,
-      upstream_used: record.upstream_used,
-      ...(record.vision_bridge === undefined
-        ? {}
-        : { vision_bridge: record.vision_bridge.map(serializeAttempt) }),
-    }),
-  )
+  const summaries = opts?.summaries ?? defaultSummaries
+  summaries.record(record, write, opts?.log)
 }

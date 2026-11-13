@@ -20,7 +20,7 @@ import type { ProbeStore } from './probeStore.ts'
 import { type CallRecord, recordCall } from './provenance.ts'
 import { errMessage } from './records.ts'
 import type { RegistryOptions } from './registryOptions.ts'
-import { localRoutesOf } from './routeAddress.ts'
+import { addressForRoute, localRoutesOf, siblingRouteCount } from './routeAddress.ts'
 import type { ServedPorts } from './servedPorts.ts'
 import { isContainerSpec } from './specTypes.ts'
 import type { Config, EngineEntry } from './types.ts'
@@ -185,8 +185,16 @@ export interface ComfyBinding {
  * did only one would bill a call nobody can see logged, or log one usage
  * never counted.
  */
+function logModeFor(ctx: DoorContext, record: CallRecord): 'summary' | undefined {
+  const routes = ctx.getConfig().routes
+  const route = routes.find(
+    (r) => addressForRoute(r, siblingRouteCount(r, routes)) === record.requested,
+  )
+  return route?.log
+}
+
 export function recordDoorCall(ctx: DoorContext, record: CallRecord): void {
-  recordCall(record, ctx.doorOpts.write)
+  recordCall(record, ctx.doorOpts.write, { log: logModeFor(ctx, record) })
   ctx.usage.record(record)
   const donorSpend = ctx.donorSpend
   if (donorSpend !== undefined) {

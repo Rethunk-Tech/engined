@@ -75,6 +75,7 @@ export const ROUTE_KEYS = new Set([
   'context_in',
   'context_out',
   'reasoning',
+  'log',
 ])
 export const CHAIN_KEYS = new Set(['id', 'hops', 'disable'])
 /** Root of `config.toml`. A typo here is the same class of silent miss as a table typo. */

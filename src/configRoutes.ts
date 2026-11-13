@@ -50,6 +50,7 @@ export interface RawRoute {
   fim?: boolean
   keep_resident?: boolean
   streaming?: boolean
+  log?: 'summary'
   slot_long_threshold?: number
   vision_bridge?: string
   args: Record<string, unknown>
@@ -100,6 +101,17 @@ function parseRouteFilters(
     }
   }
   return { strip_params: stripParams, set_params: setParams }
+}
+
+function parseLog(value: unknown, site: string, file: string): 'summary' | undefined {
+  const logStr = optional(value, 'string', `${site} "log"`, file)
+  if (logStr === undefined) {
+    return undefined
+  }
+  if (logStr !== 'summary') {
+    throw new ParseError(`${site} has invalid "log" "${logStr}"`, { file, key: 'log' })
+  }
+  return 'summary'
 }
 
 export function parseRouteRaw(
@@ -207,6 +219,7 @@ export function parseRouteRaw(
     fim: optional(raw.fim, 'boolean', `${site} "fim"`, file),
     keep_resident: optional(raw.keep_resident, 'boolean', `${site} "keep_resident"`, file),
     streaming: optional(raw.streaming, 'boolean', `${site} "streaming"`, file),
+    log: parseLog(raw.log, site, file),
     slot_long_threshold: slotLongThreshold,
     vision_bridge: visionBridge,
     args,
@@ -409,6 +422,7 @@ export function resolveRoute({
     fim: raw.fim,
     keep_resident: raw.keep_resident,
     streaming: raw.streaming,
+    log: raw.log,
     slot_long_threshold: raw.slot_long_threshold,
     vision_bridge: raw.vision_bridge,
     args: raw.args,

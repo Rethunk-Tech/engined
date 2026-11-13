@@ -498,6 +498,13 @@
             "type": "string"
           },
           "description": "Reasoning-effort words this model accepts."
+        },
+        "log": {
+          "type": "string",
+          "enum": [
+            "summary"
+          ],
+          "description": "Folds successful sub-5s calls into one journal line per minute (count, p50_ms, max_ms). Absent logs every call."
         }
       },
       "required": [
