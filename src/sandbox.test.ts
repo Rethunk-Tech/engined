@@ -343,12 +343,31 @@ test("resolves a linked worktree's git dir and its common dir, both outside the 
   expect(workdirGitDirs(worktree)).toEqual([])
   writeFileSync(join(gitDir, 'gitdir'), `${join(worktree, '.git')}\n`)
   expect(workdirGitDirs(worktree)).toEqual([join(repo, '.git'), gitDir])
+  const nested = join(worktree, 'pkg')
+  mkdirSync(nested)
+  expect(workdirGitDirs(nested)).toEqual([join(repo, '.git'), gitDir])
   // A submodule has no gitdir backlink, so a crafted pointer cannot bind an arbitrary path.
   expect(workdirGitDirs(submodule)).toEqual([])
   // A plain checkout's .git is inside the workdir, and a stale pointer binds nothing.
   expect(workdirGitDirs(repo)).toEqual([])
   writeFileSync(join(worktree, '.git'), 'gitdir: /nonexistent/engined\n')
   expect(workdirGitDirs(worktree)).toEqual([])
+})
+
+test("a workdir in a repo subdirectory names the ancestor's .git", () => {
+  const repo = scratch('engined-sandbox-nested-')
+  const workdir = join(repo, 'pkg')
+  mkdirSync(workdir, { recursive: true })
+  mkdirSync(join(repo, '.git'))
+  expect(workdirGitDirs(workdir)).toEqual([join(repo, '.git')])
+  expect(workdirGitDirs(repo)).toEqual([])
+  const argv = sandboxArgv({
+    bwrap: BWRAP,
+    home: '/h',
+    workdir,
+    argv: ['/bin/true'],
+  })
+  expect(argv).toEqual(expect.arrayContaining(['--setenv', 'GIT_DIR', join(repo, '.git')]))
 })
 
 test('a forged commondir cannot bind a hidden home directory', () => {
@@ -402,6 +421,25 @@ test('refuses a workdir that is, contains, or sits inside a sensitive path', () 
   ]) {
     expect(workdirForbidden(join(home, rel), home)).toBeDefined()
   }
+})
+
+bwrapIt('a workdir inside a repo under the operator home can still see that git dir', () => {
+  const home = mkdtempSync(join(HOME_ROOT, 'op-'))
+  const repo = join(home, 'src', 'repo')
+  const workdir = join(repo, 'pkg')
+  mkdirSync(workdir, { recursive: true })
+  git(repo, 'init')
+  const { code, stdout } = run(
+    sandboxArgv({
+      bwrap: BWRAP,
+      home: scratch('engined-sandbox-home-'),
+      workdir,
+      operatorHome: home,
+      argv: ['/usr/bin/git', 'rev-parse', '--is-inside-work-tree'],
+    }),
+  )
+  expect(stdout.trim()).toBe('true')
+  expect(code).toBe(0)
 })
 
 bwrapIt('hides a file under the operator home that the workdir does not cover', () => {

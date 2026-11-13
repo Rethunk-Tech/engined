@@ -216,17 +216,35 @@ function gitdirPointsAtWorkdir(gitDir: string, workdir: string): boolean {
 }
 
 /**
- * A linked worktree names its git dir in a `.git` file, and that dir (plus
- * its shared `commondir`) usually lives outside the workdir, often under the
- * masked home. `git log` inside the sandbox needs both. A `.git` directory
- * is inside the workdir already, so it adds nothing. A crafted pointer is
- * ignored unless git's own `gitdir` backlink names this workdir's `.git`.
- * Both dirs are returned symlink-resolved, so the path checked is the path bound.
+ * Git dirs a launch at `root` needs bound, or `undefined` when `root` has no
+ * `.git` so a caller can keep walking. A `.git` directory inside the workdir
+ * is already visible, so it adds nothing; one on an ancestor is the repo the
+ * subdirectory sits in. A crafted pointer is ignored unless git's own `gitdir`
+ * backlink names this root's `.git`. Paths are symlink-resolved, so the path
+ * checked is the path bound.
  */
-export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_HOME): string[] {
+function gitDirsAt(
+  root: string,
+  operatorHome: string,
+  allowGitDirectory: boolean,
+): string[] | undefined {
+  const gitPath = join(root, '.git')
+  let st: ReturnType<typeof statSync>
+  try {
+    st = statSync(gitPath)
+  } catch {
+    return undefined
+  }
+  if (st.isDirectory()) {
+    if (!allowGitDirectory) {
+      return []
+    }
+    const real = resolvedPath(gitPath)
+    return existsSync(real) && workdirForbidden(real, operatorHome) === undefined ? [real] : []
+  }
   let pointer: string
   try {
-    pointer = readFileSync(join(workdir, '.git'), 'utf8')
+    pointer = readFileSync(gitPath, 'utf8')
   } catch {
     return []
   }
@@ -234,8 +252,8 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
   if (named === undefined) {
     return []
   }
-  const gitDir = resolvedPath(resolve(workdir, named))
-  if (!gitdirPointsAtWorkdir(gitDir, workdir)) {
+  const gitDir = resolvedPath(resolve(root, named))
+  if (!gitdirPointsAtWorkdir(gitDir, root)) {
     return []
   }
   let commonDir: string | undefined
@@ -256,6 +274,31 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
     (dir): dir is string =>
       dir !== undefined && existsSync(dir) && workdirForbidden(dir, operatorHome) === undefined,
   )
+}
+
+/**
+ * A linked worktree names its git dir in a `.git` file, and that dir (plus
+ * its shared `commondir`) usually lives outside the workdir, often under the
+ * masked home. A workdir inside a checkout has no `.git` of its own: walk
+ * ancestors so `git` still finds the repo after the home tmpfs hides it.
+ */
+export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_HOME): string[] {
+  const here = gitDirsAt(resolvedPath(workdir), operatorHome, false)
+  if (here !== undefined) {
+    return here
+  }
+  let dir = resolvedPath(workdir)
+  for (;;) {
+    const parent = dirname(dir)
+    if (parent === dir) {
+      return []
+    }
+    dir = parent
+    const found = gitDirsAt(dir, operatorHome, true)
+    if (found !== undefined) {
+      return found
+    }
+  }
 }
 
 /**
@@ -410,7 +453,9 @@ export function sandboxArgv(input: SandboxInput): string[] {
   const maskedRoots = [operatorHome, ...masks].map(resolvedPath)
   const isMaskedRoot = (path: string): boolean => maskedRoots.includes(resolvedPath(path))
   const workdir = resolvedPath(input.workdir)
-  const gitDirs = workdirGitDirs(workdir, operatorHome).filter(hidden)
+  const allGitDirs = workdirGitDirs(workdir, operatorHome)
+  const gitDirs = allGitDirs.filter(hidden)
+  const gitDir = allGitDirs.at(-1)
   const reexposesMasked = (path: string): boolean =>
     isMaskedRoot(path) || (isUnder(path, workdir) && resolvedPath(path) !== workdir)
   const shownBack = [...binaryShown(binary, reexposesMasked), ...(input.readOnly ?? [])].filter(
@@ -453,6 +498,9 @@ export function sandboxArgv(input: SandboxInput): string[] {
     '--ro-bind-fd',
     String(PIN_FD_BASE),
     workdir,
+    // The workdir bind is its own mount, so git stops at that boundary instead
+    // of walking into an ancestor `.git` even when that dir is visible.
+    ...(gitDir === undefined ? [] : ['--setenv', 'GIT_DIR', gitDir]),
     '--chdir',
     workdir,
     // Belt and braces beside defaultAgenticSpawn's process-group kill: if
