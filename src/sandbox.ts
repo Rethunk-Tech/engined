@@ -34,9 +34,13 @@
  * process. An agent given a private repository is trusted with its contents.
  */
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -98,13 +102,46 @@ export function copyLogins(
   operatorHome: string = OPERATOR_HOME,
 ): void {
   for (const login of logins) {
-    const source = join(operatorHome, login.from)
-    if (!existsSync(source)) {
-      continue
+    const source = resolve(operatorHome, login.from)
+    if (!isUnder(operatorHome, source) || source === resolve(operatorHome)) {
+      throw new Error(`login ${login.from} is outside the operator home`)
     }
-    const target = join(launchHome, login.to)
-    mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
-    writeFileSync(target, readFileSync(source), { mode: 0o600 })
+    try {
+      if (!isUnder(operatorHome, realpathSync(dirname(source)))) {
+        throw new Error(`login ${login.from} is outside the operator home`)
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue
+      }
+      throw err
+    }
+    let fd: number
+    try {
+      fd = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        continue
+      }
+      if (code === 'ELOOP') {
+        throw new Error(`login ${login.from} is a symlink, not a regular file`)
+      }
+      throw err
+    }
+    try {
+      if (!fstatSync(fd).isFile()) {
+        throw new Error(`login ${login.from} is not a regular file`)
+      }
+      const target = resolve(launchHome, login.to)
+      if (!isUnder(launchHome, target) || target === resolve(launchHome)) {
+        throw new Error(`login ${login.to} is outside the launch home`)
+      }
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
+      writeFileSync(target, readFileSync(fd), { mode: 0o600 })
+    } finally {
+      closeSync(fd)
+    }
   }
 }
 

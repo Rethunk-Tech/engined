@@ -252,6 +252,24 @@ test('copies a login into the launch home 0600, and an absent one is no error', 
   expect(existsSync(join(launch, 'config', 'cursor', 'auth.json'))).toBe(false)
 })
 
+test('copyLogins does not follow a symlink out of the login source directory', () => {
+  const operator = scratch('engined-sandbox-op-')
+  const launch = scratch('engined-sandbox-launch-')
+  const outside = scratch('engined-sandbox-secret-')
+  writeFileSync(join(outside, 'id_ed25519'), 'SSH_SECRET\n')
+  mkdirSync(join(operator, '.claude'))
+  symlinkSync(join(outside, 'id_ed25519'), join(operator, '.claude', '.credentials.json'))
+
+  expect(() =>
+    copyLogins(
+      launch,
+      [{ from: '.claude/.credentials.json', to: '.claude/.credentials.json' }],
+      operator,
+    ),
+  ).toThrow(/symlink/)
+  expect(existsSync(join(launch, '.claude', '.credentials.json'))).toBe(false)
+})
+
 test("resolves a linked worktree's git dir and its common dir, both outside the workdir", () => {
   const repo = scratch('engined-sandbox-repo-')
   const gitDir = join(repo, '.git', 'worktrees', 'wt')
