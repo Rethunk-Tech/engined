@@ -42,7 +42,7 @@ test('shell tool-call args send workdir as .', () => {
 })
 
 /** [tool, raw args, execRequest(3, 'exec-1') hex, toolCallMessage(.., 'call-1') hex] captured before the args were read straight from the JSON. */
-const WIRE: Array<[string, Record<string, unknown>, string | null, string | null]> = [
+const WIRE: [string, Record<string, unknown>, string | null, string | null][] = [
   [
     'shell',
     { command: 'ls -la /tmp', description: 'list', background: true },
