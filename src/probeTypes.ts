@@ -11,16 +11,12 @@ export interface ProbeLine {
   detail: string
   /** Set on the translation and rerank lines, the two the door records; see `reportProbes`. */
   kind?: ProbeKind
-  /**
-   * The engine answered 503. Not a failed proof (the door already named why)
-   * and not a pass; `ok` stays true so a skip does not fail the run.
-   */
   skip?: boolean
 }
 
 /**
- * A probed engine that answers 503 is a skip with the door's own reason; any
- * other non-success is a failed proof.
+ * A probed engine that answers 503 is a failed proof with the door's own
+ * reason; any other non-success is a failed proof too.
  */
 export function httpProbeError(
   status: number,
@@ -29,8 +25,7 @@ export function httpProbeError(
   const clipped = raw.slice(0, ENGINE_ERROR_CHARS)
   if (status === STATUS_UNAVAILABLE) {
     return {
-      ok: true,
-      skip: true,
+      ok: false,
       detail: errorMessageOf(parseRecord(clipped) ?? {}) ?? clipped,
     }
   }

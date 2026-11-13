@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `engined --probe` treats an engine that answers 503 as a failed proof (`FAIL`, exit 1), not a skip that passes the run.
 - The agent sandbox's network namespace sets every pasta forward it does not need to `none`. pasta's `auto` defaults let an agent reach UDP and TCP services bound to the host's loopback, and published any port the agent listened on to every host interface.
 
 ## 0.2.20 - 2026-11-13
