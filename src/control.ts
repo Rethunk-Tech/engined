@@ -287,7 +287,8 @@ export async function handleLogs(
   id: string,
   url: URL,
 ): Promise<Response> {
-  const asked = Number(url.searchParams.get('tail') ?? DEFAULT_LOG_TAIL)
+  const raw = url.searchParams.get('tail')
+  const asked = Number(raw === null || raw === '' ? DEFAULT_LOG_TAIL : raw)
   const tail = Number.isFinite(asked)
     ? Math.min(Math.max(1, Math.trunc(asked)), MAX_LOG_TAIL)
     : DEFAULT_LOG_TAIL

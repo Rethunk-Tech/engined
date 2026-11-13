@@ -103,6 +103,17 @@ test('logs pass the asked-for tail through to docker', async () => {
   ])
 })
 
+// `?tail=` is present-but-empty, not "one line": Number("") is 0, which the
+// clamp would otherwise raise to 1 instead of using the default.
+test('an empty tail query uses the default rather than a single line', async () => {
+  const { exec, calls } = recordingExec(() => ({}))
+  const res = await doorWith(exec).fetch(
+    new Request('http://engined/engined/v1/engines/local-llama/logs?tail='),
+  )
+  expect(res.status).toBe(200)
+  expect(calls.find((c) => c[0] === 'logs')?.[2]).toBe('200')
+})
+
 // A caller asking for more than the door serves wants everything it can get.
 // Rejecting the request would hand back nothing over a number it chose freely.
 test('an absurd tail is clamped, not refused', async () => {
