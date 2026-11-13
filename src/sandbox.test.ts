@@ -198,6 +198,36 @@ bwrapIt('a binary sitting in a sandbox_mask root does not re-bind the masked sib
   expect(code).not.toBe(0)
 })
 
+bwrapIt(
+  'a binary in a parent of the workdir does not re-bind masked siblings of that parent',
+  () => {
+    const root = scratch('engined-sandbox-maskpar-')
+    const parent = join(root, 'org')
+    const workdir = join(parent, 'one')
+    const sibling = join(parent, 'two')
+    mkdirSync(workdir, { recursive: true })
+    mkdirSync(sibling)
+    writeFileSync(join(workdir, 'seed.txt'), 'visible\n')
+    writeFileSync(join(sibling, '.env'), 'canary\n')
+    const binary = join(parent, 'agent')
+    writeFileSync(binary, `#!/bin/sh\ncat ${workdir}/seed.txt; cat ${sibling}/.env\n`, {
+      mode: 0o755,
+    })
+    const { code, stdout } = run(
+      sandboxArgv({
+        bwrap: BWRAP,
+        home: scratch('engined-sandbox-home-'),
+        workdir,
+        sandboxMask: [root],
+        argv: [binary],
+      }),
+    )
+    expect(stdout).toContain('visible')
+    expect(stdout).not.toContain('canary')
+    expect(code).not.toBe(0)
+  },
+)
+
 bwrapIt('sandbox_mask hides siblings of the workdir but not the workdir itself', () => {
   const root = scratch('engined-sandbox-mask-')
   const workdir = join(root, 'one')

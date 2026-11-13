@@ -261,10 +261,11 @@ export function workdirGitDirs(workdir: string, operatorHome: string = OPERATOR_
 /**
  * The launch binary's own directory, and its real one when it is a symlink:
  * `bunx` runs `bun` beside it, cursor's launcher runs the `node` beside its
- * target. Binding a masked root itself would undo the tmpfs and show every
- * sibling the mask hid, so that case names the files instead of the directory.
+ * target. Binding a masked root or an ancestor of the workdir would undo the
+ * tmpfs and show every sibling the mask hid, so those cases name the files
+ * instead of the directory.
  */
-function binaryShown(binary: string, isMaskedRoot: (path: string) => boolean): string[] {
+function binaryShown(binary: string, reexposes: (path: string) => boolean): string[] {
   let real = binary
   try {
     real = realpathSync(binary)
@@ -275,7 +276,7 @@ function binaryShown(binary: string, isMaskedRoot: (path: string) => boolean): s
   return [
     ...new Set(
       [...new Set([dirname(binary), dirname(real)])].flatMap((dir) =>
-        isMaskedRoot(dir) ? files : [dir],
+        reexposes(dir) ? files : [dir],
       ),
     ),
   ]
@@ -410,8 +411,10 @@ export function sandboxArgv(input: SandboxInput): string[] {
   const isMaskedRoot = (path: string): boolean => maskedRoots.includes(resolvedPath(path))
   const workdir = resolvedPath(input.workdir)
   const gitDirs = workdirGitDirs(workdir, operatorHome).filter(hidden)
-  const shownBack = [...binaryShown(binary, isMaskedRoot), ...(input.readOnly ?? [])].filter(
-    (path) => hidden(path) && !isMaskedRoot(path),
+  const reexposesMasked = (path: string): boolean =>
+    isMaskedRoot(path) || (isUnder(path, workdir) && resolvedPath(path) !== workdir)
+  const shownBack = [...binaryShown(binary, reexposesMasked), ...(input.readOnly ?? [])].filter(
+    (path) => hidden(path) && !reexposesMasked(path),
   )
   return [
     ...netnsPrefix(input.netns),
