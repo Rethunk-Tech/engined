@@ -183,6 +183,11 @@ export async function handleDetokenizeRoute(ctx: DoorContext, req: Request): Pro
   if (vocab instanceof Response) {
     return vocab
   }
+  // A long vocab piece repeated under the id cap would otherwise build hundreds of MiB of text.
+  const chars = ids.reduce((n, id) => n + (vocab.idToToken[id]?.length ?? 0), 0)
+  if (chars > MAX_TOKENIZE_CONTENT_CHARS) {
+    return jsonError(STATUS_PAYLOAD_TOO_LARGE, 'content too large')
+  }
   try {
     return Response.json({ content: bpeDetokenize(vocab, ids) })
   } catch (err) {

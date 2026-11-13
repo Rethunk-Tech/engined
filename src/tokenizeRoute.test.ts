@@ -164,6 +164,21 @@ describe('POST /engined/v1/detokenize', () => {
     expect(res.status).toBe(413)
     expect(await res.json()).toEqual(jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'tokens too large'))
   })
+
+  test('ids under the count cap whose text would pass the content cap are 413', async () => {
+    const door = tokenizableDoorConfig()
+    const res = await door.fetch(
+      new Request(`http://engined${DETOKENIZE_PATH}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          model: '@/llama/tiny',
+          tokens: Array.from({ length: MAX_TOKENIZE_CONTENT_CHARS / 2 + 1 }, () => 2),
+        }),
+      }),
+    )
+    expect(res.status).toBe(413)
+    expect(await res.json()).toEqual(jsonErrorBody(STATUS_PAYLOAD_TOO_LARGE, 'content too large'))
+  })
 })
 
 describe('supportsVocabTokenize', () => {
