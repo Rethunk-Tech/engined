@@ -15,7 +15,7 @@ values. All are two-stage: build tools (compilers, venv creation, git)
 never reach the runtime image.
 
 A baked wrapper edit (`app.py`, the Dockerfile) is live only after a rebuild
-plus `docker rm -f engined-<id>`: a running container keeps serving the old
+plus `docker rm -f engined-<id> engined-<id>.proxy`: a running container keeps serving the old
 image until it is removed, and `scripts/install.sh` redeploys the daemon
 only, never engine images. Rebuild with the `docker build` line a missing
 image reports as its fix — it already carries that spec's

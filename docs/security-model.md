@@ -177,9 +177,9 @@ but does not need to — llama takes `/models/load` and Comfy takes a workflow
 graph, and a side effect is enough. Ephemeral ports are not a control: a page
 scans loopback faster than a human notices.
 
-This is accepted and named rather than implied. Closing it would mean putting
-managed containers on a docker network and reaching them from engined alone,
-which the port read-back already makes possible.
+This is accepted and named rather than implied. Each engine already sits on a
+network that reaches nothing but its own port proxy (below), but that proxy
+still publishes on loopback, where any local process or page can dial it.
 
 One consumer is a browser: a video-production consumer's browser-based
 settings page is a read-mostly client of `GET /engined/v1/engines`, and a
@@ -205,12 +205,35 @@ on.
 Inside that, every engine container runs with `--cap-drop ALL`,
 `--security-opt no-new-privileges` and `--pids-limit 4096`
 (`src/dockerArgs.ts`): GPU access is the spec's `--device` and `--group-add`,
-which need no capability. Each still sits on docker's default bridge, so a
-compromised engine can reach the LAN, the internet and the door through the
-bridge gateway. A docker `--internal` network does not close that on its own:
-docker drops the `-p` publish engined reads the port back from, and the
-gateway address still reaches every host listener on all interfaces,
-the door included.
+which need no capability.
+
+**An engine reaches nothing but its own port proxy.** Each engine runs alone on
+its own network, `engined-<id>.net`, created `--internal` with
+`com.docker.network.bridge.gateway_mode_ipv4=isolated` (and the IPv6
+equivalent), so the bridge has no host-side address at all. `--internal` alone
+is not enough: the gateway address still reaches every host listener on all
+interfaces, the door included, and docker drops a `-p` publish on an internal
+network. The publish lives on a sidecar instead, `engined-<id>.proxy`: a
+`socat` TCP relay (`alpine/socat`, pinned by digest in `src/dockerArgs.ts`)
+started on the default bridge with `-p 127.0.0.1::<port>`, then joined to the
+engine's network. It relays bytes, so streaming responses and comfy's
+websocket pass through unchanged, and it runs under the same `--cap-drop ALL`,
+`no-new-privileges` and pids limit, as `nobody`, read-only.
+
+The pair is one unit: a start removes any earlier pair and network before it
+builds a new one, a stop removes the proxy and network once the engine is down
+(the stopped engine stays for `docker logs`), either half dying stops the other,
+and an orphan is adopted only with a running proxy started from the same spec
+digest. `test/local/isolation.test.ts` proves it with piper: from inside the
+engine container the door (on the docker bridge gateway and the LAN address),
+the LAN gateway, the internet and DNS are all unreachable, while the same probe
+from the default bridge reaches the door.
+
+The engines that load Hugging Face weights (kokoro, chatterbox-en,
+chatterbox-multi) bake every file they load, including kokoro's voice packs,
+and set `HF_HUB_OFFLINE=1`, so none of them tries the hub at start. The bake is
+part of the image: a local image without it asks the hub for `main`, has no
+network to ask over, and fails to start until it is rebuilt from its spec dir.
 
 ## Anyone who reaches the door has all of it
 

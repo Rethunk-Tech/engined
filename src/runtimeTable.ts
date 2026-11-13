@@ -47,6 +47,8 @@ export interface Runtime {
   fix?: string
   lastError?: string
   startPromise: Promise<RuntimeStatus> | null
+  /** The latest stop. A start waits it out, so the proxy and network a stop removes once docker stop returns are never the new pair's. */
+  stopping: Promise<boolean> | null
   idleTimer: ReturnType<typeof setTimeout> | null
   imageCheck: Promise<Result<{ containerPort: number }>> | null
   artifactCheck: Promise<Result> | null
@@ -117,6 +119,7 @@ export class RuntimeTable {
         state: 'installed',
         hostPort: null,
         startPromise: null,
+        stopping: null,
         idleTimer: null,
         imageCheck: null,
         artifactCheck: null,

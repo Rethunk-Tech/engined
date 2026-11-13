@@ -15,15 +15,19 @@ import { hostBindings, parseHostPort, specDigest } from './dockerArgs.ts'
 import { ensureArtifactsChecked, ensureImageChecked } from './dockerChecks.ts'
 import {
   findOrphan,
+  pairRunning,
   type Result,
   readHostPort,
   readLogs,
   readResources,
+  removePair,
+  removeProxy,
   runContainer,
+  stopPair,
 } from './dockerCommands.ts'
 import { HeldError } from './errors/held.ts'
 import { StopFailedError } from './errors/stopFailed.ts'
-import { binExec, EXIT_TIMED_OUT, type Exec } from './exec.ts'
+import { binExec, type Exec } from './exec.ts'
 import { discardBody } from './http.ts'
 import { errMessage, MS_PER_SECOND, pollUntil } from './records.ts'
 import type { EngineResources } from './resources.ts'
@@ -281,13 +285,11 @@ export class DockerLifecycle {
     if (rt.state === 'running') {
       // Whatever holds this name is this process's own from here on.
       rt.adoptChecked = true
-      const res = await this.exec(['inspect', '-f', '{{.State.Running}}', rt.containerName])
-      // A timeout is docker not answering; `stopped` would let a start kill it.
-      const live = res.exitCode === 0 && res.stdout.trim() === 'true'
-      if (live || res.exitCode === EXIT_TIMED_OUT) {
-        return this.table.status(id)
+      if ((await pairRunning(this.exec, rt.containerName)) === false) {
+        // Before the record changes, so a start this marking lets in cannot have its new pair stopped.
+        await stopPair(this.exec, rt.containerName)
+        this.table.markStopped(rt)
       }
-      this.table.markStopped(rt)
       return this.table.status(id)
     }
     if (spec !== undefined && !rt.adoptChecked) {
@@ -339,9 +341,9 @@ export class DockerLifecycle {
       )
       return false
     }
-    const hostPort = parseHostPort(hostBindings(found.ports))
+    const hostPort = found.ports === null ? null : parseHostPort(hostBindings(found.ports))
     if (hostPort === null) {
-      this.declineAdoption(rt, 'docker publishes no host binding for it')
+      this.declineAdoption(rt, 'no port proxy started with it publishes a host binding')
       return false
     }
     // One attempt, not the start-path poll: a container that has been up long
@@ -434,6 +436,7 @@ export class DockerLifecycle {
     if (!checked.ok) {
       return checked.status
     }
+    await rt.stopping?.catch(() => false) // whatever its outcome, removePair takes over
     const ran = await runContainer(this.exec, rt.containerName, spec, checked.containerPort)
     if (!ran.ok) {
       return await this.failAfterRun(id, rt, ran.error)
@@ -474,13 +477,13 @@ export class DockerLifecycle {
 
   /** A start that fails after `docker run` must not leave the container holding its GPU while the record says it is down. */
   private async failAfterRun(id: string, rt: Runtime, error: string): Promise<RuntimeStatus> {
-    await this.exec(['rm', '-f', rt.containerName])
+    await removePair(this.exec, rt.containerName)
     return this.fail(id, rt, error)
   }
 
-  /** A stop or hold landed while this start was in flight: it won, so the container this start made must not outlive it. */
+  /** A stop or hold landed while this start was in flight: it won, so the pair this start made must not outlive it. */
   private async abandon(id: string, rt: Runtime): Promise<RuntimeStatus> {
-    await this.exec(['rm', '-f', rt.containerName])
+    await removePair(this.exec, rt.containerName)
     return this.table.status(id)
   }
 
@@ -520,7 +523,12 @@ export class DockerLifecycle {
    * is about to die, take a lease against it, and then lose that lease to the
    * reset the stop performs on its way out.
    */
-  private async stopContainer(rt: Runtime): Promise<boolean> {
+  private stopContainer(rt: Runtime): Promise<boolean> {
+    rt.stopping = this.stopEngine(rt)
+    return rt.stopping
+  }
+
+  private async stopEngine(rt: Runtime): Promise<boolean> {
     const priorState = rt.state
     const priorPort = rt.hostPort
     this.table.markStopped(rt)
@@ -536,6 +544,8 @@ export class DockerLifecycle {
       }
       return false
     }
+    // Only now: a failed stop leaves the engine serving, which still needs its proxy.
+    await removeProxy(this.exec, rt.containerName)
     rt.lastError = undefined
     return true
   }

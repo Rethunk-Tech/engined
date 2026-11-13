@@ -24,6 +24,7 @@ import {
   ENGINES_ROOT,
   engine,
   inspectSinglePort,
+  isEngineRun,
   makeTestRoot,
   portResult,
   route,
@@ -170,7 +171,7 @@ test('a start refused for a model conflict is a 409, never fetched', async () =>
 
 test('chatterbox-multi spec.toml produces run argv carrying the GPU flags and no all-interfaces publish', () => {
   const spec = loadSpecFor('chatterbox-multi')
-  const argv = buildRunArgs('engined-chatterbox-multi', spec, CHATTERBOX_CONTAINER_PORT)
+  const argv = buildRunArgs('engined-chatterbox-multi', spec)
 
   expect(argv).toContain('/dev/kfd')
   expect(argv).toContain('/dev/dri')
@@ -188,7 +189,7 @@ test('a request against a stopped engine starts it on demand through the real do
     if (argv[0] === 'start') {
       return { stdout: '', stderr: '', exitCode: 1 }
     }
-    if (argv[0] === 'run') {
+    if (isEngineRun(argv)) {
       runLog.push(argv)
       return { stdout: '', stderr: '', exitCode: 0 }
     }

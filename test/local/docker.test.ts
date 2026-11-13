@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { DockerLifecycle, dockerExec } from '../../src/docker.ts'
+import { networkName, proxyName } from '../../src/dockerArgs.ts'
 import type { RunnableContainerSpec } from '../../src/specTypes.ts'
 import { LOCAL, TEST_NAME_PREFIX } from './exclusive.ts'
 
@@ -8,7 +9,7 @@ import { LOCAL, TEST_NAME_PREFIX } from './exclusive.ts'
  * nginx-unprivileged serves 200 on `/` with no configuration, so it doubles as
  * its own readiness probe. Not plain nginx:alpine: its master chowns its cache
  * dirs as root, which every engine's `--cap-drop ALL` refuses. Every container this file creates is named
- * `engined-local-smoke` and is removed, never left running or merely stopped.
+ * `engined-test-local-smoke` (with its `.proxy`) and is removed, never left running or merely stopped.
  */
 const ID = 'local-smoke'
 const CONTAINER_NAME = `${TEST_NAME_PREFIX}${ID}`
@@ -42,7 +43,8 @@ const PULL_TIMEOUT_MS = 120_000
 const TEST_TIMEOUT_MS = 60_000
 
 async function removeContainer(): Promise<void> {
-  await dockerExec(['rm', '-f', CONTAINER_NAME])
+  await dockerExec(['rm', '-f', CONTAINER_NAME, proxyName(CONTAINER_NAME)])
+  await dockerExec(['network', 'rm', '-f', networkName(CONTAINER_NAME)])
 }
 
 describe.skipIf(!LOCAL)('docker lifecycle (local)', () => {

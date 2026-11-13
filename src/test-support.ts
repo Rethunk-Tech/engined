@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { agenticVerifiedDir } from './agenticProbe.ts'
+import { PROXY_IMAGE, proxyName } from './dockerArgs.ts'
 import { DEFAULT_IDLE_STOP_SECONDS, DEFAULT_READY_TIMEOUT_S } from './engineEntries.ts'
 import type { Exec, ExecResult } from './exec.ts'
 import type { HttpClient } from './http.ts'
@@ -139,7 +140,7 @@ export function containerRunning(alive = true): ExecResult {
 
 interface BuildExecOptions {
   missingImages?: Set<string>
-  /** Exact `docker port` answer per container name -- for a test distinguishing two engines. */
+  /** Exact `docker port` answer per engine container name (asked of its proxy) -- for a test distinguishing two engines. */
   portByContainer?: Record<string, number>
   /** One `docker port` answer for every container -- for a test with a single engine under test. */
   port?: number
@@ -149,7 +150,8 @@ interface BuildExecOptions {
    * Every `docker run` argv, detached start (`run -d`) and one-shot artifact
    * check (`run --rm --entrypoint sh`) alike. Logging only the detached ones
    * would let an unexpected container start slip past a length assertion; a
-   * caller that needs to tell the two apart reads `-d` off the argv.
+   * caller that needs to tell the two apart reads `-d` off the argv. The port
+   * proxy every start pairs with its engine is left out: one start, one entry.
    */
   runLog?: string[][]
   stopLog?: string[][]
@@ -184,12 +186,19 @@ function execPort(
     return portResult(opts.port)
   }
   const [, containerName] = argv
-  const port = containerName === undefined ? undefined : opts.portByContainer?.[containerName]
+  const port =
+    containerName === undefined
+      ? undefined
+      : Object.entries(opts.portByContainer ?? {}).find(
+          ([name]) => proxyName(name) === containerName,
+        )?.[1]
   return port === undefined ? { stdout: '', stderr: '', exitCode: 1 } : portResult(port)
 }
 
 async function execRun(argv: string[], opts: BuildExecOptions): Promise<ExecResult> {
-  opts.runLog?.push(argv)
+  if (isEngineRun(argv)) {
+    opts.runLog?.push(argv)
+  }
   if (opts.runDelayMs && argv[1] === '-d') {
     await Bun.sleep(opts.runDelayMs)
   }
@@ -387,4 +396,9 @@ export function startFakeUpstream(fetchImpl: (req: Request) => Response | Promis
       server.stop(true)
     },
   }
+}
+
+/** A `docker run` of an engine itself, not of the port proxy every start pairs with it. */
+export function isEngineRun(argv: readonly string[]): boolean {
+  return argv[0] === 'run' && !argv.includes(PROXY_IMAGE)
 }

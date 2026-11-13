@@ -6,7 +6,6 @@ import { isContainerSpec } from './specTypes.ts'
 import { BUNX, engine as baseEngine, ENGINES_ROOT } from './test-support.ts'
 import type { EngineEntry } from './types.ts'
 
-const CONTAINER_PORT = 8188
 const RX_NO_MODELS_DIR = /has no models_dir/
 
 function engine(overrides: Partial<EngineEntry> = {}): EngineEntry {
@@ -29,7 +28,7 @@ function asRunnable(spec: ReturnType<typeof buildComfySpec>) {
 
 test('the run argv bind-mounts a host path ending in /comfy, never the old named volume, and it is not :ro', () => {
   const spec = asRunnable(build(engine()))
-  const argv = buildRunArgs('engined-comfy', spec, CONTAINER_PORT)
+  const argv = buildRunArgs('engined-comfy', spec)
 
   const mountArgs = argv.filter((_, i) => argv[i - 1] === '-v')
   expect(mountArgs).toEqual(['/models-host/comfy:/opt/comfyui/models'])
@@ -39,7 +38,7 @@ test('the run argv bind-mounts a host path ending in /comfy, never the old named
 
 test("a models_dir ending anywhere other than /comfy still mounts correctly -- the container path is what's fixed", () => {
   const spec = asRunnable(build(engine({ models_dir: '/elsewhere/comfy-models' })))
-  const argv = buildRunArgs('engined-comfy', spec, CONTAINER_PORT)
+  const argv = buildRunArgs('engined-comfy', spec)
   expect(argv).toContain('/elsewhere/comfy-models:/opt/comfyui/models')
 })
 

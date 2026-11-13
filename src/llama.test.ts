@@ -38,6 +38,7 @@ import {
   route as baseRoute,
   containerRunning,
   ENGINES_ROOT,
+  isEngineRun,
   makeTestRoot,
   tempPresetPath,
   config as testConfig,
@@ -47,7 +48,6 @@ import type { EngineEntry, ResolvedRoute } from './types.ts'
 import { UsageTracker } from './usage.ts'
 
 /** A stand-in exposed port for `buildRunArgs` assertions; unrelated to any router double's own port. */
-const CONTAINER_PORT = 8080
 const EMBED_PATH = '/openai/v1/embeddings'
 const READY_TIMEOUT_ERROR = /readyTimeoutS/
 const UNLOAD_FAILED_ERROR = /unload failed/
@@ -248,7 +248,7 @@ describe('renderPresetIni', () => {
       loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
       tmpIniPath(),
     )
-    const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
+    const argv = buildRunArgs('engined-llama', spec)
     const presetIdx = argv.indexOf('--models-preset')
     expect(presetIdx).toBeGreaterThan(-1)
     expect(argv[presetIdx + 1]).toBe('/preset.ini')
@@ -317,7 +317,7 @@ describe('buildLlamaSpec / buildRunArgs', () => {
       loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
       tmpIniPath(),
     )
-    const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
+    const argv = buildRunArgs('engined-llama', spec)
     expect(argv).toContain('--no-models-autoload')
     const maxIdx = argv.indexOf('--models-max')
     expect(maxIdx).toBeGreaterThan(-1)
@@ -336,7 +336,7 @@ describe('buildLlamaSpec / buildRunArgs', () => {
       loadSpec(e, { enginesRoot: ENGINES_ROOT, bunx: BUNX }),
       tmpIniPath(),
     )
-    const argv = buildRunArgs('engined-llama', spec, CONTAINER_PORT)
+    const argv = buildRunArgs('engined-llama', spec)
 
     // llama-server lets a CLI flag beat the preset for every model it loads,
     // so an engine default here is a per-model `ctx-size` that can never win.
@@ -616,7 +616,7 @@ function fakeReloadableLlama(presetHostPath: string): {
     if (args[0] === 'inspect' && runs > 0) {
       return Promise.resolve(containerRunning())
     }
-    if (args[0] === 'run') {
+    if (isEngineRun(args)) {
       runs += 1
       knownAtRun.clear()
       for (const id of parseIniSections(readFileSync(presetHostPath, 'utf8')).keys()) {
@@ -1139,7 +1139,7 @@ test('a chat-path cold start runs the same container spec as POST /engined/v1/st
     const argvs: (readonly string[])[] = []
     const inner = fakeExec()
     const exec: Exec = (args) => {
-      if (args[0] === 'run') {
+      if (isEngineRun(args)) {
         argvs.push(args)
       }
       return inner(args)

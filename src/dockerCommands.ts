@@ -11,12 +11,17 @@ import {
   extraBuildContexts,
   hostPathFor,
   mountSpec,
+  networkCreateArgs,
+  networkName,
   parseExposedPort,
   parseHostPort,
+  proxyName,
+  proxyRunArgs,
   SPEC_LABEL,
+  specDigest,
   specDockerfile,
 } from './dockerArgs.ts'
-import type { Exec } from './exec.ts'
+import { EXIT_TIMED_OUT, type Exec } from './exec.ts'
 import { type EngineResources, parseResources, RESOURCE_PROBE_SH } from './resources.ts'
 import type { RunnableContainerSpec } from './specTypes.ts'
 import { ARTIFACT_MISSING, type Artifact } from './types.ts'
@@ -129,59 +134,155 @@ export async function checkArtifacts(exec: Exec, spec: RunnableContainerSpec): P
   return { ok: true }
 }
 
-/** Running only: a container that already exited holds nothing, and the next start removes it as it always did. */
+/**
+ * Running only: a container that already exited holds nothing, and the next
+ * start removes it as it always did. `ports` is what the engine's proxy
+ * publishes, and null when no proxy launched with the same digest is running
+ * beside it: an engine with no proxy is unreachable however healthy it is.
+ */
 export async function findOrphan(
   exec: Exec,
   containerName: string,
-): Promise<{ digest: string; ports: string } | null> {
+): Promise<{ digest: string; ports: string | null } | null> {
+  const proxy = proxyName(containerName)
+  const exact = (name: string): string => `name=^${name.replaceAll('.', '\\.')}$`
   const res = await exec([
     'ps',
     '--filter',
-    `name=^${containerName}$`,
+    exact(containerName),
+    '--filter',
+    exact(proxy),
     '--format',
     `{{.Names}}\t{{.Label "${SPEC_LABEL}"}}\t{{.Ports}}`,
   ])
-  const line = res.stdout.trim()
-  if (res.exitCode !== 0 || line === '') {
+  if (res.exitCode !== 0) {
     return null
   }
-  const [, digest, ports] = line.split('\t')
-  return { digest: digest ?? '', ports: ports ?? '' }
+  const rows = new Map(
+    res.stdout
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const [name = '', digest = '', ports = ''] = line.split('\t')
+        return [name, { digest, ports }] as const
+      }),
+  )
+  const engine = rows.get(containerName)
+  if (engine === undefined) {
+    return null
+  }
+  const paired = rows.get(proxy)
+  return { digest: engine.digest, ports: paired?.digest === engine.digest ? paired.ports : null }
 }
 
 /**
- * A container by this name is never resumed as-is: its creation-time args
- * can predate the spec now in force. `-f` is required, not cosmetic: a
+ * Both containers and the network, so nothing of an earlier pair survives:
+ * a container by this name is never resumed as-is, since its creation-time
+ * args can predate the spec now in force. `-f` is required, not cosmetic: a
  * still-running container (the exact case a daemon restart leaves behind)
  * refuses a plain `rm`, and the `docker run` that follows then fails 125
- * "name already in use" -- indistinguishable from a genuine startup
- * failure unless something recovers it. "No such container" is the normal
- * case (nothing to remove) and is not an error; anything else means `run`
- * would hit the same conflict, so it is surfaced now instead.
+ * "name already in use". "No such container" is the normal case (nothing to
+ * remove) and is not an error; anything else means `run` would hit the same
+ * conflict, so it is surfaced now instead.
  */
+export async function removePair(exec: Exec, containerName: string): Promise<Result> {
+  const rm = await exec(['rm', '-f', containerName, proxyName(containerName)])
+  const conflict = rm.stderr
+    .split('\n')
+    .filter((line) => line.trim() !== '' && !NO_SUCH_CONTAINER.test(line))
+  if (rm.exitCode !== 0 && conflict.length > 0) {
+    return { ok: false, error: conflict.join('\n') }
+  }
+  const net = await exec(['network', 'rm', '-f', networkName(containerName)])
+  if (net.exitCode !== 0) {
+    return {
+      ok: false,
+      error: net.stderr.trim() || `docker network rm failed for ${containerName}`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * The proxy and the network, leaving the engine container: a stopped one
+ * keeps its logs readable, and the next start removes it. Best effort,
+ * since whatever survives is removed by that same start.
+ */
+export async function removeProxy(exec: Exec, containerName: string): Promise<void> {
+  await exec(['rm', '-f', proxyName(containerName)])
+  await exec(['network', 'rm', '-f', networkName(containerName)])
+}
+
+/**
+ * Whether both halves are up; null when docker did not answer, since reading
+ * a timeout as `stopped` would let a start kill a live container.
+ */
+export async function pairRunning(exec: Exec, containerName: string): Promise<boolean | null> {
+  const res = await exec([
+    'inspect',
+    '-f',
+    '{{.State.Running}}',
+    containerName,
+    proxyName(containerName),
+  ])
+  if (res.exitCode === EXIT_TIMED_OUT) {
+    return null
+  }
+  return (
+    res.exitCode === 0 &&
+    res.stdout
+      .trim()
+      .split('\n')
+      .every((line) => line.trim() === 'true')
+  )
+}
+
+/**
+ * Either half dying takes the engine down: with no proxy it is unreachable
+ * while still holding its GPU, and a lone proxy serves nothing.
+ */
+export async function stopPair(exec: Exec, containerName: string): Promise<void> {
+  await exec(['stop', containerName])
+  await removeProxy(exec, containerName)
+}
+
+/** The engine on its own isolated network, then the proxy that publishes its port and joins that network. */
 export async function runContainer(
   exec: Exec,
   containerName: string,
   spec: RunnableContainerSpec,
   containerPort: number,
 ): Promise<Result> {
-  const rm = await exec(['rm', '-f', containerName])
-  if (rm.exitCode !== 0 && !NO_SUCH_CONTAINER.test(rm.stderr)) {
-    return { ok: false, error: rm.stderr.trim() || `docker rm -f failed for ${containerName}` }
+  const removed = await removePair(exec, containerName)
+  if (!removed.ok) {
+    return removed
   }
-  const run = await exec(buildRunArgs(containerName, spec, containerPort))
-  if (run.exitCode !== 0) {
-    return { ok: false, error: run.stderr.trim() || `docker run failed for ${containerName}` }
+  const steps = [
+    networkCreateArgs(containerName),
+    buildRunArgs(containerName, spec),
+    proxyRunArgs(containerName, containerPort, specDigest(spec)),
+    ['network', 'connect', networkName(containerName), proxyName(containerName)],
+  ]
+  for (const argv of steps) {
+    // Sequential by nature: each step needs the one before it to exist.
+    const res = await exec(argv)
+    if (res.exitCode !== 0) {
+      return {
+        ok: false,
+        error: res.stderr.trim() || `docker ${argv[0]} ${argv[1]} failed for ${containerName}`,
+      }
+    }
   }
   return { ok: true }
 }
 
+/** Read off the proxy, which holds the publish and listens on the engine's own container port. */
 export async function readHostPort(
   exec: Exec,
   containerName: string,
   containerPort: number,
 ): Promise<number | null> {
-  const res = await exec(['port', containerName, `${containerPort}/tcp`])
+  const res = await exec(['port', proxyName(containerName), `${containerPort}/tcp`])
   return res.exitCode === 0 ? parseHostPort(res.stdout) : null
 }
 

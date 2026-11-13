@@ -6,8 +6,11 @@ import { DockerLifecycle, type Probe } from './docker.ts'
 import {
   buildRunArgs,
   hostPathFor,
+  networkCreateArgs,
+  PROXY_IMAGE,
   parseExposedPort,
   parseHostPort,
+  proxyRunArgs,
   specDigest,
 } from './dockerArgs.ts'
 import { HeldError } from './errors/held.ts'
@@ -537,13 +540,19 @@ const ADOPTED_HOST_PORT = 41_000
 
 interface Orphan {
   digest: string
+  /** What its proxy publishes. */
   ports: string
+  /** The proxy's own label: the engine's digest when unset, and no proxy running at all when null. */
+  proxyDigest?: string | null
 }
 
-/** `docker ps` success listing one orphan under this engine's name. */
+/** `docker ps` success listing one orphan under this engine's name, and its proxy beside it. */
 function orphanPs(orphan: Orphan): ExecResult {
+  const proxyDigest = orphan.proxyDigest === undefined ? orphan.digest : orphan.proxyDigest
+  const proxyLine =
+    proxyDigest === null ? '' : `engined-orphan.proxy\t${proxyDigest}\t${orphan.ports}\n`
   return {
-    stdout: `engined-orphan\t${orphan.digest}\t${orphan.ports}\n`,
+    stdout: `engined-orphan\t${orphan.digest}\t\n${proxyLine}`,
     stderr: '',
     exitCode: 0,
   }
@@ -668,6 +677,20 @@ describe('a container an unclean exit left running: replaced', () => {
     expect(runLog.length).toBe(1)
   })
 
+  test.each([
+    ['no proxy is running beside it', null],
+    ['its proxy was started with another spec', 'f'.repeat(64)],
+  ])('one whose %s is replaced', async (_why, proxyDigest) => {
+    const runLog: string[][] = []
+    const lifecycle = new DockerLifecycle(
+      orphanExec({ ...matchingOrphan(), proxyDigest }, runLog),
+      readyProbe,
+    )
+
+    await lifecycle.start('orphan', SPEC, START_OPTS)
+    expect(runLog.length).toBe(1)
+  })
+
   test('one that no longer answers its own readiness probe is replaced', async () => {
     const runLog: string[][] = []
     // Ready only once the fresh container's port answers: the orphan's does not.
@@ -682,7 +705,7 @@ describe('a container an unclean exit left running: replaced', () => {
 })
 
 test('the digest stamped on a container is the one adoption compares against', () => {
-  expect(buildRunArgs('engined-redis', SPEC, 6379)).toContain(`engined.spec=${specDigest(SPEC)}`)
+  expect(buildRunArgs('engined-redis', SPEC)).toContain(`engined.spec=${specDigest(SPEC)}`)
   expect(specDigest({ ...SPEC, command: ['--verbose'] })).not.toBe(specDigest(SPEC))
 })
 
@@ -941,8 +964,8 @@ test('a 404 never counts as ready, even inside the accept range', async () => {
 })
 
 test('init = true reaches the run argv as --init, and is absent by default', () => {
-  expect(buildRunArgs('engined-x', { ...SPEC, init: true }, 8188)).toContain('--init')
-  expect(buildRunArgs('engined-x', { ...SPEC, init: false }, 8188)).not.toContain('--init')
+  expect(buildRunArgs('engined-x', { ...SPEC, init: true })).toContain('--init')
+  expect(buildRunArgs('engined-x', { ...SPEC, init: false })).not.toContain('--init')
 })
 
 /**
@@ -1021,6 +1044,8 @@ test('a lease held when the container dies underneath engined does not survive t
   // The container dies; the next poll's reconcile is what learns of it.
   gone.yet = true
   expect((await lifecycle.probe('queue-lease', SPEC)).state).toBe('installed')
+  // Whatever half survived is stopped then, not left holding the GPU.
+  expect(stopLog.length).toBe(1)
 
   gone.yet = false
   const restarted = await lifecycle.start('queue-lease', SPEC, opts)
@@ -1030,7 +1055,7 @@ test('a lease held when the container dies underneath engined does not survive t
   // A lease surviving the death would leave refreshIdle refusing to arm, and
   // the restarted container would hold its GPU until the daemon restarts.
   await Bun.sleep(PAST_IDLE_WAIT_MS)
-  expect(stopLog.length).toBe(1)
+  expect(stopLog.length).toBe(2)
   expect(lifecycle.getStatus('queue-lease').state).toBe('installed')
 })
 
@@ -1285,7 +1310,8 @@ test('a stop landing during docker run does not leave the new container running'
   const rmLog: string[][] = []
   const inner = buildExec({ port: STUB_HOST_PORT_B, runDelayMs: 60 })
   const exec: Exec = async (args) => {
-    if (args[0] === 'rm') {
+    // The engine's own removals; the stop's proxy cleanup names only the proxy.
+    if (args[0] === 'rm' && args.includes('engined-stop-warming')) {
       rmLog.push([...args])
     }
     return await inner(args)
@@ -1326,13 +1352,16 @@ describe('every shipped engine runs without capabilities, privilege gain or an u
   ]) {
     test(id, () => {
       const spec = shipped(id)
-      const argv = buildRunArgs(`engined-${id}`, spec, 8000)
+      const argv = buildRunArgs(`engined-${id}`, spec)
       const image = argv.indexOf(spec.image)
       const flags = argv.slice(0, image)
       expect(flag(flags, '--cap-drop')).toEqual(['ALL'])
       expect(flag(flags, '--cap-add')).toEqual([])
       expect(flag(flags, '--security-opt')).toContain('no-new-privileges')
       expect(Number(flag(flags, '--pids-limit')[0])).toBeGreaterThan(0)
+      // Its one network reaches nothing but its own proxy; the proxy holds the publish.
+      expect(flag(flags, '--network')).toEqual([`engined-${id}.net`])
+      expect(flag(flags, '-p')).toEqual([])
       // The GPU path a spec declares survives the hardening untouched.
       expect(flag(flags, '--device')).toEqual(spec.devices)
       expect(flag(flags, '--group-add')).toEqual(spec.group_add)
@@ -1341,4 +1370,182 @@ describe('every shipped engine runs without capabilities, privilege gain or an u
       }
     })
   }
+})
+
+describe('the port proxy and network that pair with every engine', () => {
+  const flag = (argv: readonly string[], name: string) =>
+    argv.filter((_, i) => argv[i - 1] === name)
+
+  test('the network is internal with no host-side gateway on either family', () => {
+    const argv = networkCreateArgs('engined-x')
+    expect(argv).toContain('--internal')
+    expect(flag(argv, '-o')).toEqual([
+      'com.docker.network.bridge.gateway_mode_ipv4=isolated',
+      'com.docker.network.bridge.gateway_mode_ipv6=isolated',
+    ])
+    expect(argv.at(-1)).toBe('engined-x.net')
+  })
+
+  test('the proxy publishes on loopback only, hardened like the engine, from a digest-pinned image', () => {
+    const argv = proxyRunArgs('engined-x', 8188, 'abc')
+    const flags = argv.slice(0, argv.indexOf(PROXY_IMAGE))
+    expect(PROXY_IMAGE).toMatch(/@sha256:[0-9a-f]{64}$/)
+    expect(flag(flags, '-p')).toEqual(['127.0.0.1::8188'])
+    expect(flag(flags, '--cap-drop')).toEqual(['ALL'])
+    expect(flag(flags, '--security-opt')).toContain('no-new-privileges')
+    expect(flag(flags, '--label')).toEqual(['engined.spec=abc'])
+    expect(argv.slice(argv.indexOf(PROXY_IMAGE) + 1)).toEqual([
+      'TCP-LISTEN:8188,fork,reuseaddr',
+      'TCP:engined-x:8188',
+    ])
+  })
+
+  test('start clears any earlier pair, then builds network, engine, proxy and the join in order', async () => {
+    const calls: string[][] = []
+    const lifecycle = new DockerLifecycle(
+      recordingExec(calls, (argv) =>
+        argv[0] === 'port' ? portResult(STUB_HOST_PORT_A) : undefined,
+      ),
+      readyProbe,
+    )
+    const started = await lifecycle.start('pair', SPEC, START_OPTS)
+    expect(started.private_url).toBe(`127.0.0.1:${STUB_HOST_PORT_A}`)
+    const verbs = calls
+      .filter((c) => !['image', 'inspect', 'ps'].includes(c[0] ?? ''))
+      .map((c) => (c[0] === 'run' ? `run ${c[c.indexOf('--name') + 1]}` : c.slice(0, 3).join(' ')))
+    expect(verbs).toEqual([
+      'rm -f engined-pair',
+      'network rm -f',
+      'network create --internal',
+      'run engined-pair',
+      'run engined-pair.proxy',
+      'network connect engined-pair.net',
+      'port engined-pair.proxy 6379/tcp',
+    ])
+    expect(calls.find((c) => c[0] === 'rm')).toEqual([
+      'rm',
+      '-f',
+      'engined-pair',
+      'engined-pair.proxy',
+    ])
+  })
+
+  test('stop takes the proxy and network down once the engine is down, and a refused stop keeps both', async () => {
+    const calls: string[][] = []
+    let refuse = false
+    const lifecycle = new DockerLifecycle(
+      recordingExec(calls, (argv) => {
+        if (argv[0] === 'port') {
+          return portResult(STUB_HOST_PORT_A)
+        }
+        if (argv[0] === 'stop' && refuse) {
+          return { stdout: '', stderr: 'refused', exitCode: 1 }
+        }
+        return
+      }),
+      readyProbe,
+    )
+    const drained = () => calls.splice(0).map((c) => c.join(' '))
+
+    await lifecycle.start('pair', SPEC, START_OPTS)
+    drained()
+    refuse = true
+    await lifecycle.stop('pair')
+    expect(drained()).toEqual(['stop engined-pair'])
+    expect(lifecycle.getStatus('pair').state).toBe('running')
+
+    refuse = false
+    await lifecycle.stop('pair')
+    expect(drained()).toEqual([
+      'stop engined-pair',
+      'rm -f engined-pair.proxy',
+      'network rm -f engined-pair.net',
+    ])
+  })
+
+  test('a dead proxy takes its live engine down with it', async () => {
+    const calls: string[][] = []
+    let proxyDead = false
+    const lifecycle = new DockerLifecycle(
+      recordingExec(calls, (argv) => {
+        if (argv[0] === 'port') {
+          return portResult(STUB_HOST_PORT_A)
+        }
+        if (argv[0] === 'inspect') {
+          return containerRunning(!proxyDead)
+        }
+        return
+      }),
+      readyProbe,
+    )
+    await lifecycle.start('pair', SPEC, START_OPTS)
+    calls.length = 0
+
+    proxyDead = true
+    const probed = await lifecycle.probe('pair', SPEC)
+    expect(probed.state).toBe('installed')
+    expect(calls.map((c) => c.join(' '))).toContain('stop engined-pair')
+    expect(calls.map((c) => c.join(' '))).toContain('rm -f engined-pair.proxy')
+  })
+
+  test('the liveness read asks about both halves and needs every answer true', async () => {
+    const calls: string[][] = []
+    let answer = 'true\ntrue\n'
+    const lifecycle = new DockerLifecycle(
+      recordingExec(calls, (argv) => {
+        if (argv[0] === 'port') {
+          return portResult(STUB_HOST_PORT_A)
+        }
+        if (argv[0] === 'inspect') {
+          return { stdout: answer, stderr: '', exitCode: 0 }
+        }
+        return
+      }),
+      readyProbe,
+    )
+    await lifecycle.start('pair', SPEC, START_OPTS)
+    expect((await lifecycle.probe('pair', SPEC)).state).toBe('running')
+    expect(calls.find((c) => c[0] === 'inspect')?.slice(-2)).toEqual([
+      'engined-pair',
+      'engined-pair.proxy',
+    ])
+
+    answer = 'true\nfalse\n'
+    expect((await lifecycle.probe('pair', SPEC)).state).toBe('installed')
+  })
+
+  test('a start during a stop waits for it, so the stop never removes the new pair', async () => {
+    const calls: string[][] = []
+    let releaseStop = (): void => undefined
+    const stopHeld = new Promise<void>((release) => {
+      releaseStop = release
+    })
+    const inner = recordingExec(calls, (argv) =>
+      argv[0] === 'port' ? portResult(STUB_HOST_PORT_A) : undefined,
+    )
+    const exec: Exec = async (args) => {
+      const res = await inner(args)
+      if (args[0] === 'stop') {
+        await stopHeld
+      }
+      return res
+    }
+    const lifecycle = new DockerLifecycle(exec, readyProbe)
+    await lifecycle.start('pair', SPEC, START_OPTS)
+    calls.length = 0
+
+    const stopping = lifecycle.stop('pair')
+    const starting = lifecycle.start('pair', SPEC, START_OPTS)
+    await Bun.sleep(SHORT_WAIT_MS)
+    expect(calls.some((c) => c[0] === 'rm' || c[0] === 'run')).toBe(false)
+
+    releaseStop()
+    await Promise.all([stopping, starting])
+    const lines = calls.map((c) => c.join(' '))
+    // The stop's own cleanup lands first; the start's run comes after it.
+    expect(lines.indexOf('rm -f engined-pair.proxy')).toBeLessThan(
+      lines.findIndex((l) => l.startsWith('run ')),
+    )
+    expect(lifecycle.getStatus('pair').state).toBe('running')
+  })
 })

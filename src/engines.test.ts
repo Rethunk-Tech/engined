@@ -585,7 +585,7 @@ describe('comfy: shipped spec', () => {
     if (!isContainerSpec(spec)) {
       throw new Error('engines/comfy/spec.toml must be a container spec')
     }
-    const argv = buildRunArgs('engined-comfy', spec, COMFY_CONTAINER_PORT)
+    const argv = buildRunArgs('engined-comfy', spec)
     expect(argv).toContain('--preview-method')
     expect(argv).toContain('latent2rgb')
     expect(argv).toContain('/dev/kfd')
@@ -1244,7 +1244,7 @@ describe('a running engine whose config generation has been replaced', () => {
     const exec: Exec = (args) =>
       args[0] === 'ps'
         ? Promise.resolve({
-            stdout: `engined-comfy\t${orphan.digest}\t127.0.0.1:41000->8188/tcp\n`,
+            stdout: `engined-comfy\t${orphan.digest}\t\nengined-comfy.proxy\t${orphan.digest}\t127.0.0.1:41000->8188/tcp\n`,
             stderr: '',
             exitCode: 0,
           })

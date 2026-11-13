@@ -27,6 +27,31 @@ type PortResult = { port: number } | { error: string }
 /** Far above what a model server's thread pools and llama's per-model children use, far below a fork bomb's reach. */
 const PIDS_LIMIT = 4096
 
+/**
+ * No capabilities (GPU access is --device plus the group, not a capability), no privilege
+ * gain through a setuid binary, and a ceiling on what a compromised container can fork.
+ */
+const HARDENING = [
+  '--cap-drop',
+  'ALL',
+  '--security-opt',
+  'no-new-privileges',
+  '--pids-limit',
+  String(PIDS_LIMIT),
+]
+
+/** The TCP relay that holds an engine's published port, so the engine itself needs no route anywhere. */
+export const PROXY_IMAGE =
+  'alpine/socat:1.8.1.3@sha256:e8a6e8868a8e6e01d9c2c321a8f8d4474d2d741d962462e5c5a124a8e66a0055'
+
+export function proxyName(containerName: string): string {
+  return `${containerName}.proxy`
+}
+
+export function networkName(containerName: string): string {
+  return `${containerName}.net`
+}
+
 export function mountSpec(volume: Volume): string {
   const base = `${volume.name}:${volume.path}`
   return volume.read_only === true ? `${base}:ro` : base
@@ -112,16 +137,7 @@ export function hostBindings(ports: string): string {
 
 /** Everything `docker run` takes that comes from the spec, in the order the image needs: flags, then the image, then its argv. */
 function specRunArgs(spec: RunnableContainerSpec): string[] {
-  // Every engine: no capabilities (GPU access is --device plus the group, not a capability),
-  // no privilege gain through a setuid binary, and a ceiling on what a compromised one can fork.
-  const args: string[] = [
-    '--cap-drop',
-    'ALL',
-    '--security-opt',
-    'no-new-privileges',
-    '--pids-limit',
-    String(PIDS_LIMIT),
-  ]
+  const args: string[] = [...HARDENING]
   for (const device of spec.devices) {
     args.push('--device', device)
   }
@@ -155,9 +171,9 @@ function specRunArgs(spec: RunnableContainerSpec): string[] {
  * What a container was launched from, condensed to one label value. Derived
  * from the argv itself rather than from a hand-picked list of spec fields, so
  * a field added to `specRunArgs` later is part of the identity without this
- * having to be told about it. The name and the port publish are excluded:
- * both are read back rather than written, and neither says anything about
- * the configuration the container is serving.
+ * having to be told about it. The name and the network are excluded: both
+ * follow from the engine id, and neither says anything about the
+ * configuration the container is serving.
  */
 export function specDigest(spec: RunnableContainerSpec): string {
   return Bun.SHA256.hash(JSON.stringify(specRunArgs(spec)), 'hex')
@@ -233,21 +249,70 @@ export function extraBuildArgs(specSource: string): string {
   return declaredBuildFlags(specSource, 'build-args', '--build-arg')
 }
 
-/** The flags docker never receives from config: the container name and both ports are read back, not written. */
-export function buildRunArgs(
-  containerName: string,
-  spec: RunnableContainerSpec,
-  containerPort: number,
-): string[] {
+/** The flags docker never receives from config: the name, and a network that reaches nothing but the engine's own proxy. */
+export function buildRunArgs(containerName: string, spec: RunnableContainerSpec): string[] {
   return [
     'run',
     '-d',
     '--name',
     containerName,
-    '-p',
-    `127.0.0.1::${containerPort}`,
+    '--network',
+    networkName(containerName),
     '--label',
     `${SPEC_LABEL}=${specDigest(spec)}`,
     ...specRunArgs(spec),
+  ]
+}
+
+/**
+ * `--internal` alone still routes the engine to every host listener through
+ * the bridge gateway, the door included; an isolated gateway gives the bridge
+ * no host address at all, so the network holds the engine and its proxy and
+ * nothing else.
+ */
+export function networkCreateArgs(containerName: string): string[] {
+  return [
+    'network',
+    'create',
+    '--internal',
+    '-o',
+    'com.docker.network.bridge.gateway_mode_ipv4=isolated',
+    '-o',
+    'com.docker.network.bridge.gateway_mode_ipv6=isolated',
+    networkName(containerName),
+  ]
+}
+
+/**
+ * The proxy starts on docker's default bridge, because docker drops a `-p`
+ * on an internal network, and joins the engine's network after
+ * (`docker network connect`): `run` refuses the default bridge beside a
+ * user-defined one. It listens on the engine's own container port, so the
+ * port read-back is unchanged, and resolves the engine by name per
+ * connection, so a connection arriving before the engine listens fails and
+ * the readiness poll retries it. It carries the engine's spec digest, which
+ * is how adoption knows the pair was started together.
+ */
+export function proxyRunArgs(
+  containerName: string,
+  containerPort: number,
+  digest: string,
+): string[] {
+  return [
+    'run',
+    '-d',
+    '--name',
+    proxyName(containerName),
+    '--label',
+    `${SPEC_LABEL}=${digest}`,
+    ...HARDENING,
+    '--user',
+    '65534:65534',
+    '--read-only',
+    '-p',
+    `127.0.0.1::${containerPort}`,
+    PROXY_IMAGE,
+    `TCP-LISTEN:${containerPort},fork,reuseaddr`,
+    `TCP:${containerName}:${containerPort}`,
   ]
 }
