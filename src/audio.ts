@@ -290,15 +290,26 @@ export interface Frame {
  *
  * A consumer that stops early — `frames.return()`, or a `break` — cancels the
  * upstream body, so a caller who hangs up does not leave a response open
- * against a running engine. That is the async iterator's own `return()`
- * reaching the source through the pipe, not something this loop arranges.
+ * against a running engine. A generator queues `return()` behind a `next()`
+ * still awaiting a read, and an engine with nothing to say (whisper's terminal
+ * decode, a long synthesis step) never resolves that read, so `return()`
+ * cancels the reader first rather than waiting its turn.
  */
-export async function* ndjsonFrames(
-  body: ReadableStream<Uint8Array<ArrayBuffer>>,
-): AsyncGenerator<Frame> {
+export function ndjsonFrames(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<Frame> {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  const frames = parseNdjson(reader)
+  const finish = frames.return.bind(frames)
+  frames.return = async (value) => {
+    await reader.cancel().catch(() => undefined)
+    return finish(value)
+  }
+  return frames
+}
+
+async function* parseNdjson(reader: ReadableStreamDefaultReader<string>): AsyncGenerator<Frame> {
   let pending = ''
-  for await (const text of body.pipeThrough(new TextDecoderStream())) {
-    pending += text
+  for (let read = await reader.read(); !read.done; read = await reader.read()) {
+    pending += read.value
     const lines = pending.split('\n')
     pending = lines.pop() ?? ''
     for (const line of lines) {

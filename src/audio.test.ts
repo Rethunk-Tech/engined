@@ -1217,6 +1217,42 @@ test("a caller who hangs up mid-transcript cancels the engine's own decode", asy
   expect(cancelled).toBe(true)
 })
 
+test('a caller who hangs up while the engine is silent still cancels its body', async () => {
+  // whisper's terminal decode writes no frame for as long as it runs, so a
+  // hangup lands while the door is still waiting on the next line.
+  let cancelled = false
+  let sent = false
+  const line = `${JSON.stringify({ phase: 'segment', text: 'then nothing', start: 0, end: 1 })}\n`
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sent) {
+        sent = true
+        controller.enqueue(new TextEncoder().encode(line))
+      }
+    },
+    cancel() {
+      cancelled = true
+    },
+  })
+
+  const res = await handleTranscription(
+    { engine: 'whisper', file: SAMPLE_AUDIO_BYTES, stream: true },
+    async () => ({ private_url: '127.0.0.1:1' }),
+    () => Promise.resolve(new Response(body)),
+  )
+  const reader = res.stream?.getReader()
+  if (reader === undefined) {
+    throw new Error('a streamed transcription returned no stream to hang up on')
+  }
+  await reader.read()
+  const waiting = reader.read()
+  await Bun.sleep(1)
+  await reader.cancel()
+  await waiting
+
+  expect(cancelled).toBe(true)
+})
+
 test('a streamed translation forwards translate on the wrapper query and does not 400', async () => {
   let asked: string | undefined
   const res = await handleTranscription(
