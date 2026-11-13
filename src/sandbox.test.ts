@@ -499,3 +499,14 @@ test('the pin prelude runs the command when each directory is what it was valida
   expect(swapped.stderr.toString()).toContain('changed while launching')
   expect(swapped.stdout.toString()).toBe('')
 })
+
+test('refuses a workdir that is or contains a sandbox_mask root, which would re-expose every masked sibling', () => {
+  const home = scratch('engined-sandbox-mask-')
+  const masks = ['/usr/local/src', '/mnt']
+  expect(workdirForbidden('/usr/local/src', home, masks)).toBeDefined()
+  expect(workdirForbidden('/usr/local', home, masks)).toBeDefined()
+  expect(workdirForbidden('/usr', home, masks)).toBeDefined()
+  expect(workdirForbidden('/mnt', home, masks)).toBeDefined()
+  expect(workdirForbidden('/usr/local/src/com.github/Org/repo', home, masks)).toBeUndefined()
+  expect(workdirForbidden('/usr/local', home, [])).toBeUndefined()
+})

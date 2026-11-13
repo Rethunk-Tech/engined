@@ -467,7 +467,7 @@ export async function runAgentic(input: RunAgenticInput): Promise<RunAgenticResu
       envelopeFailure: false,
     }
   }
-  const sensitive = workdirForbidden(workdir)
+  const sensitive = workdirForbidden(workdir, undefined, input.sandboxMask)
   if (sensitive !== undefined) {
     return {
       status: STATUS_BAD_REQUEST,

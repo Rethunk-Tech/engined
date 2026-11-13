@@ -16,6 +16,7 @@
 - A malformed percent-escape in `GET /openai/v1/models/<id>` or `POST /engined/v1/upstreams/<id>/refresh` answers 404 like any unknown id, not a 500.
 - A malformed percent-escape in a config UI history entry, spec, logs, resources or obtain path answers 400, not a 500.
 - `POST /engined/v1/probes` reads its body under the JSON routes' size and stall limits, so an oversized or trickled report is refused instead of buffered whole or held open.
+- An agentic call whose `workdir` is or contains a `sandbox_mask` root (`/usr/local/src`, `/usr/local`, `/mnt`) is refused 400: the workdir bind re-exposed every checkout the mask hides.
 
 ## 0.2.17 - 2026-11-12
 

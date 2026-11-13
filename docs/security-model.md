@@ -54,6 +54,8 @@ What stays open:
 A workdir under the home is visible because it is bound back. A workdir that
 is the home, or an ancestor of it, re-exposes the whole home read-only, launch
 HOME included: point an agent at a repository, never at the home.
+A workdir that is the home, an ancestor of it, or one that is or contains a
+`sandbox_mask` root is refused for the same reason.
 
 ## A provider key never enters a child
 

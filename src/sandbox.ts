@@ -132,6 +132,7 @@ const RUNTIME_ROOTS = ['/proc', '/sys', '/dev', '/run', '/tmp', '/var/tmp'] as c
 export function workdirForbidden(
   workdir: string,
   operatorHome: string = OPERATOR_HOME,
+  masks: readonly string[] = DEFAULT_SANDBOX_MASK,
 ): string | undefined {
   const real = resolvedPath(workdir)
   for (const path of RUNTIME_ROOTS) {
@@ -142,6 +143,11 @@ export function workdirForbidden(
   }
   if (isUnder(real, operatorHome)) {
     return `workdir ${workdir} covers the operator home`
+  }
+  // The workdir bind lands after the mask tmpfs, so a workdir holding a mask root shows every sibling it hides.
+  const coveredMask = masks.find((mask) => isUnder(real, resolvedPath(mask)))
+  if (coveredMask !== undefined) {
+    return `workdir ${workdir} covers the sandbox mask ${coveredMask}`
   }
   // Linked worktrees of the operator's checkouts live here; their parents hold credentials.
   const worktreeRoots = WORKTREE_HOME_REL.map((rel) => resolvedPath(join(operatorHome, rel)))
