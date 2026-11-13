@@ -616,8 +616,10 @@ function fakeComfyWsContainer(): {
   connectedClientIds: string[]
   sendText: (data: unknown) => void
   sendBinary: (bytes: Uint8Array) => void
+  closed: Promise<void>
 } {
   const connectedClientIds: string[] = []
+  const closed = Promise.withResolvers<void>()
   let current: import('bun').ServerWebSocket<{ clientId: string }> | undefined
   const server = Bun.serve<{ clientId: string }>({
     port: 0,
@@ -640,6 +642,7 @@ function fakeComfyWsContainer(): {
       },
       close() {
         current = undefined
+        closed.resolve()
       },
     },
   })
@@ -649,6 +652,7 @@ function fakeComfyWsContainer(): {
     connectedClientIds,
     sendText: (data) => current?.send(JSON.stringify(data)),
     sendBinary: (bytes) => current?.send(bytes),
+    closed: closed.promise,
   }
 }
 
@@ -758,6 +762,48 @@ describe('comfy proxy: the websocket bridge', () => {
       stop()
     }
   })
+
+  test('a caller that stops reading is closed rather than silently dropped frames', async () => {
+    const { fakeComfy, doorPort, stop } = await startWsDoor()
+    try {
+      const upgrade =
+        `GET ${PROXY_PATH}/ws HTTP/1.1\r\nhost: 127.0.0.1:${doorPort}\r\n` +
+        'upgrade: websocket\r\nconnection: Upgrade\r\n' +
+        `sec-websocket-key: ${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))}\r\nsec-websocket-version: 13\r\n\r\n`
+      const sock = await Bun.connect({
+        hostname: '127.0.0.1',
+        port: doorPort,
+        socket: {
+          open(s) {
+            s.write(upgrade)
+            // Never read again: the door's send buffer to this caller can only grow.
+            s.pause()
+          },
+          data() {
+            // Deliberately unread.
+          },
+        },
+      })
+      while (fakeComfy.connectedClientIds.length === 0) {
+        await Bun.sleep(10)
+      }
+      const frame = new Uint8Array(1_048_576)
+      const deadline = Date.now() + 15_000
+      let closed = false
+      const watch = fakeComfy.closed.then(() => {
+        closed = true
+      })
+      while (!closed && Date.now() < deadline) {
+        fakeComfy.sendBinary(frame)
+        await Bun.sleep(1)
+      }
+      expect(closed).toBe(true)
+      await watch
+      sock.end()
+    } finally {
+      stop()
+    }
+  }, 20_000)
 })
 
 type Door = Awaited<ReturnType<typeof comfyDoor>>

@@ -163,6 +163,9 @@ export function handleComfyWsUpgrade(
 /** What `comfyWebSocketHandlers.open` announces first, so the caller learns the door-assigned `clientId` before it ever needs one for `POST /prompt`. */
 const CLIENT_ID_MESSAGE_TYPE = 'client_id'
 
+const BACKPRESSURE_LIMIT_BYTES = 16 * 1024 * 1024
+const MAX_CALLER_FRAME_BYTES = 64 * 1024
+
 /**
  * Bridges the caller's own upgraded socket to a fresh outbound connection to
  * the real container, one per caller connection. Comfy's own protocol is
@@ -171,6 +174,12 @@ const CLIENT_ID_MESSAGE_TYPE = 'client_id'
  * `message` is a deliberate no-op.
  */
 export const comfyWebSocketHandlers: Bun.WebSocketHandler<ComfyWsData> = {
+  // A caller that stops reading is closed once this much is queued for it;
+  // Bun's default would drop frames and leave it waiting on a lost "executed".
+  closeOnBackpressureLimit: true,
+  backpressureLimit: BACKPRESSURE_LIMIT_BYTES,
+  // Nothing a caller sends is forwarded, so only a ping-sized frame is legitimate.
+  maxPayloadLength: MAX_CALLER_FRAME_BYTES,
   open(ws) {
     const upstream = new WebSocket(ws.data.upstreamUrl)
     upstream.binaryType = 'arraybuffer'
