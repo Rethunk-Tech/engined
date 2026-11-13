@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import process from 'node:process'
 import { MAX_AUDIO_UPLOAD_BYTES } from './audioDoorTranscribe.ts'
 import type { ComfyWsData, EnginedServer } from './comfyProxy.ts'
@@ -26,9 +27,7 @@ export function bindDoor(
       server?.timeout(req, 0)
       return fetch(req, server)
     }) as Door['fetch'],
-    error(err: Error) {
-      return jsonError(STATUS_INTERNAL_SERVER_ERROR, errMessage(err))
-    },
+    error: internalError,
     idleTimeout: 255,
     maxRequestBodySize: MAX_AUDIO_UPLOAD_BYTES,
     websocket: comfyWebSocketHandlers,
@@ -54,6 +53,26 @@ export function bindDoor(
     }
     return [v6]
   }
+}
+
+const STACK_FRAME_RE = /^\s+at /
+
+/**
+ * An unhandled error's message can quote the request, so neither the caller
+ * nor the journal sees it: the caller gets an id, the journal the id, the
+ * error's name and its stack frames.
+ */
+function internalError(err: unknown): Response {
+  const id = randomUUID()
+  const name = err instanceof Error ? err.name : typeof err
+  const header = String(err)
+  const stack = err instanceof Error && typeof err.stack === 'string' ? err.stack : ''
+  // The stack opens with `name: message`, and a message may hold newlines.
+  const frames = (stack.startsWith(header) ? stack.slice(header.length) : stack)
+    .split('\n')
+    .filter((line) => STACK_FRAME_RE.test(line))
+  process.stderr.write(`door: internal error ${id}: ${name}\n${frames.join('\n')}\n`)
+  return jsonError(STATUS_INTERNAL_SERVER_ERROR, `internal error (id ${id})`)
 }
 
 const NO_IPV6 = new Set<unknown>(['EAFNOSUPPORT', 'EADDRNOTAVAIL'])

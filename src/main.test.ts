@@ -14,7 +14,7 @@ test("Bun.serve's error handler answers JSON 500, not the HTML diagnostic page",
     const res = await fetch(`http://127.0.0.1:${bound[0]?.port}/`)
     expect(res.status).toBe(500)
     expect(res.headers.get('content-type')).toContain(JSON_CONTENT_TYPE)
-    expect(errorMessageOf(await res.json())).toBe('boom')
+    expect(errorMessageOf(await res.json())).toStartWith('internal error (id ')
   } finally {
     for (const s of bound) {
       s.stop()
