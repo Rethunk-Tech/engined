@@ -77,3 +77,33 @@ test('a buffered transcription whose caller hangs up closes the decode behind it
     'closed',
   )
 })
+
+test('a WAV header declaring zero-width samples ends in one error frame, not a dropped stream', async () => {
+  const upstream = startUpstream(() => new Response('bad audio', { status: 400 }))
+  const wrapper = await startWrapper(upstream.port)
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(0xffffffff, 4)
+  header.write('WAVEfmt ', 8)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  // channels, rate, byte rate, block align, bits: all zero.
+  header.write('data', 36)
+  header.writeUInt32LE(0xffffffff, 40)
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(header)
+      await Bun.sleep(50)
+      controller.enqueue(new Uint8Array(4096))
+      controller.close()
+    },
+  })
+
+  const res = await fetch(`${wrapper}/v1/audio/transcriptions/stream`, { method: 'POST', body })
+  const frames = (await res.text())
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => JSON.parse(line))
+
+  expect(frames.at(-1)?.phase).toBe('error')
+})

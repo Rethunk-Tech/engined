@@ -239,7 +239,9 @@ def _cli_argv(audio_path: str, params: dict[str, list[str]]) -> list[str]:
 def _parse_wav(buf: bytes | bytearray) -> Wav | None:
     """The stream's format and where its samples start, or None while the
     header is still incomplete -- and for a body that is not a WAV at all,
-    which is decoded whole instead of in windows."""
+    which is decoded whole instead of in windows. A header naming no sample
+    rate or a zero-byte sample frame is one of those: there is no second of
+    audio to measure a window in."""
     if len(buf) < 12 or buf[0:4] != b"RIFF" or buf[8:12] != b"WAVE":
         return None
     pos, fmt = 12, None
@@ -249,12 +251,12 @@ def _parse_wav(buf: bytes | bytearray) -> Wav | None:
         if chunk_id == b"data":
             if fmt is None:
                 return None
-            encoding, channels, rate, bits = fmt
-            return Wav(encoding, rate, channels, bits, pos + 8)
+            wav = Wav(*fmt, data_at=pos + 8)
+            return wav if wav.per_second > 0 else None
         if chunk_id == b"fmt " and pos + 24 <= len(buf):
             encoding, channels, rate = struct.unpack("<HHI", buf[pos + 8 : pos + 16])
             bits = struct.unpack("<H", buf[pos + 22 : pos + 24])[0]
-            fmt = (encoding, channels, rate, bits)
+            fmt = (encoding, rate, channels, bits)
         pos += 8 + size + (size & 1)
     return None
 
