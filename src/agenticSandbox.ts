@@ -124,33 +124,40 @@ export function applySandboxFloor(
     return { missing: 'pasta' }
   }
   const home = sandboxLaunchHome(agent.id)
-  copyLogins(home, agent.logins ?? [])
-  const shared = sharedInstallCache(agent)
-  mkdirSync(shared, { recursive: true })
-  const cache = input.seedCache ?? shared
-  Object.assign(input.env, sandboxEnv(home, cache))
-  return {
-    argv: sandboxArgv({
-      bwrap,
+  try {
+    copyLogins(home, agent.logins ?? [])
+    const shared = sharedInstallCache(agent)
+    mkdirSync(shared, { recursive: true })
+    const cache = input.seedCache ?? shared
+    Object.assign(input.env, sandboxEnv(home, cache))
+    return {
+      argv: sandboxArgv({
+        bwrap,
+        home,
+        // A self-installed binary has no bunx cache to mount.
+        cache: agent.pkg === undefined ? undefined : cache,
+        cacheWritable: input.seedCache !== undefined,
+        workdir: input.workdir,
+        argv: input.argv,
+        readOnly: input.readOnly,
+        writable: input.writable,
+        sandboxMask: input.sandboxMask,
+        netns: {
+          pasta,
+          ports: loopbackPorts([
+            input.upstreamUrl,
+            ...Object.values(input.env),
+            ...Object.values(input.extraEnv ?? {}),
+          ]),
+        },
+      }),
       home,
-      // A self-installed binary has no bunx cache to mount.
-      cache: agent.pkg === undefined ? undefined : cache,
-      cacheWritable: input.seedCache !== undefined,
-      workdir: input.workdir,
-      argv: input.argv,
-      readOnly: input.readOnly,
-      writable: input.writable,
-      sandboxMask: input.sandboxMask,
-      netns: {
-        pasta,
-        ports: loopbackPorts([
-          input.upstreamUrl,
-          ...Object.values(input.env),
-          ...Object.values(input.extraEnv ?? {}),
-        ]),
-      },
-    }),
-    home,
-    cleanup: () => removeLaunchHome(home),
+      cleanup: () => removeLaunchHome(home),
+    }
+  } catch (err) {
+    // copyLogins (and anything else after the home exists) must not leak a
+    // leftover launch home on a failed apply.
+    removeLaunchHome(home)
+    throw err
   }
 }

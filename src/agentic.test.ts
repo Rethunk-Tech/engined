@@ -1,15 +1,17 @@
 import { expect, test } from 'bun:test'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import process from 'node:process'
 import {
   type AgenticSpawn,
@@ -29,6 +31,7 @@ import {
 } from './agenticArgs.ts'
 import { promptsFromMessages, researchMode } from './agenticHop.ts'
 import { buildAgenticProbeRunner } from './agenticProbeHarness.ts'
+import { applySandboxFloor } from './agenticSandbox.ts'
 import { pipedArgv, scopedArgv } from './agentScope.ts'
 // The envelope parser moved to agents.ts with the rest of what varies per
 // agent; these cases stay here because they are about the launch path.
@@ -37,7 +40,7 @@ import { agentCli, parseClaudeEnvelope as parseEnvelope } from './agents.ts'
 // the shared validator in isolation. This file does not edit config.ts.
 import { loadConfig } from './config.ts'
 import type { ExecResult } from './exec.ts'
-import { loopbackPorts } from './sandbox.ts'
+import { loopbackPorts, sandboxHome } from './sandbox.ts'
 import { BUNX, makeTestRoot } from './test-support.ts'
 
 const PIN = '1.2.3'
@@ -46,6 +49,40 @@ const RX_TOOLS_FLAG = /--tools/
 const RX_DISSOLVES_FLOOR = /dissolves the read-only floor/
 
 const TEST_ROOT = makeTestRoot('engined-agentic-test-')
+
+test('applySandboxFloor: an unreadable login rejects and leaves no launch home', () => {
+  const dir = mkdtempSync(join(TEST_ROOT, 'engined-agentic-login-'))
+  const loginFile = join(dir, 'credentials')
+  writeFileSync(loginFile, 'secret')
+  chmodSync(loginFile, 0o000)
+  const claude = agentCli('claude')
+  if (claude === undefined) {
+    throw new Error('claude agent')
+  }
+  const agent = {
+    ...claude,
+    id: basename(dir),
+    // copyLogins joins `from` onto the operator home, so this has to be relative.
+    logins: [{ from: relative(homedir(), loginFile), to: '.config/credentials' }],
+  }
+  const launches = (): string[] =>
+    readdirSync(sandboxHome(agent.id)).filter((name) => name.startsWith('launch-'))
+  try {
+    expect(() =>
+      applySandboxFloor(agent, {
+        workdir: dir,
+        argv: ['/bin/true'],
+        env: {},
+        bwrapOverride: '/bin/true',
+        pasta: '/bin/true',
+        readOnly: [],
+      }),
+    ).toThrow()
+    expect(launches()).toEqual([])
+  } finally {
+    chmodSync(loginFile, 0o600)
+  }
+})
 
 /** Every flag another kind's spec.toml plausibly carries in `[engine.args]`, none of them one engined itself prepends or a forbidden one. */
 const MANY_OTHER_ARGS: Record<string, unknown> = {
