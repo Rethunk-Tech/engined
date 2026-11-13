@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The comfy websocket bridge closes a caller that stops reading (16 MiB queued) instead of dropping frames, so a lost final message surfaces as a close, and caller frames are capped at 64 KiB.
+- whisper refuses a request body over 256 MiB with 413, and runs at most `WHISPER_MAX_CONCURRENT` (default 2) streaming decodes at once, queueing `WHISPER_MAX_QUEUE` (default 8) more and answering 503 past that; set both with `[engine.env]`.
 - Every engine container now runs with `--cap-drop ALL`, `--security-opt no-new-privileges` and `--pids-limit 4096`. The change is part of each container's spec digest, so a running engine is replaced on its next start.
 - The config UI's secrets list includes potluck's callback secret, so the settings page shows whether it is stored and the missing-secrets count covers it.
 - engined keeps its secrets under one keyring prefix: items carry `service engined` with the config's `service` as their `name`, so a config or the config UI can no longer read, overwrite or clear another program's keyring item. Existing secrets the config names move under the prefix on first read (the old item stays); the `secret-tool store` fix line names the new attributes.
