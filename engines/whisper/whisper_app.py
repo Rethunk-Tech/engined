@@ -40,10 +40,10 @@ front of this is the only caller and multipart would buy nothing but a parser.
 `language`, `prompt` and `translate` ride in the query string.
 
 A caller that hangs up mid-transcript closes the socket, the next frame write
-raises, and whisper-cli is killed. While the terminal decode runs there is no
-frame to write, so the caller's socket is watched directly and the upstream
-connection closed when it goes -- which is what `wparams.abort_callback` reads
-as a hangup. Either way, work nobody will read stops rather than running the
+raises, and whisper-cli is killed. While whisper-server decodes -- the
+terminal frame, or any proxied request -- there is no frame to write, so the
+caller's socket is watched directly and the upstream connection closed when it
+goes -- which is what `wparams.abort_callback` reads as a hangup. Either way, work nobody will read stops rather than running the
 GPU to completion.
 """
 
@@ -364,6 +364,7 @@ class Handler(BaseHTTPRequestHandler):
         conn = http.client.HTTPConnection(UPSTREAM)
         try:
             conn.request(self.command, self.path, body=body or None, headers=headers)
+            self._await(conn)
             res = conn.getresponse()
             # Read whole: whisper-server answers a transcript in one buffered
             # body, so there is nothing here to stream and the upstream's own
@@ -374,6 +375,8 @@ class Handler(BaseHTTPRequestHandler):
             # Before whisper-server has finished loading its model, which the
             # readiness probe treats as not-yet-ready and retries.
             self._error(503, f"whisper-server is not answering yet: {err}")
+            return
+        except Cancelled:
             return
         finally:
             conn.close()
