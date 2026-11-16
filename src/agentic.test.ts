@@ -1017,12 +1017,16 @@ test('defaultAgenticSpawn: aborting kills the real worker process, not just the 
     'while true; do date +%s%N >> "$HEARTBEAT_FILE"; sleep 0.05; done & wait',
   ]
   const controller = new AbortController()
-  const promise = defaultAgenticSpawn(argv, {
-    cwd: dir,
-    env: { ...process.env, HEARTBEAT_FILE: heartbeat },
-    input: '',
-    signal: controller.signal,
-  })
+  const promise = defaultAgenticSpawn(
+    argv,
+    {
+      cwd: dir,
+      env: { ...process.env, HEARTBEAT_FILE: heartbeat },
+      input: '',
+      signal: controller.signal,
+    },
+    null,
+  )
 
   const countLines = () => readFileSync(heartbeat, 'utf8').split('\n').filter(Boolean).length
   // Let the worker actually start writing before killing it.
@@ -1056,7 +1060,7 @@ test('defaultAgenticSpawn: stderr is capped to its tail, earlier lines dropped',
     '-c',
     'i=0; while [ $i -lt 50 ]; do printf "line-%03d-XXXXXXXXXXXXXXXXXXXXXXXXXX\\n" "$i" >&2; i=$((i+1)); done; printf "END-OF-RUN\\n" >&2',
   ]
-  const result = await defaultAgenticSpawn(argv, { cwd: dir, env: {}, input: '' })
+  const result = await defaultAgenticSpawn(argv, { cwd: dir, env: {}, input: '' }, null)
 
   expect(result.stderr.endsWith('END-OF-RUN\n')).toBe(true)
   expect(result.stderr).not.toContain('line-000-')
@@ -1159,9 +1163,30 @@ test.skipIf(Bun.which('pasta') === null)(
       { cwd: '/usr/share', env: { PATH: '/usr/bin' }, input: 'hello' } as Parameters<
         typeof defaultAgenticSpawn
       >[1],
+      null,
     )
     expect(result.stdout).toBe('out:hello\n')
     expect(result.stderr).toContain('err')
     expect(result.exitCode).toBe(7)
+  },
+)
+
+// systemd-run --user needs the host user manager; a sandbox has none, so the real scope path is proven only where one answers.
+const userBusReachable =
+  Bun.which('systemctl') !== null &&
+  ['running', 'degraded'].includes(
+    Bun.spawnSync(['systemctl', '--user', 'is-system-running']).stdout.toString().trim(),
+  )
+
+test.skipIf(Bun.which('systemd-run') === null || !userBusReachable)(
+  'defaultAgenticSpawn runs the worker inside a real systemd-run user scope',
+  async () => {
+    const result = await defaultAgenticSpawn(['/bin/sh', '-c', 'read l; echo "out:$l"; exit 3'], {
+      cwd: '/usr/share',
+      env: { PATH: '/usr/bin' },
+      input: 'hi',
+    })
+    expect(result.stdout).toBe('out:hi\n')
+    expect(result.exitCode).toBe(3)
   },
 )

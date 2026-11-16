@@ -115,11 +115,12 @@ const KILL_GRACE_MS = 3000
 export async function defaultAgenticSpawn(
   argv: string[],
   opts: AgenticSpawnOptions,
+  /** Injectable so a test without the host user bus can run the rest of the plumbing; `null` skips the scope. */
+  systemdRun: string | null = Bun.which('systemd-run'),
 ): Promise<ExecResult> {
   if (argv.length === 0) {
     throw new Error('agentic launch argv is empty')
   }
-  const systemdRun = Bun.which('systemd-run')
   const child = Bun.spawn(scopedArgv(pipedArgv(argv), systemdRun), {
     cwd: opts.cwd,
     // systemd-run finds the user manager through this; the child env is otherwise an allowlist.
