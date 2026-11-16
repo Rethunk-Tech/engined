@@ -138,18 +138,17 @@ engined will serve requests through the new pin — and which probes those are
 is per-agent too, because what could give an agent its tools back differs: a
 planted settings hook for claude, a permissive `opencode.json` for opencode.
 
-**The sandbox closes the host's local network, not the internet.** With
-`pasta` (package `passt`) installed, the sandbox runs in a private network
-namespace with outbound NAT: only the loopback ports named by the launch's
-door URL are forwarded in, and the host's abstract-namespace Unix sockets
-(X11) and loopback-only services are out of reach. Anything the host
-listens on at a non-loopback address (the docker bridge `172.17.0.1`, `br-*`
-bridge addresses, the tailscale IP, a LAN address), and the whole outbound
-internet, stay reachable from the sandbox. Without `pasta` the launch is refused, as it is without `bwrap`. claude's argv floor also restricts which _tools_ it
-has, so it cannot run shell or fetch a URL; opencode has no such restriction,
-and cursor's ask mode still runs read-only shell. An agent pointed at a
-private repository is trusted with its contents and can send them wherever
-a chain ends.
+**The sandbox closes the host's local network, not the internet.**
+
+|                 |                                                                                                                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pasta`         | with package `passt` installed, the sandbox runs in a private network namespace with outbound NAT                                                                                  |
+| Forwarded in    | only the loopback ports named by the launch's door URL                                                                                                                             |
+| Out of reach    | the host's abstract-namespace Unix sockets (X11) and loopback-only services                                                                                                        |
+| Still reachable | anything the host listens on at a non-loopback address (the docker bridge `172.17.0.1`, `br-*` bridge addresses, the tailscale IP, a LAN address), and the whole outbound internet |
+| Refuse          | without `pasta` the launch is refused, as it is without `bwrap`                                                                                                                    |
+| Tools           | claude's argv floor also restricts which _tools_ it has, so it cannot run shell or fetch a URL; opencode has no such restriction, and cursor's ask mode still runs read-only shell |
+| Trust           | an agent pointed at a private repository is trusted with its contents and can send them wherever a chain ends                                                                      |
 
 ## The browser is a caller too
 
@@ -207,18 +206,15 @@ Inside that, every engine container runs with `--cap-drop ALL`,
 (`src/dockerArgs.ts`): GPU access is the spec's `--device` and `--group-add`,
 which need no capability.
 
-**An engine reaches nothing but its own port proxy.** Each engine runs alone on
-its own network, `engined-<id>.net`, created `--internal` with
-`com.docker.network.bridge.gateway_mode_ipv4=isolated` (and the IPv6
-equivalent), so the bridge has no host-side address at all. `--internal` alone
-is not enough: the gateway address still reaches every host listener on all
-interfaces, the door included, and docker drops a `-p` publish on an internal
-network. The publish lives on a sidecar instead, `engined-<id>.proxy`: a
-`socat` TCP relay (`alpine/socat`, pinned by digest in `src/dockerArgs.ts`)
-started on the default bridge with `-p 127.0.0.1::<port>`, then joined to the
-engine's network. It relays bytes, so streaming responses and comfy's
-websocket pass through unchanged, and it runs under the same `--cap-drop ALL`,
-`no-new-privileges` and pids limit, as `nobody`, read-only.
+**An engine reaches nothing but its own port proxy.**
+
+|                            |                                                                                                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network                    | each engine runs alone on `engined-<id>.net`, created `--internal` with `com.docker.network.bridge.gateway_mode_ipv4=isolated` (and the IPv6 equivalent), so the bridge has no host-side address at all |
+| Why not `--internal` alone | the gateway address still reaches every host listener on all interfaces, the door included, and docker drops a `-p` publish on an internal network                                                      |
+| Sidecar                    | `engined-<id>.proxy`: a `socat` TCP relay (`alpine/socat`, pinned by digest in `src/dockerArgs.ts`) started on the default bridge with `-p 127.0.0.1::<port>`, then joined to the engine's network      |
+| Relay                      | bytes, so streaming responses and comfy's websocket pass through unchanged                                                                                                                              |
+| Hardening                  | same `--cap-drop ALL`, `no-new-privileges` and pids limit, as `nobody`, read-only                                                                                                                       |
 
 The pair is one unit: a start removes any earlier pair and network before it
 builds a new one, a stop removes the proxy and network once the engine is down
@@ -270,17 +266,17 @@ UI is therefore gated like the privilege it holds:
   never read back; the UI only learns whether an item exists. Only items under
   engined's own keyring prefix can be stored or cleared (see Secrets below).
 
-**LAN access goes through TLS.** When `[configsvc] host` names something other
-than loopback, the UI still listens on loopback only. The `engined-tls` Caddy
-renders a site for `https://<host>:29444` that proxies to it, the page logs the
-https URL, and the UI accepts that one `Host` (with an https `Origin` of the
-same name), sets `Secure` on its cookie and rate-limits by the forwarded
-client address only when Caddy's hop header is present. A loopback caller
-that spoofs the bridged `Host` does not get to pick the lockout key.
-`host` is a name or address clients dial, never `0.0.0.0`.
-Restart `engined-tls` after changing it: the Caddyfile is rendered when the
-unit starts (`engined --caddyfile`). Caddy's internal CA signs the site, so a
-browser needs that root once, as for the Cursor door.
+**LAN access goes through TLS.**
+
+|         |                                                                                                                                                                        |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listen  | when `[configsvc] host` names something other than loopback, the UI still listens on loopback only                                                                     |
+| Caddy   | `engined-tls` renders a site for `https://<host>:29444` that proxies to it; the page logs the https URL                                                                |
+| Accept  | that one `Host` (with an https `Origin` of the same name); `Secure` on its cookie; rate-limits by the forwarded client address only when Caddy's hop header is present |
+| Spoof   | a loopback caller that spoofs the bridged `Host` does not get to pick the lockout key                                                                                  |
+| `host`  | a name or address clients dial, never `0.0.0.0`                                                                                                                        |
+| Restart | restart `engined-tls` after changing it: the Caddyfile is rendered when the unit starts (`engined --caddyfile`)                                                        |
+| CA      | Caddy's internal CA signs the site, so a browser needs that root once, as for the Cursor door                                                                          |
 
 Reaching the bridge is reaching a root-equivalent editor: the token or password
 is the only gate, and a token log line is readable by anything that reads the

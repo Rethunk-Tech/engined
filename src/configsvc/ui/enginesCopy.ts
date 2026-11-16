@@ -31,5 +31,6 @@ export const copy = {
   ROUTES_AND_CHAINS_THAT: 'Routes and chains that name it are updated with it.',
   SEPARATOR_6: '"',
   RENAME_ENGINE: 'Rename engine "',
+  /** Appended to an engine's detail link to open it with the Obtain panel running. */
   OBTAIN_SUFFIX: '/obtain',
 } as const

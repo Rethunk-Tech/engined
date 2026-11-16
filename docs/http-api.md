@@ -236,7 +236,16 @@ the alias. Empty or expired inventory adds no discovered rows.
 `GET /engined/v1/engines` `capabilities[]` stays the declared routes; expansion
 lives only on this menu.
 
-`GET /engined/v1/engines` also carries `discovery`, keyed by `claude` and `cursor` when enabled: `{fetched_at, models, last_error?, findings}`. `fetched_at` (ISO time) is when the list in use was last fetched, so its age is how stale the menu is. `last_error` is present while the latest refresh failed (the previous list keeps serving) and clears on the next success. `findings` lists declared routes discovery makes redundant (`duplicate`: the route states nothing discovery does not already serve) or stale (`retired`: the provider no longer lists the model), each with `route` and a literal `fix`; `engined --probe` prints them as passing lines and never fails on them. `engined --probe --json` includes that same `discovery` object, so `last_error` and `fetched_at` are visible without parsing the engines list a second time. A provider that does not answer within 30 s counts as a failed refresh.
+`GET /engined/v1/engines` also carries `discovery`, keyed by `claude` and `cursor` when enabled: `{fetched_at, models, last_error?, findings}`.
+
+|              |                                                                                                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetched_at` | ISO time the list in use was last fetched, so its age is how stale the menu is                                                                                                                                         |
+| `last_error` | present while the latest refresh failed (the previous list keeps serving) and clears on the next success                                                                                                               |
+| `findings`   | declared routes discovery makes redundant (`duplicate`: the route states nothing discovery does not already serve) or stale (`retired`: the provider no longer lists the model), each with `route` and a literal `fix` |
+| Probe        | `engined --probe` prints findings as passing lines and never fails on them                                                                                                                                             |
+| `--json`     | `engined --probe --json` includes that same `discovery` object, so `last_error` and `fetched_at` are visible without parsing the engines list a second time                                                            |
+| Timeout      | a provider that does not answer within 30 s counts as a failed refresh                                                                                                                                                 |
 
 ### Probe verdicts
 
@@ -562,14 +571,18 @@ head start, not a pin. `keep_resident` in [configuration.md](configuration.md)
 is what makes residency survive.
 
 A llama engine additionally reports `roles`, one entry per role that is doing
-something: `{ role, active, waiting, model? }`. `model` is the resident GGUF id when `active` is greater than zero. When `active` is zero and `waiting` is greater than zero, it is the head-of-queue model id — the GGUF the next caller asked for, before anything is resident. When both are zero the role is omitted, so `model` is too. A role that is loaded and still has waiters keeps reporting the resident id, not the queue head. These are not the same number as
-`active_leases` and answer a different question -- that one counts the whole
-container, this one counts a single role's occupancy, where `waiting` is the
-requests queued behind a resident model that has to be swapped out before
-theirs can load. It is the difference between "the model is still loading" and
-"three requests are ahead of you", which `state` alone cannot express. A role
-with nothing running and nothing queued is omitted rather than reported as
-zero, and a kind with no roles carries no `roles` at all.
+something: `{ role, active, waiting, model? }`.
+
+|                                              |                                                                                                                                        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `model` when `active` > 0                    | the resident GGUF id                                                                                                                   |
+| `model` when `active` is 0 and `waiting` > 0 | the head-of-queue model id — the GGUF the next caller asked for, before anything is resident                                           |
+| both zero                                    | the role is omitted, so `model` is too                                                                                                 |
+| loaded with waiters                          | keeps reporting the resident id, not the queue head                                                                                    |
+| vs `active_leases`                           | that one counts the whole container; this one counts a single role's occupancy                                                         |
+| `waiting`                                    | requests queued behind a resident model that has to be swapped out before theirs can load                                              |
+| vs `state`                                   | the difference between "the model is still loading" and "three requests are ahead of you", which `state` alone cannot express          |
+| empty                                        | a role with nothing running and nothing queued is omitted rather than reported as zero; a kind with no roles carries no `roles` at all |
 
 ### Vocab-only tokenize
 
@@ -642,14 +655,13 @@ fails on a non-2xx.
 transcriptions verb with one field added: whisper is asked to render the
 speech as English. Same multipart upload, same `prompt` and `response_format`.
 
-The route default is to omit `translate`. An omitted key, and
-`translate = false`, do not serve this path. `translate = true` is the explicit opt-in, and opting
-in does not mean the English is right: a model can transcribe
-speech perfectly and still translate it confidently wrong (large-v3-turbo-q8_0 did, so the translating route is the multilingual `medium`). A consumer must not treat this path as safe without that opt-in, and
-the opt-in accepts the failure rather than fixing it. Check the verb against
-speech you understand before wiring a consumer to it. The weekly probe only
-checks that a route which did not opt in refuses the path; it cannot tell a
-fluent wrong translation from a right one.
+|              |                                                                                                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default      | omit `translate`; an omitted key and `translate = false` do not serve this path                                                                                                         |
+| Opt-in       | `translate = true` is explicit; opting in does not mean the English is right                                                                                                            |
+| Consumer     | must not treat this path as safe without that opt-in; the opt-in accepts the failure rather than fixing it. Check the verb against speech you understand before wiring a consumer to it |
+| Weekly probe | checks only that a route which did not opt in refuses the path; it cannot tell a fluent wrong translation from a right one                                                              |
+| Placement    | quality, the multilingual `medium` route, and the recorded failure are in `AGENTS.md`                                                                                                   |
 
 `GET /openai/v1/models` reports `translate: true` on a route that opted in.
 That field, and a `serves` entry for this path, mean the route accepts the

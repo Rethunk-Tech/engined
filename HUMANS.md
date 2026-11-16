@@ -227,18 +227,18 @@ hop each report no usage, and counting them as zero would understate the
 month. [docs/http-api.md § What a call cost](docs/http-api.md#what-a-call-cost)
 says which absence is which.
 
-`POST /engined/v1/engines/<id>/obtain` fetches an engine's missing model files:
-it runs the spec's `[[artifact]]` obtain commands (the ones its `fix` field
-names) for artifacts not on disk yet, in order. An artifact marked
-`route_file = true` is a weights file a route picks with `filename`, so it is
-fetched, and required at start, only while an enabled route names it. A spec's
-`route_file_env = "NAME"` makes a start set that env var to `/models/<filename>` (piper's
-`PIPER_VOICE_PATH`), and a `[[volume]]` marked `optional = true` is dropped when its
-`{models_dir}` placeholder has no value. It streams SSE events `step`
-(`{step, command}`), `line` (`{step, stream, line}`) and a final `exit`
-(`{exitCode, steps}`; `steps` is 0 when nothing was missing). It stops at the
-first failing command, kills the command if the client disconnects, answers 404
-for an engine whose spec declares no artifacts and 409 while one is running.
+`POST /engined/v1/engines/<id>/obtain` fetches an engine's missing model files.
+
+|                     |                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Commands            | the spec's `[[artifact]]` obtain commands (the ones its `fix` field names) for artifacts not on disk yet, in order                     |
+| `route_file = true` | a weights file a route picks with `filename`; fetched, and required at start, only while an enabled route names it                     |
+| `route_file_env`    | a spec's `route_file_env = "NAME"` makes a start set that env var to `/models/<filename>` (piper's `PIPER_VOICE_PATH`)                 |
+| Optional volume     | a `[[volume]]` marked `optional = true` is dropped when its `{models_dir}` placeholder has no value                                    |
+| SSE                 | `step` (`{step, command}`), `line` (`{step, stream, line}`), final `exit` (`{exitCode, steps}`; `steps` is 0 when nothing was missing) |
+| Stop                | first failing command; kills the command if the client disconnects                                                                     |
+| 404                 | engine whose spec declares no artifacts                                                                                                |
+| 409                 | while one obtain is running                                                                                                            |
 
 ### The config UI
 
@@ -287,14 +287,16 @@ Every form change edits the pending text through the same comment-preserving edi
 survive; nothing is written until Save. Any entry can be copied as TOML, and a pasted `[[table]]` snippet is
 added only if the merged config validates.
 
-**Saving.** Save writes with the hash the page read: if the file changed meanwhile you see that change and
-choose between reloading from disk and saving yours over it. A save without a `[configsvc] enable` value writes
-`enable = true` (untick it on Settings to turn the UI off). The result lists the engines whose container changes
-and restarts on its next start. You then choose a hot reload (`HUP`) or a hard one (`USR1`, preselected when a
-port moved), see [Signals](#signals-to-the-unit) below, and may name a route to test afterwards. The page waits
-up to about 10 seconds for engined to report the saved config; if it does not, reports a `config_error`, or the
-route test fails, it asks Keep or Revert. No answer keeps the change; Revert restores the file the save
-replaced and reloads the same way.
+**Saving.**
+
+|                |                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hash           | Save writes with the hash the page read; if the file changed meanwhile you see that change and choose between reloading from disk and saving yours over it                      |
+| `enable`       | a save without a `[configsvc] enable` value writes `enable = true` (untick it on Settings to turn the UI off)                                                                   |
+| Result         | lists the engines whose container changes and restarts on its next start                                                                                                        |
+| Reload         | choose a hot reload (`HUP`) or a hard one (`USR1`, preselected when a port moved); see [Signals](#signals-to-the-unit) below; may name a route to test afterwards               |
+| Wait           | up to about 10 seconds for engined to report the saved config                                                                                                                   |
+| Keep or Revert | asked if it does not report, reports a `config_error`, or the route test fails; no answer keeps the change; Revert restores the file the save replaced and reloads the same way |
 
 `GET /engined/v1/engines` is the runtime operator surface — no `/v1/health`. The config UI above edits config; it adds nothing the door answers.
 
@@ -343,15 +345,14 @@ systemctl --user start engined-probe.service
 journalctl --user -u engined-probe -n 20
 ```
 
-It sends a two-colour image through every vision address the model menu lists
-and fails if the reply does not name both halves in order; a rerank query with
-one answering document among three, and fails if that one is not ranked first;
-and a translate request at every transcription route that did not declare
-`translate`, failing if any answers instead of refusing. A box with none of
-those configured gets one line saying so and a clean exit. That clean exit
-proved nothing about vision fidelity. A configured vision route that is
-unavailable fails the probe: the run asked it nothing, and a skip is not a
-pass. A green vision line proves the synthetic image only — see
+| Check            | Pass                                                                                                       | Fail                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Vision           | a two-colour image through every vision address the model menu lists; the reply names both halves in order | a configured vision route that is unavailable (the run asked it nothing; a skip is not a pass) |
+| Rerank           | one answering document among three, ranked first                                                           | that document is not ranked first                                                              |
+| Translate refuse | every transcription route that did not declare `translate` refuses                                         | any such route answers                                                                         |
+| None configured  | one line saying so and a clean exit                                                                        | —                                                                                              |
+
+That clean exit proves nothing about vision fidelity. A green vision line proves the synthetic image only — see
 [docs/engines.md](docs/engines.md#vision-fidelity-llama-vulkan) for what it
 does not cover, and re-check a consumer's real images before trusting the role.
 

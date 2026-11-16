@@ -431,7 +431,6 @@ function EngineCard(props: { d: Doc; engine: Table; index: number; initialPanel?
 }
 
 const TILE_ROUTES = 4
-/** Appended to an engine's detail link to open it with the Obtain panel running. */
 
 /** One engine in the grid: enough to find it and see its health; the card behind it edits. */
 function EngineTile({ d, engine }: { d: Doc; engine: Table }) {

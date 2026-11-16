@@ -757,7 +757,7 @@ test('a translate route returning the right English passes and is sent the real 
   expect(seen.form?.get('model')).toBe('@/whisper/large-v3-turbo')
 })
 
-// The failure recorded in engined#1: fluent, confident, and wrong.
+// Fluent, confident, and wrong English must fail the probe.
 test('a translate route returning the recorded wrong English fails the probe', async () => {
   const report = await runProbes(
     'http://door',

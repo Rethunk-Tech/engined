@@ -2,9 +2,8 @@
  * Grades the English a `translate = true` route returns.
  *
  * The clip is Spanish speech synthesised by `scripts/gen-translation-fixture.sh`.
- * The sentence is the one on which large-v3-turbo-q8_0 was recorded returning
- * "man" for "gato" and "bed" for "mesa de madera" (engined#1), so a regression
- * of that kind fails here.
+ * large-v3-turbo-q8_0 returns "man" for "gato" and "bed" for "mesa de madera"
+ * on this sentence, so a regression of that kind fails here.
  *
  * The metric is content-word recall: the share of the reference's words, minus
  * a short stopword list, that the reply also contains (as a multiset, after
@@ -26,7 +25,7 @@ import { CONTENT_ENDPOINT_TRANSCRIPTIONS, CONTENT_ENDPOINT_TRANSLATIONS } from '
 
 export const TRANSLATION_REFERENCE = 'the black cat sleeps on the wooden table'
 
-/** Fraction of reference content words the reply must contain. Right-but-paraphrased replies clear 0.6; the recorded wrong reply scores 0.4. */
+/** Fraction of reference content words the reply must contain. */
 export const TRANSLATION_PASS_RECALL = 0.6
 
 const NON_WORD = /[^a-z0-9']+/

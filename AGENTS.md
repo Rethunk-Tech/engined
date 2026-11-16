@@ -3,7 +3,6 @@
 Contributor map. `README.md` orients; `HUMANS.md` is the runbook. This file
 covers test tiers, the config/spec split, and invariants.
 
-Decided-but-unbuilt work lives in `docs/specs/2nd_delivery/`. The task list tracks the rest.
 An acceptance criterion nobody has actually proven stays recorded here even
 when the feature looks done, because deleting it erases the only record that
 it is unproven.
@@ -36,16 +35,16 @@ Guards with failing tests: one container start under concurrent load; one llama
 owner under cross-role load; port-in-use exits 78; Comfy diffusion through a
 real checkpoint when weights are present.
 
-**Translation quality on large-v3-turbo-q8_0 is poor, so `translate = true` sits on the multilingual `medium` route instead.** The
-`/openai/v1/audio/translations` verb works end to end, but the English it returns can be
-confidently wrong ("gato" became "man", "mesa de madera" became "bed") while the same
-audio transcribes perfectly, so the loss is in the model's translation head. The route
-default omits `translate` and does not serve the verb. `translate = true` is the explicit
-opt-in, and it is not a claim the English is right. `engined --probe` sends a
-`translate = true` route one synthesised Spanish clip and grades the English by content-word
-recall (`src/probeTranslation.ts`), so the recorded gato/mesa substitutions fail it. It
-still cannot catch a wrong translation of other speech: wire a consumer to this verb only
-after checking it against speech you understand.
+**Translation quality on large-v3-turbo-q8_0 is poor, so `translate = true` sits on the multilingual `medium` route instead.**
+
+|         |                                                                                                                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Verb    | `/openai/v1/audio/translations` works end to end                                                                                                                                                           |
+| Failure | English can be confidently wrong ("gato" → "man", "mesa de madera" → "bed") while the same audio transcribes perfectly; the loss is in the model's translation head                                        |
+| Default | omits `translate` and does not serve the verb                                                                                                                                                              |
+| Opt-in  | `translate = true` is explicit and is not a claim the English is right                                                                                                                                     |
+| Probe   | `engined --probe` sends one synthesised Spanish clip to a `translate = true` route and grades the English by content-word recall (`src/probeTranslation.ts`); the recorded gato/mesa substitutions fail it |
+| Limit   | cannot catch a wrong translation of other speech; wire a consumer to this verb only after checking it against speech you understand                                                                        |
 
 Agentic cost is read from each CLI's own envelope, and each shape was
 captured from a real run rather than guessed -- claude's `total_cost_usd`,
@@ -136,15 +135,17 @@ behind the running job, an interrupt cannot stop a successor. Removing the gate
 silently reopens that race, and the reply a caller gets stops being provable.
 
 **An agentic call cannot change a worktree or read the operator's home.**
-Every agent runs under the `bwrap` sandbox (`src/sandbox.ts`): the home is
-masked and only the workdir, a worktree's git dir, the binary, Bun's cache and
-the launch's own HOME come back. A login is copied into that HOME, never
-mounted. It can still read paths outside the home and its own environment,
-except a provider key, which never enters a child: a routed claude dials a
-keyless door route that adds the key (`src/launchUpstream.ts`). It can still
-reach the internet, but under `pasta` not the host's loopback services or abstract sockets. No `bwrap` or no `pasta` refuses the call. Unproven live: a claude route on the
-`moonshot` (Kimi, `x-api-key`) upstream answering through that route; only the
-Bearer `openrouter-anthropic` shape has.
+
+|                |                                                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sandbox        | every agent runs under `bwrap` (`src/sandbox.ts`)                                                                                            |
+| Visible        | workdir, a worktree's git dir, the binary, Bun's cache, the launch's own HOME                                                                |
+| Home           | masked; a login is copied into that HOME, never mounted                                                                                      |
+| Still readable | paths outside the home and the child's own environment, except a provider key, which never enters a child                                    |
+| Key            | a routed claude dials a keyless door route that adds the key (`src/launchUpstream.ts`)                                                       |
+| Network        | internet under `pasta`, not the host's loopback services or abstract sockets                                                                 |
+| Refuse         | no `bwrap` or no `pasta` refuses the call                                                                                                    |
+| Unproven live  | a claude route on the `moonshot` (Kimi, `x-api-key`) upstream answering through that route; only the Bearer `openrouter-anthropic` shape has |
 
 **claude and cursor also carry an argv floor** (`src/agents.ts`); opencode has
 no such flag and its own config is overridable from any ancestor of the
