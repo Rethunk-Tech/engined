@@ -27,6 +27,7 @@ jobs:
           # `inputs` as the whole staleness boundary.
           extra-cache-paths: .turbo
           extra-cache-key: ${{ github.sha }}
+          run-audit: "true"
       # Each check reports independently so one red does not mask the others;
       # the gate below is what actually fails the job.
       - id: lint
