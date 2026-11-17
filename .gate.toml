@@ -6,4 +6,4 @@ timeout = "2m"
 
 # CI's setup-bun run-audit runs this same script; plain `bun audit` also fails on unpatched advisories.
 [gates.vuln]
-run = "bun /usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts"
+run = '[ -n "$CI" ] || bun /usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts'
