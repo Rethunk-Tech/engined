@@ -526,9 +526,9 @@ comfyui-embedded-docs==0.5.17 \
     --hash=sha256:2e2d2e8693e47f3770595725db36aa995eed21f89bef247ab183678a040a6583 \
     --hash=sha256:2e8744f0c5c958b36c8af036a0c55425173ab1fde4fdd0b30b0b5a50d7e6f495
     # via -r requirements.in
-comfyui-frontend-package==1.59.2 \
-    --hash=sha256:62500f66f073d6295e4fb96a04a7536fffeda58415eb8150f291e8a0134a766e \
-    --hash=sha256:fa0e0fc7b1c65c408cb18ab4706ba044ee1c9534335543bd58ca8fc87eee68b0
+comfyui-frontend-package==1.59.3 \
+    --hash=sha256:8b921775ce28c261ac27434de49d20eb3a906aa558f31ebcd56f2de0a4042661 \
+    --hash=sha256:9d8657b5a1ed43be43a8da478496089b707c250062abcf7aa38b9fd250938d37
     # via -r requirements.in
 comfyui-workflow-templates==0.11.110 \
     --hash=sha256:7ec5350f01ca262c4a955ac29cc6591f5c3c0ba0a309a7f9c32f61c1a3c69917 \
@@ -572,9 +572,9 @@ einops==0.8.2 \
     # via
     #   -r requirements.in
     #   spandrel
-filelock==4.2.10 \
-    --hash=sha256:9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857 \
-    --hash=sha256:fcc3c0cb8bfe7f4b3bb0e231c04b15dbad068cb3c2515f343d8fde4dce93bd5d
+filelock==4.2.11 \
+    --hash=sha256:020e229e4bb9d410fc799c07ddf45fa217cba970278f40b30751d94f309b69e2 \
+    --hash=sha256:0cb84119fb8dce17898e1f69c974d5019daa59c4d7656be390a5fa59ccced912
     # via
     #   -r requirements.in
     #   huggingface-hub
