@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The comfy proxy rejects path-traversal in proxied paths and checks `object_info` names against an allowlist.
+
 ## 0.2.21 - 2026-11-13
 
 - `engined --probe` treats an engine that answers 503 as a failed proof (`FAIL`, exit 1), not a skip that passes the run.
