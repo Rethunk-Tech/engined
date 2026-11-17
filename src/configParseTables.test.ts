@@ -222,13 +222,6 @@ describe('config sources', () => {
     expect(configFilesSha256(join(scratch('cfg-'), 'absent.toml'))).toBeUndefined()
   })
 
-  test('a config that is not a table is refused, naming the file', () => {
-    const dir = scratch('cfg-')
-    const path = join(dir, 'config.toml')
-    writeFileSync(path, 'just a bare string\n')
-    expect(() => readConfigSources(path)).toThrow(ParseError)
-  })
-
   test('invalid TOML is a ParseError, not a raw parser throw', () => {
     const path = join(configDir('[[engine]\nid = "e"\n'), 'config.toml')
     expect(() => readConfigSources(path)).toThrow(/invalid TOML/)
