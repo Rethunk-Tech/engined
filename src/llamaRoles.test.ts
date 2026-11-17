@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { RoleScheduler } from './llamaRoles.ts'
 
 function scheduler(slots: number) {
-  const swaps: Array<[string | null, string]> = []
+  const swaps: [string | null, string][] = []
   const s = new RoleScheduler({
     swap: async (from, to) => {
       swaps.push([from, to])

@@ -172,7 +172,7 @@ export function answeringHeaders(fields: {
 }
 
 /** Slow enough that an operator grepping the journal should still see the call, not only the minute's p50. */
-const FOLD_MAX_MS = 5_000
+const FOLD_MAX_MS = 5000
 const SUMMARY_WINDOW_MS = 60_000
 
 interface SummaryBucket {

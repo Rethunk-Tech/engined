@@ -177,17 +177,17 @@ test('recordCall: upstream_used survives serialization on both the attempt and t
   expect(parsed.upstream_used).toBe('moonshot')
 })
 
-const FOLD_MAX_MS = 5_000
+const FOLD_MAX_MS = 5000
 const MINUTE_MS = 60_000
 const FAST_A_MS = 10
 const FAST_B_MS = 20
 const FAST_C_MS = 30
 
-function okCall(requested: string, duration_ms: number): CallRecord {
+function okCall(requested: string, durationMs: number): CallRecord {
   return {
     chain: null,
     requested,
-    attempts: [{ engine: 'llama', model: 'embed', ok: true, duration_ms }],
+    attempts: [{ engine: 'llama', model: 'embed', ok: true, duration_ms: durationMs }],
     engine_used: 'llama',
     upstream_used: 'local',
   }

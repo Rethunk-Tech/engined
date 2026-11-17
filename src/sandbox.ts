@@ -125,7 +125,7 @@ export function copyLogins(
         continue
       }
       if (code === 'ELOOP') {
-        throw new Error(`login ${login.from} is a symlink, not a regular file`)
+        throw new Error(`login ${login.from} is a symlink, not a regular file`, { cause: err })
       }
       throw err
     }

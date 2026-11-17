@@ -307,7 +307,10 @@ test('safe apply waits for the saved hash, reports faults, and defaults configsv
   const sha = 'a'.repeat(64)
   let calls = 0
   const seen = await waitForApply(
-    async () => (++calls < 3 ? { config_sha256: 'old' } : { config_sha256: sha }),
+    async () => {
+      calls += 1
+      return calls < 3 ? { config_sha256: 'old' } : { config_sha256: sha }
+    },
     sha,
     async () => undefined,
   )
@@ -335,7 +338,10 @@ test('safe apply waits for the saved hash, reports faults, and defaults configsv
   // A first run's "cannot read config" predates the save: the wait goes on until the reload lands.
   calls = 0
   const firstRun = await waitForApply(
-    async () => (++calls < 3 ? { config_error: 'cannot read config' } : { config_sha256: sha }),
+    async () => {
+      calls += 1
+      return calls < 3 ? { config_error: 'cannot read config' } : { config_sha256: sha }
+    },
     sha,
     async () => undefined,
   )

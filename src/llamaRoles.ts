@@ -229,7 +229,8 @@ export class RoleScheduler {
         state.activeCount < state.capacity
       ) {
         state.activeCount += 1
-        state.lastUsed = ++this.tick
+        this.tick += 1
+        state.lastUsed = this.tick
         resolve(false)
         return
       }
@@ -277,7 +278,8 @@ export class RoleScheduler {
   release(role: Role): void {
     const state = this.roleState(role)
     state.activeCount = Math.max(0, state.activeCount - 1)
-    state.lastUsed = ++this.tick
+    this.tick += 1
+    state.lastUsed = this.tick
     this.runPump(role)
   }
 
@@ -352,7 +354,8 @@ export class RoleScheduler {
           }
           state.queue.shift()
           state.activeCount += 1
-          state.lastUsed = ++this.tick
+          this.tick += 1
+          state.lastUsed = this.tick
           front.resolve(false)
           continue
         }
@@ -436,7 +439,8 @@ export class RoleScheduler {
     state.activeModelId = front.modelId
     state.capacity = this.deps.capacityFor(role, front.modelId)
     state.activeCount += 1
-    state.lastUsed = ++this.tick
+    this.tick += 1
+    state.lastUsed = this.tick
     front.resolve(true)
   }
 }

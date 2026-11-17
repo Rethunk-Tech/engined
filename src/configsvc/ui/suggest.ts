@@ -76,7 +76,7 @@ export function formatBytes(n: number): string {
   let i = 0
   while (v >= BYTES_PER_UNIT && i < units.length - 1) {
     v /= BYTES_PER_UNIT
-    i++
+    i += 1
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }

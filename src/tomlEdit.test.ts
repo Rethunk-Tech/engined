@@ -30,7 +30,7 @@ test('adding then removing a route leaves every other line byte-identical', () =
   let cursor = 0
   for (const line of lines(added)) {
     if (line === beforeLines[cursor]) {
-      cursor++
+      cursor += 1
     }
   }
   expect(cursor).toBe(beforeLines.length)

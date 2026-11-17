@@ -11,6 +11,7 @@ import { secretTool } from './configsvcSecrets.ts'
 import { runDoctor } from './doctor.ts'
 import { FatalError } from './errors/fatal.ts'
 import { errorCode } from './listen.ts'
+import { envString } from './env.ts'
 import { configPath, installDir, stateDir } from './paths.ts'
 import { errMessage, isRecord } from './records.ts'
 import { seedLegacySecrets } from './secrets.ts'
@@ -78,7 +79,7 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
   const deps: ConfigsvcDeps = {
     configFile,
     enginesRoot: join(installDir(), 'engines'),
-    bunx: process.env.ENGINED_BUNX || Bun.which('bunx') || 'bunx',
+    bunx: envString('ENGINED_BUNX') || Bun.which('bunx') || 'bunx',
     stateRoot: stateDir(),
     doorUrl: () => `http://127.0.0.1:${bestEffortListenPort(configFile)}`,
     reload: systemctlKill,

@@ -71,18 +71,18 @@ function middleOps(x: string[], y: string[]): { tag: ' ' | '-' | '+'; line: stri
   while (i < x.length || j < y.length) {
     if (i < x.length && j < y.length && x[i] === y[j]) {
       ops.push({ tag: ' ', line: x[i] as string })
-      i++
-      j++
+      i += 1
+      j += 1
     } else if (
       j < y.length &&
       (i === x.length ||
         ((lcs[i] as Uint32Array)[j + 1] as number) >= ((lcs[i + 1] as Uint32Array)[j] as number))
     ) {
       ops.push({ tag: '+', line: y[j] as string })
-      j++
+      j += 1
     } else {
       ops.push({ tag: '-', line: x[i] as string })
-      i++
+      i += 1
     }
   }
   return ops
@@ -94,11 +94,11 @@ export function unifiedDiff(before: string, after: string): string {
   const b = after.split('\n')
   let head = 0
   while (head < a.length && head < b.length && a[head] === b[head]) {
-    head++
+    head += 1
   }
   let tail = 0
   while (tail < a.length - head && tail < b.length - head && a.at(-1 - tail) === b.at(-1 - tail)) {
-    tail++
+    tail += 1
   }
   const x = a.slice(head, a.length - tail)
   const y = b.slice(head, b.length - tail)
@@ -143,7 +143,7 @@ function hunks(ops: { tag: ' ' | '-' | '+'; line: string }[]): string {
     if (!keep.has(i)) {
       oldLine += ops[i]?.tag === '+' ? 0 : 1
       newLine += ops[i]?.tag === '-' ? 0 : 1
-      i++
+      i += 1
       continue
     }
     const startOld = oldLine
