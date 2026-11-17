@@ -78,12 +78,13 @@ export function handleComfyProxy(
 
 /** Percent-encoded `.` or `/` in one segment: WHATWG leaves `%2e%2e%2f` in place, then a container that unquotes walks `../`. */
 const ENCODED_SLASH_OR_DOT = /%2f|%2e/i
+const OBJECT_INFO_RE = /^object_info\/[^/]+$/
 
 function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> | undefined {
   if (ENCODED_SLASH_OR_DOT.test(rest) || rest.includes('..')) {
     return undefined
   }
-  if (rest === 'system_stats' || /^object_info\/[^/]+$/.test(rest)) {
+  if (rest === 'system_stats' || OBJECT_INFO_RE.test(rest)) {
     return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient)
   }
   if (rest === 'view') {
