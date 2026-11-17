@@ -4,7 +4,7 @@
  * the same launch against a dead upstream for the failure shape.
  */
 import { describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pruneAgentInstallCaches } from './agentCaches.ts'
 import { AGENT_PREPENDED_ARGV, AGENTIC_FLOOR, assertNoForbiddenFlags } from './agenticArgs.ts'
@@ -61,6 +61,14 @@ test("reports the API error's own message, not the event name", () => {
   const out = parseOpencodeEvents(OPENCODE_ERR)
   expect(out.ok).toBe(false)
   expect(out.failure).toContain('Cannot connect to API')
+})
+
+test("an error with no message falls back to its name, then to 'error'", () => {
+  expect(parseOpencodeEvents('{"type":"error","error":{"name":"APIError"}}').failure).toContain(
+    'APIError',
+  )
+  expect(parseOpencodeEvents('{"type":"error","error":{}}').failure).toContain('error')
+  expect(parseOpencodeEvents('{"type":"error","error":"boom"}').failure).toContain('error')
 })
 
 test('an error event fails the call even when text was printed before it', () => {
@@ -125,6 +133,24 @@ test('a failed claude envelope still reports what the failed run cost', () => {
 // an object of absent fields that reads as a zero-cost run.
 test('an envelope with no figures in it reports no usage at all', () => {
   expect(parseClaudeEnvelope('{"result":"hi"}').usage).toBeUndefined()
+})
+
+test('claude stdout that is not an envelope is a failure naming that, never a throw', () => {
+  expect(parseClaudeEnvelope('').ok).toBe(false)
+  expect(parseClaudeEnvelope('Segmentation fault\n').ok).toBe(false)
+  expect(parseClaudeEnvelope('[]').ok).toBe(false)
+  expect(parseClaudeEnvelope('{"result":"hi"}').ok).toBe(true)
+})
+
+test("opencode's own cost figure is what an agentic attempt records", () => {
+  const paid = OPENCODE_OK.replace('"cost":0', '"cost":1.25')
+  expect(parseOpencodeEvents(paid).usage?.cost_usd).toBe(1.25)
+})
+
+test('a cursor result with no usage object reports the answer and no usage at all', () => {
+  const bare = '{"type":"result","subtype":"success","is_error":false,"result":"pong"}'
+  const out = parseCursorEvents(bare)
+  expect(out).toEqual({ ok: true, result: 'pong' })
 })
 
 test('claude carries the read-only floor in its launch argv and opencode carries none', () => {
@@ -296,9 +322,25 @@ describe('streamed deltas, per agent', () => {
       '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pong"}]}}'
     expect(agentDelta('cursor', cursor)).toBe('pong')
     expect(agentDelta('cursor', '{"type":"tool_call","subtype":"started"}')).toBe('')
+    expect(
+      agentDelta(
+        'cursor',
+        '{"type":"assistant","message":{"content":[{"type":"tool_use"},{"type":"text","text":"pong"}]}}',
+      ),
+    ).toBe('pong')
     expect(agentDelta('opencode', '{"type":"text","part":{"text":"pong"}}')).toBe('pong')
     expect(agentDelta('opencode', '{"type":"step_start"}')).toBe('')
     expect(agentDelta('claude', 'not json')).toBe('')
+    expect(agentDelta('claude', '{"type":"stream_event","event":{"type":"message_delta"}}')).toBe(
+      '',
+    )
+    expect(
+      agentDelta(
+        'claude',
+        '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta"}}}',
+      ),
+    ).toBe('')
+    expect(agentDelta('unknown', '{"type":"text","part":{"text":"pong"}}')).toBe('')
   })
 })
 
@@ -319,6 +361,13 @@ describe('orphan opencode config dirs', () => {
     expect(existsSync(fresh)).toBe(true)
     expect(existsSync(join(root, 'agentic-opencode.json'))).toBe(true)
     expect(existsSync(join(root, 'agentic-home'))).toBe(true)
+  })
+
+  test('a missing root, or a vanished child, is skipped rather than thrown', () => {
+    expect(() => sweepOrphanOpencodeDirs(join(TEST_ROOT, 'no-such-opencode-root'))).not.toThrow()
+    const root = makeTestRoot('engined-opencode-orphan-gone-')
+    symlinkSync(join(root, 'missing-target'), join(root, 'agentic-opencode-dangling'))
+    expect(() => sweepOrphanOpencodeDirs(root)).not.toThrow()
   })
 })
 
