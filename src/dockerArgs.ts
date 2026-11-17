@@ -24,6 +24,8 @@ export const SPEC_LABEL = 'engined.spec'
 
 type PortResult = { port: number } | { error: string }
 
+const PORT_MAX = 65_535
+
 /** Far above what a model server's thread pools and llama's per-model children use, far below a fork bomb's reach. */
 const PIDS_LIMIT = 4096
 
@@ -103,7 +105,14 @@ export function parseExposedPort(inspectJson: string, image: string): PortResult
     return { error: `${image} exposes no ports` }
   }
   const portStr = port.split('/')[0] ?? port
-  return { port: Number(portStr) }
+  const number = Number(portStr)
+  // An `ExposedPorts` key is arbitrary text: `8000-8010/tcp` and `http/tcp` both parse as
+  // JSON but are not one port, and `Number` turns either into NaN, which would reach the
+  // proxy as `-p 127.0.0.1::NaN`.
+  if (!Number.isInteger(number) || number < 1 || number > PORT_MAX) {
+    return { error: `${image} exposes "${port}", which is not a single port` }
+  }
+  return { port: number }
 }
 
 /**

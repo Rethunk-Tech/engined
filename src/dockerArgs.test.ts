@@ -96,6 +96,22 @@ describe('parseExposedPort', () => {
       error: 'x:1 exposes no ports',
     })
   })
+
+  test('an ExposedPorts key that does not name one port is an error, never a NaN publish', () => {
+    const range = JSON.stringify([{ Config: { ExposedPorts: { '8000-8010/tcp': {} } } }])
+    expect(parseExposedPort(range, 'x:1')).toEqual({
+      error: 'x:1 exposes "8000-8010/tcp", which is not a single port',
+    })
+    const named = JSON.stringify([{ Config: { ExposedPorts: { 'http/tcp': {} } } }])
+    expect(parseExposedPort(named, 'x:1')).toEqual({
+      error: 'x:1 exposes "http/tcp", which is not a single port',
+    })
+    // A port outside the TCP range would reach docker as `-p 127.0.0.1::0`.
+    const zero = JSON.stringify([{ Config: { ExposedPorts: { '0/tcp': {} } } }])
+    expect(parseExposedPort(zero, 'x:1')).toEqual({
+      error: 'x:1 exposes "0/tcp", which is not a single port',
+    })
+  })
 })
 
 describe('hostBindings', () => {
