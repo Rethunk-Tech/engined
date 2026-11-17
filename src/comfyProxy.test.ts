@@ -286,6 +286,26 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     expect(calls).toHaveLength(1)
   })
 
+  test('an uploaded filename with path separators reaches comfy as a basename', async () => {
+    const { client, calls } = recordingComfyClient(async (_url, init) => {
+      const form = await (init?.body as FormData)
+      const image = form.get('image') as File
+      return Response.json({ name: image.name, subfolder: '', type: 'input' })
+    })
+    const door = await comfyDoor(client)
+    const form = new FormData()
+    form.append('image', new Blob([new Uint8Array([1, 2, 3])]), '../../output/evil.png')
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, { method: 'POST', body: form }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { name: string }
+    expect(body.name).not.toMatch(/[/\\]/)
+    expect(body.name.includes('..')).toBe(false)
+    expect(body.name.endsWith('evil.png')).toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
   test("an upload pins type, subfolder and overwrite rather than forwarding the caller's", async () => {
     const { client, calls } = recordingComfyClient(async (_url, init) => {
       const form = await (init?.body as FormData)
@@ -574,6 +594,24 @@ describe('comfy proxy: control verbs never forwarded', () => {
     expect(bareQueue.status).toBe(404)
     expect(free.status).toBe(404)
     expect(interrupt.status).toBe(404)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('GET object_info with an encoded parent segment is not forwarded', async () => {
+    // `%2e%2e%2f` is one path segment, so WHATWG leaves it in place; a
+    // container that unquotes the request-target then walks `../` onto
+    // `/history`, `/queue`, or `/view`, which this door otherwise mediates.
+    const { client, calls } = recordingComfyClient(() => new Response('should never be reached'))
+    const door = await comfyDoor(client)
+    for (const rest of [
+      'object_info/%2e%2e%2fhistory',
+      'object_info/%2e%2e%2fqueue',
+      'object_info/%2e%2e%2fview',
+      'object_info/..%2fhistory',
+    ]) {
+      const res = await door.fetch(new Request(`http://engined${PROXY_PATH}/${rest}`))
+      expect(res.status).toBe(404)
+    }
     expect(calls).toHaveLength(0)
   })
 

@@ -76,8 +76,14 @@ export function handleComfyProxy(
   return forwarded ?? jsonError(STATUS_NOT_FOUND, `"${rest}" is not proxied by this door`)
 }
 
+/** Percent-encoded `.` or `/` in one segment: WHATWG leaves `%2e%2e%2f` in place, then a container that unquotes walks `../`. */
+const ENCODED_SLASH_OR_DOT = /%2f|%2e/i
+
 function comfyGet(proxy: ComfyProxy, rest: string, url: URL): Promise<Response> | undefined {
-  if (rest === 'system_stats' || rest.startsWith('object_info/')) {
+  if (ENCODED_SLASH_OR_DOT.test(rest) || rest.includes('..')) {
+    return undefined
+  }
+  if (rest === 'system_stats' || /^object_info\/[^/]+$/.test(rest)) {
     return forwardComfyGet(proxy.base, rest, url.search, proxy.httpClient)
   }
   if (rest === 'view') {

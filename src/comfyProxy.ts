@@ -31,9 +31,15 @@ export const HTTP_SCHEME_RE = /^http/
 /** Enough of a UUID to keep two same-second uploads of one filename apart in comfy's shared input directory. */
 const COMFY_UPLOAD_PREFIX_LEN = 12
 
+/** The last path component of an upload name, so a caller `../` or `foo/bar` cannot choose comfy's destination. */
+function uploadBasename(original: string): string {
+  const base = original.replaceAll('\\', '/').split('/').pop() ?? ''
+  return base === '' || base === '.' || base === '..' ? 'upload.png' : base
+}
+
 /** `original` with a short UUID prefix, so two uploads of the same filename in one second do not collide in comfy's shared input directory. */
 export function namespacedComfyName(original: string): string {
-  return `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${original}`
+  return `${crypto.randomUUID().replace(/-/g, '').slice(0, COMFY_UPLOAD_PREFIX_LEN)}-${uploadBasename(original)}`
 }
 
 /** The three path segments `COMFY_PROXY_RE` captures. */
