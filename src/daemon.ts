@@ -20,7 +20,9 @@ import type { Config } from './types.ts'
 export function runDaemon(make: {
   resolveBunx: () => string
   createDoor: (config: Config, registryOpts: RegistryOptions, doorOpts?: DoorOptions) => Door
-}): void {
+  /** Tests replace this so the handlers are not registered on the shared process. */
+  on?: (event: 'SIGHUP' | 'SIGUSR1' | 'SIGTERM', listener: () => void) => void
+}): { hangup: () => void; hardReload: () => Promise<void>; stop: () => Promise<void> } {
   const { resolveBunx, createDoor } = make
   const path = configPath()
   function buildDoor(): Door {
@@ -125,16 +127,15 @@ export function runDaemon(make: {
 
   afterReload()
 
-  process.on('SIGHUP', () => {
+  const hangup = (): void => {
     door.reload(path)
     afterReload()
-  })
-  process.on('SIGUSR1', () => {
+  }
+  const requestHardReload = (): Promise<void> =>
     hardReload().catch((err: unknown) => {
       process.stderr.write(`hard reload failed: ${errMessage(err)}\n`)
     })
-  })
-  process.on('SIGTERM', () => {
+  const stop = (): Promise<void> =>
     door.registry
       .shutdown()
       .then(() => {
@@ -149,5 +150,14 @@ export function runDaemon(make: {
       .catch((err: unknown) => {
         process.stderr.write(`shutdown failed: ${errMessage(err)}\n`)
       })
+
+  const listen = make.on ?? ((event, listener) => process.on(event, listener))
+  listen('SIGHUP', hangup)
+  listen('SIGUSR1', () => {
+    requestHardReload().catch(() => undefined)
   })
+  listen('SIGTERM', () => {
+    stop().catch(() => undefined)
+  })
+  return { hangup, hardReload: requestHardReload, stop }
 }

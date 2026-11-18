@@ -55,7 +55,19 @@ async function systemctlKill(signal: 'HUP' | 'USR1'): Promise<{ ok: boolean; err
   return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || `exit ${code}` }
 }
 
-export async function configsvcMain(write: (line: string) => void): Promise<number> {
+function waitUntilSigterm(stop: () => void): Promise<number> {
+  return new Promise((resolve) => {
+    process.on('SIGTERM', () => {
+      stop()
+      resolve(0)
+    })
+  })
+}
+
+export async function configsvcMain(
+  write: (line: string) => void,
+  wait: (stop: () => void) => Promise<number> = waitUntilSigterm,
+): Promise<number> {
   const configFile = configPath()
   let settings: Settings
   try {
@@ -117,10 +129,7 @@ export async function configsvcMain(write: (line: string) => void): Promise<numb
     return FatalError.EXIT_CODE
   }
   write(started.logLine)
-  return await new Promise<number>((resolve) => {
-    process.on('SIGTERM', () => {
-      started.stop()
-      resolve(0)
-    })
+  return await wait(() => {
+    started.stop()
   })
 }
