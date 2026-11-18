@@ -58,7 +58,7 @@ export function imageBuilt(image: string): boolean {
  * docs/engines.md § Occupancy). Every TTS and STT engine is small and several are resident together
  * without contention, so a suite that loads only those needs no room check.
  */
-const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 30 } as const
+const ENGINE_RESIDENT_GIB = { comfy: 42, llama: 35 } as const
 
 /** How much of the pool to leave for everything that is not this suite's engines. */
 const RESERVE_GIB = 4
@@ -84,7 +84,7 @@ const HOLD_REFRESH_MS = 60_000
  * `MemAvailable` is a check against one global number, so it says nothing about
  * what the door is about to load: llama-server idles with nothing resident
  * until a request arrives, so the pool can look ample at check time and the
- * unit can take a live request and load ~30 GiB a moment later, beside this
+ * unit can take a live request and load ~35 GiB a moment later, beside this
  * tier's own copy. A hold makes the door refuse that start instead.
  *
  * Best-effort by design: no unit running means nothing to contend with, and a

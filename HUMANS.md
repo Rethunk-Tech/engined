@@ -327,7 +327,7 @@ presets INI once at startup. See [docs/configuration.md](docs/configuration.md).
 An engine still running under a replaced config
 generation reports a `superseded` field carrying the literal call that brings
 it forward, and the door never acts on it by itself — restarting an engine
-would reload whatever it had resident, up to ~30 GiB for llama, over an edit
+would reload whatever it had resident, up to ~35 GiB for llama, over an edit
 that may not have named it.
 
 ```sh

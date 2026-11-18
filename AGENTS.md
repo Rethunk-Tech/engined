@@ -20,7 +20,7 @@ Three tiers, and one opt-in browser smoke:
   Never in CI. **The constraint is free memory, not a running container.**
   `requireMemoryFor` (`test/local/exclusive.ts`) reads `MemAvailable` and
   refuses only when the pool cannot hold what the suite is about to load; an idle
-  llama-server holds no weights. Only comfy (~42 GiB) and llama (~30 GiB) are large
+  llama-server holds no weights. Only comfy (~42 GiB) and llama (~35 GiB) are large
   enough to contend, so only their suites check. Stopping the unit is never a
   precondition. Run as `bun run test:local` (not by pointing `bun` at the
   directory).
