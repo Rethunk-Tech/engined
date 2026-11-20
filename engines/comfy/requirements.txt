@@ -2117,6 +2117,7 @@ torch==2.14.1+rocm7.2 \
     --hash=sha256:e378baf90ba06c988e234449787a6fd9dac60dcd869eef35cfcc9546cd3f1f14 \
     --hash=sha256:fc35e48fd83329f5d60ab925951d138edb5a6fce84323600703637fbc693541c
     # via
+    #   -c .repo-ops-holds.txt
     #   -r requirements.in
     #   kornia
     #   spandrel
@@ -2130,7 +2131,9 @@ torchaudio==2.11.0+rocm7.2 \
     --hash=sha256:d536cd12c7653fdfbc17e4bc87d1558450f14a145715de0177dc6b6af3eb2927 \
     --hash=sha256:db4ae9ac6c3d38459b88941028c1a2296fa968015c3bdc9602c199e62eb71029 \
     --hash=sha256:e0316d938346cfa4ff04b91405a91ecc50bd18781023eca5763b79f0f7b9bc8c
-    # via -r requirements.in
+    # via
+    #   -c .repo-ops-holds.txt
+    #   -r requirements.in
 torchsde==0.2.6 \
     --hash=sha256:19bf7ff02eec7e8e46ba1cdb4aa0f9db1c51d492524a16975234b467f7fc463b \
     --hash=sha256:81d074d3504f9d190f1694fb526395afbe4608ee43a88adb1262a639e5b4778b
@@ -2145,6 +2148,7 @@ torchvision==0.29.1+rocm7.2 \
     --hash=sha256:e97407cce5079f5b1e5242d4131d7b4791b441770e6cae7043497d9a5e382c4e \
     --hash=sha256:f2e14ee721e6b4f41e55365ec3f014a1481704ec9026b34ee58e75d709cac8b7
     # via
+    #   -c .repo-ops-holds.txt
     #   -r requirements.in
     #   spandrel
 tqdm==4.70.1 \

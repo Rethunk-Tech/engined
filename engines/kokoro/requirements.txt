@@ -2042,6 +2042,7 @@ torch==2.14.1+rocm7.2 \
     --hash=sha256:e378baf90ba06c988e234449787a6fd9dac60dcd869eef35cfcc9546cd3f1f14 \
     --hash=sha256:fc35e48fd83329f5d60ab925951d138edb5a6fce84323600703637fbc693541c
     # via
+    #   -c .repo-ops-holds.txt
     #   -r requirements.in
     #   curated-transformers
     #   kokoro
