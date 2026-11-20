@@ -24,7 +24,7 @@
 # too: `whisper-server --help` on this image lists every flag the command
 # below already passes (--vad, -vm, --request-path, --inference-path, -fa,
 # -t, --no-timestamps) -- this is a backend swap, not a flag migration.
-FROM ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:f91f11d4e2f90b4445ef0b92b1c8470532d7c1e5938a352af37b0bd3e9b53e77
+FROM ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:c87ae09e4926508048f736f2ef15cfde15bf839b20480edf22b7c24d6d09a937
 # ENV as well as EXPOSE, because the two readers of this port arrive by
 # different routes: docker.ts reads EXPOSE off the built image, while
 # whisper_app.py is bind-mounted through {spec_dir} and never rebuilt, so a
