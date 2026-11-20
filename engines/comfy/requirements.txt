@@ -526,9 +526,9 @@ comfyui-embedded-docs==0.5.17 \
     --hash=sha256:2e2d2e8693e47f3770595725db36aa995eed21f89bef247ab183678a040a6583 \
     --hash=sha256:2e8744f0c5c958b36c8af036a0c55425173ab1fde4fdd0b30b0b5a50d7e6f495
     # via -r requirements.in
-comfyui-frontend-package==1.59.8 \
-    --hash=sha256:0eaa624badb3364cd70f3cfdf3ae48daeabb0a4dee45a2bb1f2a69e40adf80c4 \
-    --hash=sha256:58c1c17ca23243e9a28bdc9efe857ac76d57e00493825ae86c286eb5f3d569bc
+comfyui-frontend-package==1.59.10 \
+    --hash=sha256:2c78fcb19915c0f1c80550654ffae2c0e8265f7937b439cc23d3d2f2c0d5ab8b \
+    --hash=sha256:6b8b624fb5acfc0c264cdfee8879d515b291b32c57d7ce589353178dae4c6143
     # via -r requirements.in
 comfyui-workflow-templates==0.11.112 \
     --hash=sha256:95fc6aa7077f0dec07f0fd697a8413f9e5882af9c608553e37d9c8fad112d45a \
