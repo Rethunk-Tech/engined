@@ -27,7 +27,10 @@ root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 aur="$root/packaging/aur"
 cd "$root"
 
-die() { echo "${0##*/}: $*" >&2; exit 1; }
+die() {
+  echo "${0##*/}: $*" >&2
+  exit 1
+}
 
 # A sum that did not arrive as 64 hex characters is an error page or a
 # truncated read, and writing it into a PKGBUILD hides that until a user builds.
@@ -87,7 +90,11 @@ tag_release() {
   sed -i "0,/^  \"version\": .*/s//  \"version\": \"$version\",/" package.json
   git add CHANGELOG.md package.json
   git commit -q -m "chore(release): engined $version"
-  { echo "engined $version"; echo; notes; } | git tag -a --cleanup=verbatim "$tag" -F -
+  {
+    echo "engined $version"
+    echo
+    notes
+  } | git tag -a --cleanup=verbatim "$tag" -F -
 
   echo "tagged $tag; next: ${0##*/} publish $version"
 }
@@ -100,7 +107,10 @@ release_run() {
   for _ in $(seq 1 30); do
     id=$(gh run list --workflow release.yml --json databaseId,headSha --limit 20 \
       --jq ".[] | select(.headSha == \"$sha\") | .databaseId" | head -n 1)
-    [[ -n $id ]] && { printf '%s\n' "$id"; return; }
+    [[ -n $id ]] && {
+      printf '%s\n' "$id"
+      return
+    }
     sleep 4
   done
   die "no release workflow run for $tag ($sha)"
@@ -114,7 +124,8 @@ point_at_asset() {
   sum=$(sha256sum "$work/engined-$version.tar.gz" | cut -d' ' -f1)
   rm -rf -- "$work"
   sed -i "s/^pkgver=.*/pkgver=$version/; s/^pkgrel=.*/pkgrel=1/" "$aur/engined/PKGBUILD"
-  sed -i "s|^sha256sums=('[^']*')|sha256sums=('$(hex64 "$sum")')|" "$aur/engined/PKGBUILD"
+  sum=$(hex64 "$sum")
+  sed -i "s|^sha256sums=('[^']*')|sha256sums=('$sum')|" "$aur/engined/PKGBUILD"
   srcinfo engined
   git add "$aur/engined"
   if git diff --cached --quiet; then
@@ -130,12 +141,13 @@ publish() {
   echo "pushing main and $tag:"
   git log --oneline '@{u}..HEAD'
   git push -q --atomic origin main "refs/tags/$tag"
-  gh run watch "$(release_run)" --exit-status
+  run=$(release_run)
+  gh run watch "$run" --exit-status
   point_at_asset
   aur_push engined
 }
 
 case $cmd in
-  tag) tag_release ;;
-  publish) publish ;;
+tag) tag_release ;;
+publish) publish ;;
 esac
