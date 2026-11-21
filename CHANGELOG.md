@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.1 - 2026-11-21
+
 - The release archive carries `engines/`, the Caddyfile and a `bunx` wrapper beside the binary, and the binary finds that tree itself, so `brew install` and the deb and rpm work without `ENGINED_INSTALL_DIR` or `ENGINED_BUNX`.
 - The AUR launcher sets `ENGINED_INSTALL_DIR` and `ENGINED_BUNX`, so `engined --doctor` works from a shell.
 - The AUR packages require bun 1.4.2 and suggest libsecret; the deb and rpm recommend libsecret, and the deb and rpm keep bubblewrap and passt as recommends.

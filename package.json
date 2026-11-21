@@ -1,6 +1,6 @@
 {
   "name": "engined",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local model door: the sole owner of inference containers on one box",
   "license": "MIT",
