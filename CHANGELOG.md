@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- The door and the Cursor listener refuse a `Host` that is not an IP, `localhost`, `*.localhost`, this machine's hostname or tailnet name, or a name in the new `allowed_hosts` config key, so a rebound hostile name can no longer read the GET routes.
+
 ## 0.3.2 - 2026-11-21
 
 - The remote transcription call no longer follows an upstream redirect, so a 307 cannot carry the provider key to another host.

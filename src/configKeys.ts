@@ -87,6 +87,7 @@ export const TOP_KEYS = new Set([
   'stream_stall_seconds',
   'agentic_concurrency',
   'sandbox_mask',
+  'allowed_hosts',
   'engine',
   'upstream',
   'model',

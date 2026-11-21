@@ -440,6 +440,7 @@ function parseTopLevelSettings(
   | 'stream_stall_seconds'
   | 'agentic_concurrency'
   | 'sandbox_mask'
+  | 'allowed_hosts'
   | 'potluck'
   | 'configsvc'
 > {
@@ -470,6 +471,9 @@ function parseTopLevelSettings(
       DEFAULT_AGENTIC_CONCURRENCY,
     ),
     sandbox_mask: parseSandboxMask(raw.sandbox_mask, file),
+    allowed_hosts: (
+      optionalStringArray(raw.allowed_hosts, 'config "allowed_hosts"', file) ?? []
+    ).map((h) => h.trim().toLowerCase()),
     ...parsePotluckCallback(raw, file),
     configsvc: parseConfigsvc(raw, { listen: listenPort, cursor: cursorPort }, file),
   }

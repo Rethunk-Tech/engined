@@ -292,6 +292,11 @@ const TOP_FIELDS: Fields = {
       default: [...DEFAULT_SANDBOX_MASK],
     },
   },
+  allowed_hosts: {
+    description:
+      "DNS names the door and the Cursor listener accept in Host, besides IP literals, localhost, this machine's hostnames and its tailnet name. Any other name is refused, which stops a rebound hostile name reading the door.",
+    schema: { type: 'array', items: { type: 'string' }, default: [] },
+  },
   engine: tables('Engines the door may start or reach.', 'engine'),
   upstream: tables('Where non-local bytes come from.', 'upstream'),
   model: tables('Optional capability declarations for a model id.', 'model'),

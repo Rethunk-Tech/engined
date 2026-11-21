@@ -90,16 +90,19 @@ async function withBoundDoor<T>(cfg: Config, fn: (port: number) => Promise<T>): 
 
 describe('the door: bind', () => {
   // `Host` is Fetch-forbidden, so only a raw `node:http` request can send a LAN name.
-  test('both families and a LAN address answer, under any Host name', async () => {
+  test('both families and a LAN address answer; an unlisted LAN name is refused, a listed one is not', async () => {
     const port = deadPort()
-    await withBoundDoor(config({ listen_port: port }), async () => {
+    await withBoundDoor(config({ listen_port: port, allowed_hosts: ['gpu-box'] }), async () => {
       const v4 = await rawRequest(port, '/openai/v1/models', { Host: `gpu-box:${port}` })
+      const other = await rawRequest(port, '/openai/v1/models', {
+        Host: `evil.example.net:${port}`,
+      })
       const v6 = await rawRequest(port, '/openai/v1/models', {}, '::1')
       const lan =
         lanAddress === undefined
           ? 200
           : (await rawRequest(port, '/openai/v1/models', {}, lanAddress)).status
-      expect([v4.status, v6.status, lan]).toEqual([200, 200, 200])
+      expect([v4.status, v6.status, lan, other.status]).toEqual([200, 200, 200, 403])
     })
   })
 })

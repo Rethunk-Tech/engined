@@ -26,6 +26,7 @@ import {
   stringField,
 } from './cursorProto.ts'
 import { FatalError } from './errors/fatal.ts'
+import { isAllowedHost } from './hostCheck.ts'
 import { CONTENT_TYPE, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
 
@@ -109,6 +110,8 @@ export interface AgentDeps {
    * Cursor listener that printed and kept running would leave the daemon up
    * with no Run stream.
    */
+  /** Extra `Host` names accepted, read per stream so a config reload applies. */
+  allowedHosts?: () => readonly string[]
   onBindError?: (detail: string) => void
 }
 
@@ -428,6 +431,12 @@ export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServ
     // CLI sends neither.
     const site = headers['sec-fetch-site']
     if (headers.origin !== undefined || (site !== undefined && site !== 'none')) {
+      stream.respond({ ':status': STATUS_FORBIDDEN })
+      stream.end()
+      return
+    }
+    const authority = headers[':authority'] ?? headers.host
+    if (!isAllowedHost(authority, deps.allowedHosts?.() ?? [])) {
       stream.respond({ ':status': STATUS_FORBIDDEN })
       stream.end()
       return

@@ -123,7 +123,8 @@ nothing can thread a door URL into its launch:
 **The door and the Cursor listener serve every interface.** Only the config UI
 is loopback by default (`[configsvc] host`). Restricting who reaches the door is
 the operator's job, with a firewall, tunnel or authenticating proxy; never bind
-it to loopback or refuse a LAN `Host`.
+it to loopback. A LAN caller reaches it by IP or by a name in `allowed_hosts`;
+any other DNS name in `Host` is refused (DNS rebinding).
 
 **No port is written down for anything engined starts** except the door and a
 remote `base_url`. Host ports come from Docker; container side from `EXPOSE`.

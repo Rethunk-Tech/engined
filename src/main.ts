@@ -23,6 +23,7 @@ import { isEngineVerbPath, routeEngineVerb } from './engineVerbs.ts'
 import { ambientEnv } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
 import { extraModeExit } from './extraModes.ts'
+import { HOST_REFUSAL, isAllowedHost } from './hostCheck.ts'
 import {
   decodeSegment,
   headOf,
@@ -89,8 +90,12 @@ const RESOURCES_RE = engineVerbRe('resources')
 function refuse(message: string): Response {
   return jsonError(STATUS_FORBIDDEN, message)
 }
-/** Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none` is refused the same way: a no-cors GET carries no Origin, and the door serves no page of its own, so `same-origin` can only come from a page whose name was rebound to this host. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
-function checkOrigin(req: Request): Response | null {
+/** A `Host` that is not an IP, a local name or on `allowed_hosts` is refused (DNS rebinding). Any `Origin` is refused, including `"null"`. A present `Sec-Fetch-Site` other than `none` is refused the same way: a no-cors GET carries no Origin, and the door serves no page of its own, so `same-origin` can only come from a page whose name was rebound to this host. No Origin and no Sec-Fetch-Site (CLI/server) is unaffected. */
+function checkOrigin(req: Request, allowedHosts: readonly string[]): Response | null {
+  const authority = req.headers.get('Host')
+  if (!isAllowedHost(authority, allowedHosts)) {
+    return refuse(HOST_REFUSAL(authority ?? ''))
+  }
   const site = req.headers.get('Sec-Fetch-Site')
   if (req.headers.get('Origin') !== null || (site !== null && site !== 'none')) {
     return refuse('cross-origin requests are refused')
@@ -350,7 +355,7 @@ export function createDoor(
   function fetch(req: Request, server: EnginedServer): Response | Promise<Response> | undefined
   function fetch(req: Request, server?: EnginedServer): Response | Promise<Response> | undefined {
     try {
-      const refusal = checkOrigin(req)
+      const refusal = checkOrigin(req, config.allowed_hosts)
       if (refusal) {
         return refusal
       }

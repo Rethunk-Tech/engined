@@ -39,6 +39,7 @@ export function awaitingConfig(listenPort: number): Config {
     stream_stall_seconds: DEFAULT_STREAM_STALL_SECONDS,
     agentic_concurrency: DEFAULT_AGENTIC_CONCURRENCY,
     sandbox_mask: [...DEFAULT_SANDBOX_MASK],
+    allowed_hosts: [],
     configsvc: { enable: false, host: '127.0.0.1', port: DEFAULT_CONFIGSVC_PORT },
     engines: [],
     upstreams: [],

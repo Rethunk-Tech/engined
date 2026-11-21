@@ -36,6 +36,9 @@ stream_stall_seconds = 60    # a streamed answer its client stops reading is abo
 agentic_concurrency = 4      # live /openai/v1 agentic launches; over-cap is 429.
 # Directories tmpfs'd inside the agent sandbox before the workdir bind, so a
 # launch aimed at one checkout cannot read its siblings. Empty list disables.
+# DNS names allowed in Host besides IPs, localhost, this machine's hostnames and
+# its tailnet name. Any other name is refused (DNS rebinding). Empty by default.
+allowed_hosts = []
 sandbox_mask = ["/usr/local/src", "/mnt", "/media", "/srv"]
 
 # `disable = true` on an [[engine]], [[upstream]], [[route]] or [[chain]]

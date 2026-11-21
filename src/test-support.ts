@@ -68,6 +68,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     stream_stall_seconds: 60,
     agentic_concurrency: 4,
     sandbox_mask: ['/usr/local/src', '/mnt', '/media', '/srv'],
+    allowed_hosts: [],
     configsvc: { enable: false, host: '127.0.0.1', port: 29_202 },
     engines: [],
     upstreams: [],

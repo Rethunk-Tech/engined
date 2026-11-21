@@ -75,6 +75,7 @@ export function runDaemon(make: {
   function startCursor(port: number): void {
     cursorAgent = serveCursorAgent(port, {
       complete: (messages, on) => completeLocally(door.ctx, messages, on),
+      allowedHosts: () => door.ctx.getConfig().allowed_hosts,
     })
     door.served.cursor = port
   }

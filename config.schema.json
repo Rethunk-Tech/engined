@@ -58,6 +58,14 @@
       ],
       "description": "Directories tmpfs-masked inside the agent sandbox before the workdir bind, so a launch aimed at one checkout cannot read its siblings."
     },
+    "allowed_hosts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "DNS names the door and the Cursor listener accept in Host, besides IP literals, localhost, this machine's hostnames and its tailnet name. Any other name is refused, which stops a rebound hostile name reading the door."
+    },
     "engine": {
       "type": "array",
       "items": {

@@ -165,14 +165,15 @@ door serves no page, so `same-origin` means a hostile name rebound to this host)
 is refused. One middleware. A request carrying no `Origin` and no
 `Sec-Fetch-Site` is served normally, which covers every CLI and server consumer.
 
-`Sec-Fetch-Site` does not make DNS rebinding safe. Browsers send it only to
+`Sec-Fetch-Site` alone does not stop DNS rebinding. Browsers send it only to
 potentially trustworthy origins (https and localhost), so a page rebound to a
 plain-http, non-localhost name sends none, and a same-origin `GET` carries no
-`Origin`. Such a request looks like a CLI call and is served. A rebound page can
-therefore read the door's `GET` routes in a browser without Local Network
-Access. `POST` routes are still refused when the page sends an `Origin`, which
-browsers add to every cross-origin or non-GET request. The door does not check
-the `Host` header.
+`Origin`. So the door and the Cursor listener also check `Host`: an IP literal,
+`localhost`, `*.localhost`, this machine's hostname and tailnet name, and names in
+`allowed_hosts` pass; any other name is refused 403, naming the key. A rebound
+page's `Host` is its hostile name, so it is refused on `GET` as well. A request
+with no `Host` (HTTP/1.0) is served as before. The config UI keeps its own
+loopback `Host` check.
 
 This is not authentication. It keeps a browser page from driving the door; a
 process that can reach the port has the whole door.

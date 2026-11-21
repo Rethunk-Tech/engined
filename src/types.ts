@@ -433,6 +433,8 @@ export interface Config {
   agentic_concurrency: number
   /** Directories tmpfs-masked inside the agent sandbox before the workdir bind. */
   sandbox_mask: string[]
+  /** DNS names, beyond IPs, `localhost` and this machine's own, the door and Cursor listener accept in `Host`. */
+  allowed_hosts: string[]
   /** Absent unless this install reports donated-upstream liveness back to potluck. */
   potluck?: PotluckCallback
   configsvc: ConfigsvcSettings
