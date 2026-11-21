@@ -47,6 +47,7 @@
   },
 
   "linter": {
+    "enabled": true,
     "rules": {
       "a11y": {
         "noNoninteractiveElementInteractions": "error"
