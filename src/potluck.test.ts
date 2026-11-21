@@ -225,3 +225,76 @@ test('a provider 401 is reported dead and a ceiling refusal is not', async () =>
     door.ctx.usage.shutdown()
   }
 })
+
+test('a status report repeats at most hourly while the status holds, and a 410 withdraws the upstream', async () => {
+  const posts: string[] = []
+  let answer = 200
+  const callback = startFakeUpstream(async (req) => {
+    posts.push(((await req.json()) as { status: string }).status)
+    return new Response('{}', { status: answer })
+  })
+  let provider = 200
+  const upstreamServer = startFakeUpstream((req) =>
+    new URL(req.url).pathname.endsWith('/chat/completions')
+      ? new Response('{}', { status: provider })
+      : Response.json({ data: [{ id: 'gpt' }] }),
+  )
+  const state = join(TEST_ROOT, 'throttle-state')
+  mkdirSync(state)
+  const door = createDoor(
+    config({
+      potluck: {
+        url: `${callback.base}/api/callback/status`,
+        secret: { service: 'potluck', username: 'callback' },
+      },
+      engines: [engine({ id: 'hosted', kind: 'openai-http' })],
+      upstreams: [donated(upstreamServer.base)],
+      routes: [route({ engine: 'hosted', model: 'gpt', upstream: 'openai-aaaaaaaa' })],
+    }),
+    { enginesRoot: '/nonexistent/engines', bunx: BUNX },
+    { secretExec: fakeExec(SECRET), usageStateRoot: state, write: () => undefined },
+  )
+  const ledger = door.ctx.donorSpend as DonorLedger
+  const call = async () => {
+    await (
+      await door.fetch(
+        chatRequest({ model: '@/hosted/gpt', messages: [{ role: 'user', content: 'hi' }] }),
+      )
+    ).text()
+  }
+  const settle = async (count: number) => {
+    for (let i = 0; i < 50 && posts.length < count; i += 1) {
+      await Bun.sleep(20)
+    }
+    await Bun.sleep(40)
+  }
+  try {
+    await call()
+    await settle(1)
+    await call()
+    await settle(2)
+    expect(posts).toEqual(['live'])
+    provider = 401
+    await call()
+    await settle(2)
+    expect(posts).toEqual(['live', 'dead'])
+    answer = 410
+    provider = 200
+    await call()
+    await settle(3)
+    expect(posts).toHaveLength(3)
+    expect(ledger.refusal(donated(upstreamServer.base))).toContain('withdrawn')
+    expect(
+      (
+        await door.fetch(
+          chatRequest({ model: '@/hosted/gpt', messages: [{ role: 'user', content: 'x' }] }),
+        )
+      ).status,
+    ).toBe(402)
+  } finally {
+    upstreamServer.stop()
+    callback.stop()
+    await door.registry.shutdown()
+    door.ctx.usage.shutdown()
+  }
+})

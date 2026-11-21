@@ -13,6 +13,7 @@ import {
   CONTENT_TYPE,
   JSON_CONTENT_TYPE,
   STATUS_FORBIDDEN,
+  STATUS_GONE,
   STATUS_PAYMENT_REQUIRED,
   STATUS_UNAUTHORIZED,
 } from './http.ts'
@@ -27,6 +28,8 @@ export const MONTHLY_CAP_REACHED = 'monthly cap reached'
 
 const DEAD_STATUSES = new Set([STATUS_UNAUTHORIZED, STATUS_PAYMENT_REQUIRED, STATUS_FORBIDDEN])
 const REPORT_TIMEOUT_MS = 5000
+/** A fingerprint whose status has not changed is not posted again within this window. */
+const REPORT_INTERVAL_MS = 60 * 60 * 1000
 const FINGERPRINT = /^[0-9a-f]{64}$/
 const HTTP_STATUS_IN_FAILURE = /^http (\d+)/
 /** `YYYY-MM` is the first seven characters of an ISO timestamp. */
@@ -71,6 +74,9 @@ function learnedStatus(attempt: Attempt): 'live' | 'dead' | undefined {
 export class DonorLedger {
   private readonly months = new Map<string, Map<string, number>>()
   private readonly opts: DonorLedgerOptions
+  /** Upstreams potluck answered 410 for: the donor withdrew them, so this process stops using them. */
+  private readonly withdrawn = new Set<string>()
+  private readonly reported = new Map<string, { status: 'live' | 'dead'; at: number }>()
 
   constructor(opts: DonorLedgerOptions = {}) {
     this.opts = opts
@@ -83,6 +89,9 @@ export class DonorLedger {
 
   /** The refusal body when this upstream's reported spend has met its ceiling. */
   refusal(upstream: Upstream, now = this.opts.now?.() ?? Date.now()): string | undefined {
+    if (this.withdrawn.has(upstream.id)) {
+      return `upstream "${upstream.id}" was withdrawn by its donor`
+    }
     if (upstream.monthly_cap_usd === undefined) {
       return
     }
@@ -134,6 +143,13 @@ export class DonorLedger {
       }
       reports.set(fingerprint, learned)
     }
+    const at = this.opts.now?.() ?? Date.now()
+    for (const [fingerprint, status] of reports) {
+      const last = this.reported.get(fingerprint)
+      if (last?.status === status && at - last.at < REPORT_INTERVAL_MS) {
+        reports.delete(fingerprint)
+      }
+    }
     if (reports.size === 0) {
       return
     }
@@ -154,11 +170,25 @@ export class DonorLedger {
           redirect: 'error',
           signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
         })
+        if (response.status === STATUS_GONE) {
+          this.withdraw(ctx, fingerprint)
+          return
+        }
         if (!response.ok) {
           throw new Error(`callback responded ${response.status}`)
         }
+        this.reported.set(fingerprint, { status, at })
       }),
     )
+  }
+
+  private withdraw(ctx: DoorContext, fingerprint: string): void {
+    for (const upstream of ctx.getConfig().upstreams) {
+      if (upstream.fingerprint === fingerprint && !this.withdrawn.has(upstream.id)) {
+        this.withdrawn.add(upstream.id)
+        process.stderr.write(`potluck: ${upstream.id} withdrawn, remove it from config\n`)
+      }
+    }
   }
 
   private path(): string {
