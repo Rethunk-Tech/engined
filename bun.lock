@@ -21,7 +21,7 @@
         "@biomejs/biome": "^2.6.8",
         "@playwright/test": "^1.65.1",
         "@types/bun": "^1.4.5",
-        "fast-check": "^4.10.3",
+        "fast-check": "^4.11.0",
         "knip": "^6.47.0",
         "turbo": "^2.11.13",
         "typescript": "^7.0.2",
@@ -411,7 +411,7 @@
 
     "es-toolkit": ["es-toolkit@1.53.2", "", {}, "sha512-iUqZ+NlwH4jUgRmXZUxFBsV/9762TQEa1O4IXLFBmDEjVHScBytKuseX23I0+v9ShZ5MYxEx6WKNzm6IPnex8g=="],
 
-    "fast-check": ["fast-check@4.10.3", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-SBaU6nhh+sXxb05r2IHAKfxnR/1Pu6MqtHYaewM1BY6V5xzOxOk+4yoWO7WfeeyZG1iArFE6/DO/7iLYMUuOJg=="],
+    "fast-check": ["fast-check@4.11.0", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-V4Uc238rhQOdQlc+Gz7JG6SGBtrWnWL8d/6RyiBeCMcNKMhF6DZ0KkAVHJSyNV5r4lA0PmIpZ6iRpTVoz4qjoA=="],
 
     "fd-package-json": ["fd-package-json@2.0.0", "", { "dependencies": { "walk-up-path": "^4.0.0" } }, "sha512-jKmm9YtsNXN789RS/0mSzOC1NUq9mkVd65vbSSVsKdjGvYXBuE4oWe2QOEoFeRmJg+lPuZxpmrfFclNhoRMneQ=="],
 
