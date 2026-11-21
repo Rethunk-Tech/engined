@@ -168,6 +168,7 @@ test('a donated credential serves, reports live, then stops at the ceiling', asy
     provider.stop()
     callback.stop()
     await door.registry.shutdown()
+    door.ctx.usage.shutdown()
   }
 })
 
@@ -221,5 +222,6 @@ test('a provider 401 is reported dead and a ceiling refusal is not', async () =>
     provider.stop()
     callback.stop()
     await door.registry.shutdown()
+    door.ctx.usage.shutdown()
   }
 })
