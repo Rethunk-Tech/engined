@@ -358,6 +358,22 @@ export const MAX_JSON_BODY_BYTES = JSON_BODY_LIMIT_MEBIBYTES * MEBIBYTE
 /** No request-body chunk for this long and the read is abandoned; the idle timeout only bounds the headers. */
 const BODY_STALL_MS = 30_000
 
+const RETRY_AFTER_SECONDS = '5'
+
+/**
+ * Request-body bytes being buffered across every concurrent read. One audio
+ * upload's cap (256 MiB) is all the unit's MemoryMax leaves room for, so a
+ * second body that would push the total past it is refused with 503 instead of
+ * reaching the OOM killer. `limit` is a field so a test can use a small one.
+ */
+export const bodyBudget = { limit: 268_435_456, inFlight: 0 }
+
+function overBudget(): Response {
+  const res = jsonError(STATUS_UNAVAILABLE, 'too many request bodies in flight; retry shortly')
+  res.headers.set('Retry-After', RETRY_AFTER_SECONDS)
+  return res
+}
+
 /** The next chunk, or `undefined` when none arrived within `ms`. */
 async function readOrStall(
   reader: Pick<ReadableStreamDefaultReader<Uint8Array>, 'read'>,
@@ -378,22 +394,28 @@ async function readOrStall(
  * mid-upload makes the read throw, and that is the caller's malformed request,
  * not this door's failure.
  */
-export async function readCappedBytes(
+async function readBudgeted(
   req: Request,
   max: number,
   tooLarge: (bytes: number) => Response,
   stallMs: number = BODY_STALL_MS,
-): Promise<Uint8Array<ArrayBuffer> | Response> {
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; release: () => void } | Response> {
   const declared = declaredOverLimit(req, max)
   if (declared !== undefined) {
     return tooLarge(declared)
   }
   if (req.body === null) {
-    return new Uint8Array()
+    return { bytes: new Uint8Array(), release: () => undefined }
   }
   const reader = req.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
+  // What this read has added to the shared budget; released on every exit.
+  let held = 0
+  const fail = (res: Response): Response => {
+    bodyBudget.inFlight -= held
+    return res
+  }
   try {
     for (
       let chunk = await readOrStall(reader, stallMs);
@@ -402,7 +424,7 @@ export async function readCappedBytes(
     ) {
       if (chunk === undefined) {
         reader.cancel().catch(() => undefined)
-        return jsonError(STATUS_REQUEST_TIMEOUT, 'request body stalled')
+        return fail(jsonError(STATUS_REQUEST_TIMEOUT, 'request body stalled'))
       }
       if (chunk.done) {
         break
@@ -410,14 +432,37 @@ export async function readCappedBytes(
       total += chunk.value.byteLength
       if (total > max) {
         reader.cancel().catch(() => undefined)
-        return tooLarge(total)
+        return fail(tooLarge(total))
+      }
+      bodyBudget.inFlight += chunk.value.byteLength
+      held = total
+      if (bodyBudget.inFlight > bodyBudget.limit) {
+        reader.cancel().catch(() => undefined)
+        return fail(overBudget())
       }
       chunks.push(chunk.value)
     }
   } catch {
-    return jsonError(STATUS_BAD_REQUEST, 'request body could not be read')
+    return fail(jsonError(STATUS_BAD_REQUEST, 'request body could not be read'))
   }
-  return Buffer.concat(chunks)
+  const release = (): void => {
+    bodyBudget.inFlight -= held
+  }
+  return { bytes: Buffer.concat(chunks), release }
+}
+
+export async function readCappedBytes(
+  req: Request,
+  max: number,
+  tooLarge: (bytes: number) => Response,
+  stallMs: number = BODY_STALL_MS,
+): Promise<Uint8Array<ArrayBuffer> | Response> {
+  const read = await readBudgeted(req, max, tooLarge, stallMs)
+  if (read instanceof Response) {
+    return read
+  }
+  read.release()
+  return read.bytes
 }
 
 /** What `Request.formData()` resolves to; Bun types it apart from the global `FormData` an outgoing form is built with. */
@@ -434,12 +479,18 @@ export async function readCappedForm(
   tooLarge: (bytes: number) => Response,
   stallMs: number = BODY_STALL_MS,
 ): Promise<RequestForm | Response | undefined> {
-  const bytes = await readCappedBytes(req, max, tooLarge, stallMs)
-  if (bytes instanceof Response) {
-    return bytes
+  const read = await readBudgeted(req, max, tooLarge, stallMs)
+  if (read instanceof Response) {
+    return read
   }
-  // The boundary lives in the caller's Content-Type, so the headers travel with the bytes.
-  return await new Response(bytes, { headers: req.headers }).formData().catch(() => undefined)
+  try {
+    // The boundary lives in the caller's Content-Type, so the headers travel with the bytes.
+    return await new Response(read.bytes, { headers: req.headers })
+      .formData()
+      .catch(() => undefined)
+  } finally {
+    read.release()
+  }
 }
 
 /** A request body within the JSON routes' ceiling, decoded, or the 413/400 to return instead. */

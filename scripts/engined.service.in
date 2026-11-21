@@ -81,8 +81,11 @@ BindPaths=/tmp
 
 # A 256 MiB upload (maxRequestBodySize / MAX_AUDIO_UPLOAD_BYTES) is copied
 # a few times while the form is read. MemoryMax is that ceiling times four
-# plus the door's idle RSS, so a body at the cap cannot grow without bound;
-# MemorySwapMax=0 stops the same payload swapping instead of being refused.
+# plus the door's idle RSS, which holds for ONE such body: the door caps the
+# total of request bodies being read at once at that same 256 MiB and answers
+# 503 with Retry-After past it (`bodyBudget`, src/http.ts), so parallel uploads
+# cannot multiply the footprint. MemorySwapMax=0 stops the same payload
+# swapping instead of being refused.
 MemoryMax=1100M
 MemorySwapMax=0
 

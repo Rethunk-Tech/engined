@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { EngineBusyError } from './errors/engineBusy.ts'
 import { HeldError } from './errors/held.ts'
 import {
+  bodyBudget,
   declaredOverLimit,
   discardBody,
   engineErrorStatus,
@@ -290,4 +291,40 @@ test('a finite Content-Length past the cap is over the limit; an absent or unpar
       max,
     ),
   ).toBeUndefined()
+})
+
+test('a body that would push the bodies being read past the shared budget is 503 with Retry-After', async () => {
+  const saved = bodyBudget.limit
+  bodyBudget.limit = 100
+  try {
+    let first!: ReadableStreamDefaultController<Uint8Array>
+    const held = new Request('http://127.0.0.1/x', {
+      method: 'POST',
+      body: new ReadableStream<Uint8Array>({
+        start(c) {
+          first = c
+          c.enqueue(new Uint8Array(60))
+        },
+      }),
+      duplex: 'half',
+    } as RequestInit)
+    const tooLarge = () => new Response(null, { status: 413 })
+    const pending = readCappedBytes(held, 1000, tooLarge)
+    while (bodyBudget.inFlight < 60) {
+      await Bun.sleep(5)
+    }
+    const second = await readCappedBytes(
+      new Request('http://127.0.0.1/x', { method: 'POST', body: new Uint8Array(60) }),
+      1000,
+      tooLarge,
+    )
+    expect(second).toBeInstanceOf(Response)
+    expect((second as Response).status).toBe(503)
+    expect((second as Response).headers.get('Retry-After')).not.toBeNull()
+    first.close()
+    expect(await pending).toHaveLength(60)
+    expect(bodyBudget.inFlight).toBe(0)
+  } finally {
+    bodyBudget.limit = saved
+  }
 })
