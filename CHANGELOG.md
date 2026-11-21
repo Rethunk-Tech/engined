@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- The remote transcription call no longer follows an upstream redirect, so a 307 cannot carry the provider key to another host.
+- Request bodies being read at once share one 256 MiB budget. A body that would pass it gets 503 with Retry-After, so two parallel uploads at the cap no longer get the door OOM-killed.
+- The donor monthly cap and a donor withdrawal also stop remote audio engines, agentic route redirects and the keyless launch forwarder, not only HTTP chat hops.
+- The Cursor Run listener refuses a stream carrying an `Origin` or a `Sec-Fetch-Site` other than `none`.
+- The security model no longer claims `Sec-Fetch-Site` refuses DNS rebinding, and names the GET routes a rebound page can read.
+
 ## 0.3.1 - 2026-11-21
 
 - The release archive carries `engines/`, the Caddyfile and a `bunx` wrapper beside the binary, and the binary finds that tree itself, so `brew install` and the deb and rpm work without `ENGINED_INSTALL_DIR` or `ENGINED_BUNX`.

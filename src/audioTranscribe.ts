@@ -46,7 +46,7 @@ const REMOTE_TEXT_RESPONSE_FORMATS = new Set(['text'])
  * names the engine and would send the literal string "elevenlabs" as a
  * model id and earn a 422.
  */
-async function transcribeRemote(
+export async function transcribeRemote(
   req: TranscriptionRequestBody,
   remote: UpstreamEndpoint,
   model: string,
@@ -72,6 +72,7 @@ async function transcribeRemote(
   const res = await fetchImpl(upstreamUrl(remote.base_url, '/speech-to-text'), {
     method: 'POST',
     headers: remote.headers,
+    redirect: 'error',
     body: form,
   })
   if (!res.ok) {
