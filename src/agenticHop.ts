@@ -211,12 +211,11 @@ type RouteRedirect =
 
 /**
  * A route naming a real upstream (not ambient, not this box's own `local`)
- * redirects to it: the engine's own launch is identical either way, only
- * its resolved upstream differs. `env: undefined` is the ambient case. A
- * redirect also opens the launch's keyless upstream route, released with its
- * nonce.
+ * redirects to it: the launch is identical either way, only its resolved
+ * upstream differs. `env: undefined` is the ambient case. A redirect also
+ * opens the launch's keyless upstream route, released with its nonce.
  */
-async function resolveRouteRedirect(
+export async function resolveRouteRedirect(
   ctx: DoorContext,
   { engineId, modelSeg, route, nonce }: RouteRedirectOptions,
 ): Promise<RouteRedirect> {
@@ -227,13 +226,8 @@ async function resolveRouteRedirect(
   const config = ctx.getConfig()
   const upstream = config.upstreams.find((u) => u.id === upstreamId)
   if (upstream === undefined) {
-    return {
-      ok: false,
-      result: hopError(
-        STATUS_BAD_GATEWAY,
-        `engine "${engineId}" names unknown upstream "${upstreamId}"`,
-      ),
-    }
+    const message = `engine "${engineId}" names unknown upstream "${upstreamId}"`
+    return { ok: false, result: hopError(STATUS_BAD_GATEWAY, message) }
   }
   const redirect = await resolveRedirect({
     upstream,
@@ -243,6 +237,7 @@ async function resolveRouteRedirect(
     doorUrl: launchScopedBaseUrl(config.listen_port, nonce),
     keylessBaseUrl: launchUpstreamBaseUrl(config.listen_port, nonce),
     secretExec: ctx.doorOpts.secretExec,
+    donorSpend: ctx.donorSpend,
   })
   if (redirect.ok) {
     ctx.launchUpstreams.set(nonce, upstreamId)

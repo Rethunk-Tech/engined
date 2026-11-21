@@ -6,7 +6,8 @@
 
 import type { HopResult } from './chain.ts'
 import type { Exec as SecretExec } from './exec.ts'
-import { jsonErrorBody } from './http.ts'
+import { jsonErrorBody, STATUS_PAYMENT_REQUIRED } from './http.ts'
+import type { DonorLedger } from './potluck.ts'
 import { decodeAddressSegment, routeForHop, WILDCARD_MODEL } from './routeAddress.ts'
 import type { Config, Upstream } from './types.ts'
 import { resolveUpstream } from './upstream.ts'
@@ -111,6 +112,8 @@ interface RedirectOptions {
   doorUrl: string
   keylessBaseUrl: string
   secretExec?: SecretExec
+  /** Refuses an upstream over its monthly cap or withdrawn by its donor, before any secret is read. */
+  donorSpend?: DonorLedger
 }
 
 export async function resolveRedirect({
@@ -121,7 +124,18 @@ export async function resolveRedirect({
   doorUrl,
   keylessBaseUrl,
   secretExec,
+  donorSpend,
 }: RedirectOptions): Promise<RedirectResolution> {
+  const capHit = donorSpend?.refusal(upstream)
+  if (capHit !== undefined) {
+    return {
+      ok: false,
+      result: {
+        status: STATUS_PAYMENT_REQUIRED,
+        body: jsonErrorBody(STATUS_PAYMENT_REQUIRED, capHit),
+      },
+    }
+  }
   const resolved = await resolveUpstream(upstream, secretExec)
   if (!resolved.ok) {
     return {

@@ -6,9 +6,12 @@
 import { expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { resolveRouteRedirect } from './agenticHop.ts'
+import { audioStart } from './audioDoor.ts'
 import { loadConfig } from './config.ts'
 import { chatRequest, fakeExec } from './doorFixtures.ts'
 import { ParseError } from './errors/parse.ts'
+import { forwardLaunchUpstream } from './launchUpstream.ts'
 import { createDoor } from './main.ts'
 import { DonorLedger, MONTHLY_CAP_REACHED } from './potluck.ts'
 import {
@@ -298,3 +301,105 @@ test('a status report repeats at most hourly while the status holds, and a 410 w
     door.ctx.usage.shutdown()
   }
 })
+
+const PAYMENT_REQUIRED = 402
+const NONCE = 'b'.repeat(32)
+
+/** The ledger's private withdrawn set, which only a potluck 410 reply fills in production. */
+function withdrawnOf(ledger: DonorLedger): Set<string> {
+  return (ledger as unknown as { withdrawn: Set<string> }).withdrawn
+}
+
+/** A door whose one upstream is over its monthly cap, or withdrawn by its donor. */
+async function refusedDoor(why: 'cap' | 'withdrawn') {
+  const hits: string[] = []
+  const provider = startFakeUpstream((req) => {
+    hits.push(req.url)
+    return Response.json({})
+  })
+  const door = createDoor(
+    config({
+      engines: [
+        engine({ id: 'hosted', kind: 'openai-http' }),
+        engine({ id: 'scribe', kind: 'stt' }),
+      ],
+      upstreams: [
+        donated(provider.base, 1),
+        { ...donated(provider.base, 1), id: 'stt-aaaaaaaa', wire: undefined },
+      ],
+      routes: [
+        route({ engine: 'scribe', model: undefined, upstream: 'stt-aaaaaaaa' }),
+        route({ engine: 'hosted', model: 'gpt', upstream: 'openai-aaaaaaaa' }),
+      ],
+    }),
+    { enginesRoot: '/nonexistent/engines', bunx: BUNX },
+    {
+      secretExec: fakeExec(SECRET),
+      usageStateRoot: join(TEST_ROOT, `refused-${why}`),
+      write: () => undefined,
+    },
+  )
+  const ledger = door.ctx.donorSpend as DonorLedger
+  if (why === 'cap') {
+    ledger.note('openai-aaaaaaaa', 2)
+    ledger.note('stt-aaaaaaaa', 2)
+  } else {
+    withdrawnOf(ledger).add('openai-aaaaaaaa')
+    withdrawnOf(ledger).add('stt-aaaaaaaa')
+  }
+  const done = async () => {
+    provider.stop()
+    await door.registry.shutdown()
+    door.ctx.usage.shutdown()
+  }
+  return { door, hits, done }
+}
+
+for (const why of ['cap', 'withdrawn'] as const) {
+  test(`a remote audio engine is refused with 402 once its upstream is ${why === 'cap' ? 'over its cap' : 'withdrawn'}`, async () => {
+    const { door, hits, done } = await refusedDoor(why)
+    try {
+      const started = await audioStart(door.ctx, { held: false })('scribe')
+      expect(started.remote).toBeUndefined()
+      expect(started.status).toBe(PAYMENT_REQUIRED)
+    } finally {
+      await done()
+    }
+    expect(hits).toHaveLength(0)
+  })
+
+  test(`an agentic redirect is refused with 402 and maps no nonce once its upstream is ${why === 'cap' ? 'over its cap' : 'withdrawn'}`, async () => {
+    const { door, done } = await refusedDoor(why)
+    try {
+      const hosted = door.ctx.getConfig().routes[1]
+      const out = await resolveRouteRedirect(door.ctx, {
+        engineId: 'hosted',
+        modelSeg: 'gpt',
+        route: hosted,
+        nonce: NONCE,
+      })
+      expect(out.ok).toBe(false)
+      expect(!out.ok && out.result.status).toBe(PAYMENT_REQUIRED)
+      expect(door.ctx.launchUpstreams.has(NONCE)).toBe(false)
+    } finally {
+      await done()
+    }
+  })
+
+  test(`the keyless launch forwarder is refused with 402 once its upstream is ${why === 'cap' ? 'over its cap' : 'withdrawn'}`, async () => {
+    const { door, hits, done } = await refusedDoor(why)
+    try {
+      door.ctx.launchUpstreams.set(NONCE, 'openai-aaaaaaaa')
+      const res = await forwardLaunchUpstream(
+        door.ctx,
+        new Request(`http://127.0.0.1/engined/v1/upstream/${NONCE}/v1/models`),
+        NONCE,
+        '/v1/models',
+      )
+      expect(res.status).toBe(PAYMENT_REQUIRED)
+    } finally {
+      await done()
+    }
+    expect(hits).toHaveLength(0)
+  })
+}

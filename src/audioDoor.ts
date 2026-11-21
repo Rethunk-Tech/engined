@@ -20,6 +20,7 @@ import {
   JSON_CONTENT_TYPE,
   jsonErrorBody,
   STATUS_BAD_GATEWAY,
+  STATUS_PAYMENT_REQUIRED,
   TEXT_CONTENT_TYPE,
 } from './http.ts'
 import { errMessage, MS_PER_SECOND } from './records.ts'
@@ -254,6 +255,10 @@ async function remoteAudioStart(
   if (upstream === undefined) {
     return { private_url: null, unavailable: `engine "${id}" has no resolvable upstream` }
   }
+  const capHit = ctx.donorSpend?.refusal(upstream)
+  if (capHit !== undefined) {
+    return { private_url: null, unavailable: capHit, status: STATUS_PAYMENT_REQUIRED }
+  }
   const resolution = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
   return resolution.ok
     ? { private_url: null, remote: resolution.endpoint }
@@ -271,7 +276,7 @@ async function remoteAudioStart(
  * caught start failure's own `status` (`engineErrorStatus`, `http.ts`) into
  * a 503 for a hold or a 502 for anything else.
  */
-function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
+export function audioStart(ctx: DoorContext, leased: AudioLease): EngineStart {
   return async (id: string, model?: string) => {
     const engine = ctx.registry.entry(id)
     const route = audioRoute(ctx.getConfig(), id, model)

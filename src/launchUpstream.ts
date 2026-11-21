@@ -17,6 +17,7 @@ import {
   STATUS_BAD_GATEWAY,
   STATUS_FORBIDDEN,
   STATUS_PAYLOAD_TOO_LARGE,
+  STATUS_PAYMENT_REQUIRED,
 } from './http.ts'
 import { errMessage } from './records.ts'
 import { resolveUpstream, upstreamUrl } from './upstream.ts'
@@ -73,6 +74,10 @@ export async function forwardLaunchUpstream(
   const upstream = ctx.getConfig().upstreams.find((u) => u.id === upstreamId)
   if (upstream === undefined) {
     return jsonError(STATUS_BAD_GATEWAY, `upstream "${upstreamId}" is no longer configured`)
+  }
+  const capHit = ctx.donorSpend?.refusal(upstream)
+  if (capHit !== undefined) {
+    return jsonError(STATUS_PAYMENT_REQUIRED, capHit)
   }
   const resolved = await resolveUpstream(upstream, ctx.doorOpts.secretExec)
   if (!resolved.ok) {
