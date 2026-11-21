@@ -17,11 +17,11 @@ test('login sweeps idle sessions before minting a new one', async () => {
   expect(auth.authorize(`${SESSION_COOKIE}=${fresh}`)).toBe(true)
 })
 
-test('the minted token is good for one exchange', async () => {
+test('the minted token stays good for every login', async () => {
   const auth = createAuth({})
   const secret = auth.token as string
   expect(typeof (await auth.login(secret, 'a'))).toBe('string')
-  expect(await auth.login(secret, 'b')).toBeUndefined()
+  expect(typeof (await auth.login(secret, 'b'))).toBe('string')
 })
 
 test('wrong tokens from loopback never lock the operator out', async () => {

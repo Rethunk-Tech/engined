@@ -8,7 +8,7 @@ const FAILURE_WINDOW_MS = 60_000
 const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 interface Auth {
-  /** The one-time token, when no password hash is configured. */
+  /** The token, valid for the unit's lifetime, when no password hash is configured. */
   token: string | undefined
   /** A session id for a correct secret, `'limited'` when this client has failed too often, else `undefined`. */
   login: (secret: string, client: string) => Promise<string | 'limited' | undefined>
@@ -36,7 +36,6 @@ function sessionIdOf(cookieHeader: string | null): string | undefined {
 export function createAuth(opts: { passwordHash?: string; now?: () => number }): Auth {
   const now = opts.now ?? Date.now
   const token = opts.passwordHash === undefined ? randomBytes(16).toString('hex') : undefined
-  let spent = false
   const lastSeen = new Map<string, number>()
   const failures = new Map<string, number[]>()
 
@@ -84,11 +83,10 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       const ok =
         token === undefined
           ? await Bun.password.verify(secret, opts.passwordHash as string).catch(() => false)
-          : !spent && sameSecret(secret, token)
+          : sameSecret(secret, token)
       if (!ok) {
         return
       }
-      spent = true
       const kept = failures.get(client) ?? []
       if (counted) {
         kept.splice(kept.indexOf(at), 1)

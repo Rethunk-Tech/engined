@@ -145,7 +145,7 @@ test('an unhandled throw answers 500 without the error text', async () => {
   expect(body).not.toContain('secret token xyz')
 })
 
-test('a minted token signs in once, the session slides for 12 hours and logout ends it', async () => {
+test('a minted token signs in repeatedly, the session slides for 12 hours and logout ends it', async () => {
   const h = await harness()
   expect((await h.call('/api/config')).status).toBe(401)
   const wrong = await h.call('/login', { method: 'POST', body: JSON.stringify({ token: '00' }) })
@@ -187,11 +187,11 @@ test('a minted token signs in once, the session slides for 12 hours and logout e
   await h.call('/logout', { method: 'POST', cookie })
   expect((await h.call('/api/config', { cookie })).status).toBe(401)
 
-  const reused = await h.call('/login', {
+  const again = await h.call('/login', {
     method: 'POST',
     body: JSON.stringify({ token: h.svc.token }),
   })
-  expect(reused.status).toBe(401)
+  expect(again.status).toBe(200)
 })
 
 test('a known configsvc path asked with the wrong method is 405', async () => {

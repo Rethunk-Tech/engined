@@ -4,6 +4,8 @@
 
 - Docker launches refuse an `ExposedPorts` key that is not a single port.
 - The comfy proxy rejects path-traversal in proxied paths and checks `object_info` names against an allowlist.
+- A potluck 410 on a status report stops this process using that upstream, and the report repeats at most once an hour per fingerprint unless its status changes.
+- The config UI token stays valid for the unit's lifetime, so `--configsvc-url` and Open Config UI keep working.
 - The engines list reports `missing` when an engine has unmet `[[artifact]]` paths, so a client can offer Obtain.
 
 ## 0.2.21 - 2026-11-13
