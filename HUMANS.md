@@ -18,19 +18,26 @@ On Fedora, a minimal install needs: `sudo dnf install git rsync jq libsecret bub
 
 Operator environment (the `--user` unit sets the first two):
 
-| Variable                                             | What it does                                                                                                                                         |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ENGINED_BUNX`                                       | Absolute `bunx`. Unset, a working-tree run uses `bunx` on `PATH`; missing both is fatal at start                                                     |
-| `ENGINED_INSTALL_DIR`                                | Directory holding `main.js` and `engines/`. Packages set `/usr/lib/engined`; `install.sh` uses `$XDG_DATA_HOME/engined`. A relative value is ignored |
-| `ENGINED_BWRAP`                                      | Absolute `bwrap` for every agentic sandbox. Unset uses `PATH`. An agentic call with none found is refused                                            |
-| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` | Config (`…/engined/config.toml`), install/models sibling, and writable state. Relative values are ignored                                            |
-| `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR`             | Claude model discovery: the API key, else the Claude CLI login under `CLAUDE_CONFIG_DIR` or `~/.claude`                                              |
-| `ENGINED_LOCAL`                                      | Set to `1` to run `bun run test:local` against real containers                                                                                       |
+| Variable                                             | What it does                                                                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ENGINED_BUNX`                                       | Absolute `bunx`. Unset, the `bunx` beside a release binary is used, else `bunx` on `PATH`; missing all is fatal at start                                                                                |
+| `ENGINED_INSTALL_DIR`                                | Directory holding `main.js` and `engines/`. Unset, the directory of a release binary that holds `engines/` (beside it, or `../lib/engined`), else `$XDG_DATA_HOME/engined`. A relative value is ignored |
+| `ENGINED_BWRAP`                                      | Absolute `bwrap` for every agentic sandbox. Unset uses `PATH`. An agentic call with none found is refused                                                                                               |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` | Config (`…/engined/config.toml`), install/models sibling, and writable state. Relative values are ignored                                                                                               |
+| `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR`             | Claude model discovery: the API key, else the Claude CLI login under `CLAUDE_CONFIG_DIR` or `~/.claude`                                                                                                 |
+| `ENGINED_LOCAL`                                      | Set to `1` to run `bun run test:local` against real containers                                                                                                                                          |
 
 ## Install
 
 ```sh
 brew install rethunk-tech/tap/engined
+```
+
+On Fedora or Debian, from the release page (use `arm64`/`aarch64` on ARM):
+
+```sh
+sudo dnf install ./engined-<v>-1.x86_64.rpm
+sudo apt install ./engined_<v>_amd64.deb
 ```
 
 On Arch, from the AUR:
