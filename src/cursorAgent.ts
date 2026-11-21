@@ -26,7 +26,7 @@ import {
   stringField,
 } from './cursorProto.ts'
 import { FatalError } from './errors/fatal.ts'
-import { CONTENT_TYPE, STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
+import { CONTENT_TYPE, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_OK } from './http.ts'
 import { errMessage, parseRecord } from './records.ts'
 
 const RUN_PATH = '/agent.v1.AgentService/Run'
@@ -423,6 +423,15 @@ export interface CursorAgentServer {
 export function serveCursorAgent(port: number, deps: AgentDeps): CursorAgentServer {
   const server = http2.createServer()
   server.on('stream', (stream: ServerHttp2Stream, headers) => {
+    // The same rule as main.ts's checkOrigin: a browser page that reached this
+    // port carries an Origin or a Sec-Fetch-Site other than `none`; the Cursor
+    // CLI sends neither.
+    const site = headers['sec-fetch-site']
+    if (headers.origin !== undefined || (site !== undefined && site !== 'none')) {
+      stream.respond({ ':status': STATUS_FORBIDDEN })
+      stream.end()
+      return
+    }
     if (headers[':path'] !== RUN_PATH) {
       stream.respond({ ':status': STATUS_NOT_FOUND })
       stream.end()

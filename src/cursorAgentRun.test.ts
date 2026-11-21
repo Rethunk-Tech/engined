@@ -173,3 +173,39 @@ test('three consecutive completion failures end the turn with the route error', 
   expect(seen.text).toContain('chat route failed repeatedly (engine down)')
   expect(seen.turnEnded).toBeDefined()
 })
+
+test('a Run stream carrying an Origin or a cross-site Sec-Fetch-Site is refused with 403 and never completes', async () => {
+  const port = await freePort()
+  let completions = 0
+  const server = serveCursorAgent(port, {
+    complete: () => {
+      completions += 1
+      return Promise.resolve({
+        text: '',
+        toolCalls: [],
+        usage: { input: 0, output: 0, cacheRead: 0 },
+      })
+    },
+  })
+  const client = http2.connect(`http://127.0.0.1:${port}`)
+  const statusFor = (extra: Record<string, string>) =>
+    new Promise<number>((resolve, fail) => {
+      const stream = client.request({
+        ':method': 'POST',
+        ':path': '/agent.v1.AgentService/Run',
+        'content-type': 'application/connect+proto',
+        ...extra,
+      })
+      stream.on('error', fail)
+      stream.on('response', (headers) => resolve(Number(headers[':status'])))
+      stream.write(Buffer.from(envelope(promptFrame('do the thing'))))
+    })
+  try {
+    expect(await statusFor({ origin: 'http://evil.example' })).toBe(403)
+    expect(await statusFor({ 'sec-fetch-site': 'same-origin' })).toBe(403)
+    expect(completions).toBe(0)
+  } finally {
+    client.close()
+    server.stop()
+  }
+})
