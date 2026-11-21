@@ -84,9 +84,9 @@ tag_release() {
   [[ $(git rev-parse --abbrev-ref HEAD) == main ]] || die "not on main"
   git diff --quiet HEAD || die "uncommitted changes"
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "$tag already exists"
-  grep -q '^## Unreleased$' CHANGELOG.md || die "CHANGELOG.md has no '## Unreleased' section"
+  grep -qE '^## \[?Unreleased\]?$' CHANGELOG.md || die "CHANGELOG.md has no '## Unreleased' section"
 
-  sed -i "s/^## Unreleased$/## $version - $(date -u +%F)/" CHANGELOG.md
+  sed -i -E "s/^## \[?Unreleased\]?$/## [Unreleased]\n\n## $version - $(date -u +%F)/" CHANGELOG.md
   sed -i "0,/^  \"version\": .*/s//  \"version\": \"$version\",/" package.json
   git add CHANGELOG.md package.json
   git commit -q -m "chore(release): engined $version"
