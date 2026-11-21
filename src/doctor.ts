@@ -12,7 +12,7 @@ import { loadConfig } from './config.ts'
 import { specFactsFor } from './configRoutes.ts'
 import { ambientEnv } from './env.ts'
 import { binExec, type ExecResult } from './exec.ts'
-import { installDir } from './paths.ts'
+import { bundledBunx, installDir } from './paths.ts'
 import { errMessage } from './records.ts'
 import type { Config } from './types.ts'
 import { ENGINED_ENGINES_PATH } from './usage.ts'
@@ -178,7 +178,7 @@ function bwrapCheck(deps: DoctorDeps, use?: AgentUse): DoctorCheck {
 }
 
 async function agentChecks(deps: DoctorDeps, use?: AgentUse): Promise<DoctorCheck[]> {
-  const bunx = ambientEnv.ENGINED_BUNX || deps.which('bunx')
+  const bunx = ambientEnv.ENGINED_BUNX || bundledBunx() || deps.which('bunx')
   const checks: DoctorCheck[] = []
   for (const id of AGENT_IDS) {
     if (agentRetired(use, id)) {

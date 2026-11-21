@@ -12,7 +12,7 @@ import { runDoctor } from './doctor.ts'
 import { envString } from './env.ts'
 import { FatalError } from './errors/fatal.ts'
 import { errorCode } from './listen.ts'
-import { configPath, installDir, stateDir } from './paths.ts'
+import { bundledBunx, configPath, installDir, stateDir } from './paths.ts'
 import { errMessage, isRecord } from './records.ts'
 import { seedLegacySecrets } from './secrets.ts'
 
@@ -91,7 +91,7 @@ export async function configsvcMain(
   const deps: ConfigsvcDeps = {
     configFile,
     enginesRoot: join(installDir(), 'engines'),
-    bunx: envString('ENGINED_BUNX') || Bun.which('bunx') || 'bunx',
+    bunx: envString('ENGINED_BUNX') || bundledBunx() || Bun.which('bunx') || 'bunx',
     stateRoot: stateDir(),
     doorUrl: () => `http://127.0.0.1:${bestEffortListenPort(configFile)}`,
     reload: systemctlKill,

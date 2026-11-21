@@ -39,6 +39,7 @@ import { LAUNCH_NONCE_RE, LAUNCH_UPSTREAM_RE } from './launchNonce.ts'
 import { forwardLaunchUpstream } from './launchUpstream.ts'
 import { ModelDiscovery } from './modelDiscovery.ts'
 import { modelById, modelsMenu } from './modelsMenu.ts'
+import { bundledBunx } from './paths.ts'
 import { DonorLedger } from './potluck.ts'
 import { handleProbes, PROBES_PATH, ProbeStore } from './probeStore.ts'
 import { errMessage } from './records.ts'
@@ -422,6 +423,10 @@ export function resolveBunx(
   const configured = env.ENGINED_BUNX
   if (configured !== undefined && configured !== '') {
     return configured
+  }
+  const shipped = bundledBunx()
+  if (shipped !== undefined) {
+    return shipped
   }
   const onPath = which('bunx')
   if (onPath !== null) {

@@ -11,21 +11,21 @@ NFPM_SHA256_arm64=a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2
 arch="${1:?usage: build.sh <x64|arm64> <outdir>}"
 out="$(mkdir -p "${2:?usage: build.sh <x64|arm64> <outdir>}" && cd "$2" && pwd)"
 case "$arch" in
-  x64) export ARCH=amd64 ;;
-  arm64) export ARCH=arm64 ;;
-  *)
-    echo "build.sh: arch must be x64 or arm64" >&2
-    exit 2
-    ;;
+x64) export ARCH=amd64 ;;
+arm64) export ARCH=arm64 ;;
+*)
+  echo "build.sh: arch must be x64 or arm64" >&2
+  exit 2
+  ;;
 esac
 # nfpm runs on this machine, whatever architecture it packages for.
 case "$(uname -m)" in
-  x86_64) nfpm_os_arch=x86_64 sha="$NFPM_SHA256_x64" ;;
-  aarch64 | arm64) nfpm_os_arch=arm64 sha="$NFPM_SHA256_arm64" ;;
-  *)
-    echo "build.sh: no pinned nfpm for $(uname -m)" >&2
-    exit 2
-    ;;
+x86_64) nfpm_os_arch=x86_64 sha="$NFPM_SHA256_x64" ;;
+aarch64 | arm64) nfpm_os_arch=arm64 sha="$NFPM_SHA256_arm64" ;;
+*)
+  echo "build.sh: no pinned nfpm for $(uname -m)" >&2
+  exit 2
+  ;;
 esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,8 +51,19 @@ bun build src/main.ts --compile --splitting --target="bun-linux-$arch" \
 
 # Prebuilt archive for GitHub releases (engined-linux-{amd64,arm64}.tar.gz).
 mtime="$(git -C "$REPO_ROOT" log -1 --format=%ct)"
+# The tree installDir() finds beside the binary: engines/, the Caddyfile and a bunx wrapper that
+# re-enters the binary as bun.
+arc="$work/archive"
+install -Dm0755 "$work/engined" "$arc/engined"
+install -Dm0755 /dev/stdin "$arc/bunx" <<'WRAPPER'
+#!/bin/sh
+BUN_BE_BUN=1 exec "$(dirname "$(readlink -f "$0")")/engined" x "$@"
+WRAPPER
+install -Dm0644 deploy/Caddyfile.cursor "$arc/Caddyfile.cursor"
+cp -r --no-preserve=ownership engines "$arc/engines"
+find "$arc/engines" -name __pycache__ -prune -exec rm -rf {} +
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$mtime" \
-  -C "$work" -cf - engined | gzip -n >"$out/engined-linux-${ARCH}.tar.gz"
+  -C "$arc" -cf - . | gzip -n >"$out/engined-linux-${ARCH}.tar.gz"
 
 install -Dm0755 "$work/engined" "$STAGE/usr/bin/engined"
 # A compiled bun binary acts as bun when BUN_BE_BUN=1, so `x` is bunx.

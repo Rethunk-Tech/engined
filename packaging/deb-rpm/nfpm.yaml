@@ -18,9 +18,15 @@ overrides:
   deb:
     recommends:
       - docker.io | docker-ce
+      - bubblewrap
+      - passt
+      - libsecret-tools
   rpm:
     recommends:
       - moby-engine
+      - bubblewrap
+      - passt
+      - libsecret
 contents:
   - src: ${STAGE}
     dst: /

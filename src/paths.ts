@@ -1,6 +1,6 @@
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { envString } from './env.ts'
 
 /**
@@ -29,13 +29,39 @@ export function configPath(): string {
 }
 
 /**
- * Where `main.js` and the `engines/` spec directories live. A package sets
- * `ENGINED_INSTALL_DIR` in its units (`/usr/lib/engined`); `install.sh` syncs
- * under the data home. A relative value is ignored, as for the XDG variables.
+ * The install tree a compiled `engined` binary sits in, found from its real
+ * path: a release archive (and a Homebrew libexec) keeps `engines/` beside the
+ * binary, a deb/rpm keeps it in `../lib/engined`. A bun running `main.js` is not
+ * a tree, so only a binary named `engined` is looked at.
+ */
+export function bundledInstallDir(execPath: string = process.execPath): string | undefined {
+  let real: string
+  try {
+    real = realpathSync(execPath)
+  } catch {
+    return undefined
+  }
+  if (basename(real) !== 'engined') {
+    return undefined
+  }
+  const dir = dirname(real)
+  return [dir, join(dir, '..', 'lib', 'engined')].find((d) => existsSync(join(d, 'engines')))
+}
+
+/** The `bunx` wrapper shipped in the install tree, when there is one. */
+export function bundledBunx(execPath: string = process.execPath): string | undefined {
+  const dir = bundledInstallDir(execPath)
+  return dir !== undefined && existsSync(join(dir, 'bunx')) ? join(dir, 'bunx') : undefined
+}
+
+/**
+ * Where `main.js` and the `engines/` spec directories live. `ENGINED_INSTALL_DIR`
+ * wins (a relative value is ignored, as for the XDG variables), then the tree the
+ * running binary sits in; `install.sh` syncs under the data home.
  */
 export function installDir(): string {
   const v = envString('ENGINED_INSTALL_DIR')
-  return v !== undefined && isAbsolute(v) ? v : join(dataHome(), 'engined')
+  return v !== undefined && isAbsolute(v) ? v : (bundledInstallDir() ?? join(dataHome(), 'engined'))
 }
 
 /** The one writable path under `ProtectSystem=strict`. */

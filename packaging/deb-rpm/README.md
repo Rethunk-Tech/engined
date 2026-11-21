@@ -11,7 +11,7 @@ packaging/deb-rpm/build.sh x64 out/     # or arm64
 
 `build.sh` pins nfpm in a scratch dir, compiles, renders units via
 `scripts/install.sh` `render_unit_file` (collapses `<bun> main.js` to the
-binary), writes `engined-linux-{amd64,arm64}.tar.gz`, and runs `nfpm.yaml`.
+binary), writes `engined-linux-{amd64,arm64}.tar.gz` (the binary, `bunx`, `Caddyfile.cursor` and `engines/`), and runs `nfpm.yaml`.
 The `v*` workflow attaches the archives, the four packages, and `SHA256SUMS`.
 
 Layout matches AUR (`/usr/bin/engined`,
