@@ -4,6 +4,7 @@
 
 - Docker launches refuse an `ExposedPorts` key that is not a single port.
 - The comfy proxy rejects path-traversal in proxied paths and checks `object_info` names against an allowlist.
+- The engines list reports `missing` when an engine has unmet `[[artifact]]` paths, so a client can offer Obtain.
 
 ## 0.2.21 - 2026-11-13
 

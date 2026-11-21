@@ -11,6 +11,7 @@ import { originOf } from './configOrigin.ts'
 import { ParseError } from './errors/parse.ts'
 import { STATUS_OK } from './http.ts'
 import { buildLlamaSpec, MODELS_CONTAINER_PATH } from './llamaSpec.ts'
+import { missing } from './obtain.ts'
 import type { EngineStatus } from './responses.ts'
 import { LOCAL_UPSTREAM, localRoutesOf, WILDCARD_MODEL } from './routeAddress.ts'
 import {
@@ -468,6 +469,9 @@ export function baseStatus(engine: EngineEntry, spec: Spec, routes: readonly Res
     serves: spec.serves,
     streaming: spec.streaming,
     capabilities: engineCapabilities(engine.id, routes, spec.serves),
+    ...(isContainerSpec(spec) && missing(spec.artifacts, spec.volumes).length > 0
+      ? { missing: true as const }
+      : {}),
   }
 }
 

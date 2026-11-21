@@ -50,6 +50,8 @@ export interface EngineStatus {
   disabled?: boolean
   /** The literal `docker pull` / `docker build` / `secret-tool store` that fixes it. */
   fix?: string
+  /** The spec has an `[[artifact]]` whose host path is absent, so `POST /engined/v1/engines/:id/obtain` has work to do. Absent when nothing is missing. */
+  missing?: true
   /**
    * Per-role contention, for the llama engines that have roles at all. Absent
    * when nothing is queued or running, and absent entirely on a kind that has

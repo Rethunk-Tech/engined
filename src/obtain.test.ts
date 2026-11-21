@@ -52,6 +52,15 @@ test('obtain streams the missing artifact commands, skips what is present, and r
     { usageStateRoot: join(TEST_ROOT, 'usage') },
   )
 
+  const missingOf = async (id: string) => {
+    const list = (await (
+      await door.fetch(new Request('http://127.0.0.1:29200/engined/v1/engines'))
+    ).json()) as { engines: { id: string; missing?: boolean }[] }
+    return list.engines.find((e) => e.id === id)?.missing
+  }
+  expect(await missingOf('fetcher')).toBe(true)
+  expect(await missingOf('bare')).toBeUndefined()
+
   const ran = await door.fetch(post('fetcher'))
   expect(ran.headers.get('content-type')).toBe('text/event-stream')
   const body = await ran.text()
@@ -59,6 +68,7 @@ test('obtain streams the missing artifact commands, skips what is present, and r
   expect(body).toContain('"stream":"stderr","line":"warn"')
   expect(body).toContain('event: exit\ndata: {"exitCode":0,"steps":1}')
   expect(existsSync(join(models, 'out.txt'))).toBe(true)
+  expect(await missingOf('fetcher')).toBeUndefined()
 
   const again = await (await door.fetch(post('fetcher'))).text()
   expect(again).toContain('event: exit\ndata: {"exitCode":0,"steps":0}')

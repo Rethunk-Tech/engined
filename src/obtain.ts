@@ -49,7 +49,7 @@ const shellRunner: ObtainRunner = async (command, onLine, signal) => {
 const running = new WeakMap<DoorContext, Set<string>>()
 
 /** What is still missing: an artifact with no host path to stat (a named volume) cannot be proven present, so it runs. */
-function missing(
+export function missing(
   artifacts: readonly Artifact[],
   volumes: Parameters<typeof hostPathFor>[1],
 ): Artifact[] {
