@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.3 - 2026-11-21
+
 - The door and the Cursor listener refuse a `Host` that is not an IP, `localhost`, `*.localhost`, this machine's hostname or tailnet name, or a name in the new `allowed_hosts` config key, so a rebound hostile name can no longer read the GET routes.
 
 ## 0.3.2 - 2026-11-21
