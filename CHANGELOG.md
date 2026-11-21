@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.0 - 2026-11-21
+
 - Docker launches refuse an `ExposedPorts` key that is not a single port.
 - The comfy proxy rejects path-traversal in proxied paths and checks `object_info` names against an allowlist.
 - A potluck 410 on a status report stops this process using that upstream, and the report repeats at most once an hour per fingerprint unless its status changes.
