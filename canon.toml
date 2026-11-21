@@ -1,2 +1,0 @@
-[deviations]
-# The only JSX is the config UI (src/configsvc/ui); it is single-language by design, with no i18n library.
