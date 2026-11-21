@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.2 - 2026-11-21
+
 - The remote transcription call no longer follows an upstream redirect, so a 307 cannot carry the provider key to another host.
 - Request bodies being read at once share one 256 MiB budget. A body that would pass it gets 503 with Retry-After, so two parallel uploads at the cap no longer get the door OOM-killed.
 - The donor monthly cap and a donor withdrawal also stop remote audio engines, agentic route redirects and the keyless launch forwarder, not only HTTP chat hops.
