@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
 
+- Docker launches refuse an `ExposedPorts` key that is not a single port.
 - The comfy proxy rejects path-traversal in proxied paths and checks `object_info` names against an allowlist.
 
 ## 0.2.21 - 2026-11-13
