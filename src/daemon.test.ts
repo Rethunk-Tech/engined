@@ -57,6 +57,8 @@ function fakeDoor(opts: {
   listen: number
   cursor?: number
   live?: boolean
+  /** What `configError()` answers: a failed reload's record, which is how the daemon tells a landed reload from one that threw. */
+  error?: () => string | undefined
   config?: Config
   reload?: Door['reload']
   shutdown?: () => Promise<void>
@@ -87,7 +89,7 @@ function fakeDoor(opts: {
       usage: { shutdown: () => undefined },
     },
     discovery: { start: opts.startDiscovery ?? (() => undefined) },
-    configError: () => undefined,
+    configError: opts.error ?? (() => undefined),
   } as unknown as Door
 }
 
@@ -230,6 +232,38 @@ test('a port already in use or unbindable exits 78', async () => {
     ).toThrow('exit 78')
   })
   expect(err.join('')).toContain('cannot listen')
+})
+
+test('a hard reload that fails leaves the door on the port it was already serving', async () => {
+  const listen = deadPort()
+  const nextListen = deadPort()
+  const env = scratch(`listen_port = ${listen}\n`)
+  exitThrows = false
+  await withEnv(env, async () => {
+    let fault: string | undefined
+    const door = fakeDoor({
+      listen,
+      live: true,
+      error: () => fault,
+      reload: (_path, rebind) => {
+        rebind?.(configFixture({ listen_port: nextListen, cursor_port: listen + 1 }))
+        // registry.reload can still throw after a clean parse: a spec-less
+        // engine, a capability route nothing serves.
+        fault = 'engine "x" has no spec'
+      },
+    })
+    const handle = runDaemon({ resolveBunx: () => BUNX, createDoor: () => door, on: silence })
+    await handle.hardReload()
+    expect(door.configError()).toBeDefined()
+    expect(door.served.listen).toBe(listen)
+    // The next port was bound before the reload so a taken one still fails it,
+    // and released again afterwards: nothing may keep listening on a port no
+    // config has been swapped in for.
+    expect(() =>
+      Bun.serve({ hostname: '::', port: nextListen, fetch: () => new Response('') }),
+    ).not.toThrow()
+    await handle.stop()
+  })
 })
 
 test('a live door starts inventory and cursor, then hangup, hard reload, and a nested hard reload', async () => {

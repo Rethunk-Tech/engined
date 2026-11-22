@@ -94,19 +94,52 @@ export function runDaemon(make: {
     door.discovery.start(config)
   }
 
+  /**
+   * The listeners a rebind has opened but not yet committed. They are bound
+   * before `registry.reload` runs -- so a port already taken fails the reload
+   * with the old config still serving -- but the old listeners stay up until
+   * that reload has actually landed: a reload that throws must leave the door
+   * answering on the port it was already serving, not on the new one with the
+   * previous config.
+   */
+  let rebinding: { listen?: ReturnType<typeof bindDoor>; listenPort?: number; cursorPort?: number }
+
   function rebind(next: Config): void {
+    const fresh: typeof rebinding = {}
     if (next.listen_port !== door.served.listen) {
-      const fresh = bindDoor(door.fetch, next.listen_port)
+      fresh.listen = bindDoor(door.fetch, next.listen_port)
+      fresh.listenPort = next.listen_port
+    }
+    if (door.served.cursor !== undefined && next.cursor_port !== door.served.cursor) {
+      fresh.cursorPort = next.cursor_port
+    }
+    rebinding = fresh
+  }
+
+  /** Moves the listeners a rebind prepared, or closes them again when the reload it was preparing for did not land. */
+  function commitRebind(): void {
+    const fresh = rebinding
+    rebinding = undefined
+    if (fresh === undefined) {
+      return
+    }
+    if (door.configError() !== undefined) {
+      for (const s of fresh.listen ?? []) {
+        s.stop()
+      }
+      return
+    }
+    if (fresh.listen !== undefined) {
       for (const s of bound) {
         s.stop()
       }
-      bound = fresh
-      door.served.listen = next.listen_port
+      bound = fresh.listen
+      door.served.listen = fresh.listenPort as number
     }
-    if (door.served.cursor !== undefined && next.cursor_port !== door.served.cursor) {
+    if (fresh.cursorPort !== undefined) {
       cursorAgent?.stop()
       door.served.cursor = undefined
-      startCursor(next.cursor_port)
+      startCursor(fresh.cursorPort)
     }
   }
 
@@ -120,6 +153,7 @@ export function runDaemon(make: {
       door.interrupt()
       await door.registry.shutdown()
       door.reload(path, rebind)
+      commitRebind()
       afterReload()
     } finally {
       hardReloading = false
