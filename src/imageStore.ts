@@ -202,22 +202,29 @@ export function handleStoredImageGet(id: string, bounds?: ImageStoreBounds): Res
     return jsonError(STATUS_NOT_FOUND, 'unknown image')
   }
   const path = join(storeDir(bounds), id)
+  const ttlMs = bounds?.ttlMs ?? IMAGE_TTL_MS
+  let expired: boolean
+  let bytes: Uint8Array
   try {
-    const ttlMs = bounds?.ttlMs ?? IMAGE_TTL_MS
     const fd = openSync(path, 'r')
     try {
-      if (storeNow(bounds) - fstatSync(fd).mtimeMs > ttlMs) {
-        return jsonError(STATUS_NOT_FOUND, 'unknown image')
-      }
-      const bytes = readFileSync(fd)
-      const ext = extOf(id)
-      return new Response(bytes, { headers: { [CONTENT_TYPE]: typeForExt(ext) } })
+      expired = storeNow(bounds) - fstatSync(fd).mtimeMs > ttlMs
+      bytes = expired ? new Uint8Array() : readFileSync(fd)
     } finally {
       closeSync(fd)
     }
   } catch {
     return jsonError(STATUS_NOT_FOUND, 'unknown image')
   }
+  if (expired) {
+    // The read is the one place that sees this file age out, so it is also what
+    // removes it: without this an expired render nobody fetches again keeps its
+    // bytes against the store cap until the next write, which may never come.
+    // `force` covers the store sweep or a concurrent GET getting there first.
+    rmSync(path, { force: true })
+    return jsonError(STATUS_NOT_FOUND, 'unknown image')
+  }
+  return new Response(bytes, { headers: { [CONTENT_TYPE]: typeForExt(extOf(id)) } })
 }
 
 export function responseForImageGet(pathname: string): Response | undefined {

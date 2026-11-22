@@ -4,7 +4,7 @@
  * state directory.
  */
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -59,6 +59,15 @@ describe('GET /engined/v1/images/:id', () => {
         now: () => Date.now() + IMAGE_TTL_MS + 1,
       }).status,
     ).toBe(404)
+  })
+
+  test('a GET of an expired render removes it rather than leaving its bytes until the next write', () => {
+    const bounds = store()
+    const id = storeRenderedImage(PIXEL, 'png', bounds)
+    const later = { ...bounds, now: () => Date.now() + IMAGE_TTL_MS + 1 }
+
+    expect(handleStoredImageGet(id, later).status).toBe(404)
+    expect(existsSync(join(bounds.dir(), id))).toBe(false)
   })
 
   test('a GET never trims the store -- only a write does', () => {
