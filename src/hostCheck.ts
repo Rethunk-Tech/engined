@@ -3,9 +3,14 @@ import { isIP } from 'node:net'
 import { hostname } from 'node:os'
 
 const TAILSCALE_TIMEOUT_MS = 2000
+/** How long a tailnet probe's answer stands, so a hostile `Host` cannot spawn one per request. */
+const TAILSCALE_RETRY_MS = 60_000
 const PORT_SUFFIX_RE = /:\d*$/
 const TRAILING_DOT_RE = /\.$/
-let machineNames: Set<string> | undefined
+/** Stable for the process's life: `hostname()` does not change under a running unit. */
+let hostnameNames: Set<string> | undefined
+/** The tailnet name, and when the probe ran; `name` undefined is a probe that found none. */
+let tailnet: { name: string | undefined; at: number } | undefined
 
 function bareHost(authority: string): string {
   if (!authority.startsWith('[')) {
@@ -21,26 +26,45 @@ function bareHost(authority: string): string {
   return authority.slice(1, close).toLowerCase()
 }
 
-/** This machine's own names, read once, on the first non-IP request: its hostname, the short form, and the tailnet MagicDNS name when `tailscale` answers. */
-function machineHostNames(): Set<string> {
-  if (machineNames === undefined) {
+function ownNames(): Set<string> {
+  if (hostnameNames === undefined) {
     const full = hostname().toLowerCase()
-    machineNames = new Set([full, full.split('.')[0] ?? full])
-    try {
-      const out = Bun.spawnSync(['tailscale', 'status', '--json'], {
-        timeout: TAILSCALE_TIMEOUT_MS,
-        stderr: 'ignore',
-      })
-      const dns = (JSON.parse(out.stdout.toString()) as { Self?: { DNSName?: unknown } }).Self
-        ?.DNSName
-      if (typeof dns === 'string' && dns !== '') {
-        machineNames.add(bareHost(dns))
-      }
-    } catch {
-      // no tailscale on this machine
-    }
+    hostnameNames = new Set([full, full.split('.')[0] ?? full])
   }
-  return machineNames
+  return hostnameNames
+}
+
+/**
+ * The tailnet MagicDNS name, when `tailscale` answers with one.
+ *
+ * The unit can boot before `tailscale` is up, so a probe that found nothing is
+ * not the machine's final set of names. The cache is time-bounded rather than
+ * final: a name that appears later is picked up on the next miss past the
+ * cooldown, and a name that changes (a tailscaled restart) likewise. Only a
+ * `Host` that already missed reaches this, and a warm cache answers it without
+ * a spawn, so a hostile name costs one probe per cooldown rather than one per
+ * request.
+ */
+function tailnetName(): string | undefined {
+  const now = Date.now()
+  if (tailnet !== undefined && now - tailnet.at < TAILSCALE_RETRY_MS) {
+    return tailnet.name
+  }
+  let name: string | undefined
+  try {
+    const out = Bun.spawnSync(['tailscale', 'status', '--json'], {
+      timeout: TAILSCALE_TIMEOUT_MS,
+      stderr: 'ignore',
+    })
+    const dns = (JSON.parse(out.stdout.toString()) as { Self?: { DNSName?: unknown } }).Self?.DNSName
+    if (typeof dns === 'string' && dns !== '') {
+      name = bareHost(dns)
+    }
+  } catch {
+    // No tailscale yet, or it is not up: retried after the cooldown.
+  }
+  tailnet = { name, at: now }
+  return name
 }
 
 /** A missing `Host` (HTTP/1.0) is allowed; so are IP literals, `localhost`, `*.localhost`, this machine's names, and `allowed`. */
@@ -57,7 +81,8 @@ export function isAllowedHost(
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     allowed.includes(host) ||
-    machineHostNames().has(host)
+    ownNames().has(host) ||
+    tailnetName() === host
   )
 }
 
