@@ -855,6 +855,34 @@ describe('response_format url', () => {
     expect(Buffer.from(await got.arrayBuffer())).toEqual(Buffer.from(PIXEL))
   })
 
+  test('only an https forwarded proto is honoured; a cleartext claim cannot downgrade the URL', async () => {
+    const door = await imagesDoor(rendersInstantly())
+    const ask = async (proto: string) => {
+      const res = await door.fetch(
+        new Request('https://10.0.0.5:29200/openai/v1/images/generations', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            host: '10.0.0.5:29200',
+            'x-forwarded-proto': proto,
+          },
+          body: JSON.stringify({
+            model: '@/comfy/local',
+            prompt: 'a red cube',
+            response_format: 'url',
+          }),
+        }),
+      )
+      const body = (await res.json()) as { data: { url?: string }[] }
+      return body.data[0]?.url ?? ''
+    }
+
+    // An https request keeps its https URL whatever the header claims: a cleartext or bogus proto cannot downgrade it.
+    for (const proto of ['https', 'http', 'javascript']) {
+      expect(await ask(proto)).toMatch(/^https:\/\/10\.0\.0\.5:29200\/engined\/v1\/images\//)
+    }
+  })
+
   test('an unknown response_format is a 400 rather than silent b64', async () => {
     const door = await imagesDoor(rendersInstantly())
     const res = await generate(door, {

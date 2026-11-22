@@ -124,9 +124,10 @@ function imagePublicUrl(req: Request, id: string): string {
   if (host !== null && host !== '') {
     url.host = host
   }
-  const forwarded = req.headers.get('x-forwarded-proto')
-  if (forwarded !== null && forwarded !== '') {
-    url.protocol = `${forwarded}:`
+  // Only `https` is honoured, so the header can upgrade the URL a TLS bridge hands out but never pick
+  // another scheme or downgrade it.
+  if (req.headers.get('x-forwarded-proto') === 'https') {
+    url.protocol = 'https:'
   }
   url.pathname = `/engined/v1/images/${id}`
   url.search = ''
