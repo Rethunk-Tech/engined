@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  renameSync,
+  writeSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { envString } from './env.ts'
@@ -123,6 +132,15 @@ export function isUnder(root: string, candidate: string): boolean {
 export function writeFileAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.tmp`
-  writeFileSync(tmp, text)
+  // Written and flushed before the rename: a rename that reaches disk while
+  // the bytes it names did not leaves a zero-length file, which parses as
+  // empty state for every caller that reads JSON out of one.
+  const fd = openSync(tmp, 'w')
+  try {
+    writeSync(fd, text)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
   renameSync(tmp, path)
 }
