@@ -32,6 +32,31 @@ test('wrong tokens from loopback never lock the operator out', async () => {
   expect(typeof (await auth.login(auth.token as string, '127.0.0.1'))).toBe('string')
 })
 
+test("a success whose own strike was already swept does not delete another client's strike", async () => {
+  // The successful attempt records `at` before the slow hash and removes it
+  // after. A sweep landing in that window drops `at`, and `indexOf` then
+  // answers -1 -- which must remove nothing, not the last entry, which is a
+  // concurrent wrong guess's strike.
+  const clock = { now: 1_000_000 }
+  const auth = createAuth({
+    passwordHash: await Bun.password.hash('right', 'argon2id'),
+    now: () => clock.now,
+  })
+
+  const succeeded = auth.login('right', 'c')
+  clock.now += 60_000 + 1
+  const wrong = auth.login('wrong', 'c')
+  expect(typeof (await succeeded)).toBe('string')
+  expect(await wrong).toBeUndefined()
+
+  // The wrong guess's strike survived: four more guesses reach the limit on
+  // the fifth, which is exactly `MAX_FAILURES` counting it.
+  for (let i = 0; i < 4; i++) {
+    expect(await auth.login('wrong', 'c')).toBeUndefined()
+  }
+  expect(await auth.login('wrong', 'c')).toBe('limited')
+})
+
 test('concurrent wrong passwords are limited before the hash checks finish', async () => {
   const auth = createAuth({ passwordHash: await Bun.password.hash('right', 'argon2id') })
   const results = await Promise.all(Array.from({ length: 20 }, () => auth.login('wrong', 'c')))

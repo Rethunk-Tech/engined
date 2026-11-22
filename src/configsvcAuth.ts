@@ -87,9 +87,13 @@ export function createAuth(opts: { passwordHash?: string; now?: () => number }):
       if (!ok) {
         return
       }
+      // `sweep()` can have dropped this attempt while the slow hash ran, and
+      // `indexOf` then answers -1: splicing that removes the last entry, which
+      // is someone else's strike.
       const kept = failures.get(client) ?? []
-      if (counted) {
-        kept.splice(kept.indexOf(at), 1)
+      const atIndex = kept.indexOf(at)
+      if (counted && atIndex >= 0) {
+        kept.splice(atIndex, 1)
       }
       const id = randomBytes(16).toString('hex')
       lastSeen.set(id, now())
