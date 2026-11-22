@@ -83,10 +83,11 @@ export class DonorLedger {
    * uncapped, and `save` leaves the file alone instead of replacing the only
    * copy of the month's spend with a total from zero.
    */
-  private corrupt = false
+  private corrupt: boolean
 
   constructor(opts: DonorLedgerOptions = {}) {
     this.opts = opts
+    this.corrupt = false
     this.load()
   }
 
