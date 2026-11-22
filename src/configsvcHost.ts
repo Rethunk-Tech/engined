@@ -41,12 +41,21 @@ export function ensureBridgeHop(file = bridgeHopFile()): string {
     writeFileSync(file, `${secret}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     return secret
   } catch {
-    return readFileSync(file, 'utf8').trim()
+    // Either a racing writer just filled it in, or this is the empty file the
+    // read above skipped past. An empty hop would match an empty header, so it
+    // is replaced rather than handed back.
+    const existing = readFileSync(file, 'utf8').trim()
+    if (existing !== '') {
+      return existing
+    }
+    writeFileSync(file, `${secret}\n`, { encoding: 'utf8', mode: 0o600 })
+    return secret
   }
 }
 
 export function hopMatches(expected: string | undefined, header: string | null): boolean {
-  if (expected === undefined || header === null) {
+  // An empty secret proves nothing: a request with no hop header would match it.
+  if (expected === undefined || expected === '' || header === null || header === '') {
     return false
   }
   const left = Buffer.from(expected)
