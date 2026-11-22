@@ -8,10 +8,17 @@ const TRAILING_DOT_RE = /\.$/
 let machineNames: Set<string> | undefined
 
 function bareHost(authority: string): string {
-  const host = authority.startsWith('[')
-    ? authority.slice(1, authority.indexOf(']'))
-    : authority.replace(PORT_SUFFIX_RE, '')
-  return host.toLowerCase().replace(TRAILING_DOT_RE, '')
+  if (!authority.startsWith('[')) {
+    return authority.replace(PORT_SUFFIX_RE, '').toLowerCase().replace(TRAILING_DOT_RE, '')
+  }
+  const close = authority.indexOf(']')
+  // `Host: [::1` has no close bracket. `slice(1, -1)` would then hand back
+  // `::`, which `isIP` accepts as a valid literal -- a malformed authority
+  // must not become one.
+  if (close === -1) {
+    return ''
+  }
+  return authority.slice(1, close).toLowerCase()
 }
 
 /** This machine's own names, read once, on the first non-IP request: its hostname, the short form, and the tailnet MagicDNS name when `tailscale` answers. */

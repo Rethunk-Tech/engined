@@ -29,6 +29,13 @@ test('IPs, localhost, this machine and allowlisted names pass; other names do no
   }
 })
 
+test('a bracketed literal with no closing bracket is refused rather than sliced into an IP', () => {
+  // `[::1` sliced from index 1 to indexOf(']') === -1 would be `::`, which
+  // `isIP` accepts: a malformed authority must not become a valid literal.
+  expect(isAllowedHost('[::1', [])).toBe(false)
+  expect(isAllowedHost('[::1]:29200', [])).toBe(true)
+})
+
 test('the door refuses a rebound name on GET and serves an IP Host', async () => {
   const { cfg, root } = llamaDoorConfig(TEST_ROOT)
   const door = createLlamaDoor({ ...cfg, allowed_hosts: ['ok.example.com'] }, root, {
