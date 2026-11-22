@@ -128,10 +128,25 @@ export async function proxyComfyQueueDelete(
   if (!ids.every((id) => liveBinding(ctx, comfyKey(engineId, origin, id)) !== undefined)) {
     return jsonError(STATUS_NOT_FOUND, 'one or more prompt ids are not known to this door')
   }
-  const res = await httpClient(`${base}/queue`, {
-    method: 'POST',
-    headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
-    body: JSON.stringify(body),
+  // Under the same submission gate as `/prompt` and `/cancel`: a delete that
+  // clears `queue_running` while the container is still busy would otherwise
+  // let the next drain check submit a second prompt beside the running one.
+  // The confirming read is what proves the delete left no prompt behind;
+  // comfy answers 200 to a delete that removed nothing.
+  return withComfySlot(ctx, engineId, async () => {
+    const res = await httpClient(`${base}/queue`, {
+      method: 'POST',
+      headers: { [CONTENT_TYPE]: JSON_CONTENT_TYPE },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(COMFY_GATED_CALL_TIMEOUT_MS),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      return jsonForward(res, text)
+    }
+    if ((await readComfyQueue(base, httpClient)) === undefined) {
+      return jsonError(STATUS_BAD_GATEWAY, 'comfy queue could not be read')
+    }
+    return jsonForward(res, text)
   })
-  return jsonForward(res, await res.text())
 }

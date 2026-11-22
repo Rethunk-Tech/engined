@@ -30,6 +30,7 @@ import {
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
 import { bindDoor } from './listen.ts'
+import { withComfySlot } from './comfyProxy.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,
@@ -1080,6 +1081,39 @@ describe('comfy proxy: one prompt in the container at a time', () => {
       return Response.json({})
     })
   }
+
+  /**
+   * The gate is per engine and every path that acts on the container's queue
+   * takes it: a delete forwarded beside a live submission could clear
+   * `queue_running` while the GPU is still busy, and the next drain check
+   * would then submit a second prompt behind one that never stopped.
+   */
+  test('a queue delete waits for the gate a submission holds', async () => {
+    const { client, calls } = cancellingComfyClient([], ['job-c'])
+    const door = await boundDoor(client)
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const occupying = withComfySlot(door.ctx, 'comfy', () => held)
+    calls.length = 0
+
+    const deleting = door.fetch(
+      new Request(`http://engined${PROXY_PATH}/queue`, {
+        method: 'POST',
+        body: JSON.stringify({ delete: ['job-c'] }),
+      }),
+    )
+    await Bun.sleep(80)
+    expect(calls.filter((c) => c.init?.method === 'POST')).toHaveLength(0)
+
+    release()
+    await occupying
+    expect((await deleting).status).toBe(200)
+    expect(calls.filter((c) => c.url.includes('/queue') && c.init?.method === 'POST')).toHaveLength(
+      1,
+    )
+  })
 
   test('a submission is not forwarded while the container is still rendering, and lands once it drains', async () => {
     const holding: string[] = []
