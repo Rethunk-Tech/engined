@@ -13,7 +13,8 @@ import { FatalError } from './errors/fatal.ts'
 import { writeToStdout } from './provenance.ts'
 
 export const HELP = [
-  'usage: engined [flags] <command>',
+  'usage: engined [flags] [command]',
+  '  with no command, bind the door and serve every interface until SIGTERM.',
   'commands:',
   '  --probe [--json]          call the already-serving door; never bind a second one',
   '  --engines --json          print GET /engined/v1/engines; --json is required (no text listing)',

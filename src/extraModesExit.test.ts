@@ -57,6 +57,13 @@ test('no mode flag falls through to the daemon, with or without a script argumen
   expect(await extraModeExit(['engined'])).toBeUndefined()
 })
 
+test('--help documents that no command binds the door, which is what no arguments does', () => {
+  // Completions and the man page are generated from HELP, so a usage line that
+  // names only extra modes leaves the default undocumented everywhere.
+  expect(HELP).toContain('with no command, bind the door')
+  expect(HELP.split('\n')[0]).toBe('usage: engined [flags] [command]')
+})
+
 test('a compiled binary has no script argument, so its first argument is the mode', async () => {
   expect(await extraModeExit(['engined', '--bogus'])).toBe(USAGE)
 })
