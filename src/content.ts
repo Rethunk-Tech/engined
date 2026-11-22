@@ -335,9 +335,12 @@ export function handleEngineEvents(ctx: DoorContext, signal: AbortSignal): Respo
           listed.discovery = ctx.getConfig().model_discovery
           send('snapshot', listed)
         })
-        .catch(() => {
-          // A snapshot that cannot be built is not a reason to deny the
-          // client the live frames it actually subscribed for.
+        .catch((err: unknown) => {
+          // A snapshot that cannot be built is not a reason to deny the client
+          // the live frames it actually subscribed for, but it must not look
+          // like a healthy stream either: without this frame the client sits
+          // with no snapshot and no hint that one was ever meant to arrive.
+          send('error', { message: errMessage(err) })
         })
     },
     // A cancel (HEAD, or a reader letting go) does not abort the request signal.

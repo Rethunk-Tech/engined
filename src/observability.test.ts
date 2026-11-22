@@ -284,6 +284,20 @@ test('a state change reaches a subscriber as a live frame', async () => {
   expect(live.join('\n')).toContain('local-llama')
 })
 
+// A stream that opens and then silently never sends its snapshot looks exactly
+// like a healthy one to the client: it waits forever for a frame that is not
+// coming. The failure has to reach the stream.
+test('a snapshot that cannot be built is reported as an error frame, not swallowed', async () => {
+  const { exec } = recordingExec(() => ({}))
+  const door = doorWith(exec)
+  door.registry.list = () => Promise.reject(new Error('registry is torn down'))
+  const res = await door.fetch(new Request('http://engined/engined/v1/engines/events'))
+
+  const [first] = await readFrames(res, 1)
+  expect(first).toContain('event: error')
+  expect(first).toContain('registry is torn down')
+})
+
 // HEAD cancels the body and never aborts the request signal, so only the stream's own cancel can unsubscribe it.
 test('a cancelled events stream stops watching the registry', async () => {
   const { exec } = recordingExec(() => ({}))
