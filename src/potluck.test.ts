@@ -98,6 +98,22 @@ test('a spend save interrupted before its rename leaves the previous totals on d
   expect(readFileSync(file, 'utf8')).toBe(prior)
 })
 
+test('a spend file that does not parse neither lifts the ceiling nor gets overwritten', () => {
+  // A torn file is the one input that would turn the ceiling into zero spend:
+  // nothing proves this month's total, so a capped upstream is refused and the
+  // file is left alone for the operator to repair.
+  const dir = join(TEST_ROOT, 'corrupt-spend')
+  mkdirSync(dir)
+  const file = join(dir, 'donor-spend.json')
+  writeFileSync(file, '{not json')
+  const ledger = new DonorLedger({ stateRoot: dir, now: () => Date.UTC(2026, 9, 1) })
+  const row = donated('http://127.0.0.1:9', 1)
+
+  expect(ledger.refusal(row, Date.UTC(2026, 9, 1))).toBeDefined()
+  ledger.note(row.id, 5, Date.UTC(2026, 9, 1))
+  expect(readFileSync(file, 'utf8')).toBe('{not json')
+})
+
 test('a donated credential serves, reports live, then stops at the ceiling', async () => {
   const reports: {
     fingerprint?: string

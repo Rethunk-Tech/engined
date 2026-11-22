@@ -77,6 +77,13 @@ export class DonorLedger {
   /** Upstreams potluck answered 410 for: the donor withdrew them, so this process stops using them. */
   private readonly withdrawn = new Set<string>()
   private readonly reported = new Map<string, { status: 'live' | 'dead'; at: number }>()
+  /**
+   * Set when the spend file exists but does not parse. Nothing then proves
+   * this month's total, so a capped upstream is refused rather than run
+   * uncapped, and `save` leaves the file alone instead of replacing the only
+   * copy of the month's spend with a total from zero.
+   */
+  private corrupt = false
 
   constructor(opts: DonorLedgerOptions = {}) {
     this.opts = opts
@@ -94,6 +101,9 @@ export class DonorLedger {
     }
     if (upstream.monthly_cap_usd === undefined) {
       return
+    }
+    if (this.corrupt) {
+      return `upstream "${upstream.id}" is uncallable until ${this.path()} parses: this door cannot check its monthly cap`
     }
     if (this.spent(upstream.id, now) < upstream.monthly_cap_usd) {
       return
@@ -204,6 +214,10 @@ export class DonorLedger {
     }
     const raw = parseRecord(text)
     if (raw === null || !isRecord(raw.months)) {
+      this.corrupt = true
+      process.stderr.write(
+        `potluck: ${this.path()} does not parse; capped upstreams stay unusable until it does\n`,
+      )
       return
     }
     for (const [month, rows] of Object.entries(raw.months)) {
@@ -224,6 +238,9 @@ export class DonorLedger {
   }
 
   private save(): void {
+    if (this.corrupt) {
+      return
+    }
     const months: SpendFile['months'] = {}
     for (const [month, rows] of this.months) {
       months[month] = Object.fromEntries(rows)
