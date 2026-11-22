@@ -17,6 +17,110 @@ import type { RegistryOptions } from './registryOptions.ts'
 import { seedLegacySecrets } from './secrets.ts'
 import type { Config } from './types.ts'
 
+type Bound = ReturnType<typeof bindDoor>
+interface RebindDraft {
+  listen?: Bound
+  listenPort?: number
+  cursorPort?: number
+}
+
+function buildDoor(
+  resolveBunx: () => string,
+  createDoor: (config: Config, registryOpts: RegistryOptions, doorOpts?: DoorOptions) => Door,
+): Door {
+  const bunx = resolveBunx()
+  // The mount source a chatterbox spec names must exist before any
+  // container starts: docker creates a missing bind source itself, owned by
+  // root, and the door would then never be able to write an upload into it.
+  mkdirSync(voicesDir(), { recursive: true })
+  const registryOpts = {
+    enginesRoot: `${installDir()}/engines`,
+    bunx,
+    agenticProbeRunner: buildAgenticProbeRunner(bunx),
+  }
+  try {
+    const config = loadConfig()
+    seedLegacySecrets(config)
+    return createDoor(config, registryOpts)
+  } catch (err) {
+    // A restart cannot fix a bad config, but an edit can: the door comes up
+    // answering 503 with the reason, and the next reload signal loads it.
+    process.stderr.write(`waiting for a valid config: ${errMessage(err)}\n`)
+    return createDoor(awaitingConfig(bestEffortListenPort()), registryOpts, {
+      awaitingConfigError: errMessage(err),
+      awaitingConfigSha256: configFilesSha256(configPath()),
+    })
+  }
+}
+
+function bindOrExit(boundDoor: Door, port: number): Bound {
+  try {
+    return bindDoor(boundDoor.fetch, port)
+  } catch (err) {
+    const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
+    process.stderr.write(`engined: port ${port} ${what}: ${errMessage(err)}\n`)
+    process.exit(FatalError.EXIT_CODE)
+  }
+}
+
+/**
+ * The listeners a rebind has opened but not yet committed. They are bound
+ * before `registry.reload` runs -- so a port already taken fails the reload
+ * with the old config still serving -- but the old listeners stay up until
+ * that reload has actually landed: a reload that throws must leave the door
+ * answering on the port it was already serving, not on the new one with the
+ * previous config.
+ */
+function makeRebind(args: {
+  getDoor: () => Door
+  getBound: () => Bound
+  setBound: (next: Bound) => void
+  startCursor: (port: number) => void
+  stopCursor: () => void
+}): { rebind: (next: Config) => void; commitRebind: () => void } {
+  let rebinding: RebindDraft | undefined
+  function rebind(next: Config): void {
+    const door = args.getDoor()
+    const fresh: RebindDraft = {}
+    if (next.listen_port !== door.served.listen) {
+      fresh.listen = bindDoor(door.fetch, next.listen_port)
+      fresh.listenPort = next.listen_port
+    }
+    if (door.served.cursor !== undefined && next.cursor_port !== door.served.cursor) {
+      fresh.cursorPort = next.cursor_port
+    }
+    rebinding = fresh
+  }
+  /** Moves the listeners a rebind prepared, or closes them again when the reload it was preparing for did not land. */
+  function commitRebind(): void {
+    const fresh = rebinding
+    rebinding = undefined
+    if (fresh === undefined) {
+      return
+    }
+    const door = args.getDoor()
+    if (door.configError() !== undefined) {
+      for (const s of fresh.listen ?? []) {
+        s.stop()
+      }
+      return
+    }
+    if (fresh.listen !== undefined) {
+      for (const s of args.getBound()) {
+        s.stop()
+      }
+      args.setBound(fresh.listen)
+      door.served.listen = fresh.listenPort as number
+    }
+    if (fresh.cursorPort !== undefined) {
+      args.stopCursor()
+      door.served.cursor = undefined
+      args.startCursor(fresh.cursorPort)
+    }
+  }
+  return { rebind, commitRebind }
+}
+
 export function runDaemon(make: {
   resolveBunx: () => string
   createDoor: (config: Config, registryOpts: RegistryOptions, doorOpts?: DoorOptions) => Door
@@ -25,45 +129,9 @@ export function runDaemon(make: {
 }): { hangup: () => void; hardReload: () => Promise<void>; stop: () => Promise<void> } {
   const { resolveBunx, createDoor } = make
   const path = configPath()
-  function buildDoor(): Door {
-    const bunx = resolveBunx()
-    // The mount source a chatterbox spec names must exist before any
-    // container starts: docker creates a missing bind source itself, owned by
-    // root, and the door would then never be able to write an upload into it.
-    mkdirSync(voicesDir(), { recursive: true })
-    const registryOpts = {
-      enginesRoot: `${installDir()}/engines`,
-      bunx,
-      agenticProbeRunner: buildAgenticProbeRunner(bunx),
-    }
-    try {
-      const config = loadConfig()
-      seedLegacySecrets(config)
-      return createDoor(config, registryOpts)
-    } catch (err) {
-      // A restart cannot fix a bad config, but an edit can: the door comes up
-      // answering 503 with the reason, and the next reload signal loads it.
-      process.stderr.write(`waiting for a valid config: ${errMessage(err)}\n`)
-      return createDoor(awaitingConfig(bestEffortListenPort()), registryOpts, {
-        awaitingConfigError: errMessage(err),
-        awaitingConfigSha256: configFilesSha256(configPath()),
-      })
-    }
-  }
-
-  function bindOrExit(boundDoor: Door, port: number): ReturnType<typeof bindDoor> {
-    try {
-      return bindDoor(boundDoor.fetch, port)
-    } catch (err) {
-      const what = errorCode(err) === 'EADDRINUSE' ? 'already in use' : 'cannot listen'
-      process.stderr.write(`engined: port ${port} ${what}: ${errMessage(err)}\n`)
-      process.exit(FatalError.EXIT_CODE)
-    }
-  }
-
   let door: Door
   try {
-    door = buildDoor()
+    door = buildDoor(resolveBunx, createDoor)
   } catch (err) {
     process.stderr.write(`engined: ${errMessage(err)}\n`)
     process.exit(FatalError.EXIT_CODE)
@@ -94,54 +162,17 @@ export function runDaemon(make: {
     door.discovery.start(config)
   }
 
-  /**
-   * The listeners a rebind has opened but not yet committed. They are bound
-   * before `registry.reload` runs -- so a port already taken fails the reload
-   * with the old config still serving -- but the old listeners stay up until
-   * that reload has actually landed: a reload that throws must leave the door
-   * answering on the port it was already serving, not on the new one with the
-   * previous config.
-   */
-  let rebinding: { listen?: ReturnType<typeof bindDoor>; listenPort?: number; cursorPort?: number }
-
-  function rebind(next: Config): void {
-    const fresh: typeof rebinding = {}
-    if (next.listen_port !== door.served.listen) {
-      fresh.listen = bindDoor(door.fetch, next.listen_port)
-      fresh.listenPort = next.listen_port
-    }
-    if (door.served.cursor !== undefined && next.cursor_port !== door.served.cursor) {
-      fresh.cursorPort = next.cursor_port
-    }
-    rebinding = fresh
-  }
-
-  /** Moves the listeners a rebind prepared, or closes them again when the reload it was preparing for did not land. */
-  function commitRebind(): void {
-    const fresh = rebinding
-    rebinding = undefined
-    if (fresh === undefined) {
-      return
-    }
-    if (door.configError() !== undefined) {
-      for (const s of fresh.listen ?? []) {
-        s.stop()
-      }
-      return
-    }
-    if (fresh.listen !== undefined) {
-      for (const s of bound) {
-        s.stop()
-      }
-      bound = fresh.listen
-      door.served.listen = fresh.listenPort as number
-    }
-    if (fresh.cursorPort !== undefined) {
+  const { rebind, commitRebind } = makeRebind({
+    getDoor: () => door,
+    getBound: () => bound,
+    setBound: (next) => {
+      bound = next
+    },
+    startCursor,
+    stopCursor: () => {
       cursorAgent?.stop()
-      door.served.cursor = undefined
-      startCursor(fresh.cursorPort)
-    }
-  }
+    },
+  })
 
   let hardReloading = false
   async function hardReload(): Promise<void> {
