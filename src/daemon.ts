@@ -150,6 +150,11 @@ export function runDaemon(make: {
       })
       .catch((err: unknown) => {
         process.stderr.write(`shutdown failed: ${errMessage(err)}\n`)
+        // TEMP-PROVE-REVERT
+        // The engine teardown did not finish, so systemd's own timeout is not
+        // the one that should kill this process: exit non-zero now, while the
+        // operator can still see why in the unit's status.
+        process.exit(1)
       })
 
   const listen = make.on ?? ((event, listener) => process.on(event, listener))

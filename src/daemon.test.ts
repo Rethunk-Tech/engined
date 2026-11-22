@@ -300,8 +300,12 @@ test('a live door starts inventory and cursor, then hangup, hard reload, and a n
     }
     await handle.hardReload()
     expect(err.join('')).toContain('hard reload failed')
+    exits.length = 0
     await handle.stop()
     expect(err.join('')).toContain('shutdown failed')
+    // A teardown that threw must not leave the process parked until systemd's
+    // own SIGKILL: it exits non-zero here, with the reason already logged.
+    expect(exits).toEqual([1])
     door.registry.shutdown = async () => undefined
     await handle.stop()
   })
