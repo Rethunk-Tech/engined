@@ -56,7 +56,8 @@ function tailnetName(): string | undefined {
       timeout: TAILSCALE_TIMEOUT_MS,
       stderr: 'ignore',
     })
-    const dns = (JSON.parse(out.stdout.toString()) as { Self?: { DNSName?: unknown } }).Self?.DNSName
+    const dns = (JSON.parse(out.stdout.toString()) as { Self?: { DNSName?: unknown } }).Self
+      ?.DNSName
     if (typeof dns === 'string' && dns !== '') {
       name = bareHost(dns)
     }

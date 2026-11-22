@@ -18,6 +18,7 @@ import {
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { comfyBindingsPath, loadComfyBindings } from './comfyBindings.ts'
+import { withComfySlot } from './comfyProxy.ts'
 import { loadConfig } from './config.ts'
 import { redirectStateHome } from './enginesFixtures.ts'
 import {
@@ -30,7 +31,6 @@ import {
   STATUS_PAYLOAD_TOO_LARGE,
 } from './http.ts'
 import { bindDoor } from './listen.ts'
-import { withComfySlot } from './comfyProxy.ts'
 import { createDoor } from './main.ts'
 import {
   BUNX,

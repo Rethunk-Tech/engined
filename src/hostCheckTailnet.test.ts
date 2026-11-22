@@ -45,7 +45,7 @@ test('a tailnet name that appears after a failed probe is allowed on a later req
 
     // Before the cooldown a missing name is not re-probed: a hostile `Host`
     // must not buy a `tailscale` spawn per request.
-    clock += 1_000
+    clock += 1000
     expect(isAllowedHost(tailnet, [])).toBe(false)
     expect(probes).toBe(1)
 
