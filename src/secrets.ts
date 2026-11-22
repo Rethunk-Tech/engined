@@ -100,7 +100,7 @@ export function seedLegacySecrets(
 
 function settleLegacy(ref: KeyringRef, file: string): void {
   const pending = pendingLegacy(file)
-  if (pending !== undefined && pending.includes(refKey(ref))) {
+  if (pending?.includes(refKey(ref))) {
     writeFileAtomic(file, JSON.stringify(pending.filter((k) => k !== refKey(ref))))
   }
 }
