@@ -1,6 +1,7 @@
 /** The `Host` allowlist: a page on a hostile name rebound to this machine must not read the door. */
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
+import { isRecord } from './records.ts'
 
 const TAILSCALE_TIMEOUT_MS = 2000
 /** How long a tailnet probe's answer stands, so a hostile `Host` cannot spawn one per request. */
@@ -56,8 +57,9 @@ function tailnetName(): string | undefined {
       timeout: TAILSCALE_TIMEOUT_MS,
       stderr: 'ignore',
     })
-    const dns = (JSON.parse(out.stdout.toString()) as { Self?: { DNSName?: unknown } }).Self
-      ?.DNSName
+    const parsed: unknown = JSON.parse(out.stdout.toString())
+    const self = isRecord(parsed) ? parsed.Self : undefined
+    const dns = isRecord(self) ? self.DNSName : undefined
     if (typeof dns === 'string' && dns !== '') {
       name = bareHost(dns)
     }
