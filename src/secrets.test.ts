@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Exec, ExecResult } from './exec.ts'
@@ -203,6 +203,29 @@ describe('the engined keyring namespace', () => {
     expect(await resolveSecret(Openai, exec, file)).toEqual({ ok: true, value: 'sk-new' })
     expect(await clearSecret(Openai, exec, file)).toEqual({ ok: true })
     expect((await resolveSecret(Openai, exec, file)).ok).toBe(false)
+  })
+
+  test('a legacy file that does not parse is reported and moves nothing rather than reading as empty', async () => {
+    const items = new Map([[itemKey(Openai), 'sk-legacy']])
+    const exec = fakeKeyring(items, [])
+    const file = pendingFile()
+    writeFileSync(file, '{not json')
+    const realErr = process.stderr.write.bind(process.stderr)
+    const logged: string[] = []
+    process.stderr.write = ((s: string | Uint8Array): boolean => {
+      logged.push(String(s))
+      return true
+    }) as typeof process.stderr.write
+    try {
+      // The old item is left where it is: this read cannot prove the ref is
+      // not pending, so moving nothing is safer than treating the torn file
+      // as an empty pending list.
+      expect((await resolveSecret(Openai, exec, file)).ok).toBe(false)
+    } finally {
+      process.stderr.write = realErr
+    }
+    expect(logged.join('')).toContain('does not parse')
+    expect(readFileSync(file, 'utf8')).toBe('{not json')
   })
 
   test("a missing secret's fix stores it under the prefix", async () => {

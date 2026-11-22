@@ -51,12 +51,28 @@ function legacySecretsFile(): string {
 
 const refKey = (ref: KeyringRef): string => JSON.stringify([ref.service, ref.username])
 
-function pendingLegacy(file: string): string[] {
+/**
+ * The refs a prefixed build found on disk, or `undefined` when the file is
+ * there but does not parse. Treating that as an empty list would read as
+ * "nothing left to move", skip a migration that has not run, and leave the
+ * old item where no later read will look for it again.
+ */
+function pendingLegacy(file: string): string[] | undefined {
+  let text: string
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
-    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
+    text = readFileSync(file, 'utf8')
   } catch {
+    // No file is the ordinary case: a fresh install has nothing to move.
     return []
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
+  } catch (err) {
+    process.stderr.write(
+      `keyring: ${file} does not parse, skipping the move from the old item: ${errMessage(err)}\n`,
+    )
+    return undefined
   }
 }
 
@@ -84,7 +100,7 @@ export function seedLegacySecrets(
 
 function settleLegacy(ref: KeyringRef, file: string): void {
   const pending = pendingLegacy(file)
-  if (pending.includes(refKey(ref))) {
+  if (pending !== undefined && pending.includes(refKey(ref))) {
     writeFileAtomic(file, JSON.stringify(pending.filter((k) => k !== refKey(ref))))
   }
 }
@@ -98,11 +114,11 @@ export async function resolveSecret(
   legacyFile: string = legacySecretsFile(),
 ): Promise<SecretOutcome> {
   const outcome = await lookup(ref, exec, attributes(ref))
-  if (
-    outcome.ok ||
-    outcome.reason === 'locked' ||
-    !pendingLegacy(legacyFile).includes(refKey(ref))
-  ) {
+  if (outcome.ok || outcome.reason === 'locked') {
+    return outcome
+  }
+  const pending = pendingLegacy(legacyFile)
+  if (pending === undefined || !pending.includes(refKey(ref))) {
     return outcome
   }
   const legacy = await lookup(ref, exec, ['service', ref.service, 'username', ref.username])
