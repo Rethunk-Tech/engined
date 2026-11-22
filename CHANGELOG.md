@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.4 - 2026-11-22
+
 - A potluck spend file that does not parse refuses capped upstreams instead of reading as zero spend, so a torn write can no longer lift the donor cap.
 - Atomic file writes fsync the temp file before renaming it into place.
 - The daemon exits non-zero when shutdown fails instead of hanging until SIGKILL.
