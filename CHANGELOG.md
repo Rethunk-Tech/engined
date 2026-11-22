@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- A potluck spend file that does not parse refuses capped upstreams instead of reading as zero spend, so a torn write can no longer lift the donor cap.
+- Atomic file writes fsync the temp file before renaming it into place.
+- The daemon exits non-zero when shutdown fails instead of hanging until SIGKILL.
+- The config UI replaces an empty bridge hop in `X-Forwarded-For` instead of trusting it.
+- The mediated Comfy queue delete runs under the submission gate, so it cannot race a new prompt.
+- A hard reload that fails to land keeps the old port.
+- A bracketed `Host` with no closing bracket is refused.
+- The tailnet name probe retries instead of caching its first miss for the life of the daemon.
+- An image GET that finds its render expired deletes it.
+- A successful swept attempt in the config UI no longer deletes another client's strike.
+- An unparseable legacy keyring file is reported instead of being read as empty.
+- The events stream sends an error frame when the engines snapshot cannot be built.
+- `X-Forwarded-Proto` can upgrade an image URL to https but never pick another scheme or downgrade an https URL.
+- `--help` says no command binds the door.
+
 ## 0.3.3 - 2026-11-21
 
 - The door and the Cursor listener refuse a `Host` that is not an IP, `localhost`, `*.localhost`, this machine's hostname or tailnet name, or a name in the new `allowed_hosts` config key, so a rebound hostile name can no longer read the GET routes.
