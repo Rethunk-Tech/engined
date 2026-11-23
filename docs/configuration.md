@@ -299,8 +299,9 @@ time it is read, but only for the refs the config named when a prefixed build
 first ran (`keyring-legacy.json` in the state directory). The old item is left
 where it is.
 
-A ref that missed that copy (absent from the config then, or its old item not
-readable at that first read) shows as missing while the old item still exists.
+A ref that missed that copy (absent from the config then, or crossed off after
+one empty read by an earlier build) shows as missing while the old item still
+exists.
 Delete `keyring-legacy.json` and restart `engined` and `engined-configsvc`: the
 next start records the current config's refs and the next read copies them. Or
 copy one by hand:

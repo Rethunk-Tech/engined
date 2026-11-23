@@ -194,6 +194,17 @@ describe('the engined keyring namespace', () => {
     })
   })
 
+  test('an old item missing at one read is still copied when a later read finds it', async () => {
+    const items = new Map<string, string>()
+    const exec = fakeKeyring(items, [])
+    const file = pendingFile()
+    seedLegacySecrets({ upstreams: [{ secret: Openai }] }, file)
+    expect((await resolveSecret(Openai, exec, file)).ok).toBe(false)
+    items.set(itemKey(Openai), 'sk-legacy')
+    expect(await resolveSecret(Openai, exec, file)).toEqual({ ok: true, value: 'sk-legacy' })
+    expect(items.get(prefixed(Openai))).toBe('sk-legacy')
+  })
+
   test('a store before the first read wins over the old item, and a clear does not bring it back', async () => {
     const items = new Map([[itemKey(Openai), 'sk-legacy']])
     const exec = fakeKeyring(items, [])

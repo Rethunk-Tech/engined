@@ -43,7 +43,7 @@ function storeFix(ref: KeyringRef): string {
  * Secrets stored before the prefix sit at `service <service> username
  * <username>`, where nothing tells engined's own item from another program's.
  * Only the refs the config named the first time a prefixed build ran may be
- * read there, once each; a ref first named later never is.
+ * read there, until the copy lands; a ref first named later never is.
  */
 function legacySecretsFile(): string {
   return join(stateDir(), 'keyring-legacy.json')
@@ -122,12 +122,10 @@ export async function resolveSecret(
     return outcome
   }
   const legacy = await lookup(ref, exec, ['service', ref.service, 'username', ref.username])
+  // A miss stays pending: one empty answer must not strand an old item that a later read could find.
   if (legacy.ok) {
     await storeSecret(ref, legacy.value, exec, legacyFile)
     return legacy
-  }
-  if (legacy.reason === 'missing') {
-    settleLegacy(ref, legacyFile)
   }
   return outcome
 }

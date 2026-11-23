@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- A keyring secret stored before the `service engined` prefix stays queued for its copy after an empty lookup, instead of being crossed off for good and showing as missing while the old item still exists.
+
 ## 0.3.4 - 2026-11-22
 
 - A potluck spend file that does not parse refuses capped upstreams instead of reading as zero spend, so a torn write can no longer lift the donor cap.
