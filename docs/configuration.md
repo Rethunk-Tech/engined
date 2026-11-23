@@ -294,12 +294,12 @@ secret-tool store --label='engined elevenlabs-api/scribe' service engined name e
 engined reads, stores and clears only items carrying `service engined`; the
 config's `service` is the item's `name` attribute under it, so a config cannot
 point engined at another program's login item. A secret stored before that
-prefix, at `service <service> username <username>`, moves under it the first
+prefix, at `service <service> username <username>`, is copied under it the first
 time it is read, but only for the refs the config named when a prefixed build
 first ran (`keyring-legacy.json` in the state directory). The old item is left
 where it is.
 
-A ref that missed that move (absent from the config then, or its old item not
+A ref that missed that copy (absent from the config then, or its old item not
 readable at that first read) shows as missing while the old item still exists.
 Delete `keyring-legacy.json` and restart `engined` and `engined-configsvc`: the
 next start records the current config's refs and the next read copies them. Or
