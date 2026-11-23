@@ -21,7 +21,7 @@ ARG REPO=https://github.com/PrismML-Eng/llama.cpp.git
 # nothing recording which one a measurement was taken on.
 ARG LLAMA_COMMIT=84445367fbaf79c00ff64bc93a0689cdb3eee54d
 
-FROM quay.io/fedora/fedora:46@sha256:65f229c50e5a6ec4b4468da58835c1a30db77fe835914ffa2086a05a79db0e24 AS builder
+FROM quay.io/fedora/fedora:46@sha256:6874f92127d7b16b252ce62028afac1a40ebe446f1dcf1a2f7695febbe782a60 AS builder
 
 RUN dnf -y --nodocs --setopt=install_weak_deps=False install \
   git \
@@ -63,7 +63,7 @@ RUN cmake -S . -B build -G Ninja \
 
 RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; && ldconfig
 
-FROM quay.io/fedora/fedora-minimal:46@sha256:cefba07f13c252c405adef3eb86db7898f65695c926c0ecbb704847017468458
+FROM quay.io/fedora/fedora-minimal:46@sha256:751969d84eaf15fdc39503f41a371c18c5b1c70a360c9b790c4ae9ac8ed28fc7
 ARG REPO
 ARG LLAMA_COMMIT
 LABEL org.opencontainers.image.source="${REPO}" \
