@@ -299,6 +299,17 @@ time it is read, but only for the refs the config named when a prefixed build
 first ran (`keyring-legacy.json` in the state directory). The old item is left
 where it is.
 
+A ref that missed that move (absent from the config then, or its old item not
+readable at that first read) shows as missing while the old item still exists.
+Delete `keyring-legacy.json` and restart `engined` and `engined-configsvc`: the
+next start records the current config's refs and the next read moves them. Or
+move one by hand:
+
+```sh
+secret-tool lookup service elevenlabs-api username scribe \
+  | secret-tool store --label='engined elevenlabs-api/scribe' service engined name elevenlabs-api username scribe
+```
+
 Resolution is per request and never cached — see
 [security-model.md](security-model.md). An engine with no key configured
 reports `unavailable` naming the exact `secret-tool store` line that fixes it,
