@@ -302,8 +302,8 @@ where it is.
 A ref that missed that move (absent from the config then, or its old item not
 readable at that first read) shows as missing while the old item still exists.
 Delete `keyring-legacy.json` and restart `engined` and `engined-configsvc`: the
-next start records the current config's refs and the next read moves them. Or
-move one by hand:
+next start records the current config's refs and the next read copies them. Or
+copy one by hand:
 
 ```sh
 secret-tool lookup service elevenlabs-api username scribe \
