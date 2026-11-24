@@ -66,7 +66,7 @@ button {
   border-radius: 4px;
   padding: 4px 8px;
 }
-input:not([type="checkbox"]):not([type="radio"]),
+input:where(:not([type="checkbox"], [type="radio"])),
 select {
   height: 32px;
 }
@@ -101,7 +101,7 @@ label {
   display: block;
   margin: 8px 0;
 }
-label input:not([type="checkbox"]):not([type="radio"]) {
+label input:where(:not([type="checkbox"], [type="radio"])) {
   display: block;
   width: 100%;
   margin-top: 4px;

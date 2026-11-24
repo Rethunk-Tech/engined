@@ -117,7 +117,7 @@ const HAVE_IMAGES =
   imageBuilt(FIXTURE.llamaImage) &&
   imageBuilt(FIXTURE.comfyImage)
 
-const READY = LOCAL && HAVE_IMAGES && FIXTURE !== undefined
+const READY = LOCAL && HAVE_IMAGES
 
 // See llama.test.ts: loud when this file would really drive containers.
 if (READY) {
@@ -147,7 +147,7 @@ const MISSING_WEIGHTS =
   FIXTURE?.comfyModelsDir === undefined
     ? []
     : renderWeightPaths(FIXTURE.comfyModelsDir).filter((path) => !existsSync(path))
-const CAN_RENDER = READY && FIXTURE?.comfyModelsDir !== undefined && MISSING_WEIGHTS.length === 0
+const CAN_RENDER = READY && FIXTURE.comfyModelsDir !== undefined && MISSING_WEIGHTS.length === 0
 
 function renderSkipReason(): string {
   if (!READY) {
