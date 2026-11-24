@@ -47,6 +47,7 @@ const CONTAINER_ONLY_KEYS = [
   'init',
   'entrypoint',
   'volume',
+  'tmpfs',
   'artifact',
   'ready',
 ] as const
@@ -329,6 +330,7 @@ function parseContainer(raw: Record<string, unknown>, file: string, kind: string
         : requireString(raw.images_edit_workflow, '"images_edit_workflow"', file),
     route_file_env: optional(raw.route_file_env, 'string', '"route_file_env"', file),
     volumes: parseVolumes(raw.volume, file),
+    tmpfs: raw.tmpfs === undefined ? undefined : requireStringArray(raw.tmpfs, 'tmpfs', file),
     artifacts: parseArtifacts(raw.artifact, file),
     ready: parseReady(raw.ready, file),
   }

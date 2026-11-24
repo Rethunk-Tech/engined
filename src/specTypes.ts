@@ -70,6 +70,8 @@ export interface ContainerSpec extends SpecCommon {
    * more thing to get wrong on every render that never uploads anything.
    */
   images_edit_workflow?: string
+  /** Container paths mounted as tmpfs, so their contents never touch the host disk. */
+  tmpfs?: string[]
   volumes: Volume[]
   artifacts: Artifact[]
   /** Env var a start sets to `/models/<filename>` of the route it serves, for an engine that loads its weights from the environment rather than a `-m` argument. */

@@ -1,7 +1,7 @@
 /**
  * Which submitted prompt belongs to which caller, kept across restarts so a
- * caller can still fetch its own output after one. Aged out and capped, since
- * nothing else ever deletes an entry.
+ * caller can still fetch its own output after one. Aged out and capped;
+ * `POST /history` deletes an entry the caller asked to erase.
  */
 
 import { readFileSync } from 'node:fs'

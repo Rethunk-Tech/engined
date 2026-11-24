@@ -5,6 +5,7 @@
  */
 
 import { proxyComfyCancel, proxyComfyQueueDelete } from './comfyCancel.ts'
+import { proxyComfyHistoryDelete } from './comfyErase.ts'
 import {
   COMFY_LOCAL_ORIGIN,
   COMFY_WS_SUFFIX,
@@ -28,12 +29,14 @@ import { KIBIBYTE, MEBIBYTE } from './records.ts'
 
 /**
  * Everything else the container answers, dispatched by method and
- * sub-path. Every real call is sub-pathed (`/history/{id}`,
- * `/object_info/{type}`); matching the bare form would match nothing a real
- * caller ever sends and would only invite one that shouldn't. `GET /queue`
- * bare, `POST /free` and `POST /interrupt` are never forwarded: `/free`
- * evicts loaded weights (`release` is the door's own verb for that, with
- * the lease check that belongs there), `/interrupt` stops whatever the
+ * sub-path. Every GET is sub-pathed (`/history/{id}`, `/object_info/{type}`);
+ * matching the bare GET form would match nothing a real caller ever sends
+ * and would only invite one that shouldn't. `POST /history` is the exception:
+ * it is the door's own erase verb, scoped to prompt ids this door bound and
+ * temp uploads this origin sent, never the container's entire ledger.
+ * `GET /queue` bare, `POST /free` and `POST /interrupt` are never forwarded:
+ * `/free` evicts loaded weights (`release` is the door's own verb for that,
+ * with the lease check that belongs there), `/interrupt` stops whatever the
  * container is CURRENTLY processing with no scoping of its own, and a bare
  * `/queue` is the container's entire global ledger. `POST /cancel` is the
  * door's own verb for the one those two would otherwise be wanted for: it
@@ -128,7 +131,10 @@ function comfyPost(proxy: ComfyProxy, rest: string, req: Request): Promise<Respo
     return proxyComfyPromptAndCancelOnAbort(proxy, req)
   }
   if (rest === 'upload/image') {
-    return proxyComfyUpload(proxy.base, req, proxy.httpClient)
+    return proxyComfyUpload(proxy, req)
+  }
+  if (rest === 'history') {
+    return proxyComfyHistoryDelete(proxy, req)
   }
   if (rest === 'queue') {
     return proxyComfyQueueDelete(proxy, req)

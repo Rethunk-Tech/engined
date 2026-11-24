@@ -302,6 +302,7 @@ function createDoorContext(
     launchUpstreams: new Map(),
     agenticInFlight: 0,
     comfyBindings: loadComfyBindings(),
+    comfyTempUploads: new Map(),
     comfySlots: new Map(),
     usage: new UsageTracker({ stateRoot: doorOpts.usageStateRoot }),
     probes: new ProbeStore(),

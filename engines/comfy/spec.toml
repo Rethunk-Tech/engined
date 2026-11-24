@@ -27,6 +27,7 @@ serves = [
   "/engined/v1/comfy/:engine/:upstream/upload/image",
   "/engined/v1/comfy/:engine/:upstream/view",
   "/engined/v1/comfy/:engine/:upstream/ws",
+  "/engined/v1/comfy/:engine/:upstream/history",
   "/engined/v1/comfy/:engine/:upstream/history/:promptId",
   "/engined/v1/comfy/:engine/:upstream/queue",
   "/engined/v1/comfy/:engine/:upstream/system_stats",

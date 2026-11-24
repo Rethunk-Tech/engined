@@ -13,6 +13,13 @@ import { type ContainerSpec, isContainerSpec, type LoadedSpec } from './specType
 import type { EngineEntry } from './types.ts'
 
 const MODELS_CONTAINER_PATH = '/opt/comfyui/models'
+/** ComfyUI's own temp directory: `{WORKDIR}/temp` with WORKDIR `/opt/comfyui`. */
+export const COMFY_TEMP_DIR = '/opt/comfyui/temp'
+
+/** A name that cannot walk out of comfy's temp directory when joined onto it. */
+export function safeComfyTempName(name: string): boolean {
+  return name !== '' && !name.includes('/') && !name.includes('\\') && !name.includes('..')
+}
 
 /**
  * Mounted read-write, not `:ro`: unlike llama's GGUF store, ComfyUI writes
@@ -31,5 +38,6 @@ export function buildComfySpec(engine: EngineEntry, loaded: LoadedSpec): Contain
   }
   const { spec } = loaded
   spec.volumes = [...spec.volumes, { name: engine.models_dir, path: MODELS_CONTAINER_PATH }]
+  spec.tmpfs = [...(spec.tmpfs ?? []), COMFY_TEMP_DIR]
   return applyEngineArgs(engine, spec)
 }

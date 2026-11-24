@@ -841,7 +841,7 @@ Comfy is a **modelless** engine, addressed only as `@/comfy/local`, with no
 one-segment or three-segment form. It is reached entirely through a mediated
 proxy under `/engined/v1/comfy/:engine/:upstream/...`, never at a raw
 container address: every real caller's `object_info`, `prompt`, `upload/image`,
-`view`, `ws`, `history/:promptId` and `queue` calls forward through this door,
+`view`, `ws`, `history/:promptId`, `POST /history` and `queue` calls forward through this door,
 by address, resolved to the running container's own host:port on the door's
 side only. This is what keeps every control this project has -- call
 recording, egress ceilings, and later a budget -- in one place: a consumer
@@ -856,8 +856,22 @@ shared and a caller-supplied filename must never become a URL on its own say-so.
 
 `POST /upload/image` stores the image under a namespaced filename in the
 container's input directory, or in its temp directory (emptied on every Comfy
-start) when the form's `type` is `temp`, for a caller that must leave nothing
-behind. Any other `type`, and every `subfolder` and `overwrite`, is pinned.
+start, and a tmpfs so it never touches the host disk) when the form's `type`
+is `temp`, for a caller that must leave nothing behind. Any other `type`, and
+every `subfolder` and `overwrite`, is pinned.
+
+`POST /history` is the door's own erase verb for a caller that must leave
+nothing behind after a finished run. The body is `{"delete": [promptId, ...],
+"uploads": [name, ...]}` — both arrays optional. Only prompt ids this door
+bound for this caller are forwarded to ComfyUI as `POST /history {"delete":
+[...]}`; the rest are dropped. For each kept id the door deletes every bound
+`type=temp` output from the container's temp directory, then drops the
+binding, so a later `GET /view` for those files is refused. `uploads` names
+are deleted from that same temp directory only when this origin uploaded them
+with `type=temp`; every other name is dropped. The 200 is `{"deleted":
+[promptIds], "uploads": [names]}` naming only what was actually erased. A
+body that is not that shape is 400. File names passed to the container come
+from this door's own records, never from the caller's string.
 
 `POST /cancel` is the door's own verb rather than a forwarded one, and the
 reason comfy's `/interrupt` is never forwarded at all: `/interrupt` stops

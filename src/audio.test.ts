@@ -363,6 +363,7 @@ function doorFrom(
     launchUpstreams: new Map(),
     agenticInFlight: 0,
     comfyBindings: new Map(),
+    comfyTempUploads: new Map(),
     comfySlots: new Map(),
     probes: new ProbeStore(),
     usage: new UsageTracker({ stateRoot: mkdtempSync(join(TEST_ROOT, 'usage-')) }),

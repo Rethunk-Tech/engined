@@ -168,6 +168,9 @@ function specRunArgs(spec: RunnableContainerSpec): string[] {
   for (const volume of spec.volumes) {
     args.push('-v', mountSpec(volume))
   }
+  for (const path of spec.tmpfs ?? []) {
+    args.push('--tmpfs', path)
+  }
   const [entryBin, ...entryRest] = spec.entrypoint ?? []
   if (entryBin !== undefined) {
     args.push('--entrypoint', entryBin)

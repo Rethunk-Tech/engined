@@ -1199,6 +1199,7 @@ test('retiring a stale llama router releases its keep_resident pin', async () =>
     launchUpstreams: new Map(),
     agenticInFlight: 0,
     comfyBindings: new Map(),
+    comfyTempUploads: new Map(),
     comfySlots: new Map(),
     probes: new ProbeStore(),
     usage: new UsageTracker({ stateRoot: TEST_ROOT }),

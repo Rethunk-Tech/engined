@@ -156,6 +156,8 @@ interface BuildExecOptions {
    */
   runLog?: string[][]
   stopLog?: string[][]
+  /** Every `docker exec` argv. A test that asserts a file was (or was not) removed from a container reads this rather than reaching docker. */
+  execLog?: string[][]
   /** The single port the image `EXPOSE`s, when a test's engine kind has a real one. Never asserted on: `docker port` answers from `port`/`portByContainer` regardless. */
   containerPort?: number
   /** Holds `run -d` pending this long before resolving -- a genuine tick for a start-lock race test to prove overlap against, not sequencing. A one-shot artifact check is never delayed: only the start is what such a test races. */
@@ -235,6 +237,9 @@ export function buildExec(opts: BuildExecOptions): Exec {
     }
     if (argv[0] === 'inspect') {
       return Promise.resolve(containerRunning())
+    }
+    if (argv[0] === 'exec') {
+      opts.execLog?.push(argv)
     }
     return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 })
   }

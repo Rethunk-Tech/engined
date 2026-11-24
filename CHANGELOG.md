@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `POST /engined/v1/comfy/:engine/:upstream/history` erases a caller's own finished Comfy prompt, its temp outputs and its temp uploads.
+
 ## 0.3.5 - 2026-11-23
 
 - A keyring secret stored before the `service engined` prefix stays queued for its copy after an empty lookup, instead of being crossed off for good and showing as missing while the old item still exists.

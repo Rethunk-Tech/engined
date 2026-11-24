@@ -178,6 +178,12 @@ describe('buildRunArgs', () => {
     }
   })
 
+  test('a tmpfs path is one --tmpfs flag, never a bind mount', () => {
+    const argv = buildRunArgs('engined-x', { ...SPEC, tmpfs: ['/opt/comfyui/temp'] })
+    expect(argv.filter((_, i) => argv[i - 1] === '--tmpfs')).toEqual(['/opt/comfyui/temp'])
+    expect(argv).not.toContain('/opt/comfyui/temp:/opt/comfyui/temp')
+  })
+
   test('no entrypoint leaves --entrypoint off and the command directly after the image', () => {
     const argv = buildRunArgs('engined-x', { ...SPEC, command: ['serve', '--port', '1'] })
     expect(argv).not.toContain('--entrypoint')

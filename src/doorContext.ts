@@ -122,6 +122,12 @@ export interface DoorContext {
   agenticInFlight: number
   /** Comfy proxy mediation state, reload-durable. */
   comfyBindings: ComfyBindings
+  /**
+   * Names this origin uploaded to this engine with `type=temp`. In memory
+   * only: a tmpfs dies with the container, and a door restart that forgot
+   * the set simply refuses to delete a name it can no longer vouch for.
+   */
+  comfyTempUploads: Map<string, Set<string>>
   /** One submission gate per comfy engine -- see `ComfySlots`. */
   comfySlots: ComfySlots
   /** Per-day, per-route call counters -- see `src/usage.ts`. */
@@ -157,7 +163,7 @@ type ComfySlots = Map<string, Promise<unknown>>
  * every `prompt_id` `POST /prompt` handed back, keyed on the origin that
  * submitted it as well as the engine, and under each one the output
  * filenames a completed `/history` read surfaced for THAT prompt. `GET
- * /view` and `POST /queue` are mediated against this table rather than
+ * /view`, `POST /queue` and `POST /history` are mediated against this table rather than
  * against anything the caller merely claims -- comfy's output directory is
  * shared, so a caller-supplied filename must never become a URL on its own
  * say-so, and one engine-wide filename set would hand every origin every

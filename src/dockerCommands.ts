@@ -323,3 +323,19 @@ export async function readResources(
   }
   return { ok: true, resources: parseResources(res.stdout) }
 }
+
+/** `docker exec <container> rm -f -- <path>`: one file, never a glob, never a host path. */
+export async function removeContainerFile(
+  exec: Exec,
+  containerName: string,
+  path: string,
+): Promise<Result> {
+  const res = await exec(['exec', containerName, 'rm', '-f', '--', path])
+  if (res.exitCode !== 0) {
+    return {
+      ok: false,
+      error: res.stderr.trim() || `docker exec rm failed for ${containerName}`,
+    }
+  }
+  return { ok: true }
+}

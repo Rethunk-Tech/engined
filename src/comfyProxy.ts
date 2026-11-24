@@ -1,3 +1,4 @@
+import { safeComfyTempName } from './comfy.ts'
 import {
   COMFY_KEY_SEP,
   comfyKey,
@@ -35,6 +36,10 @@ const COMFY_UPLOAD_PREFIX_LEN = 12
 function uploadBasename(original: string): string {
   const base = original.replaceAll('\\', '/').split('/').pop() ?? ''
   return base === '' || base === '.' || base === '..' ? 'upload.png' : base
+}
+
+export function tempUploadKey(engineId: string, origin: string): string {
+  return `${engineId}${COMFY_KEY_SEP}${origin}`
 }
 
 /** `original` with a short UUID prefix, so two uploads of the same filename in one second do not collide in comfy's shared input directory. */
@@ -293,9 +298,8 @@ export async function submitComfyPrompt({
 
 /** `POST /upload/image`, forwarded with the stored filename namespaced -- comfy's input directory is shared across every caller, and two callers uploading "reference.png" the same second must not silently overwrite one another. */
 export async function proxyComfyUpload(
-  base: string,
+  { ctx, engineId, origin, base, httpClient }: ComfyProxy,
   req: Request,
-  httpClient: HttpClient,
 ): Promise<Response> {
   const incoming = await readCappedForm(req, MAX_IMAGE_UPLOAD_BYTES, imageTooLarge)
   if (incoming instanceof Response) {
@@ -317,11 +321,19 @@ export async function proxyComfyUpload(
   outgoing.append('image', new File([image], namespaced, { type: image.type }))
   // temp is the only alternative: a caller that must leave nothing behind (sagaforge's playground)
   // asks for the folder comfy empties on every start. output, or anything else, still lands in input.
-  outgoing.append('type', incoming.get('type') === 'temp' ? 'temp' : 'input')
+  const isTemp = incoming.get('type') === 'temp'
+  outgoing.append('type', isTemp ? 'temp' : 'input')
   outgoing.append('subfolder', '')
   outgoing.append('overwrite', 'false')
   const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: outgoing })
-  return jsonForward(res, await res.text())
+  const text = await res.text()
+  if (res.ok && isTemp && safeComfyTempName(namespaced)) {
+    const key = tempUploadKey(engineId, origin)
+    const names = ctx.comfyTempUploads.get(key) ?? new Set<string>()
+    names.add(namespaced)
+    ctx.comfyTempUploads.set(key, names)
+  }
+  return jsonForward(res, text)
 }
 
 /**

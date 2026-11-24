@@ -34,6 +34,7 @@ test('the run argv bind-mounts a host path ending in /comfy, never the old named
   expect(mountArgs).toEqual(['/models-host/comfy:/opt/comfyui/models'])
   expect(argv).not.toContain('engined-comfy-models:/opt/comfyui/models')
   expect(mountArgs.some((m) => m.endsWith(':ro'))).toBe(false)
+  expect(argv.filter((_, i) => argv[i - 1] === '--tmpfs')).toEqual(['/opt/comfyui/temp'])
 })
 
 test("a models_dir ending anywhere other than /comfy still mounts correctly -- the container path is what's fixed", () => {
