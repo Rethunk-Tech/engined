@@ -6,6 +6,7 @@
  * makes into a running comfy container, the memory release.
  */
 
+import type { ComfyCatalogCache } from './comfyCatalog.ts'
 import type { DockerLifecycle } from './docker.ts'
 import type { Entry } from './engineEntries.ts'
 import { CONTENT_TYPE, discardBody, type HttpClient, JSON_CONTENT_TYPE } from './http.ts'
@@ -107,7 +108,16 @@ export class ComfyQueueWatch {
   /** Engines whose previous poll has not settled; a tick for one of them is skipped rather than stacked. */
   private readonly polling = new Set<string>()
 
-  constructor(lifecycle: DockerLifecycle, queueFetch: QueueFetch, intervalMs: number) {
+  /** Refilled from the same poll, so a comfy that is up keeps a current answer without the listing ever asking. */
+  readonly catalog: ComfyCatalogCache
+
+  constructor(
+    lifecycle: DockerLifecycle,
+    queueFetch: QueueFetch,
+    intervalMs: number,
+    catalog: ComfyCatalogCache,
+  ) {
+    this.catalog = catalog
     this.lifecycle = lifecycle
     this.queueFetch = queueFetch
     this.intervalMs = intervalMs
@@ -137,6 +147,7 @@ export class ComfyQueueWatch {
   /** A fresh start's first queue observation must be a real transition, not one suppressed by stale emptiness from an earlier session. */
   forget(id: string): void {
     this.lastEmpty.delete(id)
+    this.catalog.forget(id)
   }
 
   stop(): void {
@@ -162,6 +173,7 @@ export class ComfyQueueWatch {
     const status = this.lifecycle.getStatus(engine.id)
     if (status.state !== 'running' || status.private_url === null) {
       this.lastEmpty.delete(engine.id)
+      this.catalog.forget(engine.id)
       return
     }
     let queue: QueueSnapshot
@@ -175,9 +187,11 @@ export class ComfyQueueWatch {
       const reconciled = await this.lifecycle.reconcile(engine.id)
       if (reconciled.state !== 'running') {
         this.lastEmpty.delete(engine.id)
+        this.catalog.forget(engine.id)
       }
       return
     }
+    this.catalog.refresh(engine.id, `http://${status.private_url}`).catch(() => undefined)
     const empty = isQueueEmpty(queue)
     // Unknown starts as empty: a first observation of a BUSY queue is then a
     // real transition and takes a lease, rather than leaving a working Comfy

@@ -66,6 +66,14 @@ export function explicitParallel(
     : undefined
 }
 
+/** How many requests the door admits to one resident model on this route: its merged `parallel`, or the child's own `AUTO_PARALLEL` when the key is auto or unset. */
+export function slotsFor(
+  engine: EngineEntry,
+  route: { args: Record<string, unknown> } | undefined,
+): number {
+  return explicitParallel(engine, route) ?? AUTO_PARALLEL
+}
+
 const FIRST_PRINTABLE = 0x20
 
 /** `filename` as a normalised path inside the models mount; an INI line must hold neither a line break nor a way out of it. */

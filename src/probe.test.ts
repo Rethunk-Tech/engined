@@ -665,7 +665,7 @@ test('--engines --json prints the door engine list and does not start an engine'
     expect(run.code).toBe(0)
     expect(run.stderr).toBe('')
     const parsed = JSON.parse(run.stdout) as { contract: unknown; engines: unknown }
-    expect(parsed.contract).toBe(6)
+    expect(parsed.contract).toBe(CONTRACT)
     expect(Array.isArray(parsed.engines)).toBe(true)
     expect(seen).toEqual([{ method: 'GET', path: ENGINED_ENGINES_PATH }])
   } finally {

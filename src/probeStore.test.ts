@@ -3,7 +3,7 @@ import { createLlamaDoor, llamaDoorConfig } from './doorFixtures.ts'
 import { MAX_JSON_BODY_BYTES } from './http.ts'
 import { runProbes } from './probe.ts'
 import { PROBES_PATH } from './probeStore.ts'
-import type { EnginesResponse, ModelsResponse } from './responses.ts'
+import { CONTRACT, type EnginesResponse, type ModelsResponse } from './responses.ts'
 import { makeTestRoot } from './test-support.ts'
 
 const TEST_ROOT = makeTestRoot('engined-probes-')
@@ -80,7 +80,7 @@ test('runProbes reports its rerank verdict to the door it probed', async () => {
   const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/engined/v1/engines')) {
-      return Promise.resolve(Response.json({ contract: 6, engines: [] }))
+      return Promise.resolve(Response.json({ contract: CONTRACT, engines: [] }))
     }
     if (url.endsWith('/openai/v1/models')) {
       return Promise.resolve(

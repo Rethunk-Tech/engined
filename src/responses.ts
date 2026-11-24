@@ -122,7 +122,33 @@ export interface EngineStatus {
    * no model-bearing routes at all (comfy, every modelless media engine).
    */
   capabilities?: EngineCapability[]
+  /**
+   * How many requests this engine runs at once; a caller sending more waits
+   * in line. Present on `comfy`, on a `tts` engine engined runs itself (one:
+   * the server serializes synthesis), and on a local llama engine (its most
+   * generous route's `parallel`, `-1` auto resolving to the child's four).
+   * Absent where it is not known: a remote `openai-http` engine, a spec-less
+   * `tts` engine, `stt`, an agent CLI.
+   */
+  max_concurrent?: number
+  /**
+   * A `tts` engine's BCP-47 language codes, exactly as its `[[engine]]`
+   * `languages` declares them. The shipped TTS servers have no endpoint to ask,
+   * so an engine whose config declares none omits the field.
+   */
+  languages?: string[]
+  /**
+   * Comfy only: what a render here can produce, `image` and/or `video`, read
+   * from the node classes the running container has installed. Absent until
+   * the container has been running long enough to be asked, and again once it
+   * stops, since the answer belongs to one run.
+   */
+  output?: ComfyOutput[]
+  /** Comfy only: loader checkpoint names from ComfyUI's `/object_info`, split by what they make. Absent whenever `output` is. */
+  checkpoints?: { image: string[]; video: string[] }
 }
+
+export type ComfyOutput = 'image' | 'video'
 
 export interface EnginesResponse {
   /** Bumped when a consumer-visible shape changes. */
@@ -308,5 +334,5 @@ export interface StartResponse {
   data: StartRow[]
 }
 
-/** Bumped when a field is removed, a state renamed, or a route's meaning altered. */
-export const CONTRACT = 6
+/** Bumped when a field is removed, a state renamed, a route's meaning altered, or a consumer-visible field added. */
+export const CONTRACT = 7

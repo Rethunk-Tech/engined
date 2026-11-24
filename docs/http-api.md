@@ -471,10 +471,27 @@ see [comfy](#comfy) below for what that means for the one engine with an
 API of its own.
 
 The response carries a `contract` number, bumped when a field is **removed**,
-a state renamed, or a route's meaning altered — never for a field added. A
-consumer that ignores fields it does not know keeps working across an
-addition, so bumping for one would spend the signal that tells it when
-something it already reads has changed underneath it.
+a state renamed, a route's meaning altered, or a field a consumer is meant to
+read is added. It is 7: contract 7 added `max_concurrent`, `languages`,
+`output` and `checkpoints` below. A consumer that ignores fields it does not
+know keeps working across an addition; the bump is what lets one that wants the
+new fields tell a daemon that has them from one that does not.
+
+### What an engine can take
+
+Four optional fields, each absent when engined does not know the value --
+absent is never zero, never "unlimited" and never "none":
+
+| Field            | Engines                             | Value                                                                                                                                                                                                                                                                                                                                                                                                         | Absent when                                                                                                                                |
+| ---------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `max_concurrent` | `comfy`, `tts`, local `openai-http` | integer, how many requests run at once; the rest wait. `comfy`: 1, the submission gate that keeps one prompt in the container. `tts`: 1, the one process-wide lock every shipped TTS server holds around synthesis. A local llama engine: its most generous route's `parallel` (a route's own key beats the engine's; `-1` or unset is llama.cpp's four slots), the per-model ceiling the door admits against | a remote `openai-http` engine, a spec-less `tts` engine (someone else's server), `stt`, an agent CLI, a llama engine with no enabled route |
+| `languages`      | `tts`                               | string array of BCP-47 codes, verbatim from the engine's `languages` in [config.toml](configuration.md). The shipped TTS servers expose no endpoint that lists them, so config is the only source                                                                                                                                                                                                             | the engine declares no `languages`                                                                                                         |
+| `output`         | `comfy`                             | `["image"]`, `["video"]` or both: `image` when ComfyUI has a `SaveImage` node, `video` when it has `SaveVideo` or `VHS_VideoCombine`, asked of ComfyUI's `/object_info` node by node                                                                                                                                                                                                                          | comfy is not running, or has not yet answered (the first poll after a start, within 15 seconds)                                            |
+| `checkpoints`    | `comfy`                             | `{image: [...], video: [...]}`: the names `CheckpointLoaderSimple` and `UNETLoader` list, sorted. ComfyUI lists image and video weights together, so the split is by file name: a name containing `wan`, `ltx`, `ltxv`, `svd`, `mochi`, `cogvideo`, `animatediff` or `video` as a word is `video`, the rest `image`. Treat it as a best reading, and check a model that matters                               | same as `output`                                                                                                                           |
+
+The listing never starts comfy and never waits on it: `output` and `checkpoints`
+come from a cache the container's own queue poll refills while it runs (at most
+every five minutes), and are dropped when it stops.
 
 An engine, upstream, route or chain carrying `disable = true`
 ([configuration.md](configuration.md#turning-something-off)) is listed here

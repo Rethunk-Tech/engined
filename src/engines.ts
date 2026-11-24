@@ -10,6 +10,7 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { AgenticGate } from './agenticGate.ts'
 import { observeAgentVersion } from './agentVersion.ts'
+import { ComfyCatalogCache } from './comfyCatalog.ts'
 import {
   COMFY_POLL_INTERVAL_MS,
   ComfyQueueWatch,
@@ -83,6 +84,7 @@ export class EngineRegistry {
       this.lifecycle,
       opts.queueFetch ?? defaultQueueFetch,
       opts.comfyPollIntervalMs ?? COMFY_POLL_INTERVAL_MS,
+      new ComfyCatalogCache(),
     )
     this.agentic = new AgenticGate({
       runner: opts.agenticProbeRunner,
@@ -181,14 +183,25 @@ export class EngineRegistry {
 
     const runtime = this.lifecycle.getStatus(engine.id)
     return this.inventoryWatch.withFix(
-      statusFrom({
-        engine,
-        spec,
-        runtime,
-        routes: this.config.routes,
-        superseded: this.supersededBy(entry, runtime),
-      }),
+      this.withCatalog(
+        statusFrom({
+          engine,
+          spec,
+          runtime,
+          routes: this.config.routes,
+          superseded: this.supersededBy(entry, runtime),
+        }),
+      ),
     )
+  }
+
+  /** What the comfy catalog cache holds for a running comfy engine; never fetched here, so a listing costs no round trip to comfy. */
+  private withCatalog(status: EngineStatus): EngineStatus {
+    const catalog =
+      status.kind === 'comfy' && status.state === 'running'
+        ? this.comfy.catalog.get(status.id)
+        : undefined
+    return catalog === undefined ? status : { ...status, ...catalog }
   }
 
   /**
@@ -250,7 +263,9 @@ export class EngineRegistry {
     const shape = engineShape(engine, spec, routes)
     const runtime = await this.lifecycle.probe(engine.id, spec, source, engine.idle_stop_seconds)
     this.recordShape(engine.id, runtime.adopted, shape)
-    return this.inventoryWatch.withFix(statusFrom({ engine, spec, runtime, routes }))
+    return this.inventoryWatch.withFix(
+      this.withCatalog(statusFrom({ engine, spec, runtime, routes })),
+    )
   }
 
   async list(): Promise<EnginesResponse> {

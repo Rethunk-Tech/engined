@@ -21,7 +21,7 @@ import {
   LlamaSlotTable,
   renderedPromptText,
 } from './llamaSlots.ts'
-import { AUTO_PARALLEL, explicitParallel, readIfExists, renderPresetIni } from './llamaSpec.ts'
+import { explicitParallel, readIfExists, renderPresetIni, slotsFor } from './llamaSpec.ts'
 import { LlamaUpstream, pipeUpstream } from './llamaUpstream.ts'
 import { llamaPresetPath } from './paths.ts'
 import { isRecord, parseRecord } from './records.ts'
@@ -253,8 +253,7 @@ export class LlamaRouter {
     const route = this.routes.find(
       (r) => r.engine === this.engine.id && r.role === role && r.model === modelId,
     )
-    const parallel = explicitParallel(this.engine, route)
-    return parallel ?? AUTO_PARALLEL
+    return slotsFor(this.engine, route)
   }
 
   /** Shared by every caller in-flight at once -- see `ensureStartedPromise`'s own comment. */

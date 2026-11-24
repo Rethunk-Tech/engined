@@ -10,7 +10,7 @@ import { buildComfySpec } from './comfy.ts'
 import { originOf } from './configOrigin.ts'
 import { ParseError } from './errors/parse.ts'
 import { STATUS_OK } from './http.ts'
-import { buildLlamaSpec, MODELS_CONTAINER_PATH } from './llamaSpec.ts'
+import { buildLlamaSpec, MODELS_CONTAINER_PATH, slotsFor } from './llamaSpec.ts'
 import { missing } from './obtain.ts'
 import type { EngineStatus } from './responses.ts'
 import { LOCAL_UPSTREAM, localRoutesOf, WILDCARD_MODEL } from './routeAddress.ts'
@@ -401,6 +401,14 @@ function checkRouteFileTaken(
   }
 }
 
+function checkLanguagesKind(engine: EngineEntry, kind: EngineKind): void {
+  if (engine.languages !== undefined && kind !== 'tts') {
+    throw new ParseError(`engine "${engine.id}" sets "languages", but it is a ${kind} engine`, {
+      path: originOf(engine, 'languages'),
+    })
+  }
+}
+
 export function buildEntries(
   config: Config,
   specOptions: SpecLoadOptions,
@@ -416,6 +424,7 @@ export function buildEntries(
     // checks that would otherwise refuse the boot: an engine nothing may
     // start or route to cannot be the reason the daemon will not come up.
     if (!engine.disabled) {
+      checkLanguagesKind(engine, spec.spec.kind)
       checkLocalFileDisposition(engine, spec.spec.kind, config.routes)
       checkRouteFileTaken(engine, spec.spec, config.routes)
       checkWildcardRouteKind(engine, spec.spec.kind, config.routes)
@@ -461,9 +470,38 @@ function engineCapabilities(
   return capabilities.length > 0 ? capabilities : undefined
 }
 
+/**
+ * How many requests run at once on this engine, from what actually limits it:
+ * - comfy: the submission gate (`comfyProxy.ts`) keeps one prompt in the container.
+ * - tts: engined's own TTS apps hold one process-wide lock around synthesis. A
+ *   spec-less tts engine is someone else's server, whose limit is unknown here.
+ * - a local llama engine: its most generous route's `parallel` (`slotsFor`), the
+ *   admission ceiling `LlamaRouter` applies per resident model.
+ * `undefined` for anything else, which is "not known", never "unlimited".
+ */
+export function maxConcurrent(
+  engine: EngineEntry,
+  spec: Spec,
+  routes: readonly ResolvedRoute[],
+): number | undefined {
+  if (spec.kind === 'comfy' || (spec.kind === 'tts' && isContainerSpec(spec))) {
+    return 1
+  }
+  if (!isLocalLlama(engine, spec.kind)) {
+    return undefined
+  }
+  const slots = localRoutesOf(routes, engine.id)
+    .filter((r) => r.disabled !== true && r.role !== undefined)
+    .map((r) => slotsFor(engine, r))
+  return slots.length === 0 ? undefined : Math.max(...slots)
+}
+
 /** The identity an engine reports whatever produced its runtime state: everything an `EngineStatus` carries that a probe cannot change. */
 export function baseStatus(engine: EngineEntry, spec: Spec, routes: readonly ResolvedRoute[]) {
+  const concurrent = maxConcurrent(engine, spec, routes)
   return {
+    ...(concurrent === undefined ? {} : { max_concurrent: concurrent }),
+    ...(engine.languages === undefined ? {} : { languages: engine.languages }),
     id: engine.id,
     kind: spec.kind,
     serves: spec.serves,
