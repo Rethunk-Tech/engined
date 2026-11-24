@@ -335,4 +335,4 @@ export interface StartResponse {
 }
 
 /** Bumped when a field is removed, a state renamed, a route's meaning altered, or a consumer-visible field added. */
-export const CONTRACT = 7
+export const CONTRACT = 6

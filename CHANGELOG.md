@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- `GET /engined/v1/engines` reports `max_concurrent` (comfy, tts, local llama), `languages` (tts, from the new `languages` engine key) and, for a running comfy, `output` and `checkpoints` read from its `/object_info`; each is absent when unknown. The contract is now 7.
+- `GET /engined/v1/engines` reports `max_concurrent` (comfy, tts, local llama), `languages` (tts, from the new `languages` engine key) and, for a running comfy, `output` and `checkpoints` read from its `/object_info`; each is absent when unknown, so the contract stays 6.
 - `POST /engined/v1/comfy/:engine/:upstream/history` erases a caller's own finished Comfy prompt, its temp outputs and its temp uploads.
 
 ## 0.3.5 - 2026-11-23

@@ -12,7 +12,7 @@ import {
   registry,
 } from './enginesFixtures.ts'
 import { errMessage } from './records.ts'
-import { CONTRACT, type EngineStatus } from './responses.ts'
+import type { EngineStatus } from './responses.ts'
 import {
   BUNX,
   buildExec,
@@ -52,14 +52,6 @@ async function listed(reg: EngineRegistry, id: string): Promise<EngineStatus> {
   }
   return found
 }
-
-describe('contract', () => {
-  test('is 7, the version that added max_concurrent, languages, output and checkpoints', async () => {
-    expect(CONTRACT).toBe(7)
-    expect((await registry(config(), newEnginesRoot()).list()).contract).toBe(7)
-  })
-})
-
 describe('max_concurrent', () => {
   test('a tts engine engined runs reports 1, and a spec-less tts engine reports none', async () => {
     const root = newEnginesRoot()

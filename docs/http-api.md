@@ -471,11 +471,10 @@ see [comfy](#comfy) below for what that means for the one engine with an
 API of its own.
 
 The response carries a `contract` number, bumped when a field is **removed**,
-a state renamed, a route's meaning altered, or a field a consumer is meant to
-read is added. It is 7: contract 7 added `max_concurrent`, `languages`,
-`output` and `checkpoints` below. A consumer that ignores fields it does not
-know keeps working across an addition; the bump is what lets one that wants the
-new fields tell a daemon that has them from one that does not.
+a state renamed, or a route's meaning altered — never for a field added. A
+consumer that ignores fields it does not know keeps working across an
+addition, so bumping for one would spend the signal that tells it when
+something it already reads has changed underneath it.
 
 ### What an engine can take
 
