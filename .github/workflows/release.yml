@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: Rethunk-Tech/gh-actions/setup-bun@346d9d280f6dfd86c9db02310039c90e2a6ddca4 # v1.31
+      - uses: Rethunk-Tech/gh-actions/setup-bun@ed6afe0e127f69c7da2c8178521fa0d049176a00 # v1.36
 
       # Everything packaging/aur/engined/PKGBUILD's package() reads, under one
       # top-level directory. Reproducible (sorted, fixed mtime and owner, gzip -n)
