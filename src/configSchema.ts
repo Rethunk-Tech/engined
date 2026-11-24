@@ -146,6 +146,9 @@ const ENGINE_FIELDS: Fields = {
   group_add: strings(
     'Container engines: groups added to the container, replacing the spec’s list. An empty list means none.',
   ),
+  languages: strings(
+    'TTS engines: the BCP-47 language codes this engine speaks, reported by GET /engined/v1/engines.',
+  ),
 }
 
 const UPSTREAM_FIELDS: Fields = {

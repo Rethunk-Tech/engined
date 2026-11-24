@@ -137,6 +137,28 @@ function configuredDevices(
   }
 }
 
+/** A BCP-47 language tag's shape (`en`, `pt-BR`, `zh-Hant-TW`); not a registry lookup, so a well-formed code engined has never heard of still passes. */
+const BCP47_RE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/
+
+function parseLanguages(
+  raw: Record<string, unknown>,
+  site: string,
+  file: string,
+): Pick<EngineEntry, 'languages'> {
+  const languages = optionalStringArray(raw.languages, `${site} "languages"`, file)
+  if (languages === undefined) {
+    return {}
+  }
+  const bad = languages.find((code) => !BCP47_RE.test(code))
+  if (bad !== undefined) {
+    throw new ParseError(`${site} "languages" entry "${bad}" is not a BCP-47 language code`, {
+      file,
+      key: 'languages',
+    })
+  }
+  return { languages }
+}
+
 function parseEngine(value: unknown, index: number, file: string): EngineEntry {
   const posSite = `engine[${index}]`
   const raw = requireTable(value, posSite, ENGINE_KEYS, file)
@@ -178,6 +200,7 @@ function parseEngine(value: unknown, index: number, file: string): EngineEntry {
     ),
     kind: parseKind(raw, site, file),
     args,
+    ...parseLanguages(raw, site, file),
     ...configuredDevices(raw, site, file),
   }
 }

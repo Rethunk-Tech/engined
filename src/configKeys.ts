@@ -23,6 +23,7 @@ export const ENGINE_KEYS = new Set([
   'devices',
   'group_add',
   'env',
+  'languages',
 ])
 export const UPSTREAM_KEYS = new Set([
   'id',

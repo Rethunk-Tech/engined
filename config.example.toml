@@ -515,6 +515,12 @@ idle_stop_seconds = 1800
 # Cold start to first audio measures ~41s against the 60s default, and that
 # margin is what a sibling engine's GPU load eats first.
 ready_timeout_s = 90
+# Listed by GET /engined/v1/engines; the server has no endpoint to ask. These are
+# chatterbox.mtl_tts.SUPPORTED_LANGUAGES in resemble-ai/chatterbox.
+languages = [
+  "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja",
+  "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
+]
 
 [[route]]
 engine = "chatterbox-multi"
@@ -531,6 +537,7 @@ id = "chatterbox-en"
 idle_stop_seconds = 1800
 # ~29s cold start; same reasoning as chatterbox-multi above.
 ready_timeout_s = 90
+languages = ["en"]
 
 [[route]]
 engine = "chatterbox-en"

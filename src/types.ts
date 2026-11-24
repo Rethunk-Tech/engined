@@ -410,6 +410,8 @@ export interface EngineEntry {
   group_add?: string[]
   /** Merged over the spec's `env`: a key replaces the spec entry of the same name, others append. */
   env?: Record<string, string>
+  /** A `tts` engine's BCP-47 language codes, as the operator declared them; `GET /engined/v1/engines` reports them verbatim. No shipped TTS server can be asked, so this is the only source. */
+  languages?: string[]
 }
 
 /** The `[configsvc]` table. engined only carries it; `engined --configsvc` reads it. */

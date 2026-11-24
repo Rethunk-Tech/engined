@@ -213,6 +213,13 @@
             "type": "string"
           },
           "description": "Container engines: environment variables merged over the spec’s; a key replaces the spec’s entry of the same name."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "TTS engines: the BCP-47 language codes this engine speaks, reported by GET /engined/v1/engines."
         }
       },
       "required": [
