@@ -479,7 +479,7 @@ function engineCapabilities(
  *   admission ceiling `LlamaRouter` applies per resident model.
  * `undefined` for anything else, which is "not known", never "unlimited".
  */
-export function maxConcurrent(
+function maxConcurrent(
   engine: EngineEntry,
   spec: Spec,
   routes: readonly ResolvedRoute[],

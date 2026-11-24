@@ -16,7 +16,7 @@ export interface ComfyCatalog {
 }
 
 /** Long enough that the fan-out below is not a steady load on a busy render box, short enough that a model dropped into `models_dir` shows up while someone is still looking. */
-export const CATALOG_MAX_AGE_MS = 5 * MS_PER_MINUTE
+const CATALOG_MAX_AGE_MS = 5 * MS_PER_MINUTE
 
 /** Under the queue poll's own timeout: a comfy that stops answering fails one refresh rather than stacking them. */
 const CATALOG_FETCH_TIMEOUT_MS = 10 * MS_PER_SECOND
