@@ -330,6 +330,21 @@ describe('comfy proxy: POST /prompt binds the result, POST /upload/image namespa
     expect(calls).toHaveLength(1)
   })
 
+  test('an upload may ask for the temp folder, and gets it', async () => {
+    const { client } = recordingComfyClient(async (_url, init) => {
+      const form = await (init?.body as FormData)
+      return Response.json({ type: form.get('type') })
+    })
+    const door = await comfyDoor(client)
+    const form = new FormData()
+    form.append('image', new Blob([new Uint8Array([1, 2, 3])]), 'reference.png')
+    form.append('type', 'temp')
+    const res = await door.fetch(
+      new Request(`http://engined${PROXY_PATH}/upload/image`, { method: 'POST', body: form }),
+    )
+    expect(await res.json()).toEqual({ type: 'temp' })
+  })
+
   test('an oversized upload is 413 before it is forwarded', async () => {
     const { res, calls } = await unreachedUpload({ 'content-length': String(33_554_433) }, 'x')
     expect(res.status).toBe(413)

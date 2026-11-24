@@ -315,7 +315,9 @@ export async function proxyComfyUpload(
   // Blob; a File already named for storage keeps `File.name` and that
   // filename the same string.
   outgoing.append('image', new File([image], namespaced, { type: image.type }))
-  outgoing.append('type', 'input')
+  // temp is the only alternative: a caller that must leave nothing behind (sagaforge's playground)
+  // asks for the folder comfy empties on every start. output, or anything else, still lands in input.
+  outgoing.append('type', incoming.get('type') === 'temp' ? 'temp' : 'input')
   outgoing.append('subfolder', '')
   outgoing.append('overwrite', 'false')
   const res = await httpClient(`${base}/upload/image`, { method: 'POST', body: outgoing })

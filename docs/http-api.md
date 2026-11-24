@@ -854,6 +854,11 @@ output filenames a completed `/history` read surfaced for them -- rather than
 against anything a caller merely claims, since Comfy's output directory is
 shared and a caller-supplied filename must never become a URL on its own say-so.
 
+`POST /upload/image` stores the image under a namespaced filename in the
+container's input directory, or in its temp directory (emptied on every Comfy
+start) when the form's `type` is `temp`, for a caller that must leave nothing
+behind. Any other `type`, and every `subfolder` and `overwrite`, is pinned.
+
 `POST /cancel` is the door's own verb rather than a forwarded one, and the
 reason comfy's `/interrupt` is never forwarded at all: `/interrupt` stops
 whatever the container is currently processing and carries no id to scope it.
