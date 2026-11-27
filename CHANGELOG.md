@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.7 - 2026-11-27
+
 - The agentic probe keeps its scratch directories under `~/.cursor/worktrees`, so its re-proof can write inside the unit's sandbox.
 
 ## 0.3.6 - 2026-11-24
