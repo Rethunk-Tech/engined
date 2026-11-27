@@ -73,9 +73,21 @@ export function hashTree(root: string): string {
  */
 export const WORKTREE_SEED = 'unrelated pre-existing content\n'
 
-/** Always a fresh directory under the operator home (the sandbox refuses /tmp workdirs) — never a real repository this box happens to have checked out. */
+/**
+ * Where probe scratch lives: the sandbox refuses /tmp and other hidden home
+ * directories as workdirs, and the unit makes the rest of $HOME read-only, so
+ * the one place that is both writable and an accepted workdir is the
+ * `~/.cursor/worktrees` root (unit `ReadWritePaths=-%h/.cursor`).
+ */
+export function probeScratchRoot(): string {
+  const root = join(homedir(), '.cursor', 'worktrees')
+  mkdirSync(root, { recursive: true })
+  return root
+}
+
+/** Always a fresh directory under the probe scratch root — never a real repository this box happens to have checked out. */
 function scratchWorktree(): string {
-  const dir = mkdtempSync(join(homedir(), 'engined-agentic-probe-'))
+  const dir = mkdtempSync(join(probeScratchRoot(), 'engined-agentic-probe-'))
   writeFileSync(join(dir, 'seed.txt'), WORKTREE_SEED)
   return dir
 }
@@ -201,7 +213,7 @@ async function hookSilenceProbe(
   const workdir = scratchWorktree()
   // A directory bound writable into the sandbox: a hook that fires inside it
   // writes where this process can see, rather than into the sandbox's /tmp.
-  const witnessDir = mkdtempSync(join(homedir(), 'engined-agentic-probe-witness-'))
+  const witnessDir = mkdtempSync(join(probeScratchRoot(), 'engined-agentic-probe-witness-'))
   const witness = join(witnessDir, 'fired')
   plant(workdir, witness)
   try {

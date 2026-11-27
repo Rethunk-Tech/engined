@@ -19,6 +19,7 @@ import {
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { probeScratchRoot } from './agenticProbeHarness.ts'
 import { agentCli } from './agents.ts'
 import { copyLogins, sandboxArgv, workdirForbidden, workdirGitDirs } from './sandbox.ts'
 import { makeTestRoot } from './test-support.ts'
@@ -622,4 +623,13 @@ test('refuses a workdir that is or contains a sandbox_mask root, which would re-
   expect(workdirForbidden('/mnt', home, masks)).toBeDefined()
   expect(workdirForbidden('/usr/local/src/com.github/Org/repo', home, masks)).toBeUndefined()
   expect(workdirForbidden('/usr/local', home, [])).toBeUndefined()
+})
+
+test('the probe scratch root is a workdir the sandbox accepts and the unit leaves writable', () => {
+  const dir = mkdtempSync(join(probeScratchRoot(), 'engined-agentic-probe-'))
+  try {
+    expect(workdirForbidden(dir, homedir())).toBeUndefined()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
