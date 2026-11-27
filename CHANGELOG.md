@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- The agentic probe keeps its scratch directories under `~/.cursor/worktrees`, so its re-proof can write inside the unit's sandbox.
+
 ## 0.3.6 - 2026-11-24
 
 - `GET /engined/v1/engines` reports `max_concurrent` (comfy, tts, local llama), `languages` (tts, from the new `languages` engine key) and, for a running comfy, `output` and `checkpoints` read from its `/object_info`; each is absent when unknown, so the contract stays 6.
