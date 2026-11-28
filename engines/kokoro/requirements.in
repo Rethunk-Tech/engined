@@ -3,4 +3,4 @@ torch==2.14.1
 kokoro==0.9.4
 soundfile==0.14.0
 fastapi==0.165.0
-uvicorn[standard]==0.54.0
+uvicorn[standard]==0.55.0

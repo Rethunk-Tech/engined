@@ -43,7 +43,7 @@
     "@playwright/test": "^1.65.1",
     "@types/bun": "^1.4.5",
     "fast-check": "^4.11.0",
-    "knip": "^6.48.0",
+    "knip": "^6.49.0",
     "turbo": "^2.11.13",
     "typescript": "^7.0.2"
   },
@@ -54,11 +54,11 @@
     "@codemirror/lint": "^6.9.8",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.44.2",
-    "@decimalturn/toml-patch": "3.3.3",
+    "@decimalturn/toml-patch": "3.3.4",
     "@lezer/highlight": "^1.2.5",
     "@preact/signals": "^2.11.4",
     "codemirror": "^6.0.2",
-    "mermaid": "^12.3.0",
+    "mermaid": "^12.4.0",
     "preact": "^11.2.0"
   }
 }
